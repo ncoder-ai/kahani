@@ -330,19 +330,8 @@ async def generate_scene_streaming(
                 full_content += chunk
                 yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
             
-            # Save the scene to database
-            scene = Scene(
-                story_id=story_id,
-                sequence_number=next_sequence,
-                content=full_content.strip(),
-                original_content=full_content.strip()
-            )
-            
-            db.add(scene)
-            db.commit()
-            db.refresh(scene)
-            
             # Generate choices for the new scene
+            choices_data = []
             try:
                 choice_context = {
                     "genre": context.get("genre"),
@@ -353,25 +342,28 @@ async def generate_scene_streaming(
                 
                 choices = await llm_service.generate_choices(full_content, choice_context, user_settings)
                 
-                # Save choices to database
+                # Format choices for SceneVariantService
                 choices_data = []
                 for i, choice_text in enumerate(choices):
-                    choice = SceneChoice(
-                        scene_id=scene.id,
-                        choice_text=choice_text,
-                        choice_order=i + 1
-                    )
-                    db.add(choice)
                     choices_data.append({
                         "text": choice_text,
                         "order": i + 1
                     })
                 
-                db.commit()
-                
             except Exception as e:
-                logger.warning(f"Failed to generate choices for scene {scene.id}: {e}")
+                logger.warning(f"Failed to generate choices for scene: {e}")
                 choices_data = []
+
+            # Save the scene to database using SceneVariantService
+            variant_service = SceneVariantService(db)
+            scene, variant = variant_service.create_scene_with_variant(
+                story_id=story_id,
+                sequence_number=next_sequence,
+                content=full_content.strip(),
+                title=f"Scene {next_sequence}",
+                custom_prompt=custom_prompt if custom_prompt else None,
+                choices=choices_data  # Pass formatted choices
+            )
             
             # Send completion data
             yield f"data: {json.dumps({'type': 'complete', 'scene_id': scene.id, 'choices': choices_data})}\n\n"
