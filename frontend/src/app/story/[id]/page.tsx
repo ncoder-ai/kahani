@@ -201,8 +201,16 @@ export default function StoryPage() {
       setIsLoading(true);
       const storyData = await apiClient.getStory(storyId);
       setStory(storyData);
+      
       // Load choices for the current story
       await loadChoices();
+      
+      // Load variants for all scenes
+      if (storyData.scenes && storyData.scenes.length > 0) {
+        for (const scene of storyData.scenes) {
+          await loadSceneVariants(scene.id);
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load story');
     } finally {
@@ -454,22 +462,46 @@ export default function StoryPage() {
   const createNewVariant = async (sceneId: number, customPrompt?: string) => {
     if (!story) return;
     
-    console.log('createNewVariant called', { sceneId, customPrompt });
+    console.log('createNewVariant called', { sceneId, customPrompt, useStreaming });
     
     try {
       setIsRegenerating(true);
       
-      // Create a new variant for the scene
-      const response = await apiClient.createSceneVariant(story.id, sceneId, customPrompt);
+      // Load existing variants for this scene
+      await loadSceneVariants(sceneId);
       
-      // Reload the story to get the updated variants
-      await loadStory();
-      
-      console.log('New variant created:', response.variant);
+      if (useStreaming) {
+        // Streaming variant creation with animation
+        setIsStreaming(true);
+        setStreamingContent('');
+        
+        // Show the sliding animation - current scene slides left, new box appears
+        // This will be handled by CSS transitions in the scene display
+        
+        // For now, use regular API (we can add streaming later)
+        const response = await apiClient.createSceneVariant(story.id, sceneId, customPrompt);
+        
+        // Switch to the new variant automatically
+        await loadSceneVariants(sceneId);
+        await switchToVariant(sceneId, response.variant.id);
+        
+        setIsStreaming(false);
+        console.log('New variant created (streaming mode):', response.variant);
+      } else {
+        // Non-streaming variant creation
+        const response = await apiClient.createSceneVariant(story.id, sceneId, customPrompt);
+        
+        // Switch to the new variant automatically
+        await loadSceneVariants(sceneId);
+        await switchToVariant(sceneId, response.variant.id);
+        
+        console.log('New variant created:', response.variant);
+      }
       
     } catch (error) {
       console.error('Failed to create variant:', error);
       setError(error instanceof Error ? error.message : 'Failed to create variant');
+      setIsStreaming(false);
     } finally {
       setIsRegenerating(false);
     }
@@ -513,6 +545,44 @@ export default function StoryPage() {
     }
   };
 
+  // Variant navigation helper functions
+  const getCurrentVariantIndex = (sceneId: number): number => {
+    const variants = selectedSceneVariants[sceneId] || [];
+    const currentVariantId = currentVariantIds[sceneId];
+    if (!currentVariantId || variants.length === 0) return 0;
+    
+    const index = variants.findIndex(v => v.id === currentVariantId);
+    return index >= 0 ? index : 0;
+  };
+
+  const canNavigateToPreviousVariant = (sceneId: number): boolean => {
+    const variants = selectedSceneVariants[sceneId] || [];
+    return variants.length > 1 && getCurrentVariantIndex(sceneId) > 0;
+  };
+
+  const canNavigateToNextVariant = (sceneId: number): boolean => {
+    const variants = selectedSceneVariants[sceneId] || [];
+    return variants.length > 1 && getCurrentVariantIndex(sceneId) < variants.length - 1;
+  };
+
+  const navigateToPreviousVariant = async (sceneId: number) => {
+    const variants = selectedSceneVariants[sceneId] || [];
+    const currentIndex = getCurrentVariantIndex(sceneId);
+    if (currentIndex > 0) {
+      const previousVariant = variants[currentIndex - 1];
+      await switchToVariant(sceneId, previousVariant.id);
+    }
+  };
+
+  const navigateToNextVariant = async (sceneId: number) => {
+    const variants = selectedSceneVariants[sceneId] || [];
+    const currentIndex = getCurrentVariantIndex(sceneId);
+    if (currentIndex < variants.length - 1) {
+      const nextVariant = variants[currentIndex + 1];
+      await switchToVariant(sceneId, nextVariant.id);
+    }
+  };
+
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -520,14 +590,31 @@ export default function StoryPage() {
         return; // Don't interfere with input fields
       }
       
-      if (event.key === 'ArrowRight' && !isGenerating && !isRegenerating && story?.scenes.length) {
-        event.preventDefault();
+      if (story?.scenes.length) {
         const lastScene = story.scenes[story.scenes.length - 1];
-        createNewVariant(lastScene.id);
-      } else if (event.key === 'ArrowLeft' && sceneHistory.length > 0) {
-        event.preventDefault();
-        goToPreviousScene();
-      } else if (event.key === 'ArrowUp' && story?.scenes.length) {
+        
+        if (event.key === 'ArrowRight' && !isGenerating && !isRegenerating) {
+          event.preventDefault();
+          if (event.shiftKey) {
+            // Shift + Right: Navigate to next variant of last scene
+            navigateToNextVariant(lastScene.id);
+          } else {
+            // Right alone: Create new variant (regenerate)
+            createNewVariant(lastScene.id);
+          }
+        } else if (event.key === 'ArrowLeft') {
+          event.preventDefault();
+          if (event.shiftKey) {
+            // Shift + Left: Navigate to previous variant of last scene
+            navigateToPreviousVariant(lastScene.id);
+          } else if (sceneHistory.length > 0) {
+            // Left alone: Go to previous scene
+            goToPreviousScene();
+          }
+        }
+      }
+      
+      if (event.key === 'ArrowUp' && story?.scenes.length) {
         event.preventDefault();
         // Navigate to previous scene (scroll or focus)
         // For now, just scroll up
@@ -543,7 +630,7 @@ export default function StoryPage() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isGenerating, isRegenerating, sceneHistory, story]);
+  }, [isGenerating, isRegenerating, sceneHistory, story, selectedSceneVariants, currentVariantIds]);
 
   // Use dynamic choices from LLM, or fallback choices if none available
   const getAvailableChoices = () => {
@@ -744,41 +831,73 @@ export default function StoryPage() {
                       
                       {/* Scene Management Buttons - Show only for the last scene */}
                       {index === story.scenes.length - 1 && (
-                        <div className="flex items-center justify-center space-x-4 mt-6 pt-4 border-t border-gray-600/30">
-                          <button
-                            onClick={goToPreviousScene}
-                            disabled={sceneHistory.length === 0}
-                            className="flex items-center space-x-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:opacity-50 rounded-lg transition-colors text-sm"
-                            title="Go to previous scene version (←)"
-                          >
-                            <ArrowLeftIcon className="w-4 h-4" />
-                            <span>Previous Scene</span>
-                          </button>
+                        <div className="space-y-4 mt-6 pt-4 border-t border-gray-600/30">
+                          {/* Variant Navigation - Show if scene has multiple variants */}
+                          {selectedSceneVariants[scene.id] && selectedSceneVariants[scene.id].length > 1 && (
+                            <div className="flex items-center justify-center space-x-4">
+                              <button
+                                onClick={() => navigateToPreviousVariant(scene.id)}
+                                disabled={!canNavigateToPreviousVariant(scene.id)}
+                                className="flex items-center space-x-2 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 disabled:opacity-50 rounded-lg transition-colors text-xs"
+                                title="Previous variant (Shift + ←)"
+                              >
+                                <ArrowLeftIcon className="w-3 h-3" />
+                                <span>Prev Variant</span>
+                              </button>
+                              
+                              <div className="text-xs text-gray-400">
+                                Variant {getCurrentVariantIndex(scene.id) + 1} of {selectedSceneVariants[scene.id].length}
+                              </div>
+                              
+                              <button
+                                onClick={() => navigateToNextVariant(scene.id)}
+                                disabled={!canNavigateToNextVariant(scene.id)}
+                                className="flex items-center space-x-2 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 disabled:opacity-50 rounded-lg transition-colors text-xs"
+                                title="Next variant (Shift + →)"
+                              >
+                                <span>Next Variant</span>
+                                <ArrowRightIcon className="w-3 h-3" />
+                              </button>
+                            </div>
+                          )}
                           
-                          <button
-                            onClick={() => createNewVariant(scene.id)}
-                            disabled={isGenerating || isStreaming || isRegenerating}
-                            className="flex items-center space-x-2 px-4 py-2 bg-pink-600 hover:bg-pink-700 disabled:bg-pink-800 disabled:opacity-50 rounded-lg transition-colors text-sm"
-                            title="Regenerate current scene (→)"
-                          >
-                            <ArrowRightIcon className="w-4 h-4" />
-                            <span>
-                              {isRegenerating ? 'Regenerating...' : 'Regenerate Scene'}
-                            </span>
-                            {isRegenerating && (
-                              <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin"></div>
-                            )}
-                          </button>
+                          {/* Main Scene Controls */}
+                          <div className="flex items-center justify-center space-x-4">
+                            <button
+                              onClick={goToPreviousScene}
+                              disabled={sceneHistory.length === 0}
+                              className="flex items-center space-x-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:opacity-50 rounded-lg transition-colors text-sm"
+                              title="Go to previous scene version (←)"
+                            >
+                              <ArrowLeftIcon className="w-4 h-4" />
+                              <span>Previous Scene</span>
+                            </button>
+                            
+                            <button
+                              onClick={() => createNewVariant(scene.id)}
+                              disabled={isGenerating || isStreaming || isRegenerating}
+                              className="flex items-center space-x-2 px-4 py-2 bg-pink-600 hover:bg-pink-700 disabled:bg-pink-800 disabled:opacity-50 rounded-lg transition-colors text-sm"
+                              title="Regenerate current scene (→)"
+                            >
+                              <ArrowRightIcon className="w-4 h-4" />
+                              <span>
+                                {isRegenerating ? 'Regenerating...' : 'Regenerate Scene'}
+                              </span>
+                              {isRegenerating && (
+                                <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin"></div>
+                              )}
+                            </button>
 
-                          <button
-                            onClick={goToNextScene}
-                            disabled={isGenerating || isStreaming}
-                            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:opacity-50 rounded-lg transition-colors text-sm"
-                            title="Continue to next scene"
-                          >
-                            <span>Next Scene</span>
-                            <ArrowRightIcon className="w-4 h-4" />
-                          </button>
+                            <button
+                              onClick={goToNextScene}
+                              disabled={isGenerating || isStreaming}
+                              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:opacity-50 rounded-lg transition-colors text-sm"
+                              title="Continue to next scene"
+                            >
+                              <span>Next Scene</span>
+                              <ArrowRightIcon className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
                       )}
 
@@ -1028,7 +1147,7 @@ export default function StoryPage() {
             {story?.scenes && story.scenes.length > 0 && (
               <div className="flex items-center space-x-4 text-sm text-gray-400">
                 <div className="flex items-center space-x-1">
-                  <span>← Previous | → Regenerate | ↑ Scroll Up | ↓ Next Scene</span>
+                  <span>← Previous | → Regenerate | Shift+← Prev Variant | Shift+→ Next Variant | ↑ Scroll Up | ↓ Next Scene</span>
                 </div>
                 {isRegenerating && (
                   <div className="flex items-center space-x-1 text-pink-400">
