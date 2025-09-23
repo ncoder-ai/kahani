@@ -1030,16 +1030,32 @@ async def create_draft_story(
     """Create or update a draft story with incremental progress"""
     
     step = story_data.get('step', 0)
+    story_id = story_data.get('story_id')  # Allow specifying which draft to update
     
-    # Check if there's already a draft for this user
-    existing_draft = db.query(Story).filter(
-        Story.owner_id == current_user.id,
-        Story.status == StoryStatus.DRAFT
-    ).first()
+    if story_id:
+        # Update specific draft story
+        story = db.query(Story).filter(
+            Story.id == story_id,
+            Story.owner_id == current_user.id,
+            Story.status == StoryStatus.DRAFT
+        ).first()
+        
+        if not story:
+            raise HTTPException(status_code=404, detail="Draft story not found")
+    else:
+        # Check if there's already a draft for this user
+        existing_draft = db.query(Story).filter(
+            Story.owner_id == current_user.id,
+            Story.status == StoryStatus.DRAFT
+        ).first()
+        
+        if existing_draft:
+            story = existing_draft
+        else:
+            story = None
     
-    if existing_draft:
+    if story:
         # Update existing draft
-        story = existing_draft
         story.creation_step = step
         story.draft_data = story_data
         
@@ -1101,6 +1117,40 @@ async def get_draft_story(
     
     if not draft:
         return {"draft": None}
+    
+    return {
+        "draft": {
+            "id": draft.id,
+            "title": draft.title,
+            "description": draft.description,
+            "genre": draft.genre,
+            "tone": draft.tone,
+            "world_setting": draft.world_setting,
+            "initial_premise": draft.initial_premise,
+            "status": draft.status,
+            "creation_step": draft.creation_step,
+            "draft_data": draft.draft_data,
+            "created_at": draft.created_at,
+            "updated_at": draft.updated_at
+        }
+    }
+
+@router.get("/draft/{story_id}")
+async def get_specific_draft_story(
+    story_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get a specific draft story by ID"""
+    
+    draft = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id,
+        Story.status == StoryStatus.DRAFT
+    ).first()
+    
+    if not draft:
+        raise HTTPException(status_code=404, detail="Draft story not found")
     
     return {
         "draft": {
