@@ -66,6 +66,7 @@ async def get_stories(
             "description": story.description,
             "genre": story.genre,
             "status": story.status,
+            "creation_step": story.creation_step,
             "created_at": story.created_at,
             "updated_at": story.updated_at
         }

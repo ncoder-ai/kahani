@@ -77,7 +77,17 @@ export default function DashboardPage() {
   };
 
   const handleStoryClick = (storyId: number) => {
-    router.push(`/story/${storyId}`);
+    // Find the story in our local state to check its creation status
+    const story = stories.find(s => s.id === storyId);
+    
+    // If story is still a draft and hasn't completed all creation steps, 
+    // redirect to the creation flow
+    if (story && story.status === 'draft' && (story.creation_step < 5)) {
+      router.push(`/create-story?story_id=${storyId}`);
+    } else {
+      // Story is fully created, go to story view
+      router.push(`/story/${storyId}`);
+    }
   };
 
   const handleViewSummary = async (storyId: number) => {

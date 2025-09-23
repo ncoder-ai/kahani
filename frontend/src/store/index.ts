@@ -55,6 +55,7 @@ interface Story {
   description: string;
   genre: string;
   status: string;
+  creation_step: number;
   created_at: string;
   updated_at: string;
   scenes?: Scene[];
