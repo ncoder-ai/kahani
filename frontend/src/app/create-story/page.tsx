@@ -69,21 +69,23 @@ export default function CreateStoryPage() {
         if (storyIdParam) {
           // Load specific story
           const storyId = parseInt(storyIdParam);
-          const response = await apiClient.getStory(storyId);
-          setDraftStoryId(response.id);
-          setCurrentStep(response.creation_step || 0);
+          const response = await apiClient.getSpecificDraftStory(storyId);
+          const draft = response.draft;
+          
+          setDraftStoryId(draft.id);
+          setCurrentStep(draft.creation_step || 0);
           
           // Restore story data from draft
-          if (response.draft_data) {
-            setStoryData(response.draft_data);
+          if (draft.draft_data) {
+            setStoryData(draft.draft_data);
           } else {
             // Fallback to individual fields
             setStoryData({
-              title: response.title || '',
-              description: response.description || '',
-              genre: response.genre || '',
-              tone: response.tone || '',
-              world_setting: response.world_setting || '',
+              title: draft.title || '',
+              description: draft.description || '',
+              genre: draft.genre || '',
+              tone: draft.tone || '',
+              world_setting: draft.world_setting || '',
               characters: [], // These would need to be loaded separately if needed
               plot_points: [],
               scenario: '',
@@ -134,7 +136,11 @@ export default function CreateStoryPage() {
     
     try {
       setIsSavingDraft(true);
-      const response = await apiClient.createOrUpdateDraftStory(updatedData, step);
+      const response = await apiClient.createOrUpdateDraftStory(
+        updatedData, 
+        step, 
+        draftStoryId || undefined // Pass the story ID if we have one
+      );
       setDraftStoryId(response.id);
       console.log('Draft saved:', response.message);
     } catch (error) {
