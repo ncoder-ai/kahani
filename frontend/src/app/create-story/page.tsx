@@ -187,20 +187,26 @@ export default function CreateStoryPage() {
   const handleCreateStory = async () => {
     setIsLoading(true);
     try {
+      let finalizedStoryId: number;
+      
       if (draftStoryId) {
         // Finalize the existing draft
-        await apiClient.finalizeDraftStory(draftStoryId);
+        const response = await apiClient.finalizeDraftStory(draftStoryId);
+        finalizedStoryId = response.id;
       } else {
         // Fallback: create story directly if no draft
-        await apiClient.createStory({
+        const response = await apiClient.createStory({
           title: storyData.title,
           description: storyData.description,
           genre: storyData.genre,
           tone: storyData.tone,
           world_setting: storyData.world_setting,
         });
+        finalizedStoryId = response.id;
       }
-      router.push('/dashboard');
+      
+      // Redirect to the story page to begin scene generation
+      router.push(`/story/${finalizedStoryId}`);
     } catch (error) {
       console.error('Failed to create story:', error);
     } finally {
