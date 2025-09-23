@@ -127,6 +127,7 @@ async def update_user_settings(
         user_settings.context_max_tokens = ctx.max_tokens
         user_settings.context_keep_recent_scenes = ctx.keep_recent_scenes
         user_settings.context_summary_threshold = ctx.summary_threshold
+        user_settings.context_summary_threshold_tokens = ctx.summary_threshold_tokens
         user_settings.enable_context_summarization = ctx.enable_summarization
     
     # Update generation preferences

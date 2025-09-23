@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useParams } from 'next/navigation';
-import { useAuthStore, useStoryStore } from '@/store';
+import { useAuthStore, useStoryStore, useHasHydrated } from '@/store';
 import apiClient from '@/lib/api';
 import CharacterQuickAdd from '@/components/CharacterQuickAdd';
 import { TokenInfo } from '@/components/TokenInfo';
@@ -51,6 +51,7 @@ export default function StoryPage() {
   const storyId = parseInt(params.id as string);
   
   const { user } = useAuthStore();
+  const hasHydrated = useHasHydrated();
   const [story, setStory] = useState<Story | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -71,16 +72,27 @@ export default function StoryPage() {
   const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [userSettings, setUserSettings] = useState<any>(null);
+  // Streaming states
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingContent, setStreamingContent] = useState('');
+  const [streamingSceneNumber, setStreamingSceneNumber] = useState<number | null>(null);
+  const [useStreaming, setUseStreaming] = useState(true); // Enable streaming by default
   const storyContentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    // Wait for auth store to hydrate before checking authentication
+    if (!hasHydrated) {
+      return;
+    }
+    
     if (!user) {
       router.push('/login');
       return;
     }
+    
     loadStory();
     loadUserSettings();
-  }, [user, storyId, router]);
+  }, [user, hasHydrated, storyId, router]);
 
   const loadUserSettings = async () => {
     try {
@@ -91,13 +103,56 @@ export default function StoryPage() {
     }
   };
 
+  const scrollToBottom = () => {
+    if (storyContentRef.current) {
+      const element = storyContentRef.current;
+      // Use requestAnimationFrame for better timing and smooth scrolling
+      requestAnimationFrame(() => {
+        element.scrollTo({
+          top: element.scrollHeight,
+          behavior: 'smooth'
+        });
+      });
+    }
+  };
+
   // Auto-scroll to bottom when new scenes are added
   useEffect(() => {
     if (storyContentRef.current && story?.scenes && story.scenes.length > 0) {
-      const element = storyContentRef.current;
-      element.scrollTop = element.scrollHeight;
+      // Use setTimeout to ensure DOM is updated after scene render
+      setTimeout(() => {
+        scrollToBottom();
+      }, 100);
     }
   }, [story?.scenes?.length]);
+
+  // Additional auto-scroll when story content changes
+  useEffect(() => {
+    if (storyContentRef.current && story) {
+      // Delayed scroll to ensure content is fully rendered
+      setTimeout(() => {
+        scrollToBottom();
+      }, 200);
+    }
+  }, [story?.scenes]);
+
+  // Auto-scroll during streaming with more responsive timing
+  useEffect(() => {
+    if (storyContentRef.current && isStreaming) {
+      // Scroll when streaming starts
+      if (streamingContent === '') {
+        setTimeout(() => {
+          scrollToBottom();
+        }, 100);
+      }
+      // Continue scrolling as content updates
+      if (streamingContent) {
+        setTimeout(() => {
+          scrollToBottom();
+        }, 50);
+      }
+    }
+  }, [streamingContent, isStreaming]);
 
   const loadStory = async () => {
     try {
@@ -129,22 +184,96 @@ export default function StoryPage() {
     setError('');
     setIsGenerating(true);
     
-    // Clear dynamic choices when generating new scene
-    setDynamicChoices([]);
+    // Don't clear choices immediately - hide more options
     setShowMoreOptions(false);
     
     try {
       const response = await apiClient.generateScene(story.id, prompt || customPrompt);
       console.log('generateNewScene response', response);
 
-      // Reload the story to get the new scene
+      // Reload the story to get the new scene and its choices
       await loadStory();
       setCustomPrompt('');
+      
+      // Ensure we scroll to bottom after scene is loaded
+      setTimeout(() => {
+        scrollToBottom();
+      }, 300);
     } catch (err) {
       console.error('generateNewScene error', err);
       setError(err instanceof Error ? err.message : 'Failed to generate scene');
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const generateNewSceneStreaming = async (prompt?: string) => {
+    if (!story) return;
+    console.log('generateNewSceneStreaming called', { storyId: story.id, prompt });
+    setError('');
+    setIsStreaming(true);
+    setStreamingContent('');
+    
+    // Calculate the next scene number
+    const nextSceneNumber = (story.scenes?.length || 0) + 1;
+    setStreamingSceneNumber(nextSceneNumber);
+    
+    // Don't clear choices immediately - hide more options
+    setShowMoreOptions(false);
+    
+    // Scroll to bottom when starting generation
+    setTimeout(() => {
+      scrollToBottom();
+    }, 100);
+    
+    try {
+      await apiClient.generateSceneStreaming(
+        story.id,
+        prompt || customPrompt,
+        // onChunk
+        (chunk: string) => {
+          setStreamingContent(prev => prev + chunk);
+        },
+        // onComplete
+        async (sceneId: number, choices: any[]) => {
+          console.log('Scene generation complete', { sceneId, choices });
+          setStreamingContent('');
+          setStreamingSceneNumber(null);
+          setIsStreaming(false);
+          
+          // Reload the story to get the updated data
+          await loadStory();
+          setCustomPrompt('');
+          
+          // Ensure we scroll to bottom after scene is loaded
+          setTimeout(() => {
+            scrollToBottom();
+          }, 300);
+        },
+        // onError
+        (error: string) => {
+          console.error('Streaming error:', error);
+          setError(error);
+          setStreamingContent('');
+          setStreamingSceneNumber(null);
+          setIsStreaming(false);
+        }
+      );
+    } catch (err) {
+      console.error('generateNewSceneStreaming error', err);
+      setError(err instanceof Error ? err.message : 'Failed to generate scene');
+      setStreamingContent('');
+      setStreamingSceneNumber(null);
+      setIsStreaming(false);
+    }
+  };
+
+  // Wrapper function to choose between streaming and regular generation
+  const generateScene = async (prompt?: string) => {
+    if (useStreaming) {
+      return generateNewSceneStreaming(prompt);
+    } else {
+      return generateNewScene(prompt);
     }
   };
 
@@ -265,14 +394,21 @@ export default function StoryPage() {
       return dynamicChoices.map(choice => choice.text);
     }
     
-    // Base fallback choices only shown when no dynamic choices are available
-    const baseChoices = [
-      "Continue this naturally",
-      "Add dialogue between characters", 
-      "Introduce a plot twist"
-    ];
+    // Only show base fallback choices when:
+    // 1. No dynamic choices are available AND
+    // 2. Not currently generating a new scene
+    if (!isGenerating) {
+      const baseChoices = [
+        "Continue this naturally",
+        "Add dialogue between characters", 
+        "Introduce a plot twist"
+      ];
+      
+      return baseChoices;
+    }
     
-    return baseChoices;
+    // Return empty array when generating to hide choices
+    return [];
   };
 
   if (!user) {
@@ -281,6 +417,17 @@ export default function StoryPage() {
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-pink-500 mx-auto"></div>
           <p className="mt-4 text-gray-400">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!hasHydrated) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-pink-500 mx-auto mb-4"></div>
+          <p className="text-gray-400">Loading...</p>
         </div>
       </div>
     );
@@ -333,6 +480,18 @@ export default function StoryPage() {
                 className="px-3 py-1.5 bg-gray-700/50 hover:bg-gray-700 text-gray-300 hover:text-white rounded-lg transition-colors text-sm font-medium border border-gray-600"
               >
                 📚 Characters
+              </button>
+              
+              {/* Streaming Toggle */}
+              <button
+                onClick={() => setUseStreaming(!useStreaming)}
+                className={`px-3 py-1.5 rounded-lg transition-colors text-sm font-medium border ${
+                  useStreaming 
+                    ? 'bg-green-600/20 hover:bg-green-600/30 text-green-300 hover:text-green-200 border-green-500/30' 
+                    : 'bg-gray-700/50 hover:bg-gray-700 text-gray-300 hover:text-white border-gray-600'
+                }`}
+              >
+                {useStreaming ? '⚡ Streaming' : '📄 Standard'}
               </button>
             </div>
             
@@ -405,18 +564,19 @@ export default function StoryPage() {
                     .map((scene, index) => (
                     <div key={scene.id}>
                       {/* Scene Separator */}
-                      {index > 0 && (
+                      {index > 0 && userSettings?.show_scene_titles === true && (
                         <div className="flex items-center my-8">
                           <div className="flex-1 h-px bg-gray-600"></div>
-                          <div className="px-4 text-gray-500 text-sm">Scene {scene.sequence_number}</div>
+                          <div className="px-4 text-gray-500 text-sm">Scene {index + 1}</div>
                           <div className="flex-1 h-px bg-gray-600"></div>
                         </div>
                       )}
                       
                       <SceneDisplay
                         scene={scene}
+                        sceneNumber={index + 1}
                         format={userSettings?.scene_display_format || 'default'}
-                        showTitle={userSettings?.show_scene_titles !== false}
+                        showTitle={userSettings?.show_scene_titles === true}
                         isEditing={editingScene === scene.id}
                         editContent={editContent}
                         onStartEdit={startEditingScene}
@@ -424,18 +584,79 @@ export default function StoryPage() {
                         onCancelEdit={() => setEditingScene(null)}
                         onContentChange={setEditContent}
                       />
+                      
+                      {/* Scene Management Buttons - Show only for the last scene */}
+                      {index === story.scenes.length - 1 && (
+                        <div className="flex items-center justify-center space-x-4 mt-6 pt-4 border-t border-gray-600/30">
+                          <button
+                            onClick={goToPreviousScene}
+                            disabled={sceneHistory.length === 0}
+                            className="flex items-center space-x-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:opacity-50 rounded-lg transition-colors text-sm"
+                            title="Go to previous scene version (←)"
+                          >
+                            <ArrowLeftIcon className="w-4 h-4" />
+                            <span>Previous Scene</span>
+                          </button>
+                          
+                          <button
+                            onClick={regenerateLastScene}
+                            disabled={isGenerating || isStreaming || isRegenerating}
+                            className="flex items-center space-x-2 px-4 py-2 bg-pink-600 hover:bg-pink-700 disabled:bg-pink-800 disabled:opacity-50 rounded-lg transition-colors text-sm"
+                            title="Regenerate current scene (→)"
+                          >
+                            <ArrowRightIcon className="w-4 h-4" />
+                            <span>
+                              {isRegenerating ? 'Regenerating...' : 'Regenerate Scene'}
+                            </span>
+                            {isRegenerating && (
+                              <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin"></div>
+                            )}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
+                  
+                  {/* Streaming Content Display */}
+                  {isStreaming && streamingContent && (
+                    <div className="streaming-scene">
+                      {/* Scene Separator for streaming */}
+                      {story.scenes.length > 0 && userSettings?.show_scene_titles === true && (
+                        <div className="flex items-center my-8">
+                          <div className="flex-1 h-px bg-gray-600"></div>
+                          <div className="px-4 text-gray-500 text-sm">Scene {streamingSceneNumber}</div>
+                          <div className="flex-1 h-px bg-gray-600"></div>
+                        </div>
+                      )}
+                      
+                      <div className="relative">
+                        <div className="prose prose-invert prose-lg max-w-none">
+                          <div className="streaming-content-wrapper">
+                            <FormattedText 
+                              content={streamingContent} 
+                              className="streaming-content inline"
+                            />
+                            <span className="inline-block w-2 h-5 bg-pink-500 animate-pulse ml-1 align-middle">|</span>
+                          </div>
+                        </div>
+                        
+                        {/* Streaming indicator */}
+                        <div className="absolute top-0 right-0 bg-pink-600 text-white text-xs px-2 py-1 rounded-full animate-pulse">
+                          Generating...
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="text-center py-12">
                   <p className="text-gray-400 mb-6">Your story awaits...</p>
                   <button
-                    onClick={() => generateNewScene()}
-                    disabled={isGenerating}
+                    onClick={() => generateScene()}
+                    disabled={isGenerating || isStreaming}
                     className="bg-pink-600 hover:bg-pink-700 text-white px-6 py-3 rounded-lg font-medium disabled:opacity-50"
                   >
-                    {isGenerating ? 'Creating...' : 'Begin Your Story'}
+                    {isGenerating || isStreaming ? 'Creating...' : 'Begin Your Story'}
                   </button>
                 </div>
               )}
@@ -456,11 +677,11 @@ export default function StoryPage() {
                   <div className="flex justify-between items-center mt-3">
                     <span className="text-xs text-gray-500">Be specific about actions, dialogue, and scene details</span>
                     <button
-                      onClick={() => generateNewScene()}
-                      disabled={isGenerating}
+                      onClick={() => generateScene()}
+                      disabled={isGenerating || isStreaming}
                       className="bg-pink-600 hover:bg-pink-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg font-medium transition-colors"
                     >
-                      {isGenerating ? 'Directing...' : 'Direct Scene'}
+                      {isGenerating || isStreaming ? 'Directing...' : 'Direct Scene'}
                     </button>
                   </div>
                 </div>
@@ -474,8 +695,8 @@ export default function StoryPage() {
                   getAvailableChoices().map((choice, index) => (
                     <button
                       key={index}
-                      onClick={() => generateNewScene(choice)}
-                      disabled={isGenerating}
+                      onClick={() => generateScene(choice)}
+                      disabled={isGenerating || isStreaming}
                       className="w-full text-left bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded-xl p-4 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed group"
                     >
                       <div className="flex items-center justify-between">
@@ -504,13 +725,13 @@ export default function StoryPage() {
                     className="flex-1 bg-transparent text-white placeholder-gray-400 outline-none"
                     onKeyPress={(e) => {
                       if (e.key === 'Enter' && customPrompt.trim()) {
-                        generateNewScene();
+                        generateScene();
                       }
                     }}
                   />
                   <button
-                    onClick={() => generateNewScene()}
-                    disabled={isGenerating || !customPrompt.trim()}
+                    onClick={() => generateScene()}
+                    disabled={isGenerating || isStreaming || !customPrompt.trim()}
                     className="ml-3 bg-pink-600 hover:bg-pink-700 disabled:bg-gray-600 rounded-lg p-2 transition-colors"
                   >
                     <PlayIcon className="w-5 h-5 text-white" />
@@ -578,12 +799,7 @@ export default function StoryPage() {
             {story?.scenes && story.scenes.length > 0 && (
               <div className="flex items-center space-x-4 text-sm text-gray-400">
                 <div className="flex items-center space-x-1">
-                  <ArrowLeftIcon className="w-4 h-4" />
-                  <span>Previous Scene</span>
-                </div>
-                <div className="flex items-center space-x-1">
-                  <ArrowRightIcon className="w-4 h-4" />
-                  <span>Regenerate Scene</span>
+                  <span>Use ← → keys or buttons below scenes</span>
                 </div>
                 {isRegenerating && (
                   <div className="flex items-center space-x-1 text-pink-400">

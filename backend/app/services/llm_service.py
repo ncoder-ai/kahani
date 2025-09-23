@@ -1,5 +1,6 @@
 import httpx
 import json
+import re
 from typing import List, Dict, Any, Optional
 from ..config import settings
 import logging
@@ -15,8 +16,17 @@ class LMStudioService:
         self.model = settings.llm_model
         self.max_tokens = settings.llm_max_tokens
         self.temperature = settings.llm_temperature
+    
+    def _clean_scene_numbers(self, content: str) -> str:
+        """Remove scene numbers and titles from the beginning of generated content"""
+        # Remove patterns like "Scene 7:", "Scene 7: Title", etc. from the start
+        # This captures the entire first line if it starts with scene numbering
+        content = re.sub(r'^Scene\s+\d+:.*?(\n|$)', '', content, flags=re.IGNORECASE).strip()
+        # Also remove standalone scene titles that might start with numbers
+        content = re.sub(r'^\d+[:.]\s*[A-Z][^.\n]*(\n|$)', '', content).strip()
+        return content
         
-    async def _make_request(self, prompt: str, system_prompt: str = "", max_tokens: int = None, user_settings: dict = None) -> str:
+    async def _make_request(self, prompt: str, system_prompt: str = "", max_tokens: int = None, user_settings: dict = None, stream: bool = False) -> str:
         """Make a request to LM Studio API with optional user settings"""
         
         headers = {
@@ -75,7 +85,7 @@ class LMStudioService:
             "top_p": top_p,
             "top_k": top_k,
             "repetition_penalty": repetition_penalty,
-            "stream": False
+            "stream": stream
         }
         
         logger.info(f"Making LLM request to: {endpoint}")
@@ -107,6 +117,169 @@ class LMStudioService:
             logger.error(f"Unexpected response format: {e}")
             raise Exception("Invalid response from LLM service")
     
+    async def _make_streaming_request(self, prompt: str, system_prompt: str = "", max_tokens: int = None, user_settings: dict = None):
+        """Make a streaming request to LM Studio API"""
+        
+        headers = {
+            "Content-Type": "application/json",
+        }
+        
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+        
+        # Use user settings if provided, otherwise use defaults
+        if user_settings and user_settings.get("llm_settings"):
+            llm_config = user_settings["llm_settings"]
+            temperature = llm_config.get("temperature", self.temperature)
+            top_p = llm_config.get("top_p", 1.0)
+            top_k = llm_config.get("top_k", 50)
+            repetition_penalty = llm_config.get("repetition_penalty", 1.1)
+            max_tokens_setting = llm_config.get("max_tokens", self.max_tokens)
+            model_name = llm_config.get("model_name", self.model)
+            base_url = llm_config.get("api_url", self.base_url)
+            api_key = llm_config.get("api_key", self.api_key)
+            api_type = llm_config.get("api_type", "openai_compatible")
+        else:
+            temperature = self.temperature
+            top_p = 1.0
+            top_k = 50
+            repetition_penalty = 1.1
+            max_tokens_setting = self.max_tokens
+            model_name = self.model
+            base_url = self.base_url
+            api_key = self.api_key
+            api_type = "openai_compatible"
+        
+        # Update headers with user's API key if provided
+        if api_key and api_key != "not-needed-for-local":
+            headers["Authorization"] = f"Bearer {api_key}"
+        
+        # Configure endpoint based on API type
+        if api_type == "ollama":
+            endpoint = f"{base_url}/api/chat"
+        elif api_type == "koboldcpp":
+            endpoint = f"{base_url}/api/v1/chat/completions"
+        else:  # openai, openai_compatible
+            # Handle URLs that might or might not have /v1 already
+            if base_url.endswith("/v1"):
+                endpoint = f"{base_url}/chat/completions"
+            else:
+                endpoint = f"{base_url}/v1/chat/completions"
+        
+        payload = {
+            "model": model_name,
+            "messages": messages,
+            "max_tokens": max_tokens or max_tokens_setting,
+            "temperature": temperature,
+            "top_p": top_p,
+            "top_k": top_k,
+            "repetition_penalty": repetition_penalty,
+            "stream": True
+        }
+        
+        logger.info(f"Making streaming LLM request to: {endpoint}")
+        logger.info(f"Using model: {model_name}")
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                async with client.stream(
+                    "POST",
+                    endpoint,
+                    headers=headers,
+                    json=payload,
+                    timeout=60.0
+                ) as response:
+                    response.raise_for_status()
+                    
+                    async for line in response.aiter_lines():
+                        if line.strip():
+                            if line.startswith("data: "):
+                                line = line[6:]  # Remove "data: " prefix
+                            
+                            if line.strip() == "[DONE]":
+                                break
+                                
+                            try:
+                                data = json.loads(line)
+                                
+                                # Check for errors first
+                                if "error" in data:
+                                    error_msg = data["error"].get("message", "Unknown error")
+                                    logger.error(f"LLM streaming error: {error_msg}")
+                                    raise Exception(f"LLM streaming error: {error_msg}")
+                                
+                                if "choices" in data and data["choices"]:
+                                    delta = data["choices"][0].get("delta", {})
+                                    if "content" in delta:
+                                        yield delta["content"]
+                            except json.JSONDecodeError as e:
+                                logger.warning(f"Failed to parse JSON: {line} - Error: {e}")
+                                continue
+                
+        except httpx.RequestError as e:
+            logger.error(f"HTTP request failed: {e}")
+            raise Exception(f"Failed to connect to LLM service: {e}")
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error {e.response.status_code}: {e.response.text}")
+            raise Exception(f"LLM service error: {e.response.status_code}")
+    
+    def _truncate_context_for_streaming(self, story_context: Dict[str, Any]) -> List[str]:
+        """
+        Truncate story context to fit within model limits for streaming
+        """
+        context_parts = []
+        
+        # Core story information (always include)
+        if story_context.get("genre"):
+            context_parts.append(f"Genre: {story_context['genre']}")
+        
+        if story_context.get("tone"):
+            context_parts.append(f"Tone: {story_context['tone']}")
+            
+        if story_context.get("world_setting"):
+            # Truncate if too long
+            setting = story_context["world_setting"]
+            if len(setting) > 200:
+                setting = setting[:200] + "..."
+            context_parts.append(f"Setting: {setting}")
+            
+        # Character information (limit to key characters)
+        if story_context.get("characters"):
+            char_info = []
+            for i, char in enumerate(story_context["characters"][:3]):  # Limit to 3 characters
+                char_desc = f"- {char.get('name', 'Unknown')}: {char.get('description', 'No description')}"
+                if len(char_desc) > 100:
+                    char_desc = char_desc[:100] + "..."
+                char_info.append(char_desc)
+            if char_info:
+                context_parts.append(f"Main Characters:\n" + "\n".join(char_info))
+        
+        # Scene summary (truncated)
+        if story_context.get("scene_summary"):
+            summary = story_context["scene_summary"]
+            if len(summary) > 300:
+                summary = summary[:300] + "..."
+            context_parts.append(f"Story Context: {summary}")
+        
+        # Previous scenes (truncated to most recent)
+        if story_context.get("previous_scenes"):
+            prev = story_context["previous_scenes"]
+            if len(prev) > 500:
+                # Take the last 500 characters to keep most recent content
+                prev = "..." + prev[-500:]
+            context_parts.append(f"Recent Events:\n{prev}")
+            
+        # Current situation
+        if story_context.get("current_situation"):
+            current = story_context["current_situation"]
+            if len(current) > 200:
+                current = current[:200] + "..."
+            context_parts.append(f"Current Situation: {current}")
+        
+        return context_parts
+
     async def generate_scene_with_context_management(self, story_context: Dict[str, Any], user_settings: dict = None) -> str:
         """
         Generate a scene with smart context management for long stories
@@ -130,61 +303,76 @@ FORMATTING REQUIREMENTS:
 - Use standard quotation marks for dialogue: "Hello," she said.
 - Wrap internal thoughts/monologue in asterisks: *I can't believe this is happening*
 - Use clear paragraph breaks between different speakers or actions
+- DO NOT include scene numbers or titles like "Scene 7:" at the beginning
+- Start directly with the narrative content
 
 Important: If you see a scene summary, treat it as established story history.
 Pay attention to the total scene count to understand story progression."""
 
-        # Build context prompt with smart formatting
-        context_parts = []
+        # Use truncated context to avoid token limits
+        context_parts = self._truncate_context_for_streaming(story_context)
         
-        if story_context.get("genre"):
-            context_parts.append(f"Genre: {story_context['genre']}")
-        
-        if story_context.get("tone"):
-            context_parts.append(f"Tone: {story_context['tone']}")
-            
-        if story_context.get("world_setting"):
-            context_parts.append(f"Setting: {story_context['world_setting']}")
-        
-        # Character information
-        if story_context.get("characters"):
-            char_info = []
-            for char in story_context["characters"]:
-                char_desc = f"- {char.get('name', 'Unknown')}"
-                if char.get('role'):
-                    char_desc += f" ({char['role']})"
-                if char.get('description'):
-                    char_desc += f": {char['description']}"
-                if char.get('personality'):
-                    char_desc += f" | Personality: {char['personality']}"
-                char_info.append(char_desc)
-            
-            if char_info:
-                context_parts.append(f"Characters:\n" + "\n".join(char_info))
-        
-        # Story progress info
-        if story_context.get("total_scenes"):
-            context_parts.append(f"Story Progress: Scene {story_context['total_scenes'] + 1}")
-        
-        # Scene summary (for long stories)
-        if story_context.get("scene_summary"):
-            context_parts.append(f"Story Context: {story_context['scene_summary']}")
-        
-        # Previous scenes (recent or summarized)
-        if story_context.get("previous_scenes"):
-            context_parts.append(f"Previous Story Events:\n{story_context['previous_scenes']}")
-            
-        # Current situation
-        if story_context.get("current_situation"):
-            context_parts.append(f"Current Situation: {story_context['current_situation']}")
-        
+        # Simple prompt for better reliability
         prompt = f"""Story Context:
 {chr(10).join(context_parts)}
 
-Generate the next scene in this story. Make it engaging and immersive, approximately 200-400 words.
-Ensure the scene flows naturally from the previous events and advances both plot and character development."""
+Generate the next scene in this story. Make it engaging and immersive, approximately 200-300 words.
+Ensure the scene flows naturally from the previous events."""
 
-        return await self._make_request(prompt, system_prompt, user_settings=user_settings)
+        result = await self._make_request(prompt, system_prompt, user_settings=user_settings)
+        return self._clean_scene_numbers(result)
+
+    async def generate_scene_with_context_management_streaming(self, story_context: Dict[str, Any], user_settings: dict = None):
+        """
+        Generate a scene with smart context management for long stories (streaming version)
+        
+        This method uses the provided context which should already be optimized
+        by the ContextManager for token limits.
+        """
+        
+        system_prompt = """You are a creative storytelling assistant. Generate engaging narrative scenes that:
+1. Continue the story naturally from the previous context
+2. Include vivid descriptions and character development
+3. Maintain consistency with established characters and world
+4. Create dramatic tension and forward momentum
+5. End at a natural decision point for the reader
+6. Reference important previous events when relevant
+7. Show character growth and relationship development
+
+Write in a rich, engaging narrative style appropriate for the genre.
+
+FORMATTING REQUIREMENTS:
+- Use standard quotation marks for dialogue: "Hello," she said.
+- Wrap internal thoughts/monologue in asterisks: *I can't believe this is happening*
+- Use clear paragraph breaks between different speakers or actions
+- DO NOT include scene numbers or titles like "Scene 7:" at the beginning
+- Start directly with the narrative content
+
+Important: If you see a scene summary, treat it as established story history.
+Pay attention to the total scene count to understand story progression."""
+
+        # Use truncated context to avoid token limits (same as non-streaming)
+        context_parts = self._truncate_context_for_streaming(story_context)
+        
+        # Simple prompt for streaming (to avoid token limits)
+        prompt = f"""Story Context:
+{chr(10).join(context_parts)}
+
+Generate the next scene in this story. Make it engaging and immersive, approximately 200-300 words.
+Ensure the scene flows naturally from the previous events."""
+
+        logger.info(f"Built prompt with {len(prompt)} characters for streaming request")
+        
+        full_content = ""
+        async for chunk in self._make_streaming_request(prompt, system_prompt, user_settings=user_settings):
+            full_content += chunk
+            yield chunk
+        
+        # Clean scene numbers from the final content if needed
+        cleaned_content = self._clean_scene_numbers(full_content)
+        # If cleaning changed the content, yield the difference
+        if cleaned_content != full_content:
+            yield cleaned_content[len(full_content):]
 
     async def generate_scene(self, story_context: Dict[str, Any]) -> str:
         """Generate a scene based on story context"""
@@ -200,6 +388,8 @@ FORMATTING REQUIREMENTS:
 - Use standard quotation marks for dialogue: "Hello," she said.
 - Wrap internal thoughts/monologue in asterisks: *I can't believe this is happening*
 - Use clear paragraph breaks between different speakers or actions
+- DO NOT include scene numbers or titles like "Scene 7:" at the beginning
+- Start directly with the narrative content
 
 Write in a rich, engaging narrative style appropriate for the genre."""
 
@@ -233,7 +423,8 @@ Write in a rich, engaging narrative style appropriate for the genre."""
 
 Generate the next scene in this story. Make it engaging and immersive, approximately 200-400 words."""
 
-        return await self._make_request(prompt, system_prompt)
+        result = await self._make_request(prompt, system_prompt)
+        return self._clean_scene_numbers(result)
     
     async def generate_choices(self, scene_content: str, story_context: Dict[str, Any], user_settings: dict = None) -> List[str]:
         """Generate 4 narrative choices for the given scene"""

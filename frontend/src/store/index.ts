@@ -23,36 +23,25 @@ interface AuthState {
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       user: null,
       token: null,
       isAuthenticated: false,
       login: (user, token) => {
-        console.log('Store login called with:', { user, token });
-        set({ user, token, isAuthenticated: true });
-        // Set token in API client immediately
         apiClient.setToken(token);
-        console.log('Token set in API client');
+        set({ user, token, isAuthenticated: true });
       },
       logout: () => {
-        set({ user: null, token: null, isAuthenticated: false });
-        // Remove token from API client
         apiClient.removeToken();
+        set({ user: null, token: null, isAuthenticated: false });
       },
       setUser: (user) => set({ user }),
     }),
     {
       name: 'auth-storage',
-      partialize: (state) => ({ 
-        user: state.user, 
-        token: state.token, 
-        isAuthenticated: state.isAuthenticated 
-      }),
       onRehydrateStorage: () => (state) => {
-        // Set token in API client when rehydrating from localStorage
         if (state?.token) {
           apiClient.setToken(state.token);
-          console.log('Token restored from storage:', state.token);
         }
       },
     }

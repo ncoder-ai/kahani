@@ -177,6 +177,8 @@ export default function SettingsPage() {
           show_token_info: settings.ui_preferences.show_token_info,
           show_context_info: settings.ui_preferences.show_context_info,
           notifications: settings.ui_preferences.notifications,
+          scene_display_format: settings.ui_preferences.scene_display_format,
+          show_scene_titles: settings.ui_preferences.show_scene_titles,
         },
       };
 

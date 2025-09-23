@@ -13,6 +13,7 @@ interface Scene {
 
 interface SceneDisplayProps {
   scene: Scene;
+  sceneNumber?: number; // Use this instead of scene.sequence_number for consistent numbering
   format: string; // 'default', 'bubble', 'card', 'minimal'
   showTitle: boolean;
   isEditing: boolean;
@@ -25,6 +26,7 @@ interface SceneDisplayProps {
 
 export default function SceneDisplay({ 
   scene, 
+  sceneNumber,
   format, 
   showTitle, 
   isEditing, 
@@ -80,7 +82,7 @@ export default function SceneDisplay({
       {showTitle && (
         <div className={getTitleClassName()}>
           {format === 'bubble' && <span className="w-2 h-2 bg-blue-400 rounded-full mr-2"></span>}
-          Scene {scene.sequence_number}: {scene.title}
+          {scene.title && scene.title.trim() !== '' ? scene.title : `Scene ${sceneNumber || scene.sequence_number}`}
         </div>
       )}
       
