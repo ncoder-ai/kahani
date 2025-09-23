@@ -79,6 +79,7 @@ class SceneVariantService:
         self._update_story_flow(story_id, sequence_number, scene.id, variant.id)
         
         self.db.commit()
+        logger.info(f"Successfully created scene {scene.id} with variant {variant.id} at sequence {sequence_number}")
         return scene, variant
     
     async def regenerate_scene_variant(
@@ -129,17 +130,37 @@ class SceneVariantService:
         choices_context = await context_manager.build_choice_generation_context(
             scene.story_id, self.db
         )
-        choices_data = await llm_service.generate_choices(choices_context, user_settings)
+        choices_raw = await llm_service.generate_choices(choices_context, user_settings)
+        
+        # Handle different choice formats from LLM service
+        if isinstance(choices_raw, list):
+            # Direct list of strings
+            choices_list = choices_raw
+        elif isinstance(choices_raw, dict) and 'choices' in choices_raw:
+            # Dictionary with 'choices' key
+            choices_list = choices_raw['choices']
+        else:
+            choices_list = []
         
         # Create choices for the new variant
-        for i, choice_data in enumerate(choices_data.get('choices', [])):
+        for i, choice_data in enumerate(choices_list):
+            # Handle both string and dict formats
+            if isinstance(choice_data, str):
+                choice_text = choice_data
+                choice_description = None
+                predicted_outcomes = {}
+            else:
+                choice_text = choice_data.get('text', '')
+                choice_description = choice_data.get('description')
+                predicted_outcomes = choice_data.get('outcomes', {})
+            
             choice = SceneChoice(
                 scene_id=scene_id,
                 scene_variant_id=new_variant.id,
-                choice_text=choice_data.get('text', ''),
+                choice_text=choice_text,
                 choice_order=i + 1,
-                choice_description=choice_data.get('description'),
-                predicted_outcomes=choice_data.get('outcomes', {}),
+                choice_description=choice_description,
+                predicted_outcomes=predicted_outcomes,
             )
             self.db.add(choice)
         
@@ -248,13 +269,15 @@ class SceneVariantService:
         """Update or create story flow entry"""
         
         # Deactivate any existing flow for this sequence
-        self.db.query(StoryFlow)\
+        updated_count = self.db.query(StoryFlow)\
             .filter(and_(
                 StoryFlow.story_id == story_id,
                 StoryFlow.sequence_number == sequence_number,
                 StoryFlow.is_active == True
             ))\
             .update({'is_active': False})
+        
+        logger.info(f"Deactivated {updated_count} existing flows for story {story_id}, sequence {sequence_number}")
         
         # Create new active flow entry
         flow = StoryFlow(
@@ -265,6 +288,8 @@ class SceneVariantService:
             is_active=True
         )
         self.db.add(flow)
+        self.db.flush()  # Get the flow ID
+        logger.info(f"Created new story flow {flow.id}: story {story_id}, sequence {sequence_number}, scene {scene_id}, variant {variant_id}")
 
 
 # Async wrapper for the service
