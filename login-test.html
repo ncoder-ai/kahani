@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Kahani Login Test</title>
+</head>
+<body>
+    <h1>Kahani Login Test</h1>
+    <form id="loginForm">
+        <input type="email" id="email" placeholder="Email" value="nishant.test@example.com"><br><br>
+        <input type="password" id="password" placeholder="Password" value="password123"><br><br>
+        <button type="submit">Login</button>
+    </form>
+    <div id="result"></div>
+
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const resultDiv = document.getElementById('result');
+            
+            try {
+                const response = await fetch('http://localhost:8000/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ email, password })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    resultDiv.innerHTML = `<h3 style="color: green;">SUCCESS!</h3><pre>${JSON.stringify(data, null, 2)}</pre>`;
+                    // Redirect to dashboard
+                    setTimeout(() => {
+                        window.location.href = 'http://localhost:3000/dashboard';
+                    }, 2000);
+                } else {
+                    resultDiv.innerHTML = `<h3 style="color: red;">ERROR!</h3><pre>${JSON.stringify(data, null, 2)}</pre>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<h3 style="color: red;">NETWORK ERROR!</h3><pre>${error.message}</pre>`;
+            }
+        });
+    </script>
+</body>
+</html>
