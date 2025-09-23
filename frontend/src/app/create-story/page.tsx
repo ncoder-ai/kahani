@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store';
 import apiClient from '@/lib/api';
@@ -43,7 +43,10 @@ export default function CreateStoryPage() {
   const { user } = useAuthStore();
   const [currentStep, setCurrentStep] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [showCharacterQuickAdd, setShowCharacterQuickAdd] = useState(false);
+  const [draftStoryId, setDraftStoryId] = useState<number | null>(null);
+  const [isLoadingDraft, setIsLoadingDraft] = useState(true);
   const [storyData, setStoryData] = useState<StoryData>({
     title: '',
     description: '',
@@ -55,8 +58,66 @@ export default function CreateStoryPage() {
     scenario: '',
   });
 
-  const handleNext = () => {
+  // Load existing draft on component mount
+  useEffect(() => {
+    const loadDraft = async () => {
+      try {
+        const response = await apiClient.getDraftStory();
+        if (response.draft) {
+          const draft = response.draft;
+          setDraftStoryId(draft.id);
+          setCurrentStep(draft.creation_step);
+          
+          // Restore story data from draft
+          if (draft.draft_data) {
+            setStoryData(draft.draft_data);
+          } else {
+            // Fallback to individual fields
+            setStoryData({
+              title: draft.title || '',
+              description: draft.description || '',
+              genre: draft.genre || '',
+              tone: draft.tone || '',
+              world_setting: draft.world_setting || '',
+              characters: [],
+              plot_points: [],
+              scenario: '',
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load draft:', error);
+      } finally {
+        setIsLoadingDraft(false);
+      }
+    };
+
+    if (user) {
+      loadDraft();
+    } else {
+      setIsLoadingDraft(false);
+    }
+  }, [user]);
+
+  const saveDraft = async (step: number, data?: Partial<StoryData>) => {
+    const updatedData = data ? { ...storyData, ...data } : storyData;
+    
+    try {
+      setIsSavingDraft(true);
+      const response = await apiClient.createOrUpdateDraftStory(updatedData, step);
+      setDraftStoryId(response.id);
+      console.log('Draft saved:', response.message);
+    } catch (error) {
+      console.error('Failed to save draft:', error);
+    } finally {
+      setIsSavingDraft(false);
+    }
+  };
+
+  const handleNext = async () => {
     if (currentStep < STEPS.length - 1) {
+      // Save progress before moving to next step
+      await saveDraft(currentStep + 1);
       setCurrentStep(currentStep + 1);
     }
   };
@@ -67,26 +128,42 @@ export default function CreateStoryPage() {
     }
   };
 
-  const handleCharacterAdd = (character: any) => {
+  const handleCharacterAdd = async (character: any) => {
     const updatedCharacters = [...storyData.characters, character];
-    setStoryData(prev => ({ ...prev, characters: updatedCharacters }));
+    const updatedData = { ...storyData, characters: updatedCharacters };
+    setStoryData(updatedData);
     setShowCharacterQuickAdd(false);
+    
+    // Save draft with updated characters
+    await saveDraft(currentStep, updatedData);
   };
 
-  const handleStoryDataUpdate = (data: Partial<StoryData>) => {
-    setStoryData(prev => ({ ...prev, ...data }));
+  const handleStoryDataUpdate = async (data: Partial<StoryData>) => {
+    const updatedData = { ...storyData, ...data };
+    setStoryData(updatedData);
+    
+    // Auto-save after data updates (debounced to avoid too many requests)
+    setTimeout(async () => {
+      await saveDraft(currentStep, updatedData);
+    }, 1000);
   };
 
   const handleCreateStory = async () => {
     setIsLoading(true);
     try {
-      await apiClient.createStory({
-        title: storyData.title,
-        description: storyData.description,
-        genre: storyData.genre,
-        tone: storyData.tone,
-        world_setting: storyData.world_setting,
-      });
+      if (draftStoryId) {
+        // Finalize the existing draft
+        await apiClient.finalizeDraftStory(draftStoryId);
+      } else {
+        // Fallback: create story directly if no draft
+        await apiClient.createStory({
+          title: storyData.title,
+          description: storyData.description,
+          genre: storyData.genre,
+          tone: storyData.tone,
+          world_setting: storyData.world_setting,
+        });
+      }
       router.push('/dashboard');
     } catch (error) {
       console.error('Failed to create story:', error);
@@ -95,9 +172,42 @@ export default function CreateStoryPage() {
     }
   };
 
+  const handleDeleteDraft = async () => {
+    if (draftStoryId && confirm('Are you sure you want to delete this draft and start over?')) {
+      try {
+        await apiClient.deleteDraftStory(draftStoryId);
+        setDraftStoryId(null);
+        setCurrentStep(0);
+        setStoryData({
+          title: '',
+          description: '',
+          genre: '',
+          tone: '',
+          world_setting: '',
+          characters: [],
+          plot_points: [],
+          scenario: '',
+        });
+      } catch (error) {
+        console.error('Failed to delete draft:', error);
+      }
+    }
+  };
+
   if (!user) {
     router.push('/login');
     return null;
+  }
+
+  if (isLoadingDraft) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-white/80">Loading your story draft...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -106,8 +216,34 @@ export default function CreateStoryPage() {
       <div className="bg-white/10 backdrop-blur-md border-b border-white/20">
         <div className="max-w-4xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-bold text-white">Create Your Story</h1>
+            <div>
+              <h1 className="text-2xl font-bold text-white">
+                {draftStoryId ? 'Continue Your Story' : 'Create Your Story'}
+              </h1>
+              <div className="flex items-center space-x-4 mt-1">
+                <span className="text-sm text-white/60">
+                  Step {currentStep + 1} of {STEPS.length}
+                </span>
+                {isSavingDraft && (
+                  <div className="flex items-center space-x-1 text-green-400 text-xs">
+                    <div className="w-2 h-2 border border-green-400 border-t-transparent rounded-full animate-spin"></div>
+                    <span>Saving...</span>
+                  </div>
+                )}
+                {draftStoryId && !isSavingDraft && (
+                  <span className="text-green-400 text-xs">✓ Draft Saved</span>
+                )}
+              </div>
+            </div>
             <div className="flex items-center space-x-4">
+              {draftStoryId && (
+                <button
+                  onClick={handleDeleteDraft}
+                  className="px-3 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded text-xs border border-red-400/30"
+                >
+                  Start Over
+                </button>
+              )}
               <button
                 onClick={() => setShowCharacterQuickAdd(true)}
                 className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white rounded-lg transition-colors text-sm font-medium"

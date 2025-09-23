@@ -4,8 +4,9 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
 from ..database import get_db
-from ..models import Story, Scene, Character, StoryCharacter, User, UserSettings, SceneChoice, SceneVariant, StoryFlow
+from ..models import Story, Scene, Character, StoryCharacter, User, UserSettings, SceneChoice, SceneVariant, StoryFlow, StoryStatus
 from ..services.scene_variant_service import SceneVariantService
+from sqlalchemy.sql import func
 from ..services.llm_service import llm_service
 from ..services.context_manager import ContextManager
 from ..dependencies import get_current_user
@@ -1016,3 +1017,162 @@ async def delete_scenes_from_sequence(
         )
     
     return {"message": f"Scenes from sequence {sequence_number} onwards deleted successfully"}
+
+# ====== DRAFT STORY MANAGEMENT ======
+
+@router.post("/draft")
+async def create_draft_story(
+    story_data: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create or update a draft story with incremental progress"""
+    
+    step = story_data.get('step', 0)
+    
+    # Check if there's already a draft for this user
+    existing_draft = db.query(Story).filter(
+        Story.owner_id == current_user.id,
+        Story.status == StoryStatus.DRAFT
+    ).first()
+    
+    if existing_draft:
+        # Update existing draft
+        story = existing_draft
+        story.creation_step = step
+        story.draft_data = story_data
+        
+        # Update story fields as they become available
+        if 'title' in story_data and story_data['title']:
+            story.title = story_data['title']
+        if 'description' in story_data and story_data['description']:
+            story.description = story_data['description']
+        if 'genre' in story_data and story_data['genre']:
+            story.genre = story_data['genre']
+        if 'tone' in story_data and story_data['tone']:
+            story.tone = story_data['tone']
+        if 'world_setting' in story_data and story_data['world_setting']:
+            story.world_setting = story_data['world_setting']
+        if 'initial_premise' in story_data and story_data['initial_premise']:
+            story.initial_premise = story_data['initial_premise']
+            
+        story.updated_at = func.now()
+        
+    else:
+        # Create new draft
+        story = Story(
+            title=story_data.get('title', 'Untitled Story'),
+            description=story_data.get('description', ''),
+            owner_id=current_user.id,
+            genre=story_data.get('genre', ''),
+            tone=story_data.get('tone', ''),
+            world_setting=story_data.get('world_setting', ''),
+            initial_premise=story_data.get('initial_premise', ''),
+            status=StoryStatus.DRAFT,
+            creation_step=step,
+            draft_data=story_data
+        )
+        db.add(story)
+    
+    db.commit()
+    db.refresh(story)
+    
+    return {
+        "id": story.id,
+        "title": story.title,
+        "status": story.status,
+        "creation_step": story.creation_step,
+        "draft_data": story.draft_data,
+        "message": "Draft saved successfully"
+    }
+
+@router.get("/draft")
+async def get_draft_story(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get the current draft story for the user"""
+    
+    draft = db.query(Story).filter(
+        Story.owner_id == current_user.id,
+        Story.status == StoryStatus.DRAFT
+    ).first()
+    
+    if not draft:
+        return {"draft": None}
+    
+    return {
+        "draft": {
+            "id": draft.id,
+            "title": draft.title,
+            "description": draft.description,
+            "genre": draft.genre,
+            "tone": draft.tone,
+            "world_setting": draft.world_setting,
+            "initial_premise": draft.initial_premise,
+            "status": draft.status,
+            "creation_step": draft.creation_step,
+            "draft_data": draft.draft_data,
+            "created_at": draft.created_at,
+            "updated_at": draft.updated_at
+        }
+    }
+
+@router.post("/draft/{story_id}/finalize")
+async def finalize_draft_story(
+    story_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Convert a draft story to active status"""
+    
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id,
+        Story.status == StoryStatus.DRAFT
+    ).first()
+    
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Draft story not found"
+        )
+    
+    # Mark as active
+    story.status = StoryStatus.ACTIVE
+    story.creation_step = 6  # Completed
+    
+    db.commit()
+    db.refresh(story)
+    
+    return {
+        "id": story.id,
+        "title": story.title,
+        "status": story.status,
+        "message": "Story finalized successfully"
+    }
+
+@router.delete("/draft/{story_id}")
+async def delete_draft_story(
+    story_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a draft story"""
+    
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id,
+        Story.status == StoryStatus.DRAFT
+    ).first()
+    
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Draft story not found"
+        )
+    
+    db.delete(story)
+    db.commit()
+    
+    return {"message": "Draft story deleted successfully"}
