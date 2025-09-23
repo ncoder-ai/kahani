@@ -1,0 +1,86 @@
+from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+from .config import settings
+from .database import engine, get_db
+from .models import Base
+from .dependencies import get_current_user
+import logging
+import os
+
+# Configure logging
+os.makedirs(os.path.dirname(settings.log_file), exist_ok=True)
+logging.basicConfig(
+    level=getattr(logging, settings.log_level.upper()),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler(settings.log_file),
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger(__name__)
+
+# Create tables
+Base.metadata.create_all(bind=engine)
+
+# Create FastAPI app
+app = FastAPI(
+    title=settings.app_name,
+    version=settings.app_version,
+    debug=settings.debug
+)
+
+# Add CORS middleware
+logger.info(f"CORS Origins: {settings.cors_origins}")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+)
+
+# Security
+security = HTTPBearer()
+
+# Health check endpoint
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    from .services.llm_service import llm_service
+    
+    # Test LLM connection
+    llm_status = await llm_service.test_connection()
+    
+    return {
+        "status": "healthy",
+        "app": settings.app_name,
+        "version": settings.app_version,
+        "llm_connected": llm_status
+    }
+
+# Import and include routers
+from .api import auth, stories, characters, summaries
+from .api import settings as settings_router
+
+app.include_router(auth.router, prefix="/api/auth", tags=["authentication"])
+app.include_router(stories.router, prefix="/api/stories", tags=["stories"])
+app.include_router(characters.router, prefix="/api/characters", tags=["characters"])
+app.include_router(settings_router.router, prefix="/api/settings", tags=["settings"])
+app.include_router(summaries.router, prefix="/api", tags=["summaries"])
+
+# Root endpoint
+@app.get("/")
+async def root():
+    """Root endpoint"""
+    return {
+        "message": f"Welcome to {settings.app_name}",
+        "version": settings.app_version,
+        "docs": "/docs"
+    }
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

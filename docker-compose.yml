@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  kahani-backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./exports:/app/exports
+      - ./logs:/app/logs
+    environment:
+      - DATABASE_URL=sqlite:///./data/kahani.db
+      - JWT_SECRET_KEY=kahani-secret-key-change-in-production
+      - LLM_BASE_URL=http://host.docker.internal:1234/v1
+      - DEBUG=true
+    depends_on:
+      - postgres
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    
+  kahani-frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    depends_on:
+      - kahani-backend
+    
+  postgres:
+    image: postgres:15
+    environment:
+      - POSTGRES_DB=kahani
+      - POSTGRES_USER=kahani
+      - POSTGRES_PASSWORD=kahani_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+volumes:
+  postgres_data:
