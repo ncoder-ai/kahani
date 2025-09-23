@@ -1,5 +1,12 @@
 # Kahani - Interactive Storytelling Platform
 
+[![GitHub Repository](https://img.shields.io/badge/GitHub-ncoder--ai%2Fkahani-blue?logo=github)](https://github.com/ncoder-ai/kahani)
+[![Python](https://img.shields.io/badge/Python-3.11+-blue?logo=python)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green?logo=fastapi)](https://fastapi.tiangolo.com)
+[![Next.js](https://img.shields.io/badge/Next.js-14+-black?logo=next.js)](https://nextjs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5+-blue?logo=typescript)](https://typescriptlang.org)
+[![License](https://img.shields.io/badge/License-MIT-yellow)](https://opensource.org/licenses/MIT)
+
 Kahani is an AI-powered interactive storytelling application that allows users to create, explore, and collaborate on branching narratives. Built with Python FastAPI backend and Next.js frontend, it integrates with local LLM instances via LM Studio for story generation.
 
 ## 🚀 Features
@@ -14,6 +21,11 @@ Kahani is an AI-powered interactive storytelling application that allows users t
 - **Real-time Editing**: Edit AI-generated content inline
 - **Local LLM Integration**: Works with LM Studio and OpenAI-compatible APIs
 - **Token-Aware Processing**: Automatic context optimization for long stories
+- **📱 Scene Display Customization**: Choose from multiple scene formats (default, bubble, card, minimal)
+- **⌨️ Keyboard Navigation**: Navigate scenes with arrow keys (← previous, → regenerate)
+- **🔄 Scene Regeneration**: Regenerate scenes you don't like with a single keypress
+- **🎨 Customizable UI**: Toggle scene titles and customize display preferences
+- **📜 Scene History**: Navigate back through scene versions with full history tracking
 
 ## 🏗️ Architecture
 
