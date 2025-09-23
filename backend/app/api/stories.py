@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Form
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
@@ -8,6 +9,7 @@ from ..services.llm_service import llm_service
 from ..services.context_manager import ContextManager
 from ..dependencies import get_current_user
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -145,7 +147,7 @@ async def get_story(
 @router.post("/{story_id}/scenes")
 async def generate_scene(
     story_id: int,
-    custom_prompt: str = "",
+    custom_prompt: str = Form(""),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -252,6 +254,125 @@ async def generate_scene(
         },
         "message": "Scene generated successfully with smart context management"
     }
+
+@router.post("/{story_id}/scenes/stream")
+async def generate_scene_streaming(
+    story_id: int,
+    custom_prompt: str = Form(""),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Generate a new scene for the story with streaming response"""
+    
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found"
+        )
+    
+    # Get user settings
+    user_settings_db = db.query(UserSettings).filter(
+        UserSettings.user_id == current_user.id
+    ).first()
+    
+    user_settings = user_settings_db.to_dict() if user_settings_db else None
+    
+    # Create context manager with user settings
+    context_manager = ContextManager(user_settings=user_settings)
+    
+    # Use context manager to build optimized context
+    try:
+        context = await context_manager.build_scene_generation_context(
+            story_id, db, custom_prompt
+        )
+    except Exception as e:
+        logger.error(f"Failed to build context for story {story_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to prepare story context: {str(e)}"
+        )
+    
+    # Calculate next sequence number
+    current_scene_count = db.query(Scene).filter(Scene.story_id == story_id).count()
+    next_sequence = current_scene_count + 1
+    
+    async def generate_stream():
+        try:
+            full_content = ""
+            
+            # Send initial metadata
+            yield f"data: {json.dumps({'type': 'start', 'sequence': next_sequence})}\n\n"
+            
+            # Stream scene generation
+            async for chunk in llm_service.generate_scene_with_context_management_streaming(context, user_settings):
+                full_content += chunk
+                yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+            
+            # Save the scene to database
+            scene = Scene(
+                story_id=story_id,
+                sequence_number=next_sequence,
+                content=full_content.strip(),
+                original_content=full_content.strip()
+            )
+            
+            db.add(scene)
+            db.commit()
+            db.refresh(scene)
+            
+            # Generate choices for the new scene
+            try:
+                choice_context = {
+                    "genre": context.get("genre"),
+                    "tone": context.get("tone"),
+                    "characters": context.get("characters", []),
+                    "current_situation": f"Scene {next_sequence}: {full_content}"
+                }
+                
+                choices = await llm_service.generate_choices(full_content, choice_context, user_settings)
+                
+                # Save choices to database
+                choices_data = []
+                for i, choice_text in enumerate(choices):
+                    choice = SceneChoice(
+                        scene_id=scene.id,
+                        choice_text=choice_text,
+                        choice_order=i + 1
+                    )
+                    db.add(choice)
+                    choices_data.append({
+                        "text": choice_text,
+                        "order": i + 1
+                    })
+                
+                db.commit()
+                
+            except Exception as e:
+                logger.warning(f"Failed to generate choices for scene {scene.id}: {e}")
+                choices_data = []
+            
+            # Send completion data
+            yield f"data: {json.dumps({'type': 'complete', 'scene_id': scene.id, 'choices': choices_data})}\n\n"
+            yield "data: [DONE]\n\n"
+            
+        except Exception as e:
+            logger.error(f"Streaming generation failed: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+    
+    return StreamingResponse(
+        generate_stream(),
+        media_type="text/plain",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Content-Type": "text/event-stream"
+        }
+    )
 
 @router.get("/{story_id}/context-info")
 async def get_story_context_info(
@@ -479,10 +600,10 @@ async def regenerate_last_scene(
     
     try:
         # Build context for scene generation
-        scene_context = await context_manager.build_context(story_id, db)
+        scene_context = await context_manager.build_scene_generation_context(story_id, db)
         
-        # Generate new scene using LLM
-        new_content = await llm_service.generate_scene(scene_context, user_settings)
+        # Generate new scene using LLM with context management
+        new_content = await llm_service.generate_scene_with_context_management(scene_context, user_settings)
         
         # Create new scene
         new_scene = Scene(
