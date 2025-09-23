@@ -875,7 +875,7 @@ export default function StoryPage() {
                 <div className="text-center py-12">
                   <p className="text-gray-400 mb-6">Your story awaits...</p>
                   <button
-                    onClick={() => generateScene()}
+                    onClick={() => useStreaming ? generateNewSceneStreaming() : generateNewScene()}
                     disabled={isGenerating || isStreaming}
                     className="bg-pink-600 hover:bg-pink-700 text-white px-6 py-3 rounded-lg font-medium disabled:opacity-50"
                   >
