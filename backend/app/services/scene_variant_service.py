@@ -55,13 +55,23 @@ class SceneVariantService:
         # Create choices for this variant
         if choices:
             for i, choice_data in enumerate(choices):
+                # Handle both string and dict formats for backward compatibility
+                if isinstance(choice_data, str):
+                    choice_text = choice_data
+                    choice_description = None
+                    predicted_outcomes = {}
+                else:
+                    choice_text = choice_data.get('text', '')
+                    choice_description = choice_data.get('description')
+                    predicted_outcomes = choice_data.get('outcomes', {})
+                
                 choice = SceneChoice(
                     scene_id=scene.id,
                     scene_variant_id=variant.id,
-                    choice_text=choice_data.get('text', ''),
+                    choice_text=choice_text,
                     choice_order=i + 1,
-                    choice_description=choice_data.get('description'),
-                    predicted_outcomes=choice_data.get('outcomes', {}),
+                    choice_description=choice_description,
+                    predicted_outcomes=predicted_outcomes,
                 )
                 self.db.add(choice)
         

@@ -356,14 +356,19 @@ async def generate_scene_streaming(
 
             # Save the scene to database using SceneVariantService
             variant_service = SceneVariantService(db)
-            scene, variant = variant_service.create_scene_with_variant(
-                story_id=story_id,
-                sequence_number=next_sequence,
-                content=full_content.strip(),
-                title=f"Scene {next_sequence}",
-                custom_prompt=custom_prompt if custom_prompt else None,
-                choices=choices_data  # Pass formatted choices
-            )
+            try:
+                scene, variant = variant_service.create_scene_with_variant(
+                    story_id=story_id,
+                    sequence_number=next_sequence,
+                    content=full_content.strip(),
+                    title=f"Scene {next_sequence}",
+                    custom_prompt=custom_prompt if custom_prompt else None,
+                    choices=choices_data  # Pass formatted choices
+                )
+                logger.info(f"Created scene {scene.id} with variant {variant.id} for story {story_id}")
+            except Exception as e:
+                logger.error(f"Failed to create scene variant: {e}")
+                raise
             
             # Send completion data
             yield f"data: {json.dumps({'type': 'complete', 'scene_id': scene.id, 'choices': choices_data})}\n\n"
