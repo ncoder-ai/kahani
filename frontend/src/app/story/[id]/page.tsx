@@ -454,14 +454,15 @@ export default function StoryPage() {
   const createNewVariant = async (sceneId: number, customPrompt?: string) => {
     if (!story) return;
     
+    console.log('createNewVariant called', { sceneId, customPrompt });
+    
     try {
       setIsRegenerating(true);
+      
+      // Create a new variant for the scene
       const response = await apiClient.createSceneVariant(story.id, sceneId, customPrompt);
       
-      // Reload variants for this scene
-      await loadSceneVariants(sceneId);
-      
-      // Reload the story (the new variant should be automatically active)
+      // Reload the story to get the updated variants
       await loadStory();
       
       console.log('New variant created:', response.variant);
