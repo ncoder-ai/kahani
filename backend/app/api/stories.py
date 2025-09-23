@@ -4,7 +4,8 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
 from ..database import get_db
-from ..models import Story, Scene, SceneChoice, User, UserSettings
+from ..models import Story, Scene, Character, StoryCharacter, User, UserSettings, SceneChoice, SceneVariant, StoryFlow
+from ..services.scene_variant_service import SceneVariantService
 from ..services.llm_service import llm_service
 from ..services.context_manager import ContextManager
 from ..dependencies import get_current_user
@@ -105,7 +106,7 @@ async def get_story(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get a specific story"""
+    """Get a specific story with its active flow"""
     
     story = db.query(Story).filter(
         Story.id == story_id,
@@ -118,10 +119,28 @@ async def get_story(
             detail="Story not found"
         )
     
-    # Get scenes
-    scenes = db.query(Scene).filter(
-        Scene.story_id == story_id
-    ).order_by(Scene.sequence_number).all()
+    # Get the active story flow instead of direct scenes
+    service = SceneVariantService(db)
+    flow = service.get_active_story_flow(story_id)
+    
+    # Transform flow data to match expected format for backward compatibility
+    scenes = []
+    for flow_item in flow:
+        variant = flow_item['variant']
+        scenes.append({
+            "id": flow_item['scene_id'],
+            "sequence_number": flow_item['sequence_number'],
+            "title": variant['title'],
+            "content": variant['content'],
+            "location": "",  # TODO: Add location to variant
+            "characters_present": [],  # TODO: Add characters to variant
+            # Additional variant info
+            "variant_id": variant['id'],
+            "variant_number": variant['variant_number'],
+            "is_original": variant['is_original'],
+            "has_multiple_variants": flow_item['all_variants_count'] > 1,
+            "choices": flow_item['choices']
+        })
     
     return {
         "id": story.id,
@@ -131,17 +150,11 @@ async def get_story(
         "tone": story.tone,
         "world_setting": story.world_setting,
         "status": story.status,
-        "scenes": [
-            {
-                "id": scene.id,
-                "sequence_number": scene.sequence_number,
-                "title": scene.title,
-                "content": scene.content,
-                "location": scene.location,
-                "characters_present": scene.characters_present
-            }
-            for scene in scenes
-        ]
+        "scenes": scenes,
+        "flow_info": {
+            "total_scenes": len(scenes),
+            "has_variants": any(scene['has_multiple_variants'] for scene in scenes)
+        }
     }
 
 @router.post("/{story_id}/scenes")
@@ -196,57 +209,59 @@ async def generate_scene(
             detail=f"Failed to generate scene: {str(e)}"
         )
     
-    # Create scene
+    # Create scene with variant system
     current_scene_count = db.query(Scene).filter(Scene.story_id == story_id).count()
     next_sequence = current_scene_count + 1
     
-    scene = Scene(
-        story_id=story_id,
-        sequence_number=next_sequence,
-        content=scene_content,
-        original_content=scene_content
-    )
-    
-    db.add(scene)
-    db.commit()
-    db.refresh(scene)
-    
-    # Generate choices with context
+    # Generate choices first
     choices_data = []
     try:
-        # Build lighter context for choice generation
-        choice_context = {
-            "genre": context.get("genre"),
-            "tone": context.get("tone"),
-            "characters": context.get("characters", []),
-            "current_situation": f"Scene {next_sequence}: {scene_content}"
-        }
+        choice_context = await context_manager.build_choice_generation_context(story_id, db)
+        choices_result = await llm_service.generate_choices(choice_context, user_settings)
+        choices_data = choices_result.get('choices', [])
+    except Exception as e:
+        logger.warning(f"Failed to generate choices: {e}")
+        choices_data = []  # Continue without choices
+    
+    # Use the new variant service to create scene with variant
+    try:
+        service = SceneVariantService(db)
+        scene, variant = service.create_scene_with_variant(
+            story_id=story_id,
+            sequence_number=next_sequence,
+            content=scene_content,
+            title=f"Scene {next_sequence}",
+            custom_prompt=custom_prompt if custom_prompt else None,
+            choices=choices_data
+        )
         
-        choices = await llm_service.generate_choices(scene_content, choice_context, user_settings)
-        
-        for i, choice_text in enumerate(choices):
-            choice = SceneChoice(
-                scene_id=scene.id,
-                choice_text=choice_text,
-                choice_order=i + 1
-            )
-            db.add(choice)
-            choices_data.append({
-                "text": choice_text,
-                "order": i + 1
-            })
-        
-        db.commit()
+        # Format choices for response
+        formatted_choices = [
+            {
+                "text": choice.get('text', ''),
+                "order": i + 1,
+                "description": choice.get('description')
+            }
+            for i, choice in enumerate(choices_data)
+        ]
         
     except Exception as e:
-        # Scene was created successfully, but choices failed
-        logger.warning(f"Failed to generate choices for scene {scene.id}: {e}")
+        logger.error(f"Failed to create scene with variant: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create scene: {str(e)}"
+        )
     
     return {
         "id": scene.id,
         "content": scene_content,
         "sequence_number": next_sequence,
-        "choices": choices_data,
+        "choices": formatted_choices,
+        "variant": {
+            "id": variant.id,
+            "variant_number": variant.variant_number,
+            "is_original": variant.is_original
+        },
         "context_info": {
             "total_scenes": context.get("total_scenes", 0) + 1,
             "context_type": "summarized" if context.get("scene_summary") else "full",
@@ -560,7 +575,7 @@ async def regenerate_last_scene(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Remove the last scene and generate a new one"""
+    """Create a new variant for the last scene"""
     
     story = db.query(Story).filter(
         Story.id == story_id,
@@ -573,20 +588,19 @@ async def regenerate_last_scene(
             detail="Story not found"
         )
     
-    # Get the latest scene
-    latest_scene = db.query(Scene).filter(
-        Scene.story_id == story_id
-    ).order_by(Scene.sequence_number.desc()).first()
+    # Get the latest scene from the active flow
+    service = SceneVariantService(db)
+    flow = service.get_active_story_flow(story_id)
     
-    if not latest_scene:
+    if not flow:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No scenes found for this story"
         )
     
-    # Delete the latest scene
-    db.delete(latest_scene)
-    db.commit()
+    # Get the last scene
+    last_flow_item = flow[-1]
+    last_scene_id = last_flow_item['scene_id']
     
     # Get user settings
     user_settings_db = db.query(UserSettings).filter(
@@ -595,37 +609,43 @@ async def regenerate_last_scene(
     
     user_settings = user_settings_db.to_dict() if user_settings_db else None
     
-    # Create context manager with user settings
-    context_manager = ContextManager(user_settings=user_settings)
-    
     try:
-        # Build context for scene generation
-        scene_context = await context_manager.build_scene_generation_context(story_id, db)
-        
-        # Generate new scene using LLM with context management
-        new_content = await llm_service.generate_scene_with_context_management(scene_context, user_settings)
-        
-        # Create new scene
-        new_scene = Scene(
-            story_id=story_id,
-            sequence_number=latest_scene.sequence_number,  # Use same sequence number
-            title=f"Scene {latest_scene.sequence_number}",
-            content=new_content
+        # Create a new variant for the last scene
+        new_variant = await service.regenerate_scene_variant(
+            scene_id=last_scene_id,
+            user_settings=user_settings
         )
         
-        db.add(new_scene)
-        db.commit()
-        db.refresh(new_scene)
+        # Get choices for the new variant
+        choices = db.query(SceneChoice)\
+            .filter(SceneChoice.scene_variant_id == new_variant.id)\
+            .order_by(SceneChoice.choice_order)\
+            .all()
         
         return {
             "message": "Scene regenerated successfully",
             "scene": {
-                "id": new_scene.id,
-                "sequence_number": new_scene.sequence_number,
-                "title": new_scene.title,
-                "content": new_scene.content,
-                "location": new_scene.location,
-                "characters_present": new_scene.characters_present or []
+                "id": last_scene_id,
+                "sequence_number": last_flow_item['sequence_number'],
+                "title": new_variant.title,
+                "content": new_variant.content,
+                "location": "",  # TODO: Add to variant
+                "characters_present": []  # TODO: Add to variant
+            },
+            "variant": {
+                "id": new_variant.id,
+                "variant_number": new_variant.variant_number,
+                "is_original": new_variant.is_original,
+                "generation_method": new_variant.generation_method,
+                "choices": [
+                    {
+                        "id": choice.id,
+                        "text": choice.choice_text,
+                        "description": choice.choice_description,
+                        "order": choice.choice_order,
+                    }
+                    for choice in choices
+                ]
             }
         }
         
@@ -765,3 +785,234 @@ async def generate_plot(
                 "plot_point": fallback_points[min(index, len(fallback_points)-1)],
                 "message": "Plot point generated (fallback mode)"
             }
+
+# ====== NEW SCENE VARIANT ENDPOINTS ======
+
+@router.get("/{story_id}/flow")
+async def get_story_flow(
+    story_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get the current active story flow with scene variants"""
+    
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found"
+        )
+    
+    service = SceneVariantService(db)
+    flow = service.get_active_story_flow(story_id)
+    
+    return {
+        "story_id": story_id,
+        "flow": flow,
+        "total_scenes": len(flow)
+    }
+
+@router.get("/{story_id}/scenes/{scene_id}/variants")
+async def get_scene_variants(
+    story_id: int,
+    scene_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get all variants for a specific scene"""
+    
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found"
+        )
+    
+    scene = db.query(Scene).filter(
+        Scene.id == scene_id,
+        Scene.story_id == story_id
+    ).first()
+    
+    if not scene:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scene not found"
+        )
+    
+    service = SceneVariantService(db)
+    variants = service.get_scene_variants(scene_id)
+    
+    # Get choices for each variant
+    result = []
+    for variant in variants:
+        choices = db.query(SceneChoice)\
+            .filter(SceneChoice.scene_variant_id == variant.id)\
+            .order_by(SceneChoice.choice_order)\
+            .all()
+        
+        result.append({
+            'id': variant.id,
+            'variant_number': variant.variant_number,
+            'content': variant.content,
+            'title': variant.title,
+            'is_original': variant.is_original,
+            'generation_method': variant.generation_method,
+            'user_rating': variant.user_rating,
+            'is_favorite': variant.is_favorite,
+            'created_at': variant.created_at,
+            'choices': [
+                {
+                    'id': choice.id,
+                    'text': choice.choice_text,
+                    'description': choice.choice_description,
+                    'order': choice.choice_order,
+                }
+                for choice in choices
+            ]
+        })
+    
+    return {
+        "scene_id": scene_id,
+        "variants": result
+    }
+
+@router.post("/{story_id}/scenes/{scene_id}/variants")
+async def create_scene_variant(
+    story_id: int,
+    scene_id: int,
+    request: dict = {},
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create a new variant (regeneration) for a scene"""
+    
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found"
+        )
+    
+    # Get user settings
+    user_settings_db = db.query(UserSettings).filter(
+        UserSettings.user_id == current_user.id
+    ).first()
+    
+    user_settings = user_settings_db.to_dict() if user_settings_db else None
+    
+    try:
+        service = SceneVariantService(db)
+        variant = await service.regenerate_scene_variant(
+            scene_id=scene_id,
+            custom_prompt=request.get('custom_prompt'),
+            user_settings=user_settings
+        )
+        
+        # Get choices for the new variant
+        choices = db.query(SceneChoice)\
+            .filter(SceneChoice.scene_variant_id == variant.id)\
+            .order_by(SceneChoice.choice_order)\
+            .all()
+        
+        return {
+            "message": "Scene variant created successfully",
+            "variant": {
+                "id": variant.id,
+                "variant_number": variant.variant_number,
+                "content": variant.content,
+                "title": variant.title,
+                "is_original": variant.is_original,
+                "generation_method": variant.generation_method,
+                "choices": [
+                    {
+                        "id": choice.id,
+                        "text": choice.choice_text,
+                        "description": choice.choice_description,
+                        "order": choice.choice_order,
+                    }
+                    for choice in choices
+                ]
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to create scene variant: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create scene variant: {str(e)}"
+        )
+
+@router.post("/{story_id}/scenes/{scene_id}/variants/{variant_id}/activate")
+async def activate_scene_variant(
+    story_id: int,
+    scene_id: int,
+    variant_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Switch the story flow to use a different scene variant"""
+    
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found"
+        )
+    
+    service = SceneVariantService(db)
+    success = service.switch_to_variant(story_id, scene_id, variant_id)
+    
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to switch variant"
+        )
+    
+    return {"message": "Variant activated successfully"}
+
+@router.delete("/{story_id}/scenes/from/{sequence_number}")
+async def delete_scenes_from_sequence(
+    story_id: int,
+    sequence_number: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete all scenes from a given sequence number onwards"""
+    
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found"
+        )
+    
+    service = SceneVariantService(db)
+    success = service.delete_scenes_from_sequence(story_id, sequence_number)
+    
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to delete scenes"
+        )
+    
+    return {"message": f"Scenes from sequence {sequence_number} onwards deleted successfully"}
