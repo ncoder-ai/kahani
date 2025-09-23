@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/store';
 import apiClient from '@/lib/api';
 import CharacterQuickAdd from '@/components/CharacterQuickAdd';
@@ -40,6 +40,7 @@ const STEPS = [
 
 export default function CreateStoryPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user } = useAuthStore();
   const [currentStep, setCurrentStep] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
@@ -62,27 +63,56 @@ export default function CreateStoryPage() {
   useEffect(() => {
     const loadDraft = async () => {
       try {
-        const response = await apiClient.getDraftStory();
-        if (response.draft) {
-          const draft = response.draft;
-          setDraftStoryId(draft.id);
-          setCurrentStep(draft.creation_step);
+        // Check if we have a specific story ID to load
+        const storyIdParam = searchParams.get('story_id');
+        
+        if (storyIdParam) {
+          // Load specific story
+          const storyId = parseInt(storyIdParam);
+          const response = await apiClient.getStory(storyId);
+          setDraftStoryId(response.id);
+          setCurrentStep(response.creation_step || 0);
           
           // Restore story data from draft
-          if (draft.draft_data) {
-            setStoryData(draft.draft_data);
+          if (response.draft_data) {
+            setStoryData(response.draft_data);
           } else {
             // Fallback to individual fields
             setStoryData({
-              title: draft.title || '',
-              description: draft.description || '',
-              genre: draft.genre || '',
-              tone: draft.tone || '',
-              world_setting: draft.world_setting || '',
-              characters: [],
+              title: response.title || '',
+              description: response.description || '',
+              genre: response.genre || '',
+              tone: response.tone || '',
+              world_setting: response.world_setting || '',
+              characters: [], // These would need to be loaded separately if needed
               plot_points: [],
               scenario: '',
             });
+          }
+        } else {
+          // Load user's general draft
+          const response = await apiClient.getDraftStory();
+          if (response.draft) {
+            const draft = response.draft;
+            setDraftStoryId(draft.id);
+            setCurrentStep(draft.creation_step);
+            
+            // Restore story data from draft
+            if (draft.draft_data) {
+              setStoryData(draft.draft_data);
+            } else {
+              // Fallback to individual fields
+              setStoryData({
+                title: draft.title || '',
+                description: draft.description || '',
+                genre: draft.genre || '',
+                tone: draft.tone || '',
+                world_setting: draft.world_setting || '',
+                characters: [],
+                plot_points: [],
+                scenario: '',
+              });
+            }
           }
         }
       } catch (error) {
@@ -97,7 +127,7 @@ export default function CreateStoryPage() {
     } else {
       setIsLoadingDraft(false);
     }
-  }, [user]);
+  }, [user, searchParams]);
 
   const saveDraft = async (step: number, data?: Partial<StoryData>) => {
     const updatedData = data ? { ...storyData, ...data } : storyData;
