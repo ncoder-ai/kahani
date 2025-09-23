@@ -32,6 +32,35 @@ interface Scene {
   content: string;
   location: string;
   characters_present: string[];
+  // New variant properties
+  variant_id?: number;
+  variant_number?: number;
+  is_original?: boolean;
+  has_multiple_variants?: boolean;
+  choices?: Array<{
+    id: number;
+    text: string;
+    description?: string;
+    order: number;
+  }>;
+}
+
+interface SceneVariant {
+  id: number;
+  variant_number: number;
+  content: string;
+  title: string;
+  is_original: boolean;
+  generation_method: string;
+  user_rating?: number;
+  is_favorite: boolean;
+  created_at: string;
+  choices: Array<{
+    id: number;
+    text: string;
+    description?: string;
+    order: number;
+  }>;
 }
 
 interface Story {
@@ -43,6 +72,10 @@ interface Story {
   world_setting: string;
   status: string;
   scenes: Scene[];
+  flow_info?: {
+    total_scenes: number;
+    has_variants: boolean;
+  };
 }
 
 export default function StoryPage() {
@@ -72,6 +105,15 @@ export default function StoryPage() {
   const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [userSettings, setUserSettings] = useState<any>(null);
+  
+  // New variant system states
+  const [selectedSceneVariants, setSelectedSceneVariants] = useState<{[sceneId: number]: SceneVariant[]}>({});
+  const [currentVariantIds, setCurrentVariantIds] = useState<{[sceneId: number]: number}>({});
+  const [showVariantSelector, setShowVariantSelector] = useState<{[sceneId: number]: boolean}>({});
+  const [isDeletingScenes, setIsDeletingScenes] = useState(false);
+  const [selectedScenesForDeletion, setSelectedScenesForDeletion] = useState<number[]>([]);
+  const [isInDeleteMode, setIsInDeleteMode] = useState(false);
+  
   // Streaming states
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
@@ -342,16 +384,14 @@ export default function StoryPage() {
     
     setIsRegenerating(true);
     try {
-      // Store current scenes in history before regeneration
-      if (sceneHistory.length === 0 || sceneHistory[sceneHistory.length - 1] !== story.scenes) {
-        setSceneHistory(prev => [...prev, [...story.scenes]]);
-      }
+      const response = await apiClient.regenerateLastScene(story.id);
       
-      // Call the regeneration API
-      await apiClient.regenerateLastScene(story.id);
-      
-      // Reload the story to get the new scene
+      // Reload the story to get the updated flow
       await loadStory();
+      
+      // Show success message or handle the new variant
+      console.log('Scene regenerated:', response.variant);
+      
     } catch (error) {
       console.error('Failed to regenerate scene:', error);
       setError(error instanceof Error ? error.message : 'Failed to regenerate scene');
@@ -368,6 +408,110 @@ export default function StoryPage() {
     }
   };
 
+  const goToNextScene = () => {
+    // Navigate forward in linear scene progression
+    if (story && story.scenes.length > 0) {
+      // For now, this could scroll to the next scene or enable "continue story" functionality
+      console.log('Go to next scene - to be implemented');
+    }
+  };
+
+  const loadSceneVariants = async (sceneId: number) => {
+    if (!story) return;
+    
+    try {
+      const response = await apiClient.getSceneVariants(story.id, sceneId);
+      setSelectedSceneVariants(prev => ({
+        ...prev,
+        [sceneId]: response.variants
+      }));
+    } catch (error) {
+      console.error('Failed to load scene variants:', error);
+    }
+  };
+
+  const switchToVariant = async (sceneId: number, variantId: number) => {
+    if (!story) return;
+    
+    try {
+      await apiClient.activateSceneVariant(story.id, sceneId, variantId);
+      
+      // Update the current variant ID
+      setCurrentVariantIds(prev => ({
+        ...prev,
+        [sceneId]: variantId
+      }));
+      
+      // Reload the story to show the new variant
+      await loadStory();
+      
+    } catch (error) {
+      console.error('Failed to switch variant:', error);
+      setError(error instanceof Error ? error.message : 'Failed to switch variant');
+    }
+  };
+
+  const createNewVariant = async (sceneId: number, customPrompt?: string) => {
+    if (!story) return;
+    
+    try {
+      setIsRegenerating(true);
+      const response = await apiClient.createSceneVariant(story.id, sceneId, customPrompt);
+      
+      // Reload variants for this scene
+      await loadSceneVariants(sceneId);
+      
+      // Reload the story (the new variant should be automatically active)
+      await loadStory();
+      
+      console.log('New variant created:', response.variant);
+      
+    } catch (error) {
+      console.error('Failed to create variant:', error);
+      setError(error instanceof Error ? error.message : 'Failed to create variant');
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
+
+  const toggleDeleteMode = () => {
+    setIsInDeleteMode(!isInDeleteMode);
+    setSelectedScenesForDeletion([]);
+  };
+
+  const toggleSceneForDeletion = (sequenceNumber: number) => {
+    if (selectedScenesForDeletion.includes(sequenceNumber)) {
+      setSelectedScenesForDeletion(prev => prev.filter(seq => seq !== sequenceNumber));
+    } else {
+      setSelectedScenesForDeletion(prev => [...prev, sequenceNumber]);
+    }
+  };
+
+  const deleteScenesFromSelected = async () => {
+    if (!story || selectedScenesForDeletion.length === 0) return;
+    
+    // Find the earliest selected sequence number
+    const earliestSequence = Math.min(...selectedScenesForDeletion);
+    
+    try {
+      setIsDeletingScenes(true);
+      await apiClient.deleteScenesFromSequence(story.id, earliestSequence);
+      
+      // Exit delete mode
+      setIsInDeleteMode(false);
+      setSelectedScenesForDeletion([]);
+      
+      // Reload the story
+      await loadStory();
+      
+    } catch (error) {
+      console.error('Failed to delete scenes:', error);
+      setError(error instanceof Error ? error.message : 'Failed to delete scenes');
+    } finally {
+      setIsDeletingScenes(false);
+    }
+  };
+
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -375,18 +519,30 @@ export default function StoryPage() {
         return; // Don't interfere with input fields
       }
       
-      if (event.key === 'ArrowRight' && !isGenerating && !isRegenerating) {
+      if (event.key === 'ArrowRight' && !isGenerating && !isRegenerating && story?.scenes.length) {
         event.preventDefault();
-        regenerateLastScene();
+        const lastScene = story.scenes[story.scenes.length - 1];
+        createNewVariant(lastScene.id);
       } else if (event.key === 'ArrowLeft' && sceneHistory.length > 0) {
         event.preventDefault();
         goToPreviousScene();
+      } else if (event.key === 'ArrowUp' && story?.scenes.length) {
+        event.preventDefault();
+        // Navigate to previous scene (scroll or focus)
+        // For now, just scroll up
+        if (storyContentRef.current) {
+          storyContentRef.current.scrollTop -= 200;
+        }
+      } else if (event.key === 'ArrowDown' && story?.scenes.length) {
+        event.preventDefault();
+        // Navigate to next scene (scroll or continue story)
+        goToNextScene();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isGenerating, isRegenerating, sceneHistory]);
+  }, [isGenerating, isRegenerating, sceneHistory, story]);
 
   // Use dynamic choices from LLM, or fallback choices if none available
   const getAvailableChoices = () => {
@@ -599,7 +755,7 @@ export default function StoryPage() {
                           </button>
                           
                           <button
-                            onClick={regenerateLastScene}
+                            onClick={() => createNewVariant(scene.id)}
                             disabled={isGenerating || isStreaming || isRegenerating}
                             className="flex items-center space-x-2 px-4 py-2 bg-pink-600 hover:bg-pink-700 disabled:bg-pink-800 disabled:opacity-50 rounded-lg transition-colors text-sm"
                             title="Regenerate current scene (→)"
@@ -612,6 +768,73 @@ export default function StoryPage() {
                               <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin"></div>
                             )}
                           </button>
+
+                          <button
+                            onClick={goToNextScene}
+                            disabled={isGenerating || isStreaming}
+                            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:opacity-50 rounded-lg transition-colors text-sm"
+                            title="Continue to next scene"
+                          >
+                            <span>Next Scene</span>
+                            <ArrowRightIcon className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Variant Selector for scenes with multiple variants */}
+                      {scene.has_multiple_variants && (
+                        <div className="mt-4 p-3 bg-gray-700/30 rounded-lg border border-gray-600/50">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-sm text-gray-300">
+                              Scene has {selectedSceneVariants[scene.id]?.length || 'multiple'} variants
+                            </span>
+                            <button
+                              onClick={() => loadSceneVariants(scene.id)}
+                              className="text-xs text-pink-400 hover:text-pink-300"
+                            >
+                              View Variants
+                            </button>
+                          </div>
+                          
+                          {selectedSceneVariants[scene.id] && (
+                            <div className="flex flex-wrap gap-2">
+                              {selectedSceneVariants[scene.id].map((variant, variantIndex) => (
+                                <button
+                                  key={variant.id}
+                                  onClick={() => switchToVariant(scene.id, variant.id)}
+                                  className={`px-3 py-1 rounded-full text-xs transition-colors ${
+                                    variant.id === scene.variant_id
+                                      ? 'bg-pink-600 text-white'
+                                      : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
+                                  }`}
+                                >
+                                  {variant.is_original ? 'Original' : `V${variant.variant_number}`}
+                                  {variant.is_favorite && ' ⭐'}
+                                </button>
+                              ))}
+                              <button
+                                onClick={() => createNewVariant(scene.id)}
+                                className="px-3 py-1 rounded-full text-xs bg-pink-600/20 text-pink-400 hover:bg-pink-600/30 transition-colors"
+                              >
+                                + New
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Delete Mode Checkbox */}
+                      {isInDeleteMode && (
+                        <div className="mt-4 p-3 bg-red-900/20 rounded-lg border border-red-600/50">
+                          <label className="flex items-center space-x-2 text-sm text-red-300">
+                            <input
+                              type="checkbox"
+                              checked={selectedScenesForDeletion.includes(scene.sequence_number)}
+                              onChange={() => toggleSceneForDeletion(scene.sequence_number)}
+                              className="w-4 h-4 text-red-600 bg-gray-700 border-gray-600 rounded focus:ring-red-500"
+                            />
+                            <span>Delete from here onward</span>
+                          </label>
                         </div>
                       )}
                     </div>
@@ -791,7 +1014,12 @@ export default function StoryPage() {
               />
               <ToolbarButton icon={PhotoIcon} label="Image" />
               <ToolbarButton icon={ClockIcon} label="History" />
-              <ToolbarButton icon={CheckIcon} label="Conclude" />
+              <ToolbarButton 
+                icon={CheckIcon} 
+                label={isInDeleteMode ? "Delete Selected" : "Delete Mode"}
+                active={isInDeleteMode}
+                onClick={isInDeleteMode ? deleteScenesFromSelected : toggleDeleteMode}
+              />
               <ToolbarButton icon={ArrowDownIcon} label="Export" />
             </div>
             
@@ -799,12 +1027,17 @@ export default function StoryPage() {
             {story?.scenes && story.scenes.length > 0 && (
               <div className="flex items-center space-x-4 text-sm text-gray-400">
                 <div className="flex items-center space-x-1">
-                  <span>Use ← → keys or buttons below scenes</span>
+                  <span>← Previous | → Regenerate | ↑ Scroll Up | ↓ Next Scene</span>
                 </div>
                 {isRegenerating && (
                   <div className="flex items-center space-x-1 text-pink-400">
                     <div className="w-3 h-3 border border-pink-400 border-t-transparent rounded-full animate-spin"></div>
                     <span>Regenerating...</span>
+                  </div>
+                )}
+                {isInDeleteMode && (
+                  <div className="flex items-center space-x-1 text-red-400">
+                    <span>Delete Mode: Select scenes to remove</span>
                   </div>
                 )}
               </div>
