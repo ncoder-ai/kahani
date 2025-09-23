@@ -66,6 +66,7 @@ export default function StoryPage() {
   const [showCharacterQuickAdd, setShowCharacterQuickAdd] = useState(false);
   const [storyCharacters, setStoryCharacters] = useState<Array<{name: string, role: string, description: string}>>([]);
   const [showMoreOptions, setShowMoreOptions] = useState(false);
+  const [isGeneratingMoreOptions, setIsGeneratingMoreOptions] = useState(false);
   const [sceneHistory, setSceneHistory] = useState<Scene[][]>([]);
   const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
   const [isRegenerating, setIsRegenerating] = useState(false);
@@ -183,15 +184,27 @@ export default function StoryPage() {
   };
 
   const generateMoreOptions = async () => {
-    if (!story || !story.scenes.length) return;
+    if (!story || !story.scenes.length || isGeneratingMoreOptions) return;
     
+    setIsGeneratingMoreOptions(true);
     try {
       // Generate fresh choices using the LLM
       const choicesData = await apiClient.generateMoreChoices(storyId);
-      setDynamicChoices(choicesData.choices || []);
+      const newChoices = choicesData.choices || [];
+      
+      // Append new choices to existing ones instead of replacing
+      setDynamicChoices(prev => [
+        ...prev, 
+        ...newChoices.map(choice => ({ 
+          text: choice.text, 
+          order: prev.length + choice.order 
+        }))
+      ]);
       setShowMoreOptions(true);
     } catch (error) {
       console.error('Failed to generate more options:', error);
+    } finally {
+      setIsGeneratingMoreOptions(false);
     }
   };
 
@@ -249,43 +262,15 @@ export default function StoryPage() {
   // Use dynamic choices from LLM, or fallback choices if none available
   const getAvailableChoices = () => {
     if (dynamicChoices.length > 0) {
-      const baseChoices = dynamicChoices.map(choice => choice.text);
-      
-      // If "More" was clicked, show additional creative options
-      if (showMoreOptions) {
-        return [
-          ...baseChoices,
-          "Focus on character development",
-          "Add environmental detail",
-          "Introduce a memory or flashback",
-          "Shift perspective to another character",
-          "Add tension or conflict",
-          "Show character's internal struggle"
-        ];
-      }
-      
-      return baseChoices;
+      return dynamicChoices.map(choice => choice.text);
     }
     
-    // Base fallback choices
+    // Base fallback choices only shown when no dynamic choices are available
     const baseChoices = [
       "Continue this naturally",
       "Add dialogue between characters", 
       "Introduce a plot twist"
     ];
-    
-    // Additional choices when "More" is clicked
-    if (showMoreOptions) {
-      return [
-        ...baseChoices,
-        "Focus on character emotions",
-        "Describe the setting in detail",
-        "Add a surprising revelation",
-        "Show character's past",
-        "Introduce new complications",
-        "Explore character relationships"
-      ];
-    }
     
     return baseChoices;
   };
@@ -538,13 +523,24 @@ export default function StoryPage() {
             <div className="flex justify-center mt-6">
               <button 
                 onClick={generateMoreOptions}
-                className={`text-sm transition-colors ${
+                disabled={isGeneratingMoreOptions}
+                className={`text-sm transition-colors disabled:opacity-50 ${
                   showMoreOptions 
                     ? 'text-purple-400 hover:text-purple-300' 
                     : 'text-gray-400 hover:text-white'
                 }`}
               >
-                {showMoreOptions ? 'More options loaded' : 'More'} <span className="ml-1">ⓘ</span>
+                {isGeneratingMoreOptions ? (
+                  <>
+                    <span className="animate-spin inline-block mr-1">⚡</span>
+                    Generating more choices...
+                  </>
+                ) : showMoreOptions ? (
+                  `Generate more (${dynamicChoices.length} choices available)`
+                ) : (
+                  'More choices'
+                )} 
+                {!isGeneratingMoreOptions && <span className="ml-1">ⓘ</span>}
               </button>
             </div>
 
