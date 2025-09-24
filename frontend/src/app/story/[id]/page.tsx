@@ -131,9 +131,6 @@ export default function StoryPage() {
   const [scenesToShow, setScenesToShow] = useState(5); // Show last 5 scenes initially
   const [isLoadingEarlierScenes, setIsLoadingEarlierScenes] = useState(false);
   
-  // New content indicator
-  const [newContentAdded, setNewContentAdded] = useState(false);
-  
   // Modern scene layout states
   const [sceneLayoutMode, setSceneLayoutMode] = useState<'stacked' | 'modern'>('modern');
   const [isNewSceneAdded, setIsNewSceneAdded] = useState(false);
@@ -141,9 +138,10 @@ export default function StoryPage() {
   const [showChoicesDuringGeneration, setShowChoicesDuringGeneration] = useState(true);
   const [previousSceneCount, setPreviousSceneCount] = useState(0);
   
-  const storyContentRef = useRef<HTMLDivElement>(null);
-  const scenesEndRef = useRef<HTMLDivElement>(null);
-  const lastSceneRef = useRef<HTMLDivElement | null>(null);  useEffect(() => {
+  // Global flag to prevent variant loading during operations
+  const [isSceneOperationInProgress, setIsSceneOperationInProgress] = useState(false);
+  
+  const storyContentRef = useRef<HTMLDivElement>(null);  useEffect(() => {
     // Wait for auth store to hydrate before checking authentication
     if (!hasHydrated) {
       return;
@@ -202,22 +200,10 @@ export default function StoryPage() {
   };
 
   // Targeted story refresh that doesn't cause scrolling
-  const refreshStoryContent = async (preventScroll = true) => {
+  const refreshStoryContent = async () => {
     try {
       const storyData = await apiClient.getStory(storyId);
       setStory(storyData);
-      
-      // If scroll is allowed and we're not preventing it, use loadStory logic
-      if (!preventScroll && sceneLayoutMode === 'modern') {
-        setTimeout(() => {
-          if (lastSceneRef.current) {
-            lastSceneRef.current.scrollIntoView({
-              behavior: 'auto',
-              block: 'start'
-            });
-          }
-        }, 100);
-      }
     } catch (err) {
       console.error('Failed to refresh story:', err);
     }
@@ -230,195 +216,44 @@ export default function StoryPage() {
     }
   }, [story?.scenes?.length]);
 
-  // Scroll to last scene (for initial load and after generation)
-  const scrollToLastScene = useCallback((behavior: 'auto' | 'smooth' = 'smooth') => {
-    if (lastSceneRef.current && sceneLayoutMode === 'modern') {
-      lastSceneRef.current.scrollIntoView({
-        behavior,
-        block: 'start'
-      });
-    }
-  }, [sceneLayoutMode]);
-
-  // Scroll to newly generated scene
-  const scrollToNewScene = useCallback((delay: number = 200) => {
-    setTimeout(() => {
-      if (lastSceneRef.current) {
-        lastSceneRef.current.scrollIntoView({
-          behavior: 'smooth',
-          block: 'start'
-        });
-      }
-    }, delay);
-  }, []);
-
-  // Track if user has manually scrolled away to avoid unwanted auto-scroll
-  const [userScrolledAway, setUserScrolledAway] = useState(false);
-
-  // More refined scrolling approach to reduce jarring movement
-  const smartScrollToNewContent = (force = false, showIndicator = true) => {
-    console.log('📜 smartScrollToNewContent called', { force, showIndicator });
-    if (scenesEndRef.current) {
-      // Check if user is near the bottom of the page
-      const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-      const windowHeight = window.innerHeight;
-      const documentHeight = document.documentElement.scrollHeight;
-      const isNearBottom = scrollTop + windowHeight >= documentHeight - 200;
-      
-      console.log('📊 Scroll analysis:', {
-        scrollTop,
-        windowHeight,
-        documentHeight,
-        isNearBottom,
-        userScrolledAway
-      });
-      
-      // Show visual indicator for new content regardless of scroll
-      if (showIndicator) {
-        setNewContentAdded(true);
-        // Auto-hide indicator after 3 seconds
-        setTimeout(() => setNewContentAdded(false), 3000);
-      }
-      
-      // Only auto-scroll if:
-      // 1. User is near bottom already, OR
-      // 2. We're forcing the scroll (like after generation), OR  
-      // 3. User hasn't manually scrolled away
-      if (force || (isNearBottom && !userScrolledAway)) {
-        console.log('✅ Scrolling to new content');
-        scenesEndRef.current.scrollIntoView({
-          behavior: 'smooth',
-          block: 'nearest' // Less aggressive than 'end'
-        });
-        setUserScrolledAway(false);
-      } else {
-        console.log('❌ Skipping scroll - user scrolled away or not near bottom');
-      }
-    } else {
-      console.log('❌ scenesEndRef not available');
-    }
-  };
-
-  // Track when user manually scrolls
-  useEffect(() => {
-    let scrollTimer: NodeJS.Timeout;
-
-    const handleScroll = () => {
-      console.log('👆 User scroll detected, position:', window.pageYOffset);
-      
-      // Clear existing timer
-      clearTimeout(scrollTimer);
-      
-      // Set timer to mark user as having scrolled away
-      scrollTimer = setTimeout(() => {
-        const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-        const windowHeight = window.innerHeight;
-        const documentHeight = document.documentElement.scrollHeight;
-        const isAtBottom = scrollTop + windowHeight >= documentHeight - 100;
-        
-        // If user scrolled away from bottom, mark it
-        if (!isAtBottom && !isGenerating && !isStreaming) {
-          console.log('🔄 User scrolled away from bottom');
-          setUserScrolledAway(true);
-        } else if (isAtBottom) {
-          console.log('🔄 User scrolled back to bottom');
-          setUserScrolledAway(false);
-        }
-      }, 150);
-    };
-
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => {
-      window.removeEventListener('scroll', handleScroll);
-      clearTimeout(scrollTimer);
-    };
-  }, [isGenerating, isStreaming]);
-
-  // Single consolidated scroll effect - much less aggressive
-  useEffect(() => {
-    console.log('🎬 Scroll effect triggered:', {
-      isLoading,
-      scenesCount: story?.scenes?.length,
-      isGenerating,
-      isStreaming,
-      streamingContent: streamingContent.length,
-      isRegenerating,
-      isStreamingContinuation
-    });
-    
-    if (!isLoading && story?.scenes && story.scenes.length > 0) {
-      // Only scroll during active NEW scene generation (not regeneration or continuation)
-      const isActiveNewGeneration = (isGenerating || isStreaming) && !isRegenerating && !isStreamingContinuation;
-      console.log('🔍 isActiveNewGeneration:', isActiveNewGeneration);
-      
-      if (isActiveNewGeneration) {
-        const scrollDelay = isStreaming && streamingContent ? 500 : 300;
-        console.log('⏰ Setting scroll timer with delay:', scrollDelay);
-        
-        const scrollTimer = setTimeout(() => {
-          // Triple-check states before scrolling to prevent any race conditions
-          if ((isGenerating || isStreaming) && !isRegenerating && !isStreamingContinuation) {
-            console.log('📜 Executing smartScrollToNewContent');
-            smartScrollToNewContent();
-          } else {
-            console.log('❌ Scroll cancelled due to state change');
-          }
-        }, scrollDelay);
-
-        return () => {
-          console.log('🧹 Clearing scroll timer');
-          clearTimeout(scrollTimer);
-        };
-      }
-    }
-  }, [story?.scenes?.length, isLoading, isGenerating, isStreaming, streamingContent, isRegenerating, isStreamingContinuation]);
-
-  const loadStory = async (scrollToLastScene = true) => {
-    console.log('🔍 loadStory called with scrollToLastScene:', scrollToLastScene);
+  const loadStory = async (scrollToLastScene = true, scrollToNewScene = false) => {
+    console.log('� Loading story - scrollToLastScene:', scrollToLastScene);
     try {
       setIsLoading(true);
 
-      // Preserve scroll position before loading if we're not supposed to scroll
-      const preserveScroll = !scrollToLastScene;
-      const savedScrollTop = preserveScroll ? window.pageYOffset : 0;
-      console.log('📍 Current scroll position:', savedScrollTop, 'preserveScroll:', preserveScroll);
-
       const storyData = await apiClient.getStory(storyId);
       setStory(storyData);
-      console.log('📖 Story loaded, scenes count:', storyData.scenes?.length);
 
       // Load choices for the current story
       await loadChoices();
-      console.log('🎯 Choices loaded');
 
-      // Restore preserved scroll position first, before any other scrolling logic
-      if (preserveScroll && savedScrollTop > 0) {
-        console.log('🔄 Restoring scroll position to:', savedScrollTop);
+      // Scroll to bottom only on initial page load OR when explicitly requested for new scenes
+      if ((scrollToLastScene || scrollToNewScene) && storyData.scenes && storyData.scenes.length > 0) {
+        console.log('📍 Current scroll position before timeout:', window.pageYOffset);
         setTimeout(() => {
-          window.scrollTo(0, savedScrollTop);
-          console.log('✅ Scroll restored, current position:', window.pageYOffset);
-        }, 10);
-      }
-
-      // Modern layout: Position at top of last scene instead of bottom (only if requested)
-      if (scrollToLastScene && sceneLayoutMode === 'modern') {
-        console.log('🎯 Scrolling to last scene (modern mode)');
-        setTimeout(() => {
-          if (lastSceneRef.current) {
-            console.log('📍 Scrolling to last scene element');
-            lastSceneRef.current.scrollIntoView({
-              behavior: 'auto', // Use auto for initial load to avoid jarring
-              block: 'start'
-            });
+          console.log('📍 Current scroll position at timeout start:', window.pageYOffset);
+          // Find the last scene element and scroll to it
+          const lastScene = storyData.scenes[storyData.scenes.length - 1];
+          console.log('🎯 Attempting to scroll to scene:', lastScene.id);
+          
+          const lastSceneElement = document.querySelector(`[data-scene-id="${lastScene.id}"]`);
+          console.log('🎯 Found scene element:', lastSceneElement);
+          
+          if (lastSceneElement) {
+            console.log('🎯 Scrolling to scene element');
+            lastSceneElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          } else {
+            console.log('🎯 Scene element not found, falling back to document bottom');
+            // Fallback to document bottom if scene element not found
+            window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
           }
-        }, 100);
+        }, 100); // Reduced timeout to minimize delay
       }
 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load story');
     } finally {
       setIsLoading(false);
-      console.log('🏁 loadStory completed, final scroll position:', window.pageYOffset);
     }
   };
 
@@ -437,6 +272,7 @@ export default function StoryPage() {
     console.log('generateNewScene called', { storyId: story.id, prompt });
     setError('');
     setIsGenerating(true);
+    setIsSceneOperationInProgress(true); // Block variant loading operations
 
     // Don't clear choices immediately - hide more options
     setShowMoreOptions(false);
@@ -446,29 +282,20 @@ export default function StoryPage() {
       console.log('generateNewScene response', response);
 
       // Reload the story to get the new scene and its choices
-      await loadStory(false); // Don't use initial load scrolling
+      await loadStory(false, true); // Scroll to new scene after generation
       setCustomPrompt('');
 
       // Reset choice selection state
       setSelectedChoice(null);
       setShowChoicesDuringGeneration(true);
 
-      // For modern layout, scroll to the new scene
-      if (sceneLayoutMode === 'modern') {
-        setIsNewSceneAdded(true);
-        scrollToNewScene(300); // Scroll to new scene after DOM update
-        setTimeout(() => setIsNewSceneAdded(false), 1000);
-      } else {
-        // Legacy behavior - gentle scroll
-        setTimeout(() => {
-          smartScrollToNewContent(true); // Force scroll after generation
-        }, 400);
-      }
     } catch (err) {
       console.error('generateNewScene error', err);
       setError(err instanceof Error ? err.message : 'Failed to generate scene');
     } finally {
       setIsGenerating(false);
+      // Clear operation flag with delay to let DOM settle
+      setTimeout(() => setIsSceneOperationInProgress(false), 1500);
     }
   };
 
@@ -477,6 +304,7 @@ export default function StoryPage() {
     console.log('generateNewSceneStreaming called', { storyId: story.id, prompt });
     setError('');
     setIsStreaming(true);
+    setIsSceneOperationInProgress(true); // Block variant loading operations
     setStreamingContent('');
     
     // Calculate the next scene number
@@ -506,19 +334,11 @@ export default function StoryPage() {
           setShowChoicesDuringGeneration(true);
 
           // Reload the story to get the updated data
-          await loadStory(false); // Don't scroll to last scene after streaming
+          await loadStory(false, true); // Scroll to new scene after streaming
           setCustomPrompt('');
-
-          // For modern layout, mark new scene as added for smooth reveal
-          if (sceneLayoutMode === 'modern') {
-            setIsNewSceneAdded(true);
-            setTimeout(() => setIsNewSceneAdded(false), 1000);
-          } else {
-            // Legacy behavior - gentle scroll
-            setTimeout(() => {
-              smartScrollToNewContent(true); // Force scroll after streaming
-            }, 600);
-          }
+          
+          // Clear operation flag with delay to let DOM settle
+          setTimeout(() => setIsSceneOperationInProgress(false), 1500);
         },
         // onError
         (error: string) => {
@@ -531,6 +351,9 @@ export default function StoryPage() {
           // Reset choice selection state on error
           setSelectedChoice(null);
           setShowChoicesDuringGeneration(true);
+          
+          // Clear operation flag
+          setIsSceneOperationInProgress(false);
         }
       );
     } catch (err) {
@@ -623,7 +446,7 @@ export default function StoryPage() {
       const response = await apiClient.regenerateLastScene(story.id);
       
       // Reload the story to get the updated flow
-      await loadStory(false); // Don't scroll to top after regeneration
+      await loadStory(false, true); // Scroll to updated last scene after regeneration
       
       // Show success message or handle the new variant
       console.log('Scene regenerated:', response.variant);
@@ -669,7 +492,7 @@ export default function StoryPage() {
         const response = await apiClient.createSceneVariant(story.id, sceneId, customPrompt);
         
         // Reload story to show new variant
-        await loadStory(false); // Don't scroll to top after variant creation
+        await loadStory(false, true); // Scroll to see the new variant
         
         setIsStreaming(false);
         console.log('New variant created (streaming mode):', response.variant);
@@ -678,7 +501,7 @@ export default function StoryPage() {
         const response = await apiClient.createSceneVariant(story.id, sceneId, customPrompt);
         
         // Reload story to show new variant
-        await loadStory(false); // Don't scroll to top after variant creation
+        await loadStory(false, true); // Scroll to see the new variant
         
         console.log('New variant created:', response.variant);
       }
@@ -719,8 +542,22 @@ export default function StoryPage() {
             console.log('🎬 Scene continuation complete', { completedSceneId, newContent: newContent.substring(0, 50) + '...' });
             console.log('📍 Scroll position before loadStory:', window.pageYOffset);
             
-            // Reload story first while streaming states are still active to prevent scroll effects
-            await loadStory(false); // Don't scroll to top after continuing scene
+            // Preserve current scroll position
+            const currentScrollPosition = window.pageYOffset;
+            
+            // Reload story to get updated scene data from backend
+            await loadStory(false, false); // Don't auto-scroll, we'll handle it manually
+            
+            // Restore scroll position and then scroll to the continued scene
+            window.scrollTo({ top: currentScrollPosition, behavior: 'instant' });
+            
+            // Now scroll to the scene that was continued
+            setTimeout(() => {
+              const sceneElement = document.querySelector(`[data-scene-id="${completedSceneId}"]`);
+              if (sceneElement) {
+                sceneElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }
+            }, 50);
             
             console.log('📍 Scroll position after loadStory:', window.pageYOffset);
             
@@ -744,7 +581,7 @@ export default function StoryPage() {
         const response = await apiClient.continueScene(story.id, sceneId, customPrompt);
         
         // Reload story to show updated scene
-        await loadStory(false); // Don't scroll to top after continuing scene
+        await loadStory(false, true); // Scroll to updated last scene after continuing
         
         console.log('Scene continued:', response.scene);
       }
@@ -1025,7 +862,6 @@ export default function StoryPage() {
                       <div
                         key={scene.id}
                         data-scene-id={scene.id}
-                        ref={isLastSceneInStory ? lastSceneRef : null}
                         className={`scene-container ${sceneLayoutMode === 'modern' ? 'modern-scene' : 'stacked-scene'} ${
                           isLastSceneInStory && isNewSceneAdded ? 'new-scene' : ''
                         }`}
@@ -1086,6 +922,7 @@ export default function StoryPage() {
                           setSelectedChoice={setSelectedChoice}
                           streamingContinuation={streamingContinuationSceneId === scene.id ? streamingContinuation : ''}
                           isStreamingContinuation={streamingContinuationSceneId === scene.id && isStreamingContinuation}
+                          isSceneOperationInProgress={isSceneOperationInProgress}
                         />
                       </div>
                     );
@@ -1122,18 +959,6 @@ export default function StoryPage() {
                     </div>
                   )}
                   
-                  {/* New content indicator */}
-                  {newContentAdded && !isGenerating && !isStreaming && (
-                    <div className="flex items-center justify-center py-4 animate-fade-in">
-                      <div className="bg-gradient-to-r from-pink-600 to-purple-600 text-white px-4 py-2 rounded-full text-sm font-medium flex items-center space-x-2 shadow-lg">
-                        <CheckIcon className="w-4 h-4" />
-                        <span>New content added</span>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* End of scenes marker for scrolling */}
-                  <div ref={scenesEndRef} className="h-1"></div>
                 </div>
               ) : (
                 <div className="text-center py-12">
