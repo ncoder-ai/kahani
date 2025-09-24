@@ -1129,32 +1129,34 @@ export default function StoryPage() {
 
             {/* Note: Continue Input is now handled by SceneVariantDisplay component for last scene */}
 
-            {/* More Button - Hide during any generation */}
-            {!isGenerating && !isStreaming && !isRegenerating && !isStreamingContinuation && (
-              <div className="flex justify-center mt-6">
-                <button 
-                  onClick={generateMoreOptions}
-                  disabled={isGeneratingMoreOptions}
-                  className={`text-sm transition-colors disabled:opacity-50 ${
-                    showMoreOptions 
-                      ? 'text-purple-400 hover:text-purple-300' 
-                      : 'text-gray-400 hover:text-white'
-                  }`}
-                >
-                  {isGeneratingMoreOptions ? (
-                    <>
-                      <span className="animate-spin inline-block mr-1">⚡</span>
-                      Generating more choices...
-                    </>
-                  ) : showMoreOptions ? (
-                    `Generate more (${dynamicChoices.length} choices available)`
-                  ) : (
-                    'More choices'
-                  )} 
-                  {!isGeneratingMoreOptions && <span className="ml-1">ⓘ</span>}
-                </button>
-              </div>
-            )}
+            {/* More Button - Keep in DOM but hide with opacity to prevent layout shifts */}
+            <div className={`flex justify-center mt-6 transition-opacity duration-200 ${
+              !isGenerating && !isStreaming && !isRegenerating && !isStreamingContinuation
+                ? 'opacity-100 pointer-events-auto'
+                : 'opacity-0 pointer-events-none'
+            }`}>
+              <button 
+                onClick={generateMoreOptions}
+                disabled={isGeneratingMoreOptions || isGenerating || isStreaming || isRegenerating || isStreamingContinuation}
+                className={`text-sm transition-colors disabled:opacity-50 ${
+                  showMoreOptions 
+                    ? 'text-purple-400 hover:text-purple-300' 
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                {isGeneratingMoreOptions ? (
+                  <>
+                    <span className="animate-spin inline-block mr-1">⚡</span>
+                    Generating more choices...
+                  </>
+                ) : showMoreOptions ? (
+                  `Generate more (${dynamicChoices.length} choices available)`
+                ) : (
+                  'More choices'
+                )} 
+                {!isGeneratingMoreOptions && <span className="ml-1">ⓘ</span>}
+              </button>
+            </div>
 
             {/* Info Components */}
             <div className="mt-6 space-y-4">
