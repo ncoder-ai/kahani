@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Form
+from fastapi import APIRouter, Depends, HTTPException, status, Form, Body
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -12,6 +12,7 @@ from ..services.context_manager import ContextManager
 from ..dependencies import get_current_user
 import logging
 import json
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -985,7 +986,176 @@ async def activate_scene_variant(
     
     return {"message": "Variant activated successfully"}
 
-@router.delete("/{story_id}/scenes/from/{sequence_number}")
+@router.post("/{story_id}/scenes/{scene_id}/continue")
+async def continue_scene(
+    story_id: int,
+    scene_id: int,
+    request: dict = Body(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Continue/extend a scene by adding more content to the existing scene"""
+    
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found"
+        )
+    
+    scene = db.query(Scene).filter(
+        Scene.id == scene_id,
+        Scene.story_id == story_id
+    ).first()
+    
+    if not scene:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scene not found"
+        )
+    
+    # Get user settings
+    user_settings_db = db.query(UserSettings).filter(
+        UserSettings.user_id == current_user.id
+    ).first()
+    
+    user_settings = user_settings_db.to_dict() if user_settings_db else None
+    
+    try:
+        # Get the current active variant content
+        service = SceneVariantService(db)
+        current_variant = service.get_active_variant(scene_id)
+        
+        if not current_variant:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No active scene variant found"
+            )
+        
+        # Build context for continuation
+        context_manager = ContextManager(user_settings=user_settings)
+        context = await context_manager.build_scene_continuation_context(
+            story_id, scene_id, current_variant.content, db, request.get('custom_prompt', '')
+        )
+        
+        # Generate continuation content
+        continuation_content = await llm_service.generate_scene_continuation(context, user_settings)
+        
+        # Append to existing content
+        new_content = current_variant.content + "\n\n" + continuation_content
+        
+        # Update the scene variant with the new content
+        current_variant.content = new_content
+        current_variant.updated_at = datetime.utcnow()
+        db.commit()
+        
+        return {
+            "message": "Scene continued successfully",
+            "scene": {
+                "id": scene.id,
+                "content": new_content,
+                "title": scene.title,
+                "sequence_number": scene.sequence_number
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to continue scene {scene_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to continue scene: {str(e)}"
+        )
+
+@router.post("/{story_id}/scenes/{scene_id}/continue/stream")
+async def continue_scene_streaming(
+    story_id: int,
+    scene_id: int,
+    request: dict = Body(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Continue/extend a scene with streaming response"""
+    
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found"
+        )
+    
+    scene = db.query(Scene).filter(
+        Scene.id == scene_id,
+        Scene.story_id == story_id
+    ).first()
+    
+    if not scene:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scene not found"
+        )
+    
+    # Get user settings
+    user_settings_db = db.query(UserSettings).filter(
+        UserSettings.user_id == current_user.id
+    ).first()
+    
+    user_settings = user_settings_db.to_dict() if user_settings_db else None
+    
+    async def generate_continuation_stream():
+        try:
+            # Get the current active variant
+            service = SceneVariantService(db)
+            current_variant = service.get_active_variant(scene_id)
+            
+            if not current_variant:
+                yield f"data: {json.dumps({'type': 'error', 'message': 'No active scene variant found'})}\n\n"
+                return
+            
+            # Send initial metadata
+            yield f"data: {json.dumps({'type': 'start', 'scene_id': scene_id, 'original_length': len(current_variant.content)})}\n\n"
+            
+            # Build context for continuation
+            context_manager = ContextManager(user_settings=user_settings)
+            context = await context_manager.build_scene_continuation_context(
+                story_id, scene_id, current_variant.content, db, request.get('custom_prompt', '')
+            )
+            
+            # Stream continuation generation
+            continuation_content = ""
+            async for chunk in llm_service.generate_scene_continuation_streaming(context, user_settings):
+                continuation_content += chunk
+                yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+            
+            # Update the variant with the new content
+            new_content = current_variant.content + "\n\n" + continuation_content
+            current_variant.content = new_content
+            current_variant.updated_at = datetime.utcnow()
+            db.commit()
+            
+            # Send completion
+            yield f"data: {json.dumps({'type': 'complete', 'scene_id': scene_id, 'new_content': new_content})}\n\n"
+            
+        except Exception as e:
+            logger.error(f"Error in continuation stream: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+    
+    return StreamingResponse(
+        generate_continuation_stream(),
+        media_type="text/plain",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Content-Type": "text/event-stream"
+        }
+    )@router.delete("/{story_id}/scenes/from/{sequence_number}")
 async def delete_scenes_from_sequence(
     story_id: int,
     sequence_number: int,

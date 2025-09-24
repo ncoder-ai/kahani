@@ -59,6 +59,7 @@ interface SceneVariantDisplayProps {
   isStreaming: boolean;
   onCreateVariant: (sceneId: number, prompt?: string) => void;
   onVariantChanged?: () => void; // Callback when variant is switched
+  onContinueScene?: (sceneId: number, prompt?: string) => void;
   showChoices?: boolean;
   directorMode?: boolean;
   customPrompt?: string;
@@ -89,6 +90,7 @@ export default function SceneVariantDisplay({
   isStreaming,
   onCreateVariant,
   onVariantChanged,
+  onContinueScene,
   showChoices = true,
   directorMode = false,
   customPrompt = '',
@@ -104,6 +106,7 @@ export default function SceneVariantDisplay({
   const [variants, setVariants] = useState<SceneVariant[]>([]);
   const [currentVariantId, setCurrentVariantId] = useState<number | null>(null);
   const [isLoadingVariants, setIsLoadingVariants] = useState(false);
+  const [showGuidedOptions, setShowGuidedOptions] = useState(false);
   const sceneContentRef = useRef<HTMLDivElement>(null);
 
   // Scroll to the top of this scene
@@ -382,7 +385,7 @@ export default function SceneVariantDisplay({
         <div className="mt-6">
           {/* Choice Buttons - Only show if story has scenes and not in director mode */}
           {showChoices && !directorMode && showChoicesDuringGeneration && (
-            <div className="space-y-3 mb-6">
+            <div className="space-y-2 mb-4">
               {getAvailableChoices().length > 0 ? (
                 getAvailableChoices().map((choice, index) => (
                   <button
@@ -393,19 +396,105 @@ export default function SceneVariantDisplay({
                       onGenerateScene?.(choice);
                     }}
                     disabled={isGenerating || isStreaming}
-                    className={`w-full text-left p-4 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed group modern-choice-button ${
-                      layoutMode === 'modern' ? 'rounded-xl' : 'bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded-xl'
+                    className={`w-full text-left p-3 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed group modern-choice-button compact ${
+                      layoutMode === 'modern' ? 'rounded-lg' : 'bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded-lg'
                     } ${selectedChoice === choice ? 'ring-2 ring-pink-500 bg-pink-900/20' : ''}`}
                   >
                     <div className="flex items-center justify-between relative z-10">
-                      <span className="text-gray-200">{choice}</span>
-                      <PlayIcon className="w-5 h-5 text-pink-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      <span className="text-gray-200 text-sm">{choice}</span>
+                      <PlayIcon className="w-4 h-4 text-pink-500 opacity-0 group-hover:opacity-100 transition-opacity" />
                     </div>
                   </button>
                 ))
               ) : (
                 <div className="text-center text-gray-400 py-4">
                   <div className="animate-pulse">Loading story choices...</div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Continue Scene and Guided Regeneration Buttons */}
+          {!directorMode && showChoicesDuringGeneration && (
+            <div className="space-y-2 mb-4">
+              {/* Continue Scene Button */}
+                            {/* Continue Scene Button */}
+              <button
+                onClick={() => {
+                  // Use dedicated continue scene API if available, fallback to variant creation
+                  if (onContinueScene) {
+                    onContinueScene(scene.id, "Continue this scene with more details and development, adding to the existing content.");
+                  } else {
+                    onCreateVariant?.(scene.id, "Continue this scene with more details and development, adding to the existing content rather than replacing it.");
+                  }
+                }}
+                disabled={isGenerating || isStreaming}
+                className={`w-full text-left p-3 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed group ${
+                  layoutMode === 'modern' 
+                    ? 'continue-scene-button rounded-lg' 
+                    : 'bg-blue-700 hover:bg-blue-600 border border-blue-600 rounded-lg'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-blue-200 text-sm font-medium">Continue Current Scene</span>
+                  <svg className="w-4 h-4 text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                  </svg>
+                </div>
+              </button>
+
+              {/* Guided Regeneration Toggle */}
+              <button
+                onClick={() => setShowGuidedOptions(!showGuidedOptions)}
+                disabled={isGenerating || isStreaming}
+                className={`w-full text-left p-3 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed group ${
+                  layoutMode === 'modern' 
+                    ? 'guided-regen-button rounded-lg' 
+                    : 'bg-purple-700 hover:bg-purple-600 border border-purple-600 rounded-lg'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-purple-200 text-sm font-medium">Guided Regeneration Options</span>
+                  <svg 
+                    className={`w-4 h-4 text-purple-400 transition-transform duration-200 ${showGuidedOptions ? 'rotate-180' : ''}`} 
+                    fill="none" 
+                    stroke="currentColor" 
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </button>
+
+              {/* Guided Options Dropdown */}
+              {showGuidedOptions && (
+                <div className={`space-y-2 ml-4 ${
+                  layoutMode === 'modern' 
+                    ? 'bg-gray-800/30 backdrop-filter backdrop-blur-sm rounded-lg p-3 border border-gray-600/30' 
+                    : 'bg-gray-800 rounded-lg p-3 border border-gray-600'
+                }`}>
+                  {[
+                    { label: "Add More Dialogue", prompt: "Regenerate this scene with more dialogue and character interactions." },
+                    { label: "Include Internal Thoughts", prompt: "Regenerate this scene with more internal thoughts and character emotions." },
+                    { label: "Describe the Setting", prompt: "Regenerate this scene with more detailed descriptions of the environment and atmosphere." },
+                    { label: "Add Action/Movement", prompt: "Regenerate this scene with more action and character movements." },
+                    { label: "Build Tension", prompt: "Regenerate this scene with more tension and dramatic elements." },
+                    { label: "Show Character Development", prompt: "Regenerate this scene focusing more on character growth and development." }
+                  ].map((option, index) => (
+                    <button
+                      key={index}
+                      onClick={() => {
+                        setShowGuidedOptions(false);
+                        onCreateVariant?.(scene.id, option.prompt);
+                      }}
+                      disabled={isGenerating || isStreaming}
+                      className={`w-full text-left p-2 text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-700/50 rounded ${
+                        layoutMode === 'modern' ? 'text-gray-300 hover:text-white' : 'text-gray-400 hover:text-gray-200'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
                 </div>
               )}
             </div>

@@ -181,6 +181,44 @@ body {
   transition: all 0.3s ease;
 }
 
+/* Compact choice buttons */
+.modern-choice-button.compact {
+  padding: 0.75rem 1rem !important; /* Smaller padding */
+  font-size: 0.875rem; /* Smaller font size */
+}
+
+.modern-choice-button.compact span {
+  font-size: 0.875rem;
+  line-height: 1.25;
+}
+
+/* Continue and guided regeneration buttons */
+.continue-scene-button {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.2), rgba(67, 56, 202, 0.2));
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  transition: all 0.3s ease;
+}
+
+.continue-scene-button:hover {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.3), rgba(67, 56, 202, 0.3));
+  border-color: rgba(59, 130, 246, 0.5);
+  transform: translateY(-1px);
+}
+
+.guided-regen-button {
+  background: linear-gradient(135deg, rgba(147, 51, 234, 0.2), rgba(236, 72, 153, 0.2));
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  transition: all 0.3s ease;
+}
+
+.guided-regen-button:hover {
+  background: linear-gradient(135deg, rgba(147, 51, 234, 0.3), rgba(236, 72, 153, 0.3));
+  border-color: rgba(168, 85, 247, 0.5);
+  transform: translateY(-1px);
+}
+
 .modern-choice-button:hover {
   transform: translateY(-2px);
   box-shadow: 0 8px 25px rgba(236, 72, 153, 0.3);
