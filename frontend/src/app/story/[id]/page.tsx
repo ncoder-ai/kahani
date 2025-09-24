@@ -257,12 +257,21 @@ export default function StoryPage() {
 
   // More refined scrolling approach to reduce jarring movement
   const smartScrollToNewContent = (force = false, showIndicator = true) => {
+    console.log('📜 smartScrollToNewContent called', { force, showIndicator });
     if (scenesEndRef.current) {
       // Check if user is near the bottom of the page
       const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
       const windowHeight = window.innerHeight;
       const documentHeight = document.documentElement.scrollHeight;
       const isNearBottom = scrollTop + windowHeight >= documentHeight - 200;
+      
+      console.log('📊 Scroll analysis:', {
+        scrollTop,
+        windowHeight,
+        documentHeight,
+        isNearBottom,
+        userScrolledAway
+      });
       
       // Show visual indicator for new content regardless of scroll
       if (showIndicator) {
@@ -276,12 +285,17 @@ export default function StoryPage() {
       // 2. We're forcing the scroll (like after generation), OR  
       // 3. User hasn't manually scrolled away
       if (force || (isNearBottom && !userScrolledAway)) {
+        console.log('✅ Scrolling to new content');
         scenesEndRef.current.scrollIntoView({
           behavior: 'smooth',
           block: 'nearest' // Less aggressive than 'end'
         });
         setUserScrolledAway(false);
+      } else {
+        console.log('❌ Skipping scroll - user scrolled away or not near bottom');
       }
+    } else {
+      console.log('❌ scenesEndRef not available');
     }
   };
 
@@ -290,6 +304,8 @@ export default function StoryPage() {
     let scrollTimer: NodeJS.Timeout;
 
     const handleScroll = () => {
+      console.log('👆 User scroll detected, position:', window.pageYOffset);
+      
       // Clear existing timer
       clearTimeout(scrollTimer);
       
@@ -302,8 +318,10 @@ export default function StoryPage() {
         
         // If user scrolled away from bottom, mark it
         if (!isAtBottom && !isGenerating && !isStreaming) {
+          console.log('🔄 User scrolled away from bottom');
           setUserScrolledAway(true);
         } else if (isAtBottom) {
+          console.log('🔄 User scrolled back to bottom');
           setUserScrolledAway(false);
         }
       }, 150);
@@ -318,50 +336,76 @@ export default function StoryPage() {
 
   // Single consolidated scroll effect - much less aggressive
   useEffect(() => {
+    console.log('🎬 Scroll effect triggered:', {
+      isLoading,
+      scenesCount: story?.scenes?.length,
+      isGenerating,
+      isStreaming,
+      streamingContent: streamingContent.length,
+      isRegenerating,
+      isStreamingContinuation
+    });
+    
     if (!isLoading && story?.scenes && story.scenes.length > 0) {
       // Only scroll during active NEW scene generation (not regeneration or continuation)
       const isActiveNewGeneration = (isGenerating || isStreaming) && !isRegenerating && !isStreamingContinuation;
+      console.log('🔍 isActiveNewGeneration:', isActiveNewGeneration);
       
       if (isActiveNewGeneration) {
         const scrollDelay = isStreaming && streamingContent ? 500 : 300;
+        console.log('⏰ Setting scroll timer with delay:', scrollDelay);
         
         const scrollTimer = setTimeout(() => {
           // Triple-check states before scrolling to prevent any race conditions
           if ((isGenerating || isStreaming) && !isRegenerating && !isStreamingContinuation) {
+            console.log('📜 Executing smartScrollToNewContent');
             smartScrollToNewContent();
+          } else {
+            console.log('❌ Scroll cancelled due to state change');
           }
         }, scrollDelay);
 
-        return () => clearTimeout(scrollTimer);
+        return () => {
+          console.log('🧹 Clearing scroll timer');
+          clearTimeout(scrollTimer);
+        };
       }
     }
   }, [story?.scenes?.length, isLoading, isGenerating, isStreaming, streamingContent, isRegenerating, isStreamingContinuation]);
 
   const loadStory = async (scrollToLastScene = true) => {
+    console.log('🔍 loadStory called with scrollToLastScene:', scrollToLastScene);
     try {
       setIsLoading(true);
 
       // Preserve scroll position before loading if we're not supposed to scroll
       const preserveScroll = !scrollToLastScene;
       const savedScrollTop = preserveScroll ? window.pageYOffset : 0;
+      console.log('📍 Current scroll position:', savedScrollTop, 'preserveScroll:', preserveScroll);
 
       const storyData = await apiClient.getStory(storyId);
       setStory(storyData);
+      console.log('📖 Story loaded, scenes count:', storyData.scenes?.length);
 
       // Load choices for the current story
       await loadChoices();
+      console.log('🎯 Choices loaded');
 
       // Restore preserved scroll position first, before any other scrolling logic
       if (preserveScroll && savedScrollTop > 0) {
+        console.log('🔄 Restoring scroll position to:', savedScrollTop);
         setTimeout(() => {
           window.scrollTo(0, savedScrollTop);
+          console.log('✅ Scroll restored, current position:', window.pageYOffset);
         }, 10);
       }
 
       // Modern layout: Position at top of last scene instead of bottom (only if requested)
       if (scrollToLastScene && sceneLayoutMode === 'modern') {
+        console.log('🎯 Scrolling to last scene (modern mode)');
         setTimeout(() => {
           if (lastSceneRef.current) {
+            console.log('📍 Scrolling to last scene element');
             lastSceneRef.current.scrollIntoView({
               behavior: 'auto', // Use auto for initial load to avoid jarring
               block: 'start'
@@ -374,6 +418,7 @@ export default function StoryPage() {
       setError(err instanceof Error ? err.message : 'Failed to load story');
     } finally {
       setIsLoading(false);
+      console.log('🏁 loadStory completed, final scroll position:', window.pageYOffset);
     }
   };
 
@@ -671,17 +716,20 @@ export default function StoryPage() {
           },
           // onComplete
           async (completedSceneId: number, newContent: string) => {
-            console.log('Scene continuation complete', { completedSceneId, newContent });
+            console.log('🎬 Scene continuation complete', { completedSceneId, newContent: newContent.substring(0, 50) + '...' });
+            console.log('📍 Scroll position before loadStory:', window.pageYOffset);
             
             // Reload story first while streaming states are still active to prevent scroll effects
             await loadStory(false); // Don't scroll to top after continuing scene
+            
+            console.log('📍 Scroll position after loadStory:', window.pageYOffset);
             
             // Then clear streaming states after story is loaded
             setIsStreamingContinuation(false);
             setStreamingContinuation('');
             setStreamingContinuationSceneId(null);
             
-            console.log('Scene continued successfully');
+            console.log('✅ Scene continued successfully, final scroll position:', window.pageYOffset);
           },
           // onError
           (error: string) => {
