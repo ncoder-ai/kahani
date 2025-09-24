@@ -285,7 +285,7 @@ export default function StoryPage() {
     }
   }, [story?.scenes?.length, isLoading, isGenerating, isStreaming, streamingContent]);
 
-  const loadStory = async () => {
+  const loadStory = async (scrollToLastScene = true) => {
     try {
       setIsLoading(true);
 
@@ -295,15 +295,17 @@ export default function StoryPage() {
       // Load choices for the current story
       await loadChoices();
 
-      // Modern layout: Position at top of last scene instead of bottom
-      setTimeout(() => {
-        if (lastSceneRef && sceneLayoutMode === 'modern') {
-          lastSceneRef.scrollIntoView({
-            behavior: 'auto', // Use auto for initial load to avoid jarring
-            block: 'start'
-          });
-        }
-      }, 100);
+      // Modern layout: Position at top of last scene instead of bottom (only if requested)
+      if (scrollToLastScene) {
+        setTimeout(() => {
+          if (lastSceneRef && sceneLayoutMode === 'modern') {
+            lastSceneRef.scrollIntoView({
+              behavior: 'auto', // Use auto for initial load to avoid jarring
+              block: 'start'
+            });
+          }
+        }, 100);
+      }
 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load story');
@@ -336,7 +338,7 @@ export default function StoryPage() {
       console.log('generateNewScene response', response);
 
       // Reload the story to get the new scene and its choices
-      await loadStory();
+      await loadStory(false); // Don't scroll to last scene after generation
       setCustomPrompt('');
 
       // For modern layout, mark new scene as added for smooth reveal
@@ -387,7 +389,7 @@ export default function StoryPage() {
           setIsStreaming(false);
 
           // Reload the story to get the updated data
-          await loadStory();
+          await loadStory(false); // Don't scroll to last scene after streaming
           setCustomPrompt('');
 
           // For modern layout, mark new scene as added for smooth reveal
@@ -791,30 +793,18 @@ export default function StoryPage() {
             <div className="prose prose-invert prose-lg max-w-none mb-8">
               {story?.scenes && story.scenes.length > 0 ? (
                 <div className="space-y-8">
-                  {/* Load Earlier Scenes Button */}
+                  {/* Load Earlier Scenes - Thin Line Design */}
                   {displayMode === 'recent' && story.scenes.length > scenesToShow && (
-                    <div className="text-center py-6">
-                      <div className="bg-gray-700/50 rounded-lg p-4 mb-4">
-                        <p className="text-gray-400 text-sm mb-3">
-                          Showing last {getScenesToDisplay().length} of {story.scenes.length} scenes
-                        </p>
-                        <div className="flex gap-3 justify-center">
-                          <button
-                            onClick={loadMoreRecentScenes}
-                            disabled={isLoadingEarlierScenes}
-                            className="bg-gray-600 hover:bg-gray-500 text-white px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50"
-                          >
-                            {isLoadingEarlierScenes ? 'Loading...' : `Load More (${Math.min(10, story.scenes.length - scenesToShow)} scenes)`}
-                          </button>
-                          <button
-                            onClick={loadAllScenes}
-                            disabled={isLoadingEarlierScenes}
-                            className="bg-pink-600 hover:bg-pink-700 text-white px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50"
-                          >
-                            {isLoadingEarlierScenes ? 'Loading...' : 'Load All Scenes'}
-                          </button>
-                        </div>
-                      </div>
+                    <div className="flex items-center justify-center py-8">
+                      <div className="flex-1 h-px bg-gradient-to-r from-transparent via-gray-600 to-transparent"></div>
+                      <button
+                        onClick={loadMoreRecentScenes}
+                        disabled={isLoadingEarlierScenes}
+                        className="mx-4 text-gray-400 hover:text-gray-300 text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isLoadingEarlierScenes ? 'Loading...' : 'load more messages'}
+                      </button>
+                      <div className="flex-1 h-px bg-gradient-to-r from-transparent via-gray-600 to-transparent"></div>
                     </div>
                   )}
 
