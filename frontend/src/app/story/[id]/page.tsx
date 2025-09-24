@@ -319,29 +319,44 @@ export default function StoryPage() {
   // Single consolidated scroll effect - much less aggressive
   useEffect(() => {
     if (!isLoading && story?.scenes && story.scenes.length > 0) {
-      // Only scroll during active generation, and with intelligent timing
-      // Also prevent scrolling during regeneration/variant operations
-      if ((isGenerating || isStreaming) && !isRegenerating) {
+      // Only scroll during active NEW scene generation (not regeneration or continuation)
+      const isActiveNewGeneration = (isGenerating || isStreaming) && !isRegenerating && !isStreamingContinuation;
+      
+      if (isActiveNewGeneration) {
         const scrollDelay = isStreaming && streamingContent ? 500 : 300;
         
         const scrollTimer = setTimeout(() => {
-          smartScrollToNewContent();
+          // Triple-check states before scrolling to prevent any race conditions
+          if ((isGenerating || isStreaming) && !isRegenerating && !isStreamingContinuation) {
+            smartScrollToNewContent();
+          }
         }, scrollDelay);
 
         return () => clearTimeout(scrollTimer);
       }
     }
-  }, [story?.scenes?.length, isLoading, isGenerating, isStreaming, streamingContent, isRegenerating]);
+  }, [story?.scenes?.length, isLoading, isGenerating, isStreaming, streamingContent, isRegenerating, isStreamingContinuation]);
 
   const loadStory = async (scrollToLastScene = true) => {
     try {
       setIsLoading(true);
+
+      // Preserve scroll position before loading if we're not supposed to scroll
+      const preserveScroll = !scrollToLastScene;
+      const savedScrollTop = preserveScroll ? window.pageYOffset : 0;
 
       const storyData = await apiClient.getStory(storyId);
       setStory(storyData);
 
       // Load choices for the current story
       await loadChoices();
+
+      // Restore preserved scroll position first, before any other scrolling logic
+      if (preserveScroll && savedScrollTop > 0) {
+        setTimeout(() => {
+          window.scrollTo(0, savedScrollTop);
+        }, 10);
+      }
 
       // Modern layout: Position at top of last scene instead of bottom (only if requested)
       if (scrollToLastScene && sceneLayoutMode === 'modern') {
@@ -656,12 +671,16 @@ export default function StoryPage() {
           },
           // onComplete
           async (completedSceneId: number, newContent: string) => {
+            console.log('Scene continuation complete', { completedSceneId, newContent });
+            
+            // Reload story first while streaming states are still active to prevent scroll effects
+            await loadStory(false); // Don't scroll to top after continuing scene
+            
+            // Then clear streaming states after story is loaded
             setIsStreamingContinuation(false);
             setStreamingContinuation('');
             setStreamingContinuationSceneId(null);
             
-            // Reload story to show updated scene
-            await loadStory(false); // Don't scroll to top after continuing scene
             console.log('Scene continued successfully');
           },
           // onError
@@ -1110,30 +1129,32 @@ export default function StoryPage() {
 
             {/* Note: Continue Input is now handled by SceneVariantDisplay component for last scene */}
 
-            {/* More Button */}
-            <div className="flex justify-center mt-6">
-              <button 
-                onClick={generateMoreOptions}
-                disabled={isGeneratingMoreOptions}
-                className={`text-sm transition-colors disabled:opacity-50 ${
-                  showMoreOptions 
-                    ? 'text-purple-400 hover:text-purple-300' 
-                    : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                {isGeneratingMoreOptions ? (
-                  <>
-                    <span className="animate-spin inline-block mr-1">⚡</span>
-                    Generating more choices...
-                  </>
-                ) : showMoreOptions ? (
-                  `Generate more (${dynamicChoices.length} choices available)`
-                ) : (
-                  'More choices'
-                )} 
-                {!isGeneratingMoreOptions && <span className="ml-1">ⓘ</span>}
-              </button>
-            </div>
+            {/* More Button - Hide during any generation */}
+            {!isGenerating && !isStreaming && !isRegenerating && !isStreamingContinuation && (
+              <div className="flex justify-center mt-6">
+                <button 
+                  onClick={generateMoreOptions}
+                  disabled={isGeneratingMoreOptions}
+                  className={`text-sm transition-colors disabled:opacity-50 ${
+                    showMoreOptions 
+                      ? 'text-purple-400 hover:text-purple-300' 
+                      : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  {isGeneratingMoreOptions ? (
+                    <>
+                      <span className="animate-spin inline-block mr-1">⚡</span>
+                      Generating more choices...
+                    </>
+                  ) : showMoreOptions ? (
+                    `Generate more (${dynamicChoices.length} choices available)`
+                  ) : (
+                    'More choices'
+                  )} 
+                  {!isGeneratingMoreOptions && <span className="ml-1">ⓘ</span>}
+                </button>
+              </div>
+            )}
 
             {/* Info Components */}
             <div className="mt-6 space-y-4">
@@ -1169,26 +1190,6 @@ export default function StoryPage() {
               />
               <ToolbarButton icon={ArrowDownIcon} label="Export" />
             </div>
-            
-            {/* Keyboard Navigation Hints */}
-            {story?.scenes && story.scenes.length > 0 && (
-              <div className="flex items-center space-x-4 text-sm text-gray-400">
-                <div className="flex items-center space-x-1">
-                  <span>← Previous Variant | → Next Variant | ↑ Scroll Up | ↓ Scroll Down</span>
-                </div>
-                {isRegenerating && (
-                  <div className="flex items-center space-x-1 text-pink-400">
-                    <div className="w-3 h-3 border border-pink-400 border-t-transparent rounded-full animate-spin"></div>
-                    <span>Regenerating...</span>
-                  </div>
-                )}
-                {isInDeleteMode && (
-                  <div className="flex items-center space-x-1 text-red-400">
-                    <span>Delete Mode: Select scenes to remove</span>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         </div>
       </div>
