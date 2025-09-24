@@ -129,6 +129,11 @@ export default function StoryPage() {
   // New content indicator
   const [newContentAdded, setNewContentAdded] = useState(false);
   
+  // Modern scene layout states
+  const [sceneLayoutMode, setSceneLayoutMode] = useState<'stacked' | 'modern'>('modern');
+  const [lastSceneRef, setLastSceneRef] = useState<HTMLDivElement | null>(null);
+  const [isNewSceneAdded, setIsNewSceneAdded] = useState(false);
+
   const storyContentRef = useRef<HTMLDivElement>(null);
   const scenesEndRef = useRef<HTMLDivElement>(null);
 
@@ -283,16 +288,23 @@ export default function StoryPage() {
   const loadStory = async () => {
     try {
       setIsLoading(true);
-      
+
       const storyData = await apiClient.getStory(storyId);
       setStory(storyData);
-      
+
       // Load choices for the current story
       await loadChoices();
-      
-      // No need to scroll - we're loading the right scenes directly
-      // The user will see the last scenes immediately without scrolling
-      
+
+      // Modern layout: Position at top of last scene instead of bottom
+      setTimeout(() => {
+        if (lastSceneRef && sceneLayoutMode === 'modern') {
+          lastSceneRef.scrollIntoView({
+            behavior: 'auto', // Use auto for initial load to avoid jarring
+            block: 'start'
+          });
+        }
+      }, 100);
+
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load story');
     } finally {
@@ -315,10 +327,10 @@ export default function StoryPage() {
     console.log('generateNewScene called', { storyId: story.id, prompt });
     setError('');
     setIsGenerating(true);
-    
+
     // Don't clear choices immediately - hide more options
     setShowMoreOptions(false);
-    
+
     try {
       const response = await apiClient.generateScene(story.id, prompt || customPrompt);
       console.log('generateNewScene response', response);
@@ -326,11 +338,17 @@ export default function StoryPage() {
       // Reload the story to get the new scene and its choices
       await loadStory();
       setCustomPrompt('');
-      
-      // Gentle scroll to new content after generation
-      setTimeout(() => {
-        smartScrollToNewContent(true); // Force scroll after generation
-      }, 400);
+
+      // For modern layout, mark new scene as added for smooth reveal
+      if (sceneLayoutMode === 'modern') {
+        setIsNewSceneAdded(true);
+        setTimeout(() => setIsNewSceneAdded(false), 1000);
+      } else {
+        // Legacy behavior - gentle scroll
+        setTimeout(() => {
+          smartScrollToNewContent(true); // Force scroll after generation
+        }, 400);
+      }
     } catch (err) {
       console.error('generateNewScene error', err);
       setError(err instanceof Error ? err.message : 'Failed to generate scene');
@@ -367,15 +385,21 @@ export default function StoryPage() {
           setStreamingContent('');
           setStreamingSceneNumber(null);
           setIsStreaming(false);
-          
+
           // Reload the story to get the updated data
           await loadStory();
           setCustomPrompt('');
-          
-          // Gentle scroll to new content after streaming complete
-          setTimeout(() => {
-            smartScrollToNewContent(true); // Force scroll after streaming
-          }, 600);
+
+          // For modern layout, mark new scene as added for smooth reveal
+          if (sceneLayoutMode === 'modern') {
+            setIsNewSceneAdded(true);
+            setTimeout(() => setIsNewSceneAdded(false), 1000);
+          } else {
+            // Legacy behavior - gentle scroll
+            setTimeout(() => {
+              smartScrollToNewContent(true); // Force scroll after streaming
+            }, 600);
+          }
         },
         // onError
         (error: string) => {
@@ -798,11 +822,15 @@ export default function StoryPage() {
                     // Calculate the actual scene number in the full story
                     const actualSceneNumber = story.scenes.findIndex(s => s.id === scene.id) + 1;
                     const isLastSceneInStory = scene.id === story.scenes[story.scenes.length - 1].id;
-                    
+
                     return (
-                      <div 
-                        key={scene.id} 
+                      <div
+                        key={scene.id}
                         data-scene-id={scene.id}
+                        ref={isLastSceneInStory ? setLastSceneRef : null}
+                        className={`scene-container ${sceneLayoutMode === 'modern' ? 'modern-scene' : 'stacked-scene'} ${
+                          isLastSceneInStory && isNewSceneAdded ? 'new-scene' : ''
+                        }`}
                       >
                         {/* Scene Separator */}
                         {displayIndex > 0 && userSettings?.show_scene_titles === true && (
@@ -812,7 +840,7 @@ export default function StoryPage() {
                             <div className="flex-1 h-px bg-gray-600"></div>
                           </div>
                         )}
-                        
+
                         {/* Delete Mode Checkbox - Show at top of scene */}
                         {isInDeleteMode && (
                           <div className="mb-4 p-3 bg-red-900/20 rounded-lg border border-red-600/50">
@@ -827,7 +855,7 @@ export default function StoryPage() {
                             </label>
                           </div>
                         )}
-                        
+
                         <SceneVariantDisplay
                           scene={scene}
                           sceneNumber={actualSceneNumber}
@@ -850,6 +878,8 @@ export default function StoryPage() {
                           customPrompt={customPrompt}
                           onCustomPromptChange={setCustomPrompt}
                           onGenerateScene={generateScene}
+                          layoutMode={sceneLayoutMode}
+                          onNewSceneAdded={() => setIsNewSceneAdded(true)}
                         />
                       </div>
                     );

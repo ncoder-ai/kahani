@@ -64,6 +64,8 @@ interface SceneVariantDisplayProps {
   customPrompt?: string;
   onCustomPromptChange?: (prompt: string) => void;
   onGenerateScene?: (prompt?: string) => void;
+  layoutMode?: 'stacked' | 'modern';
+  onNewSceneAdded?: () => void;
 }
 
 export default function SceneVariantDisplay({
@@ -87,7 +89,9 @@ export default function SceneVariantDisplay({
   directorMode = false,
   customPrompt = '',
   onCustomPromptChange,
-  onGenerateScene
+  onGenerateScene,
+  layoutMode = 'stacked',
+  onNewSceneAdded
 }: SceneVariantDisplayProps) {
   const [variants, setVariants] = useState<SceneVariant[]>([]);
   const [currentVariantId, setCurrentVariantId] = useState<number | null>(null);
@@ -129,12 +133,12 @@ export default function SceneVariantDisplay({
     }
   };
 
-  // Switch to a specific variant
+  // Switch to a specific variant with smooth transitions
   const switchToVariant = async (variantId: number) => {
     try {
       await apiClient.activateSceneVariant(storyId, scene.id, variantId);
       setCurrentVariantId(variantId);
-      
+
       // Find the new variant content and update the scene in place
       const newVariant = variants.find(v => v.id === variantId);
       if (newVariant) {
@@ -144,16 +148,28 @@ export default function SceneVariantDisplay({
           onVariantChanged();
         }
       }
-      
-      // Scroll to top of this scene for better UX (after content updates)
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
+
+      // For modern layout, no scrolling - just smooth transition
+      if (layoutMode === 'modern') {
+        // Add a subtle animation class for smooth transitions
+        const container = sceneContentRef.current;
+        if (container) {
+          container.classList.add('variant-transitioning');
           setTimeout(() => {
-            scrollToSceneTop();
-          }, 100);
+            container.classList.remove('variant-transitioning');
+          }, 300);
+        }
+      } else {
+        // Legacy behavior for stacked layout
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            setTimeout(() => {
+              scrollToSceneTop();
+            }, 100);
+          });
         });
-      });
-      
+      }
+
     } catch (error) {
       console.error('Failed to switch variant:', error);
     }
@@ -285,7 +301,7 @@ export default function SceneVariantDisplay({
         <div className="space-y-4 mt-6 pt-4 border-t border-gray-600/30">
           {/* Variant Navigation */}
           {shouldShowNavigation() && (
-            <div className="flex items-center justify-center space-x-3">
+            <div className={`variant-navigation ${layoutMode === 'modern' ? 'modern-variant-nav' : ''}`}>
               <button
                 onClick={() => {
                   if (variants.length <= 1) {
@@ -295,19 +311,19 @@ export default function SceneVariantDisplay({
                   }
                 }}
                 disabled={!canNavigateToPrevious()}
-                className="flex items-center space-x-1 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:opacity-50 rounded-lg transition-colors text-xs"
+                className="variant-nav-button"
                 title="Previous variant (←)"
               >
-                <ArrowLeftIcon className="w-3 h-3" />
+                <ArrowLeftIcon className="w-4 h-4" />
                 <span>Prev</span>
               </button>
-              
-              <div className="text-xs text-gray-400 px-2">
-                {variants.length > 0 
+
+              <div className="text-sm text-gray-300 px-3 font-medium">
+                {variants.length > 0
                   ? `Variant ${getCurrentVariantIndex() + 1} of ${variants.length}`
                   : isLoadingVariants ? 'Loading...' : 'Variant 1 of ?'}
               </div>
-              
+
               <button
                 onClick={() => {
                   if (variants.length <= 1) {
@@ -317,11 +333,11 @@ export default function SceneVariantDisplay({
                   }
                 }}
                 disabled={!canNavigateToNext()}
-                className="flex items-center space-x-1 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:opacity-50 rounded-lg transition-colors text-xs"
+                className="variant-nav-button"
                 title="Next variant (→)"
               >
                 <span>Next</span>
-                <ArrowRightIcon className="w-3 h-3" />
+                <ArrowRightIcon className="w-4 h-4" />
               </button>
             </div>
           )}
@@ -365,9 +381,11 @@ export default function SceneVariantDisplay({
                     key={index}
                     onClick={() => onGenerateScene?.(choice)}
                     disabled={isGenerating || isStreaming}
-                    className="w-full text-left bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded-xl p-4 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed group"
+                    className={`w-full text-left p-4 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed group modern-choice-button ${
+                      layoutMode === 'modern' ? 'rounded-xl' : 'bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded-xl'
+                    }`}
                   >
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between relative z-10">
                       <span className="text-gray-200">{choice}</span>
                       <PlayIcon className="w-5 h-5 text-pink-500 opacity-0 group-hover:opacity-100 transition-opacity" />
                     </div>
@@ -383,7 +401,11 @@ export default function SceneVariantDisplay({
 
           {/* Continue Input - Only show in non-director mode */}
           {!directorMode && (
-            <div className="bg-gray-700 rounded-xl border border-gray-600 p-4">
+            <div className={`${
+              layoutMode === 'modern'
+                ? 'modern-input-container'
+                : 'bg-gray-700 rounded-xl border border-gray-600'
+            } p-4`}>
               <div className="flex items-center justify-between">
                 <input
                   type="text"
@@ -400,7 +422,11 @@ export default function SceneVariantDisplay({
                 <button
                   onClick={() => onGenerateScene?.(customPrompt)}
                   disabled={isGenerating || isStreaming || !customPrompt.trim()}
-                  className="ml-3 bg-pink-600 hover:bg-pink-700 disabled:bg-gray-600 rounded-lg p-2 transition-colors"
+                  className={`ml-3 rounded-lg p-2 transition-colors ${
+                    layoutMode === 'modern'
+                      ? 'bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-700 hover:to-purple-700 disabled:from-gray-600 disabled:to-gray-600'
+                      : 'bg-pink-600 hover:bg-pink-700 disabled:bg-gray-600'
+                  }`}
                 >
                   <PlayIcon className="w-5 h-5 text-white" />
                 </button>
