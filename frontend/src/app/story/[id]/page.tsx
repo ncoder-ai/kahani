@@ -614,6 +614,62 @@ export default function StoryPage() {
     }
   };
 
+  const continueScene = async (sceneId: number, customPrompt?: string) => {
+    if (!story) return;
+    
+    console.log('continueScene called', { sceneId, customPrompt });
+    
+    try {
+      setIsRegenerating(true);
+      
+      if (userSettings?.streaming_enabled) {
+        // Use streaming for continuation
+        setIsStreaming(true);
+        setStreamingContent('');
+        
+        await apiClient.continueSceneStreaming(
+          story.id,
+          sceneId,
+          customPrompt || '',
+          // onChunk
+          (chunk: string) => {
+            setStreamingContent(prev => prev + chunk);
+          },
+          // onComplete
+          async (completedSceneId: number, newContent: string) => {
+            setIsStreaming(false);
+            setStreamingContent('');
+            
+            // Reload story to show updated scene
+            await loadStory();
+            console.log('Scene continued successfully');
+          },
+          // onError
+          (error: string) => {
+            setIsStreaming(false);
+            setStreamingContent('');
+            setError(error);
+          }
+        );
+      } else {
+        // Use non-streaming continuation
+        const response = await apiClient.continueScene(story.id, sceneId, customPrompt);
+        
+        // Reload story to show updated scene
+        await loadStory();
+        
+        console.log('Scene continued:', response.scene);
+      }
+      
+    } catch (error) {
+      console.error('Failed to continue scene:', error);
+      setError(error instanceof Error ? error.message : 'Failed to continue scene');
+    } finally {
+      setIsRegenerating(false);
+      setIsStreaming(false);
+    }
+  };
+
   const toggleDeleteMode = () => {
     setIsInDeleteMode(!isInDeleteMode);
     setSelectedScenesForDeletion([]);
@@ -910,6 +966,7 @@ export default function StoryPage() {
                           isStreaming={isStreaming}
                           onCreateVariant={createNewVariant}
                           onVariantChanged={refreshStoryContent}
+                          onContinueScene={continueScene}
                           showChoices={showChoices}
                           directorMode={directorMode}
                           customPrompt={customPrompt}

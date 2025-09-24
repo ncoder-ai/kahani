@@ -914,5 +914,101 @@ Generate a compelling {point_name} that naturally incorporates these characters'
             logger.error(f"LLM connection test failed: {e}")
             return False
 
+    async def generate_scene_continuation(self, story_context: Dict[str, Any], user_settings: dict = None) -> str:
+        """Generate continuation content for an existing scene"""
+        
+        system_prompt = """You are a creative storytelling assistant. Continue the given scene by adding more content that:
+1. Seamlessly flows from the existing content
+2. Adds depth through dialogue, action, or description
+3. Maintains consistency with established characters and tone
+4. Develops the scene further without ending it abruptly
+5. Creates natural narrative progression
+
+FORMATTING REQUIREMENTS:
+- Use standard quotation marks for dialogue: "Hello," she said.
+- Wrap internal thoughts/monologue in asterisks: *I can't believe this is happening*
+- Use clear paragraph breaks between different speakers or actions
+- Start directly with the continuation content
+- Write 100-200 words of continuation
+
+Write in a rich, engaging narrative style that matches the existing content."""
+
+        # Build context prompt
+        context_parts = []
+        
+        if story_context.get("genre"):
+            context_parts.append(f"Genre: {story_context['genre']}")
+            
+        if story_context.get("tone"):
+            context_parts.append(f"Tone: {story_context['tone']}")
+            
+        if story_context.get("characters"):
+            char_descriptions = [f"- {char.get('name', 'Unknown')}: {char.get('description', 'No description')}" 
+                               for char in story_context["characters"]]
+            context_parts.append(f"Characters:\n{chr(10).join(char_descriptions)}")
+        
+        if story_context.get("current_scene_content"):
+            context_parts.append(f"Current scene content:\n{story_context['current_scene_content']}")
+            
+        if story_context.get("continuation_prompt"):
+            context_parts.append(f"Continuation guidance: {story_context['continuation_prompt']}")
+
+        prompt = f"""Story Context:
+{chr(10).join(context_parts)}
+
+Continue the scene by adding more content that flows naturally from where it currently ends. Focus on deepening the scene through additional dialogue, action, or description."""
+
+        result = await self._make_request(prompt, system_prompt, user_settings=user_settings)
+        return self._clean_scene_numbers(result)
+
+    async def generate_scene_continuation_streaming(self, story_context: Dict[str, Any], user_settings: dict = None):
+        """Generate continuation content for an existing scene with streaming"""
+        
+        system_prompt = """You are a creative storytelling assistant. Continue the given scene by adding more content that:
+1. Seamlessly flows from the existing content
+2. Adds depth through dialogue, action, or description
+3. Maintains consistency with established characters and tone
+4. Develops the scene further without ending it abruptly
+5. Creates natural narrative progression
+
+FORMATTING REQUIREMENTS:
+- Use standard quotation marks for dialogue: "Hello," she said.
+- Wrap internal thoughts/monologue in asterisks: *I can't believe this is happening*
+- Use clear paragraph breaks between different speakers or actions
+- Start directly with the continuation content
+- Write 100-200 words of continuation
+
+Write in a rich, engaging narrative style that matches the existing content."""
+
+        # Build context prompt
+        context_parts = []
+        
+        if story_context.get("genre"):
+            context_parts.append(f"Genre: {story_context['genre']}")
+            
+        if story_context.get("tone"):
+            context_parts.append(f"Tone: {story_context['tone']}")
+            
+        if story_context.get("characters"):
+            char_descriptions = [f"- {char.get('name', 'Unknown')}: {char.get('description', 'No description')}" 
+                               for char in story_context["characters"]]
+            context_parts.append(f"Characters:\n{chr(10).join(char_descriptions)}")
+        
+        if story_context.get("current_scene_content"):
+            context_parts.append(f"Current scene content:\n{story_context['current_scene_content']}")
+            
+        if story_context.get("continuation_prompt"):
+            context_parts.append(f"Continuation guidance: {story_context['continuation_prompt']}")
+
+        prompt = f"""Story Context:
+{chr(10).join(context_parts)}
+
+Continue the scene by adding more content that flows naturally from where it currently ends. Focus on deepening the scene through additional dialogue, action, or description."""
+
+        async for chunk in self._make_request_streaming(prompt, system_prompt, user_settings=user_settings):
+            cleaned_chunk = self._clean_scene_numbers_chunk(chunk)
+            if cleaned_chunk:  # Only yield non-empty chunks
+                yield cleaned_chunk
+
 # Create global instance
 llm_service = LMStudioService()

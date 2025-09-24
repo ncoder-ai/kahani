@@ -291,6 +291,30 @@ class SceneVariantService:
         self.db.flush()  # Get the flow ID
         logger.info(f"Created new story flow {flow.id}: story {story_id}, sequence {sequence_number}, scene {scene_id}, variant {variant_id}")
 
+    def get_active_variant(self, scene_id: int) -> Optional[SceneVariant]:
+        """Get the currently active variant for a scene"""
+        # Find the active story flow for this scene
+        active_flow = self.db.query(StoryFlow)\
+            .filter(and_(
+                StoryFlow.scene_id == scene_id,
+                StoryFlow.is_active == True
+            ))\
+            .first()
+        
+        if active_flow:
+            # Return the variant specified in the flow
+            return self.db.query(SceneVariant)\
+                .filter(SceneVariant.id == active_flow.scene_variant_id)\
+                .first()
+        else:
+            # Fallback to the original variant if no flow is found
+            return self.db.query(SceneVariant)\
+                .filter(and_(
+                    SceneVariant.scene_id == scene_id,
+                    SceneVariant.is_original == True
+                ))\
+                .first()
+
 
 # Async wrapper for the service
 async def get_scene_variant_service(db: Session) -> SceneVariantService:

@@ -533,5 +533,38 @@ Summary:"""
             "scene_summary": scene_context.get("scene_summary", "")
         }
 
+    async def build_scene_continuation_context(
+        self, 
+        story_id: int, 
+        scene_id: int, 
+        current_content: str,
+        db: Session, 
+        custom_prompt: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Build context for continuing a scene by adding more content to existing content
+        """
+        # Get the base story context
+        story_context = await self.build_story_context(story_id, db)
+        
+        # Get scene specific info
+        scene = db.query(Scene).filter(Scene.id == scene_id).first()
+        
+        context = {
+            "story_title": story_context.get("story_title", ""),
+            "story_description": story_context.get("story_description", ""),
+            "genre": story_context.get("genre", ""),
+            "tone": story_context.get("tone", ""),
+            "characters": story_context.get("characters", []),
+            "world_setting": story_context.get("world_setting", ""),
+            "current_scene_content": current_content,
+            "scene_title": scene.title if scene else "",
+            "scene_number": scene.sequence_number if scene else 1,
+            "continuation_prompt": custom_prompt,
+            "context_type": "scene_continuation"
+        }
+        
+        return context
+
 # Global instance
 context_manager = ContextManager()
