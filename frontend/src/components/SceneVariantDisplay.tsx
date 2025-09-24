@@ -71,6 +71,9 @@ interface SceneVariantDisplayProps {
   showChoicesDuringGeneration?: boolean;
   setShowChoicesDuringGeneration?: (show: boolean) => void;
   setSelectedChoice?: (choice: string | null) => void;
+  // Scene continuation streaming props
+  streamingContinuation?: string;
+  isStreamingContinuation?: boolean;
 }
 
 export default function SceneVariantDisplay({
@@ -101,7 +104,9 @@ export default function SceneVariantDisplay({
   selectedChoice = null,
   showChoicesDuringGeneration = true,
   setShowChoicesDuringGeneration,
-  setSelectedChoice
+  setSelectedChoice,
+  streamingContinuation = '',
+  isStreamingContinuation = false
 }: SceneVariantDisplayProps) {
   const [variants, setVariants] = useState<SceneVariant[]>([]);
   const [currentVariantId, setCurrentVariantId] = useState<number | null>(null);
@@ -305,6 +310,8 @@ export default function SceneVariantDisplay({
         onSaveEdit={onSaveEdit}
         onCancelEdit={onCancelEdit}
         onContentChange={onContentChange}
+        streamingContinuation={streamingContinuation}
+        isStreamingContinuation={isStreamingContinuation}
       />
       
       {/* Scene Management - Only show for last scene */}

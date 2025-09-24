@@ -121,6 +121,11 @@ export default function StoryPage() {
   const [streamingSceneNumber, setStreamingSceneNumber] = useState<number | null>(null);
   const [useStreaming, setUseStreaming] = useState(true); // Enable streaming by default
   
+  // Continue scene streaming states
+  const [isStreamingContinuation, setIsStreamingContinuation] = useState(false);
+  const [streamingContinuation, setStreamingContinuation] = useState('');
+  const [streamingContinuationSceneId, setStreamingContinuationSceneId] = useState<number | null>(null);
+  
   // Scene pagination for performance
   const [displayMode, setDisplayMode] = useState<'recent' | 'all'>('recent'); // Start with recent scenes only
   const [scenesToShow, setScenesToShow] = useState(5); // Show last 5 scenes initially
@@ -622,23 +627,25 @@ export default function StoryPage() {
     try {
       setIsRegenerating(true);
       
-      if (userSettings?.streaming_enabled) {
+      if (useStreaming) {
         // Use streaming for continuation
-        setIsStreaming(true);
-        setStreamingContent('');
+        setIsStreamingContinuation(true);
+        setStreamingContinuation('');
+        setStreamingContinuationSceneId(sceneId);
         
         await apiClient.continueSceneStreaming(
           story.id,
           sceneId,
-          customPrompt || '',
+          customPrompt || "Continue this scene with more details and development, adding to the existing content.",
           // onChunk
           (chunk: string) => {
-            setStreamingContent(prev => prev + chunk);
+            setStreamingContinuation(prev => prev + chunk);
           },
           // onComplete
           async (completedSceneId: number, newContent: string) => {
-            setIsStreaming(false);
-            setStreamingContent('');
+            setIsStreamingContinuation(false);
+            setStreamingContinuation('');
+            setStreamingContinuationSceneId(null);
             
             // Reload story to show updated scene
             await loadStory();
@@ -646,8 +653,9 @@ export default function StoryPage() {
           },
           // onError
           (error: string) => {
-            setIsStreaming(false);
-            setStreamingContent('');
+            setIsStreamingContinuation(false);
+            setStreamingContinuation('');
+            setStreamingContinuationSceneId(null);
             setError(error);
           }
         );
@@ -666,7 +674,6 @@ export default function StoryPage() {
       setError(error instanceof Error ? error.message : 'Failed to continue scene');
     } finally {
       setIsRegenerating(false);
-      setIsStreaming(false);
     }
   };
 
@@ -978,6 +985,8 @@ export default function StoryPage() {
                           showChoicesDuringGeneration={showChoicesDuringGeneration}
                           setShowChoicesDuringGeneration={setShowChoicesDuringGeneration}
                           setSelectedChoice={setSelectedChoice}
+                          streamingContinuation={streamingContinuationSceneId === scene.id ? streamingContinuation : ''}
+                          isStreamingContinuation={streamingContinuationSceneId === scene.id && isStreamingContinuation}
                         />
                       </div>
                     );

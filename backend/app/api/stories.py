@@ -1155,7 +1155,10 @@ async def continue_scene_streaming(
             "Connection": "keep-alive",
             "Content-Type": "text/event-stream"
         }
-    )@router.delete("/{story_id}/scenes/from/{sequence_number}")
+    )
+
+
+@router.delete("/{story_id}/scenes/from/{sequence_number}")
 async def delete_scenes_from_sequence(
     story_id: int,
     sequence_number: int,
