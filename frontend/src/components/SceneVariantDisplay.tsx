@@ -75,6 +75,8 @@ interface SceneVariantDisplayProps {
   // Scene continuation streaming props
   streamingContinuation?: string;
   isStreamingContinuation?: boolean;
+  // Global flag to prevent scroll-disrupting operations
+  isSceneOperationInProgress?: boolean;
 }
 
 export default function SceneVariantDisplay({
@@ -108,27 +110,24 @@ export default function SceneVariantDisplay({
   setShowChoicesDuringGeneration,
   setSelectedChoice,
   streamingContinuation = '',
-  isStreamingContinuation = false
+  isStreamingContinuation = false,
+  isSceneOperationInProgress = false
 }: SceneVariantDisplayProps) {
   const [variants, setVariants] = useState<SceneVariant[]>([]);
   const [currentVariantId, setCurrentVariantId] = useState<number | null>(null);
   const [isLoadingVariants, setIsLoadingVariants] = useState(false);
   const [showGuidedOptions, setShowGuidedOptions] = useState(false);
   const sceneContentRef = useRef<HTMLDivElement>(null);
-
-  // Scroll to the top of this scene
-  const scrollToSceneTop = () => {
-    if (sceneContentRef.current) {
-      sceneContentRef.current.scrollIntoView({
-        behavior: 'smooth',
-        block: 'start'
-      });
-    }
-  };
+  const hasLoadedVariantsRef = useRef<Set<number>>(new Set());
 
   // Load variants for this scene
   const loadVariants = async () => {
-    if (isLoadingVariants) return;
+    if (isLoadingVariants) {
+      console.log(`[SceneVariantDisplay] Skipping loadVariants for scene ${scene.id} - already loading`);
+      return;
+    }
+    
+    console.log(`[SceneVariantDisplay] Starting loadVariants for scene ${scene.id}`);
     
     setIsLoadingVariants(true);
     try {
@@ -144,6 +143,9 @@ export default function SceneVariantDisplay({
           setCurrentVariantId(response.variants[0].id);
         }
       }
+      
+      console.log(`[SceneVariantDisplay] Completed loadVariants for scene ${scene.id}, loaded ${response.variants.length} variants`);
+      
     } catch (error) {
       console.error('Failed to load scene variants:', error);
     } finally {
@@ -177,16 +179,8 @@ export default function SceneVariantDisplay({
             container.classList.remove('variant-transitioning');
           }, 300);
         }
-      } else {
-        // Legacy behavior for stacked layout
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            setTimeout(() => {
-              scrollToSceneTop();
-            }, 100);
-          });
-        });
       }
+      // No scrolling for variant switching
 
     } catch (error) {
       console.error('Failed to switch variant:', error);
@@ -259,12 +253,33 @@ export default function SceneVariantDisplay({
     return [];
   };
 
-  // Load variants on mount if scene has multiple variants
+    // Load variants on mount if scene has multiple variants
   useEffect(() => {
-    if (scene.has_multiple_variants || isLastScene) {
-      loadVariants();
+    // Don't load variants during any scene operations to prevent scroll issues
+    if (isSceneOperationInProgress || isGenerating || isStreaming || isRegenerating) {
+      console.log(`[SceneVariantDisplay] Skipping loadVariants for scene ${scene.id} - operation in progress`);
+      return;
     }
-  }, [scene.id, scene.has_multiple_variants, isLastScene]);
+
+    // Add longer delay to let everything settle completely
+    const delayTimer = setTimeout(() => {
+      // Only load variants if we don't already have them loaded for this scene
+      const shouldLoadVariants = (scene.has_multiple_variants || isLastScene) && 
+                                variants.length === 0 && 
+                                !isLoadingVariants &&
+                                !hasLoadedVariantsRef.current.has(scene.id);
+      
+      if (shouldLoadVariants) {
+        console.log(`[SceneVariantDisplay] Loading variants for scene ${scene.id} (has_multiple: ${scene.has_multiple_variants}, isLast: ${isLastScene})`);
+        hasLoadedVariantsRef.current.add(scene.id);
+        loadVariants();
+      } else if (hasLoadedVariantsRef.current.has(scene.id)) {
+        console.log(`[SceneVariantDisplay] Skipping loadVariants for scene ${scene.id} - already loaded previously`);
+      }
+    }, 500); // Longer delay to ensure everything has settled
+
+    return () => clearTimeout(delayTimer);
+  }, [scene.id, isSceneOperationInProgress, isGenerating, isStreaming, isRegenerating]);
 
   // Set initial variant ID from scene
   useEffect(() => {
