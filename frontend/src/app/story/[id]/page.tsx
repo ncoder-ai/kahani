@@ -202,10 +202,22 @@ export default function StoryPage() {
   };
 
   // Targeted story refresh that doesn't cause scrolling
-  const refreshStoryContent = async () => {
+  const refreshStoryContent = async (preventScroll = true) => {
     try {
       const storyData = await apiClient.getStory(storyId);
       setStory(storyData);
+      
+      // If scroll is allowed and we're not preventing it, use loadStory logic
+      if (!preventScroll && sceneLayoutMode === 'modern') {
+        setTimeout(() => {
+          if (lastSceneRef.current) {
+            lastSceneRef.current.scrollIntoView({
+              behavior: 'auto',
+              block: 'start'
+            });
+          }
+        }, 100);
+      }
     } catch (err) {
       console.error('Failed to refresh story:', err);
     }
@@ -308,7 +320,8 @@ export default function StoryPage() {
   useEffect(() => {
     if (!isLoading && story?.scenes && story.scenes.length > 0) {
       // Only scroll during active generation, and with intelligent timing
-      if (isGenerating || isStreaming) {
+      // Also prevent scrolling during regeneration/variant operations
+      if ((isGenerating || isStreaming) && !isRegenerating) {
         const scrollDelay = isStreaming && streamingContent ? 500 : 300;
         
         const scrollTimer = setTimeout(() => {
@@ -318,7 +331,7 @@ export default function StoryPage() {
         return () => clearTimeout(scrollTimer);
       }
     }
-  }, [story?.scenes?.length, isLoading, isGenerating, isStreaming, streamingContent]);
+  }, [story?.scenes?.length, isLoading, isGenerating, isStreaming, streamingContent, isRegenerating]);
 
   const loadStory = async (scrollToLastScene = true) => {
     try {
