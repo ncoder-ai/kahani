@@ -103,6 +103,19 @@ async def create_story(
         "message": "Story created successfully"
     }
 
+def update_last_accessed_story(db: Session, user_id: int, story_id: int):
+    """Update the user's last accessed story ID"""
+    user_settings = db.query(UserSettings).filter(
+        UserSettings.user_id == user_id
+    ).first()
+    
+    if not user_settings:
+        user_settings = UserSettings(user_id=user_id)
+        db.add(user_settings)
+    
+    user_settings.last_accessed_story_id = story_id
+    db.commit()
+
 @router.get("/{story_id}")
 async def get_story(
     story_id: int,
@@ -121,6 +134,9 @@ async def get_story(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Story not found"
         )
+    
+    # Update last accessed story for auto-open feature
+    update_last_accessed_story(db, current_user.id, story_id)
     
     # Get the active story flow instead of direct scenes
     service = SceneVariantService(db)
@@ -883,6 +899,82 @@ async def get_scene_variants(
         "scene_id": scene_id,
         "variants": result
     }
+
+@router.get("/{story_id}/summary")
+async def get_story_summary(
+    story_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get a summary of the story including context information"""
+    
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found"
+        )
+    
+    # Get story flow for scene count
+    service = SceneVariantService(db)
+    flow = service.get_active_story_flow(story_id)
+    
+    # Get user settings for context information
+    user_settings = db.query(UserSettings).filter(
+        UserSettings.user_id == current_user.id
+    ).first()
+    
+    context_budget = user_settings.context_max_tokens if user_settings else 4000
+    keep_recent = user_settings.context_keep_recent_scenes if user_settings else 3
+    summary_threshold = user_settings.context_summary_threshold if user_settings else 5
+    summarization_enabled = user_settings.enable_context_summarization if user_settings else True
+    
+    # Calculate context usage
+    total_scenes = len(flow)
+    recent_scenes = min(keep_recent, total_scenes)
+    summarized_scenes = max(0, total_scenes - recent_scenes) if total_scenes > summary_threshold else 0
+    
+    # Estimate token usage (rough calculation)
+    estimated_tokens = 0
+    for scene_data in flow:
+        content = scene_data['variant']['content']
+        estimated_tokens += len(content.split()) * 1.3  # Rough token estimate
+    
+    # Generate a basic summary from the story content
+    story_summary = f"'{story.title}' is a {story.genre or 'story'} with {total_scenes} scenes."
+    if story.description:
+        story_summary += f" {story.description}"
+    
+    if total_scenes > 0:
+        first_scene = flow[0]['variant']['content'][:200] + "..." if len(flow[0]['variant']['content']) > 200 else flow[0]['variant']['content']
+        story_summary += f" The story begins: {first_scene}"
+    
+    summary_data = {
+        "story": {
+            "id": story.id,
+            "title": story.title,
+            "description": story.description,
+            "genre": story.genre,
+            "total_scenes": total_scenes
+        },
+        "context_info": {
+            "total_scenes": total_scenes,
+            "recent_scenes": recent_scenes,
+            "summarized_scenes": summarized_scenes,
+            "context_budget": context_budget,
+            "estimated_tokens": int(estimated_tokens),
+            "usage_percentage": min(100, (estimated_tokens / context_budget) * 100) if context_budget > 0 else 0,
+            "summarization_enabled": summarization_enabled,
+            "summary_threshold": summary_threshold
+        },
+        "summary": story_summary
+    }
+    
+    return summary_data
 
 @router.post("/{story_id}/scenes/{scene_id}/variants")
 async def create_scene_variant(

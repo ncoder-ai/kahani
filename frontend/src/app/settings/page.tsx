@@ -43,6 +43,7 @@ interface UIPreferences {
   notifications: boolean;
   scene_display_format: string; // 'default', 'bubble', 'card', 'minimal'
   show_scene_titles: boolean;
+  auto_open_last_story: boolean;
 }
 
 interface UserSettings {
@@ -179,6 +180,7 @@ export default function SettingsPage() {
           notifications: settings.ui_preferences.notifications,
           scene_display_format: settings.ui_preferences.scene_display_format,
           show_scene_titles: settings.ui_preferences.show_scene_titles,
+          auto_open_last_story: settings.ui_preferences.auto_open_last_story,
         },
       };
 
@@ -727,7 +729,7 @@ export default function SettingsPage() {
             )}
 
             {/* Context Management */}
-            {activeTab === 'context' && (
+            {activeTab === 'context' && settings && settings.context_settings && (
               <div className="bg-gray-800 rounded-lg p-6">
                 <h2 className="text-xl font-semibold mb-6">Context Management</h2>
                 <div className="space-y-6">
@@ -737,7 +739,7 @@ export default function SettingsPage() {
                     <label className="flex items-center">
                       <input
                         type="checkbox"
-                        checked={settings.context_settings.enable_summarization}
+                        checked={settings.context_settings.enable_summarization || false}
                         onChange={(e) => updateContextSetting('enable_summarization', e.target.checked)}
                         className="mr-2"
                       />
@@ -751,14 +753,14 @@ export default function SettingsPage() {
                   {/* Max Tokens */}
                   <div>
                     <label className="block text-sm font-medium mb-2">
-                      Context Budget: {settings.context_settings.max_tokens.toLocaleString()} tokens
+                      Context Budget: {(settings.context_settings.max_tokens || 4000).toLocaleString()} tokens
                     </label>
                     <input
                       type="number"
                       min="1000"
                       max="1000000"
                       step="8"
-                      value={settings.context_settings.max_tokens}
+                      value={settings.context_settings.max_tokens || 4000}
                       onChange={(e) => {
                         const value = parseInt(e.target.value) || 4000;
                         updateContextSetting('max_tokens', value);
@@ -778,7 +780,7 @@ export default function SettingsPage() {
                       min="1000"
                       max="100000"
                       step="8"
-                      value={Math.min(settings.context_settings.max_tokens, 100000)}
+                      value={Math.min(settings.context_settings.max_tokens || 4000, 100000)}
                       onChange={(e) => updateContextSetting('max_tokens', parseInt(e.target.value))}
                       className="w-full"
                     />
@@ -790,14 +792,14 @@ export default function SettingsPage() {
                   {/* Keep Recent Scenes */}
                   <div>
                     <label className="block text-sm font-medium mb-2">
-                      Keep Recent Scenes: {settings.context_settings.keep_recent_scenes}
+                      Keep Recent Scenes: {settings.context_settings.keep_recent_scenes || 3}
                     </label>
                     <input
                       type="range"
                       min="1"
                       max="10"
                       step="1"
-                      value={settings.context_settings.keep_recent_scenes}
+                      value={settings.context_settings.keep_recent_scenes || 3}
                       onChange={(e) => updateContextSetting('keep_recent_scenes', parseInt(e.target.value))}
                       className="w-full"
                     />
@@ -809,14 +811,14 @@ export default function SettingsPage() {
                   {/* Summary Threshold */}
                   <div>
                     <label className="block text-sm font-medium mb-2">
-                      Summary Threshold: {settings.context_settings.summary_threshold} scenes
+                      Summary Threshold: {settings.context_settings.summary_threshold || 5} scenes
                     </label>
                     <input
                       type="range"
                       min="3"
                       max="20"
                       step="1"
-                      value={settings.context_settings.summary_threshold}
+                      value={settings.context_settings.summary_threshold || 5}
                       onChange={(e) => updateContextSetting('summary_threshold', parseInt(e.target.value))}
                       className="w-full"
                     />
@@ -828,14 +830,14 @@ export default function SettingsPage() {
                   {/* Summary Threshold Tokens */}
                   <div>
                     <label className="block text-sm font-medium mb-2">
-                      Token Threshold: {settings.context_settings.summary_threshold_tokens.toLocaleString()} tokens
+                      Token Threshold: {(settings.context_settings.summary_threshold_tokens || 8000).toLocaleString()} tokens
                     </label>
                     <input
                       type="number"
                       min="1000"
                       max="50000"
                       step="8"
-                      value={settings.context_settings.summary_threshold_tokens}
+                      value={settings.context_settings.summary_threshold_tokens || 8000}
                       onChange={(e) => {
                         const value = parseInt(e.target.value) || 8000;
                         updateContextSetting('summary_threshold_tokens', value);
@@ -1045,6 +1047,22 @@ export default function SettingsPage() {
                       />
                       Show scene titles (e.g., "Scene 5: The Heart of Darkness")
                     </label>
+                  </div>
+
+                  {/* Auto-Open Last Story */}
+                  <div>
+                    <label className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={settings.ui_preferences.auto_open_last_story || false}
+                        onChange={(e) => updateUIPreference('auto_open_last_story', e.target.checked)}
+                        className="mr-2"
+                      />
+                      Auto-open last story on login
+                    </label>
+                    <p className="text-sm text-gray-400 mt-1 ml-6">
+                      Automatically navigate to your most recently accessed story when you log in
+                    </p>
                   </div>
                 </div>
               </div>

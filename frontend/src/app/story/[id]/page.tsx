@@ -6,7 +6,6 @@ import { useParams } from 'next/navigation';
 import { useAuthStore, useStoryStore, useHasHydrated } from '@/store';
 import apiClient from '@/lib/api';
 import CharacterQuickAdd from '@/components/CharacterQuickAdd';
-import { TokenInfo } from '@/components/TokenInfo';
 import { ContextInfo } from '@/components/ContextInfo';
 import FormattedText from '@/components/FormattedText';
 import SceneDisplay from '@/components/SceneDisplay';
@@ -23,7 +22,8 @@ import {
   DocumentDuplicateIcon,
   MagnifyingGlassIcon,
   PlusIcon,
-  PlayIcon
+  PlayIcon,
+  DocumentTextIcon
 } from '@heroicons/react/24/outline';
 
 interface Scene {
@@ -84,7 +84,7 @@ export default function StoryPage() {
   const params = useParams();
   const storyId = parseInt(params.id as string);
   
-  const { user } = useAuthStore();
+  const { user, token } = useAuthStore();
   const hasHydrated = useHasHydrated();
   const [story, setStory] = useState<Story | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -128,6 +128,11 @@ export default function StoryPage() {
   
   // Scene pagination for performance
   const [displayMode, setDisplayMode] = useState<'recent' | 'all'>('recent'); // Start with recent scenes only
+  
+  // Summary modal states
+  const [showSummaryModal, setShowSummaryModal] = useState(false);
+  const [storySummary, setStorySummary] = useState<any>(null);
+  const [loadingSummary, setLoadingSummary] = useState(false);
   const [scenesToShow, setScenesToShow] = useState(5); // Show last 5 scenes initially
   const [isLoadingEarlierScenes, setIsLoadingEarlierScenes] = useState(false);
   
@@ -264,6 +269,32 @@ export default function StoryPage() {
     } catch (err) {
       console.error('Failed to load choices:', err);
       setDynamicChoices([]);
+    }
+  };
+
+  const handleViewSummary = async () => {
+    setLoadingSummary(true);
+    setShowSummaryModal(true);
+    
+    try {
+      const response = await fetch(`http://localhost:8000/api/stories/${storyId}/summary`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      
+      if (response.ok) {
+        const summaryData = await response.json();
+        setStorySummary(summaryData);
+      } else {
+        console.error('Failed to load summary');
+        setStorySummary({ error: 'Failed to load summary' });
+      }
+    } catch (error) {
+      console.error('Error loading summary:', error);
+      setStorySummary({ error: 'Error loading summary' });
+    } finally {
+      setLoadingSummary(false);
     }
   };
 
@@ -491,8 +522,22 @@ export default function StoryPage() {
         // For now, use regular API (we can add streaming later)
         const response = await apiClient.createSceneVariant(story.id, sceneId, customPrompt);
         
+        // Preserve current scroll position for variant operations
+        const currentScrollPosition = window.pageYOffset;
+        
         // Reload story to show new variant
-        await loadStory(false, true); // Scroll to see the new variant
+        await loadStory(false, false); // Don't auto-scroll for variants
+        
+        // Restore scroll position to stay at the scene being worked on
+        setTimeout(() => {
+          window.scrollTo({ top: currentScrollPosition, behavior: 'instant' });
+          
+          // Then smoothly scroll to the specific scene that was modified
+          const sceneElement = document.querySelector(`[data-scene-id="${sceneId}"]`);
+          if (sceneElement) {
+            sceneElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        }, 50);
         
         setIsStreaming(false);
         console.log('New variant created (streaming mode):', response.variant);
@@ -500,8 +545,22 @@ export default function StoryPage() {
         // Non-streaming variant creation
         const response = await apiClient.createSceneVariant(story.id, sceneId, customPrompt);
         
+        // Preserve current scroll position for variant operations
+        const currentScrollPosition = window.pageYOffset;
+        
         // Reload story to show new variant
-        await loadStory(false, true); // Scroll to see the new variant
+        await loadStory(false, false); // Don't auto-scroll for variants
+        
+        // Restore scroll position to stay at the scene being worked on
+        setTimeout(() => {
+          window.scrollTo({ top: currentScrollPosition, behavior: 'instant' });
+          
+          // Then smoothly scroll to the specific scene that was modified
+          const sceneElement = document.querySelector(`[data-scene-id="${sceneId}"]`);
+          if (sceneElement) {
+            sceneElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        }, 50);
         
         console.log('New variant created:', response.variant);
       }
@@ -759,6 +818,13 @@ export default function StoryPage() {
                 className="px-3 py-1.5 bg-gray-700/50 hover:bg-gray-700 text-gray-300 hover:text-white rounded-lg transition-colors text-sm font-medium border border-gray-600"
               >
                 📚 Characters
+              </button>
+              
+              <button
+                onClick={handleViewSummary}
+                className="px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 hover:text-blue-200 rounded-lg transition-colors text-sm font-medium border border-blue-500/30"
+              >
+                📊 Summary
               </button>
               
               {/* Streaming Toggle */}
@@ -1033,8 +1099,7 @@ export default function StoryPage() {
 
             {/* Info Components */}
             <div className="mt-6 space-y-4">
-              <TokenInfo />
-              <ContextInfo />
+              <ContextInfo storyId={storyId} />
             </div>
           </div>
         </div>
@@ -1143,6 +1208,107 @@ export default function StoryPage() {
           onClose={() => setShowCharacterQuickAdd(false)}
           existingCharacters={storyCharacters}
         />
+      )}
+
+      {/* Story Summary Modal */}
+      {showSummaryModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 rounded-xl max-w-2xl w-full max-h-[90vh] flex flex-col">
+            {/* Header - fixed */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-700 flex-shrink-0">
+              <h2 className="text-xl font-bold text-white">Story Summary & Context</h2>
+              <button
+                onClick={() => setShowSummaryModal(false)}
+                className="text-gray-400 hover:text-white p-2 hover:bg-gray-700 rounded-lg"
+              >
+                ✕
+              </button>
+            </div>
+            
+            {/* Scrollable content */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {loadingSummary ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+                  <span className="ml-3 text-gray-300">Loading summary...</span>
+                </div>
+              ) : storySummary?.error ? (
+                <div className="text-center py-8 text-red-400">
+                  {storySummary.error}
+                </div>
+              ) : storySummary ? (
+                <div className="space-y-6">
+                  {/* Story Info */}
+                  <div className="bg-gray-700/50 rounded-lg p-4">
+                    <h3 className="font-semibold text-white mb-2">{storySummary.story?.title}</h3>
+                    <p className="text-gray-300 text-sm mb-2">{storySummary.story?.description}</p>
+                    <div className="text-xs text-gray-400">
+                      Genre: {storySummary.story?.genre || 'Not specified'} • 
+                      Scenes: {storySummary.story?.total_scenes}
+                    </div>
+                  </div>
+
+                  {/* Context Management Info */}
+                  {storySummary.context_info && (
+                    <div className="bg-gray-700/30 rounded-lg p-4">
+                      <h3 className="font-semibold text-blue-300 mb-3">Context Management</h3>
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <span className="text-gray-400">Total Scenes:</span>
+                          <span className="ml-2 text-white">{storySummary.context_info.total_scenes}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-400">Recent (Full):</span>
+                          <span className="ml-2 text-green-400">{storySummary.context_info.recent_scenes}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-400">Summarized:</span>
+                          <span className="ml-2 text-blue-400">{storySummary.context_info.summarized_scenes}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-400">Budget:</span>
+                          <span className="ml-2 text-white">{storySummary.context_info.context_budget.toLocaleString()} tokens</span>
+                        </div>
+                      </div>
+                      
+                      {/* Usage Bar */}
+                      <div className="mt-4">
+                        <div className="flex justify-between text-xs text-gray-400 mb-1">
+                          <span>Context Usage</span>
+                          <span>{storySummary.context_info.estimated_tokens.toLocaleString()} / {storySummary.context_info.context_budget.toLocaleString()} tokens</span>
+                        </div>
+                        <div className="w-full bg-gray-600 rounded-full h-2">
+                          <div 
+                            className={`h-2 rounded-full ${
+                              storySummary.context_info.usage_percentage > 80 ? 'bg-red-500' :
+                              storySummary.context_info.usage_percentage > 60 ? 'bg-yellow-500' :
+                              'bg-blue-500'
+                            }`}
+                            style={{ width: `${Math.min(100, storySummary.context_info.usage_percentage)}%` }}
+                          ></div>
+                        </div>
+                        <div className="text-xs text-gray-400 mt-1">
+                          {storySummary.context_info.usage_percentage.toFixed(1)}% used
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Story Summary */}
+                  <div className="bg-gray-700/30 rounded-lg p-4">
+                    <h3 className="font-semibold text-green-300 mb-3">Story Summary</h3>
+                    <div className="text-gray-300 text-sm leading-relaxed max-h-64 overflow-y-auto border border-gray-600/50 rounded p-3 bg-gray-800/50">
+                      {storySummary.summary}
+                    </div>
+                    <div className="text-xs text-gray-400 mt-2">
+                      Scroll to read the complete summary
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
