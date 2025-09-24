@@ -495,8 +495,8 @@ export default function SceneVariantDisplay({
             </div>
           )}
 
-          {/* Continue Input - Only show in non-director mode */}
-          {!directorMode && (
+          {/* Continue Input - Only show in non-director mode and when not generating */}
+          {!directorMode && showChoicesDuringGeneration && !isGenerating && !isStreaming && !isRegenerating && !isStreamingContinuation && (
             <div className={`${
               layoutMode === 'modern'
                 ? 'modern-input-container'

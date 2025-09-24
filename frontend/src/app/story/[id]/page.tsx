@@ -550,7 +550,7 @@ export default function StoryPage() {
       const response = await apiClient.regenerateLastScene(story.id);
       
       // Reload the story to get the updated flow
-      await loadStory();
+      await loadStory(false); // Don't scroll to top after regeneration
       
       // Show success message or handle the new variant
       console.log('Scene regenerated:', response.variant);
@@ -596,7 +596,7 @@ export default function StoryPage() {
         const response = await apiClient.createSceneVariant(story.id, sceneId, customPrompt);
         
         // Reload story to show new variant
-        await loadStory();
+        await loadStory(false); // Don't scroll to top after variant creation
         
         setIsStreaming(false);
         console.log('New variant created (streaming mode):', response.variant);
@@ -605,7 +605,7 @@ export default function StoryPage() {
         const response = await apiClient.createSceneVariant(story.id, sceneId, customPrompt);
         
         // Reload story to show new variant
-        await loadStory();
+        await loadStory(false); // Don't scroll to top after variant creation
         
         console.log('New variant created:', response.variant);
       }
@@ -648,7 +648,7 @@ export default function StoryPage() {
             setStreamingContinuationSceneId(null);
             
             // Reload story to show updated scene
-            await loadStory();
+            await loadStory(false); // Don't scroll to top after continuing scene
             console.log('Scene continued successfully');
           },
           // onError
@@ -664,7 +664,7 @@ export default function StoryPage() {
         const response = await apiClient.continueScene(story.id, sceneId, customPrompt);
         
         // Reload story to show updated scene
-        await loadStory();
+        await loadStory(false); // Don't scroll to top after continuing scene
         
         console.log('Scene continued:', response.scene);
       }
