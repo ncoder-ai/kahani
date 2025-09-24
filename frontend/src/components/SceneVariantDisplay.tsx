@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { ArrowLeftIcon, ArrowRightIcon, PlayIcon } from '@heroicons/react/24/outline';
+import { ArrowLeftIcon, ArrowRightIcon, PlayIcon, ArrowPathIcon, PlusCircleIcon, StopIcon, SparklesIcon } from '@heroicons/react/24/outline';
 import SceneDisplay from './SceneDisplay';
 import apiClient from '@/lib/api';
 
@@ -60,6 +60,7 @@ interface SceneVariantDisplayProps {
   onCreateVariant: (sceneId: number, prompt?: string) => void;
   onVariantChanged?: () => void; // Callback when variant is switched
   onContinueScene?: (sceneId: number, prompt?: string) => void;
+  onStopGeneration?: () => void;
   showChoices?: boolean;
   directorMode?: boolean;
   customPrompt?: string;
@@ -94,6 +95,7 @@ export default function SceneVariantDisplay({
   onCreateVariant,
   onVariantChanged,
   onContinueScene,
+  onStopGeneration,
   showChoices = true,
   directorMode = false,
   customPrompt = '',
@@ -360,28 +362,90 @@ export default function SceneVariantDisplay({
             </div>
           )}
           
-          {/* Regenerate Button */}
-          <div className="flex justify-center">
+          {/* Action Buttons - Regenerate, Continue, Guided Regen, Stop */}
+          <div className="flex justify-center items-center space-x-2">
+            {/* Regenerate Button */}
             <button
               onClick={() => onCreateVariant(scene.id)}
               disabled={isGenerating || isStreaming || isRegenerating}
-              className="flex items-center space-x-2 px-4 py-2 bg-pink-600 hover:bg-pink-700 disabled:bg-pink-800 disabled:opacity-50 rounded-lg transition-colors text-sm"
+              className="flex items-center justify-center w-10 h-10 bg-pink-600 hover:bg-pink-700 disabled:bg-pink-800 disabled:opacity-50 rounded-lg transition-colors"
               title="Regenerate current scene"
             >
-              <ArrowRightIcon className="w-4 h-4" />
-              <span>
-                {isRegenerating ? 'Regenerating...' : 'Regenerate'}
-              </span>
+              <ArrowPathIcon className="w-5 h-5" />
               {isRegenerating && (
-                <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin"></div>
+                <div className="absolute w-3 h-3 border border-white border-t-transparent rounded-full animate-spin"></div>
               )}
             </button>
+
+            {/* Continue Scene Button */}
+            <button
+              onClick={() => {
+                if (onContinueScene) {
+                  onContinueScene(scene.id, "Continue this scene with more details and development, adding to the existing content.");
+                } else {
+                  onCreateVariant?.(scene.id, "Continue this scene with more details and development, adding to the existing content rather than replacing it.");
+                }
+              }}
+              disabled={isGenerating || isStreaming || isRegenerating}
+              className="flex items-center justify-center w-10 h-10 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:opacity-50 rounded-lg transition-colors"
+              title="Continue current scene"
+            >
+              <PlusCircleIcon className="w-5 h-5" />
+            </button>
+
+            {/* Guided Regeneration Button */}
+            <button
+              onClick={() => setShowGuidedOptions(!showGuidedOptions)}
+              disabled={isGenerating || isStreaming || isRegenerating}
+              className={`flex items-center justify-center w-10 h-10 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 disabled:opacity-50 rounded-lg transition-colors ${
+                showGuidedOptions ? 'ring-2 ring-purple-400' : ''
+              }`}
+              title="Guided regeneration options"
+            >
+              <SparklesIcon className="w-5 h-5" />
+            </button>
+
+            {/* Stop Generation Button - Only show when generating */}
+            {(isGenerating || isStreaming || isRegenerating || isStreamingContinuation) && onStopGeneration && (
+              <button
+                onClick={onStopGeneration}
+                className="flex items-center justify-center w-10 h-10 bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+                title="Stop generation"
+              >
+                <StopIcon className="w-5 h-5" />
+              </button>
+            )}
           </div>
-          
-          {/* Keyboard hints - Only show if has variants */}
-          {shouldShowNavigation() && (
-            <div className="text-center text-xs text-gray-400 mt-3">
-              Use ← → keys to navigate variants
+
+          {/* Guided Options Dropdown */}
+          {showGuidedOptions && (
+            <div className={`mt-4 space-y-2 ${
+              layoutMode === 'modern' 
+                ? 'bg-gray-800/30 backdrop-filter backdrop-blur-sm rounded-lg p-3 border border-gray-600/30' 
+                : 'bg-gray-800 rounded-lg p-3 border border-gray-600'
+            }`}>
+              {[
+                { label: "Add More Dialogue", prompt: "Regenerate this scene with more dialogue and character interactions." },
+                { label: "Include Internal Thoughts", prompt: "Regenerate this scene with more internal thoughts and character emotions." },
+                { label: "Describe the Setting", prompt: "Regenerate this scene with more detailed descriptions of the environment and atmosphere." },
+                { label: "Add Action/Movement", prompt: "Regenerate this scene with more action and character movements." },
+                { label: "Build Tension", prompt: "Regenerate this scene with more tension and dramatic elements." },
+                { label: "Show Character Development", prompt: "Regenerate this scene focusing more on character growth and development." }
+              ].map((option, index) => (
+                <button
+                  key={index}
+                  onClick={() => {
+                    setShowGuidedOptions(false);
+                    onCreateVariant?.(scene.id, option.prompt);
+                  }}
+                  disabled={isGenerating || isStreaming || isRegenerating}
+                  className={`w-full text-left p-2 text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-700/50 rounded ${
+                    layoutMode === 'modern' ? 'text-gray-300 hover:text-white' : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
             </div>
           )}
         </div>
@@ -416,92 +480,6 @@ export default function SceneVariantDisplay({
               ) : (
                 <div className="text-center text-gray-400 py-4">
                   <div className="animate-pulse">Loading story choices...</div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Continue Scene and Guided Regeneration Buttons */}
-          {!directorMode && showChoicesDuringGeneration && (
-            <div className="space-y-2 mb-4">
-              {/* Continue Scene Button */}
-                            {/* Continue Scene Button */}
-              <button
-                onClick={() => {
-                  // Use dedicated continue scene API if available, fallback to variant creation
-                  if (onContinueScene) {
-                    onContinueScene(scene.id, "Continue this scene with more details and development, adding to the existing content.");
-                  } else {
-                    onCreateVariant?.(scene.id, "Continue this scene with more details and development, adding to the existing content rather than replacing it.");
-                  }
-                }}
-                disabled={isGenerating || isStreaming}
-                className={`w-full text-left p-3 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed group ${
-                  layoutMode === 'modern' 
-                    ? 'continue-scene-button rounded-lg' 
-                    : 'bg-blue-700 hover:bg-blue-600 border border-blue-600 rounded-lg'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-blue-200 text-sm font-medium">Continue Current Scene</span>
-                  <svg className="w-4 h-4 text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                  </svg>
-                </div>
-              </button>
-
-              {/* Guided Regeneration Toggle */}
-              <button
-                onClick={() => setShowGuidedOptions(!showGuidedOptions)}
-                disabled={isGenerating || isStreaming}
-                className={`w-full text-left p-3 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed group ${
-                  layoutMode === 'modern' 
-                    ? 'guided-regen-button rounded-lg' 
-                    : 'bg-purple-700 hover:bg-purple-600 border border-purple-600 rounded-lg'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-purple-200 text-sm font-medium">Guided Regeneration Options</span>
-                  <svg 
-                    className={`w-4 h-4 text-purple-400 transition-transform duration-200 ${showGuidedOptions ? 'rotate-180' : ''}`} 
-                    fill="none" 
-                    stroke="currentColor" 
-                    viewBox="0 0 24 24"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </div>
-              </button>
-
-              {/* Guided Options Dropdown */}
-              {showGuidedOptions && (
-                <div className={`space-y-2 ml-4 ${
-                  layoutMode === 'modern' 
-                    ? 'bg-gray-800/30 backdrop-filter backdrop-blur-sm rounded-lg p-3 border border-gray-600/30' 
-                    : 'bg-gray-800 rounded-lg p-3 border border-gray-600'
-                }`}>
-                  {[
-                    { label: "Add More Dialogue", prompt: "Regenerate this scene with more dialogue and character interactions." },
-                    { label: "Include Internal Thoughts", prompt: "Regenerate this scene with more internal thoughts and character emotions." },
-                    { label: "Describe the Setting", prompt: "Regenerate this scene with more detailed descriptions of the environment and atmosphere." },
-                    { label: "Add Action/Movement", prompt: "Regenerate this scene with more action and character movements." },
-                    { label: "Build Tension", prompt: "Regenerate this scene with more tension and dramatic elements." },
-                    { label: "Show Character Development", prompt: "Regenerate this scene focusing more on character growth and development." }
-                  ].map((option, index) => (
-                    <button
-                      key={index}
-                      onClick={() => {
-                        setShowGuidedOptions(false);
-                        onCreateVariant?.(scene.id, option.prompt);
-                      }}
-                      disabled={isGenerating || isStreaming}
-                      className={`w-full text-left p-2 text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-700/50 rounded ${
-                        layoutMode === 'modern' ? 'text-gray-300 hover:text-white' : 'text-gray-400 hover:text-gray-200'
-                      }`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
                 </div>
               )}
             </div>

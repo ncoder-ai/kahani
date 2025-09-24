@@ -677,6 +677,24 @@ export default function StoryPage() {
     }
   };
 
+  const stopGeneration = () => {
+    // Stop all streaming states
+    setIsStreaming(false);
+    setStreamingContent('');
+    setStreamingSceneNumber(null);
+    setIsStreamingContinuation(false);
+    setStreamingContinuation('');
+    setStreamingContinuationSceneId(null);
+    setIsGenerating(false);
+    setIsRegenerating(false);
+    
+    // Reset UI states
+    setSelectedChoice(null);
+    setShowChoicesDuringGeneration(true);
+    
+    console.log('Generation stopped by user');
+  };
+
   const toggleDeleteMode = () => {
     setIsInDeleteMode(!isInDeleteMode);
     setSelectedScenesForDeletion([]);
@@ -974,6 +992,7 @@ export default function StoryPage() {
                           onCreateVariant={createNewVariant}
                           onVariantChanged={refreshStoryContent}
                           onContinueScene={continueScene}
+                          onStopGeneration={stopGeneration}
                           showChoices={showChoices}
                           directorMode={directorMode}
                           customPrompt={customPrompt}
