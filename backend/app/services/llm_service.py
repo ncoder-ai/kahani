@@ -112,7 +112,16 @@ class LMStudioService:
             raise Exception(f"Failed to connect to LLM service: {e}")
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error {e.response.status_code}: {e.response.text}")
-            raise Exception(f"LLM service error: {e.response.status_code}")
+            # Try to extract meaningful error message from LM Studio response
+            try:
+                error_data = e.response.json()
+                if "error" in error_data and "message" in error_data["error"]:
+                    error_message = error_data["error"]["message"]
+                    logger.error(f"LM Studio error: {error_message}")
+                    raise Exception(f"LM Studio error: {error_message}")
+            except (json.JSONDecodeError, KeyError):
+                pass
+            raise Exception(f"LLM service error (HTTP {e.response.status_code}): Unable to process request")
         except KeyError as e:
             logger.error(f"Unexpected response format: {e}")
             raise Exception("Invalid response from LLM service")
@@ -223,7 +232,16 @@ class LMStudioService:
             raise Exception(f"Failed to connect to LLM service: {e}")
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error {e.response.status_code}: {e.response.text}")
-            raise Exception(f"LLM service error: {e.response.status_code}")
+            # Try to extract meaningful error message from LM Studio response
+            try:
+                error_data = e.response.json()
+                if "error" in error_data and "message" in error_data["error"]:
+                    error_message = error_data["error"]["message"]
+                    logger.error(f"LM Studio error: {error_message}")
+                    raise Exception(f"LM Studio error: {error_message}")
+            except (json.JSONDecodeError, KeyError):
+                pass
+            raise Exception(f"LLM service error (HTTP {e.response.status_code}): Unable to process request")
     
     def _truncate_context_for_streaming(self, story_context: Dict[str, Any]) -> List[str]:
         """
