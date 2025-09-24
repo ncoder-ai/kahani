@@ -454,9 +454,13 @@ export default function SceneVariantDisplay({
       {/* Story continuation choices and input - Only show for last scene */}
       {isLastScene && (
         <div className="mt-6">
-          {/* Choice Buttons - Only show if story has scenes and not in director mode */}
-          {showChoices && !directorMode && showChoicesDuringGeneration && (
-            <div className="space-y-2 mb-4">
+          {/* Choice Buttons - Keep in DOM but hide with opacity to prevent layout shifts */}
+          {showChoices && !directorMode && (
+            <div className={`space-y-2 mb-4 transition-opacity duration-200 ${
+              showChoicesDuringGeneration 
+                ? 'opacity-100 pointer-events-auto' 
+                : 'opacity-30 pointer-events-none'
+            }`}>
               {getAvailableChoices().length > 0 ? (
                 getAvailableChoices().map((choice, index) => (
                   <button
@@ -466,7 +470,7 @@ export default function SceneVariantDisplay({
                       setShowChoicesDuringGeneration?.(false);
                       onGenerateScene?.(choice);
                     }}
-                    disabled={isGenerating || isStreaming}
+                    disabled={!showChoicesDuringGeneration || isGenerating || isStreaming}
                     className={`w-full text-left p-3 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed group modern-choice-button compact ${
                       layoutMode === 'modern' ? 'rounded-lg' : 'bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded-lg'
                     } ${selectedChoice === choice ? 'ring-2 ring-pink-500 bg-pink-900/20' : ''}`}
@@ -495,13 +499,17 @@ export default function SceneVariantDisplay({
             </div>
           )}
 
-          {/* Continue Input - Only show in non-director mode and when not generating */}
-          {!directorMode && showChoicesDuringGeneration && !isGenerating && !isStreaming && !isRegenerating && !isStreamingContinuation && (
+          {/* Continue Input - Keep in DOM but hide with opacity to prevent layout shifts */}
+          {!directorMode && (
             <div className={`${
               layoutMode === 'modern'
                 ? 'modern-input-container'
                 : 'bg-gray-700 rounded-xl border border-gray-600'
-            } p-4`}>
+            } p-4 transition-opacity duration-200 ${
+              showChoicesDuringGeneration && !isGenerating && !isStreaming && !isRegenerating && !isStreamingContinuation
+                ? 'opacity-100 pointer-events-auto'
+                : 'opacity-30 pointer-events-none'
+            }`}>
               <div className="flex items-center justify-between">
                 <input
                   type="text"
@@ -514,10 +522,11 @@ export default function SceneVariantDisplay({
                       onGenerateScene?.(customPrompt);
                     }
                   }}
+                  disabled={!showChoicesDuringGeneration || isGenerating || isStreaming || isRegenerating || isStreamingContinuation}
                 />
                 <button
                   onClick={() => onGenerateScene?.(customPrompt)}
-                  disabled={isGenerating || isStreaming || !customPrompt.trim()}
+                  disabled={!showChoicesDuringGeneration || isGenerating || isStreaming || !customPrompt.trim() || isRegenerating || isStreamingContinuation}
                   className={`ml-3 rounded-lg p-2 transition-colors ${
                     layoutMode === 'modern'
                       ? 'bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-700 hover:to-purple-700 disabled:from-gray-600 disabled:to-gray-600'
