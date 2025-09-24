@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useParams } from 'next/navigation';
 import { useAuthStore, useStoryStore, useHasHydrated } from '@/store';
@@ -131,13 +131,14 @@ export default function StoryPage() {
   
   // Modern scene layout states
   const [sceneLayoutMode, setSceneLayoutMode] = useState<'stacked' | 'modern'>('modern');
-  const [lastSceneRef, setLastSceneRef] = useState<HTMLDivElement | null>(null);
   const [isNewSceneAdded, setIsNewSceneAdded] = useState(false);
-
+  const [selectedChoice, setSelectedChoice] = useState<string | null>(null);
+  const [showChoicesDuringGeneration, setShowChoicesDuringGeneration] = useState(true);
+  const [previousSceneCount, setPreviousSceneCount] = useState(0);
+  
   const storyContentRef = useRef<HTMLDivElement>(null);
   const scenesEndRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
+  const lastSceneRef = useRef<HTMLDivElement | null>(null);  useEffect(() => {
     // Wait for auth store to hydrate before checking authentication
     if (!hasHydrated) {
       return;
@@ -204,6 +205,35 @@ export default function StoryPage() {
       console.error('Failed to refresh story:', err);
     }
   };
+
+  // Track scene count to detect new scenes
+  useEffect(() => {
+    if (story?.scenes) {
+      setPreviousSceneCount(story.scenes.length);
+    }
+  }, [story?.scenes?.length]);
+
+  // Scroll to last scene (for initial load and after generation)
+  const scrollToLastScene = useCallback((behavior: 'auto' | 'smooth' = 'smooth') => {
+    if (lastSceneRef.current && sceneLayoutMode === 'modern') {
+      lastSceneRef.current.scrollIntoView({
+        behavior,
+        block: 'start'
+      });
+    }
+  }, [sceneLayoutMode]);
+
+  // Scroll to newly generated scene
+  const scrollToNewScene = useCallback((delay: number = 200) => {
+    setTimeout(() => {
+      if (lastSceneRef.current) {
+        lastSceneRef.current.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start'
+        });
+      }
+    }, delay);
+  }, []);
 
   // Track if user has manually scrolled away to avoid unwanted auto-scroll
   const [userScrolledAway, setUserScrolledAway] = useState(false);
@@ -296,10 +326,10 @@ export default function StoryPage() {
       await loadChoices();
 
       // Modern layout: Position at top of last scene instead of bottom (only if requested)
-      if (scrollToLastScene) {
+      if (scrollToLastScene && sceneLayoutMode === 'modern') {
         setTimeout(() => {
-          if (lastSceneRef && sceneLayoutMode === 'modern') {
-            lastSceneRef.scrollIntoView({
+          if (lastSceneRef.current) {
+            lastSceneRef.current.scrollIntoView({
               behavior: 'auto', // Use auto for initial load to avoid jarring
               block: 'start'
             });
@@ -338,12 +368,17 @@ export default function StoryPage() {
       console.log('generateNewScene response', response);
 
       // Reload the story to get the new scene and its choices
-      await loadStory(false); // Don't scroll to last scene after generation
+      await loadStory(false); // Don't use initial load scrolling
       setCustomPrompt('');
 
-      // For modern layout, mark new scene as added for smooth reveal
+      // Reset choice selection state
+      setSelectedChoice(null);
+      setShowChoicesDuringGeneration(true);
+
+      // For modern layout, scroll to the new scene
       if (sceneLayoutMode === 'modern') {
         setIsNewSceneAdded(true);
+        scrollToNewScene(300); // Scroll to new scene after DOM update
         setTimeout(() => setIsNewSceneAdded(false), 1000);
       } else {
         // Legacy behavior - gentle scroll
@@ -388,6 +423,10 @@ export default function StoryPage() {
           setStreamingSceneNumber(null);
           setIsStreaming(false);
 
+          // Reset choice selection state
+          setSelectedChoice(null);
+          setShowChoicesDuringGeneration(true);
+
           // Reload the story to get the updated data
           await loadStory(false); // Don't scroll to last scene after streaming
           setCustomPrompt('');
@@ -410,6 +449,10 @@ export default function StoryPage() {
           setStreamingContent('');
           setStreamingSceneNumber(null);
           setIsStreaming(false);
+
+          // Reset choice selection state on error
+          setSelectedChoice(null);
+          setShowChoicesDuringGeneration(true);
         }
       );
     } catch (err) {
@@ -423,6 +466,10 @@ export default function StoryPage() {
 
   // Wrapper function to choose between streaming and regular generation
   const generateScene = async (prompt?: string) => {
+    // Set the selected choice for UI feedback
+    setSelectedChoice(prompt || null);
+    setShowChoicesDuringGeneration(false);
+
     if (useStreaming) {
       return generateNewSceneStreaming(prompt);
     } else {
@@ -817,7 +864,7 @@ export default function StoryPage() {
                       <div
                         key={scene.id}
                         data-scene-id={scene.id}
-                        ref={isLastSceneInStory ? setLastSceneRef : null}
+                        ref={isLastSceneInStory ? lastSceneRef : null}
                         className={`scene-container ${sceneLayoutMode === 'modern' ? 'modern-scene' : 'stacked-scene'} ${
                           isLastSceneInStory && isNewSceneAdded ? 'new-scene' : ''
                         }`}
@@ -870,6 +917,10 @@ export default function StoryPage() {
                           onGenerateScene={generateScene}
                           layoutMode={sceneLayoutMode}
                           onNewSceneAdded={() => setIsNewSceneAdded(true)}
+                          selectedChoice={selectedChoice}
+                          showChoicesDuringGeneration={showChoicesDuringGeneration}
+                          setShowChoicesDuringGeneration={setShowChoicesDuringGeneration}
+                          setSelectedChoice={setSelectedChoice}
                         />
                       </div>
                     );

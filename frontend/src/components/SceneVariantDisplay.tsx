@@ -66,6 +66,10 @@ interface SceneVariantDisplayProps {
   onGenerateScene?: (prompt?: string) => void;
   layoutMode?: 'stacked' | 'modern';
   onNewSceneAdded?: () => void;
+  selectedChoice?: string | null;
+  showChoicesDuringGeneration?: boolean;
+  setShowChoicesDuringGeneration?: (show: boolean) => void;
+  setSelectedChoice?: (choice: string | null) => void;
 }
 
 export default function SceneVariantDisplay({
@@ -91,7 +95,11 @@ export default function SceneVariantDisplay({
   onCustomPromptChange,
   onGenerateScene,
   layoutMode = 'stacked',
-  onNewSceneAdded
+  onNewSceneAdded,
+  selectedChoice = null,
+  showChoicesDuringGeneration = true,
+  setShowChoicesDuringGeneration,
+  setSelectedChoice
 }: SceneVariantDisplayProps) {
   const [variants, setVariants] = useState<SceneVariant[]>([]);
   const [currentVariantId, setCurrentVariantId] = useState<number | null>(null);
@@ -373,17 +381,21 @@ export default function SceneVariantDisplay({
       {isLastScene && (
         <div className="mt-6">
           {/* Choice Buttons - Only show if story has scenes and not in director mode */}
-          {showChoices && !directorMode && (
+          {showChoices && !directorMode && showChoicesDuringGeneration && (
             <div className="space-y-3 mb-6">
               {getAvailableChoices().length > 0 ? (
                 getAvailableChoices().map((choice, index) => (
                   <button
                     key={index}
-                    onClick={() => onGenerateScene?.(choice)}
+                    onClick={() => {
+                      setSelectedChoice?.(choice);
+                      setShowChoicesDuringGeneration?.(false);
+                      onGenerateScene?.(choice);
+                    }}
                     disabled={isGenerating || isStreaming}
                     className={`w-full text-left p-4 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed group modern-choice-button ${
                       layoutMode === 'modern' ? 'rounded-xl' : 'bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded-xl'
-                    }`}
+                    } ${selectedChoice === choice ? 'ring-2 ring-pink-500 bg-pink-900/20' : ''}`}
                   >
                     <div className="flex items-center justify-between relative z-10">
                       <span className="text-gray-200">{choice}</span>
@@ -396,6 +408,16 @@ export default function SceneVariantDisplay({
                   <div className="animate-pulse">Loading story choices...</div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Selected Choice Placeholder - Show when choice is selected but generation hasn't started */}
+          {selectedChoice && !isGenerating && !isStreaming && !showChoicesDuringGeneration && (
+            <div className="mb-6 p-4 bg-gray-800/50 rounded-xl border border-gray-600">
+              <div className="flex items-center space-x-3">
+                <div className="w-2 h-2 bg-pink-500 rounded-full animate-pulse"></div>
+                <span className="text-gray-300 text-sm">Selected: "{selectedChoice}"</span>
+              </div>
             </div>
           )}
 
