@@ -22,6 +22,8 @@ interface SceneDisplayProps {
   onSaveEdit: (sceneId: number, content: string) => void;
   onCancelEdit: () => void;
   onContentChange: (content: string) => void;
+  streamingContinuation?: string;
+  isStreamingContinuation?: boolean;
 }
 
 export default function SceneDisplay({ 
@@ -34,7 +36,9 @@ export default function SceneDisplay({
   onStartEdit, 
   onSaveEdit, 
   onCancelEdit, 
-  onContentChange 
+  onContentChange,
+  streamingContinuation,
+  isStreamingContinuation
 }: SceneDisplayProps) {
   const getSceneClassName = () => {
     const baseClasses = "transition-all duration-200";
@@ -115,6 +119,14 @@ export default function SceneDisplay({
           onClick={() => onStartEdit(scene)}
         >
           <FormattedText content={scene.content} />
+          {streamingContinuation && (
+            <span className="streaming-continuation">
+              <FormattedText content={streamingContinuation} />
+              {isStreamingContinuation && (
+                <span className="inline-block w-2 h-5 bg-blue-400 ml-1 animate-pulse"></span>
+              )}
+            </span>
+          )}
         </div>
       )}
       

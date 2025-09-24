@@ -25,6 +25,18 @@ class LMStudioService:
         # Also remove standalone scene titles that might start with numbers
         content = re.sub(r'^\d+[:.]\s*[A-Z][^.\n]*(\n|$)', '', content).strip()
         return content
+
+    def _clean_scene_numbers_chunk(self, chunk: str) -> str:
+        """Clean scene numbers from streaming chunks - more conservative than full cleaning"""
+        # For streaming, we only clean obvious scene markers at the start of chunks
+        # to avoid cutting off legitimate content mid-stream
+        if chunk.strip().startswith(('Scene ', 'SCENE ', 'scene ')):
+            # Check if it looks like a scene header pattern
+            if re.match(r'^Scene\s+\d+[:\-\s]', chunk, re.IGNORECASE):
+                # Remove just the scene header part, keep the rest
+                cleaned = re.sub(r'^Scene\s+\d+[:\-\s]*[^\n]*\n?', '', chunk, flags=re.IGNORECASE)
+                return cleaned
+        return chunk
         
     async def _make_request(self, prompt: str, system_prompt: str = "", max_tokens: int = None, user_settings: dict = None, stream: bool = False) -> str:
         """Make a request to LM Studio API with optional user settings"""
@@ -1005,7 +1017,7 @@ Write in a rich, engaging narrative style that matches the existing content."""
 
 Continue the scene by adding more content that flows naturally from where it currently ends. Focus on deepening the scene through additional dialogue, action, or description."""
 
-        async for chunk in self._make_request_streaming(prompt, system_prompt, user_settings=user_settings):
+        async for chunk in self._make_streaming_request(prompt, system_prompt, user_settings=user_settings):
             cleaned_chunk = self._clean_scene_numbers_chunk(chunk)
             if cleaned_chunk:  # Only yield non-empty chunks
                 yield cleaned_chunk
