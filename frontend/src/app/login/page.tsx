@@ -31,10 +31,22 @@ export default function LoginPage() {
       
       // Update auth store
       login(response.user, response.access_token);
-      console.log('Auth store updated, redirecting to dashboard');
+      console.log('Auth store updated');
       
-      // Use router.push instead of window.location.href for proper React navigation
-      router.push('/dashboard');
+      // Check if user wants to auto-open last story
+      try {
+        const lastStoryResponse = await apiClient.getLastAccessedStory();
+        if (lastStoryResponse.auto_open_last_story && lastStoryResponse.last_accessed_story_id) {
+          console.log('Auto-redirecting to last story:', lastStoryResponse.last_accessed_story_id);
+          router.push(`/story/${lastStoryResponse.last_accessed_story_id}`);
+        } else {
+          console.log('Redirecting to dashboard');
+          router.push('/dashboard');
+        }
+      } catch (settingsError) {
+        console.error('Failed to check auto-redirect settings, going to dashboard:', settingsError);
+        router.push('/dashboard');
+      }
     } catch (err) {
       console.error('Login error:', err);
       setError(err instanceof Error ? err.message : 'Login failed');

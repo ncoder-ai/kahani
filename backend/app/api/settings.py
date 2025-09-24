@@ -44,6 +44,7 @@ class UIPreferencesUpdate(BaseModel):
     notifications: Optional[bool] = None
     scene_display_format: str = Field(pattern="^(default|bubble|card|minimal)$", default="default")
     show_scene_titles: Optional[bool] = None
+    auto_open_last_story: Optional[bool] = None
 
 class ExportSettingsUpdate(BaseModel):
     format: str = Field(pattern="^(markdown|pdf|txt)$", default="markdown")
@@ -150,6 +151,8 @@ async def update_user_settings(
         user_settings.scene_display_format = ui.scene_display_format
         if ui.show_scene_titles is not None:
             user_settings.show_scene_titles = ui.show_scene_titles
+        if ui.auto_open_last_story is not None:
+            user_settings.auto_open_last_story = ui.auto_open_last_story
     
     # Update export settings
     if settings_update.export_settings:
@@ -453,3 +456,25 @@ async def get_available_models(
             "models": [],
             "message": f"Failed to fetch models: {str(e)}"
         }
+
+@router.get("/last-story")
+async def get_last_accessed_story(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get the last accessed story ID and auto-open setting"""
+    
+    user_settings = db.query(UserSettings).filter(
+        UserSettings.user_id == current_user.id
+    ).first()
+    
+    if not user_settings:
+        return {
+            "auto_open_last_story": False,
+            "last_accessed_story_id": None
+        }
+    
+    return {
+        "auto_open_last_story": user_settings.auto_open_last_story or False,
+        "last_accessed_story_id": user_settings.last_accessed_story_id
+    }
