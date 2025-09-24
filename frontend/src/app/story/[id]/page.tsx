@@ -10,6 +10,7 @@ import { TokenInfo } from '@/components/TokenInfo';
 import { ContextInfo } from '@/components/ContextInfo';
 import FormattedText from '@/components/FormattedText';
 import SceneDisplay from '@/components/SceneDisplay';
+import SceneVariantDisplay from '@/components/SceneVariantDisplay';
 import { 
   BookOpenIcon, 
   FilmIcon,
@@ -106,10 +107,10 @@ export default function StoryPage() {
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [userSettings, setUserSettings] = useState<any>(null);
   
-  // New variant system states
-  const [selectedSceneVariants, setSelectedSceneVariants] = useState<{[sceneId: number]: SceneVariant[]}>({});
-  const [currentVariantIds, setCurrentVariantIds] = useState<{[sceneId: number]: number}>({});
-  const [showVariantSelector, setShowVariantSelector] = useState<{[sceneId: number]: boolean}>({});
+  // New variant system states - now managed by SceneVariantDisplay
+  // const [selectedSceneVariants, setSelectedSceneVariants] = useState<{[sceneId: number]: SceneVariant[]}>({});
+  // const [currentVariantIds, setCurrentVariantIds] = useState<{[sceneId: number]: number}>({});
+  // const [showVariantSelector, setShowVariantSelector] = useState<{[sceneId: number]: boolean}>({});
   const [isDeletingScenes, setIsDeletingScenes] = useState(false);
   const [selectedScenesForDeletion, setSelectedScenesForDeletion] = useState<number[]>([]);
   const [isInDeleteMode, setIsInDeleteMode] = useState(false);
@@ -119,7 +120,17 @@ export default function StoryPage() {
   const [streamingContent, setStreamingContent] = useState('');
   const [streamingSceneNumber, setStreamingSceneNumber] = useState<number | null>(null);
   const [useStreaming, setUseStreaming] = useState(true); // Enable streaming by default
+  
+  // Scene pagination for performance
+  const [displayMode, setDisplayMode] = useState<'recent' | 'all'>('recent'); // Start with recent scenes only
+  const [scenesToShow, setScenesToShow] = useState(5); // Show last 5 scenes initially
+  const [isLoadingEarlierScenes, setIsLoadingEarlierScenes] = useState(false);
+  
+  // New content indicator
+  const [newContentAdded, setNewContentAdded] = useState(false);
+  
   const storyContentRef = useRef<HTMLDivElement>(null);
+  const scenesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     // Wait for auth store to hydrate before checking authentication
@@ -145,72 +156,143 @@ export default function StoryPage() {
     }
   };
 
-  const scrollToBottom = () => {
-    if (storyContentRef.current) {
-      const element = storyContentRef.current;
-      // Use requestAnimationFrame for better timing and smooth scrolling
-      requestAnimationFrame(() => {
-        element.scrollTo({
-          top: element.scrollHeight,
-          behavior: 'smooth'
-        });
-      });
+  // Get scenes to display based on current mode
+  const getScenesToDisplay = (): Scene[] => {
+    if (!story?.scenes || story.scenes.length === 0) return [];
+    
+    if (displayMode === 'all') {
+      return story.scenes.sort((a, b) => a.sequence_number - b.sequence_number);
+    }
+    
+    // For 'recent' mode, show only the last N scenes
+    const sortedScenes = story.scenes.sort((a, b) => a.sequence_number - b.sequence_number);
+    const totalScenes = sortedScenes.length;
+    const startIndex = Math.max(0, totalScenes - scenesToShow);
+    return sortedScenes.slice(startIndex);
+  };
+
+  // Load all scenes (when user clicks "Load All Scenes")
+  const loadAllScenes = async () => {
+    setIsLoadingEarlierScenes(true);
+    try {
+      setDisplayMode('all');
+      // Story is already loaded, just change the display mode
+      // If we wanted to optimize further, we could implement server-side pagination
+    } catch (err) {
+      console.error('Failed to load all scenes:', err);
+    } finally {
+      setIsLoadingEarlierScenes(false);
     }
   };
 
-  // Auto-scroll to bottom when new scenes are added
-  useEffect(() => {
-    if (storyContentRef.current && story?.scenes && story.scenes.length > 0) {
-      // Use setTimeout to ensure DOM is updated after scene render
-      setTimeout(() => {
-        scrollToBottom();
-      }, 100);
-    }
-  }, [story?.scenes?.length]);
+  // Load more recent scenes
+  const loadMoreRecentScenes = () => {
+    setScenesToShow(prev => Math.min(prev + 10, story?.scenes?.length || 0));
+  };
 
-  // Additional auto-scroll when story content changes
-  useEffect(() => {
-    if (storyContentRef.current && story) {
-      // Delayed scroll to ensure content is fully rendered
-      setTimeout(() => {
-        scrollToBottom();
-      }, 200);
+  // Targeted story refresh that doesn't cause scrolling
+  const refreshStoryContent = async () => {
+    try {
+      const storyData = await apiClient.getStory(storyId);
+      setStory(storyData);
+    } catch (err) {
+      console.error('Failed to refresh story:', err);
     }
-  }, [story?.scenes]);
+  };
 
-  // Auto-scroll during streaming with more responsive timing
-  useEffect(() => {
-    if (storyContentRef.current && isStreaming) {
-      // Scroll when streaming starts
-      if (streamingContent === '') {
-        setTimeout(() => {
-          scrollToBottom();
-        }, 100);
+  // Track if user has manually scrolled away to avoid unwanted auto-scroll
+  const [userScrolledAway, setUserScrolledAway] = useState(false);
+
+  // More refined scrolling approach to reduce jarring movement
+  const smartScrollToNewContent = (force = false, showIndicator = true) => {
+    if (scenesEndRef.current) {
+      // Check if user is near the bottom of the page
+      const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+      const windowHeight = window.innerHeight;
+      const documentHeight = document.documentElement.scrollHeight;
+      const isNearBottom = scrollTop + windowHeight >= documentHeight - 200;
+      
+      // Show visual indicator for new content regardless of scroll
+      if (showIndicator) {
+        setNewContentAdded(true);
+        // Auto-hide indicator after 3 seconds
+        setTimeout(() => setNewContentAdded(false), 3000);
       }
-      // Continue scrolling as content updates
-      if (streamingContent) {
-        setTimeout(() => {
-          scrollToBottom();
-        }, 50);
+      
+      // Only auto-scroll if:
+      // 1. User is near bottom already, OR
+      // 2. We're forcing the scroll (like after generation), OR  
+      // 3. User hasn't manually scrolled away
+      if (force || (isNearBottom && !userScrolledAway)) {
+        scenesEndRef.current.scrollIntoView({
+          behavior: 'smooth',
+          block: 'nearest' // Less aggressive than 'end'
+        });
+        setUserScrolledAway(false);
       }
     }
-  }, [streamingContent, isStreaming]);
+  };
+
+  // Track when user manually scrolls
+  useEffect(() => {
+    let scrollTimer: NodeJS.Timeout;
+
+    const handleScroll = () => {
+      // Clear existing timer
+      clearTimeout(scrollTimer);
+      
+      // Set timer to mark user as having scrolled away
+      scrollTimer = setTimeout(() => {
+        const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+        const windowHeight = window.innerHeight;
+        const documentHeight = document.documentElement.scrollHeight;
+        const isAtBottom = scrollTop + windowHeight >= documentHeight - 100;
+        
+        // If user scrolled away from bottom, mark it
+        if (!isAtBottom && !isGenerating && !isStreaming) {
+          setUserScrolledAway(true);
+        } else if (isAtBottom) {
+          setUserScrolledAway(false);
+        }
+      }, 150);
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      clearTimeout(scrollTimer);
+    };
+  }, [isGenerating, isStreaming]);
+
+  // Single consolidated scroll effect - much less aggressive
+  useEffect(() => {
+    if (!isLoading && story?.scenes && story.scenes.length > 0) {
+      // Only scroll during active generation, and with intelligent timing
+      if (isGenerating || isStreaming) {
+        const scrollDelay = isStreaming && streamingContent ? 500 : 300;
+        
+        const scrollTimer = setTimeout(() => {
+          smartScrollToNewContent();
+        }, scrollDelay);
+
+        return () => clearTimeout(scrollTimer);
+      }
+    }
+  }, [story?.scenes?.length, isLoading, isGenerating, isStreaming, streamingContent]);
 
   const loadStory = async () => {
     try {
       setIsLoading(true);
+      
       const storyData = await apiClient.getStory(storyId);
       setStory(storyData);
       
       // Load choices for the current story
       await loadChoices();
       
-      // Load variants for all scenes
-      if (storyData.scenes && storyData.scenes.length > 0) {
-        for (const scene of storyData.scenes) {
-          await loadSceneVariants(scene.id);
-        }
-      }
+      // No need to scroll - we're loading the right scenes directly
+      // The user will see the last scenes immediately without scrolling
+      
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load story');
     } finally {
@@ -245,10 +327,10 @@ export default function StoryPage() {
       await loadStory();
       setCustomPrompt('');
       
-      // Ensure we scroll to bottom after scene is loaded
+      // Gentle scroll to new content after generation
       setTimeout(() => {
-        scrollToBottom();
-      }, 300);
+        smartScrollToNewContent(true); // Force scroll after generation
+      }, 400);
     } catch (err) {
       console.error('generateNewScene error', err);
       setError(err instanceof Error ? err.message : 'Failed to generate scene');
@@ -271,11 +353,6 @@ export default function StoryPage() {
     // Don't clear choices immediately - hide more options
     setShowMoreOptions(false);
     
-    // Scroll to bottom when starting generation
-    setTimeout(() => {
-      scrollToBottom();
-    }, 100);
-    
     try {
       await apiClient.generateSceneStreaming(
         story.id,
@@ -295,10 +372,10 @@ export default function StoryPage() {
           await loadStory();
           setCustomPrompt('');
           
-          // Ensure we scroll to bottom after scene is loaded
+          // Gentle scroll to new content after streaming complete
           setTimeout(() => {
-            scrollToBottom();
-          }, 300);
+            smartScrollToNewContent(true); // Force scroll after streaming
+          }, 600);
         },
         // onError
         (error: string) => {
@@ -424,41 +501,6 @@ export default function StoryPage() {
     }
   };
 
-  const loadSceneVariants = async (sceneId: number) => {
-    if (!story) return;
-    
-    try {
-      const response = await apiClient.getSceneVariants(story.id, sceneId);
-      setSelectedSceneVariants(prev => ({
-        ...prev,
-        [sceneId]: response.variants
-      }));
-    } catch (error) {
-      console.error('Failed to load scene variants:', error);
-    }
-  };
-
-  const switchToVariant = async (sceneId: number, variantId: number) => {
-    if (!story) return;
-    
-    try {
-      await apiClient.activateSceneVariant(story.id, sceneId, variantId);
-      
-      // Update the current variant ID
-      setCurrentVariantIds(prev => ({
-        ...prev,
-        [sceneId]: variantId
-      }));
-      
-      // Reload the story to show the new variant
-      await loadStory();
-      
-    } catch (error) {
-      console.error('Failed to switch variant:', error);
-      setError(error instanceof Error ? error.message : 'Failed to switch variant');
-    }
-  };
-
   const createNewVariant = async (sceneId: number, customPrompt?: string) => {
     if (!story) return;
     
@@ -467,23 +509,16 @@ export default function StoryPage() {
     try {
       setIsRegenerating(true);
       
-      // Load existing variants for this scene
-      await loadSceneVariants(sceneId);
-      
       if (useStreaming) {
         // Streaming variant creation with animation
         setIsStreaming(true);
         setStreamingContent('');
         
-        // Show the sliding animation - current scene slides left, new box appears
-        // This will be handled by CSS transitions in the scene display
-        
         // For now, use regular API (we can add streaming later)
         const response = await apiClient.createSceneVariant(story.id, sceneId, customPrompt);
         
-        // Switch to the new variant automatically
-        await loadSceneVariants(sceneId);
-        await switchToVariant(sceneId, response.variant.id);
+        // Reload story to show new variant
+        await loadStory();
         
         setIsStreaming(false);
         console.log('New variant created (streaming mode):', response.variant);
@@ -491,9 +526,8 @@ export default function StoryPage() {
         // Non-streaming variant creation
         const response = await apiClient.createSceneVariant(story.id, sceneId, customPrompt);
         
-        // Switch to the new variant automatically
-        await loadSceneVariants(sceneId);
-        await switchToVariant(sceneId, response.variant.id);
+        // Reload story to show new variant
+        await loadStory();
         
         console.log('New variant created:', response.variant);
       }
@@ -545,44 +579,6 @@ export default function StoryPage() {
     }
   };
 
-  // Variant navigation helper functions
-  const getCurrentVariantIndex = (sceneId: number): number => {
-    const variants = selectedSceneVariants[sceneId] || [];
-    const currentVariantId = currentVariantIds[sceneId];
-    if (!currentVariantId || variants.length === 0) return 0;
-    
-    const index = variants.findIndex(v => v.id === currentVariantId);
-    return index >= 0 ? index : 0;
-  };
-
-  const canNavigateToPreviousVariant = (sceneId: number): boolean => {
-    const variants = selectedSceneVariants[sceneId] || [];
-    return variants.length > 1 && getCurrentVariantIndex(sceneId) > 0;
-  };
-
-  const canNavigateToNextVariant = (sceneId: number): boolean => {
-    const variants = selectedSceneVariants[sceneId] || [];
-    return variants.length > 1 && getCurrentVariantIndex(sceneId) < variants.length - 1;
-  };
-
-  const navigateToPreviousVariant = async (sceneId: number) => {
-    const variants = selectedSceneVariants[sceneId] || [];
-    const currentIndex = getCurrentVariantIndex(sceneId);
-    if (currentIndex > 0) {
-      const previousVariant = variants[currentIndex - 1];
-      await switchToVariant(sceneId, previousVariant.id);
-    }
-  };
-
-  const navigateToNextVariant = async (sceneId: number) => {
-    const variants = selectedSceneVariants[sceneId] || [];
-    const currentIndex = getCurrentVariantIndex(sceneId);
-    if (currentIndex < variants.length - 1) {
-      const nextVariant = variants[currentIndex + 1];
-      await switchToVariant(sceneId, nextVariant.id);
-    }
-  };
-
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -591,69 +587,37 @@ export default function StoryPage() {
       }
       
       if (story?.scenes.length) {
-        const lastScene = story.scenes[story.scenes.length - 1];
-        
-        if (event.key === 'ArrowRight' && !isGenerating && !isRegenerating) {
+        if (event.key === 'ArrowRight') {
           event.preventDefault();
-          if (event.shiftKey) {
-            // Shift + Right: Navigate to next variant of last scene
-            navigateToNextVariant(lastScene.id);
-          } else {
-            // Right alone: Create new variant (regenerate)
-            createNewVariant(lastScene.id);
-          }
+          // Right arrow: Navigate to next variant of last scene
+          console.log('Right arrow: Next variant navigation handled by SceneVariantDisplay');
+          // This will be handled by the SceneVariantDisplay component
         } else if (event.key === 'ArrowLeft') {
           event.preventDefault();
-          if (event.shiftKey) {
-            // Shift + Left: Navigate to previous variant of last scene
-            navigateToPreviousVariant(lastScene.id);
-          } else if (sceneHistory.length > 0) {
-            // Left alone: Go to previous scene
-            goToPreviousScene();
-          }
+          // Left arrow: Navigate to previous variant of last scene
+          console.log('Left arrow: Previous variant navigation handled by SceneVariantDisplay');
+          // This will be handled by the SceneVariantDisplay component
         }
       }
       
       if (event.key === 'ArrowUp' && story?.scenes.length) {
         event.preventDefault();
-        // Navigate to previous scene (scroll or focus)
-        // For now, just scroll up
+        // Navigate up in the story (scroll up)
         if (storyContentRef.current) {
           storyContentRef.current.scrollTop -= 200;
         }
       } else if (event.key === 'ArrowDown' && story?.scenes.length) {
         event.preventDefault();
-        // Navigate to next scene (scroll or continue story)
-        goToNextScene();
+        // Navigate down in the story (scroll down)
+        if (storyContentRef.current) {
+          storyContentRef.current.scrollTop += 200;
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isGenerating, isRegenerating, sceneHistory, story, selectedSceneVariants, currentVariantIds]);
-
-  // Use dynamic choices from LLM, or fallback choices if none available
-  const getAvailableChoices = () => {
-    if (dynamicChoices.length > 0) {
-      return dynamicChoices.map(choice => choice.text);
-    }
-    
-    // Only show base fallback choices when:
-    // 1. No dynamic choices are available AND
-    // 2. Not currently generating a new scene
-    if (!isGenerating) {
-      const baseChoices = [
-        "Continue this naturally",
-        "Add dialogue between characters", 
-        "Introduce a plot twist"
-      ];
-      
-      return baseChoices;
-    }
-    
-    // Return empty array when generating to hide choices
-    return [];
-  };
+  }, [isGenerating, isRegenerating, sceneHistory, story]);
 
   if (!user) {
     return (
@@ -799,166 +763,97 @@ export default function StoryPage() {
               </div>
             )}
 
-            {/* All Scenes - Scrollable */}
+            {/* Scenes Display with Performance Optimization */}
             <div className="prose prose-invert prose-lg max-w-none mb-8">
               {story?.scenes && story.scenes.length > 0 ? (
                 <div className="space-y-8">
-                  {story.scenes
-                    .sort((a, b) => a.sequence_number - b.sequence_number)
-                    .map((scene, index) => (
-                    <div key={scene.id}>
-                      {/* Scene Separator */}
-                      {index > 0 && userSettings?.show_scene_titles === true && (
-                        <div className="flex items-center my-8">
-                          <div className="flex-1 h-px bg-gray-600"></div>
-                          <div className="px-4 text-gray-500 text-sm">Scene {index + 1}</div>
-                          <div className="flex-1 h-px bg-gray-600"></div>
+                  {/* Load Earlier Scenes Button */}
+                  {displayMode === 'recent' && story.scenes.length > scenesToShow && (
+                    <div className="text-center py-6">
+                      <div className="bg-gray-700/50 rounded-lg p-4 mb-4">
+                        <p className="text-gray-400 text-sm mb-3">
+                          Showing last {getScenesToDisplay().length} of {story.scenes.length} scenes
+                        </p>
+                        <div className="flex gap-3 justify-center">
+                          <button
+                            onClick={loadMoreRecentScenes}
+                            disabled={isLoadingEarlierScenes}
+                            className="bg-gray-600 hover:bg-gray-500 text-white px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50"
+                          >
+                            {isLoadingEarlierScenes ? 'Loading...' : `Load More (${Math.min(10, story.scenes.length - scenesToShow)} scenes)`}
+                          </button>
+                          <button
+                            onClick={loadAllScenes}
+                            disabled={isLoadingEarlierScenes}
+                            className="bg-pink-600 hover:bg-pink-700 text-white px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50"
+                          >
+                            {isLoadingEarlierScenes ? 'Loading...' : 'Load All Scenes'}
+                          </button>
                         </div>
-                      )}
-                      
-                      <SceneDisplay
-                        scene={scene}
-                        sceneNumber={index + 1}
-                        format={userSettings?.scene_display_format || 'default'}
-                        showTitle={userSettings?.show_scene_titles === true}
-                        isEditing={editingScene === scene.id}
-                        editContent={editContent}
-                        onStartEdit={startEditingScene}
-                        onSaveEdit={(sceneId: number, content: string) => updateScene(sceneId, content)}
-                        onCancelEdit={() => setEditingScene(null)}
-                        onContentChange={setEditContent}
-                      />
-                      
-                      {/* Scene Management Buttons - Show only for the last scene */}
-                      {index === story.scenes.length - 1 && (
-                        <div className="space-y-4 mt-6 pt-4 border-t border-gray-600/30">
-                          {/* Variant Navigation - Show if scene has multiple variants */}
-                          {selectedSceneVariants[scene.id] && selectedSceneVariants[scene.id].length > 1 && (
-                            <div className="flex items-center justify-center space-x-4">
-                              <button
-                                onClick={() => navigateToPreviousVariant(scene.id)}
-                                disabled={!canNavigateToPreviousVariant(scene.id)}
-                                className="flex items-center space-x-2 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 disabled:opacity-50 rounded-lg transition-colors text-xs"
-                                title="Previous variant (Shift + ←)"
-                              >
-                                <ArrowLeftIcon className="w-3 h-3" />
-                                <span>Prev Variant</span>
-                              </button>
-                              
-                              <div className="text-xs text-gray-400">
-                                Variant {getCurrentVariantIndex(scene.id) + 1} of {selectedSceneVariants[scene.id].length}
-                              </div>
-                              
-                              <button
-                                onClick={() => navigateToNextVariant(scene.id)}
-                                disabled={!canNavigateToNextVariant(scene.id)}
-                                className="flex items-center space-x-2 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 disabled:opacity-50 rounded-lg transition-colors text-xs"
-                                title="Next variant (Shift + →)"
-                              >
-                                <span>Next Variant</span>
-                                <ArrowRightIcon className="w-3 h-3" />
-                              </button>
-                            </div>
-                          )}
-                          
-                          {/* Main Scene Controls */}
-                          <div className="flex items-center justify-center space-x-4">
-                            <button
-                              onClick={goToPreviousScene}
-                              disabled={sceneHistory.length === 0}
-                              className="flex items-center space-x-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:opacity-50 rounded-lg transition-colors text-sm"
-                              title="Go to previous scene version (←)"
-                            >
-                              <ArrowLeftIcon className="w-4 h-4" />
-                              <span>Previous Scene</span>
-                            </button>
-                            
-                            <button
-                              onClick={() => createNewVariant(scene.id)}
-                              disabled={isGenerating || isStreaming || isRegenerating}
-                              className="flex items-center space-x-2 px-4 py-2 bg-pink-600 hover:bg-pink-700 disabled:bg-pink-800 disabled:opacity-50 rounded-lg transition-colors text-sm"
-                              title="Regenerate current scene (→)"
-                            >
-                              <ArrowRightIcon className="w-4 h-4" />
-                              <span>
-                                {isRegenerating ? 'Regenerating...' : 'Regenerate Scene'}
-                              </span>
-                              {isRegenerating && (
-                                <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin"></div>
-                              )}
-                            </button>
-
-                            <button
-                              onClick={goToNextScene}
-                              disabled={isGenerating || isStreaming}
-                              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:opacity-50 rounded-lg transition-colors text-sm"
-                              title="Continue to next scene"
-                            >
-                              <span>Next Scene</span>
-                              <ArrowRightIcon className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Variant Selector for scenes with multiple variants */}
-                      {scene.has_multiple_variants && (
-                        <div className="mt-4 p-3 bg-gray-700/30 rounded-lg border border-gray-600/50">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm text-gray-300">
-                              Scene has {selectedSceneVariants[scene.id]?.length || 'multiple'} variants
-                            </span>
-                            <button
-                              onClick={() => loadSceneVariants(scene.id)}
-                              className="text-xs text-pink-400 hover:text-pink-300"
-                            >
-                              View Variants
-                            </button>
-                          </div>
-                          
-                          {selectedSceneVariants[scene.id] && (
-                            <div className="flex flex-wrap gap-2">
-                              {selectedSceneVariants[scene.id].map((variant, variantIndex) => (
-                                <button
-                                  key={variant.id}
-                                  onClick={() => switchToVariant(scene.id, variant.id)}
-                                  className={`px-3 py-1 rounded-full text-xs transition-colors ${
-                                    variant.id === scene.variant_id
-                                      ? 'bg-pink-600 text-white'
-                                      : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
-                                  }`}
-                                >
-                                  {variant.is_original ? 'Original' : `V${variant.variant_number}`}
-                                  {variant.is_favorite && ' ⭐'}
-                                </button>
-                              ))}
-                              <button
-                                onClick={() => createNewVariant(scene.id)}
-                                className="px-3 py-1 rounded-full text-xs bg-pink-600/20 text-pink-400 hover:bg-pink-600/30 transition-colors"
-                              >
-                                + New
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Delete Mode Checkbox */}
-                      {isInDeleteMode && (
-                        <div className="mt-4 p-3 bg-red-900/20 rounded-lg border border-red-600/50">
-                          <label className="flex items-center space-x-2 text-sm text-red-300">
-                            <input
-                              type="checkbox"
-                              checked={selectedScenesForDeletion.includes(scene.sequence_number)}
-                              onChange={() => toggleSceneForDeletion(scene.sequence_number)}
-                              className="w-4 h-4 text-red-600 bg-gray-700 border-gray-600 rounded focus:ring-red-500"
-                            />
-                            <span>Delete from here onward</span>
-                          </label>
-                        </div>
-                      )}
+                      </div>
                     </div>
-                  ))}
+                  )}
+
+                  {getScenesToDisplay().map((scene, displayIndex) => {
+                    // Calculate the actual scene number in the full story
+                    const actualSceneNumber = story.scenes.findIndex(s => s.id === scene.id) + 1;
+                    const isLastSceneInStory = scene.id === story.scenes[story.scenes.length - 1].id;
+                    
+                    return (
+                      <div 
+                        key={scene.id} 
+                        data-scene-id={scene.id}
+                      >
+                        {/* Scene Separator */}
+                        {displayIndex > 0 && userSettings?.show_scene_titles === true && (
+                          <div className="flex items-center my-8">
+                            <div className="flex-1 h-px bg-gray-600"></div>
+                            <div className="px-4 text-gray-500 text-sm">Scene {actualSceneNumber}</div>
+                            <div className="flex-1 h-px bg-gray-600"></div>
+                          </div>
+                        )}
+                        
+                        {/* Delete Mode Checkbox - Show at top of scene */}
+                        {isInDeleteMode && (
+                          <div className="mb-4 p-3 bg-red-900/20 rounded-lg border border-red-600/50">
+                            <label className="flex items-center space-x-2 text-sm text-red-300">
+                              <input
+                                type="checkbox"
+                                checked={selectedScenesForDeletion.includes(scene.sequence_number)}
+                                onChange={() => toggleSceneForDeletion(scene.sequence_number)}
+                                className="w-4 h-4 text-red-600 bg-gray-700 border-gray-600 rounded focus:ring-red-500"
+                              />
+                              <span>Delete from here onward</span>
+                            </label>
+                          </div>
+                        )}
+                        
+                        <SceneVariantDisplay
+                          scene={scene}
+                          sceneNumber={actualSceneNumber}
+                          storyId={story.id}
+                          isLastScene={isLastSceneInStory}
+                          userSettings={userSettings}
+                          isEditing={editingScene === scene.id}
+                          editContent={editContent}
+                          onStartEdit={startEditingScene}
+                          onSaveEdit={(sceneId: number, content: string) => updateScene(sceneId, content)}
+                          onCancelEdit={() => setEditingScene(null)}
+                          onContentChange={setEditContent}
+                          isRegenerating={isRegenerating}
+                          isGenerating={isGenerating}
+                          isStreaming={isStreaming}
+                          onCreateVariant={createNewVariant}
+                          onVariantChanged={refreshStoryContent}
+                          showChoices={showChoices}
+                          directorMode={directorMode}
+                          customPrompt={customPrompt}
+                          onCustomPromptChange={setCustomPrompt}
+                          onGenerateScene={generateScene}
+                        />
+                      </div>
+                    );
+                  })}
                   
                   {/* Streaming Content Display */}
                   {isStreaming && streamingContent && (
@@ -990,6 +885,19 @@ export default function StoryPage() {
                       </div>
                     </div>
                   )}
+                  
+                  {/* New content indicator */}
+                  {newContentAdded && !isGenerating && !isStreaming && (
+                    <div className="flex items-center justify-center py-4 animate-fade-in">
+                      <div className="bg-gradient-to-r from-pink-600 to-purple-600 text-white px-4 py-2 rounded-full text-sm font-medium flex items-center space-x-2 shadow-lg">
+                        <CheckIcon className="w-4 h-4" />
+                        <span>New content added</span>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* End of scenes marker for scrolling */}
+                  <div ref={scenesEndRef} className="h-1"></div>
                 </div>
               ) : (
                 <div className="text-center py-12">
@@ -1031,57 +939,7 @@ export default function StoryPage() {
               </div>
             )}
 
-            {/* Choice Buttons - Only show if story has scenes and not in director mode */}
-            {story?.scenes && story.scenes.length > 0 && showChoices && !directorMode && (
-              <div className="space-y-3 mb-8">
-                {getAvailableChoices().length > 0 ? (
-                  getAvailableChoices().map((choice, index) => (
-                    <button
-                      key={index}
-                      onClick={() => generateScene(choice)}
-                      disabled={isGenerating || isStreaming}
-                      className="w-full text-left bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded-xl p-4 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed group"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-gray-200">{choice}</span>
-                        <PlayIcon className="w-5 h-5 text-pink-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      </div>
-                    </button>
-                  ))
-                ) : (
-                  <div className="text-center text-gray-400 py-4">
-                    <div className="animate-pulse">Loading story choices...</div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Continue Input - Only show in non-director mode and if story has scenes */}
-            {story?.scenes && story.scenes.length > 0 && !directorMode && (
-              <div className="bg-gray-700 rounded-xl border border-gray-600 p-4">
-                <div className="flex items-center justify-between">
-                  <input
-                    type="text"
-                    value={customPrompt}
-                    onChange={(e) => setCustomPrompt(e.target.value)}
-                    placeholder="Write what happens next..."
-                    className="flex-1 bg-transparent text-white placeholder-gray-400 outline-none"
-                    onKeyPress={(e) => {
-                      if (e.key === 'Enter' && customPrompt.trim()) {
-                        generateScene();
-                      }
-                    }}
-                  />
-                  <button
-                    onClick={() => generateScene()}
-                    disabled={isGenerating || isStreaming || !customPrompt.trim()}
-                    className="ml-3 bg-pink-600 hover:bg-pink-700 disabled:bg-gray-600 rounded-lg p-2 transition-colors"
-                  >
-                    <PlayIcon className="w-5 h-5 text-white" />
-                  </button>
-                </div>
-              </div>
-            )}
+            {/* Note: Continue Input is now handled by SceneVariantDisplay component for last scene */}
 
             {/* More Button */}
             <div className="flex justify-center mt-6">
@@ -1147,7 +1005,7 @@ export default function StoryPage() {
             {story?.scenes && story.scenes.length > 0 && (
               <div className="flex items-center space-x-4 text-sm text-gray-400">
                 <div className="flex items-center space-x-1">
-                  <span>← Previous | → Regenerate | Shift+← Prev Variant | Shift+→ Next Variant | ↑ Scroll Up | ↓ Next Scene</span>
+                  <span>← Previous Variant | → Next Variant | ↑ Scroll Up | ↓ Scroll Down</span>
                 </div>
                 {isRegenerating && (
                   <div className="flex items-center space-x-1 text-pink-400">
@@ -1207,8 +1065,29 @@ export default function StoryPage() {
       )}
 
       {error && (
-        <div className="fixed top-4 right-4 bg-red-600 text-white px-4 py-3 rounded-lg shadow-lg z-50">
-          {error}
+        <div className="fixed top-4 right-4 bg-red-600 text-white px-4 py-3 rounded-lg shadow-lg z-50 max-w-md">
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <div className="font-medium mb-1">Error</div>
+              <div className="text-sm">{error}</div>
+              {error.includes('No models loaded') && (
+                <div className="mt-2 text-xs bg-red-700 rounded p-2">
+                  <strong>Solution:</strong> Load a model in LM Studio's developer page or use the `lms load` command.
+                </div>
+              )}
+              {error.includes('Failed to connect') && (
+                <div className="mt-2 text-xs bg-red-700 rounded p-2">
+                  <strong>Solution:</strong> Make sure LM Studio is running on localhost:1234
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => setError('')}
+              className="ml-2 text-white hover:text-gray-200 flex-shrink-0"
+            >
+              ✕
+            </button>
+          </div>
         </div>
       )}
 
