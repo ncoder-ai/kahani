@@ -6,7 +6,7 @@ from typing import List, Optional, Dict, Any, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, desc
 from ..models import Scene, SceneVariant, StoryFlow, SceneChoice, Story
-from ..services.llm_service import llm_service
+from ..services.llm_functions import generate_scene, generate_choices, generate_scene_streaming
 from ..services.context_manager import ContextManager
 import logging
 
@@ -103,13 +103,24 @@ class SceneVariantService:
         next_variant_number = (max_variant[0] if max_variant else 0) + 1
         
         # Generate new content using LLM
-        context_manager = ContextManager(user_settings=user_settings)
-        scene_context = await context_manager.build_scene_generation_context(
+        # Get the user_id from the scene's story
+        story = self.db.query(Story).filter(Story.id == scene.story_id).first()
+        user_id = story.owner_id if story else 1  # fallback to 1 if story not found
+        
+        context_manager = ContextManager(user_settings=user_settings, user_id=user_id)
+        # Use build_scene_generation_context to get a dict, then format as string
+        scene_context_dict = await context_manager.build_scene_generation_context(
             scene.story_id, self.db, custom_prompt or ""
         )
-        
-        new_content = await llm_service.generate_scene_with_context_management(
-            scene_context, user_settings
+        # Format the dict as a readable string for the LLM prompt
+        context_lines = [f"{k}: {v}" for k, v in scene_context_dict.items() if v]
+        context_str = "\n".join(context_lines)
+        if custom_prompt:
+            prompt = f"{custom_prompt}\n\n{context_str}"
+        else:
+            prompt = context_str
+        new_content = await generate_scene(
+            prompt, user_id, user_settings
         )
         
         # Create the new variant
@@ -130,7 +141,7 @@ class SceneVariantService:
         choices_context = await context_manager.build_choice_generation_context(
             scene.story_id, self.db
         )
-        choices_raw = await llm_service.generate_choices(choices_context, user_settings)
+        choices_raw = await generate_choices(new_variant.content, choices_context, user_id, user_settings)
         
         # Handle different choice formats from LLM service
         if isinstance(choices_raw, list):
