@@ -6,6 +6,7 @@ from ..database import get_db
 from ..models import User, UserSettings
 from ..dependencies import get_current_user
 import logging
+from ..services.llm_functions import invalidate_user_llm_cache
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ class LLMSettingsUpdate(BaseModel):
     top_k: int = Field(ge=1, le=100, default=50)
     repetition_penalty: float = Field(ge=1.0, le=2.0, default=1.1)
     max_tokens: int = Field(ge=100, le=4096, default=2048)
-    api_url: Optional[str] = Field(default="http://localhost:1234/v1")
+    api_url: Optional[str] = None  # No default - user must provide
     api_key: Optional[str] = None
     api_type: Optional[str] = Field(default="openai_compatible")
     model_name: Optional[str] = None
@@ -170,6 +171,11 @@ async def update_user_settings(
     try:
         db.commit()
         db.refresh(user_settings)
+        
+        # Invalidate LLM cache if LLM settings were updated
+        if settings_update.llm_settings:
+            invalidate_user_llm_cache(current_user.id)
+            logger.info(f"Invalidated LLM cache for user {current_user.id} due to settings update")
         
         return {
             "settings": user_settings.to_dict(),
@@ -325,7 +331,13 @@ async def test_api_connection(
             detail="User settings not found"
         )
     
-    api_url = user_settings.llm_api_url or "http://localhost:1234/v1"
+    api_url = user_settings.llm_api_url
+    if not api_url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="LLM API URL not configured. Please provide your LLM endpoint URL first."
+        )
+    
     api_key = user_settings.llm_api_key
     api_type = user_settings.llm_api_type or "openai_compatible"
     
@@ -392,7 +404,13 @@ async def get_available_models(
             detail="User settings not found"
         )
     
-    api_url = user_settings.llm_api_url or "http://localhost:1234/v1"
+    api_url = user_settings.llm_api_url
+    if not api_url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="LLM API URL not configured. Please provide your LLM endpoint URL first."
+        )
+    
     api_key = user_settings.llm_api_key
     api_type = user_settings.llm_api_type or "openai_compatible"
     

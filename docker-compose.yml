@@ -1,43 +1,137 @@
+# Kahani Docker Compose Configuration
 version: '3.8'
 
 services:
+  # Main Kahani Backend
   kahani-backend:
-    build: ./backend
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: kahani-backend
+    restart: unless-stopped
     ports:
       - "8000:8000"
     volumes:
-      - ./data:/app/data
-      - ./exports:/app/exports
-      - ./logs:/app/logs
+      - kahani_data:/app/data
+      - kahani_exports:/app/exports
+      - kahani_logs:/app/logs
     environment:
-      - DATABASE_URL=sqlite:///./data/kahani.db
-      - JWT_SECRET_KEY=kahani-secret-key-change-in-production
-      - LLM_BASE_URL=http://host.docker.internal:1234/v1
-      - DEBUG=true
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///./data/kahani.db}
+      - SECRET_KEY=${SECRET_KEY:-kahani-secret-key-change-in-production}
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://host.docker.internal:1234/v1}
+      - LLM_API_KEY=${LLM_API_KEY:-not-needed-for-local}
+      - LLM_MODEL=${LLM_MODEL:-local-model}
+      - DEBUG=${DEBUG:-false}
+      - CORS_ORIGINS=["http://localhost:3000", "http://kahani-frontend:3000"]
     depends_on:
       - postgres
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - kahani-network
     
+  # Kahani Frontend
   kahani-frontend:
-    build: ./frontend
+    build: 
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: kahani-frontend
+    restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+      - NODE_ENV=${NODE_ENV:-production}
     depends_on:
       - kahani-backend
+    networks:
+      - kahani-network
     
+  # PostgreSQL Database
   postgres:
-    image: postgres:15
+    image: postgres:15-alpine
+    container_name: kahani-postgres
+    restart: unless-stopped
     environment:
-      - POSTGRES_DB=kahani
-      - POSTGRES_USER=kahani
-      - POSTGRES_PASSWORD=kahani_password
+      - POSTGRES_DB=${POSTGRES_DB:-kahani}
+      - POSTGRES_USER=${POSTGRES_USER:-kahani}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-kahani_password}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+    networks:
+      - kahani-network
+
+  # Optional: Ollama LLM Service
+  ollama:
+    image: ollama/ollama:latest
+    container_name: kahani-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - kahani-network
+    profiles:
+      - llm
+
+  # Optional: Redis for caching
+  redis:
+    image: redis:7-alpine
+    container_name: kahani-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - kahani-network
+    profiles:
+      - redis
+
+  # Optional: Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: kahani-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - kahani-backend
+      - kahani-frontend
+    networks:
+      - kahani-network
+    profiles:
+      - proxy
 
 volumes:
+  kahani_data:
+    name: kahani_data
+  kahani_exports:
+    name: kahani_exports
+  kahani_logs:
+    name: kahani_logs
   postgres_data:
+    name: kahani_postgres_data
+  ollama_data:
+    name: kahani_ollama_data
+  redis_data:
+    name: kahani_redis_data
+
+networks:
+  kahani-network:
+    name: kahani-network
+    driver: bridge

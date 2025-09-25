@@ -105,6 +105,9 @@ export default function ScenarioSetup({ storyData, onUpdate, onNext, onBack }: S
       }
     } catch (error) {
       console.error('Failed to generate scenario:', error);
+      console.error('Error details:', error instanceof Error ? error.message : error);
+      // Show user there was an error with the LLM
+      alert(`LLM Generation failed: ${error instanceof Error ? error.message : 'Unknown error'}. Using fallback.`);
       // Fallback to simple combination
       const generated = parts.join('. ') + '.';
       setCustomScenario(generated);
