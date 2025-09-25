@@ -10,6 +10,34 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+def _get_user_setting(user_settings, key: str, default=None):
+    """Safely get a user setting from either a dict or SQLAlchemy object"""
+    if not user_settings:
+        return default
+    
+    if isinstance(user_settings, dict):
+        return user_settings.get(key, default)
+    else:
+        # It's a SQLAlchemy object
+        return getattr(user_settings, key, default)
+
+def _validate_user_settings(user_settings):
+    """Validate that user has required LLM settings"""
+    if not user_settings:
+        raise ValueError("LLM settings not found. Please configure your LLM endpoint in user settings first.")
+    
+    # Extract LLM settings from nested structure
+    if isinstance(user_settings, dict):
+        llm_settings = user_settings.get('llm_settings', {})
+        api_url = llm_settings.get('api_url')
+    else:
+        api_url = getattr(user_settings, 'llm_api_url', None)
+    
+    if not api_url or api_url.strip() == "":
+        raise ValueError("LLM API URL not configured. Please provide your LLM endpoint URL in user settings first.")
+    
+    return True
+
 class LMStudioService:
     """Service for interacting with LM Studio's OpenAI-compatible API"""
     
@@ -91,15 +119,16 @@ class LMStudioService:
         
         # Use user settings if provided, otherwise use defaults
         if user_settings:
-            temperature = user_settings.llm_temperature if user_settings.llm_temperature is not None else self.temperature
-            top_p = user_settings.llm_top_p if user_settings.llm_top_p is not None else 1.0
-            top_k = user_settings.llm_top_k if user_settings.llm_top_k is not None else 50
-            repetition_penalty = user_settings.llm_repetition_penalty if user_settings.llm_repetition_penalty is not None else 1.1
-            max_tokens_setting = user_settings.llm_max_tokens if user_settings.llm_max_tokens is not None else self.max_tokens
-            model_name = user_settings.llm_model_name if user_settings.llm_model_name else self.model
-            base_url = user_settings.llm_api_url if user_settings.llm_api_url else self.base_url
-            api_key = user_settings.llm_api_key if user_settings.llm_api_key else self.api_key
-            api_type = user_settings.llm_api_type if user_settings.llm_api_type else "openai_compatible"
+            llm_settings = user_settings.get('llm_settings', {}) if isinstance(user_settings, dict) else user_settings
+            temperature = _get_user_setting(llm_settings, 'temperature') if _get_user_setting(llm_settings, 'temperature') is not None else self.temperature
+            top_p = _get_user_setting(llm_settings, 'top_p') if _get_user_setting(llm_settings, 'top_p') is not None else 1.0
+            top_k = _get_user_setting(llm_settings, 'top_k') if _get_user_setting(llm_settings, 'top_k') is not None else 50
+            repetition_penalty = _get_user_setting(llm_settings, 'repetition_penalty') if _get_user_setting(llm_settings, 'repetition_penalty') is not None else 1.1
+            max_tokens_setting = _get_user_setting(llm_settings, 'max_tokens') if _get_user_setting(llm_settings, 'max_tokens') is not None else self.max_tokens
+            model_name = _get_user_setting(llm_settings, 'model_name') or self.model
+            base_url = _get_user_setting(llm_settings, 'api_url') or self.base_url
+            api_key = _get_user_setting(llm_settings, 'api_key') or self.api_key
+            api_type = _get_user_setting(llm_settings, 'api_type') or "openai_compatible"
         else:
             temperature = self.temperature
             top_p = 1.0
@@ -190,15 +219,16 @@ class LMStudioService:
         
         # Use user settings if provided, otherwise use defaults
         if user_settings:
-            temperature = user_settings.llm_temperature if user_settings.llm_temperature is not None else self.temperature
-            top_p = user_settings.llm_top_p if user_settings.llm_top_p is not None else 1.0
-            top_k = user_settings.llm_top_k if user_settings.llm_top_k is not None else 50
-            repetition_penalty = user_settings.llm_repetition_penalty if user_settings.llm_repetition_penalty is not None else 1.1
-            max_tokens_setting = user_settings.llm_max_tokens if user_settings.llm_max_tokens is not None else self.max_tokens
-            model_name = user_settings.llm_model_name if user_settings.llm_model_name else self.model
-            base_url = user_settings.llm_api_url if user_settings.llm_api_url else self.base_url
-            api_key = user_settings.llm_api_key if user_settings.llm_api_key else self.api_key
-            api_type = user_settings.llm_api_type if user_settings.llm_api_type else "openai_compatible"
+            llm_settings = user_settings.get('llm_settings', {}) if isinstance(user_settings, dict) else user_settings
+            temperature = _get_user_setting(llm_settings, 'temperature') if _get_user_setting(llm_settings, 'temperature') is not None else self.temperature
+            top_p = _get_user_setting(llm_settings, 'top_p') if _get_user_setting(llm_settings, 'top_p') is not None else 1.0
+            top_k = _get_user_setting(llm_settings, 'top_k') if _get_user_setting(llm_settings, 'top_k') is not None else 50
+            repetition_penalty = _get_user_setting(llm_settings, 'repetition_penalty') if _get_user_setting(llm_settings, 'repetition_penalty') is not None else 1.1
+            max_tokens_setting = _get_user_setting(llm_settings, 'max_tokens') if _get_user_setting(llm_settings, 'max_tokens') is not None else self.max_tokens
+            model_name = _get_user_setting(llm_settings, 'model_name') or self.model
+            base_url = _get_user_setting(llm_settings, 'api_url') or self.base_url
+            api_key = _get_user_setting(llm_settings, 'api_key') or self.api_key
+            api_type = _get_user_setting(llm_settings, 'api_type') or "openai_compatible"
         else:
             temperature = self.temperature
             top_p = 1.0
@@ -253,6 +283,10 @@ class LMStudioService:
                     
                     async for line in response.aiter_lines():
                         if line.strip():
+                            # Decode bytes to string if needed
+                            if isinstance(line, bytes):
+                                line = line.decode('utf-8')
+                            
                             if line.startswith("data: "):
                                 line = line[6:]  # Remove "data: " prefix
                             
@@ -634,8 +668,9 @@ What might happen if this choice is selected?"""
 
         return await self._make_request(prompt, system_prompt, max_tokens=100)
 
-    async def generate_scenario(self, context: Dict[str, Any]) -> str:
+    async def generate_scenario(self, context: Dict[str, Any], user_settings: Any) -> str:
         """Generate a creative scenario based on user selections and characters"""
+        _validate_user_settings(user_settings)
         
         system_prompt = """You are a creative storytelling assistant. Generate an engaging story scenario that:
 1. Incorporates the provided characters as central figures
@@ -694,10 +729,11 @@ Generate a creative scenario that:
 
 Scenario:"""
 
-        return await self._make_request(prompt, system_prompt, max_tokens=400)
+        return await self._make_request(prompt, system_prompt, max_tokens=400, user_settings=user_settings)
 
-    async def generate_titles(self, context: Dict[str, Any]) -> List[str]:
+    async def generate_titles(self, context: Dict[str, Any], user_settings: Any) -> List[str]:
         """Generate creative story titles based on story content"""
+        _validate_user_settings(user_settings)
         
         system_prompt = """You are a creative title generator for interactive stories. Generate 5 compelling story titles that:
 1. Capture the essence of the story scenario and characters
@@ -754,7 +790,7 @@ Generate 5 compelling titles that capture the heart of this specific story. Focu
 
 Titles:"""
 
-        response = await self._make_request(prompt, system_prompt, max_tokens=150)
+        response = await self._make_request(prompt, system_prompt, max_tokens=150, user_settings=user_settings)
         
         # Parse titles from response
         titles = [title.strip() for title in response.split('\n') if title.strip()]

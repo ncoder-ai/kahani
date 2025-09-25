@@ -606,9 +606,9 @@ export default function SettingsPage() {
                       <label className="block text-sm font-medium mb-2">API URL</label>
                       <input
                         type="url"
-                        value={settings.llm_settings.api_url || 'http://localhost:1234/v1'}
+                        value={settings.llm_settings.api_url || ''}
                         onChange={(e) => updateLLMSetting('api_url', e.target.value)}
-                        placeholder="http://localhost:1234/v1"
+                        placeholder="Enter your LLM API URL (e.g., https://api.openai.com/v1)"
                         className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
                       />
                       <div className="text-xs text-gray-400 mt-1">

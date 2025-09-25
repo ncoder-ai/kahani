@@ -2,7 +2,7 @@ import logging
 from typing import List, Dict, Any, Optional, Tuple
 from sqlalchemy.orm import Session
 from ..models import Story, Scene, Character, StoryCharacter
-from ..services.llm_service import llm_service
+from ..services.improved_llm_service import improved_llm_service
 from ..config import settings
 try:
     import tiktoken
@@ -16,14 +16,17 @@ logger = logging.getLogger(__name__)
 class ContextManager:
     """Smart context management for long stories that exceed LLM token limits"""
     
-    def __init__(self, max_tokens: int = None, user_settings: dict = None):
+    def __init__(self, max_tokens: int = None, user_settings: dict = None, user_id: int = 1):
         """
         Initialize context manager
         
         Args:
             max_tokens: Maximum tokens to send to LLM (leaving room for response)
             user_settings: User-specific settings to override defaults
+            user_id: User ID for LLM service calls
         """
+        self.user_id = user_id
+        self.user_settings = user_settings or {}
         if user_settings and user_settings.get("context_settings"):
             ctx_settings = user_settings["context_settings"]
             self.max_tokens = ctx_settings.get("max_tokens", settings.context_max_tokens)
@@ -408,7 +411,13 @@ Keep the summary focused on what's essential for story continuity. Aim for 100-2
 
 Summary:"""
 
-            summary = await llm_service._make_request(prompt, system_prompt, max_tokens=300)
+            summary = await improved_llm_service.generate(
+                prompt=prompt, 
+                user_id=self.user_id, 
+                user_settings=self.user_settings, 
+                system_prompt=system_prompt, 
+                max_tokens=300
+            )
             
             # Add metadata about what was summarized
             scene_range = f"Scenes {scenes[0].sequence_number}-{scenes[-1].sequence_number}"

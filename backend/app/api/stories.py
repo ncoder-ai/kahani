@@ -7,7 +7,18 @@ from ..database import get_db
 from ..models import Story, Scene, Character, StoryCharacter, User, UserSettings, SceneChoice, SceneVariant, StoryFlow, StoryStatus
 from ..services.scene_variant_service import SceneVariantService
 from sqlalchemy.sql import func
-from ..services.llm_service import llm_service
+from ..services.llm_functions import (
+    generate_scenario,
+    generate_titles,
+    generate_complete_plot,
+    generate_single_plot_point,
+    generate_scene,
+    generate_scene_streaming,
+    generate_choices,
+    generate_scene_continuation,
+    generate_scene_continuation_streaming,
+    invalidate_user_llm_cache
+)
 from ..services.context_manager import ContextManager
 from ..dependencies import get_current_user
 import logging
@@ -17,6 +28,23 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+def get_or_create_user_settings(user_id: int, db: Session) -> dict:
+    """Get user settings or create defaults if none exist"""
+    user_settings_db = db.query(UserSettings).filter(
+        UserSettings.user_id == user_id
+    ).first()
+    
+    if user_settings_db:
+        return user_settings_db.to_dict()
+    else:
+        # Create default UserSettings for this user if none exist
+        user_settings_db = UserSettings(user_id=user_id)
+        db.add(user_settings_db)
+        db.commit()
+        db.refresh(user_settings_db)
+        logger.info(f"Created default UserSettings for user {user_id}")
+        return user_settings_db.to_dict()
 
 class StoryCreate(BaseModel):
     title: str
@@ -197,14 +225,10 @@ async def generate_scene(
         )
     
     # Get user settings
-    user_settings_db = db.query(UserSettings).filter(
-        UserSettings.user_id == current_user.id
-    ).first()
-    
-    user_settings = user_settings_db.to_dict() if user_settings_db else None
+    user_settings = get_or_create_user_settings(current_user.id, db)
     
     # Create context manager with user settings
-    context_manager = ContextManager(user_settings=user_settings)
+    context_manager = ContextManager(user_settings=user_settings, user_id=current_user.id)
     
     # Use context manager to build optimized context
     try:
@@ -220,7 +244,7 @@ async def generate_scene(
     
     # Generate scene content using enhanced method
     try:
-        scene_content = await llm_service.generate_scene_with_context_management(context, user_settings)
+        scene_content = await generate_scene(context, current_user.id, user_settings)
     except Exception as e:
         logger.error(f"Failed to generate scene for story {story_id}: {e}")
         raise HTTPException(
@@ -236,8 +260,8 @@ async def generate_scene(
     choices_data = []
     try:
         choice_context = await context_manager.build_choice_generation_context(story_id, db)
-        choices_result = await llm_service.generate_choices(choice_context, user_settings)
-        choices_data = choices_result.get('choices', [])
+        choices_result = await generate_choices(scene_content, choice_context, current_user.id, user_settings)
+        choices_data = choices_result
     except Exception as e:
         logger.warning(f"Failed to generate choices: {e}")
         choices_data = []  # Continue without choices
@@ -290,7 +314,7 @@ async def generate_scene(
     }
 
 @router.post("/{story_id}/scenes/stream")
-async def generate_scene_streaming(
+async def generate_scene_streaming_endpoint(
     story_id: int,
     custom_prompt: str = Form(""),
     current_user: User = Depends(get_current_user),
@@ -317,7 +341,7 @@ async def generate_scene_streaming(
     user_settings = user_settings_db.to_dict() if user_settings_db else None
     
     # Create context manager with user settings
-    context_manager = ContextManager(user_settings=user_settings)
+    context_manager = ContextManager(user_settings=user_settings, user_id=current_user.id)
     
     # Use context manager to build optimized context
     try:
@@ -342,8 +366,28 @@ async def generate_scene_streaming(
             # Send initial metadata
             yield f"data: {json.dumps({'type': 'start', 'sequence': next_sequence})}\n\n"
             
-            # Stream scene generation
-            async for chunk in llm_service.generate_scene_with_context_management_streaming(context, user_settings):
+            # Stream scene generation using the full context
+            # The context manager already provides optimized context
+            if custom_prompt:
+                prompt = f"{custom_prompt}\n\n{context}"
+            else:
+                prompt = context
+            
+            system_prompt = """You are a skilled interactive fiction writer. Create an engaging, immersive story scene that:
+1. Advances the plot meaningfully 
+2. Develops characters through action and dialogue
+3. Maintains consistency with established story elements
+4. Uses vivid, descriptive language that draws readers in
+5. Keep appropriate pacing for the story moment
+Write in an engaging narrative style."""
+
+            async for chunk in generate_scene_streaming(
+                prompt=prompt,
+                user_id=current_user.id,
+                user_settings=user_settings,
+                system_prompt=system_prompt,
+                max_tokens=2048
+            ):
                 full_content += chunk
                 yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
             
@@ -357,7 +401,7 @@ async def generate_scene_streaming(
                     "current_situation": f"Scene {next_sequence}: {full_content}"
                 }
                 
-                choices = await llm_service.generate_choices(full_content, choice_context, user_settings)
+                choices = await generate_choices(full_content, choice_context, current_user.id, user_settings)
                 
                 # Format choices for SceneVariantService
                 choices_data = []
@@ -562,9 +606,10 @@ async def generate_more_choices(
         )
         
         # Generate fresh choices using LLM
-        choices = await llm_service.generate_choices(
+        choices = await generate_choices(
             latest_scene.content, 
             choice_context, 
+            current_user.id,
             user_settings
         )
         
@@ -673,8 +718,9 @@ async def regenerate_last_scene(
         )
 
 @router.post("/generate-scenario")
-async def generate_scenario(
+async def generate_scenario_endpoint(
     request: ScenarioGenerateRequest,
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Generate a creative scenario using LLM based on user selections"""
@@ -690,27 +736,40 @@ async def generate_scenario(
             "characters": request.characters
         }
         
+        # Get user settings
+        user_settings = get_or_create_user_settings(current_user.id, db)
+        
         # Generate scenario using LLM
-        scenario = await llm_service.generate_scenario(context)
+        scenario = await generate_scenario(context, current_user.id, user_settings)
         
         return {
             "scenario": scenario,
             "message": "Scenario generated successfully"
         }
         
+    except ValueError as e:
+        # This handles validation errors (like missing API URL)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except Exception as e:
-        # Fallback to simple combination if LLM fails
+        logger.error(f"LLM service error: {e}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Full traceback:", exc_info=True)
+        # Fallback to simple combination if LLM fails for other reasons
         elements = [v for v in request.elements.values() if v]
         fallback_scenario = ". ".join(elements) + "." if elements else "A new adventure begins."
         
         return {
             "scenario": fallback_scenario,
-            "message": "Scenario generated (fallback mode)"
+            "message": "Scenario generated (fallback mode due to LLM service error)"
         }
 
 @router.post("/generate-title")
 async def generate_title(
     request: TitleGenerateRequest,
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Generate creative story titles using LLM based on story content"""
@@ -725,8 +784,11 @@ async def generate_title(
             "story_elements": request.story_elements
         }
         
+        # Get user settings
+        user_settings = get_or_create_user_settings(current_user.id, db)
+        
         # Generate multiple title options using LLM
-        titles = await llm_service.generate_titles(context)
+        titles = await generate_titles(context, current_user.id, user_settings)
         
         return {
             "titles": titles,
@@ -748,8 +810,9 @@ async def generate_title(
         }
 
 @router.post("/generate-plot")
-async def generate_plot(
+async def generate_plot_endpoint(
     request: PlotGenerateRequest,
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Generate plot points using LLM based on characters and scenario"""
@@ -766,21 +829,33 @@ async def generate_plot(
             "plot_point_index": request.plot_point_index
         }
         
+        # Get user settings
+        user_settings = get_or_create_user_settings(current_user.id, db)
+        
         # Generate plot using LLM
         if request.plot_type == "complete":
-            plot_points = await llm_service.generate_complete_plot(context)
+            plot_points = await generate_complete_plot(context, current_user.id, user_settings)
             return {
                 "plot_points": plot_points,
                 "message": "Complete plot generated successfully"
             }
         else:
-            plot_point = await llm_service.generate_single_plot_point(context)
+            plot_point = await generate_single_plot_point(context, current_user.id, user_settings)
             return {
                 "plot_point": plot_point,
                 "message": "Plot point generated successfully"
             }
         
+    except ValueError as e:
+        # This handles validation errors (like missing API URL)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except Exception as e:
+        logger.error(f"Plot generation error: {e}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Full traceback:", exc_info=True)
         # Fallback plot points
         fallback_points = [
             "The story begins with an intriguing hook that draws readers in.",
@@ -1135,7 +1210,7 @@ async def continue_scene(
         )
         
         # Generate continuation content
-        continuation_content = await llm_service.generate_scene_continuation(context, user_settings)
+        continuation_content = await generate_scene_continuation(context, current_user.id, user_settings)
         
         # Append to existing content
         new_content = current_variant.content + "\n\n" + continuation_content
@@ -1222,7 +1297,7 @@ async def continue_scene_streaming(
             
             # Stream continuation generation
             continuation_content = ""
-            async for chunk in llm_service.generate_scene_continuation_streaming(context, user_settings):
+            async for chunk in generate_scene_continuation_streaming(context, current_user.id, user_settings):
                 continuation_content += chunk
                 yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
             

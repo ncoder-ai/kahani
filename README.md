@@ -1,293 +1,300 @@
-# Kahani - Interactive Storytelling Platform
+# 📚 Kahani - Interactive Storytelling Platform
 
-[![GitHub Repository](https://img.shields.io/badge/GitHub-ncoder--ai%2Fkahani-blue?logo=github)](https://github.com/ncoder-ai/kahani)
-[![Python](https://img.shields.io/badge/Python-3.11+-blue?logo=python)](https://python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green?logo=fastapi)](https://fastapi.tiangolo.com)
-[![Next.js](https://img.shields.io/badge/Next.js-14+-black?logo=next.js)](https://nextjs.org)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5+-blue?logo=typescript)](https://typescriptlang.org)
-[![License](https://img.shields.io/badge/License-MIT-yellow)](https://opensource.org/licenses/MIT)
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.11+-blue.svg" alt="Python Version">
+  <img src="https://img.shields.io/badge/Node.js-18+-green.svg" alt="Node.js Version">
+  <img src="https://img.shields.io/badge/FastAPI-Latest-teal.svg" alt="FastAPI">
+  <img src="https://img.shields.io/badge/Next.js-14-black.svg" alt="Next.js">
+  <img src="https://img.shields.io/badge/Docker-Supported-blue.svg" alt="Docker">
+  <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License">
+</p>
 
-Kahani is an AI-powered interactive storytelling application that allows users to create, explore, and collaborate on branching narratives. Built with Python FastAPI backend and Next.js frontend, it integrates with local LLM instances via LM Studio for story generation.
+Kahani (meaning "story" in Hindi) is a modern interactive storytelling platform that combines the power of AI with intuitive story management. Create, organize, and evolve your stories with AI assistance, configurable prompts, and a beautiful, responsive interface.
 
-## 🚀 Features
+## ✨ Features
 
-- **Interactive Story Creation**: Create stories with customizable genres, tones, and world settings
-- **AI-Powered Scene Generation**: Generate scenes and story continuations using local LLMs
-- **Smart Context Management**: Handles long stories with intelligent context summarization
-- **Branching Narratives**: Multiple story paths and choices for dynamic storytelling
-- **Character Management**: Create and manage character templates and personalities
-- **User Authentication**: Secure JWT-based authentication system
-- **Privacy Controls**: Public and private story visibility options
-- **Real-time Editing**: Edit AI-generated content inline
-- **Local LLM Integration**: Works with LM Studio and OpenAI-compatible APIs
-- **Token-Aware Processing**: Automatic context optimization for long stories
-- **📱 Scene Display Customization**: Choose from multiple scene formats (default, bubble, card, minimal)
+- **🤖 AI-Powered Story Generation**: Integrate with multiple LLM providers (LM Studio, Ollama, OpenAI, Anthropic)
+- **📝 Interactive Story Management**: Create, edit, and organize stories with scenes
+- **🎯 Configurable AI Prompts**: Customize AI behavior with your own prompt templates
+- **📱 Responsive Design**: Works seamlessly on desktop and mobile
+- **🔐 User Authentication**: Secure JWT-based authentication system
+- **💾 Auto-Save**: Automatic story and scene persistence
+- **🎨 Context Management**: Track story context and token usage
+- **🔄 Auto-Resume**: Automatically opens your last worked-on story
+- **� Docker Ready**: Easy deployment with Docker and Docker Compose
 - **⌨️ Keyboard Navigation**: Navigate scenes with arrow keys (← previous, → regenerate)
 - **🔄 Scene Regeneration**: Regenerate scenes you don't like with a single keypress
 - **🎨 Customizable UI**: Toggle scene titles and customize display preferences
 - **📜 Scene History**: Navigate back through scene versions with full history tracking
 
-## 🏗️ Architecture
+## 🚀 Quick Start
 
-### Backend (FastAPI)
-- **Framework**: Python 3.11+ with FastAPI
-- **Database**: SQLAlchemy with SQLite (development) / PostgreSQL (production)
-- **Authentication**: JWT tokens with secure password hashing
-- **LLM Integration**: OpenAI-compatible API client for LM Studio
-- **API Documentation**: Automatic OpenAPI/Swagger documentation
+### Option 1: One-Command Install (Linux/macOS)
 
-### Frontend (Next.js)
-- **Framework**: Next.js 14 with TypeScript
-- **Styling**: Tailwind CSS for responsive design
-- **State Management**: Zustand for client-side state
-- **Authentication**: Persistent auth state with JWT tokens
-- **PWA Ready**: Progressive Web App capabilities
+```bash
+curl -fsSL https://raw.githubusercontent.com/yourusername/kahani/main/install.sh | bash
+```
 
-## 📋 Prerequisites
+### Option 2: Docker Compose (Recommended for Production)
+
+```bash
+git clone https://github.com/yourusername/kahani.git
+cd kahani
+cp .env.template .env
+# Edit .env with your configuration
+docker-compose up -d
+```
+
+### Option 3: Manual Installation
+
+#### Prerequisites
 
 - Python 3.11+
 - Node.js 18+
-- LM Studio (for local LLM) or OpenAI API key
-- Virtual environment tool (venv, conda, etc.)
+- Git
 
-## 🛠️ Installation
+#### Backend Setup
 
-### 1. Clone the Repository
 ```bash
-git clone <repository-url>
+# Clone the repository
+git clone https://github.com/yourusername/kahani.git
 cd kahani
-```
 
-### 2. Backend Setup
-
-```bash
-# Navigate to backend directory
+# Set up Python environment
 cd backend
-
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install dependencies
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
-# Create data directory
-mkdir -p data
+# Set up environment
+cp ../.env.template ../.env
+# Edit .env with your configuration
 
-# Set environment variables
-export JWT_SECRET_KEY="your-super-secret-jwt-key-here-please-change-in-production"
-export DATABASE_URL="sqlite:///./data/kahani.db"  # Optional: defaults to SQLite
+# Initialize database
+python -c "from app.database import init_db; init_db()"
+
+# Start the backend server
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 3. Frontend Setup
+#### Frontend Setup
 
 ```bash
-# Navigate to frontend directory
-cd ../frontend
-
-# Install dependencies
+# In a new terminal, navigate to frontend
+cd frontend
 npm install
 
-# Create environment file (optional)
-echo "NEXT_PUBLIC_API_URL=http://localhost:8000" > .env.local
-```
-
-### 4. LM Studio Setup
-
-1. Download and install [LM Studio](https://lmstudio.ai/)
-2. Download a compatible model (e.g., Mistral 7B, Llama 2, etc.)
-3. Start the local server in LM Studio on `http://localhost:1234/v1`
-4. Ensure the server is running and accessible
-
-## 🚀 Running the Application
-
-### Start Backend Server
-```bash
-cd backend
-PYTHONPATH=/path/to/kahani/backend JWT_SECRET_KEY="your-secret-key" python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-### Start Frontend Server
-```bash
-cd frontend
+# Start the development server
 npm run dev
 ```
-
-### Access the Application
-- **Frontend**: http://localhost:3000
-- **Backend API**: http://localhost:8000
-- **API Documentation**: http://localhost:8000/docs
-
-## 📚 Usage
-
-### 1. User Registration
-- Create a new account at http://localhost:3000/register
-- Or login with existing credentials at http://localhost:3000/login
-
-### 2. Create Your First Story
-- Click "Create New Story" on the dashboard
-- Fill in story details: title, description, genre, tone, and setting
-- Submit to create your story foundation
-
-### 3. Generate Scenes
-- Open your story and click "Generate First Scene"
-- The AI will create an opening scene based on your story settings
-- Continue generating scenes by selecting from AI-suggested options or providing custom prompts
-
-### 4. Edit and Customize
-- Click "Edit" on any scene to modify AI-generated content
-- Add custom directions for specific story developments
-- Create branching narratives with multiple story paths
-
-### 5. Character Management
-- Create character templates for consistent personalities
-- Characters can be referenced across scenes and stories
 
 ## 🔧 Configuration
 
 ### Environment Variables
 
-**Backend** (`.env` in backend directory):
+Copy `.env.template` to `.env` and customize:
+
 ```bash
-JWT_SECRET_KEY=your-super-secret-jwt-key
-JWT_ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
+# Core settings
+SECRET_KEY=your-very-secure-secret-key-here
 DATABASE_URL=sqlite:///./data/kahani.db
-LLM_BASE_URL=http://localhost:1234/v1
+
+# LLM Configuration
+LLM_BASE_URL=http://localhost:1234/v1  # LM Studio
+LLM_API_KEY=not-needed-for-local
 LLM_MODEL=local-model
-DEBUG=false
 ```
 
-**Frontend** (`.env.local` in frontend directory):
+### LLM Providers
+
+Kahani supports multiple LLM providers:
+
+#### LM Studio (Default)
 ```bash
-NEXT_PUBLIC_API_URL=http://localhost:8000
+LLM_BASE_URL=http://localhost:1234/v1
+LLM_API_KEY=not-needed-for-local
+LLM_MODEL=local-model
 ```
 
-### LM Studio Configuration
-- Ensure LM Studio is running on `http://localhost:1234/v1`
-- Use OpenAI-compatible API mode
-- Recommended models: Mistral 7B, Llama 2 7B, or similar
+#### Ollama
+```bash
+LLM_BASE_URL=http://localhost:11434/v1
+LLM_API_KEY=not-needed
+LLM_MODEL=llama2
+```
 
-## 🗃️ Database Schema
+#### OpenAI
+```bash
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_API_KEY=your-openai-api-key
+LLM_MODEL=gpt-3.5-turbo
+```
 
-The application uses SQLAlchemy with the following main entities:
-
-- **Users**: Authentication and user management
-- **Stories**: Story metadata and settings
-- **Scenes**: Individual story scenes with content
-- **Characters**: Character templates and definitions
-- **SceneChoices**: Branching narrative options
-
-## 🔌 API Endpoints
-
-### Authentication
-- `POST /api/auth/register` - User registration
-- `POST /api/auth/login` - User login
-- `GET /api/auth/me` - Get current user
-
-### Stories
-- `GET /api/stories` - List user stories
-- `POST /api/stories` - Create new story
-- `GET /api/stories/{id}` - Get story details
-- `PUT /api/stories/{id}` - Update story
-- `DELETE /api/stories/{id}` - Delete story
-
-### Scene Generation
-- `POST /api/stories/{id}/generate-scene` - Generate new scene
-- `POST /api/scenes/{id}/generate-choices` - Generate scene choices
-
-### Characters
-- `GET /api/characters` - List characters
-- `POST /api/characters` - Create character
-- `GET /api/characters/{id}` - Get character details
+#### Anthropic Claude
+```bash
+LLM_BASE_URL=https://api.anthropic.com/v1
+LLM_API_KEY=your-anthropic-api-key
+LLM_MODEL=claude-3-sonnet
+```
 
 ## 🐳 Docker Deployment
 
-### Using Docker Compose
+### Basic Setup
+
 ```bash
-# Build and start all services
-docker-compose up --build
-
-# Or run in background
-docker-compose up -d --build
+git clone https://github.com/yourusername/kahani.git
+cd kahani
+cp .env.template .env
+docker-compose up -d
 ```
 
-### Individual Docker Builds
+### Production Setup with Optional Services
+
 ```bash
-# Backend
-cd backend
-docker build -t kahani-backend .
-
-# Frontend
-cd frontend
-docker build -t kahani-frontend .
+# Full stack with PostgreSQL, Ollama, Redis, and Nginx
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
-## 📝 Development
+### Docker Services
 
-### Context Management System
+- **kahani-backend**: FastAPI application server
+- **kahani-frontend**: Next.js application
+- **postgres** (optional): PostgreSQL database
+- **ollama** (optional): Ollama LLM service
+- **redis** (optional): Redis cache
+- **nginx** (optional): Nginx reverse proxy
 
-Kahani includes a sophisticated context management system for handling long stories:
+## 📚 Usage
 
-- **Smart Truncation**: Automatically manages context size for LLM token limits
-- **Progressive Summarization**: Summarizes older scenes while preserving recent context
-- **Configurable Thresholds**: Adjustable settings for context management behavior
+### Creating Your First Story
 
-#### Context Configuration
-```python
-# In backend/app/config.py
-context_max_tokens: int = 4000        # Maximum tokens to send to LLM
-context_keep_recent_scenes: int = 3   # Always keep recent scenes
-context_summary_threshold: int = 5    # Summarize when story has more scenes
-```
+1. **Register/Login**: Create an account or log in
+2. **New Story**: Click "New Story" to create your first story
+3. **Add Scenes**: Use "New Scene" to add chapters to your story
+4. **AI Assistance**: Use the "AI Summary" feature to generate summaries
+5. **Customize Prompts**: Go to Settings to create custom AI prompt templates
 
-#### Monitoring Context Usage
-- Use `/stories/{story_id}/context-info` endpoint to analyze token usage
-- Monitor when summarization is triggered
-- Track context efficiency for optimization
+### AI Features
 
-See [Context Management Documentation](docs/context-management.md) for detailed information.
+- **Story Summaries**: Generate AI summaries of your scenes
+- **Custom Prompts**: Create and manage your own AI prompt templates
+- **Context Tracking**: Monitor token usage and story context
+- **Auto-Generation**: Let AI help continue your stories
 
-### Code Structure
+### Settings & Customization
+
+- **Prompt Templates**: Create custom AI prompts for different story types
+- **Auto-Open**: Configure which story opens automatically
+- **Theme**: Customize the interface appearance
+- **LLM Settings**: Adjust AI generation parameters
+## 🏗️ Development
+
+### Project Structure
+
 ```
 kahani/
-├── backend/
+├── backend/           # FastAPI application
 │   ├── app/
-│   │   ├── main.py          # FastAPI app entry point
-│   │   ├── config.py        # Configuration settings
-│   │   ├── models/          # SQLAlchemy models
-│   │   ├── api/             # API route handlers
-│   │   ├── services/        # Business logic
-│   │   └── dependencies.py  # Dependency injection
-│   ├── data/               # SQLite database storage
-│   └── requirements.txt    # Python dependencies
-├── frontend/
+│   │   ├── api/      # API routes
+│   │   ├── models/   # Database models
+│   │   ├── services/ # Business logic
+│   │   └── core/     # Core utilities
+│   └── requirements.txt
+├── frontend/          # Next.js application
 │   ├── src/
-│   │   ├── app/            # Next.js app directory
-│   │   ├── lib/            # Utility functions
-│   │   └── store/          # Zustand state management
-│   ├── public/             # Static assets
-│   └── package.json        # Node.js dependencies
-└── docker-compose.yml      # Container orchestration
+│   │   ├── app/      # App router pages
+│   │   ├── components/ # React components
+│   │   └── lib/      # Utilities
+│   └── package.json
+├── docker-compose.yml # Docker configuration
+└── install.sh        # Installation script
 ```
 
-### Running Tests
-```bash
-# Backend tests
-cd backend
-python -m pytest tests/
+### Development Workflow
 
-# Frontend tests
+```bash
+# Start backend in development mode
+cd backend
+source venv/bin/activate
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# Start frontend in development mode
 cd frontend
-npm test
+npm run dev
+
+# Run tests
+npm test                    # Frontend tests
+cd backend && python -m pytest  # Backend tests
 ```
 
-### Linting and Formatting
-```bash
-# Backend
-cd backend
-black app/ tests/
-flake8 app/ tests/
+### API Documentation
+
+When running, visit:
+- **FastAPI Docs**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
+
+## 🔍 Troubleshooting
+
+### Common Issues
+
+1. **LLM Connection Issues**
+   - Ensure your LLM service is running
+   - Check the `LLM_BASE_URL` in your `.env` file
+   - Verify API keys for cloud providers
+
+2. **Database Issues**
+   - Run database initialization: `python -c "from app.database import init_db; init_db()"`
+   - Check database permissions
+   - For PostgreSQL, ensure the service is running
+
+3. **Port Conflicts**
+   - Backend runs on port 8000
+   - Frontend runs on port 3000
+   - Change ports in docker-compose.yml if needed
+
+4. **Docker Issues**
+   - Ensure Docker and Docker Compose are installed
+   - Check that ports 3000 and 8000 are available
+   - Run `docker-compose logs` to see detailed logs
+
+### Getting Help
+
+- Check the [Issues](https://github.com/yourusername/kahani/issues) for known problems
+- Review the API documentation at `/docs`
+- Enable debug mode by setting `DEBUG=true` in `.env`
+
+## 🤝 Contributing
+
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+
+### Development Setup
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature-name`
+3. Make your changes
+4. Run tests: `npm test` and `python -m pytest`
+5. Submit a pull request
+
+## 📝 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- Built with [FastAPI](https://fastapi.tiangolo.com/) and [Next.js](https://nextjs.org/)
+- AI integration powered by various LLM providers
+- Inspired by the art of storytelling
+
+## � Support
+
+- **Documentation**: [Wiki](https://github.com/yourusername/kahani/wiki)
+- **Issues**: [GitHub Issues](https://github.com/yourusername/kahani/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/yourusername/kahani/discussions)
+
+---
+
+<p align="center">Made with ❤️ for storytellers everywhere</p>
+
 
 # Frontend
 cd frontend

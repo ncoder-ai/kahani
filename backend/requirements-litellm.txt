@@ -1,0 +1,2 @@
+# Add to requirements.txt
+litellm>=1.40.0  # Modern LLM provider abstraction
