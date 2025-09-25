@@ -3,6 +3,9 @@ import json
 import re
 from typing import List, Dict, Any, Optional
 from ..config import settings
+from ..models.prompt_template import PromptTemplate
+from ..models.user import User
+from sqlalchemy.orm import Session
 import logging
 
 logger = logging.getLogger(__name__)
@@ -16,6 +19,42 @@ class LMStudioService:
         self.model = settings.llm_model
         self.max_tokens = settings.llm_max_tokens
         self.temperature = settings.llm_temperature
+    
+    def _get_prompt_template(self, db: Session, user: User, template_key: str) -> Optional[PromptTemplate]:
+        """Get a prompt template for the user, falling back to default if needed"""
+        # First try to get user's custom template
+        template = db.query(PromptTemplate).filter(
+            PromptTemplate.template_key == template_key,
+            PromptTemplate.user_id == user.id,
+            PromptTemplate.is_active == True
+        ).first()
+        
+        # If no custom template, get default
+        if not template:
+            template = db.query(PromptTemplate).filter(
+                PromptTemplate.template_key == template_key,
+                PromptTemplate.is_default == True,
+                PromptTemplate.is_active == True
+            ).first()
+        
+        return template
+    
+    def _format_prompt_template(self, template: PromptTemplate, context: Dict[str, Any]) -> tuple[str, str]:
+        """Format a prompt template with context data"""
+        system_prompt = template.system_prompt
+        
+        # Format user prompt template if it exists
+        if template.user_prompt_template:
+            try:
+                user_prompt = template.user_prompt_template.format(**context)
+            except KeyError as e:
+                logger.warning(f"Missing context key for template {template.template_key}: {e}")
+                # Fallback to simple context string
+                user_prompt = str(context)
+        else:
+            user_prompt = str(context)
+        
+        return system_prompt, user_prompt
     
     def _clean_scene_numbers(self, content: str) -> str:
         """Remove scene numbers and titles from the beginning of generated content"""
@@ -38,7 +77,7 @@ class LMStudioService:
                 return cleaned
         return chunk
         
-    async def _make_request(self, prompt: str, system_prompt: str = "", max_tokens: int = None, user_settings: dict = None, stream: bool = False) -> str:
+    async def _make_request(self, prompt: str, system_prompt: str = "", max_tokens: int = None, user_settings = None, stream: bool = False) -> str:
         """Make a request to LM Studio API with optional user settings"""
         
         headers = {
@@ -51,17 +90,16 @@ class LMStudioService:
         messages.append({"role": "user", "content": prompt})
         
         # Use user settings if provided, otherwise use defaults
-        if user_settings and user_settings.get("llm_settings"):
-            llm_config = user_settings["llm_settings"]
-            temperature = llm_config.get("temperature", self.temperature)
-            top_p = llm_config.get("top_p", 1.0)
-            top_k = llm_config.get("top_k", 50)
-            repetition_penalty = llm_config.get("repetition_penalty", 1.1)
-            max_tokens_setting = llm_config.get("max_tokens", self.max_tokens)
-            model_name = llm_config.get("model_name", self.model)
-            base_url = llm_config.get("api_url", self.base_url)
-            api_key = llm_config.get("api_key", self.api_key)
-            api_type = llm_config.get("api_type", "openai_compatible")
+        if user_settings:
+            temperature = user_settings.llm_temperature if user_settings.llm_temperature is not None else self.temperature
+            top_p = user_settings.llm_top_p if user_settings.llm_top_p is not None else 1.0
+            top_k = user_settings.llm_top_k if user_settings.llm_top_k is not None else 50
+            repetition_penalty = user_settings.llm_repetition_penalty if user_settings.llm_repetition_penalty is not None else 1.1
+            max_tokens_setting = user_settings.llm_max_tokens if user_settings.llm_max_tokens is not None else self.max_tokens
+            model_name = user_settings.llm_model_name if user_settings.llm_model_name else self.model
+            base_url = user_settings.llm_api_url if user_settings.llm_api_url else self.base_url
+            api_key = user_settings.llm_api_key if user_settings.llm_api_key else self.api_key
+            api_type = user_settings.llm_api_type if user_settings.llm_api_type else "openai_compatible"
         else:
             temperature = self.temperature
             top_p = 1.0
@@ -138,7 +176,7 @@ class LMStudioService:
             logger.error(f"Unexpected response format: {e}")
             raise Exception("Invalid response from LLM service")
     
-    async def _make_streaming_request(self, prompt: str, system_prompt: str = "", max_tokens: int = None, user_settings: dict = None):
+    async def _make_streaming_request(self, prompt: str, system_prompt: str = "", max_tokens: int = None, user_settings = None):
         """Make a streaming request to LM Studio API"""
         
         headers = {
@@ -151,17 +189,16 @@ class LMStudioService:
         messages.append({"role": "user", "content": prompt})
         
         # Use user settings if provided, otherwise use defaults
-        if user_settings and user_settings.get("llm_settings"):
-            llm_config = user_settings["llm_settings"]
-            temperature = llm_config.get("temperature", self.temperature)
-            top_p = llm_config.get("top_p", 1.0)
-            top_k = llm_config.get("top_k", 50)
-            repetition_penalty = llm_config.get("repetition_penalty", 1.1)
-            max_tokens_setting = llm_config.get("max_tokens", self.max_tokens)
-            model_name = llm_config.get("model_name", self.model)
-            base_url = llm_config.get("api_url", self.base_url)
-            api_key = llm_config.get("api_key", self.api_key)
-            api_type = llm_config.get("api_type", "openai_compatible")
+        if user_settings:
+            temperature = user_settings.llm_temperature if user_settings.llm_temperature is not None else self.temperature
+            top_p = user_settings.llm_top_p if user_settings.llm_top_p is not None else 1.0
+            top_k = user_settings.llm_top_k if user_settings.llm_top_k is not None else 50
+            repetition_penalty = user_settings.llm_repetition_penalty if user_settings.llm_repetition_penalty is not None else 1.1
+            max_tokens_setting = user_settings.llm_max_tokens if user_settings.llm_max_tokens is not None else self.max_tokens
+            model_name = user_settings.llm_model_name if user_settings.llm_model_name else self.model
+            base_url = user_settings.llm_api_url if user_settings.llm_api_url else self.base_url
+            api_key = user_settings.llm_api_key if user_settings.llm_api_key else self.api_key
+            api_type = user_settings.llm_api_type if user_settings.llm_api_type else "openai_compatible"
         else:
             temperature = self.temperature
             top_p = 1.0
@@ -310,7 +347,7 @@ class LMStudioService:
         
         return context_parts
 
-    async def generate_scene_with_context_management(self, story_context: Dict[str, Any], user_settings: dict = None) -> str:
+    async def generate_scene_with_context_management(self, story_context: Dict[str, Any], user_settings: dict = None, db: Session = None, user: User = None) -> str:
         """
         Generate a scene with smart context management for long stories
         
@@ -318,6 +355,39 @@ class LMStudioService:
         by the ContextManager for token limits.
         """
         
+        # Try to use prompt template if db and user are provided
+        if db and user:
+            template = self._get_prompt_template(db, user, "scene_generation")
+            if template:
+                # Prepare context for template formatting
+                template_context = {
+                    "title": story_context.get("title", "Untitled Story"),
+                    "genre": story_context.get("genre", "Unknown"),
+                    "tone": story_context.get("tone", ""),
+                    "world_setting": story_context.get("world_setting", ""),
+                    "previous_scenes": self._format_story_context(story_context),
+                    "custom_instruction": story_context.get("custom_instruction", "")
+                }
+                
+                system_prompt, user_prompt = self._format_prompt_template(template, template_context)
+                max_tokens = template.max_tokens
+            else:
+                # Fallback to default prompts
+                system_prompt, user_prompt, max_tokens = self._get_default_scene_prompts(story_context)
+        else:
+            # Fallback to default prompts
+            system_prompt, user_prompt, max_tokens = self._get_default_scene_prompts(story_context)
+
+        result = await self._make_request(user_prompt, system_prompt, max_tokens=max_tokens, user_settings=user_settings)
+        return self._clean_scene_numbers(result)
+    
+    def _format_story_context(self, story_context: Dict[str, Any]) -> str:
+        """Format story context for template use"""
+        context_parts = self._truncate_context_for_streaming(story_context)
+        return chr(10).join(context_parts)
+    
+    def _get_default_scene_prompts(self, story_context: Dict[str, Any]) -> tuple[str, str, int]:
+        """Get default scene generation prompts as fallback"""
         system_prompt = """You are a creative storytelling assistant. Generate engaging narrative scenes that:
 1. Continue the story naturally from the previous context
 2. Include vivid descriptions and character development
@@ -343,14 +413,13 @@ Pay attention to the total scene count to understand story progression."""
         context_parts = self._truncate_context_for_streaming(story_context)
         
         # Simple prompt for better reliability
-        prompt = f"""Story Context:
+        user_prompt = f"""Story Context:
 {chr(10).join(context_parts)}
 
 Generate the next scene in this story. Make it engaging and immersive, approximately 200-300 words.
 Ensure the scene flows naturally from the previous events."""
 
-        result = await self._make_request(prompt, system_prompt, user_settings=user_settings)
-        return self._clean_scene_numbers(result)
+        return system_prompt, user_prompt, 2048
 
     async def generate_scene_with_context_management_streaming(self, story_context: Dict[str, Any], user_settings: dict = None):
         """
@@ -1021,6 +1090,89 @@ Continue the scene by adding more content that flows naturally from where it cur
             cleaned_chunk = self._clean_scene_numbers_chunk(chunk)
             if cleaned_chunk:  # Only yield non-empty chunks
                 yield cleaned_chunk
+    
+    async def generate_summary(self, story_content: str, story_context: Dict[str, Any] = None, user_settings = None, db: Session = None, user: User = None) -> str:
+        """Generate a comprehensive story summary using configurable prompts"""
+        
+        # Try to use prompt template if db and user are provided
+        if db and user:
+            template = self._get_prompt_template(db, user, "story_summary")
+            if template:
+                # Prepare context for template formatting
+                template_context = {
+                    "title": story_context.get("title", "Untitled Story") if story_context else "Untitled Story",
+                    "genre": story_context.get("genre", "Unknown") if story_context else "Unknown",
+                    "scene_count": str(story_context.get("scene_count", "Unknown")) if story_context else "Unknown",
+                    "story_content": story_content
+                }
+                
+                system_prompt, user_prompt = self._format_prompt_template(template, template_context)
+                max_tokens = template.max_tokens
+            else:
+                # Fallback to default prompts
+                system_prompt, user_prompt, max_tokens = self._get_default_summary_prompts(story_content, story_context)
+        else:
+            # Fallback to default prompts
+            system_prompt, user_prompt, max_tokens = self._get_default_summary_prompts(story_content, story_context)
+
+        logger.info("Generating story summary")
+        summary = await self._make_request(
+            prompt=user_prompt,
+            system_prompt=system_prompt,
+            max_tokens=max_tokens,
+            user_settings=user_settings
+        )
+        
+        return summary.strip()
+    
+    def _get_default_summary_prompts(self, story_content: str, story_context: Dict[str, Any] = None) -> tuple[str, str, int]:
+        """Get default story summary prompts as fallback"""
+        system_prompt = """You are a skilled story analyst and summarizer. Create comprehensive, engaging summaries that:
+
+1. Capture the main plot points and story arc
+2. Highlight key character developments and relationships
+3. Identify major themes and motifs
+4. Describe the setting and atmosphere
+5. Note significant conflicts and their resolutions
+6. Maintain the story's tone and style in the summary
+7. Provide context for where the story currently stands
+8. Make it engaging for someone who hasn't read the full story
+
+Write in an engaging, narrative style that makes the reader want to continue the story."""
+
+        title = story_context.get("title", "this story") if story_context else "this story"
+        genre = story_context.get("genre", "") if story_context else ""
+        genre_text = f" (Genre: {genre})" if genre else ""
+        
+        user_prompt = f"""Please provide a comprehensive summary of {title}{genre_text}:
+
+{story_content}
+
+Create a detailed summary that captures the essence of the story, key plot points, character development, and current situation."""
+
+        return system_prompt, user_prompt, 1000
+
+        return system_prompt, user_prompt, 1000
+    
+    def _get_prompt_template(self, db: Session, user: User, template_key: str):
+        """Get prompt template for a specific key"""
+        template = db.query(PromptTemplate).filter(
+            PromptTemplate.template_key == template_key,
+            ((PromptTemplate.user_id == user.id) | (PromptTemplate.is_default == True)),
+            PromptTemplate.is_active == True
+        ).first()
+        
+        return template
+    
+    def _format_prompt_template(self, template: PromptTemplate, context: dict) -> tuple[str, str]:
+        """Format a prompt template with context variables"""
+        try:
+            user_prompt = template.user_prompt_template.format(**context) if template.user_prompt_template else ""
+            return template.system_prompt, user_prompt
+        except KeyError as e:
+            logger.warning(f"Template formatting error: missing variable {e}")
+            # Fallback to basic template without formatting
+            return template.system_prompt, template.user_prompt_template or ""
 
 # Create global instance
 llm_service = LMStudioService()

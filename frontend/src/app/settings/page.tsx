@@ -78,6 +78,12 @@ export default function SettingsPage() {
   const [loadingModels, setLoadingModels] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
 
+  // Prompt templates state
+  const [promptTemplates, setPromptTemplates] = useState<any[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState<any>(null);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState(false);
+
   // Apply UI settings when they change
   useUISettings(settings?.ui_preferences || null);
 
@@ -88,7 +94,10 @@ export default function SettingsPage() {
     }
     loadSettings();
     loadPresets();
-  }, [user, router]);
+    if (activeTab === 'prompts') {
+      loadPromptTemplates();
+    }
+  }, [user, router, activeTab]);
 
   const loadSettings = async () => {
     try {
@@ -137,6 +146,52 @@ export default function SettingsPage() {
       }
     } catch (error) {
       console.error('Error loading presets:', error);
+    }
+  };
+
+  const loadPromptTemplates = async () => {
+    setLoadingTemplates(true);
+    try {
+      const response = await fetch('http://localhost:8000/api/prompt-templates/', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setPromptTemplates(data);
+      } else {
+        console.error('Failed to load prompt templates');
+      }
+    } catch (error) {
+      console.error('Error loading prompt templates:', error);
+    } finally {
+      setLoadingTemplates(false);
+    }
+  };
+
+  const updatePromptTemplate = async (templateId: number, updates: any) => {
+    try {
+      const response = await fetch(`http://localhost:8000/api/prompt-templates/${templateId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(updates),
+      });
+      
+      if (response.ok) {
+        setMessage('Prompt template updated successfully!');
+        loadPromptTemplates(); // Reload templates
+        setSelectedTemplate(null);
+        setEditingTemplate(false);
+      } else {
+        setMessage('Failed to update prompt template');
+      }
+    } catch (error) {
+      console.error('Error updating prompt template:', error);
+      setMessage('Error updating prompt template');
     }
   };
 
@@ -475,6 +530,7 @@ export default function SettingsPage() {
             { id: 'llm', name: 'LLM Settings' },
             { id: 'context', name: 'Context Management' },
             { id: 'generation', name: 'Generation' },
+            { id: 'prompts', name: 'AI Prompts' },
             { id: 'ui', name: 'Interface' },
           ].map((tab) => (
             <button
@@ -942,6 +998,189 @@ export default function SettingsPage() {
                     />
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* AI Prompts Management */}
+            {activeTab === 'prompts' && (
+              <div className="bg-gray-800 rounded-lg p-6">
+                <h2 className="text-xl font-semibold mb-6">AI Prompt Templates</h2>
+                
+                {loadingTemplates ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+                    <span className="ml-3 text-gray-300">Loading templates...</span>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    
+                    {/* Template List */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {promptTemplates.map((template) => (
+                        <div 
+                          key={template.id}
+                          className="bg-gray-700 rounded-lg p-4 cursor-pointer hover:bg-gray-600 transition-colors"
+                          onClick={() => {
+                            setSelectedTemplate(template);
+                            setEditingTemplate(false);
+                          }}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <h3 className="font-medium text-white">{template.name}</h3>
+                            {template.is_default && (
+                              <span className="text-xs bg-blue-600 text-blue-100 px-2 py-1 rounded">
+                                Default
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm text-gray-300 mb-2">{template.description}</p>
+                          <div className="text-xs text-gray-400">
+                            Category: {template.category}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {promptTemplates.length === 0 && (
+                      <div className="text-center py-8 text-gray-400">
+                        No prompt templates found. Loading default templates...
+                      </div>
+                    )}
+
+                    {/* Template Editor */}
+                    {selectedTemplate && (
+                      <div className="mt-8 bg-gray-700 rounded-lg p-6">
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="text-lg font-semibold text-white">
+                            {selectedTemplate.name}
+                          </h3>
+                          <div className="flex space-x-2">
+                            {!editingTemplate ? (
+                              <button
+                                onClick={() => setEditingTemplate(true)}
+                                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                              >
+                                Edit Template
+                              </button>
+                            ) : (
+                              <>
+                                <button
+                                  onClick={() => {
+                                    // Save changes
+                                    updatePromptTemplate(selectedTemplate.id, {
+                                      system_prompt: selectedTemplate.system_prompt,
+                                      user_prompt_template: selectedTemplate.user_prompt_template,
+                                      max_tokens: selectedTemplate.max_tokens
+                                    });
+                                  }}
+                                  className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+                                >
+                                  Save Changes
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setEditingTemplate(false);
+                                    loadPromptTemplates(); // Reload to reset changes
+                                  }}
+                                  className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
+                                >
+                                  Cancel
+                                </button>
+                              </>
+                            )}
+                            <button
+                              onClick={() => setSelectedTemplate(null)}
+                              className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
+                            >
+                              Close
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="space-y-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-300 mb-2">
+                              Description
+                            </label>
+                            <p className="text-sm text-gray-400 bg-gray-800 p-3 rounded">
+                              {selectedTemplate.description}
+                            </p>
+                          </div>
+
+                          <div>
+                            <label className="block text-sm font-medium text-gray-300 mb-2">
+                              System Prompt
+                            </label>
+                            <textarea
+                              value={selectedTemplate.system_prompt}
+                              onChange={(e) => {
+                                if (editingTemplate) {
+                                  setSelectedTemplate({
+                                    ...selectedTemplate,
+                                    system_prompt: e.target.value
+                                  });
+                                }
+                              }}
+                              readOnly={!editingTemplate}
+                              className={`w-full h-32 p-3 bg-gray-800 border border-gray-600 rounded text-sm text-gray-200 ${
+                                editingTemplate ? 'focus:outline-none focus:ring-2 focus:ring-blue-500' : 'cursor-default'
+                              }`}
+                              placeholder="System prompt for the AI..."
+                            />
+                          </div>
+
+                          {selectedTemplate.user_prompt_template && (
+                            <div>
+                              <label className="block text-sm font-medium text-gray-300 mb-2">
+                                User Prompt Template
+                              </label>
+                              <textarea
+                                value={selectedTemplate.user_prompt_template}
+                                onChange={(e) => {
+                                  if (editingTemplate) {
+                                    setSelectedTemplate({
+                                      ...selectedTemplate,
+                                      user_prompt_template: e.target.value
+                                    });
+                                  }
+                                }}
+                                readOnly={!editingTemplate}
+                                className={`w-full h-24 p-3 bg-gray-800 border border-gray-600 rounded text-sm text-gray-200 ${
+                                  editingTemplate ? 'focus:outline-none focus:ring-2 focus:ring-blue-500' : 'cursor-default'
+                                }`}
+                                placeholder="Template with placeholders like {title}, {genre}..."
+                              />
+                            </div>
+                          )}
+
+                          <div>
+                            <label className="block text-sm font-medium text-gray-300 mb-2">
+                              Max Tokens
+                            </label>
+                            <input
+                              type="number"
+                              value={selectedTemplate.max_tokens}
+                              onChange={(e) => {
+                                if (editingTemplate) {
+                                  setSelectedTemplate({
+                                    ...selectedTemplate,
+                                    max_tokens: parseInt(e.target.value)
+                                  });
+                                }
+                              }}
+                              readOnly={!editingTemplate}
+                              className={`w-32 p-2 bg-gray-800 border border-gray-600 rounded text-sm text-gray-200 ${
+                                editingTemplate ? 'focus:outline-none focus:ring-2 focus:ring-blue-500' : 'cursor-default'
+                              }`}
+                              min="100"
+                              max="8000"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

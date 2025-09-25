@@ -133,6 +133,8 @@ export default function StoryPage() {
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [storySummary, setStorySummary] = useState<any>(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
+  const [isGeneratingAISummary, setIsGeneratingAISummary] = useState(false);
+  const [aiSummary, setAiSummary] = useState<string | null>(null);
   const [scenesToShow, setScenesToShow] = useState(5); // Show last 5 scenes initially
   const [isLoadingEarlierScenes, setIsLoadingEarlierScenes] = useState(false);
   
@@ -295,6 +297,34 @@ export default function StoryPage() {
       setStorySummary({ error: 'Error loading summary' });
     } finally {
       setLoadingSummary(false);
+    }
+  };
+
+  const handleGenerateAISummary = async () => {
+    setIsGeneratingAISummary(true);
+    setAiSummary(null);
+    
+    try {
+      const response = await fetch(`http://localhost:8000/api/stories/${storyId}/ai-summary`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        const summaryData = await response.json();
+        setAiSummary(summaryData.summary);
+      } else {
+        console.error('Failed to generate AI summary');
+        setAiSummary('Failed to generate AI summary. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error generating AI summary:', error);
+      setAiSummary('Error generating AI summary. Please try again.');
+    } finally {
+      setIsGeneratingAISummary(false);
     }
   };
 
@@ -1217,12 +1247,31 @@ export default function StoryPage() {
             {/* Header - fixed */}
             <div className="flex items-center justify-between p-6 border-b border-gray-700 flex-shrink-0">
               <h2 className="text-xl font-bold text-white">Story Summary & Context</h2>
-              <button
-                onClick={() => setShowSummaryModal(false)}
-                className="text-gray-400 hover:text-white p-2 hover:bg-gray-700 rounded-lg"
-              >
-                ✕
-              </button>
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={handleGenerateAISummary}
+                  disabled={isGeneratingAISummary}
+                  className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                >
+                  {isGeneratingAISummary ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      <span>Generating...</span>
+                    </>
+                  ) : (
+                    <>
+                      <DocumentTextIcon className="w-4 h-4" />
+                      <span>Summarize Now</span>
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={() => setShowSummaryModal(false)}
+                  className="text-gray-400 hover:text-white p-2 hover:bg-gray-700 rounded-lg"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
             
             {/* Scrollable content */}
@@ -1290,6 +1339,26 @@ export default function StoryPage() {
                         <div className="text-xs text-gray-400 mt-1">
                           {storySummary.context_info.usage_percentage.toFixed(1)}% used
                         </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* AI Generated Summary */}
+                  {(aiSummary || isGeneratingAISummary) && (
+                    <div className="bg-blue-900/30 border border-blue-600/30 rounded-lg p-4">
+                      <h3 className="font-semibold text-blue-300 mb-3">AI Generated Summary</h3>
+                      {isGeneratingAISummary ? (
+                        <div className="flex items-center justify-center py-8">
+                          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-400"></div>
+                          <span className="ml-3 text-gray-300">Generating comprehensive story summary...</span>
+                        </div>
+                      ) : aiSummary ? (
+                        <div className="text-gray-300 text-sm leading-relaxed max-h-64 overflow-y-auto border border-blue-600/50 rounded p-3 bg-blue-900/20">
+                          {aiSummary}
+                        </div>
+                      ) : null}
+                      <div className="text-xs text-blue-400 mt-2">
+                        This is an AI-generated comprehensive summary using advanced prompts
                       </div>
                     </div>
                   )}
