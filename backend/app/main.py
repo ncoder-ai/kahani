@@ -22,8 +22,8 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-# Create tables
-Base.metadata.create_all(bind=engine)
+# Create tables - TEMPORARILY DISABLED to preserve existing data
+# Base.metadata.create_all(bind=engine)
 
 # Create FastAPI app
 app = FastAPI(
@@ -64,12 +64,14 @@ async def health_check():
 # Import and include routers
 from .api import auth, stories, characters, summaries
 from .api import settings as settings_router
+from .routers import prompt_templates
 
 app.include_router(auth.router, prefix="/api/auth", tags=["authentication"])
 app.include_router(stories.router, prefix="/api/stories", tags=["stories"])
 app.include_router(characters.router, prefix="/api/characters", tags=["characters"])
 app.include_router(settings_router.router, prefix="/api/settings", tags=["settings"])
 app.include_router(summaries.router, prefix="/api", tags=["summaries"])
+app.include_router(prompt_templates.router, prefix="/api/prompt-templates", tags=["prompt-templates"])
 
 # Root endpoint
 @app.get("/")

@@ -69,6 +69,66 @@ async def get_story_summary(
         logger.error(f"Error getting story summary: {e}")
         raise HTTPException(status_code=500, detail="Failed to get story summary")
 
+@router.post("/stories/{story_id}/ai-summary")
+async def generate_ai_summary(
+    story_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Generate a comprehensive AI summary of the entire story"""
+    try:
+        # Get the story
+        story = db.query(Story).filter(
+            Story.id == story_id,
+            Story.owner_id == current_user.id
+        ).first()
+        
+        if not story:
+            raise HTTPException(status_code=404, detail="Story not found")
+        
+        # Get story scenes
+        scenes = story.scenes
+        if not scenes:
+            raise HTTPException(status_code=400, detail="Story has no scenes to summarize")
+        
+        # Get user settings
+        user_settings = None
+        if hasattr(current_user, 'settings') and current_user.settings:
+            user_settings = current_user.settings
+        
+        # Combine all scene content
+        combined_text = "\n\n".join([
+            f"Scene {scene.sequence_number}: {scene.title}\n{scene.content}"
+            for scene in scenes
+        ])
+        
+        # Prepare story context for template
+        story_context = {
+            "title": story.title,
+            "genre": story.genre or "Unknown",
+            "scene_count": len(scenes)
+        }
+        
+        # Generate AI summary using configurable prompts
+        ai_summary = await llm_service.generate_summary(
+            story_content=combined_text,
+            story_context=story_context,
+            user_settings=user_settings,
+            db=db,
+            user=current_user
+        )
+        
+        return {
+            "message": "AI summary generated successfully",
+            "summary": ai_summary,
+            "total_scenes": len(scenes),
+            "summary_type": "ai_generated"
+        }
+            
+    except Exception as e:
+        logger.error(f"Error generating AI summary: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate AI summary")
+
 @router.post("/stories/{story_id}/regenerate-summary")
 async def regenerate_story_summary(
     story_id: int,
@@ -107,16 +167,26 @@ async def regenerate_story_summary(
         keep_recent = user_settings.context_keep_recent_scenes if user_settings else 3
         scenes_to_summarize = scenes[:-keep_recent]
         
-        # Generate new summary
+        # Generate new summary using AI
         if scenes_to_summarize:
             combined_text = "\n\n".join([
                 f"Scene {scene.sequence_number}: {scene.title}\n{scene.content}"
                 for scene in scenes_to_summarize
             ])
             
+            # Prepare story context for template
+            story_context = {
+                "title": story.title,
+                "genre": story.genre or "Unknown",
+                "scene_count": len(scenes_to_summarize)
+            }
+            
             new_summary = await llm_service.generate_summary(
-                combined_text,
-                user_settings=user_settings
+                story_content=combined_text,
+                story_context=story_context,
+                user_settings=user_settings,
+                db=db,
+                user=current_user
             )
             
             return {
