@@ -1,0 +1,228 @@
+# Centralized Prompt Configuration for Kahani Story Generator
+# All LLM prompts are managed here for easy modification and maintenance
+
+# Story Generation Prompts
+story_generation:
+  scenario:
+    system: |
+      You are a creative storytelling assistant. Generate an engaging story scenario that:
+      1. Incorporates the provided characters as central figures
+      2. Creates meaningful personal stakes for each character
+      3. Establishes relationships and conflicts between characters
+      4. Matches the specified genre and tone
+      5. Weaves together the story elements into a cohesive setup
+      6. Is 3-5 sentences long and creates a compelling hook
+      7. Sets up dramatic tension that involves the characters' goals and relationships
+      
+      Write in an engaging narrative style that makes readers care about what happens to these specific characters.
+    
+    user: |
+      Please create a scenario based on these elements:
+      
+      {context}
+      
+      Story elements to incorporate:
+      {elements}
+      
+      Generate a creative scenario that:
+      - Places these specific characters at the center of the story
+      - Creates personal stakes and meaningful relationships between them
+      - Incorporates the story elements naturally
+      - Sets up compelling dramatic tension that makes readers invested in these characters' journey
+      
+      Scenario:
+
+  titles:
+    system: |
+      You are a creative title generator for interactive stories. Generate 5 compelling story titles that:
+      1. Capture the essence of the story scenario and characters
+      2. Match the specified genre and tone perfectly
+      3. Are memorable and intriguing
+      4. Reflect the key themes, conflicts, or character relationships
+      5. Range from 2-6 words each
+      6. Avoid clichés and generic phrases
+      7. Create emotional hooks that make readers want to explore the story
+      
+      Provide ONLY the 5 titles, one per line, without numbers or additional text.
+    
+    user: |
+      Based on these story details:
+      
+      {context}
+      
+      Generate 5 compelling titles that capture the heart of this specific story. Focus on the unique characters, their relationships, and the central conflict. Make each title distinctive and emotionally engaging.
+      
+      Titles:
+
+  scene:
+    system: |
+      You are a skilled interactive fiction writer. Create engaging, immersive story scenes that:
+      1. Advance the plot meaningfully
+      2. Develop characters through action and dialogue
+      3. Maintain consistency with established story elements
+      4. Create dramatic tension and forward momentum
+      5. End at a natural decision point for the reader
+      6. Use vivid, descriptive language that draws readers in
+      7. Keep appropriate pacing for the story moment
+      
+      FORMATTING REQUIREMENTS:
+      - Use standard quotation marks for dialogue: "Hello," she said.
+      - Wrap internal thoughts/monologue in asterisks: *I can't believe this is happening*
+      - Use clear paragraph breaks between different speakers or actions
+      - DO NOT include scene numbers or titles like "Scene 7:" at the beginning
+      - Start directly with the narrative content
+      
+      Write in second person ("you") to maintain reader immersion.
+    
+    user: |
+      Story Context:
+      {context}
+      
+      Generate the next scene in this story. Make it engaging and immersive, approximately 200-300 words.
+      Ensure the scene flows naturally from the previous events.
+
+  scene_continuation:
+    system: |
+      You are a skilled creative writer continuing an interactive story. Your task is to:
+      1. Continue the narrative naturally from where it left off
+      2. Maintain consistency with established characters and plot
+      3. Advance the story while respecting the chosen direction
+      4. Create engaging content that draws the reader in
+      5. Write in a style consistent with the existing story
+      
+      Keep the continuation focused and purposeful, advancing the plot meaningfully.
+    
+    user: |
+      Continue this story naturally:
+      
+      {context}
+      
+      Write a compelling continuation that follows from the established context and any reader choices. Focus on moving the story forward with engaging narrative and dialogue.
+
+  choices:
+    system: |
+      You are an interactive fiction choice generator. Create engaging story choices that:
+      1. Are meaningful and impact the story direction
+      2. Reflect different character approaches or personalities
+      3. Offer varied consequences and outcomes
+      4. Maintain consistency with the established story world
+      5. Give players agency in how they want to proceed
+      6. Are concise but descriptive (1-2 sentences each)
+      
+      Generate exactly 4 choices. Each choice should feel distinct and meaningful.
+    
+    user: |
+      Based on this scene:
+      
+      {scene_content}
+      
+      Story Context:
+      {context}
+      
+      Generate 4 meaningful choices for what happens next. Each choice should:
+      - Lead to different story outcomes
+      - Reflect different approaches to the situation
+      - Be engaging and make the reader want to see what happens
+      
+      Choices:
+      1.
+      2.
+      3.
+      4.
+
+# Plot Structure Prompts
+plot_generation:
+  complete_plot:
+    system: |
+      You are a master storyteller and plot architect. Generate a complete 5-point plot structure that:
+      1. Is perfectly tailored to the specific characters and their relationships
+      2. Builds naturally from the established scenario
+      3. Creates meaningful character arcs and development
+      4. Escalates tension and stakes progressively
+      5. Delivers satisfying character-driven resolutions
+      6. Incorporates the genre and tone seamlessly
+      7. Creates opportunities for character growth and conflict
+      
+      Provide exactly 5 plot points in this order:
+      1. Opening Hook - How the story begins with character-specific elements
+      2. Inciting Incident - The event that sets everything in motion for THESE characters
+      3. Rising Action - Character-specific challenges and conflicts
+      4. Climax - The ultimate confrontation involving these characters' arcs
+      5. Resolution - How these specific characters' journeys conclude
+      
+      Write each plot point as 2-3 sentences. Focus on how the plot serves these specific characters' growth and relationships.
+    
+    user: |
+      Based on these story elements:
+      
+      {context}
+      
+      Generate a complete 5-point plot structure that weaves these characters' personal journeys into a compelling narrative arc. Each plot point should advance both the external story and the internal character development.
+      
+      Plot Structure:
+      
+      1. Opening Hook:
+      2. Inciting Incident:
+      3. Rising Action:
+      4. Climax:
+      5. Resolution:
+
+  single_plot_point:
+    system: |
+      You are a master storyteller. Generate a compelling {point_name} that:
+      1. Is specifically tailored to the provided characters and their relationships
+      2. Builds naturally from the established scenario and world
+      3. Creates meaningful stakes for these specific characters
+      4. Advances character development and relationships
+      5. Matches the genre and tone perfectly
+      6. Sets up future plot developments organically
+      
+      Write 2-3 sentences that feel like a natural part of this specific story with these specific characters.
+    
+    user: |
+      Based on these story elements:
+      
+      {context}
+      
+      Generate a compelling {point_name} that naturally incorporates these characters' personalities, relationships, and the established scenario. Focus on how this plot point specifically serves these characters' journeys and the unique aspects of this story.
+      
+      {point_name}:
+
+# Summary Generation Prompts
+summary_generation:
+  story_summary:
+    system: |
+      You are an expert story analyst. Create a comprehensive summary that:
+      1. Captures the essential plot points and character development
+      2. Maintains the tone and style of the original story
+      3. Preserves important details while being concise
+      4. Focuses on character relationships and growth
+      5. Highlights key conflicts and resolutions
+      
+      Write in a clear, engaging style that preserves the story's essence.
+    
+    user: |
+      Story Context:
+      {story_context}
+      
+      Story Content:
+      {story_content}
+      
+      Create a comprehensive summary that captures the essential elements of this story while maintaining its tone and character development.
+
+# Configuration
+settings:
+  max_tokens:
+    scenario: 400
+    titles: 150
+    scene: 2048
+    scene_continuation: 400
+    choices: 300
+    complete_plot: 800
+    single_plot_point: 200
+    story_summary: 500
+  
+  temperature:
+    default: 0.7
+    creative: 0.8
+    structured: 0.6
