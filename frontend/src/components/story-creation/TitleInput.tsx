@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { StoryData } from '@/app/create-story/page';
-import { apiClient } from '@/lib/api';
+import apiClient from '@/lib/api';
 import CharacterDisplay from '@/components/CharacterDisplay';
 
 interface TitleInputProps {

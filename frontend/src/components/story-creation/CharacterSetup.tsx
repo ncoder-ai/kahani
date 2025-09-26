@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { StoryData } from '@/app/create-story/page';
-import { apiClient } from '@/lib/api';
+import apiClient from '@/lib/api';
 import CharacterForm from '@/components/CharacterForm';
 
 interface CharacterSetupProps {

@@ -70,7 +70,7 @@ export default function CreateStoryPage() {
           // Load specific story
           const storyId = parseInt(storyIdParam);
           const response = await apiClient.getSpecificDraftStory(storyId);
-          const draft = response.draft;
+          const draft = (response as any).draft ?? response;
           
           setDraftStoryId(draft.id);
           setCurrentStep(draft.creation_step || 0);
@@ -94,8 +94,8 @@ export default function CreateStoryPage() {
         } else {
           // Load user's general draft
           const response = await apiClient.getDraftStory();
-          if (response.draft) {
-            const draft = response.draft;
+          const draft = (response as any).draft ?? response;
+          if (draft) {
             setDraftStoryId(draft.id);
             setCurrentStep(draft.creation_step);
             
@@ -136,11 +136,11 @@ export default function CreateStoryPage() {
     
     try {
       setIsSavingDraft(true);
-      const response = await apiClient.createOrUpdateDraftStory(
-        updatedData, 
-        step, 
-        draftStoryId || undefined // Pass the story ID if we have one
-      );
+      const response = await apiClient.createOrUpdateDraftStory({
+        ...updatedData,
+        step,
+        story_id: draftStoryId || undefined,
+      });
       setDraftStoryId(response.id);
       console.log('Draft saved:', response.message);
     } catch (error) {

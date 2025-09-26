@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { apiClient } from '@/lib/api';
+import apiClient from '@/lib/api';
 import Link from 'next/link';
 
 interface Character {
@@ -18,7 +18,7 @@ interface Character {
   is_public: boolean;
   creator_id: number;
   created_at: string;
-  updated_at?: string;
+  updated_at?: string | null;
 }
 
 export default function CharacterDetailPage() {
