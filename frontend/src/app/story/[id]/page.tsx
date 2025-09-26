@@ -549,28 +549,45 @@ export default function StoryPage() {
         setIsStreaming(true);
         setStreamingContent('');
         
-        // For now, use regular API (we can add streaming later)
-        const response = await apiClient.createSceneVariant(story.id, sceneId, customPrompt);
-        
-        // Preserve current scroll position for variant operations
-        const currentScrollPosition = window.pageYOffset;
-        
-        // Reload story to show new variant
-        await loadStory(false, false); // Don't auto-scroll for variants
-        
-        // Restore scroll position to stay at the scene being worked on
-        setTimeout(() => {
-          window.scrollTo({ top: currentScrollPosition, behavior: 'instant' });
-          
-          // Then smoothly scroll to the specific scene that was modified
-          const sceneElement = document.querySelector(`[data-scene-id="${sceneId}"]`);
-          if (sceneElement) {
-            sceneElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        await apiClient.createSceneVariantStreaming(
+          story.id,
+          sceneId,
+          customPrompt || '',
+          // onChunk
+          (chunk: string) => {
+            setStreamingContent(prev => prev + chunk);
+          },
+          // onComplete
+          async (variant: any) => {
+            console.log('Variant creation complete', { variant });
+            setStreamingContent('');
+            setIsStreaming(false);
+            
+            // Preserve current scroll position for variant operations
+            const currentScrollPosition = window.pageYOffset;
+            
+            // Reload story to show new variant
+            await loadStory(false, false); // Don't auto-scroll for variants
+            
+            // Restore scroll position to stay at the scene being worked on
+            setTimeout(() => {
+              window.scrollTo({ top: currentScrollPosition, behavior: 'instant' });
+              
+              // Then smoothly scroll to the specific scene that was modified
+              const sceneElement = document.querySelector(`[data-scene-id="${sceneId}"]`);
+              if (sceneElement) {
+                sceneElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }
+            }, 50);
+          },
+          // onError
+          (error: string) => {
+            console.error('Streaming variant creation error:', error);
+            setError(error);
+            setStreamingContent('');
+            setIsStreaming(false);
           }
-        }, 50);
-        
-        setIsStreaming(false);
-        console.log('New variant created (streaming mode):', response.variant);
+        );
       } else {
         // Non-streaming variant creation
         const response = await apiClient.createSceneVariant(story.id, sceneId, customPrompt);

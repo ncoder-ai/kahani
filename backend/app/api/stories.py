@@ -1121,6 +1121,114 @@ async def create_scene_variant(
             detail=f"Failed to create scene variant: {str(e)}"
         )
 
+@router.post("/{story_id}/scenes/{scene_id}/variants/stream")
+async def create_scene_variant_streaming(
+    story_id: int,
+    scene_id: int,
+    request: dict = Body(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create a new variant (regeneration) for a scene with streaming"""
+    
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found"
+        )
+    
+    # Get user settings
+    user_settings_db = db.query(UserSettings).filter(
+        UserSettings.user_id == current_user.id
+    ).first()
+    
+    user_settings = user_settings_db.to_dict() if user_settings_db else None
+    
+    async def generate_variant_stream():
+        try:
+            # Get the current scene
+            scene = db.query(Scene).filter(Scene.id == scene_id).first()
+            if not scene:
+                yield f"data: {json.dumps({'type': 'error', 'message': 'Scene not found'})}\n\n"
+                return
+            
+            # Send initial metadata
+            yield f"data: {json.dumps({'type': 'start', 'scene_id': scene_id})}\n\n"
+            
+            # Build context for variant generation
+            context_manager = ContextManager(user_settings=user_settings, user_id=current_user.id)
+            context = await context_manager.build_scene_generation_context(
+                story_id, db, request.get('custom_prompt', '')
+            )
+
+            # Convert context dict to a readable prompt string for the LLM
+            context_parts = []
+            for key, value in context.items():
+                if value:
+                    context_parts.append(f"{key}: {value}")
+            prompt_str = "\n".join(context_parts)
+            if request.get('custom_prompt'):
+                prompt_str = f"{request.get('custom_prompt')}\n\n{prompt_str}"
+
+            # Stream variant generation
+            variant_content = ""
+            async for chunk in generate_scene_streaming(prompt_str, current_user.id, user_settings):
+                variant_content += chunk
+                yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+            
+            # Create the new variant using SceneVariantService
+            service = SceneVariantService(db)
+            variant = await service.regenerate_scene_variant(
+                scene_id=scene_id,
+                custom_prompt=request.get('custom_prompt'),
+                user_settings=user_settings
+            )
+            
+            # Get choices for the new variant
+            choices = db.query(SceneChoice)\
+                .filter(SceneChoice.scene_variant_id == variant.id)\
+                .order_by(SceneChoice.choice_order)\
+                .all()
+            
+            # Send completion data
+            variant_data = {
+                'type': 'complete',
+                'variant': {
+                    'id': variant.id,
+                    'variant_number': variant.variant_number,
+                    'content': variant.content,
+                    'title': variant.title,
+                    'is_original': variant.is_original,
+                    'generation_method': variant.generation_method,
+                    'choices': [
+                        {
+                            'id': choice.id,
+                            'text': choice.choice_text,
+                            'description': choice.choice_description,
+                            'order': choice.choice_order,
+                        }
+                        for choice in choices
+                    ]
+                }
+            }
+            yield f"data: {json.dumps(variant_data)}\n\n"
+            yield "data: [DONE]\n\n"
+            
+        except Exception as e:
+            logger.error(f"Error in variant stream: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+    
+    return StreamingResponse(
+        generate_variant_stream(),
+        media_type="text/plain",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
+    )
+
 @router.post("/{story_id}/scenes/{scene_id}/variants/{variant_id}/activate")
 async def activate_scene_variant(
     story_id: int,
