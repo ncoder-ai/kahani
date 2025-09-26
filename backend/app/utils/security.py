@@ -8,12 +8,19 @@ from ..config import settings
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password against its hash"""
-    return pwd_context.verify(plain_password, hashed_password)
+    """Verify a password against its hash.
+    Bcrypt limits inputs to 72 bytes; truncate to avoid backend errors while keeping UX lenient.
+    """
+    try:
+        truncated = plain_password[:72]
+        return pwd_context.verify(truncated, hashed_password)
+    except Exception:
+        return False
 
 def get_password_hash(password: str) -> str:
-    """Hash a password"""
-    return pwd_context.hash(password)
+    """Hash a password (truncate to bcrypt's 72-byte input limit)."""
+    truncated = password[:72]
+    return pwd_context.hash(truncated)
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """Create a JWT access token"""

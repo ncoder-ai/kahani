@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { apiClient } from '@/lib/api';
+import apiClient from '@/lib/api';
 import CharacterForm from '@/components/CharacterForm';
 
 interface Character {
