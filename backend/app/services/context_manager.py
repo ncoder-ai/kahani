@@ -2,13 +2,20 @@ import logging
 from typing import List, Dict, Any, Optional, Tuple
 from sqlalchemy.orm import Session
 from ..models import Story, Scene, Character, StoryCharacter
-from ..services.improved_llm_service import improved_llm_service
+from ..services.llm.service import UnifiedLLMService
+from ..services.llm.prompts import prompt_manager
+from ..database import get_db
 from ..config import settings
 try:
     import tiktoken
     TIKTOKEN_AVAILABLE = True
 except ImportError:
     TIKTOKEN_AVAILABLE = False
+
+# Initialize the unified LLM service
+unified_llm_service = UnifiedLLMService()
+
+if not TIKTOKEN_AVAILABLE:
     tiktoken = None
 
 logger = logging.getLogger(__name__)
@@ -396,28 +403,40 @@ Goals: {char.get('goals', '')}
                 for scene in scenes
             ])
             
-            # Create summarization prompt
-            system_prompt = """You are a story continuity assistant. Create a concise summary that preserves:
-1. Key plot developments and character decisions
-2. Important character relationships and conflicts  
-3. Crucial world-building details
-4. Major events that affect the current story state
+            # Get database session for prompt lookup
+            db = next(get_db())
+            
+            try:
+                # Get dynamic prompts (user custom or default)
+                system_prompt = prompt_manager.get_prompt(
+                    template_key="story_summary",
+                    prompt_type="system",
+                    user_id=self.user_id,
+                    db=db
+                )
+                
+                # Get user prompt with template variables
+                user_prompt = prompt_manager.get_prompt(
+                    template_key="story_summary",
+                    prompt_type="user",
+                    user_id=self.user_id,
+                    db=db,
+                    story_content=scenes_text
+                )
+                
+                # Get max tokens for this template
+                max_tokens = prompt_manager.get_max_tokens("story_summary")
 
-Keep the summary focused on what's essential for story continuity. Aim for 100-200 words."""
-
-            prompt = f"""Please summarize these story scenes, focusing on key plot points, character development, and story state:
-
-{scenes_text}
-
-Summary:"""
-
-            summary = await improved_llm_service.generate(
-                prompt=prompt, 
-                user_id=self.user_id, 
-                user_settings=self.user_settings, 
-                system_prompt=system_prompt, 
-                max_tokens=300
-            )
+                summary = await unified_llm_service.generate(
+                    prompt=user_prompt, 
+                    user_id=self.user_id, 
+                    user_settings=self.user_settings, 
+                    system_prompt=system_prompt, 
+                    max_tokens=max_tokens
+                )
+            
+            finally:
+                db.close()
             
             # Add metadata about what was summarized
             scene_range = f"Scenes {scenes[0].sequence_number}-{scenes[-1].sequence_number}"

@@ -1,4 +1,4 @@
 # Services modules
-from .llm_service import llm_service
+from .llm_functions import generate_content, generate_content_stream
 
-__all__ = ["llm_service"]
+__all__ = ["generate_content", "generate_content_stream"]
