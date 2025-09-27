@@ -4,7 +4,7 @@ from ..database import get_db
 from ..models import User, Story
 from ..dependencies import get_current_user
 from ..services.context_manager import ContextManager
-from ..services.llm_service import llm_service
+from ..services.llm_functions import generate_content
 import logging
 
 logger = logging.getLogger(__name__)

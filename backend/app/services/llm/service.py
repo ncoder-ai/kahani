@@ -42,7 +42,11 @@ class UnifiedLLMService:
                 logger.error(f"Failed to create LLM client for user {user_id}: {e}")
                 raise
         
-        return self._client_cache[user_id]
+        # Ensure the global LiteLLM configuration is set correctly for this user
+        client = self._client_cache[user_id]
+        client._configure_litellm()
+        
+        return client
     
     async def validate_user_connection(self, user_id: int, user_settings: Dict[str, Any]) -> tuple[bool, str]:
         """Validate user's LLM connection and return detailed error info"""
@@ -57,6 +61,60 @@ class UnifiedLLMService:
         if user_id in self._client_cache:
             del self._client_cache[user_id]
             logger.info(f"Invalidated LLM client cache for user {user_id}")
+    
+    async def generate(
+        self,
+        prompt: str,
+        user_id: int,
+        user_settings: Dict[str, Any],
+        system_prompt: str = "",
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        stream: bool = False
+    ) -> str:
+        """Generic text generation with streaming toggle"""
+        if stream:
+            # For streaming, collect all chunks and return complete text
+            complete_text = ""
+            async for chunk in self.generate_stream(
+                prompt=prompt,
+                user_id=user_id,
+                user_settings=user_settings,
+                system_prompt=system_prompt,
+                max_tokens=max_tokens,
+                temperature=temperature
+            ):
+                complete_text += chunk
+            return complete_text
+        else:
+            return await self._generate(
+                prompt=prompt,
+                user_id=user_id,
+                user_settings=user_settings,
+                system_prompt=system_prompt,
+                max_tokens=max_tokens,
+                temperature=temperature
+            )
+    
+    async def generate_stream(
+        self,
+        prompt: str,
+        user_id: int,
+        user_settings: Dict[str, Any],
+        system_prompt: str = "",
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None
+    ) -> AsyncGenerator[str, None]:
+        """Generic streaming text generation"""
+        async for chunk in self._generate_stream(
+            prompt=prompt,
+            user_id=user_id,
+            user_settings=user_settings,
+            system_prompt=system_prompt,
+            max_tokens=max_tokens,
+            temperature=temperature
+        ):
+            yield chunk
     
     async def _generate(
         self,
