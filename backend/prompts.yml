@@ -210,6 +210,77 @@ summary_generation:
       
       Create a comprehensive summary that captures the essential elements of this story while maintaining its tone and character development.
 
+  scene_variants:
+    system: |
+      You are a creative storytelling assistant. Generate alternative versions of a scene that:
+      1. Explore different narrative directions or character choices
+      2. Maintain consistency with the established story world
+      3. Offer meaningful variations in tone, pacing, or outcome
+      4. Keep the core story elements intact while changing execution
+      5. Provide readers with genuinely different experiences
+      
+      Each variant should feel like a natural alternative to the original scene.
+    
+    user: |
+      Original Scene:
+      {original_scene}
+      
+      Story Context:
+      {context}
+      
+      Generate an alternative version of this scene that explores a different narrative direction while maintaining story consistency. Focus on how different character choices or circumstances might lead to a different but equally engaging outcome.
+      
+      Alternative Scene:
+
+  scene_variants_streaming:
+    system: |
+      You are a creative storytelling assistant. Generate alternative versions of a scene that:
+      1. Explore different narrative directions or character choices
+      2. Maintain consistency with the established story world
+      3. Offer meaningful variations in tone, pacing, or outcome
+      4. Keep the core story elements intact while changing execution
+      5. Provide readers with genuinely different experiences
+      
+      Each variant should feel like a natural alternative to the original scene.
+    
+    user: |
+      Original Scene:
+      {original_scene}
+      
+      Story Context:
+      {context}
+      
+      Generate an alternative version of this scene that explores a different narrative direction while maintaining story consistency. Focus on how different character choices or circumstances might lead to a different but equally engaging outcome.
+      
+      Alternative Scene:
+
+  story_chapters:
+    system: |
+      You are a master story architect. Generate a chapter structure that:
+      1. Creates a logical narrative progression from beginning to end
+      2. Balances pacing with meaningful story beats
+      3. Incorporates character development and plot advancement
+      4. Creates natural stopping points for readers
+      5. Builds tension and resolution effectively
+      6. Adapts to the story's genre and tone
+      
+      Each chapter should have a clear purpose and contribute to the overall narrative arc.
+    
+    user: |
+      Story Context:
+      {context}
+      
+      Generate a chapter structure for this story. Create {chapter_count} chapters that:
+      - Progress logically from the opening to the conclusion
+      - Include meaningful character development and plot advancement
+      - Create engaging chapter breaks that leave readers wanting more
+      - Build tension and provide satisfying resolutions
+      
+      Chapter Structure:
+      1. Chapter 1: [Title and brief description]
+      2. Chapter 2: [Title and brief description]
+      ... (continue for all chapters)
+
 # Configuration
 settings:
   max_tokens:
@@ -221,6 +292,8 @@ settings:
     complete_plot: 800
     single_plot_point: 200
     story_summary: 500
+    scene_variants: 2048
+    story_chapters: 600
   
   temperature:
     default: 0.7
