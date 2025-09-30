@@ -356,7 +356,11 @@ async def test_api_connection(
         elif api_type == 'ollama':
             test_url = f"{api_url}/api/tags"
         else:  # openai_compatible
-            test_url = f"{api_url}/v1/models"
+            # Check if URL already has /v1, don't add it again
+            if api_url.endswith('/v1'):
+                test_url = f"{api_url}/models"
+            else:
+                test_url = f"{api_url}/v1/models"
             if api_key:
                 headers['Authorization'] = f'Bearer {api_key}'
             headers['Content-Type'] = 'application/json'
@@ -429,7 +433,11 @@ async def get_available_models(
         elif api_type == 'ollama':
             models_url = f"{api_url}/api/tags"
         else:  # openai_compatible
-            models_url = f"{api_url}/v1/models"
+            # Check if URL already has /v1, don't add it again
+            if api_url.endswith('/v1'):
+                models_url = f"{api_url}/models"
+            else:
+                models_url = f"{api_url}/v1/models"
             if api_key:
                 headers['Authorization'] = f'Bearer {api_key}'
             headers['Content-Type'] = 'application/json'

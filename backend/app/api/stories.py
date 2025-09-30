@@ -373,19 +373,11 @@ async def generate_scene_streaming_endpoint(
             else:
                 prompt = context
             
-            system_prompt = """You are a skilled interactive fiction writer. Create an engaging, immersive story scene that:
-1. Advances the plot meaningfully 
-2. Develops characters through action and dialogue
-3. Maintains consistency with established story elements
-4. Uses vivid, descriptive language that draws readers in
-5. Keep appropriate pacing for the story moment
-Write in an engaging narrative style."""
-
+            # Use dynamic prompts - no need to pass system_prompt as it will be retrieved dynamically
             async for chunk in generate_scene_streaming(
                 prompt=prompt,
                 user_id=current_user.id,
                 user_settings=user_settings,
-                system_prompt=system_prompt,
                 max_tokens=2048
             ):
                 full_content += chunk
