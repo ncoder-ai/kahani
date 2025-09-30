@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store';
 import { useUISettings } from '@/hooks/useUISettings';
 import { useNotifications } from '@/hooks/useNotifications';
+import WritingPresetsManager from '@/components/writing-presets/WritingPresetsManager';
 
 interface LLMSettings {
   temperature: number;
@@ -67,7 +68,7 @@ export default function SettingsPage() {
   const [presets, setPresets] = useState<Record<string, SettingsPreset>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState('llm');
+  const [activeTab, setActiveTab] = useState('writing');
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState<'success' | 'error' | 'info'>('success');
   const { addNotification } = useNotifications();
@@ -525,8 +526,9 @@ export default function SettingsPage() {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Tab Navigation */}
-        <div className="flex space-x-1 bg-gray-800 p-1 rounded-lg mb-8">
+        <div className="flex space-x-1 bg-gray-800 p-1 rounded-lg mb-8 overflow-x-auto">
           {[
+            { id: 'writing', name: 'Writing Styles' },
             { id: 'llm', name: 'LLM Settings' },
             { id: 'context', name: 'Context Management' },
             { id: 'generation', name: 'Generation' },
@@ -536,7 +538,7 @@ export default function SettingsPage() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+              className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
                 activeTab === tab.id
                   ? 'bg-blue-600 text-white'
                   : 'text-gray-400 hover:text-white hover:bg-gray-700'
@@ -551,6 +553,13 @@ export default function SettingsPage() {
           {/* Settings Panel */}
           <div className="lg:col-span-3">
             
+            {/* Writing Styles */}
+            {activeTab === 'writing' && (
+              <div className="bg-gray-800 rounded-lg p-6">
+                <WritingPresetsManager />
+              </div>
+            )}
+
             {/* LLM Settings */}
             {activeTab === 'llm' && (
               <div className="bg-gray-800 rounded-lg p-6">
