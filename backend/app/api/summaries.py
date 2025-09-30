@@ -5,6 +5,7 @@ from ..models import User, Story
 from ..dependencies import get_current_user
 from ..services.context_manager import ContextManager
 from ..services.llm_functions import generate_content
+from ..services.llm.prompts import prompt_manager
 import logging
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,16 @@ async def get_story_summary(
         # Get user settings for context management
         user_settings = None
         if hasattr(current_user, 'settings') and current_user.settings:
-            user_settings = current_user.settings
+            settings_obj = current_user.settings
+            user_settings = {
+                "api_type": settings_obj.llm_api_type,
+                "api_url": settings_obj.llm_api_url,
+                "api_key": settings_obj.llm_api_key,
+                "model_name": settings_obj.llm_model_name,
+                "max_tokens": settings_obj.llm_max_tokens,
+                "temperature": settings_obj.llm_temperature,
+                "top_p": settings_obj.llm_top_p
+            }
         
         # Initialize context manager
         context_manager = ContextManager()
@@ -91,10 +101,19 @@ async def generate_ai_summary(
         if not scenes:
             raise HTTPException(status_code=400, detail="Story has no scenes to summarize")
         
-        # Get user settings
+        # Get user settings as dictionary
         user_settings = None
         if hasattr(current_user, 'settings') and current_user.settings:
-            user_settings = current_user.settings
+            settings_obj = current_user.settings
+            user_settings = {
+                "api_type": settings_obj.llm_api_type,
+                "api_url": settings_obj.llm_api_url,
+                "api_key": settings_obj.llm_api_key,
+                "model_name": settings_obj.llm_model_name,
+                "max_tokens": settings_obj.llm_max_tokens,
+                "temperature": settings_obj.llm_temperature,
+                "top_p": settings_obj.llm_top_p
+            }
         
         # Combine all scene content
         combined_text = "\n\n".join([
@@ -109,14 +128,39 @@ async def generate_ai_summary(
             "scene_count": len(scenes)
         }
         
-        # Generate AI summary using configurable prompts
-        ai_summary = await llm_service.generate_summary(
-            story_content=combined_text,
-            story_context=story_context,
-            user_settings=user_settings,
-            db=db,
-            user=current_user
-        )
+        # Generate AI summary using dynamic prompts
+        db_session = next(get_db())
+        try:
+            # Get dynamic prompts (user custom or default)
+            system_prompt = prompt_manager.get_prompt(
+                template_key="story_summary",
+                prompt_type="system",
+                user_id=current_user.id,
+                db=db_session
+            )
+            
+            # Get user prompt with template variables
+            user_prompt = prompt_manager.get_prompt(
+                template_key="story_summary",
+                prompt_type="user",
+                user_id=current_user.id,
+                db=db_session,
+                story_content=combined_text,
+                story_context=f"Title: {story_context['title']}, Genre: {story_context['genre']}, Total Scenes: {story_context['scene_count']}"
+            )
+            
+            # Get max tokens for this template
+            max_tokens = prompt_manager.get_max_tokens("story_summary")
+            
+            ai_summary = await generate_content(
+                prompt=user_prompt,
+                user_id=current_user.id,
+                user_settings=user_settings,
+                system_prompt=system_prompt,
+                max_tokens=max_tokens
+            )
+        finally:
+            db_session.close()
         
         return {
             "message": "AI summary generated successfully",
@@ -146,10 +190,19 @@ async def regenerate_story_summary(
         if not story:
             raise HTTPException(status_code=404, detail="Story not found")
         
-        # Get user settings
+        # Get user settings as dictionary
         user_settings = None
         if hasattr(current_user, 'settings') and current_user.settings:
-            user_settings = current_user.settings
+            settings_obj = current_user.settings
+            user_settings = {
+                "api_type": settings_obj.llm_api_type,
+                "api_url": settings_obj.llm_api_url,
+                "api_key": settings_obj.llm_api_key,
+                "model_name": settings_obj.llm_model_name,
+                "max_tokens": settings_obj.llm_max_tokens,
+                "temperature": settings_obj.llm_temperature,
+                "top_p": settings_obj.llm_top_p
+            }
         
         # Initialize services
         context_manager = ContextManager()
@@ -181,13 +234,39 @@ async def regenerate_story_summary(
                 "scene_count": len(scenes_to_summarize)
             }
             
-            new_summary = await llm_service.generate_summary(
-                story_content=combined_text,
-                story_context=story_context,
-                user_settings=user_settings,
-                db=db,
-                user=current_user
-            )
+            # Generate new summary using dynamic prompts
+            db_session = next(get_db())
+            try:
+                # Get dynamic prompts (user custom or default)
+                system_prompt = prompt_manager.get_prompt(
+                    template_key="story_summary",
+                    prompt_type="system",
+                    user_id=current_user.id,
+                    db=db_session
+                )
+                
+                # Get user prompt with template variables
+                user_prompt = prompt_manager.get_prompt(
+                    template_key="story_summary",
+                    prompt_type="user",
+                    user_id=current_user.id,
+                    db=db_session,
+                    story_content=combined_text,
+                    story_context=f"Title: {story_context['title']}, Genre: {story_context['genre']}, Total Scenes: {story_context['scene_count']}"
+                )
+                
+                # Get max tokens for this template
+                max_tokens = prompt_manager.get_max_tokens("story_summary")
+                
+                new_summary = await generate_content(
+                    prompt=user_prompt,
+                    user_id=current_user.id,
+                    user_settings=user_settings,
+                    system_prompt=system_prompt,
+                    max_tokens=max_tokens
+                )
+            finally:
+                db_session.close()
             
             return {
                 "message": "Summary regenerated successfully",

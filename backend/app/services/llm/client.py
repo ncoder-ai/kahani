@@ -14,26 +14,43 @@ class LLMClient:
     """Manages LiteLLM client configuration and connections"""
     
     def __init__(self, user_settings: Dict[str, Any]):
-        """Initialize LLM client with user settings"""
-        self.user_settings = user_settings
-        self.llm_config = user_settings.get('llm_settings', {})
+        """Initialize LLM client with user settings - NO DEFAULTS, user must configure everything"""
+        # Validate that user_settings is provided
+        if not user_settings:
+            raise ValueError("No LLM settings provided. Please configure your LLM settings first.")
         
-        # Validate required settings
+        self.user_settings = user_settings
+        
+        # Support both nested and flat structure for backwards compatibility
+        # If 'llm_settings' key exists, use it (old format)
+        # Otherwise, use the flat structure (new format)
+        if 'llm_settings' in user_settings:
+            self.llm_config = user_settings['llm_settings']
+        else:
+            self.llm_config = user_settings
+        
+        # Validate required settings - NO DEFAULTS
         self.api_url = self.llm_config.get('api_url')
         if not self.api_url:
-            raise ValueError("LLM API URL not configured. Please provide your LLM endpoint URL in user settings first.")
+            raise ValueError("LLM API URL not configured. Please provide your LLM endpoint URL in user settings.")
         
-        # Extract configuration
+        self.api_type = self.llm_config.get('api_type')
+        if not self.api_type:
+            raise ValueError("LLM API type not configured. Please provide your LLM API type in user settings.")
+        
+        self.model_name = self.llm_config.get('model_name')
+        if not self.model_name:
+            raise ValueError("LLM model name not configured. Please provide your LLM model name in user settings.")
+        
+        # API key is optional for some providers (like localhost LM Studio)
         self.api_key = self.llm_config.get('api_key', '')
-        self.api_type = self.llm_config.get('api_type', 'openai_compatible')
-        self.model_name = self.llm_config.get('model_name', 'gpt-3.5-turbo')
         
-        # Generation parameters
-        self.temperature = self.llm_config.get('temperature', 0.7)
-        self.top_p = self.llm_config.get('top_p', 1.0)
-        self.top_k = self.llm_config.get('top_k', 50)
-        self.repetition_penalty = self.llm_config.get('repetition_penalty', 1.1)
-        self.max_tokens = self.llm_config.get('max_tokens', 2048)
+        # Generation parameters - use user values or None (will be set per-request if not provided)
+        self.temperature = self.llm_config.get('temperature')
+        self.top_p = self.llm_config.get('top_p')
+        self.top_k = self.llm_config.get('top_k')
+        self.repetition_penalty = self.llm_config.get('repetition_penalty')
+        self.max_tokens = self.llm_config.get('max_tokens')
         
         # Configure LiteLLM model string based on provider
         self.model_string = self._build_model_string()
@@ -45,12 +62,13 @@ class LLMClient:
         """Build LiteLLM model string based on provider type"""
         if self.api_type == "openai":
             return self.model_name
-        elif self.api_type == "openai_compatible":
-            # For OpenAI-compatible APIs like TabbyAPI, etc.
+        elif self.api_type == "openai-compatible" or self.api_type == "openai_compatible":
+            # For OpenAI-compatible APIs, MUST use openai/ prefix
+            # As per LiteLLM docs: model="openai/mistral"
             return f"openai/{self.model_name}"
         elif self.api_type == "lm_studio":
-            # For LM Studio
-            return f"lm_studio/{self.model_name}"
+            # LM Studio is also OpenAI-compatible
+            return f"openai/{self.model_name}"
         elif self.api_type == "ollama":
             return f"ollama/{self.model_name}"
         elif self.api_type == "koboldcpp":
@@ -65,11 +83,15 @@ class LLMClient:
     
     def _configure_litellm(self):
         """Configure LiteLLM with provider-specific settings"""
-        # Set the base URL for the provider - use exactly what the user provided
-        if self.api_type == "openai_compatible":
-            litellm.api_base = self.api_url
-            if self.api_key:
+        # For openai-compatible, we DON'T set api_base globally because LiteLLM
+        # automatically adds /v1. Instead, we pass it per-request in get_generation_params()
+        if self.api_type == "openai-compatible":
+            # Just set the API key if needed
+            if self.api_key and self.api_key.strip():
                 litellm.api_key = self.api_key
+            else:
+                # Set a dummy API key for LM Studio compatibility
+                litellm.api_key = "lm-studio-dummy-key"
         elif self.api_type == "lm_studio":
             # LM Studio uses environment variables for configuration
             import os
@@ -96,10 +118,47 @@ class LLMClient:
         """Get generation parameters for API calls"""
         params = {
             "model": self.model_string,
-            "max_tokens": max_tokens or self.max_tokens,
-            "temperature": temperature if temperature is not None else self.temperature,
-            "top_p": self.top_p,
         }
+        
+        # Only add parameters if they're provided (either as args or in user settings)
+        # Use provided values first, then user settings, then skip if neither
+        if max_tokens is not None:
+            params["max_tokens"] = max_tokens
+        elif self.max_tokens is not None:
+            params["max_tokens"] = self.max_tokens
+        else:
+            # Use a reasonable default if absolutely nothing is provided
+            params["max_tokens"] = 2048
+        
+        if temperature is not None:
+            params["temperature"] = temperature
+        elif self.temperature is not None:
+            params["temperature"] = self.temperature
+        else:
+            params["temperature"] = 0.7
+        
+        if self.top_p is not None:
+            params["top_p"] = self.top_p
+        else:
+            params["top_p"] = 1.0
+        
+        # Add API base and key for openai-compatible providers
+        # Pass api_base per-request so LiteLLM uses it directly without modification
+        if self.api_type == "openai-compatible":
+            params["api_base"] = self.api_url
+            # For localhost (LM Studio, etc), use a dummy key that LiteLLM accepts
+            # LiteLLM will pass it through but local servers typically ignore it
+            if "localhost" in self.api_url or "127.0.0.1" in self.api_url:
+                params["api_key"] = "dummy-key-for-local-server"
+            elif self.api_key and self.api_key.strip():
+                params["api_key"] = self.api_key
+            else:
+                # For non-localhost openai-compatible, still need some key
+                params["api_key"] = self.api_key or "not-needed"
+        elif self.api_type in ["openai", "anthropic", "cohere"]:
+            # For these providers, API key is required
+            if self.api_key:
+                params["api_key"] = self.api_key
         
         # Add provider-specific parameters (only for providers that support them)
         if self.api_type == "koboldcpp":

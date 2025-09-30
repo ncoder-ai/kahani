@@ -421,7 +421,8 @@ Goals: {char.get('goals', '')}
                     prompt_type="user",
                     user_id=self.user_id,
                     db=db,
-                    story_content=scenes_text
+                    story_content=scenes_text,
+                    story_context=f"Summary of {len(scenes)} scenes from the story"
                 )
                 
                 # Get max tokens for this template

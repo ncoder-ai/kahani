@@ -15,6 +15,7 @@ from typing import Dict, Any, Optional, Tuple
 import logging
 from sqlalchemy.orm import Session
 from app.models.prompt_template import PromptTemplate
+from app.models.writing_style_preset import WritingStylePreset
 
 logger = logging.getLogger(__name__)
 
@@ -61,16 +62,23 @@ class PromptManager:
         **template_vars
     ) -> str:
         """
-        Get a specific prompt with priority:
-        1. User-specific custom prompt from database
-        2. Default prompt from YAML file
-        3. Built-in fallback prompt
+        Get a specific prompt with TWO-TIER system:
+        
+        SYSTEM PROMPTS (user-customizable):
+        1. Active writing style preset's system_prompt (universal)
+        2. Active writing style preset's summary_system_prompt (for story_summary only)
+        3. Default from YAML file
+        4. Built-in fallback
+        
+        USER PROMPTS (locked for app stability):
+        1. YAML file only
+        2. Built-in fallback
         
         Args:
             template_key: Template identifier (e.g., 'scene_generation', 'story_summary')
             prompt_type: Type of prompt ('system' or 'user')
-            user_id: User ID to check for custom prompts
-            db: Database session for querying custom prompts
+            user_id: User ID to check for active writing style preset
+            db: Database session for querying presets
             **template_vars: Variables to substitute in the prompt
         
         Returns:
@@ -78,39 +86,57 @@ class PromptManager:
         """
         prompt_text = ""
         
-        # Priority 1: Check for user-specific custom prompt in database
-        if user_id and db:
-            try:
-                custom_prompt = db.query(PromptTemplate).filter(
-                    PromptTemplate.user_id == user_id,
-                    PromptTemplate.template_key == template_key,
-                    PromptTemplate.is_active == True
-                ).first()
-                
-                if custom_prompt:
-                    if prompt_type == "system":
-                        prompt_text = custom_prompt.system_prompt
-                    elif prompt_type == "user" and custom_prompt.user_prompt_template:
-                        prompt_text = custom_prompt.user_prompt_template
+        # Handle SYSTEM prompts - use writing style presets
+        if prompt_type == "system":
+            if user_id and db:
+                try:
+                    # Get user's active writing style preset
+                    active_preset = db.query(WritingStylePreset).filter(
+                        WritingStylePreset.user_id == user_id,
+                        WritingStylePreset.is_active == True
+                    ).first()
                     
-                    if prompt_text:
-                        logger.debug(f"Using custom prompt for user {user_id}, template {template_key}")
-                        return self._substitute_variables(prompt_text, **template_vars)
+                    if active_preset:
+                        # For story summaries, check if there's a specific override
+                        if template_key == "story_summary" and active_preset.summary_system_prompt:
+                            prompt_text = active_preset.summary_system_prompt
+                            logger.debug(f"Using custom summary system prompt from preset '{active_preset.name}'")
+                        else:
+                            # Use universal system prompt for all other generations
+                            prompt_text = active_preset.system_prompt
+                            logger.debug(f"Using universal system prompt from preset '{active_preset.name}'")
                         
-            except Exception as e:
-                logger.warning(f"Error querying custom prompts: {e}")
+                        if prompt_text:
+                            return self._substitute_variables(prompt_text, **template_vars)
+                            
+                except Exception as e:
+                    logger.warning(f"Error querying writing style preset: {e}")
+            
+            # Fallback to YAML system prompt
+            prompt_text = self._get_yaml_prompt(template_key, "system")
+            if prompt_text:
+                logger.debug(f"Using YAML system prompt for template {template_key}")
+                return self._substitute_variables(prompt_text, **template_vars)
+            
+            # Final fallback
+            prompt_text = self._get_fallback_prompt(template_key, "system")
+            if prompt_text:
+                logger.debug(f"Using fallback system prompt for template {template_key}")
+                return self._substitute_variables(prompt_text, **template_vars)
         
-        # Priority 2: Check YAML file for default prompts
-        prompt_text = self._get_yaml_prompt(template_key, prompt_type)
-        if prompt_text:
-            logger.debug(f"Using YAML prompt for template {template_key}")
-            return self._substitute_variables(prompt_text, **template_vars)
-        
-        # Priority 3: Built-in fallback prompts
-        prompt_text = self._get_fallback_prompt(template_key, prompt_type)
-        if prompt_text:
-            logger.debug(f"Using fallback prompt for template {template_key}")
-            return self._substitute_variables(prompt_text, **template_vars)
+        # Handle USER prompts - ALWAYS from YAML (locked)
+        elif prompt_type == "user":
+            # Priority 1: YAML file (locked)
+            prompt_text = self._get_yaml_prompt(template_key, "user")
+            if prompt_text:
+                logger.debug(f"Using YAML user prompt for template {template_key}")
+                return self._substitute_variables(prompt_text, **template_vars)
+            
+            # Priority 2: Built-in fallback
+            prompt_text = self._get_fallback_prompt(template_key, "user")
+            if prompt_text:
+                logger.debug(f"Using fallback user prompt for template {template_key}")
+                return self._substitute_variables(prompt_text, **template_vars)
         
         logger.warning(f"No prompt found for template_key: {template_key}, prompt_type: {prompt_type}")
         return ""
@@ -190,7 +216,13 @@ class PromptManager:
             return prompt_text
         
         try:
-            return prompt_text.format(**template_vars)
+            # Log what variables we're substituting (truncate long content)
+            log_vars = {k: (v[:100] + '...' if isinstance(v, str) and len(v) > 100 else v) for k, v in template_vars.items()}
+            logger.info(f"Substituting variables: {log_vars}")
+            
+            result = prompt_text.format(**template_vars)
+            logger.info(f"Substituted prompt length: {len(result)} characters")
+            return result
         except KeyError as e:
             logger.warning(f"Missing variable {e} in prompt template")
             return prompt_text
