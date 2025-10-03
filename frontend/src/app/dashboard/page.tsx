@@ -41,8 +41,8 @@ export default function DashboardPage() {
         return;
       }
       
-      // Make direct fetch request with explicit Authorization header
-      const response = await fetch('http://localhost:8000/api/stories/?skip=0&limit=10', {
+      // Make direct fetch request with explicit Authorization header - include all stories (active and archived)
+      const response = await fetch('http://localhost:8000/api/stories/?skip=0&limit=10&include_archived=true', {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -130,6 +130,50 @@ export default function DashboardPage() {
 
   const handleCreateStory = () => {
     router.push('/create-story');
+  };
+
+  const handleDeleteStory = async (storyId: number, storyTitle: string) => {
+    if (!confirm(`Are you sure you want to delete "${storyTitle}"?\n\nThis will permanently delete:\n- The story\n- All scenes and variants\n- All choices\n- Story summary\n\nCharacters will NOT be deleted.\n\nThis action cannot be undone.`)) {
+      return;
+    }
+
+    console.log('[DELETE] Deleting story:', storyId);
+    
+    try {
+      const { token } = useAuthStore.getState();
+      const response = await fetch(`http://localhost:8000/api/stories/${storyId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('[DELETE] Story deleted:', data);
+        
+        // Refresh the stories list
+        const storiesData = await fetch('http://localhost:8000/api/stories', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (storiesData.ok) {
+          const stories = await storiesData.json();
+          setStories(stories);
+        }
+      } else {
+        const errorText = await response.text();
+        console.error('[DELETE] Failed to delete story:', response.status, errorText);
+        alert('Failed to delete story. Please try again.');
+      }
+    } catch (error) {
+      console.error('[DELETE] Error deleting story:', error);
+      alert('Error deleting story. Please try again.');
+    }
   };
 
   // Show loading while hydration is happening or user is not available
@@ -221,6 +265,11 @@ export default function DashboardPage() {
                     <div className="flex-1">
                       <h4 className="text-xl font-bold text-white mb-2 group-hover:text-purple-200 transition-colors">
                         {story.title}
+                        {story.status === 'archived' && (
+                          <span className="ml-2 text-xs bg-gray-600/50 text-gray-300 px-2 py-1 rounded">
+                            Archived
+                          </span>
+                        )}
                       </h4>
                       {story.genre && (
                         <span className="bg-gradient-to-r from-purple-400 to-pink-400 text-white px-3 py-1 rounded-lg text-sm font-medium">
@@ -271,6 +320,16 @@ export default function DashboardPage() {
                         className="flex-1 bg-purple-600/20 hover:bg-purple-600/40 text-purple-200 hover:text-white px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200"
                       >
                         ▶️ Continue
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteStory(story.id, story.title);
+                        }}
+                        className="bg-red-600/20 hover:bg-red-600/40 text-red-200 hover:text-white px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200"
+                        title="Delete story"
+                      >
+                        🗑️
                       </button>
                     </div>
                   </div>

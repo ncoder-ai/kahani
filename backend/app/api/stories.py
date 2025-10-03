@@ -157,13 +157,18 @@ class PlotGenerateRequest(BaseModel):
 async def get_stories(
     skip: int = 0,
     limit: int = 10,
+    include_archived: bool = False,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get user's stories"""
-    stories = db.query(Story).filter(
-        Story.owner_id == current_user.id
-    ).offset(skip).limit(limit).all()
+    """Get user's stories (excluding archived by default)"""
+    query = db.query(Story).filter(Story.owner_id == current_user.id)
+    
+    # Exclude archived stories unless explicitly requested
+    if not include_archived:
+        query = query.filter(Story.status != StoryStatus.ARCHIVED)
+    
+    stories = query.offset(skip).limit(limit).all()
     
     return [
         {
@@ -1884,3 +1889,92 @@ async def delete_draft_story(
     db.commit()
     
     return {"message": "Draft story deleted successfully"}
+
+@router.delete("/{story_id}")
+async def delete_story(
+    story_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a story and all its related data (scenes, variants, choices, flow)"""
+    
+    logger.info(f"[DELETE] Deleting story {story_id} for user {current_user.id}")
+    
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found"
+        )
+    
+    # Get scene count for logging
+    scene_count = len(story.scenes)
+    logger.info(f"[DELETE] Story has {scene_count} scenes")
+    
+    # Delete the story - cascades will handle:
+    # - StoryFlow entries (ON DELETE CASCADE)
+    # - Scene entries (ON DELETE CASCADE) which cascade to:
+    #   - SceneVariant entries (ON DELETE CASCADE) which cascade to:
+    #     - SceneChoice entries (ON DELETE CASCADE)
+    # Characters are NOT deleted (as per requirement)
+    
+    db.delete(story)
+    db.commit()
+    
+    logger.info(f"[DELETE] Successfully deleted story {story_id}")
+    
+    return {
+        "message": "Story deleted successfully",
+        "story_id": story_id,
+        "scenes_deleted": scene_count
+    }
+
+@router.post("/{story_id}/close")
+async def close_story(
+    story_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Close/archive a story - removes it from active story list"""
+    
+    logger.info(f"[CLOSE] Closing story {story_id} for user {current_user.id}")
+    
+    # Get the story
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        logger.error(f"[CLOSE] Story {story_id} not found for user {current_user.id}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found"
+        )
+    
+    # Update story status to archived
+    story.status = StoryStatus.ARCHIVED
+    db.commit()
+    
+    logger.info(f"[CLOSE] Story {story_id} archived successfully")
+    
+    # If this was the last accessed story, clear it from user settings
+    user_settings = db.query(UserSettings).filter(
+        UserSettings.user_id == current_user.id
+    ).first()
+    
+    if user_settings and user_settings.last_accessed_story_id == story_id:
+        user_settings.last_accessed_story_id = None
+        db.commit()
+        logger.info(f"[CLOSE] Cleared last_accessed_story_id for user {current_user.id}")
+    
+    return {
+        "message": "Story closed successfully",
+        "story_id": story_id,
+        "status": "archived"
+    }
+
