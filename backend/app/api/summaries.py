@@ -31,6 +31,20 @@ async def get_story_summary(
         if not story:
             raise HTTPException(status_code=404, detail="Story not found")
         
+        # Check if we have a stored summary
+        if story.summary:
+            logger.info(f"[SUMMARY] Returning stored summary for story {story_id}")
+            scenes = story.scenes
+            total_tokens = sum(ContextManager().count_tokens(scene.content) for scene in scenes) if scenes else 0
+            return {
+                "summary": story.summary,
+                "total_scenes": len(scenes),
+                "total_tokens": total_tokens,
+                "context_used": False,
+                "has_summary": True,
+                "is_stored": True
+            }
+        
         # Get story scenes
         scenes = story.scenes
         if not scenes:
@@ -38,7 +52,8 @@ async def get_story_summary(
                 "summary": "No scenes available to summarize.",
                 "total_scenes": 0,
                 "total_tokens": 0,
-                "context_used": False
+                "context_used": False,
+                "is_stored": False
             }
         
         # Get user settings for context management
@@ -318,6 +333,11 @@ async def regenerate_story_summary(
                 logger.info(f"[SUMMARY] Summary preview: {new_summary[:200]}...")
             finally:
                 db_session.close()
+            
+            # Save the summary to the story
+            story.summary = new_summary
+            db.commit()
+            logger.info(f"[SUMMARY] Saved summary to database for story {story_id}")
             
             return {
                 "message": "Summary regenerated successfully",

@@ -490,15 +490,33 @@ async def get_last_accessed_story(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get the last accessed story ID and auto-open setting"""
+    """Get the last accessed story ID and auto-open setting - validates story exists and is active"""
     
     user_settings = db.query(UserSettings).filter(
         UserSettings.user_id == current_user.id
     ).first()
     
-    if not user_settings:
+    if not user_settings or not user_settings.last_accessed_story_id:
         return {
             "auto_open_last_story": False,
+            "last_accessed_story_id": None
+        }
+    
+    # Validate that the story still exists and is active
+    from ..models import Story, StoryStatus
+    story = db.query(Story).filter(
+        Story.id == user_settings.last_accessed_story_id,
+        Story.owner_id == current_user.id,
+        Story.status != StoryStatus.ARCHIVED
+    ).first()
+    
+    # If story doesn't exist or is archived, clear the setting
+    if not story:
+        logger.info(f"Clearing invalid last_accessed_story_id {user_settings.last_accessed_story_id} for user {current_user.id}")
+        user_settings.last_accessed_story_id = None
+        db.commit()
+        return {
+            "auto_open_last_story": user_settings.auto_open_last_story or False,
             "last_accessed_story_id": None
         }
     

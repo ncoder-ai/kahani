@@ -304,6 +304,11 @@ export default function StoryPage() {
     }
   };
 
+  const handleCloseStory = () => {
+    console.log('[CLOSE] Navigating back to dashboard');
+    router.push('/dashboard');
+  };
+
   const handleGenerateAISummary = async () => {
     console.log('[SUMMARY] Generating AI summary for story:', storyId);
     setIsGeneratingAISummary(true);
@@ -890,6 +895,14 @@ export default function StoryPage() {
                 📊 Summary
               </button>
               
+              <button
+                onClick={handleCloseStory}
+                className="px-3 py-1.5 bg-orange-600/20 hover:bg-orange-600/30 text-orange-300 hover:text-orange-200 rounded-lg transition-colors text-sm font-medium border border-orange-500/30"
+                title="Close story and return to dashboard"
+              >
+                ✕ Close
+              </button>
+              
               {/* Streaming Toggle */}
               <button
                 onClick={() => setUseStreaming(!useStreaming)}
@@ -965,6 +978,37 @@ export default function StoryPage() {
 
             {/* Scenes Display with Performance Optimization */}
             <div className="prose prose-invert prose-lg max-w-none mb-8">
+              {/* Streaming Content Display - Show even when no scenes exist yet */}
+              {isStreaming && streamingContent && (
+                <div className="streaming-scene">
+                  {/* Scene Separator for streaming */}
+                  {story?.scenes && story.scenes.length > 0 && userSettings?.show_scene_titles === true && (
+                    <div className="flex items-center my-8">
+                      <div className="flex-1 h-px bg-gray-600"></div>
+                      <div className="px-4 text-gray-500 text-sm">Scene {streamingSceneNumber}</div>
+                      <div className="flex-1 h-px bg-gray-600"></div>
+                    </div>
+                  )}
+                  
+                  <div className="relative">
+                    <div className="prose prose-invert prose-lg max-w-none">
+                      <div className="streaming-content-wrapper">
+                        <FormattedText 
+                          content={streamingContent} 
+                          className="streaming-content inline"
+                        />
+                        <span className="inline-block w-2 h-5 bg-pink-500 animate-pulse ml-1 align-middle">|</span>
+                      </div>
+                    </div>
+                    
+                    {/* Streaming indicator */}
+                    <div className="absolute top-0 right-0 bg-pink-600 text-white text-xs px-2 py-1 rounded-full animate-pulse">
+                      Generating...
+                    </div>
+                  </div>
+                </div>
+              )}
+              
               {story?.scenes && story.scenes.length > 0 ? (
                 <div className="space-y-8">
                   {/* Load Earlier Scenes - Thin Line Design */}
@@ -1058,37 +1102,6 @@ export default function StoryPage() {
                       </div>
                     );
                   })}
-                  
-                  {/* Streaming Content Display */}
-                  {isStreaming && streamingContent && (
-                    <div className="streaming-scene">
-                      {/* Scene Separator for streaming */}
-                      {story.scenes.length > 0 && userSettings?.show_scene_titles === true && (
-                        <div className="flex items-center my-8">
-                          <div className="flex-1 h-px bg-gray-600"></div>
-                          <div className="px-4 text-gray-500 text-sm">Scene {streamingSceneNumber}</div>
-                          <div className="flex-1 h-px bg-gray-600"></div>
-                        </div>
-                      )}
-                      
-                      <div className="relative">
-                        <div className="prose prose-invert prose-lg max-w-none">
-                          <div className="streaming-content-wrapper">
-                            <FormattedText 
-                              content={streamingContent} 
-                              className="streaming-content inline"
-                            />
-                            <span className="inline-block w-2 h-5 bg-pink-500 animate-pulse ml-1 align-middle">|</span>
-                          </div>
-                        </div>
-                        
-                        {/* Streaming indicator */}
-                        <div className="absolute top-0 right-0 bg-pink-600 text-white text-xs px-2 py-1 rounded-full animate-pulse">
-                          Generating...
-                        </div>
-                      </div>
-                    </div>
-                  )}
                   
                 </div>
               ) : (

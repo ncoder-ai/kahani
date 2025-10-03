@@ -2,11 +2,18 @@
 
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store';
-import { CogIcon, ArrowLeftOnRectangleIcon, HomeIcon } from '@heroicons/react/24/outline';
+import { CogIcon, ArrowLeftOnRectangleIcon, HomeIcon, ArrowLeftIcon } from '@heroicons/react/24/outline';
+import { useEffect, useState } from 'react';
 
 export default function PersistentBanner() {
   const router = useRouter();
   const { user, logout } = useAuthStore();
+  const [canGoBack, setCanGoBack] = useState(false);
+
+  useEffect(() => {
+    // Check if we can go back in history
+    setCanGoBack(window.history.length > 1);
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -21,6 +28,10 @@ export default function PersistentBanner() {
     router.push('/dashboard');
   };
 
+  const handleBack = () => {
+    router.back();
+  };
+
   if (!user) {
     return null;
   }
@@ -31,6 +42,15 @@ export default function PersistentBanner() {
         <div className="flex justify-between items-center">
           {/* Left side - App name and user info */}
           <div className="flex items-center space-x-4">
+            {canGoBack && (
+              <button
+                onClick={handleBack}
+                className="flex items-center text-white/80 hover:text-white hover:bg-white/10 px-2 py-2 rounded-lg transition-all duration-200"
+                title="Go back"
+              >
+                <ArrowLeftIcon className="w-5 h-5" />
+              </button>
+            )}
             <button
               onClick={handleHome}
               className="flex items-center space-x-2 text-white hover:text-purple-200 transition-colors"
