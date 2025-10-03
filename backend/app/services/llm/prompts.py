@@ -150,7 +150,7 @@ class PromptManager:
         yaml_mapping = {
             "scene_generation": ("story_generation", "scene"),
             "story_summary": ("summary_generation", "story_summary"),
-            "choice_generation": ("story_generation", "choices"),
+            "choice_generation": ("choice_generation", ""),
             "title_generation": ("story_generation", "titles"),
             "scenario_generation": ("story_generation", "scenario"),
             "scene_continuation": ("story_generation", "scene_continuation"),
@@ -166,7 +166,11 @@ class PromptManager:
         category, function = yaml_mapping[template_key]
         
         try:
-            return self._prompts_cache.get(category, {}).get(function, {}).get(prompt_type, "").strip()
+            if function:
+                return self._prompts_cache.get(category, {}).get(function, {}).get(prompt_type, "").strip()
+            else:
+                # Direct access to category (for choice_generation)
+                return self._prompts_cache.get(category, {}).get(prompt_type, "").strip()
         except Exception as e:
             logger.error(f"Error retrieving YAML prompt {template_key}: {e}")
             return ""
@@ -179,12 +183,30 @@ class PromptManager:
                 "user": """Continue the story naturally from where it left off. Create an engaging scene that advances the plot and develops the characters."""
             },
             "story_summary": {
-                "system": """You are a skilled story analyst. Create comprehensive summaries that capture the main plot points, character development, and key themes while maintaining the story's tone.""",
-                "user": """Please provide a comprehensive summary of this story that captures its essence and current situation."""
+                "system": """You are a skilled story analyst. Create concise, accurate summaries that capture the main plot points, character actions, and key events while maintaining the story's tone and style. Focus on what actually happened in the story.""",
+                "user": """Please provide a concise summary of the following story content. Focus on the key events, character actions, and plot developments that actually occurred. Keep the summary brief and accurate.
+
+Story Content:
+{story_content}
+
+Provide a summary that is approximately 2-3 paragraphs long, capturing the essence of what happened."""
             },
             "choice_generation": {
-                "system": """You are a creative storytelling assistant. Generate exactly 4 compelling narrative choices that offer meaningfully different story directions and give readers agency in the narrative.""",
-                "user": """Generate 4 distinct narrative choices for what happens next based on the current scene context."""
+                "system": """You are a creative storytelling assistant. Generate exactly 4 compelling narrative choices that:
+1. Offer meaningfully different story directions
+2. Are specific to the current scene and context
+3. Give readers genuine agency in the narrative
+4. Vary in risk/consequence level
+5. Are concise but evocative (1-2 sentences each)
+
+Format each choice as a numbered list (1., 2., 3., 4.) with clear, actionable options.""",
+                "user": """Based on this scene content and story context, generate 4 distinct narrative choices for what the protagonist could do next:
+
+Scene: {scene_content}
+
+Context: {context}
+
+Generate 4 specific choices that advance the story in different ways."""
             },
             "title_generation": {
                 "system": """You are a creative title generator. Generate 5 compelling story titles that capture the essence of the story, are memorable, and fit the genre and tone.""",
@@ -327,6 +349,45 @@ class PromptManager:
                 "complete_plot", "single_plot_point", "scene_variants", "story_chapters"
             ]
         }
+    
+    def get_prompt_pair(
+        self, 
+        template_key: str, 
+        user_prompt_key: str,
+        user_id: Optional[int] = None,
+        db: Optional[Session] = None,
+        **template_vars
+    ) -> tuple[str, str]:
+        """
+        Get both system and user prompts as a pair.
+        
+        Args:
+            template_key: Template identifier (e.g., 'story_generation')
+            user_prompt_key: Specific user prompt key (e.g., 'scene')
+            user_id: User ID to check for active writing style preset
+            db: Database session for preset lookup
+            **template_vars: Variables for template substitution
+            
+        Returns:
+            Tuple of (system_prompt, user_prompt)
+        """
+        system_prompt = self.get_prompt(
+            template_key, 
+            "system", 
+            user_id=user_id, 
+            db=db, 
+            **template_vars
+        )
+        
+        user_prompt = self.get_prompt(
+            user_prompt_key, 
+            "user", 
+            user_id=user_id, 
+            db=db, 
+            **template_vars
+        )
+        
+        return system_prompt, user_prompt
 
 # Global prompt manager instance
 prompt_manager = PromptManager()

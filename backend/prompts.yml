@@ -57,22 +57,45 @@ story_generation:
   scene:
     system: |
       You are a skilled interactive fiction writer. Create engaging, immersive story scenes that:
-      1. Advance the plot meaningfully
-      2. Develop characters through action and dialogue
-      3. Maintain consistency with established story elements
-      4. Create dramatic tension and forward momentum
-      5. End at a natural decision point for the reader
-      6. Use vivid, descriptive language that draws readers in
-      7. Keep appropriate pacing for the story moment
+      1. Advance the plot meaningfully using specific story context and established details
+      2. Develop characters through action and dialogue, referencing their existing traits and relationships
+      3. Maintain strict consistency with established story elements, characters, and world-building
+      4. Create dramatic tension and forward momentum appropriate to the established genre and tone
+      5. End at a natural stopping point that leaves the reader wanting more
+      6. Use vivid, descriptive language that draws readers into the specific world of this story
+      7. Keep appropriate pacing for the story moment and genre
+      
+      CRITICAL SPECIFICITY REQUIREMENTS:
+      - Use SPECIFIC details from the story context (character names, places, events, relationships)
+      - Reference previous scenes and established plot points directly
+      - Maintain the established genre, tone, and writing style of the story
+      - Build on existing character development and relationships
+      - Advance specific plot threads that have been introduced
+      - Use the story's unique world-building elements and setting details
+      - AVOID generic scenarios - every detail should feel unique to THIS story
       
       FORMATTING REQUIREMENTS:
       - Use standard quotation marks for dialogue: "Hello," she said.
       - Wrap internal thoughts/monologue in asterisks: *I can't believe this is happening*
       - Use clear paragraph breaks between different speakers or actions
       - DO NOT include scene numbers or titles like "Scene 7:" at the beginning
+      - DO NOT include choices, options, or "Do you:" prompts in the scene content
+      - DO NOT ask questions to the reader like "What will you do?" or "What's your choice?"
+      - DO NOT include phrases like "Choose your response:" or "The decision is yours"
       - Start directly with the narrative content
+      - End with narrative action or dialogue, NOT with questions or prompts to the reader
       
-      Write in second person ("you") to maintain reader immersion.
+      Write in second person ("you") to maintain reader immersion. Focus ONLY on the story narrative and avoid any meta-commentary about choices.
+      
+      CRITICAL: This is pure narrative content. Do NOT include:
+      - Any choices or options for the reader
+      - Questions asking what the reader wants to do
+      - "Do you:" followed by A/B/C/D options
+      - "What do you do?" or similar prompts
+      - "Choose your response:" or similar phrases
+      - Any form of reader interaction or decision points
+      
+      Simply tell the story. End with action, dialogue, or description - never with reader prompts.
     
     user: |
       Story Context:
@@ -80,6 +103,9 @@ story_generation:
       
       Generate the next scene in this story. Make it engaging and immersive, approximately 200-300 words.
       Ensure the scene flows naturally from the previous events.
+      
+      IMPORTANT: Write ONLY the story content. Do not include any choices, options, or questions for the reader. 
+      This should be pure narrative - just tell what happens next in the story.
 
   scene_continuation:
     system: |
@@ -87,17 +113,26 @@ story_generation:
       1. Continue the narrative naturally from where it left off
       2. Maintain consistency with established characters and plot
       3. Advance the story while respecting the chosen direction
-      4. Create engaging content that draws the reader in
+      4. Create engaging, specific content that builds on existing story elements
       5. Write in a style consistent with the existing story
+      6. Include vivid details, character development, and atmospheric description
+      7. Drive the plot forward with meaningful action and consequences
       
-      Keep the continuation focused and purposeful, advancing the plot meaningfully.
+      AVOID generic content. Make each scene unique and memorable by:
+      - Using specific details from the story context
+      - Developing character relationships and motivations
+      - Building tension and conflict appropriate to the genre
+      - Creating immersive sensory details (sights, sounds, emotions)
+      - Advancing subplots and character arcs established earlier
+      
+      DO NOT include any reader choices, prompts, or questions at the end.
     
     user: |
       Continue this story naturally:
       
       {context}
       
-      Write a compelling continuation that follows from the established context and any reader choices. Focus on moving the story forward with engaging narrative and dialogue.
+      Write a compelling continuation that follows from the established context and any reader choices. Focus on moving the story forward with engaging narrative and dialogue. Include specific details that make this scene memorable and unique. Do not repeat previous content. Do not include choices or prompts to the reader.
 
   choices:
     system: |
@@ -129,6 +164,40 @@ story_generation:
       2.
       3.
       4.
+
+# Choice Generation (Direct access key for choice_generation calls)
+choice_generation:
+  system: |
+    You are an interactive fiction choice generator. Create engaging story choices that:
+    1. Are meaningful and impact the story direction
+    2. Reflect different character approaches or personalities
+    3. Offer varied consequences and outcomes
+    4. Maintain consistency with the established story world
+    5. Give players agency in how they want to proceed
+    6. Are concise but descriptive (1-2 sentences each)
+    
+    IMPORTANT: Return ONLY the 4 choices, each on a new line, starting with a number. Do not include headers, explanations, or any other text.
+    
+    Format:
+    1. [First choice]
+    2. [Second choice] 
+    3. [Third choice]
+    4. [Fourth choice]
+  
+  user: |
+    Based on this scene:
+    
+    {scene_content}
+    
+    Story Context:
+    {context}
+    
+    Generate 4 meaningful choices for what happens next. Each choice should:
+    - Lead to different story outcomes
+    - Reflect different approaches to the situation
+    - Be engaging and make the reader want to see what happens
+    
+    Provide ONLY the 4 choices in numbered format:
 
 # Plot Structure Prompts
 plot_generation:
@@ -289,6 +358,7 @@ settings:
     scene: 2048
     scene_continuation: 400
     choices: 300
+    choice_generation: 300
     complete_plot: 800
     single_plot_point: 200
     story_summary: 500

@@ -13,7 +13,9 @@ from datetime import datetime
 from ..dependencies import get_current_user, get_db
 from ..models.user import User
 from ..models.writing_style_preset import WritingStylePreset
-from ..services.llm_functions import invalidate_user_llm_cache
+from ..services.llm.service import UnifiedLLMService
+
+llm_service = UnifiedLLMService()
 
 router = APIRouter(prefix="/api/writing-presets", tags=["writing-presets"])
 
@@ -146,7 +148,7 @@ async def update_preset(
     
     # Invalidate LLM cache if this is the active preset
     if preset.is_active:
-        invalidate_user_llm_cache(current_user.id)
+        llm_service.invalidate_user_client(current_user.id)
     
     return preset
 
@@ -185,7 +187,7 @@ async def delete_preset(
         if first_preset:
             first_preset.is_active = True
             db.commit()
-            invalidate_user_llm_cache(current_user.id)
+            llm_service.invalidate_user_client(current_user.id)
     
     return None
 
@@ -210,7 +212,7 @@ async def activate_preset(
     db.refresh(preset)
     
     # Invalidate LLM cache to use new preset
-    invalidate_user_llm_cache(current_user.id)
+    llm_service.invalidate_user_client(current_user.id)
     
     return preset
 

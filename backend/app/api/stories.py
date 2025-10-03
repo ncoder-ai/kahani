@@ -1,28 +1,99 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Form, Body
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from ..database import get_db
 from ..models import Story, Scene, Character, StoryCharacter, User, UserSettings, SceneChoice, SceneVariant, StoryFlow, StoryStatus
-from ..services.scene_variant_service import SceneVariantService
+from ..services.llm.service import UnifiedLLMService
 from sqlalchemy.sql import func
-from ..services.llm_functions import (
-    generate_scenario,
-    generate_titles,
-    generate_complete_plot,
-    generate_single_plot_point,
-    generate_scene,
-    generate_scene_streaming,
-    generate_choices,
-    generate_scene_continuation,
-    generate_scene_continuation_streaming,
-    invalidate_user_llm_cache
-)
 from ..services.context_manager import ContextManager
 from ..dependencies import get_current_user
 import logging
 import json
+
+# Initialize the unified LLM service
+llm_service = UnifiedLLMService()
+
+def safe_get_custom_prompt(request, logger=None):
+    """Safely extract custom_prompt from request, handling various input types"""
+    if isinstance(request, dict):
+        return request.get('custom_prompt', '')
+    elif hasattr(request, 'custom_prompt'):
+        # Handle Pydantic models
+        return getattr(request, 'custom_prompt', '') or ''
+    elif isinstance(request, str):
+        # Try to parse JSON string
+        try:
+            request_dict = json.loads(request)
+            return request_dict.get('custom_prompt', '')
+        except json.JSONDecodeError:
+            if logger:
+                logger.warning(f"Request is a string but not valid JSON: {request}")
+            return ''
+    else:
+        if logger:
+            logger.warning(f"Request is unexpected type {type(request)}: {request}")
+        return ''
+
+# Temporary adapter for SceneVariantService calls during migration
+class SceneVariantServiceAdapter:
+    def __init__(self, db: Session):
+        self.db = db
+    
+    def get_active_variant(self, scene_id: int):
+        """Get the active variant for a scene from story flow"""
+        # Get the active story flow entry for this scene
+        flow_entry = self.db.query(StoryFlow).filter(
+            StoryFlow.scene_id == scene_id,
+            StoryFlow.is_active == True
+        ).first()
+        
+        if not flow_entry:
+            return None
+            
+        # Get the variant
+        variant = self.db.query(SceneVariant).filter(
+            SceneVariant.id == flow_entry.scene_variant_id
+        ).first()
+        
+        return variant
+    
+    def get_active_story_flow(self, story_id: int):
+        return llm_service.get_active_story_flow(self.db, story_id)
+    
+    def get_scene_variants(self, scene_id: int):
+        return llm_service.get_scene_variants(self.db, scene_id)
+    
+    def create_scene_with_variant(self, story_id: int, sequence_number: int, content: str, title: str = None, custom_prompt: str = None, choices: List[Dict[str, Any]] = None):
+        return llm_service.create_scene_with_variant(self.db, story_id, sequence_number, content, title, custom_prompt, choices)
+    
+    async def regenerate_scene_variant(self, scene_id: int, custom_prompt: str = None, user_settings: dict = None, user_id: int = None):
+        # Use provided user_id or fall back to default
+        actual_user_id = user_id or 1
+        return await llm_service.regenerate_scene_variant(self.db, scene_id, custom_prompt, user_id=actual_user_id, user_settings=user_settings)
+    
+    def switch_to_variant(self, story_id: int, scene_id: int, variant_id: int):
+        return llm_service.switch_to_variant(self.db, story_id, scene_id, variant_id)
+    
+    def delete_scenes_from_sequence(self, story_id: int, sequence_number: int) -> bool:
+        return llm_service.delete_scenes_from_sequence(self.db, story_id, sequence_number)
+
+# Temporary adapter functions for old LLM function calls
+async def generate_scene_streaming(context, user_id, user_settings):
+    async for chunk in llm_service.generate_scene_streaming(context, user_id, user_settings):
+        yield chunk
+
+async def generate_scene_continuation(context, user_id, user_settings):
+    return await llm_service.generate_scene_continuation(context, user_id, user_settings)
+
+async def generate_scene_continuation_streaming(context, user_id, user_settings):
+    async for chunk in llm_service.generate_scene_continuation_streaming(context, user_id, user_settings):
+        yield chunk
+
+def SceneVariantService(db: Session):
+    """Temporary adapter to maintain compatibility during migration"""
+    return SceneVariantServiceAdapter(db)
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -66,6 +137,12 @@ class TitleGenerateRequest(BaseModel):
     scenario: Optional[str] = ""
     characters: Optional[List[dict]] = []
     story_elements: Optional[dict] = {}
+
+class VariantGenerateRequest(BaseModel):
+    custom_prompt: Optional[str] = ""
+
+class ContinuationRequest(BaseModel):
+    custom_prompt: Optional[str] = ""
 
 class PlotGenerateRequest(BaseModel):
     genre: Optional[str] = ""
@@ -185,7 +262,7 @@ async def get_story(
             "variant_id": variant['id'],
             "variant_number": variant['variant_number'],
             "is_original": variant['is_original'],
-            "has_multiple_variants": flow_item['all_variants_count'] > 1,
+            "has_multiple_variants": flow_item.get('has_multiple_variants', False),
             "choices": flow_item['choices']
         })
     
@@ -244,7 +321,7 @@ async def generate_scene(
     
     # Generate scene content using enhanced method
     try:
-        scene_content = await generate_scene(context, current_user.id, user_settings)
+        scene_content = await llm_service.generate_scene(context, current_user.id, user_settings)
     except Exception as e:
         logger.error(f"Failed to generate scene for story {story_id}: {e}")
         raise HTTPException(
@@ -260,12 +337,20 @@ async def generate_scene(
     choices_data = []
     try:
         choice_context = await context_manager.build_choice_generation_context(story_id, db)
-        choices_result = await generate_choices(scene_content, choice_context, current_user.id, user_settings)
-        choices_data = choices_result
+        choices_result = await llm_service.generate_choices(scene_content, choice_context, current_user.id, user_settings)
+        # Convert string choices to dict format expected by create_scene_with_variant
+        choices_data = [
+            {
+                "text": choice_text,
+                "order": i + 1,
+                "description": None
+            }
+            for i, choice_text in enumerate(choices_result)
+        ]
     except Exception as e:
         logger.warning(f"Failed to generate choices: {e}")
         choices_data = []  # Continue without choices
-    
+
     # Use the new variant service to create scene with variant
     try:
         service = SceneVariantService(db)
@@ -278,15 +363,8 @@ async def generate_scene(
             choices=choices_data
         )
         
-        # Format choices for response
-        formatted_choices = [
-            {
-                "text": choice.get('text', ''),
-                "order": i + 1,
-                "description": choice.get('description')
-            }
-            for i, choice in enumerate(choices_data)
-        ]
+        # Format choices for response (already in correct format)
+        formatted_choices = choices_data
         
     except Exception as e:
         logger.error(f"Failed to create scene with variant: {e}")
@@ -366,19 +444,16 @@ async def generate_scene_streaming_endpoint(
             # Send initial metadata
             yield f"data: {json.dumps({'type': 'start', 'sequence': next_sequence})}\n\n"
             
-            # Stream scene generation using the full context
-            # The context manager already provides optimized context
-            if custom_prompt:
-                prompt = f"{custom_prompt}\n\n{context}"
-            else:
-                prompt = context
-            
-            # Use dynamic prompts - no need to pass system_prompt as it will be retrieved dynamically
+            # Stream scene generation using the context manager's output
+            # Add custom prompt to context if provided
+            scene_context = context.copy() if isinstance(context, dict) else {"story_context": context}
+            if custom_prompt and custom_prompt.strip():
+                scene_context["custom_prompt"] = custom_prompt.strip()
+
             async for chunk in generate_scene_streaming(
-                prompt=prompt,
-                user_id=current_user.id,
-                user_settings=user_settings,
-                max_tokens=2048
+                scene_context,
+                current_user.id,
+                user_settings
             ):
                 full_content += chunk
                 yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
@@ -393,7 +468,7 @@ async def generate_scene_streaming_endpoint(
                     "current_situation": f"Scene {next_sequence}: {full_content}"
                 }
                 
-                choices = await generate_choices(full_content, choice_context, current_user.id, user_settings)
+                choices = await llm_service.generate_choices(full_content, choice_context, current_user.id, user_settings)
                 
                 # Format choices for SceneVariantService
                 choices_data = []
@@ -598,7 +673,7 @@ async def generate_more_choices(
         )
         
         # Generate fresh choices using LLM
-        choices = await generate_choices(
+        choices = await llm_service.generate_choices(
             latest_scene.content, 
             choice_context, 
             current_user.id,
@@ -732,7 +807,7 @@ async def generate_scenario_endpoint(
         user_settings = get_or_create_user_settings(current_user.id, db)
         
         # Generate scenario using LLM
-        scenario = await generate_scenario(context, current_user.id, user_settings)
+        scenario = await llm_service.generate_scenario(context, current_user.id, user_settings)
         
         return {
             "scenario": scenario,
@@ -780,7 +855,7 @@ async def generate_title(
         user_settings = get_or_create_user_settings(current_user.id, db)
         
         # Generate multiple title options using LLM
-        titles = await generate_titles(context, current_user.id, user_settings)
+        titles = await llm_service.generate_story_title(context, current_user.id, user_settings)
         
         return {
             "titles": titles,
@@ -826,13 +901,13 @@ async def generate_plot_endpoint(
         
         # Generate plot using LLM
         if request.plot_type == "complete":
-            plot_points = await generate_complete_plot(context, current_user.id, user_settings)
+            plot_points = await llm_service.generate_plot_points(context, current_user.id, user_settings, plot_type="complete")
             return {
                 "plot_points": plot_points,
                 "message": "Complete plot generated successfully"
             }
         else:
-            plot_point = await generate_single_plot_point(context, current_user.id, user_settings)
+            plot_point = await llm_service.generate_plot_points(context, current_user.id, user_settings, plot_type="single")
             return {
                 "plot_point": plot_point,
                 "message": "Plot point generated successfully"
@@ -890,8 +965,7 @@ async def get_story_flow(
             detail="Story not found"
         )
     
-    service = SceneVariantService(db)
-    flow = service.get_active_story_flow(story_id)
+    flow = llm_service.get_active_story_flow(db, story_id)
     
     return {
         "story_id": story_id,
@@ -930,8 +1004,7 @@ async def get_scene_variants(
             detail="Scene not found"
         )
     
-    service = SceneVariantService(db)
-    variants = service.get_scene_variants(scene_id)
+    variants = llm_service.get_scene_variants(db, scene_id)
     
     # Get choices for each variant
     result = []
@@ -1047,7 +1120,7 @@ async def get_story_summary(
 async def create_scene_variant(
     story_id: int,
     scene_id: int,
-    request: dict = {},
+    request: VariantGenerateRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -1072,12 +1145,60 @@ async def create_scene_variant(
     user_settings = user_settings_db.to_dict() if user_settings_db else None
     
     try:
+        # Get custom_prompt from the request model
+        custom_prompt = request.custom_prompt
+            
         service = SceneVariantService(db)
         variant = await service.regenerate_scene_variant(
             scene_id=scene_id,
-            custom_prompt=request.get('custom_prompt'),
-            user_settings=user_settings
+            custom_prompt=custom_prompt,
+            user_settings=user_settings,
+            user_id=current_user.id
         )
+        
+        logger.info(f"Created new variant {variant.id} (#{variant.variant_number}) for scene {scene_id}")
+        
+        # Update StoryFlow to point to the new variant as active
+        flow_entry = db.query(StoryFlow).filter(
+            StoryFlow.scene_id == scene_id,
+            StoryFlow.is_active == True
+        ).first()
+        
+        if flow_entry:
+            old_variant_id = flow_entry.scene_variant_id
+            flow_entry.scene_variant_id = variant.id
+            db.commit()
+            logger.info(f"Updated StoryFlow: scene {scene_id} now points to variant {variant.id} (was {old_variant_id})")
+        else:
+            logger.warning(f"No active StoryFlow entry found for scene {scene_id}")
+        
+        # Generate choices for the new variant
+        try:
+            from ..services.context_manager import ContextManager
+            context_manager = ContextManager(user_settings=user_settings, user_id=current_user.id)
+            choice_context = await context_manager.build_choice_generation_context(story_id, db)
+            generated_choices = await llm_service.generate_choices(
+                variant.content, 
+                choice_context, 
+                current_user.id, 
+                user_settings
+            )
+            
+            # Create choice records for the variant
+            for idx, choice_text in enumerate(generated_choices, 1):
+                choice = SceneChoice(
+                    scene_id=scene_id,
+                    scene_variant_id=variant.id,
+                    choice_text=choice_text,
+                    choice_order=idx
+                )
+                db.add(choice)
+            
+            db.commit()
+            logger.info(f"Generated {len(generated_choices)} choices for variant {variant.id}")
+        except Exception as e:
+            logger.warning(f"Failed to generate choices for variant {variant.id}: {e}")
+            # Continue without choices - fallback will be used
         
         # Get choices for the new variant
         choices = db.query(SceneChoice)\
@@ -1117,7 +1238,7 @@ async def create_scene_variant(
 async def create_scene_variant_streaming(
     story_id: int,
     scene_id: int,
-    request: dict = Body(...),
+    request: VariantGenerateRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -1143,6 +1264,9 @@ async def create_scene_variant_streaming(
     
     async def generate_variant_stream():
         try:
+            logger.info(f"Starting variant generation for scene {scene_id}")
+            logger.info(f"Request type: {type(request)}, Request value: {request}")
+            
             # Get the current scene
             scene = db.query(Scene).filter(Scene.id == scene_id).first()
             if not scene:
@@ -1154,9 +1278,15 @@ async def create_scene_variant_streaming(
             
             # Build context for variant generation
             context_manager = ContextManager(user_settings=user_settings, user_id=current_user.id)
+            
+            # Get custom_prompt from proper request model
+            custom_prompt = request.custom_prompt or ""
+            logger.info(f"Custom prompt extracted: {custom_prompt}")
+                
             context = await context_manager.build_scene_generation_context(
-                story_id, db, request.get('custom_prompt', '')
+                story_id, db, custom_prompt
             )
+            logger.info(f"Context built successfully: {type(context)}")
 
             # Convert context dict to a readable prompt string for the LLM
             context_parts = []
@@ -1164,22 +1294,104 @@ async def create_scene_variant_streaming(
                 if value:
                     context_parts.append(f"{key}: {value}")
             prompt_str = "\n".join(context_parts)
-            if request.get('custom_prompt'):
-                prompt_str = f"{request.get('custom_prompt')}\n\n{prompt_str}"
+            if custom_prompt:
+                prompt_str = f"{custom_prompt}\n\n{prompt_str}"
 
-            # Stream variant generation
+            # Stream variant generation - pass context dict, not prompt string
             variant_content = ""
-            async for chunk in generate_scene_streaming(prompt_str, current_user.id, user_settings):
+            async for chunk in generate_scene_streaming(context, current_user.id, user_settings):
                 variant_content += chunk
                 yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
             
             # Create the new variant using SceneVariantService
-            service = SceneVariantService(db)
-            variant = await service.regenerate_scene_variant(
+            context_parts = []
+            for key, value in context.items():
+                if value:
+                    context_parts.append(f"{key}: {value}")
+            prompt_str = "\n".join(context_parts)
+            if custom_prompt:
+                prompt_str = f"{custom_prompt}\n\n{prompt_str}"
+
+            # Stream variant generation - pass context dict, not prompt string
+            variant_content = ""
+            async for chunk in generate_scene_streaming(context, current_user.id, user_settings):
+                variant_content += chunk
+                yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+            
+            # Create the new variant manually since we already have the content
+            from ..models import SceneVariant
+            from sqlalchemy import desc
+            
+            # Get the next variant number
+            max_variant = db.query(SceneVariant.variant_number)\
+                .filter(SceneVariant.scene_id == scene_id)\
+                .order_by(desc(SceneVariant.variant_number))\
+                .first()
+            
+            next_variant_number = (max_variant[0] if max_variant else 0) + 1
+            
+            # Get original variant for reference
+            original_variant = db.query(SceneVariant)\
+                .filter(SceneVariant.scene_id == scene_id, SceneVariant.is_original == True)\
+                .first()
+            
+            # Create the new variant
+            variant = SceneVariant(
                 scene_id=scene_id,
-                custom_prompt=request.get('custom_prompt'),
-                user_settings=user_settings
+                variant_number=next_variant_number,
+                is_original=False,
+                content=variant_content,
+                title=scene.title,
+                original_content=original_variant.content if original_variant else variant_content,
+                generation_prompt=custom_prompt,
+                generation_method="regeneration"
             )
+            
+            db.add(variant)
+            db.commit()
+            db.refresh(variant)
+            
+            logger.info(f"Created new variant {variant.id} (#{variant.variant_number}) for scene {scene_id}")
+            
+            # Update StoryFlow to point to the new variant as active
+            flow_entry = db.query(StoryFlow).filter(
+                StoryFlow.scene_id == scene_id,
+                StoryFlow.is_active == True
+            ).first()
+            
+            if flow_entry:
+                old_variant_id = flow_entry.scene_variant_id
+                flow_entry.scene_variant_id = variant.id
+                db.commit()
+                logger.info(f"Updated StoryFlow: scene {scene_id} now points to variant {variant.id} (was {old_variant_id})")
+            else:
+                logger.warning(f"No active StoryFlow entry found for scene {scene_id}")
+            
+            # Generate choices for the new variant
+            try:
+                choice_context = await context_manager.build_choice_generation_context(story_id, db)
+                generated_choices = await llm_service.generate_choices(
+                    variant_content, 
+                    choice_context, 
+                    current_user.id, 
+                    user_settings
+                )
+                
+                # Create choice records for the variant
+                for idx, choice_text in enumerate(generated_choices, 1):
+                    choice = SceneChoice(
+                        scene_id=scene_id,
+                        scene_variant_id=variant.id,
+                        choice_text=choice_text,
+                        choice_order=idx
+                    )
+                    db.add(choice)
+                
+                db.commit()
+                logger.info(f"Generated {len(generated_choices)} choices for variant {variant.id}")
+            except Exception as e:
+                logger.warning(f"Failed to generate choices for variant {variant.id}: {e}")
+                # Continue without choices - fallback will be used
             
             # Get choices for the new variant
             choices = db.query(SceneChoice)\
@@ -1257,7 +1469,7 @@ async def activate_scene_variant(
 async def continue_scene(
     story_id: int,
     scene_id: int,
-    request: dict = Body(...),
+    request: ContinuationRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -1305,8 +1517,12 @@ async def continue_scene(
         
         # Build context for continuation
         context_manager = ContextManager(user_settings=user_settings)
+        
+        # Get custom_prompt from the request model
+        custom_prompt = request.custom_prompt
+            
         context = await context_manager.build_scene_continuation_context(
-            story_id, scene_id, current_variant.content, db, request.get('custom_prompt', '')
+            story_id, scene_id, current_variant.content, db, custom_prompt
         )
         
         # Generate continuation content
@@ -1341,7 +1557,7 @@ async def continue_scene(
 async def continue_scene_streaming(
     story_id: int,
     scene_id: int,
-    request: dict = Body(...),
+    request: ContinuationRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -1391,8 +1607,12 @@ async def continue_scene_streaming(
             
             # Build context for continuation
             context_manager = ContextManager(user_settings=user_settings)
+            
+            # Get custom_prompt from the request model
+            custom_prompt = request.custom_prompt
+                
             context = await context_manager.build_scene_continuation_context(
-                story_id, scene_id, current_variant.content, db, request.get('custom_prompt', '')
+                story_id, scene_id, current_variant.content, db, custom_prompt
             )
             
             # Stream continuation generation

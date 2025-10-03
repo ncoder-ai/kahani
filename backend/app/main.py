@@ -49,7 +49,7 @@ security = HTTPBearer()
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    from .services.llm_functions import generate_content
+    from .services.llm.service import UnifiedLLMService
     
     # Simple health check
     llm_status = "available"

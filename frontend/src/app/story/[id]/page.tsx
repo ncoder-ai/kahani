@@ -121,6 +121,10 @@ export default function StoryPage() {
   const [streamingSceneNumber, setStreamingSceneNumber] = useState<number | null>(null);
   const [useStreaming, setUseStreaming] = useState(true); // Enable streaming by default
   
+  // Variant regeneration streaming states
+  const [streamingVariantSceneId, setStreamingVariantSceneId] = useState<number | null>(null);
+  const [streamingVariantContent, setStreamingVariantContent] = useState('');
+  
   // Continue scene streaming states
   const [isStreamingContinuation, setIsStreamingContinuation] = useState(false);
   const [streamingContinuation, setStreamingContinuation] = useState('');
@@ -301,11 +305,15 @@ export default function StoryPage() {
   };
 
   const handleGenerateAISummary = async () => {
+    console.log('[SUMMARY] Generating AI summary for story:', storyId);
     setIsGeneratingAISummary(true);
     setAiSummary(null);
     
     try {
-      const response = await fetch(`http://localhost:8000/api/stories/${storyId}/ai-summary`, {
+      const url = `http://localhost:8000/api/stories/${storyId}/regenerate-summary`;
+      console.log('[SUMMARY] Calling API:', url);
+      
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -313,15 +321,20 @@ export default function StoryPage() {
         },
       });
       
+      console.log('[SUMMARY] Response status:', response.status);
+      
       if (response.ok) {
         const summaryData = await response.json();
+        console.log('[SUMMARY] Received response:', summaryData);
+        console.log('[SUMMARY] Summary content:', summaryData.summary);
         setAiSummary(summaryData.summary);
       } else {
-        console.error('Failed to generate AI summary');
+        const errorText = await response.text();
+        console.error('[SUMMARY] Failed to generate AI summary:', response.status, errorText);
         setAiSummary('Failed to generate AI summary. Please try again.');
       }
     } catch (error) {
-      console.error('Error generating AI summary:', error);
+      console.error('[SUMMARY] Error generating AI summary:', error);
       setAiSummary('Error generating AI summary. Please try again.');
     } finally {
       setIsGeneratingAISummary(false);
@@ -547,7 +560,8 @@ export default function StoryPage() {
       if (useStreaming) {
         // Streaming variant creation with animation
         setIsStreaming(true);
-        setStreamingContent('');
+        setStreamingVariantSceneId(sceneId);
+        setStreamingVariantContent('');
         
         await apiClient.createSceneVariantStreaming(
           story.id,
@@ -555,12 +569,13 @@ export default function StoryPage() {
           customPrompt || '',
           // onChunk
           (chunk: string) => {
-            setStreamingContent(prev => prev + chunk);
+            setStreamingVariantContent(prev => prev + chunk);
           },
           // onComplete
           async (variant: any) => {
             console.log('Variant creation complete', { variant });
-            setStreamingContent('');
+            setStreamingVariantContent('');
+            setStreamingVariantSceneId(null);
             setIsStreaming(false);
             
             // Preserve current scroll position for variant operations
@@ -584,7 +599,8 @@ export default function StoryPage() {
           (error: string) => {
             console.error('Streaming variant creation error:', error);
             setError(error);
-            setStreamingContent('');
+            setStreamingVariantContent('');
+            setStreamingVariantSceneId(null);
             setIsStreaming(false);
           }
         );
@@ -1036,6 +1052,8 @@ export default function StoryPage() {
                           streamingContinuation={streamingContinuationSceneId === scene.id ? streamingContinuation : ''}
                           isStreamingContinuation={streamingContinuationSceneId === scene.id && isStreamingContinuation}
                           isSceneOperationInProgress={isSceneOperationInProgress}
+                          streamingVariantContent={streamingVariantSceneId === scene.id ? streamingVariantContent : ''}
+                          isStreamingVariant={streamingVariantSceneId === scene.id}
                         />
                       </div>
                     );
