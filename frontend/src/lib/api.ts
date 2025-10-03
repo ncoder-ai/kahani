@@ -725,3 +725,4 @@ class ApiClient {
   }
 }
 
+export default new ApiClient(API_BASE_URL);

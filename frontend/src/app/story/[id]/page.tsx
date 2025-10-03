@@ -10,6 +10,7 @@ import { ContextInfo } from '@/components/ContextInfo';
 import FormattedText from '@/components/FormattedText';
 import SceneDisplay from '@/components/SceneDisplay';
 import SceneVariantDisplay from '@/components/SceneVariantDisplay';
+import ChapterSidebar from '@/components/ChapterSidebar';
 import { 
   BookOpenIcon, 
   FilmIcon,
@@ -141,6 +142,9 @@ export default function StoryPage() {
   const [aiSummary, setAiSummary] = useState<string | null>(null);
   const [scenesToShow, setScenesToShow] = useState(5); // Show last 5 scenes initially
   const [isLoadingEarlierScenes, setIsLoadingEarlierScenes] = useState(false);
+  
+  // Chapter sidebar state
+  const [isChapterSidebarOpen, setIsChapterSidebarOpen] = useState(true);
   
   // Modern scene layout states
   const [sceneLayoutMode, setSceneLayoutMode] = useState<'stacked' | 'modern'>('modern');
@@ -870,6 +874,13 @@ export default function StoryPage() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white pt-16">
+      {/* Chapter Sidebar */}
+      <ChapterSidebar 
+        storyId={storyId}
+        isOpen={isChapterSidebarOpen}
+        onToggle={() => setIsChapterSidebarOpen(!isChapterSidebarOpen)}
+      />
+      
       {/* Navigation Header */}
       <div className="bg-gray-800/95 backdrop-blur-md border-b border-gray-700">
         <div className="max-w-4xl mx-auto px-6 py-4">
