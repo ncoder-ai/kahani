@@ -2,18 +2,25 @@
 Unified LLM Service
 
 Provides a clean, unified interface for all LLM operations using LiteLLM
-and centralized prompt management.
+and centralized prompt management. Also handles scene variant database operations.
 """
 
 import asyncio
-from typing import Dict, Any, Optional, AsyncGenerator, List
+from typing import Dict, Any, Optional, AsyncGenerator, List, Tuple
 import litellm
 from litellm import acompletion
 import logging
 import re
+from sqlalchemy.orm import Session
+from sqlalchemy import and_, desc
 
 from .client import LLMClient
 from .prompts import prompt_manager
+
+# Import for type hints (will be imported within functions to avoid circular imports)
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from ...models import Scene, SceneVariant
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +83,7 @@ class UnifiedLLMService:
         if stream:
             # For streaming, collect all chunks and return complete text
             complete_text = ""
-            async for chunk in self.generate_stream(
+            async for chunk in self._generate_stream(
                 prompt=prompt,
                 user_id=user_id,
                 user_settings=user_settings,
@@ -96,25 +103,7 @@ class UnifiedLLMService:
                 temperature=temperature
             )
     
-    async def generate_stream(
-        self,
-        prompt: str,
-        user_id: int,
-        user_settings: Dict[str, Any],
-        system_prompt: str = "",
-        max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None
-    ) -> AsyncGenerator[str, None]:
-        """Generic streaming text generation"""
-        async for chunk in self._generate_stream(
-            prompt=prompt,
-            user_id=user_id,
-            user_settings=user_settings,
-            system_prompt=system_prompt,
-            max_tokens=max_tokens,
-            temperature=temperature
-        ):
-            yield chunk
+    # Remove redundant generate_stream method - use _generate_stream directly
     
     async def _generate(
         self,
@@ -130,9 +119,14 @@ class UnifiedLLMService:
         client = self.get_user_client(user_id, user_settings)
         
         messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
+        if system_prompt and system_prompt.strip():
+            messages.append({"role": "system", "content": system_prompt.strip()})
+        
+        # Ensure prompt is valid string
+        if not prompt or not isinstance(prompt, str) or not prompt.strip():
+            raise ValueError("Prompt must be a non-empty string")
+        
+        messages.append({"role": "user", "content": prompt.strip()})
         
         # Get generation parameters
         gen_params = client.get_generation_params(max_tokens, temperature)
@@ -253,9 +247,14 @@ class UnifiedLLMService:
         client = self.get_user_client(user_id, user_settings)
         
         messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
+        if system_prompt and system_prompt.strip():
+            messages.append({"role": "system", "content": system_prompt.strip()})
+        
+        # Ensure prompt is valid string
+        if not prompt or not isinstance(prompt, str) or not prompt.strip():
+            raise ValueError("Prompt must be a non-empty string")
+        
+        messages.append({"role": "user", "content": prompt.strip()})
         
         # Get streaming parameters
         gen_params = client.get_streaming_params(max_tokens, temperature)
@@ -296,7 +295,7 @@ class UnifiedLLMService:
         """Generate creative story titles based on story content"""
         
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-            "story_generation", "titles",
+            "title_generation", "title_generation",
             context=self._format_context_for_titles(context)
         )
         
@@ -390,7 +389,7 @@ class UnifiedLLMService:
         """Generate a story scene"""
         
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-            "story_generation", "scene",
+            "scene_generation", "scene_generation",
             context=self._format_context_for_scene(context)
         )
         
@@ -410,7 +409,7 @@ class UnifiedLLMService:
         """Generate a story scene with streaming"""
         
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-            "story_generation", "scene",
+            "scene_generation", "scene_generation",
             context=self._format_context_for_scene(context)
         )
         
@@ -515,7 +514,7 @@ class UnifiedLLMService:
         """Generate 4 narrative choices for the given scene"""
         
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-            "story_generation", "choices",
+            "choice_generation", "choice_generation",
             scene_content=scene_content[-800:],  # Last 800 chars to avoid token limits
             context=self._format_context_for_choices(context)
         )
@@ -540,9 +539,9 @@ class UnifiedLLMService:
                 continue
             
             # Look for numbered choices
-            if re.match(r'^[\d\.\-\*]\s*', line):
-                # Clean the choice text
-                choice_text = re.sub(r'^[\d\.\-\*]\s*', '', line).strip()
+            if re.match(r'^[\d\.\-\*\s]+', line):
+                # Clean the choice text - remove all leading numbers, dots, hyphens, asterisks and spaces
+                choice_text = re.sub(r'^[\d\.\-\*\s]+', '', line).strip()
                 if choice_text and len(choice_text) > 10:  # Ensure substantial content
                     choices.append(choice_text)
         
@@ -561,7 +560,7 @@ class UnifiedLLMService:
         """Generate a creative scenario based on user selections and characters"""
         
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-            "story_generation", "scenario",
+            "scenario_generation", "scenario_generation",
             context=self._format_context_for_scenario(context),
             elements=self._format_elements_for_scenario(context)
         )
@@ -893,3 +892,300 @@ class UnifiedLLMService:
             plot_points.extend(fallback_points[len(plot_points):])
         
         return plot_points[:5]
+
+    # Scene Variant Database Operations
+    def create_scene_with_variant(
+        self, 
+        db: Session,
+        story_id: int, 
+        sequence_number: int, 
+        content: str,
+        title: str = None,
+        custom_prompt: str = None,
+        choices: List[Dict[str, Any]] = None
+    ) -> Tuple[Any, Any]:
+        """Create a new scene with its first variant"""
+        from ...models import Scene, SceneVariant, SceneChoice, StoryFlow
+        
+        # Check if a scene already exists for this sequence in this story
+        existing_flow = db.query(StoryFlow).filter(
+            StoryFlow.story_id == story_id,
+            StoryFlow.sequence_number == sequence_number
+        ).first()
+        
+        if existing_flow:
+            # Return the existing scene and variant instead of creating duplicates
+            existing_scene = db.query(Scene).filter(Scene.id == existing_flow.scene_id).first()
+            existing_variant = db.query(SceneVariant).filter(SceneVariant.id == existing_flow.scene_variant_id).first()
+            logger.warning(f"Scene already exists for story {story_id} sequence {sequence_number}, returning existing scene {existing_scene.id}")
+            return existing_scene, existing_variant
+        
+        # Create the logical scene
+        scene = Scene(
+            story_id=story_id,
+            sequence_number=sequence_number,
+            title=title or f"Scene {sequence_number}",
+        )
+        db.add(scene)
+        db.flush()  # Get the scene ID
+        
+        # Create the first variant
+        variant = SceneVariant(
+            scene_id=scene.id,
+            variant_number=1,
+            is_original=True,
+            content=content,
+            title=title,
+            original_content=content,
+            generation_prompt=custom_prompt,
+            generation_method="auto"
+        )
+        db.add(variant)
+        db.flush()  # Get the variant ID
+        
+        # Create choices if provided
+        if choices:
+            for choice_data in choices:
+                choice = SceneChoice(
+                    scene_id=scene.id,
+                    scene_variant_id=variant.id,
+                    choice_text=choice_data.get('text', ''),
+                    choice_order=choice_data.get('order', 0),
+                    choice_description=choice_data.get('description')
+                )
+                db.add(choice)
+        
+        # Update story flow
+        self._update_story_flow(db, story_id, sequence_number, scene.id, variant.id)
+        
+        db.commit()
+        logger.info(f"Successfully created scene {scene.id} with variant {variant.id} at sequence {sequence_number}")
+        return scene, variant
+
+    async def regenerate_scene_variant(
+        self, 
+        db: Session,
+        scene_id: int, 
+        custom_prompt: str = None,
+        user_id: int = None,
+        user_settings: dict = None
+    ) -> Any:
+        """Create a new variant for an existing scene"""
+        from ...models import Scene, SceneVariant, Story
+        from ..context_manager import ContextManager
+        
+        scene = db.query(Scene).filter(Scene.id == scene_id).first()
+        if not scene:
+            raise ValueError(f"Scene {scene_id} not found")
+        
+        # Get the next variant number
+        max_variant = db.query(SceneVariant.variant_number)\
+            .filter(SceneVariant.scene_id == scene_id)\
+            .order_by(desc(SceneVariant.variant_number))\
+            .first()
+        
+        next_variant_number = (max_variant[0] if max_variant else 0) + 1
+        
+        # Get story for context
+        story = db.query(Story).filter(Story.id == scene.story_id).first()
+        if not story:
+            raise ValueError(f"Story {scene.story_id} not found")
+        
+        # Build context using ContextManager
+        context_manager = ContextManager(user_settings=user_settings or {})
+        context = await context_manager.build_scene_generation_context(
+            story.id, db, custom_prompt=custom_prompt
+        )
+        
+        # Generate new content using the original scene as base
+        original_variant = db.query(SceneVariant)\
+            .filter(SceneVariant.scene_id == scene_id, SceneVariant.is_original == True)\
+            .first()
+        
+        if original_variant:
+            # Generate variant based on original
+            new_content = await self.generate_scene_variants(
+                original_scene=original_variant.content,
+                context=context,
+                user_id=user_id,
+                user_settings=user_settings or {}
+            )
+        else:
+            # Generate new scene if no original exists
+            new_content = await self.generate_scene(
+                context=context,
+                user_id=user_id,
+                user_settings=user_settings or {}
+            )
+        
+        # Create the new variant
+        variant = SceneVariant(
+            scene_id=scene_id,
+            variant_number=next_variant_number,
+            is_original=False,
+            content=new_content,
+            title=scene.title,
+            original_content=original_variant.content if original_variant else new_content,
+            generation_prompt=custom_prompt,
+            generation_method="regeneration"
+        )
+        
+        db.add(variant)
+        db.commit()
+        
+        logger.info(f"Successfully created variant {variant.id} (#{next_variant_number}) for scene {scene_id}")
+        return variant
+
+    def switch_to_variant(self, db: Session, story_id: int, scene_id: int, variant_id: int) -> bool:
+        """Switch the active variant for a scene in the story flow"""
+        from ...models import StoryFlow, SceneVariant
+        
+        # Verify the variant exists
+        variant = db.query(SceneVariant).filter(SceneVariant.id == variant_id).first()
+        if not variant or variant.scene_id != scene_id:
+            return False
+        
+        # Update story flow to use this variant
+        flow_entry = db.query(StoryFlow).filter(
+            StoryFlow.story_id == story_id,
+            StoryFlow.scene_id == scene_id
+        ).first()
+        
+        if flow_entry:
+            flow_entry.variant_id = variant_id
+            db.commit()
+            logger.info(f"Switched to variant {variant_id} for scene {scene_id} in story {story_id}")
+            return True
+        
+        return False
+
+    def get_scene_variants(self, db: Session, scene_id: int) -> List[Any]:
+        """Get all variants for a scene"""
+        from ...models import SceneVariant
+        
+        return db.query(SceneVariant)\
+            .filter(SceneVariant.scene_id == scene_id)\
+            .order_by(SceneVariant.variant_number)\
+            .all()
+
+    def get_active_story_flow(self, db: Session, story_id: int) -> List[Dict[str, Any]]:
+        """Get the active story flow with scene variants"""
+        from ...models import StoryFlow, Scene, SceneVariant, SceneChoice
+        
+        # Get the story flow ordered by sequence
+        flow_entries = db.query(StoryFlow)\
+            .filter(StoryFlow.story_id == story_id)\
+            .order_by(StoryFlow.sequence_number)\
+            .all()
+        
+        result = []
+        for flow_entry in flow_entries:
+            # Get the scene
+            scene = db.query(Scene).filter(Scene.id == flow_entry.scene_id).first()
+            if not scene:
+                continue
+                
+            # Get the active variant
+            variant = db.query(SceneVariant).filter(SceneVariant.id == flow_entry.scene_variant_id).first()
+            if not variant:
+                continue
+                
+            # Get choices for this variant
+            choices = db.query(SceneChoice)\
+                .filter(SceneChoice.scene_variant_id == variant.id)\
+                .order_by(SceneChoice.choice_order)\
+                .all()
+            
+            # Check if there are multiple variants for this scene
+            variant_count = db.query(SceneVariant)\
+                .filter(SceneVariant.scene_id == scene.id)\
+                .count()
+            
+            result.append({
+                'scene_id': scene.id,
+                'sequence_number': flow_entry.sequence_number,
+                'title': variant.title or scene.title,
+                'content': variant.content,
+                'location': variant.location or '',
+                'characters_present': [],  # Could be enhanced to get actual characters
+                'variant': {
+                    'id': variant.id,
+                    'variant_number': variant.variant_number,
+                    'is_original': variant.is_original,
+                    'content': variant.content,
+                    'title': variant.title,
+                    'generation_method': variant.generation_method
+                },
+                'variant_id': variant.id,
+                'variant_number': variant.variant_number,
+                'is_original': variant.is_original,
+                'has_multiple_variants': variant_count > 1,
+                'choices': [
+                    {
+                        'id': choice.id,
+                        'text': choice.choice_text,
+                        'description': choice.choice_description,
+                        'order': choice.choice_order
+                    } for choice in choices
+                ]
+            })
+        
+        return result
+
+    def _update_story_flow(self, db: Session, story_id: int, sequence_number: int, scene_id: int, variant_id: int):
+        """Update or create story flow entry"""
+        from ...models import StoryFlow
+        
+        # Check if flow entry already exists for this sequence
+        existing_flow = db.query(StoryFlow).filter(
+            StoryFlow.story_id == story_id,
+            StoryFlow.sequence_number == sequence_number
+        ).first()
+        
+        if existing_flow:
+            # Update existing entry
+            existing_flow.scene_id = scene_id
+            existing_flow.scene_variant_id = variant_id
+        else:
+            # Create new flow entry
+            flow_entry = StoryFlow(
+                story_id=story_id,
+                sequence_number=sequence_number,
+                scene_id=scene_id,
+                scene_variant_id=variant_id
+            )
+            db.add(flow_entry)
+
+    def delete_scenes_from_sequence(self, db: Session, story_id: int, sequence_number: int) -> bool:
+        """Delete all scenes from a given sequence number onwards"""
+        try:
+            from ...models import StoryFlow, Scene
+            
+            # First, delete all StoryFlow entries for this story with sequence_number >= sequence_number
+            story_flows_deleted = db.query(StoryFlow).filter(
+                StoryFlow.story_id == story_id,
+                StoryFlow.sequence_number >= sequence_number
+            ).delete()
+            
+            # Get scenes to delete (don't use bulk delete to ensure cascades work)
+            scenes_to_delete = db.query(Scene).filter(
+                Scene.story_id == story_id,
+                Scene.sequence_number >= sequence_number
+            ).all()
+            
+            # Delete each scene individually to trigger cascade relationships
+            scenes_deleted = 0
+            for scene in scenes_to_delete:
+                db.delete(scene)
+                scenes_deleted += 1
+            
+            # Commit the transaction
+            db.commit()
+            
+            logger.info(f"Deleted {story_flows_deleted} story flows and {scenes_deleted} scenes from sequence {sequence_number} onwards for story {story_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to delete scenes from sequence {sequence_number} for story {story_id}: {e}")
+            db.rollback()
+            return False

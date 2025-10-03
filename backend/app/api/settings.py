@@ -6,7 +6,9 @@ from ..database import get_db
 from ..models import User, UserSettings
 from ..dependencies import get_current_user
 import logging
-from ..services.llm_functions import invalidate_user_llm_cache
+from ..services.llm.service import UnifiedLLMService
+
+llm_service = UnifiedLLMService()
 
 logger = logging.getLogger(__name__)
 
@@ -174,7 +176,7 @@ async def update_user_settings(
         
         # Invalidate LLM cache if LLM settings were updated
         if settings_update.llm_settings:
-            invalidate_user_llm_cache(current_user.id)
+            llm_service.invalidate_user_client(current_user.id)
             logger.info(f"Invalidated LLM cache for user {current_user.id} due to settings update")
         
         return {

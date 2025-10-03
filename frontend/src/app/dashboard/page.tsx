@@ -91,28 +91,37 @@ export default function DashboardPage() {
   };
 
   const handleViewSummary = async (storyId: number) => {
+    console.log('[SUMMARY] Loading summary for story:', storyId);
     setLoadingSummary(true);
     setShowSummaryModal(true);
     
     try {
       const { token } = useAuthStore.getState();
-      const response = await fetch(`http://localhost:8000/api/stories/${storyId}/summary`, {
+      const url = `http://localhost:8000/api/stories/${storyId}/summary`;
+      console.log('[SUMMARY] Fetching from:', url);
+      
+      const response = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
       });
 
+      console.log('[SUMMARY] Initial load response status:', response.status);
+      
       if (response.ok) {
         const summaryData = await response.json();
+        console.log('[SUMMARY] Initial summary data:', summaryData);
+        console.log('[SUMMARY] Summary content:', summaryData.summary);
         setStorySummary(summaryData);
         setSelectedStory(stories.find(s => s.id === storyId));
       } else {
-        console.error('Failed to load summary');
+        const errorText = await response.text();
+        console.error('[SUMMARY] Failed to load summary:', response.status, errorText);
         setStorySummary({ error: 'Failed to load summary' });
       }
     } catch (error) {
-      console.error('Error loading summary:', error);
+      console.error('[SUMMARY] Error loading summary:', error);
       setStorySummary({ error: 'Error loading summary' });
     } finally {
       setLoadingSummary(false);
@@ -343,7 +352,12 @@ export default function DashboardPage() {
                   <div className="bg-gray-50 p-4 rounded-lg">
                     <h3 className="font-medium text-gray-700 mb-2">Summary:</h3>
                     <p className="text-gray-800 whitespace-pre-wrap">
-                      {storySummary.summary || 'No summary available'}
+                      {(() => {
+                        const summaryText = storySummary.summary || 'No summary available';
+                        console.log('[SUMMARY] Displaying summary:', summaryText);
+                        console.log('[SUMMARY] Summary object:', storySummary);
+                        return summaryText;
+                      })()}
                     </p>
                   </div>
                   
@@ -370,10 +384,15 @@ export default function DashboardPage() {
               <div className="p-6 border-t bg-gray-50">
                 <button
                   onClick={async () => {
+                    console.log('[SUMMARY] Regenerate button clicked');
+                    console.log('[SUMMARY] Selected story:', selectedStory);
                     setLoadingSummary(true);
                     try {
                       const { token } = useAuthStore.getState();
-                      const response = await fetch(`http://localhost:8000/api/stories/${selectedStory.id}/summary/regenerate`, {
+                      const url = `http://localhost:8000/api/stories/${selectedStory.id}/regenerate-summary`;
+                      console.log('[SUMMARY] Calling API:', url);
+                      
+                      const response = await fetch(url, {
                         method: 'POST',
                         headers: {
                           'Authorization': `Bearer ${token}`,
@@ -381,14 +400,20 @@ export default function DashboardPage() {
                         },
                       });
 
+                      console.log('[SUMMARY] Response status:', response.status);
+                      
                       if (response.ok) {
                         const updatedSummary = await response.json();
+                        console.log('[SUMMARY] Received response:', updatedSummary);
+                        console.log('[SUMMARY] Summary content:', updatedSummary.summary);
+                        console.log('[SUMMARY] Summary length:', updatedSummary.summary?.length);
                         setStorySummary(updatedSummary);
                       } else {
-                        console.error('Failed to regenerate summary');
+                        const errorText = await response.text();
+                        console.error('[SUMMARY] Failed to regenerate summary:', response.status, errorText);
                       }
                     } catch (error) {
-                      console.error('Error regenerating summary:', error);
+                      console.error('[SUMMARY] Error regenerating summary:', error);
                     } finally {
                       setLoadingSummary(false);
                     }

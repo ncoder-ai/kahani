@@ -101,13 +101,38 @@ body {
 }
 
 .variant-transitioning {
-  opacity: 0.8;
-  transform: scale(0.98);
-  transition: all 0.3s ease-in-out;
+  animation: slide-out-left 0.4s ease-in-out;
 }
 
 .variant-transitioning .scene-content {
-  transition: opacity 0.3s ease-in-out;
+  transition: opacity 0.4s ease-in-out;
+}
+
+/* Slide animations for variant switching */
+@keyframes slide-out-left {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-100%);
+  }
+}
+
+@keyframes slide-in-from-right {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.variant-slide-in {
+  animation: slide-in-from-right 0.4s ease-in-out;
 }
 
 /* Smooth slide-in animation for new scenes */

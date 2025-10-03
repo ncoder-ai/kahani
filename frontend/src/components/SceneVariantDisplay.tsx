@@ -75,6 +75,9 @@ interface SceneVariantDisplayProps {
   // Scene continuation streaming props
   streamingContinuation?: string;
   isStreamingContinuation?: boolean;
+  // Variant regeneration streaming props
+  streamingVariantContent?: string;
+  isStreamingVariant?: boolean;
   // Global flag to prevent scroll-disrupting operations
   isSceneOperationInProgress?: boolean;
 }
@@ -111,6 +114,8 @@ export default function SceneVariantDisplay({
   setSelectedChoice,
   streamingContinuation = '',
   isStreamingContinuation = false,
+  streamingVariantContent = '',
+  isStreamingVariant = false,
   isSceneOperationInProgress = false
 }: SceneVariantDisplayProps) {
   const [variants, setVariants] = useState<SceneVariant[]>([]);
@@ -169,15 +174,16 @@ export default function SceneVariantDisplay({
         }
       }
 
-      // For modern layout, no scrolling - just smooth transition
+      // For modern layout, slide transition
       if (layoutMode === 'modern') {
-        // Add a subtle animation class for smooth transitions
         const container = sceneContentRef.current;
         if (container) {
+          // Start slide-out animation
           container.classList.add('variant-transitioning');
+          // After animation, remove class to slide back in
           setTimeout(() => {
             container.classList.remove('variant-transitioning');
-          }, 300);
+          }, 400); // Match CSS transition duration
         }
       }
       // No scrolling for variant switching
@@ -314,22 +320,87 @@ export default function SceneVariantDisplay({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isLastScene, variants, currentVariantId]);
 
+  // Handle regeneration animation
+  useEffect(() => {
+    if (isRegenerating && layoutMode === 'modern') {
+      const container = sceneContentRef.current;
+      if (container) {
+        // Slide out the current scene when regeneration starts
+        container.classList.remove('variant-slide-in');
+        container.classList.add('variant-transitioning');
+      }
+    } else {
+      // Slide in from right when regeneration completes or variant changes
+      const container = sceneContentRef.current;
+      if (container && container.classList.contains('variant-transitioning')) {
+        container.classList.remove('variant-transitioning');
+        // Trigger slide-in animation
+        setTimeout(() => {
+          container.classList.add('variant-slide-in');
+          // Remove animation class after it completes
+          setTimeout(() => {
+            container.classList.remove('variant-slide-in');
+          }, 400);
+        }, 50);
+      }
+    }
+  }, [isRegenerating, layoutMode, currentVariantId]);
+
+  // Get the currently displayed variant's data
+  const getCurrentVariant = (): SceneVariant | null => {
+    if (!currentVariantId || variants.length === 0) return null;
+    return variants.find(v => v.id === currentVariantId) || null;
+  };
+
+  // Create a scene object with the current variant's content
+  const getDisplayScene = (): Scene => {
+    // If streaming a variant regeneration, show the streaming content
+    if (isStreamingVariant && streamingVariantContent) {
+      return {
+        ...scene,
+        content: streamingVariantContent,
+        title: scene.title,
+        choices: []
+      };
+    }
+    
+    const currentVariant = getCurrentVariant();
+    if (currentVariant) {
+      // Replace scene content with current variant's content
+      return {
+        ...scene,
+        content: currentVariant.content,
+        title: currentVariant.title,
+        choices: currentVariant.choices
+      };
+    }
+    return scene;
+  };
+
   return (
     <div ref={sceneContentRef} className="scene-variant-container">
-      <SceneDisplay
-        scene={scene}
-        sceneNumber={sceneNumber}
-        format={userSettings?.scene_display_format || 'default'}
-        showTitle={userSettings?.show_scene_titles === true}
-        isEditing={isEditing}
-        editContent={editContent}
-        onStartEdit={onStartEdit}
-        onSaveEdit={onSaveEdit}
+      <div className={`relative ${isStreamingVariant ? 'streaming-variant' : ''}`}>
+        {isStreamingVariant && (
+          <div className="absolute top-0 right-0 bg-pink-600 text-white text-xs px-2 py-1 rounded-full animate-pulse z-10">
+            Generating...
+          </div>
+        )}
+        <SceneDisplay
+          scene={getDisplayScene()}
+          sceneNumber={sceneNumber}
+          format={userSettings?.scene_display_format || 'default'}
+          showTitle={userSettings?.show_scene_titles === true}
+          isEditing={isEditing}
+          editContent={editContent}
+          onStartEdit={onStartEdit}
+          onSaveEdit={onSaveEdit}
         onCancelEdit={onCancelEdit}
         onContentChange={onContentChange}
         streamingContinuation={streamingContinuation}
         isStreamingContinuation={isStreamingContinuation}
+        isStreamingVariant={isStreamingVariant}
       />
+      </div>
       
       {/* Scene Management - Only show for last scene */}
       {isLastScene && (

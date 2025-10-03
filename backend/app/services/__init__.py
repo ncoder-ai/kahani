@@ -1,4 +1,7 @@
 # Services modules
-from .llm_functions import generate_content, generate_content_stream
+from .llm.service import UnifiedLLMService
+
+# Create a global instance for easy access
+llm_service = UnifiedLLMService()
 
 __all__ = ["generate_content", "generate_content_stream"]
