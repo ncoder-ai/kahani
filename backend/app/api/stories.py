@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from ..database import get_db
-from ..models import Story, Scene, Character, StoryCharacter, User, UserSettings, SceneChoice, SceneVariant, StoryFlow, StoryStatus
+from ..models import Story, Scene, Character, StoryCharacter, User, UserSettings, SceneChoice, SceneVariant, StoryFlow, StoryStatus, Chapter, ChapterStatus
 from ..services.llm.service import UnifiedLLMService
 from sqlalchemy.sql import func
 from ..services.context_manager import ContextManager
@@ -499,6 +499,61 @@ async def generate_scene_streaming_endpoint(
                     choices=choices_data  # Pass formatted choices
                 )
                 logger.info(f"Created scene {scene.id} with variant {variant.id} for story {story_id}")
+                
+                # Chapter integration (optional - won't break if it fails)
+                try:
+                    # Get or create active chapter for this story
+                    active_chapter = db.query(Chapter).filter(
+                        Chapter.story_id == story_id,
+                        Chapter.status == ChapterStatus.ACTIVE
+                    ).order_by(Chapter.chapter_number.desc()).first()
+                    
+                    if not active_chapter:
+                        # Create first chapter if none exists
+                        active_chapter = Chapter(
+                            story_id=story_id,
+                            chapter_number=1,
+                            title="Chapter 1",
+                            status=ChapterStatus.ACTIVE,
+                            context_tokens_used=0,
+                            scenes_count=0,
+                            last_summary_scene_count=0
+                        )
+                        db.add(active_chapter)
+                        db.flush()
+                        logger.info(f"[CHAPTER] Created first chapter {active_chapter.id} for story {story_id}")
+                    
+                    # Link scene to active chapter
+                    scene.chapter_id = active_chapter.id
+                    
+                    # Update chapter token tracking
+                    scene_tokens = context_manager.count_tokens(full_content.strip())
+                    active_chapter.context_tokens_used += scene_tokens
+                    active_chapter.scenes_count += 1
+                    
+                    db.commit()
+                    logger.info(f"[CHAPTER] Linked scene {scene.id} to chapter {active_chapter.id} ({active_chapter.scenes_count} scenes, {active_chapter.context_tokens_used} tokens)")
+                    
+                    # Check if auto-summary is needed (every 10 scenes)
+                    scenes_since_last_summary = active_chapter.scenes_count - active_chapter.last_summary_scene_count
+                    if scenes_since_last_summary >= 10:
+                        logger.info(f"[CHAPTER] Chapter {active_chapter.id} reached 10 scenes since last summary, triggering auto-summary")
+                        try:
+                            # Generate summary asynchronously (don't wait for it)
+                            from ..api.chapters import generate_chapter_summary
+                            await generate_chapter_summary(active_chapter.id, db, current_user.id, user_settings)
+                            active_chapter.last_summary_scene_count = active_chapter.scenes_count
+                            db.commit()
+                            logger.info(f"[CHAPTER] Auto-summary generated for chapter {active_chapter.id}")
+                        except Exception as e:
+                            logger.error(f"[CHAPTER] Failed to generate auto-summary for chapter {active_chapter.id}: {e}")
+                            # Don't fail if summary generation fails
+                except Exception as e:
+                    logger.warning(f"[CHAPTER] Chapter integration failed for scene {scene.id}, but scene was created successfully: {e}")
+                    # Don't fail the scene generation if chapter integration fails
+                    db.rollback()  # Rollback any chapter changes
+                    db.commit()    # But keep the scene
+                
             except Exception as e:
                 logger.error(f"Failed to create scene variant: {e}")
                 raise
