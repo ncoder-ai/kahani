@@ -23,13 +23,13 @@ interface Chapter {
 
 interface ChapterContextStatus {
   chapter_id: number;
-  chapter_number: number;
-  context_tokens_used: number;
-  context_budget: number;
-  usage_percentage: number;
+  current_tokens: number;
+  max_tokens: number;
+  percentage_used: number;
+  should_create_new_chapter: boolean;
+  reason: string | null;
   scenes_count: number;
-  warning_threshold_reached: boolean;
-  recommendation: string;
+  avg_generation_time?: number | null;
 }
 
 interface ChapterSidebarProps {
@@ -174,8 +174,8 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle }: ChapterSid
                   <div className="space-y-2">
                     <div className="flex justify-between items-center text-sm">
                       <span className="text-gray-400">Context Usage:</span>
-                      <span className={`font-semibold ${getContextWarningColor(contextStatus.usage_percentage || 0)}`}>
-                        {Math.round(contextStatus.usage_percentage || 0)}%
+                      <span className={`font-semibold ${getContextWarningColor(contextStatus.percentage_used || 0)}`}>
+                        {Math.round(contextStatus.percentage_used || 0)}%
                       </span>
                     </div>
                     
@@ -183,27 +183,31 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle }: ChapterSid
                     <div className="w-full bg-slate-700 rounded-full h-2 overflow-hidden">
                       <div
                         className={`h-full transition-all duration-300 ${
-                          (contextStatus.usage_percentage || 0) >= 80
+                          (contextStatus.percentage_used || 0) >= 80
                             ? 'bg-red-500'
-                            : (contextStatus.usage_percentage || 0) >= 60
+                            : (contextStatus.percentage_used || 0) >= 60
                             ? 'bg-yellow-500'
                             : 'bg-green-500'
                         }`}
-                        style={{ width: `${Math.min(100, contextStatus.usage_percentage || 0)}%` }}
+                        style={{ width: `${Math.min(100, contextStatus.percentage_used || 0)}%` }}
                       />
                     </div>
 
                     <div className="text-xs text-gray-500">
-                      {(contextStatus.context_tokens_used || 0).toLocaleString()} / {(contextStatus.context_budget || 0).toLocaleString()} tokens
+                      {(contextStatus.current_tokens || 0).toLocaleString()} / {(contextStatus.max_tokens || 0).toLocaleString()} tokens
                     </div>
 
                     {/* Warning Message */}
-                    {contextStatus.warning_threshold_reached && (
+                    {contextStatus.should_create_new_chapter && (
                       <div className="flex items-start gap-2 p-2 bg-yellow-500/10 border border-yellow-500/20 rounded text-xs text-yellow-400">
                         <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
                         <div>
                           <p className="font-semibold mb-1">Context Warning</p>
-                          <p className="text-yellow-400/80">{contextStatus.recommendation}</p>
+                          <p className="text-yellow-400/80">
+                            {contextStatus.reason === 'context_limit' 
+                              ? 'Context usage is high. Consider starting a new chapter to maintain quality.'
+                              : 'Consider starting a new chapter.'}
+                          </p>
                         </div>
                       </div>
                     )}
