@@ -62,14 +62,25 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle }: ChapterSid
       const activeChapterData = await apiClient.getActiveChapter(storyId);
       setActiveChapter(activeChapterData);
       
-      // Load context status for active chapter
-      if (activeChapterData) {
-        const statusData = await apiClient.getChapterContextStatus(storyId, activeChapterData.id);
-        setContextStatus(statusData);
+      // Load context status for active chapter (only if chapter has scenes)
+      if (activeChapterData && activeChapterData.scenes_count > 0) {
+        try {
+          const statusData = await apiClient.getChapterContextStatus(storyId, activeChapterData.id);
+          setContextStatus(statusData);
+        } catch (err) {
+          console.warn('Failed to load context status:', err);
+          // Don't fail the whole load if context status fails
+          setContextStatus(null);
+        }
       }
     } catch (err) {
       console.error('Failed to load chapters:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load chapters');
+      // If chapters don't exist yet (new story), don't show error
+      if (err instanceof Error && err.message.includes('404')) {
+        setError(null); // Silently handle - chapters will be created on first scene
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to load chapters');
+      }
     } finally {
       setLoading(false);
     }
@@ -133,6 +144,11 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle }: ChapterSid
           <div className="p-4 text-red-400 text-sm">
             {error}
           </div>
+        ) : !activeChapter && chapters.length === 0 ? (
+          <div className="p-4 text-center text-gray-400 text-sm">
+            <BookOpen className="w-12 h-12 mx-auto mb-3 opacity-50" />
+            <p>Chapters will appear once you start writing your story</p>
+          </div>
         ) : (
           <>
             {/* Active Chapter Info */}
@@ -158,8 +174,8 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle }: ChapterSid
                   <div className="space-y-2">
                     <div className="flex justify-between items-center text-sm">
                       <span className="text-gray-400">Context Usage:</span>
-                      <span className={`font-semibold ${getContextWarningColor(contextStatus.usage_percentage)}`}>
-                        {Math.round(contextStatus.usage_percentage)}%
+                      <span className={`font-semibold ${getContextWarningColor(contextStatus.usage_percentage || 0)}`}>
+                        {Math.round(contextStatus.usage_percentage || 0)}%
                       </span>
                     </div>
                     
@@ -167,18 +183,18 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle }: ChapterSid
                     <div className="w-full bg-slate-700 rounded-full h-2 overflow-hidden">
                       <div
                         className={`h-full transition-all duration-300 ${
-                          contextStatus.usage_percentage >= 80
+                          (contextStatus.usage_percentage || 0) >= 80
                             ? 'bg-red-500'
-                            : contextStatus.usage_percentage >= 60
+                            : (contextStatus.usage_percentage || 0) >= 60
                             ? 'bg-yellow-500'
                             : 'bg-green-500'
                         }`}
-                        style={{ width: `${Math.min(100, contextStatus.usage_percentage)}%` }}
+                        style={{ width: `${Math.min(100, contextStatus.usage_percentage || 0)}%` }}
                       />
                     </div>
 
                     <div className="text-xs text-gray-500">
-                      {contextStatus.context_tokens_used.toLocaleString()} / {contextStatus.context_budget.toLocaleString()} tokens
+                      {(contextStatus.context_tokens_used || 0).toLocaleString()} / {(contextStatus.context_budget || 0).toLocaleString()} tokens
                     </div>
 
                     {/* Warning Message */}
@@ -194,7 +210,7 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle }: ChapterSid
 
                     {/* Scene Count */}
                     <div className="text-sm text-gray-400">
-                      <span className="font-semibold">{activeChapter.scenes_count}</span> scenes in this chapter
+                      <span className="font-semibold">{activeChapter.scenes_count || 0}</span> scenes in this chapter
                     </div>
                   </div>
                 )}
