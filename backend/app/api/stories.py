@@ -536,10 +536,11 @@ async def generate_scene_streaming_endpoint(
                     db.commit()
                     logger.info(f"[CHAPTER] Linked scene {scene.id} to chapter {active_chapter.id} ({active_chapter.scenes_count} scenes, {active_chapter.context_tokens_used} tokens)")
                     
-                    # Check if auto-summary is needed (every 10 scenes)
+                    # Check if auto-summary is needed (use user's summary threshold setting)
+                    summary_threshold = user_settings.context_summary_threshold if user_settings else 5
                     scenes_since_last_summary = active_chapter.scenes_count - active_chapter.last_summary_scene_count
-                    if scenes_since_last_summary >= 10:
-                        logger.info(f"[CHAPTER] Chapter {active_chapter.id} reached 10 scenes since last summary, triggering auto-summary")
+                    if scenes_since_last_summary >= summary_threshold:
+                        logger.info(f"[CHAPTER] Chapter {active_chapter.id} reached {summary_threshold} scenes since last summary, triggering auto-summary")
                         try:
                             # Generate summary asynchronously (don't wait for it)
                             from ..api.chapters import generate_chapter_summary
