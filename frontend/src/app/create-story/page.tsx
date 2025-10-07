@@ -7,6 +7,7 @@ import apiClient from '@/lib/api';
 import CharacterQuickAdd from '@/components/CharacterQuickAdd';
 
 // Step Components
+import StoryModeSelection from '@/components/story-creation/StoryModeSelection';
 import GenreSelection from '@/components/story-creation/GenreSelection';
 import ScenarioSetup from '@/components/story-creation/ScenarioSetup';
 import TitleInput from '@/components/story-creation/TitleInput';
@@ -15,6 +16,7 @@ import PlotDevelopment from '@/components/story-creation/PlotDevelopment';
 import FinalReview from '@/components/story-creation/FinalReview';
 
 export interface StoryData {
+  story_mode: 'dynamic' | 'structured';
   title: string;
   description: string;
   genre: string;
@@ -30,6 +32,7 @@ export interface StoryData {
 }
 
 const STEPS = [
+  { id: 'mode', title: 'Story Mode', component: StoryModeSelection },
   { id: 'genre', title: 'Choose Genre', component: GenreSelection },
   { id: 'characters', title: 'Characters', component: CharacterSetup },
   { id: 'scenario', title: 'Set Scenario', component: ScenarioSetup },
@@ -49,6 +52,7 @@ export default function CreateStoryPage() {
   const [draftStoryId, setDraftStoryId] = useState<number | null>(null);
   const [isLoadingDraft, setIsLoadingDraft] = useState(true);
   const [storyData, setStoryData] = useState<StoryData>({
+    story_mode: 'dynamic', // Default to dynamic mode
     title: '',
     description: '',
     genre: '',
@@ -81,6 +85,7 @@ export default function CreateStoryPage() {
           } else {
             // Fallback to individual fields
             setStoryData({
+              story_mode: draft.story_mode || 'dynamic',
               title: draft.title || '',
               description: draft.description || '',
               genre: draft.genre || '',
@@ -105,6 +110,7 @@ export default function CreateStoryPage() {
             } else {
               // Fallback to individual fields
               setStoryData({
+                story_mode: draft.story_mode || 'dynamic',
                 title: draft.title || '',
                 description: draft.description || '',
                 genre: draft.genre || '',
@@ -152,15 +158,29 @@ export default function CreateStoryPage() {
 
   const handleNext = async () => {
     if (currentStep < STEPS.length - 1) {
+      let nextStep = currentStep + 1;
+      
+      // Skip plot step if in dynamic mode
+      if (storyData.story_mode === 'dynamic' && STEPS[nextStep].id === 'plot') {
+        nextStep++; // Skip to review
+      }
+      
       // Save progress before moving to next step
-      await saveDraft(currentStep + 1);
-      setCurrentStep(currentStep + 1);
+      await saveDraft(nextStep);
+      setCurrentStep(nextStep);
     }
   };
 
   const handleBack = () => {
     if (currentStep > 0) {
-      setCurrentStep(currentStep - 1);
+      let prevStep = currentStep - 1;
+      
+      // Skip plot step if in dynamic mode when going back
+      if (storyData.story_mode === 'dynamic' && STEPS[prevStep].id === 'plot') {
+        prevStep--; // Skip back to title
+      }
+      
+      setCurrentStep(prevStep);
     }
   };
 
@@ -221,6 +241,7 @@ export default function CreateStoryPage() {
         setDraftStoryId(null);
         setCurrentStep(0);
         setStoryData({
+          story_mode: 'dynamic',
           title: '',
           description: '',
           genre: '',
@@ -352,6 +373,16 @@ export default function CreateStoryPage() {
       {/* Main Content */}
       <div className="max-w-4xl mx-auto px-6 pb-12">
         <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-8">
+          {STEPS[currentStep].id === 'mode' && (
+            <StoryModeSelection
+              selected={storyData.story_mode}
+              onSelect={(mode) => {
+                handleStoryDataUpdate({ story_mode: mode });
+                // Auto-advance to next step after selection
+                setTimeout(() => handleNext(), 500);
+              }}
+            />
+          )}
           {STEPS[currentStep].id === 'genre' && (
             <GenreSelection
               storyData={storyData}

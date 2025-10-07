@@ -124,6 +124,7 @@ class StoryCreate(BaseModel):
     tone: Optional[str] = ""
     world_setting: Optional[str] = ""
     initial_premise: Optional[str] = ""
+    story_mode: Optional[str] = "dynamic"  # dynamic or structured
 
 class ScenarioGenerateRequest(BaseModel):
     genre: Optional[str] = ""
@@ -199,7 +200,8 @@ async def create_story(
         genre=story_data.genre,
         tone=story_data.tone,
         world_setting=story_data.world_setting,
-        initial_premise=story_data.initial_premise
+        initial_premise=story_data.initial_premise,
+        story_mode=story_data.story_mode or "dynamic"
     )
     
     db.add(story)
