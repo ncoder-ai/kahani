@@ -145,6 +145,7 @@ export default function StoryPage() {
   
   // Chapter sidebar state
   const [isChapterSidebarOpen, setIsChapterSidebarOpen] = useState(true);
+  const [chapterSidebarRefreshKey, setChapterSidebarRefreshKey] = useState(0);
   
   // Modern scene layout states
   const [sceneLayoutMode, setSceneLayoutMode] = useState<'stacked' | 'modern'>('modern');
@@ -179,6 +180,21 @@ export default function StoryPage() {
       console.error('Failed to load user settings:', err);
     }
   };
+
+  // Auto-scroll to bottom when streaming starts
+  useEffect(() => {
+    if (isStreaming && streamingContent) {
+      // Scroll to bottom smoothly when streaming content appears
+      setTimeout(() => {
+        if (storyContentRef.current) {
+          storyContentRef.current.scrollTo({
+            top: storyContentRef.current.scrollHeight,
+            behavior: 'smooth'
+          });
+        }
+      }, 100);
+    }
+  }, [isStreaming, streamingContent]);
 
   // Get scenes to display based on current mode
   const getScenesToDisplay = (): Scene[] => {
@@ -371,6 +387,9 @@ export default function StoryPage() {
       // Reset choice selection state
       setSelectedChoice(null);
       setShowChoicesDuringGeneration(true);
+      
+      // Refresh chapter sidebar to update context counter
+      setChapterSidebarRefreshKey(prev => prev + 1);
 
     } catch (err) {
       console.error('generateNewScene error', err);
@@ -419,6 +438,9 @@ export default function StoryPage() {
           // Reload the story to get the updated data
           await loadStory(false, true); // Scroll to new scene after streaming
           setCustomPrompt('');
+          
+          // Refresh chapter sidebar to update context counter
+          setChapterSidebarRefreshKey(prev => prev + 1);
           
           // Clear operation flag with delay to let DOM settle
           setTimeout(() => setIsSceneOperationInProgress(false), 1500);
@@ -876,6 +898,7 @@ export default function StoryPage() {
     <div className="min-h-screen bg-gray-900 text-white pt-16">
       {/* Chapter Sidebar */}
       <ChapterSidebar 
+        key={chapterSidebarRefreshKey}
         storyId={storyId}
         isOpen={isChapterSidebarOpen}
         onToggle={() => setIsChapterSidebarOpen(!isChapterSidebarOpen)}
@@ -989,37 +1012,6 @@ export default function StoryPage() {
 
             {/* Scenes Display with Performance Optimization */}
             <div className="prose prose-invert prose-lg max-w-none mb-8">
-              {/* Streaming Content Display - Show even when no scenes exist yet */}
-              {isStreaming && streamingContent && (
-                <div className="streaming-scene">
-                  {/* Scene Separator for streaming */}
-                  {story?.scenes && story.scenes.length > 0 && userSettings?.show_scene_titles === true && (
-                    <div className="flex items-center my-8">
-                      <div className="flex-1 h-px bg-gray-600"></div>
-                      <div className="px-4 text-gray-500 text-sm">Scene {streamingSceneNumber}</div>
-                      <div className="flex-1 h-px bg-gray-600"></div>
-                    </div>
-                  )}
-                  
-                  <div className="relative">
-                    <div className="prose prose-invert prose-lg max-w-none">
-                      <div className="streaming-content-wrapper">
-                        <FormattedText 
-                          content={streamingContent} 
-                          className="streaming-content inline"
-                        />
-                        <span className="inline-block w-2 h-5 bg-pink-500 animate-pulse ml-1 align-middle">|</span>
-                      </div>
-                    </div>
-                    
-                    {/* Streaming indicator */}
-                    <div className="absolute top-0 right-0 bg-pink-600 text-white text-xs px-2 py-1 rounded-full animate-pulse">
-                      Generating...
-                    </div>
-                  </div>
-                </div>
-              )}
-              
               {story?.scenes && story.scenes.length > 0 ? (
                 <div className="space-y-8">
                   {/* Load Earlier Scenes - Thin Line Design */}
@@ -1125,6 +1117,37 @@ export default function StoryPage() {
                   >
                     {isGenerating || isStreaming ? 'Creating...' : 'Begin Your Story'}
                   </button>
+                </div>
+              )}
+              
+              {/* Streaming Content Display - Show at bottom after existing scenes */}
+              {isStreaming && streamingContent && (
+                <div className="streaming-scene mt-8">
+                  {/* Scene Separator for streaming */}
+                  {story?.scenes && story.scenes.length > 0 && userSettings?.show_scene_titles === true && (
+                    <div className="flex items-center my-8">
+                      <div className="flex-1 h-px bg-gray-600"></div>
+                      <div className="px-4 text-gray-500 text-sm">Scene {streamingSceneNumber}</div>
+                      <div className="flex-1 h-px bg-gray-600"></div>
+                    </div>
+                  )}
+                  
+                  <div className="relative">
+                    <div className="prose prose-invert prose-lg max-w-none">
+                      <div className="streaming-content-wrapper">
+                        <FormattedText 
+                          content={streamingContent} 
+                          className="streaming-content inline"
+                        />
+                        <span className="inline-block w-2 h-5 bg-pink-500 animate-pulse ml-1 align-middle">|</span>
+                      </div>
+                    </div>
+                    
+                    {/* Streaming indicator */}
+                    <div className="absolute top-0 right-0 bg-pink-600 text-white text-xs px-2 py-1 rounded-full animate-pulse">
+                      Generating...
+                    </div>
+                  </div>
                 </div>
               )}
             </div>

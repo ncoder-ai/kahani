@@ -686,13 +686,13 @@ class ApiClient {
   async getChapterContextStatus(storyId: number, chapterId: number) {
     return this.request<{
       chapter_id: number;
-      chapter_number: number;
-      context_tokens_used: number;
-      context_budget: number;
-      usage_percentage: number;
+      current_tokens: number;
+      max_tokens: number;
+      percentage_used: number;
+      should_create_new_chapter: boolean;
+      reason: string | null;
       scenes_count: number;
-      warning_threshold_reached: boolean;
-      recommendation: string;
+      avg_generation_time?: number | null;
     }>(`/api/stories/${storyId}/chapters/${chapterId}/context-status`);
   }
 
