@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, BookOpen, AlertCircle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, BookOpen, AlertCircle, Edit2, Save, X } from 'lucide-react';
 import apiClient from '@/lib/api';
 
 interface Chapter {
@@ -44,6 +44,11 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle }: ChapterSid
   const [contextStatus, setContextStatus] = useState<ChapterContextStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Story So Far editing state
+  const [isEditingStorySoFar, setIsEditingStorySoFar] = useState(false);
+  const [storySoFarDraft, setStorySoFarDraft] = useState('');
+  const [isSavingStorySoFar, setIsSavingStorySoFar] = useState(false);
 
   useEffect(() => {
     loadChapters();
@@ -84,6 +89,49 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle }: ChapterSid
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleEditStorySoFar = () => {
+    // Initialize with auto_summary if story_so_far is empty, otherwise use existing story_so_far
+    const initialContent = activeChapter?.story_so_far || activeChapter?.auto_summary || '';
+    setStorySoFarDraft(initialContent);
+    setIsEditingStorySoFar(true);
+  };
+
+  const handleSaveStorySoFar = async () => {
+    if (!activeChapter) return;
+    
+    setIsSavingStorySoFar(true);
+    try {
+      await apiClient.updateChapter(storyId, activeChapter.id, {
+        story_so_far: storySoFarDraft
+      });
+      
+      // Update local state
+      setActiveChapter({
+        ...activeChapter,
+        story_so_far: storySoFarDraft
+      });
+      
+      // Also update in chapters list
+      setChapters(prev => prev.map(ch => 
+        ch.id === activeChapter.id 
+          ? { ...ch, story_so_far: storySoFarDraft }
+          : ch
+      ));
+      
+      setIsEditingStorySoFar(false);
+    } catch (err) {
+      console.error('Failed to save story so far:', err);
+      alert('Failed to save changes. Please try again.');
+    } finally {
+      setIsSavingStorySoFar(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditingStorySoFar(false);
+    setStorySoFarDraft('');
   };
 
   const getStatusBadgeColor = (status: string) => {
@@ -219,23 +267,27 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle }: ChapterSid
                   </div>
                 )}
 
-                {/* Story So Far */}
-                {activeChapter.story_so_far && (
+                {/* Story So Far - Editable */}
+                {(activeChapter.story_so_far || activeChapter.auto_summary) && (
                   <div className="mt-3 pt-3 border-t border-slate-700">
-                    <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2">Story So Far</h4>
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-xs font-semibold text-gray-400 uppercase">Story So Far</h4>
+                      <button
+                        onClick={handleEditStorySoFar}
+                        className="p-1 hover:bg-slate-700 rounded transition-colors text-gray-400 hover:text-white"
+                        title="Edit story summary"
+                      >
+                        <Edit2 className="w-3 h-3" />
+                      </button>
+                    </div>
                     <p className="text-sm text-gray-300 whitespace-pre-wrap">
-                      {activeChapter.story_so_far}
+                      {activeChapter.story_so_far || activeChapter.auto_summary}
                     </p>
-                  </div>
-                )}
-
-                {/* Auto Summary */}
-                {activeChapter.auto_summary && (
-                  <div className="mt-3 pt-3 border-t border-slate-700">
-                    <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2">Chapter Summary</h4>
-                    <p className="text-sm text-gray-300 whitespace-pre-wrap">
-                      {activeChapter.auto_summary}
-                    </p>
+                    {!activeChapter.story_so_far && activeChapter.auto_summary && (
+                      <p className="text-xs text-gray-500 italic mt-1">
+                        Auto-generated summary (click edit to customize)
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -281,6 +333,79 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle }: ChapterSid
           </>
         )}
       </div>
+      
+      {/* Edit Story So Far Modal */}
+      {isEditingStorySoFar && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-800 rounded-lg border border-slate-700 w-full max-w-2xl max-h-[80vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b border-slate-700">
+              <div>
+                <h3 className="text-lg font-semibold text-white">Edit Story So Far</h3>
+                <p className="text-sm text-gray-400 mt-1">
+                  Customize the chapter summary that provides context for scene generation
+                </p>
+              </div>
+              <button
+                onClick={handleCancelEdit}
+                className="p-2 hover:bg-slate-700 rounded transition-colors text-gray-400 hover:text-white"
+                disabled={isSavingStorySoFar}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-4">
+              <textarea
+                value={storySoFarDraft}
+                onChange={(e) => setStorySoFarDraft(e.target.value)}
+                className="w-full h-full min-h-[300px] bg-slate-900 border border-slate-600 rounded-lg p-3 text-gray-200 placeholder-gray-500 resize-none focus:outline-none focus:border-purple-500"
+                placeholder="Enter a summary of the story so far to provide context for future scenes..."
+                disabled={isSavingStorySoFar}
+              />
+              <p className="text-xs text-gray-500 mt-2">
+                {storySoFarDraft.length} characters
+              </p>
+            </div>
+            
+            {/* Footer */}
+            <div className="flex items-center justify-between p-4 border-t border-slate-700">
+              <div className="text-xs text-gray-500">
+                {!activeChapter?.story_so_far && activeChapter?.auto_summary && (
+                  <span>💡 Started with auto-generated summary</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleCancelEdit}
+                  className="px-4 py-2 text-gray-400 hover:text-white transition-colors"
+                  disabled={isSavingStorySoFar}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveStorySoFar}
+                  disabled={isSavingStorySoFar}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+                >
+                  {isSavingStorySoFar ? (
+                    <>
+                      <span className="animate-spin">⚙️</span>
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      Save Changes
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
