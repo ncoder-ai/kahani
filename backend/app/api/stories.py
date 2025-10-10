@@ -544,7 +544,7 @@ async def generate_scene_streaming_endpoint(
                         try:
                             # Generate summary asynchronously (don't wait for it)
                             from ..api.chapters import generate_chapter_summary
-                            await generate_chapter_summary(active_chapter.id, db, current_user.id, user_settings)
+                            await generate_chapter_summary(active_chapter.id, db, current_user.id)
                             active_chapter.last_summary_scene_count = active_chapter.scenes_count
                             db.commit()
                             logger.info(f"[CHAPTER] Auto-summary generated for chapter {active_chapter.id}")

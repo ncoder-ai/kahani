@@ -153,34 +153,36 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle }: ChapterSid
     return 'text-green-400';
   };
 
+  // Don't render anything when closed - it's controlled by the main menu now
   if (!isOpen) {
-    return (
-      <button
-        onClick={onToggle}
-        className="fixed right-4 top-24 z-40 p-2 bg-slate-800 border border-slate-700 rounded-lg hover:bg-slate-700 transition-colors"
-        aria-label="Open chapter sidebar"
-      >
-        <ChevronLeft className="w-5 h-5" />
-      </button>
-    );
+    return null;
   }
 
+  // Full modal when open
   return (
-    <div className="fixed right-0 top-16 bottom-0 w-80 bg-slate-900 border-l border-slate-700 z-40 flex flex-col overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-slate-700">
-        <div className="flex items-center gap-2">
-          <BookOpen className="w-5 h-5 text-purple-400" />
-          <h2 className="text-lg font-semibold">Chapters</h2>
+    <>
+      {/* Backdrop */}
+      <div 
+        className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40"
+        onClick={onToggle}
+      />
+      
+      {/* Modal - Left side to match menu */}
+      <div className="fixed inset-y-4 left-4 right-4 md:right-auto md:w-96 bg-slate-900 border border-slate-700 rounded-lg z-50 flex flex-col overflow-hidden shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-slate-700 bg-gradient-to-r from-purple-900/50 to-pink-900/50">
+          <div className="flex items-center gap-2">
+            <BookOpen className="w-5 h-5 text-purple-400" />
+            <h2 className="text-lg font-semibold">Chapters</h2>
+          </div>
+          <button
+            onClick={onToggle}
+            className="p-1 hover:bg-slate-700 rounded transition-colors"
+            aria-label="Close chapters"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
-        <button
-          onClick={onToggle}
-          className="p-1 hover:bg-slate-800 rounded transition-colors"
-          aria-label="Close chapter sidebar"
-        >
-          <ChevronRight className="w-5 h-5" />
-        </button>
-      </div>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
@@ -280,10 +282,15 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle }: ChapterSid
                         <Edit2 className="w-3 h-3" />
                       </button>
                     </div>
-                    <p className="text-sm text-gray-300 whitespace-pre-wrap">
-                      {activeChapter.story_so_far || activeChapter.auto_summary}
-                    </p>
-                    {!activeChapter.story_so_far && activeChapter.auto_summary && (
+                    <div className="max-h-32 overflow-y-auto">
+                      <p className="text-sm text-gray-300 whitespace-pre-wrap">
+                        {/* Show auto_summary if it exists and story_so_far is default text, otherwise show story_so_far */}
+                        {activeChapter.auto_summary && (!activeChapter.story_so_far || activeChapter.story_so_far === 'The story begins...')
+                          ? activeChapter.auto_summary
+                          : activeChapter.story_so_far || activeChapter.auto_summary}
+                      </p>
+                    </div>
+                    {activeChapter.auto_summary && (!activeChapter.story_so_far || activeChapter.story_so_far === 'The story begins...') && (
                       <p className="text-xs text-gray-500 italic mt-1">
                         Auto-generated summary (click edit to customize)
                       </p>
@@ -333,10 +340,13 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle }: ChapterSid
           </>
         )}
       </div>
+    </div>
       
       {/* Edit Story So Far Modal */}
       {isEditingStorySoFar && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={(e) => {
+          if (e.target === e.currentTarget) handleCancelEdit();
+        }}>
           <div className="bg-slate-800 rounded-lg border border-slate-700 w-full max-w-2xl max-h-[80vh] flex flex-col">
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b border-slate-700">
@@ -406,6 +416,6 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle }: ChapterSid
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

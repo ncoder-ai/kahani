@@ -11,6 +11,7 @@ import FormattedText from '@/components/FormattedText';
 import SceneDisplay from '@/components/SceneDisplay';
 import SceneVariantDisplay from '@/components/SceneVariantDisplay';
 import ChapterSidebar from '@/components/ChapterSidebar';
+import { BookOpen, ChevronRight, X } from 'lucide-react';
 import { 
   BookOpenIcon, 
   FilmIcon,
@@ -144,8 +145,11 @@ export default function StoryPage() {
   const [isLoadingEarlierScenes, setIsLoadingEarlierScenes] = useState(false);
   
   // Chapter sidebar state
-  const [isChapterSidebarOpen, setIsChapterSidebarOpen] = useState(true);
+  const [isChapterSidebarOpen, setIsChapterSidebarOpen] = useState(false); // Start closed
   const [chapterSidebarRefreshKey, setChapterSidebarRefreshKey] = useState(0);
+  
+  // Main menu modal state
+  const [showMainMenu, setShowMainMenu] = useState(false);
   
   // Modern scene layout states
   const [sceneLayoutMode, setSceneLayoutMode] = useState<'stacked' | 'modern'>('modern');
@@ -303,18 +307,29 @@ export default function StoryPage() {
     setShowSummaryModal(true);
     
     try {
-      const response = await fetch(`http://localhost:8000/api/stories/${storyId}/summary`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
+      // Load active chapter to get auto_summary
+      const activeChapter = await apiClient.getActiveChapter(storyId);
       
-      if (response.ok) {
-        const summaryData = await response.json();
-        setStorySummary(summaryData);
+      if (activeChapter && activeChapter.auto_summary) {
+        // Set the chapter's auto_summary as the AI summary
+        setAiSummary(activeChapter.auto_summary);
+        // Don't set storySummary - we'll only show the chapter summary in aiSummary
+        setStorySummary(null);
       } else {
-        console.error('Failed to load summary');
-        setStorySummary({ error: 'Failed to load summary' });
+        // Fallback to old summary endpoint if no chapter summary exists
+        const response = await fetch(`http://localhost:8000/api/stories/${storyId}/summary`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+        
+        if (response.ok) {
+          const summaryData = await response.json();
+          setStorySummary(summaryData);
+        } else {
+          console.error('Failed to load summary');
+          setStorySummary({ error: 'Failed to load summary' });
+        }
       }
     } catch (error) {
       console.error('Error loading summary:', error);
@@ -335,8 +350,23 @@ export default function StoryPage() {
     setAiSummary(null);
     
     try {
+      // First try to get active chapter and generate its summary
+      const activeChapter = await apiClient.getActiveChapter(storyId);
+      
+      if (activeChapter) {
+        console.log('[SUMMARY] Generating chapter summary for chapter:', activeChapter.id);
+        const summary = await apiClient.generateChapterSummary(storyId, activeChapter.id);
+        
+        if (summary && summary.auto_summary) {
+          console.log('[SUMMARY] Chapter summary generated:', summary.auto_summary.length, 'chars');
+          setAiSummary(summary.auto_summary);
+          return;
+        }
+      }
+      
+      // Fallback to old regenerate-summary endpoint
       const url = `http://localhost:8000/api/stories/${storyId}/regenerate-summary`;
-      console.log('[SUMMARY] Calling API:', url);
+      console.log('[SUMMARY] Calling fallback API:', url);
       
       const response = await fetch(url, {
         method: 'POST',
@@ -896,7 +926,287 @@ export default function StoryPage() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white pt-16">
-      {/* Chapter Sidebar */}
+      {/* Single Menu Button - Left Side */}
+      <button
+        onClick={() => setShowMainMenu(true)}
+        className="fixed left-4 bottom-4 z-40 p-4 bg-gradient-to-br from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white rounded-full shadow-2xl transition-all hover:scale-110"
+        aria-label="Open menu"
+      >
+        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+      </button>
+      
+      {/* Main Menu Modal */}
+      {showMainMenu && (
+        <>
+          {/* Backdrop */}
+          <div 
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40"
+            onClick={() => setShowMainMenu(false)}
+          />
+          
+          {/* Menu Modal */}
+          <div className="fixed left-4 bottom-20 z-50 w-80 max-w-[calc(100vw-2rem)] bg-slate-900 border border-slate-700 rounded-lg shadow-2xl overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b border-slate-700 bg-gradient-to-r from-purple-900/50 to-pink-900/50">
+              <h2 className="text-lg font-semibold">Story Menu</h2>
+              <button
+                onClick={() => setShowMainMenu(false)}
+                className="p-1 hover:bg-slate-700 rounded transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            {/* Menu Items */}
+            <div className="p-2 max-h-[calc(100vh-12rem)] overflow-y-auto">
+              {/* Chapter Navigation */}
+              <button
+                onClick={() => {
+                  setShowMainMenu(false);
+                  setIsChapterSidebarOpen(true);
+                }}
+                className="w-full flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors text-left group"
+              >
+                <div className="p-2 bg-purple-600/20 rounded-lg group-hover:bg-purple-600/30 transition-colors">
+                  <BookOpen className="w-5 h-5 text-purple-400" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-white">Chapters</div>
+                  <div className="text-xs text-gray-400">View chapter info & summaries</div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-gray-500" />
+              </button>
+              
+              {/* Add Character */}
+              <button
+                onClick={() => {
+                  setShowMainMenu(false);
+                  setShowCharacterQuickAdd(true);
+                }}
+                className="w-full flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors text-left group"
+              >
+                <div className="p-2 bg-purple-600/20 rounded-lg group-hover:bg-purple-600/30 transition-colors">
+                  <PlusIcon className="w-5 h-5 text-purple-400" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-white">Add Character</div>
+                  <div className="text-xs text-gray-400">Quick add a new character</div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-gray-500" />
+              </button>
+              
+              {/* View All Characters */}
+              <button
+                onClick={() => {
+                  setShowMainMenu(false);
+                  router.push('/characters');
+                }}
+                className="w-full flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors text-left group"
+              >
+                <div className="p-2 bg-blue-600/20 rounded-lg group-hover:bg-blue-600/30 transition-colors">
+                  <BookOpenIcon className="w-5 h-5 text-blue-400" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-white">All Characters</div>
+                  <div className="text-xs text-gray-400">Manage your characters</div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-gray-500" />
+              </button>
+
+              {/* Divider */}
+              <div className="my-2 border-t border-slate-700"></div>
+              
+              {/* Director Mode */}
+              <button
+                onClick={() => {
+                  setShowMainMenu(false);
+                  setDirectorMode(!directorMode);
+                }}
+                className="w-full flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors text-left group"
+              >
+                <div className={`p-2 rounded-lg transition-colors ${
+                  directorMode 
+                    ? 'bg-pink-600/20 group-hover:bg-pink-600/30' 
+                    : 'bg-gray-600/20 group-hover:bg-gray-600/30'
+                }`}>
+                  <FilmIcon className={`w-5 h-5 ${directorMode ? 'text-pink-400' : 'text-gray-400'}`} />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-white">Director Mode</div>
+                  <div className={`text-xs ${directorMode ? 'text-pink-400' : 'text-gray-400'}`}>
+                    {directorMode ? 'Control scene details' : 'Direct what happens next'}
+                  </div>
+                </div>
+                <div className={`px-2 py-1 rounded text-xs font-medium ${
+                  directorMode 
+                    ? 'bg-pink-600/20 text-pink-400' 
+                    : 'bg-gray-600/20 text-gray-400'
+                }`}>
+                  {directorMode ? 'ON' : 'OFF'}
+                </div>
+              </button>
+
+              {/* Lorebook */}
+              <button
+                onClick={() => {
+                  setShowMainMenu(false);
+                  setShowLorebook(!showLorebook);
+                }}
+                className="w-full flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors text-left group"
+              >
+                <div className={`p-2 rounded-lg transition-colors ${
+                  showLorebook 
+                    ? 'bg-yellow-600/20 group-hover:bg-yellow-600/30' 
+                    : 'bg-gray-600/20 group-hover:bg-gray-600/30'
+                }`}>
+                  <BookOpenIcon className={`w-5 h-5 ${showLorebook ? 'text-yellow-400' : 'text-gray-400'}`} />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-white">Lorebook</div>
+                  <div className={`text-xs ${showLorebook ? 'text-yellow-400' : 'text-gray-400'}`}>
+                    {showLorebook ? 'Managing lore items' : 'Manage world & characters'}
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-gray-500" />
+              </button>
+
+              {/* Delete Mode */}
+              <button
+                onClick={() => {
+                  setShowMainMenu(false);
+                  if (isInDeleteMode) {
+                    deleteScenesFromSelected();
+                  } else {
+                    toggleDeleteMode();
+                  }
+                }}
+                className="w-full flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors text-left group"
+              >
+                <div className={`p-2 rounded-lg transition-colors ${
+                  isInDeleteMode 
+                    ? 'bg-red-600/20 group-hover:bg-red-600/30' 
+                    : 'bg-gray-600/20 group-hover:bg-gray-600/30'
+                }`}>
+                  <CheckIcon className={`w-5 h-5 ${isInDeleteMode ? 'text-red-400' : 'text-gray-400'}`} />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-white">
+                    {isInDeleteMode ? 'Delete Selected' : 'Delete Mode'}
+                  </div>
+                  <div className={`text-xs ${isInDeleteMode ? 'text-red-400' : 'text-gray-400'}`}>
+                    {isInDeleteMode ? 'Confirm deletion' : 'Select scenes to delete'}
+                  </div>
+                </div>
+                {isInDeleteMode && (
+                  <div className="px-2 py-1 rounded text-xs font-medium bg-red-600/20 text-red-400">
+                    {selectedScenesForDeletion.length} selected
+                  </div>
+                )}
+              </button>
+
+              {/* Divider */}
+              <div className="my-2 border-t border-slate-700"></div>
+
+              {/* Streaming Toggle */}
+              <button
+                onClick={() => setUseStreaming(!useStreaming)}
+                className="w-full flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors text-left group"
+              >
+                <div className={`p-2 rounded-lg transition-colors ${
+                  useStreaming 
+                    ? 'bg-green-600/20 group-hover:bg-green-600/30' 
+                    : 'bg-gray-600/20 group-hover:bg-gray-600/30'
+                }`}>
+                  {useStreaming ? (
+                    <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                  ) : (
+                    <DocumentTextIcon className="w-5 h-5 text-gray-400" />
+                  )}
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-white">Streaming Mode</div>
+                  <div className={`text-xs ${useStreaming ? 'text-green-400' : 'text-gray-400'}`}>
+                    {useStreaming ? 'Real-time generation' : 'Standard mode'}
+                  </div>
+                </div>
+                <div className={`px-2 py-1 rounded text-xs font-medium ${
+                  useStreaming 
+                    ? 'bg-green-600/20 text-green-400' 
+                    : 'bg-gray-600/20 text-gray-400'
+                }`}>
+                  {useStreaming ? 'ON' : 'OFF'}
+                </div>
+              </button>
+
+              {/* Placeholders for future features */}
+              <button
+                disabled
+                className="w-full flex items-center gap-3 p-3 opacity-50 cursor-not-allowed rounded-lg text-left group"
+              >
+                <div className="p-2 bg-gray-600/20 rounded-lg">
+                  <PhotoIcon className="w-5 h-5 text-gray-400" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-white">Image Generation</div>
+                  <div className="text-xs text-gray-400">Coming soon</div>
+                </div>
+              </button>
+
+              <button
+                disabled
+                className="w-full flex items-center gap-3 p-3 opacity-50 cursor-not-allowed rounded-lg text-left group"
+              >
+                <div className="p-2 bg-gray-600/20 rounded-lg">
+                  <ClockIcon className="w-5 h-5 text-gray-400" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-white">History</div>
+                  <div className="text-xs text-gray-400">Coming soon</div>
+                </div>
+              </button>
+
+              <button
+                disabled
+                className="w-full flex items-center gap-3 p-3 opacity-50 cursor-not-allowed rounded-lg text-left group"
+              >
+                <div className="p-2 bg-gray-600/20 rounded-lg">
+                  <ArrowDownIcon className="w-5 h-5 text-gray-400" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-white">Export</div>
+                  <div className="text-xs text-gray-400">Coming soon</div>
+                </div>
+              </button>
+
+              {/* Divider */}
+              <div className="my-2 border-t border-slate-700"></div>
+
+              {/* Close Story */}
+              <button
+                onClick={() => {
+                  setShowMainMenu(false);
+                  handleCloseStory();
+                }}
+                className="w-full flex items-center gap-3 p-3 hover:bg-red-900/20 rounded-lg transition-colors text-left group"
+              >
+                <div className="p-2 bg-orange-600/20 rounded-lg group-hover:bg-orange-600/30 transition-colors">
+                  <X className="w-5 h-5 text-orange-400" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-white">Close Story</div>
+                  <div className="text-xs text-orange-400">Return to dashboard</div>
+                </div>
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+      
+      {/* Chapter Sidebar - Opens from main menu */}
       <ChapterSidebar 
         key={chapterSidebarRefreshKey}
         storyId={storyId}
@@ -904,67 +1214,22 @@ export default function StoryPage() {
         onToggle={() => setIsChapterSidebarOpen(!isChapterSidebarOpen)}
       />
       
-      {/* Navigation Header */}
+      {/* Navigation Header - Simplified */}
       <div className="bg-gray-800/95 backdrop-blur-md border-b border-gray-700">
-        <div className="max-w-4xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={() => setShowCharacterQuickAdd(true)}
-                className="px-3 py-1.5 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 hover:text-purple-200 rounded-lg transition-colors text-sm font-medium border border-purple-500/30"
-              >
-                + Character
-              </button>
-              <button
-                onClick={() => router.push('/characters')}
-                className="px-3 py-1.5 bg-gray-700/50 hover:bg-gray-700 text-gray-300 hover:text-white rounded-lg transition-colors text-sm font-medium border border-gray-600"
-              >
-                📚 Characters
-              </button>
-              
-              <button
-                onClick={handleViewSummary}
-                className="px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 hover:text-blue-200 rounded-lg transition-colors text-sm font-medium border border-blue-500/30"
-              >
-                📊 Summary
-              </button>
-              
-              <button
-                onClick={handleCloseStory}
-                className="px-3 py-1.5 bg-orange-600/20 hover:bg-orange-600/30 text-orange-300 hover:text-orange-200 rounded-lg transition-colors text-sm font-medium border border-orange-500/30"
-                title="Close story and return to dashboard"
-              >
-                ✕ Close
-              </button>
-              
-              {/* Streaming Toggle */}
-              <button
-                onClick={() => setUseStreaming(!useStreaming)}
-                className={`px-3 py-1.5 rounded-lg transition-colors text-sm font-medium border ${
-                  useStreaming 
-                    ? 'bg-green-600/20 hover:bg-green-600/30 text-green-300 hover:text-green-200 border-green-500/30' 
-                    : 'bg-gray-700/50 hover:bg-gray-700 text-gray-300 hover:text-white border-gray-600'
-                }`}
-              >
-                {useStreaming ? '⚡ Streaming' : '📄 Standard'}
-              </button>
+        <div className="max-w-4xl mx-auto px-4 md:px-6 py-3 md:py-4">
+          <div className="flex items-center justify-center md:justify-start space-x-2 md:space-x-4">
+            <div className="text-gray-300 text-sm md:text-base font-medium truncate">
+              {story?.title}
             </div>
-            
-            <div className="flex items-center space-x-4">
-              <div className="text-gray-400 text-sm">
-                {story?.title}
-              </div>
-              <div className="flex items-center space-x-2 text-gray-500 text-sm">
-                <span>Chapter 1</span>
-                <span>•</span>
-                <span>{story?.scenes?.length || 0} scenes</span>
-                {storyCharacters.length > 0 && (
-                  <>
-                    <span>•</span>
-                    <span className="text-purple-400">{storyCharacters.length} characters</span>
-                  </>
-                )}
-              </div>
+            <div className="hidden sm:flex items-center space-x-2 text-gray-500 text-xs md:text-sm">
+              <span>•</span>
+              <span>{story?.scenes?.length || 0} scenes</span>
+              {storyCharacters.length > 0 && (
+                <>
+                  <span>•</span>
+                  <span className="text-purple-400">{storyCharacters.length} characters</span>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -1215,35 +1480,6 @@ export default function StoryPage() {
             </div>
           </div>
         </div>
-
-        {/* Bottom Toolbar */}
-        <div className="border-t border-gray-700 bg-gray-800">
-          <div className="flex items-center justify-between px-6 py-4">
-            <div className="flex items-center space-x-6">
-              <ToolbarButton 
-                icon={BookOpenIcon} 
-                label="Lorebook" 
-                active={showLorebook}
-                onClick={() => setShowLorebook(!showLorebook)}
-              />
-              <ToolbarButton 
-                icon={FilmIcon} 
-                label="Director" 
-                active={directorMode}
-                onClick={() => setDirectorMode(!directorMode)}
-              />
-              <ToolbarButton icon={PhotoIcon} label="Image" />
-              <ToolbarButton icon={ClockIcon} label="History" />
-              <ToolbarButton 
-                icon={CheckIcon} 
-                label={isInDeleteMode ? "Delete Selected" : "Delete Mode"}
-                active={isInDeleteMode}
-                onClick={isInDeleteMode ? deleteScenesFromSelected : toggleDeleteMode}
-              />
-              <ToolbarButton icon={ArrowDownIcon} label="Export" />
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* Lorebook Sidebar */}
@@ -1435,7 +1671,7 @@ export default function StoryPage() {
                           <span className="ml-3 text-gray-300">Generating comprehensive story summary...</span>
                         </div>
                       ) : aiSummary ? (
-                        <div className="text-gray-300 text-sm leading-relaxed max-h-64 overflow-y-auto border border-blue-600/50 rounded p-3 bg-blue-900/20">
+                        <div className="text-gray-300 text-sm leading-relaxed h-96 overflow-y-auto border border-blue-600/50 rounded p-3 bg-blue-900/20">
                           {aiSummary}
                         </div>
                       ) : null}
@@ -1448,7 +1684,7 @@ export default function StoryPage() {
                   {/* Story Summary */}
                   <div className="bg-gray-700/30 rounded-lg p-4">
                     <h3 className="font-semibold text-green-300 mb-3">Story Summary</h3>
-                    <div className="text-gray-300 text-sm leading-relaxed max-h-64 overflow-y-auto border border-gray-600/50 rounded p-3 bg-gray-800/50">
+                    <div className="text-gray-300 text-sm leading-relaxed h-64 overflow-y-auto border border-gray-600/50 rounded p-3 bg-gray-800/50">
                       {storySummary.summary}
                     </div>
                     <div className="text-xs text-gray-400 mt-2">
@@ -1464,30 +1700,3 @@ export default function StoryPage() {
     </div>
   );
 }
-
-function ToolbarButton({ 
-  icon: Icon, 
-  label, 
-  active = false, 
-  onClick 
-}: { 
-  icon: any; 
-  label: string; 
-  active?: boolean; 
-  onClick?: () => void; 
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex flex-col items-center space-y-1 p-2 rounded-lg transition-colors ${
-        active 
-          ? 'text-pink-500 bg-pink-500/10' 
-          : 'text-gray-400 hover:text-white hover:bg-gray-700'
-      }`}
-    >
-      <Icon className="w-5 h-5" />
-      <span className="text-xs">{label}</span>
-    </button>
-  );
-}
-
