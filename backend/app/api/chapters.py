@@ -409,9 +409,14 @@ Provide a clear, comprehensive summary in 2-3 paragraphs:"""
     user_settings_obj = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
     user_settings = user_settings_obj.to_dict() if user_settings_obj else None
     
-    # Generate summary
-    context = {"prompt": prompt}
-    summary = await llm_service.generate_scene_continuation(context, user_id, user_settings)
+    # Generate summary using basic LLM generation (not scene continuation)
+    summary = await llm_service._generate(
+        prompt=prompt,
+        user_id=user_id,
+        user_settings=user_settings,
+        system_prompt="You are a helpful assistant that creates concise narrative summaries.",
+        max_tokens=400  # Enough for a good summary
+    )
     
     # Update chapter
     chapter.auto_summary = summary
