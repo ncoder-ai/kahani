@@ -97,20 +97,26 @@ class OpenAICompatibleProvider(TTSProviderBase):
                 
                 audio_data = response.content
                 
+                # Detect actual format from audio data (ChatterboxTTS may return different format)
+                actual_format = self._detect_audio_format(audio_data, request.format)
+                
                 logger.info(
-                    f"Successfully generated audio: {len(audio_data)} bytes"
+                    f"Successfully generated audio: {len(audio_data)} bytes, "
+                    f"requested format: {request.format.value}, actual format: {actual_format.value}"
                 )
                 
                 return TTSResponse(
                     audio_data=audio_data,
-                    format=request.format,
-                    duration=self._estimate_duration(len(audio_data), request.format),
+                    format=actual_format,  # Use detected format instead of requested
+                    duration=self._estimate_duration(len(audio_data), actual_format),
                     sample_rate=request.sample_rate,
                     file_size=len(audio_data),
                     metadata={
                         "provider": self.provider_name,
                         "voice": request.voice_id,
-                        "speed": request.speed
+                        "speed": request.speed,
+                        "requested_format": request.format.value,
+                        "actual_format": actual_format.value
                     }
                 )
                 
@@ -240,6 +246,34 @@ class OpenAICompatibleProvider(TTSProviderBase):
         except Exception as e:
             logger.error(f"Voice validation failed: {e}")
             return False
+    
+    def _detect_audio_format(self, audio_data: bytes, requested_format: AudioFormat) -> AudioFormat:
+        """
+        Detect actual audio format from data.
+        Some TTS APIs return different formats than requested.
+        """
+        if len(audio_data) < 12:
+            return requested_format
+        
+        # Check for WAV format (RIFF header)
+        if audio_data[:4] == b'RIFF' and audio_data[8:12] == b'WAVE':
+            return AudioFormat.WAV
+        
+        # Check for MP3 format (ID3 tag or MPEG sync)
+        if audio_data[:3] == b'ID3' or (audio_data[0] == 0xFF and (audio_data[1] & 0xE0) == 0xE0):
+            return AudioFormat.MP3
+        
+        # Check for OGG format
+        if audio_data[:4] == b'OggS':
+            return AudioFormat.OGG
+        
+        # Check for AAC/M4A format (ftyp box)
+        if audio_data[4:8] == b'ftyp':
+            return AudioFormat.AAC
+        
+        # Default to requested format if we can't detect
+        logger.warning(f"Could not detect audio format, using requested: {requested_format.value}")
+        return requested_format
     
     def _estimate_duration(self, file_size: int, format: AudioFormat) -> float:
         """Estimate audio duration from file size"""
