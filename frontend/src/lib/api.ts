@@ -44,37 +44,57 @@ class ApiClient {
       headers.Authorization = `Bearer ${this.token}`;
     }
 
-    const response = await fetch(url, { ...options, headers });
+    console.log(`[API] ${options.method || 'GET'} ${url}`);
+    console.log('[API] Base URL:', this.baseURL);
+    console.log('[API] Endpoint:', endpoint);
+    console.log('[API] Headers:', Object.keys(headers));
 
-    if (!response.ok) {
-      if (response.status === 401) {
-        this.removeToken();
-        if (typeof window !== 'undefined') {
-          window.location.href = '/login';
+    try {
+      const response = await fetch(url, { ...options, headers });
+      console.log(`[API] Response status: ${response.status} ${response.statusText}`);
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          console.log('[API] 401 Unauthorized - removing token');
+          this.removeToken();
+          if (typeof window !== 'undefined') {
+            window.location.href = '/login';
+          }
+          throw new Error('Authentication required');
         }
-        throw new Error('Authentication required');
+
+        let errorData: any;
+        try {
+          errorData = await response.json();
+          console.log('[API] Error response data:', errorData);
+        } catch (e) {
+          console.error('[API] Failed to parse error response:', e);
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        if (errorData.detail && Array.isArray(errorData.detail)) {
+          const errorMessages = errorData.detail.map((err: any) => {
+            const location = err.loc ? err.loc.slice(1).join(' -> ') : 'Field';
+            return `${location}: ${err.msg}`;
+          }).join(', ');
+          throw new Error(errorMessages);
+        }
+
+        const errorMessage = errorData.detail || errorData.message || `HTTP ${response.status}: ${response.statusText}`;
+        throw new Error(typeof errorMessage === 'string' ? errorMessage : JSON.stringify(errorMessage));
       }
 
-      let errorData: any;
-      try {
-        errorData = await response.json();
-      } catch (e) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      const data = await response.json();
+      console.log('[API] Response data received successfully');
+      return data;
+    } catch (error) {
+      if (error instanceof Error) {
+        console.error('[API] Request failed:', error.message);
+      } else {
+        console.error('[API] Request failed with unknown error:', error);
       }
-
-      if (errorData.detail && Array.isArray(errorData.detail)) {
-        const errorMessages = errorData.detail.map((err: any) => {
-          const location = err.loc ? err.loc.slice(1).join(' -> ') : 'Field';
-          return `${location}: ${err.msg}`;
-        }).join(', ');
-        throw new Error(errorMessages);
-      }
-
-      const errorMessage = errorData.detail || errorData.message || `HTTP ${response.status}: ${response.statusText}`;
-      throw new Error(typeof errorMessage === 'string' ? errorMessage : JSON.stringify(errorMessage));
+      throw error;
     }
-
-    return response.json();
   }
 
   // Authentication

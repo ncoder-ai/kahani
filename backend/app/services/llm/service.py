@@ -1103,6 +1103,7 @@ class UnifiedLLMService:
             
             result.append({
                 'scene_id': scene.id,
+                'chapter_id': scene.chapter_id,  # Add chapter_id for frontend filtering
                 'sequence_number': flow_entry.sequence_number,
                 'title': variant.title or scene.title,
                 'content': variant.content,

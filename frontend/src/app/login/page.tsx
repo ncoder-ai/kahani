@@ -21,21 +21,30 @@ export default function LoginPage() {
     setError('');
 
     try {
-      console.log('Attempting login with:', { email, password: '***' });
+      console.log('=== LOGIN PROCESS STARTING ===');
+      console.log('API Base URL:', process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
+      console.log('Attempting login with email:', email);
+      
       const response = await apiClient.login(email, password);
-      console.log('Login response:', response);
+      console.log('✅ Login API call successful');
+      console.log('Response keys:', Object.keys(response));
+      console.log('Token received:', response.access_token ? 'Yes' : 'No');
+      console.log('User data:', response.user ? 'Yes' : 'No');
       
       // Set token in API client immediately
       apiClient.setToken(response.access_token);
-      console.log('Token set in API client');
+      console.log('✅ Token set in API client');
       
       // Update auth store
       login(response.user, response.access_token);
-      console.log('Auth store updated');
+      console.log('✅ Auth store updated');
       
       // Check if user wants to auto-open last story
       try {
+        console.log('Checking for auto-redirect settings...');
         const lastStoryResponse = await apiClient.getLastAccessedStory();
+        console.log('Last story settings:', lastStoryResponse);
+        
         if (lastStoryResponse.auto_open_last_story && lastStoryResponse.last_accessed_story_id) {
           console.log('Auto-redirecting to last story:', lastStoryResponse.last_accessed_story_id);
           router.push(`/story/${lastStoryResponse.last_accessed_story_id}`);
@@ -44,13 +53,27 @@ export default function LoginPage() {
           router.push('/dashboard');
         }
       } catch (settingsError) {
-        console.error('Failed to check auto-redirect settings, going to dashboard:', settingsError);
+        console.error('❌ Failed to check auto-redirect settings:', settingsError);
+        console.log('Falling back to dashboard redirect');
         router.push('/dashboard');
       }
     } catch (err) {
-      console.error('Login error:', err);
-      setError(err instanceof Error ? err.message : 'Login failed');
+      console.error('=== LOGIN FAILED ===');
+      console.error('Error type:', err instanceof Error ? 'Error' : typeof err);
+      console.error('Error message:', err instanceof Error ? err.message : String(err));
+      console.error('Full error:', err);
+      
+      let errorMessage = 'Login failed';
+      if (err instanceof Error) {
+        errorMessage = err.message;
+      } else if (typeof err === 'string') {
+        errorMessage = err;
+      }
+      
+      console.error('Setting error message:', errorMessage);
+      setError(errorMessage);
     } finally {
+      console.log('Login process complete, loading:', false);
       setIsLoading(false);
     }
   };
