@@ -18,6 +18,8 @@ from .base import (
 )
 from .registry import TTSProviderRegistry
 from .factory import TTSProviderFactory
+from .text_chunker import TextChunker, TextChunk
+from .tts_service import TTSService
 
 # Import providers to trigger registration
 from .providers import openai_compatible
@@ -35,4 +37,7 @@ __all__ = [
     "TTSProviderAPIError",
     "TTSProviderRegistry",
     "TTSProviderFactory",
+    "TextChunker",
+    "TextChunk",
+    "TTSService",
 ]

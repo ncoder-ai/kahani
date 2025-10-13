@@ -18,6 +18,8 @@ class AudioFormat(Enum):
     OPUS = "opus"
     WAV = "wav"
     OGG = "ogg"
+    FLAC = "flac"
+    PCM = "pcm"
 
 
 @dataclass
@@ -53,6 +55,7 @@ class TTSRequest:
     volume: float = 1.0
     format: AudioFormat = AudioFormat.MP3
     sample_rate: int = 24000
+    extra_params: Optional[Dict[str, Any]] = None
 
 
 @dataclass
