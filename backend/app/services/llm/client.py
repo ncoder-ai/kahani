@@ -120,6 +120,9 @@ class LLMClient:
             "model": self.model_string,
         }
         
+        # Log what settings we're using
+        logger.info(f"Building generation params - user settings: temp={self.temperature}, top_p={self.top_p}, top_k={self.top_k}, rep_penalty={self.repetition_penalty}")
+        
         # Only add parameters if they're provided (either as args or in user settings)
         # Use provided values first, then user settings, then skip if neither
         if max_tokens is not None:
@@ -137,10 +140,9 @@ class LLMClient:
         else:
             params["temperature"] = 0.7
         
+        # Only add top_p if explicitly set (don't default to 1.0)
         if self.top_p is not None:
             params["top_p"] = self.top_p
-        else:
-            params["top_p"] = 1.0
         
         # Add API base and key for openai-compatible providers
         # Pass api_base per-request so LiteLLM uses it directly without modification
@@ -160,15 +162,24 @@ class LLMClient:
             if self.api_key:
                 params["api_key"] = self.api_key
         
-        # Add provider-specific parameters (only for providers that support them)
+        # Add provider-specific parameters
+        # Note: OpenAI-compatible APIs (like LM Studio) may support these via extra_body
         if self.api_type == "koboldcpp":
-            if hasattr(self, 'top_k'):
+            if self.top_k is not None:
                 params["top_k"] = self.top_k
-            if hasattr(self, 'repetition_penalty'):
+            if self.repetition_penalty is not None:
                 params["repetition_penalty"] = self.repetition_penalty
-        # For openai_compatible (like LM Studio), only use standard OpenAI parameters
-        # For ollama, only use standard parameters
+        elif self.api_type in ["openai-compatible", "lm_studio"]:
+            # For OpenAI-compatible APIs, use extra_body for non-standard params
+            extra_body = {}
+            if self.top_k is not None:
+                extra_body["top_k"] = self.top_k
+            if self.repetition_penalty is not None:
+                extra_body["repetition_penalty"] = self.repetition_penalty
+            if extra_body:
+                params["extra_body"] = extra_body
         
+        logger.info(f"Final generation params: {params}")
         return params
     
     def get_streaming_params(self, max_tokens: Optional[int] = None, temperature: Optional[float] = None) -> Dict[str, Any]:

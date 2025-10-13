@@ -11,7 +11,7 @@ import FormattedText from '@/components/FormattedText';
 import SceneDisplay from '@/components/SceneDisplay';
 import SceneVariantDisplay from '@/components/SceneVariantDisplay';
 import ChapterSidebar from '@/components/ChapterSidebar';
-import { BookOpen, ChevronRight, X } from 'lucide-react';
+import { BookOpen, ChevronRight, X, AlertCircle, Sparkles } from 'lucide-react';
 import { 
   BookOpenIcon, 
   FilmIcon,
@@ -35,6 +35,7 @@ interface Scene {
   content: string;
   location: string;
   characters_present: string[];
+  chapter_id?: number; // Link to chapter
   // New variant properties
   variant_id?: number;
   variant_number?: number;
@@ -147,6 +148,8 @@ export default function StoryPage() {
   // Chapter sidebar state
   const [isChapterSidebarOpen, setIsChapterSidebarOpen] = useState(false); // Start closed
   const [chapterSidebarRefreshKey, setChapterSidebarRefreshKey] = useState(0);
+  const [selectedChapterId, setSelectedChapterId] = useState<number | null>(null); // For viewing specific chapter
+  const [currentChapterInfo, setCurrentChapterInfo] = useState<{id: number, number: number, title: string | null, isActive: boolean} | null>(null);
   
   // Main menu modal state
   const [showMainMenu, setShowMainMenu] = useState(false);
@@ -160,6 +163,13 @@ export default function StoryPage() {
   
   // Global flag to prevent variant loading during operations
   const [isSceneOperationInProgress, setIsSceneOperationInProgress] = useState(false);
+  
+  // Context usage and timing states
+  const [contextUsagePercent, setContextUsagePercent] = useState(0);
+  const [lastGenerationTime, setLastGenerationTime] = useState<number | null>(null);
+  const [generationStartTime, setGenerationStartTime] = useState<number | null>(null);
+  const [showContextWarning, setShowContextWarning] = useState(false);
+  const [hasShownContextWarning, setHasShownContextWarning] = useState(false);
   
   const storyContentRef = useRef<HTMLDivElement>(null);  useEffect(() => {
     // Wait for auth store to hydrate before checking authentication
@@ -200,16 +210,65 @@ export default function StoryPage() {
     }
   }, [isStreaming, streamingContent]);
 
-  // Get scenes to display based on current mode
+  // Show context warning popup when reaching 80%
+  useEffect(() => {
+    if (contextUsagePercent >= 80 && !hasShownContextWarning) {
+      setShowContextWarning(true);
+      setHasShownContextWarning(true);
+    }
+  }, [contextUsagePercent, hasShownContextWarning]);
+
+  // Load chapter info when a chapter is selected OR on initial load
+  useEffect(() => {
+    const loadChapterInfo = async () => {
+      try {
+        if (selectedChapterId) {
+          // Load the specific selected chapter
+          const chapter = await apiClient.getChapter(storyId, selectedChapterId);
+          setCurrentChapterInfo({
+            id: chapter.id,
+            number: chapter.chapter_number,
+            title: chapter.title,
+            isActive: chapter.status === 'active'
+          });
+          // Save to localStorage for persistence
+          localStorage.setItem(`lastChapter_${storyId}`, selectedChapterId.toString());
+        } else {
+          // Load the active chapter info
+          const chapters = await apiClient.getChapters(storyId);
+          const activeChapter = chapters.find((ch: any) => ch.status === 'active');
+          if (activeChapter) {
+            setCurrentChapterInfo({
+              id: activeChapter.id,
+              number: activeChapter.chapter_number,
+              title: activeChapter.title,
+              isActive: true
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load chapter info:', err);
+      }
+    };
+    loadChapterInfo();
+  }, [selectedChapterId, storyId]);
+
+  // Get scenes to display based on current mode and selected chapter
   const getScenesToDisplay = (): Scene[] => {
     if (!story?.scenes || story.scenes.length === 0) return [];
     
+    // Filter by selected chapter if one is selected
+    let filteredScenes = story.scenes;
+    if (selectedChapterId !== null) {
+      filteredScenes = story.scenes.filter(scene => scene.chapter_id === selectedChapterId);
+    }
+    
     if (displayMode === 'all') {
-      return story.scenes.sort((a, b) => a.sequence_number - b.sequence_number);
+      return filteredScenes.sort((a, b) => a.sequence_number - b.sequence_number);
     }
     
     // For 'recent' mode, show only the last N scenes
-    const sortedScenes = story.scenes.sort((a, b) => a.sequence_number - b.sequence_number);
+    const sortedScenes = filteredScenes.sort((a, b) => a.sequence_number - b.sequence_number);
     const totalScenes = sortedScenes.length;
     const startIndex = Math.max(0, totalScenes - scenesToShow);
     return sortedScenes.slice(startIndex);
@@ -259,24 +318,43 @@ export default function StoryPage() {
       const storyData = await apiClient.getStory(storyId);
       setStory(storyData);
 
+      // Auto-select last viewed chapter if available
+      const lastChapterId = localStorage.getItem(`lastChapter_${storyId}`);
+      if (lastChapterId && selectedChapterId === null) {
+        setSelectedChapterId(parseInt(lastChapterId));
+      }
+
       // Load choices for the current story
       await loadChoices();
+      
+      // Load context status for progress bar
+      await loadContextStatus();
 
       // Scroll to bottom only on initial page load OR when explicitly requested for new scenes
       if ((scrollToLastScene || scrollToNewScene) && storyData.scenes && storyData.scenes.length > 0) {
         console.log('📍 Current scroll position before timeout:', window.pageYOffset);
         setTimeout(() => {
           console.log('📍 Current scroll position at timeout start:', window.pageYOffset);
-          // Find the last scene element and scroll to it
-          const lastScene = storyData.scenes[storyData.scenes.length - 1];
-          console.log('🎯 Attempting to scroll to scene:', lastScene.id);
           
-          const lastSceneElement = document.querySelector(`[data-scene-id="${lastScene.id}"]`);
-          console.log('🎯 Found scene element:', lastSceneElement);
+          // Get the last scene for the current view (filtered by chapter if applicable)
+          let targetScene;
+          if (selectedChapterId !== null) {
+            // Find last scene in selected chapter
+            const chapterScenes = storyData.scenes.filter((s: Scene) => s.chapter_id === selectedChapterId);
+            targetScene = chapterScenes.length > 0 ? chapterScenes[chapterScenes.length - 1] : storyData.scenes[storyData.scenes.length - 1];
+          } else {
+            // Use overall last scene
+            targetScene = storyData.scenes[storyData.scenes.length - 1];
+          }
           
-          if (lastSceneElement) {
+          console.log('🎯 Attempting to scroll to scene:', targetScene.id);
+          
+          const targetSceneElement = document.querySelector(`[data-scene-id="${targetScene.id}"]`);
+          console.log('🎯 Found scene element:', targetSceneElement);
+          
+          if (targetSceneElement) {
             console.log('🎯 Scrolling to scene element');
-            lastSceneElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            targetSceneElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
           } else {
             console.log('🎯 Scene element not found, falling back to document bottom');
             // Fallback to document bottom if scene element not found
@@ -299,6 +377,18 @@ export default function StoryPage() {
     } catch (err) {
       console.error('Failed to load choices:', err);
       setDynamicChoices([]);
+    }
+  };
+
+  const loadContextStatus = async () => {
+    try {
+      const activeChapter = await apiClient.getActiveChapter(storyId);
+      if (activeChapter) {
+        const contextStatus = await apiClient.getChapterContextStatus(storyId, activeChapter.id);
+        setContextUsagePercent(contextStatus.percentage_used);
+      }
+    } catch (err) {
+      console.error('Failed to load context status:', err);
     }
   };
 
@@ -402,6 +492,10 @@ export default function StoryPage() {
     setError('');
     setIsGenerating(true);
     setIsSceneOperationInProgress(true); // Block variant loading operations
+    
+    // Start timing
+    const startTime = Date.now();
+    setGenerationStartTime(startTime);
 
     // Don't clear choices immediately - hide more options
     setShowMoreOptions(false);
@@ -409,6 +503,12 @@ export default function StoryPage() {
     try {
       const response = await apiClient.generateScene(story.id, prompt || customPrompt);
       console.log('generateNewScene response', response);
+      
+      // End timing
+      const endTime = Date.now();
+      const generationTime = (endTime - startTime) / 1000; // Convert to seconds
+      setLastGenerationTime(generationTime);
+      setGenerationStartTime(null);
 
       // Reload the story to get the new scene and its choices
       await loadStory(false, true); // Scroll to new scene after generation
@@ -424,6 +524,7 @@ export default function StoryPage() {
     } catch (err) {
       console.error('generateNewScene error', err);
       setError(err instanceof Error ? err.message : 'Failed to generate scene');
+      setGenerationStartTime(null);
     } finally {
       setIsGenerating(false);
       // Clear operation flag with delay to let DOM settle
@@ -438,6 +539,10 @@ export default function StoryPage() {
     setIsStreaming(true);
     setIsSceneOperationInProgress(true); // Block variant loading operations
     setStreamingContent('');
+    
+    // Start timing
+    const startTime = Date.now();
+    setGenerationStartTime(startTime);
     
     // Calculate the next scene number
     const nextSceneNumber = (story.scenes?.length || 0) + 1;
@@ -457,6 +562,13 @@ export default function StoryPage() {
         // onComplete
         async (sceneId: number, choices: any[]) => {
           console.log('Scene generation complete', { sceneId, choices });
+          
+          // End timing
+          const endTime = Date.now();
+          const generationTime = (endTime - startTime) / 1000; // Convert to seconds
+          setLastGenerationTime(generationTime);
+          setGenerationStartTime(null);
+          
           setStreamingContent('');
           setStreamingSceneNumber(null);
           setIsStreaming(false);
@@ -482,6 +594,7 @@ export default function StoryPage() {
           setStreamingContent('');
           setStreamingSceneNumber(null);
           setIsStreaming(false);
+          setGenerationStartTime(null);
 
           // Reset choice selection state on error
           setSelectedChoice(null);
@@ -926,6 +1039,112 @@ export default function StoryPage() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white pt-16">
+      {/* Context Usage Progress Bar - Fixed at top */}
+      <div className="fixed top-0 left-0 right-0 z-50 h-1 bg-gray-800">
+        <div 
+          className="h-full transition-all duration-500 ease-out"
+          style={{ 
+            width: `${contextUsagePercent}%`,
+            background: contextUsagePercent >= 80 
+              ? 'linear-gradient(90deg, #ef4444, #dc2626)' // Red when high
+              : contextUsagePercent >= 50 
+              ? 'linear-gradient(90deg, #f59e0b, #d97706)' // Orange when medium
+              : 'linear-gradient(90deg, #10b981, #059669)' // Green when low
+          }}
+        />
+      </div>
+      
+      {/* Generation Time Display - Fixed bottom right */}
+      {(lastGenerationTime !== null || generationStartTime !== null) && (
+        <div className="fixed bottom-4 right-4 z-40 px-3 py-2 bg-gray-800/95 backdrop-blur-md border border-gray-700 rounded-lg shadow-lg">
+          <div className="flex items-center gap-2 text-xs">
+            <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            {generationStartTime ? (
+              <span className="text-gray-300 animate-pulse">Generating...</span>
+            ) : (
+              <span className="text-gray-300">
+                Generated in <span className="font-semibold text-purple-400">{lastGenerationTime?.toFixed(1)}s</span>
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+      
+      {/* Context Warning Modal - Shows at 80% */}
+      {showContextWarning && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-gradient-to-br from-yellow-900/90 to-orange-900/90 backdrop-blur-md rounded-lg shadow-2xl w-full max-w-md border-2 border-yellow-500/50">
+            {/* Header */}
+            <div className="p-6 border-b border-yellow-500/30">
+              <div className="flex items-start gap-4">
+                <div className="p-3 bg-yellow-500/20 rounded-full">
+                  <AlertCircle className="w-8 h-8 text-yellow-400" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-xl font-bold text-white mb-1">Context Limit Warning</h3>
+                  <p className="text-yellow-200/80 text-sm">Your chapter is reaching its context capacity</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 space-y-4">
+              <div className="bg-black/20 rounded-lg p-4 border border-yellow-500/20">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-yellow-200 font-semibold">Context Usage</span>
+                  <span className="text-2xl font-bold text-yellow-400">{contextUsagePercent}%</span>
+                </div>
+                <div className="w-full h-2 bg-gray-800 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-gradient-to-r from-yellow-500 to-orange-500 transition-all duration-500"
+                    style={{ width: `${contextUsagePercent}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-3 text-sm text-yellow-100">
+                <p className="leading-relaxed">
+                  Your current chapter has used <span className="font-semibold text-yellow-300">{contextUsagePercent}%</span> of its available context window. 
+                  To maintain story quality and coherence, consider creating a new chapter soon.
+                </p>
+                
+                <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
+                  <p className="text-blue-200 text-xs">
+                    💡 <span className="font-semibold">What happens when you create a new chapter?</span>
+                  </p>
+                  <p className="text-blue-200/80 text-xs mt-1">
+                    The AI will generate a summary of your current chapter and use it as context for the new chapter, 
+                    ensuring your story continues smoothly without losing important details.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-6 border-t border-yellow-500/30 flex gap-3">
+              <button
+                onClick={() => setShowContextWarning(false)}
+                className="flex-1 px-4 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors"
+              >
+                Continue Current Chapter
+              </button>
+              <button
+                onClick={() => {
+                  setShowContextWarning(false);
+                  setIsChapterSidebarOpen(true);
+                }}
+                className="flex-1 px-4 py-3 bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-700 hover:to-orange-700 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+              >
+                <BookOpen className="w-4 h-4" />
+                Open Chapters
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
       {/* Single Menu Button - Left Side */}
       <button
         onClick={() => setShowMainMenu(true)}
@@ -1212,25 +1431,57 @@ export default function StoryPage() {
         storyId={storyId}
         isOpen={isChapterSidebarOpen}
         onToggle={() => setIsChapterSidebarOpen(!isChapterSidebarOpen)}
+        onChapterChange={() => {
+          // Reload story to switch to new active chapter
+          loadStory(false, false);
+          // Update context status
+          loadContextStatus();
+          // Reset chapter selection when new chapter is created
+          setSelectedChapterId(null);
+        }}
+        onChapterSelect={(chapterId) => {
+          setSelectedChapterId(chapterId);
+          // Scroll to top when switching chapters
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+        currentChapterId={selectedChapterId ?? undefined}
       />
       
       {/* Navigation Header - Simplified */}
       <div className="bg-gray-800/95 backdrop-blur-md border-b border-gray-700">
         <div className="max-w-4xl mx-auto px-4 md:px-6 py-3 md:py-4">
-          <div className="flex items-center justify-center md:justify-start space-x-2 md:space-x-4">
-            <div className="text-gray-300 text-sm md:text-base font-medium truncate">
-              {story?.title}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2 md:space-x-4">
+              <div className="text-gray-300 text-sm md:text-base font-medium truncate">
+                {story?.title}
+              </div>
+              <div className="hidden sm:flex items-center space-x-2 text-gray-500 text-xs md:text-sm">
+                <span>•</span>
+                <span>{getScenesToDisplay().length} scenes</span>
+                {storyCharacters.length > 0 && (
+                  <>
+                    <span>•</span>
+                    <span className="text-purple-400">{storyCharacters.length} characters</span>
+                  </>
+                )}
+              </div>
             </div>
-            <div className="hidden sm:flex items-center space-x-2 text-gray-500 text-xs md:text-sm">
-              <span>•</span>
-              <span>{story?.scenes?.length || 0} scenes</span>
-              {storyCharacters.length > 0 && (
-                <>
-                  <span>•</span>
-                  <span className="text-purple-400">{storyCharacters.length} characters</span>
-                </>
-              )}
-            </div>
+            
+            {/* Chapter Indicator */}
+            {currentChapterInfo && (
+              <div className="flex items-center gap-2">
+                <div className="px-3 py-1 bg-purple-600/20 border border-purple-500/30 rounded-full text-xs font-medium text-purple-300">
+                  {currentChapterInfo.title || `Chapter ${currentChapterInfo.number}`}
+                </div>
+                <button
+                  onClick={() => setSelectedChapterId(null)}
+                  className="px-2 py-1 text-xs text-gray-400 hover:text-white hover:bg-slate-700 rounded transition-colors"
+                  title="Return to active chapter"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1243,7 +1494,12 @@ export default function StoryPage() {
             {/* Chapter Header */}
             <div className="flex items-center justify-between mb-8">
               <div className="flex items-center space-x-3">
-                <span className="text-gray-400 text-sm">Chapter 1</span>
+                <span className="text-gray-400 text-sm">
+                  {currentChapterInfo 
+                    ? (currentChapterInfo.title || `Chapter ${currentChapterInfo.number}`)
+                    : 'Chapter 1'
+                  }
+                </span>
                 <ArrowDownIcon className="w-4 h-4 text-gray-400" />
               </div>
               <button className="text-gray-400 hover:text-white">
@@ -1277,7 +1533,7 @@ export default function StoryPage() {
 
             {/* Scenes Display with Performance Optimization */}
             <div className="prose prose-invert prose-lg max-w-none mb-8">
-              {story?.scenes && story.scenes.length > 0 ? (
+              {getScenesToDisplay().length > 0 ? (
                 <div className="space-y-8">
                   {/* Load Earlier Scenes - Thin Line Design */}
                   {displayMode === 'recent' && story.scenes.length > scenesToShow && (
@@ -1374,14 +1630,83 @@ export default function StoryPage() {
                 </div>
               ) : (
                 <div className="text-center py-12">
-                  <p className="text-gray-400 mb-6">Your story awaits...</p>
-                  <button
-                    onClick={() => useStreaming ? generateNewSceneStreaming() : generateNewScene()}
-                    disabled={isGenerating || isStreaming}
-                    className="bg-pink-600 hover:bg-pink-700 text-white px-6 py-3 rounded-lg font-medium disabled:opacity-50"
-                  >
-                    {isGenerating || isStreaming ? 'Creating...' : 'Begin Your Story'}
-                  </button>
+                  {selectedChapterId !== null && currentChapterInfo && !currentChapterInfo.isActive ? (
+                    // Viewing a COMPLETED chapter with no scenes (rare case)
+                    <>
+                      <BookOpen className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+                      <p className="text-gray-400 mb-2">
+                        {currentChapterInfo.title || `Chapter ${currentChapterInfo.number}`} - No scenes yet
+                      </p>
+                      <p className="text-gray-500 text-sm mb-6">
+                        This chapter is completed. Return to the active chapter to continue writing.
+                      </p>
+                      <button
+                        onClick={() => setSelectedChapterId(null)}
+                        className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg font-medium"
+                      >
+                        Return to Active Chapter
+                      </button>
+                    </>
+                  ) : (
+                    // Active chapter with no scenes - allow generation
+                    <>
+                      <div className="space-y-6 max-w-2xl mx-auto">
+                        <div>
+                          <BookOpen className="w-16 h-16 text-purple-500 mx-auto mb-4" />
+                          <p className="text-gray-400 mb-2 text-lg">
+                            {currentChapterInfo ? `Begin ${currentChapterInfo.title || `Chapter ${currentChapterInfo.number}`}` : 'Your story awaits...'}
+                          </p>
+                          {currentChapterInfo && (
+                            <p className="text-gray-500 text-sm mb-6">
+                              The story will continue from where you left off
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Director Mode Input for First Scene */}
+                        {directorMode && (
+                          <div className="mb-6">
+                            <label className="block text-sm font-medium text-gray-400 mb-2">
+                              Direct the opening scene:
+                            </label>
+                            <textarea
+                              value={customPrompt}
+                              onChange={(e) => setCustomPrompt(e.target.value)}
+                              placeholder="e.g., 'Start with the protagonist waking up in an unfamiliar place' or leave blank for AI to decide"
+                              className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 resize-none"
+                              rows={3}
+                            />
+                          </div>
+                        )}
+
+                        {/* Generation Button */}
+                        <button
+                          onClick={() => useStreaming ? generateNewSceneStreaming() : generateNewScene()}
+                          disabled={isGenerating || isStreaming}
+                          className="w-full sm:w-auto bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-700 hover:to-purple-700 text-white px-8 py-4 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl"
+                        >
+                          {isGenerating || isStreaming ? (
+                            <span className="flex items-center justify-center gap-2">
+                              <span className="animate-spin">⚙️</span>
+                              Creating first scene...
+                            </span>
+                          ) : (
+                            <span className="flex items-center justify-center gap-2">
+                              <Sparkles className="w-5 h-5" />
+                              {currentChapterInfo ? 'Begin Chapter' : 'Begin Your Story'}
+                            </span>
+                          )}
+                        </button>
+
+                        {/* Director Mode Toggle Hint */}
+                        {!directorMode && (
+                          <p className="text-gray-500 text-xs">
+                            💡 Tip: Enable Director Mode from the menu to guide the opening scene
+                          </p>
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
               

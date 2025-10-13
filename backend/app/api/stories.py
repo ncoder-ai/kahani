@@ -260,6 +260,7 @@ async def get_story(
         variant = flow_item['variant']
         scenes.append({
             "id": flow_item['scene_id'],
+            "chapter_id": flow_item['chapter_id'],  # Add chapter_id for frontend filtering
             "sequence_number": flow_item['sequence_number'],
             "title": variant['title'],
             "content": variant['content'],

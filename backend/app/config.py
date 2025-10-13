@@ -33,8 +33,9 @@ class Settings(BaseSettings):
     context_summary_threshold: int = 5  # Summarize when story has more than this many scenes
     context_summary_threshold_tokens: int = 10000  # Summarize when total tokens exceed this threshold
     
-    # CORS
-    cors_origins: List[str] = ["http://localhost:3000", "http://localhost:3001", "http://localhost:8080"]
+    # CORS - Allow all origins for local development
+    # In production, this should be restricted to specific domains
+    cors_origins: List[str] = ["*"]  # Allow all origins for local network access
     
     # File storage
     data_dir: str = "./data"

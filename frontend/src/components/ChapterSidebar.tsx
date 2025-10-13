@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, BookOpen, AlertCircle, Edit2, Save, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, BookOpen, AlertCircle, Edit2, Save, X, Plus } from 'lucide-react';
 import apiClient from '@/lib/api';
 
 interface Chapter {
@@ -36,9 +36,12 @@ interface ChapterSidebarProps {
   storyId: number;
   isOpen: boolean;
   onToggle: () => void;
+  onChapterChange?: () => void; // Callback when a new chapter is created
+  onChapterSelect?: (chapterId: number) => void; // Callback when user selects a chapter to view
+  currentChapterId?: number; // Currently selected chapter for viewing
 }
 
-export default function ChapterSidebar({ storyId, isOpen, onToggle }: ChapterSidebarProps) {
+export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterChange, onChapterSelect, currentChapterId }: ChapterSidebarProps) {
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [activeChapter, setActiveChapter] = useState<Chapter | null>(null);
   const [contextStatus, setContextStatus] = useState<ChapterContextStatus | null>(null);
@@ -49,6 +52,12 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle }: ChapterSid
   const [isEditingStorySoFar, setIsEditingStorySoFar] = useState(false);
   const [storySoFarDraft, setStorySoFarDraft] = useState('');
   const [isSavingStorySoFar, setIsSavingStorySoFar] = useState(false);
+  
+  // New Chapter creation state
+  const [isCreatingChapter, setIsCreatingChapter] = useState(false);
+  const [newChapterTitle, setNewChapterTitle] = useState('');
+  const [newChapterDescription, setNewChapterDescription] = useState('');
+  const [isSubmittingNewChapter, setIsSubmittingNewChapter] = useState(false);
 
   useEffect(() => {
     loadChapters();
@@ -132,6 +141,55 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle }: ChapterSid
   const handleCancelEdit = () => {
     setIsEditingStorySoFar(false);
     setStorySoFarDraft('');
+  };
+
+  const handleCreateNewChapter = () => {
+    // Auto-populate with next chapter number
+    const nextChapterNum = (chapters.length || 0) + 1;
+    setNewChapterTitle(`Chapter ${nextChapterNum}`);
+    setNewChapterDescription('');
+    setIsCreatingChapter(true);
+  };
+
+  const handleSubmitNewChapter = async () => {
+    setIsSubmittingNewChapter(true);
+    try {
+      // Use previous chapter's auto_summary as story_so_far for new chapter
+      const storySoFar = activeChapter?.auto_summary || activeChapter?.story_so_far || 'Continuing the story...';
+      
+      const newChapter = await apiClient.createChapter(storyId, {
+        title: newChapterTitle || undefined,
+        description: newChapterDescription || undefined,
+        story_so_far: storySoFar
+      });
+      
+      // Reload chapters to get updated list
+      await loadChapters();
+      
+      // Notify parent component to reload story (this will switch to the new active chapter)
+      if (onChapterChange) {
+        onChapterChange();
+      }
+      
+      // Close modal
+      setIsCreatingChapter(false);
+      setNewChapterTitle('');
+      setNewChapterDescription('');
+      
+      // Show success message
+      alert(`Chapter ${newChapter.chapter_number} created successfully! You're now in the new chapter.`);
+    } catch (err) {
+      console.error('Failed to create chapter:', err);
+      alert('Failed to create new chapter. Please try again.');
+    } finally {
+      setIsSubmittingNewChapter(false);
+    }
+  };
+
+  const handleCancelNewChapter = () => {
+    setIsCreatingChapter(false);
+    setNewChapterTitle('');
+    setNewChapterDescription('');
   };
 
   const getStatusBadgeColor = (status: string) => {
@@ -249,16 +307,25 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle }: ChapterSid
 
                     {/* Warning Message */}
                     {contextStatus.should_create_new_chapter && (
-                      <div className="flex items-start gap-2 p-2 bg-yellow-500/10 border border-yellow-500/20 rounded text-xs text-yellow-400">
-                        <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                        <div>
-                          <p className="font-semibold mb-1">Context Warning</p>
-                          <p className="text-yellow-400/80">
-                            {contextStatus.reason === 'context_limit' 
-                              ? 'Context usage is high. Consider starting a new chapter to maintain quality.'
-                              : 'Consider starting a new chapter.'}
-                          </p>
+                      <div className="space-y-2">
+                        <div className="flex items-start gap-2 p-2 bg-yellow-500/10 border border-yellow-500/20 rounded text-xs text-yellow-400">
+                          <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                          <div className="flex-1">
+                            <p className="font-semibold mb-1">Context Warning</p>
+                            <p className="text-yellow-400/80">
+                              {contextStatus.reason === 'context_limit' 
+                                ? 'Context usage is high. Consider starting a new chapter to maintain quality.'
+                                : 'Consider starting a new chapter.'}
+                            </p>
+                          </div>
                         </div>
+                        <button
+                          onClick={handleCreateNewChapter}
+                          className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium transition-colors"
+                        >
+                          <Plus className="w-4 h-4" />
+                          Create New Chapter
+                        </button>
                       </div>
                     )}
 
@@ -305,21 +372,33 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle }: ChapterSid
               <h3 className="text-sm font-semibold text-gray-400 uppercase mb-3">All Chapters</h3>
               <div className="space-y-2">
                 {chapters.map((chapter) => (
-                  <div
+                  <button
                     key={chapter.id}
-                    className={`p-3 rounded-lg border transition-colors ${
-                      chapter.id === activeChapter?.id
+                    onClick={() => {
+                      if (onChapterSelect) {
+                        onChapterSelect(chapter.id);
+                      }
+                    }}
+                    className={`w-full text-left p-3 rounded-lg border transition-all ${
+                      currentChapterId === chapter.id
+                        ? 'bg-purple-600/20 border-purple-500/50 ring-2 ring-purple-500/30'
+                        : chapter.id === activeChapter?.id
                         ? 'bg-purple-500/10 border-purple-500/30'
-                        : 'bg-slate-800/50 border-slate-700 hover:bg-slate-800'
+                        : 'bg-slate-800/50 border-slate-700 hover:bg-slate-800 hover:border-slate-600'
                     }`}
                   >
                     <div className="flex items-start justify-between mb-1">
                       <span className="font-medium text-sm">
                         {chapter.title || `Chapter ${chapter.chapter_number}`}
                       </span>
-                      <span className={`px-1.5 py-0.5 text-xs rounded border ${getStatusBadgeColor(chapter.status)}`}>
-                        {chapter.status}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        {currentChapterId === chapter.id && (
+                          <span className="text-xs text-purple-400 font-semibold">VIEWING</span>
+                        )}
+                        <span className={`px-1.5 py-0.5 text-xs rounded border ${getStatusBadgeColor(chapter.status)}`}>
+                          {chapter.status}
+                        </span>
+                      </div>
                     </div>
                     
                     {chapter.description && (
@@ -333,7 +412,7 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle }: ChapterSid
                       <span>•</span>
                       <span>{chapter.context_tokens_used.toLocaleString()} tokens</span>
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>
@@ -412,6 +491,94 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle }: ChapterSid
                   )}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create New Chapter Modal */}
+      {isCreatingChapter && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-800 rounded-lg shadow-xl w-full max-w-lg">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b border-slate-700 bg-gradient-to-r from-purple-600 to-pink-600">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Plus className="w-5 h-5" />
+                Create New Chapter
+              </h3>
+              <button
+                onClick={handleCancelNewChapter}
+                className="text-white/80 hover:text-white transition-colors"
+                disabled={isSubmittingNewChapter}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Chapter Title
+                </label>
+                <input
+                  type="text"
+                  value={newChapterTitle}
+                  onChange={(e) => setNewChapterTitle(e.target.value)}
+                  placeholder="Enter chapter title"
+                  className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-purple-500"
+                  disabled={isSubmittingNewChapter}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Description (Optional)
+                </label>
+                <textarea
+                  value={newChapterDescription}
+                  onChange={(e) => setNewChapterDescription(e.target.value)}
+                  placeholder="Brief description of this chapter"
+                  rows={3}
+                  className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 resize-none"
+                  disabled={isSubmittingNewChapter}
+                />
+              </div>
+
+              <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg text-sm text-blue-400">
+                <p className="font-semibold mb-1">💡 Story Continuity</p>
+                <p className="text-blue-400/80">
+                  The AI-generated summary from your current chapter will be used as the starting context for this new chapter.
+                </p>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-2 p-4 border-t border-slate-700">
+              <button
+                onClick={handleCancelNewChapter}
+                className="px-4 py-2 text-gray-400 hover:text-white transition-colors"
+                disabled={isSubmittingNewChapter}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmitNewChapter}
+                disabled={isSubmittingNewChapter || !newChapterTitle.trim()}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+              >
+                {isSubmittingNewChapter ? (
+                  <>
+                    <span className="animate-spin">⚙️</span>
+                    Creating...
+                  </>
+                ) : (
+                  <>
+                    <Plus className="w-4 h-4" />
+                    Create Chapter
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>
