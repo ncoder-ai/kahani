@@ -19,6 +19,9 @@ from .base import (
 from .registry import TTSProviderRegistry
 from .factory import TTSProviderFactory
 
+# Import providers to trigger registration
+from .providers import openai_compatible
+
 __all__ = [
     "TTSProviderBase",
     "TTSProviderConfig",
