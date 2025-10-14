@@ -29,6 +29,7 @@ from ..base import (
     Voice,
     AudioFormat
 )
+from ..registry import TTSProviderRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ class KokoroVoice:
     source_voices: Optional[List[str]] = None
 
 
+@TTSProviderRegistry.register("kokoro")
 class KokoroProvider(TTSProviderBase):
     """
     Kokoro FastAPI TTS Provider
@@ -239,9 +241,12 @@ class KokoroProvider(TTSProviderBase):
             logger.error(f"Kokoro streaming error: {str(e)}")
             raise
     
-    async def get_voices(self) -> List[Voice]:
+    async def get_voices(self, language: Optional[str] = None) -> List[Voice]:
         """
         Get list of available voices from Kokoro API
+        
+        Args:
+            language: Optional language filter (e.g., 'en', 'es')
         
         Returns:
             List of available voices
@@ -283,6 +288,10 @@ class KokoroProvider(TTSProviderBase):
                             language=self._map_lang_code(lang_code),
                             gender="unknown"
                         ))
+            
+            # Filter by language if requested
+            if language:
+                voices = [v for v in voices if language.lower() in v.language.lower()]
             
             logger.info(f"Found {len(voices)} voices from Kokoro")
             return voices

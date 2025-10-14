@@ -11,7 +11,8 @@ import FormattedText from '@/components/FormattedText';
 import SceneDisplay from '@/components/SceneDisplay';
 import SceneVariantDisplay from '@/components/SceneVariantDisplay';
 import ChapterSidebar from '@/components/ChapterSidebar';
-import { BookOpen, ChevronRight, X, AlertCircle, Sparkles } from 'lucide-react';
+import TTSSettingsModal from '@/components/TTSSettingsModal';
+import { BookOpen, ChevronRight, X, AlertCircle, Sparkles, Volume2 } from 'lucide-react';
 import { 
   BookOpenIcon, 
   FilmIcon,
@@ -153,6 +154,9 @@ export default function StoryPage() {
   
   // Main menu modal state
   const [showMainMenu, setShowMainMenu] = useState(false);
+  
+  // TTS Settings modal state
+  const [showTTSSettings, setShowTTSSettings] = useState(false);
   
   // Modern scene layout states
   const [sceneLayoutMode, setSceneLayoutMode] = useState<'stacked' | 'modern'>('modern');
@@ -1361,6 +1365,26 @@ export default function StoryPage() {
                 </div>
               </button>
 
+              {/* TTS Settings */}
+              <button
+                onClick={() => {
+                  setShowMainMenu(false);
+                  setShowTTSSettings(true);
+                }}
+                className="w-full flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors text-left group"
+              >
+                <div className="p-2 bg-purple-600/20 group-hover:bg-purple-600/30 rounded-lg transition-colors">
+                  <Volume2 className="w-5 h-5 text-purple-400" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-white">Text-to-Speech</div>
+                  <div className="text-xs text-gray-400">Configure voice narration</div>
+                </div>
+              </button>
+
+              {/* Divider */}
+              <div className="my-2 border-t border-slate-700"></div>
+
               {/* Placeholders for future features */}
               <button
                 disabled
@@ -1882,6 +1906,16 @@ export default function StoryPage() {
           existingCharacters={storyCharacters}
         />
       )}
+
+      {/* TTS Settings Modal */}
+      <TTSSettingsModal
+        isOpen={showTTSSettings}
+        onClose={() => setShowTTSSettings(false)}
+        onSaved={() => {
+          // Optionally refresh story or show success message
+          console.log('TTS settings saved');
+        }}
+      />
 
       {/* Story Summary Modal */}
       {showSummaryModal && (

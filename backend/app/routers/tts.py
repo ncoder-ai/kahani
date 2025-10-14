@@ -16,6 +16,7 @@ from app.dependencies import get_current_user
 from app.models.user import User
 from app.models.scene import Scene
 from app.models.tts_settings import TTSSettings
+from app.models.tts_provider_config import TTSProviderConfig as TTSProviderConfigModel
 from app.services.tts import TTSService, TTSProviderRegistry
 from pydantic import BaseModel, Field
 
@@ -33,6 +34,11 @@ class TTSSettingsRequest(BaseModel):
     speed: Optional[float] = Field(1.0, ge=0.25, le=4.0, description="Speech speed (0.25-4.0)")
     timeout: Optional[int] = Field(30, ge=5, le=120, description="Request timeout in seconds")
     extra_params: Optional[dict] = Field(None, description="Provider-specific parameters")
+    # Behavior settings
+    tts_enabled: Optional[bool] = Field(True, description="Enable/disable TTS globally")
+    progressive_narration: Optional[bool] = Field(False, description="Split scenes into chunks for progressive playback")
+    chunk_size: Optional[int] = Field(280, ge=100, le=500, description="Chunk size for progressive narration (100=sentence, 500=paragraph)")
+    stream_audio: Optional[bool] = Field(True, description="Future: Use provider streaming (SSE) when available")
 
 
 class TTSSettingsResponse(BaseModel):
@@ -45,6 +51,11 @@ class TTSSettingsResponse(BaseModel):
     speed: Optional[float] = None
     timeout: Optional[int] = None
     extra_params: Optional[dict] = None
+    # Behavior settings
+    tts_enabled: Optional[bool] = None
+    progressive_narration: Optional[bool] = None
+    chunk_size: Optional[int] = None
+    stream_audio: Optional[bool] = None
 
     class Config:
         from_attributes = True
@@ -60,7 +71,11 @@ class TTSSettingsResponse(BaseModel):
             voice_id=db_model.default_voice,
             speed=db_model.speech_speed,
             timeout=db_model.tts_timeout,
-            extra_params=db_model.tts_extra_params
+            extra_params=db_model.tts_extra_params,
+            tts_enabled=db_model.tts_enabled,
+            progressive_narration=db_model.progressive_narration,
+            chunk_size=db_model.chunk_size,
+            stream_audio=db_model.stream_audio
         )
 
 
@@ -157,12 +172,131 @@ async def update_tts_settings(
     tts_settings.tts_timeout = settings_request.timeout
     tts_settings.tts_extra_params = settings_request.extra_params or {}
     
+    # Update behavior settings
+    if settings_request.tts_enabled is not None:
+        tts_settings.tts_enabled = settings_request.tts_enabled
+    if settings_request.progressive_narration is not None:
+        tts_settings.progressive_narration = settings_request.progressive_narration
+    if settings_request.chunk_size is not None:
+        tts_settings.chunk_size = settings_request.chunk_size
+    if settings_request.stream_audio is not None:
+        tts_settings.stream_audio = settings_request.stream_audio
+    
     db.commit()
     db.refresh(tts_settings)
     
     logger.info(f"Updated TTS settings for user {current_user.id}")
     
     return TTSSettingsResponse.from_db_model(tts_settings)
+
+
+@router.get("/provider-configs", response_model=list[TTSSettingsResponse])
+async def get_all_provider_configs(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get all saved provider configurations for the user"""
+    configs = db.query(TTSProviderConfigModel).filter(
+        TTSProviderConfigModel.user_id == current_user.id
+    ).all()
+    
+    return [
+        TTSSettingsResponse(
+            id=config.id,
+            user_id=config.user_id,
+            provider_type=config.provider_type,
+            api_url=config.api_url,
+            voice_id=config.voice_id,
+            speed=config.speed,
+            timeout=config.timeout,
+            extra_params=config.extra_params
+        )
+        for config in configs
+    ]
+
+
+@router.get("/provider-configs/{provider_type}", response_model=TTSSettingsResponse)
+async def get_provider_config(
+    provider_type: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get saved configuration for a specific provider"""
+    config = db.query(TTSProviderConfigModel).filter(
+        TTSProviderConfigModel.user_id == current_user.id,
+        TTSProviderConfigModel.provider_type == provider_type
+    ).first()
+    
+    if not config:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No saved configuration found for provider: {provider_type}"
+        )
+    
+    return TTSSettingsResponse(
+        id=config.id,
+        user_id=config.user_id,
+        provider_type=config.provider_type,
+        api_url=config.api_url,
+        voice_id=config.voice_id,
+        speed=config.speed,
+        timeout=config.timeout,
+        extra_params=config.extra_params
+    )
+
+
+@router.put("/provider-configs/{provider_type}", response_model=TTSSettingsResponse)
+async def save_provider_config(
+    provider_type: str,
+    settings_request: TTSSettingsRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Save configuration for a specific provider"""
+    
+    # Validate provider type
+    if not TTSProviderRegistry.is_registered(provider_type):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown provider type: {provider_type}"
+        )
+    
+    # Get or create provider config
+    config = db.query(TTSProviderConfigModel).filter(
+        TTSProviderConfigModel.user_id == current_user.id,
+        TTSProviderConfigModel.provider_type == provider_type
+    ).first()
+    
+    if not config:
+        config = TTSProviderConfigModel(
+            user_id=current_user.id,
+            provider_type=provider_type
+        )
+        db.add(config)
+    
+    # Update config
+    config.api_url = settings_request.api_url
+    config.api_key = settings_request.api_key or ""
+    config.voice_id = settings_request.voice_id or ""
+    config.speed = settings_request.speed or 1.0
+    config.timeout = settings_request.timeout or 30
+    config.extra_params = settings_request.extra_params or {}
+    
+    db.commit()
+    db.refresh(config)
+    
+    logger.info(f"Saved provider config for user {current_user.id}, provider {provider_type}")
+    
+    return TTSSettingsResponse(
+        id=config.id,
+        user_id=config.user_id,
+        provider_type=config.provider_type,
+        api_url=config.api_url,
+        voice_id=config.voice_id,
+        speed=config.speed,
+        timeout=config.timeout,
+        extra_params=config.extra_params
+    )
 
 
 @router.get("/providers", response_model=list[ProviderInfo])
@@ -176,7 +310,12 @@ async def list_providers():
         if provider_class:
             # Create dummy instance to get info
             try:
-                instance = provider_class(api_url="", api_key="")
+                from app.services.tts import TTSProviderConfig
+                dummy_config = TTSProviderConfig(
+                    api_url="http://localhost:1234",
+                    api_key="dummy"
+                )
+                instance = provider_class(config=dummy_config)
                 result.append(ProviderInfo(
                     type=provider_type,
                     name=instance.provider_name,
@@ -186,6 +325,78 @@ async def list_providers():
                 logger.warning(f"Could not instantiate provider {provider_type}: {e}")
     
     return result
+
+
+@router.post("/test-connection")
+async def test_connection(
+    settings_request: TTSSettingsRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Test connection to TTS provider and return health status.
+    Returns voices if connection is successful.
+    """
+    
+    # Validate provider type
+    if not TTSProviderRegistry.is_registered(settings_request.provider_type):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown provider type: {settings_request.provider_type}"
+        )
+    
+    try:
+        from app.services.tts import TTSProviderFactory, TTSProviderConfig
+        
+        # Create provider config
+        config = TTSProviderConfig(
+            api_url=settings_request.api_url,
+            api_key=settings_request.api_key or "",
+            timeout=settings_request.timeout or 30,
+            extra_params=settings_request.extra_params or {}
+        )
+        
+        provider = TTSProviderFactory.create_provider(
+            provider_type=settings_request.provider_type,
+            api_url=settings_request.api_url,
+            api_key=settings_request.api_key or "",
+            timeout=settings_request.timeout or 30,
+            extra_params=settings_request.extra_params or {}
+        )
+        
+        # Perform health check
+        is_healthy = await provider.health_check()
+        
+        if not is_healthy:
+            return {
+                "success": False,
+                "message": "Provider is not responding or no voices available",
+                "voices": []
+            }
+        
+        # Get voices if healthy
+        voices = await provider.get_voices()
+        
+        return {
+            "success": True,
+            "message": f"Successfully connected to {settings_request.provider_type}",
+            "voices": [
+                {
+                    "id": voice.id if voice.id else voice.name,
+                    "name": voice.name,
+                    "language": voice.language,
+                    "description": voice.description
+                }
+                for voice in voices
+            ]
+        }
+        
+    except Exception as e:
+        logger.error(f"Connection test failed: {e}")
+        return {
+            "success": False,
+            "message": f"Connection failed: {str(e)}",
+            "voices": []
+        }
 
 
 @router.get("/voices", response_model=list[VoiceInfo])
@@ -306,6 +517,82 @@ async def test_tts(
         
     except Exception as e:
         logger.error(f"Failed to generate test audio: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate audio: {str(e)}"
+        )
+
+
+@router.post("/test-voice")
+async def test_voice_preview(
+    settings_request: TTSSettingsRequest,
+    text: str = "Hello, this is a test of my voice.",
+    voice_id: Optional[str] = None,
+    speed: Optional[float] = None,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Test TTS with custom settings (for voice previews before saving).
+    Accepts provider settings directly instead of using saved settings.
+    """
+    
+    # Validate provider type
+    if not TTSProviderRegistry.is_registered(settings_request.provider_type):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown provider type: {settings_request.provider_type}"
+        )
+    
+    try:
+        from app.services.tts import TTSProviderFactory, TTSRequest, AudioFormat
+        
+        provider = TTSProviderFactory.create_provider(
+            provider_type=settings_request.provider_type,
+            api_url=settings_request.api_url,
+            api_key=settings_request.api_key or "",
+            timeout=settings_request.timeout or 30,
+            extra_params=settings_request.extra_params or {}
+        )
+        
+        # Use provided voice_id or default from settings
+        final_voice_id = voice_id or settings_request.voice_id or "default"
+        final_speed = speed if speed is not None else (settings_request.speed or 1.0)
+        
+        tts_request = TTSRequest(
+            text=text,
+            voice_id=final_voice_id,
+            speed=final_speed,
+            format=AudioFormat.MP3
+        )
+        
+        response = await provider.synthesize(tts_request)
+        
+        logger.info(f"Generated voice preview for user {current_user.id}: voice={final_voice_id}, {len(response.audio_data)} bytes")
+        
+        # Determine content type based on format
+        content_type_map = {
+            AudioFormat.MP3: "audio/mpeg",
+            AudioFormat.WAV: "audio/wav",
+            AudioFormat.OGG: "audio/ogg",
+            AudioFormat.OPUS: "audio/opus",
+            AudioFormat.AAC: "audio/aac"
+        }
+        
+        content_type = content_type_map.get(response.format, "audio/wav")
+        
+        return Response(
+            content=response.audio_data,
+            media_type=content_type,
+            headers={
+                "Content-Disposition": f"attachment; filename=preview_{final_voice_id}.{response.format.value}",
+                "X-Audio-Duration": str(response.duration),
+                "X-Audio-Format": response.format.value,
+                "X-Voice-ID": final_voice_id
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to generate voice preview: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate audio: {str(e)}"
