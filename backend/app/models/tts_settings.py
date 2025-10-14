@@ -43,9 +43,9 @@ class TTSSettings(Base):
     audio_format = Column(String(10), default="mp3")  # mp3, aac, opus
     
     # Behavior Settings
-    auto_narrate_new_scenes = Column(Boolean, default=False)
-    chunk_size = Column(Integer, default=280)  # Max characters per chunk
-    stream_audio = Column(Boolean, default=True)
+    progressive_narration = Column(Boolean, default=False)  # Split scene into chunks for progressive playback
+    chunk_size = Column(Integer, default=280)  # Chunk size for progressive narration (100-500)
+    stream_audio = Column(Boolean, default=True)  # Future: Use provider streaming capabilities (SSE)
     
     # Advanced Settings
     pause_between_paragraphs = Column(Integer, default=500)  # milliseconds
@@ -78,7 +78,7 @@ class TTSSettings(Base):
                 "format": self.audio_format
             },
             "behavior": {
-                "auto_narrate_new_scenes": self.auto_narrate_new_scenes,
+                "progressive_narration": self.progressive_narration,
                 "chunk_size": self.chunk_size,
                 "stream_audio": self.stream_audio,
                 "pause_between_paragraphs": self.pause_between_paragraphs,
