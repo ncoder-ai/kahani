@@ -101,6 +101,15 @@ class AudioInfoResponse(BaseModel):
     format: str
     generated_at: str
     cached: bool
+    progressive: bool = Field(False, description="Whether audio is chunked for progressive playback")
+    chunk_count: int = Field(1, description="Number of chunks (1 if not progressive)")
+
+
+class ChunkMetadata(BaseModel):
+    """Metadata for an audio chunk"""
+    chunk_number: int
+    text_preview: str
+    estimated_duration: float
 
 
 class VoiceInfo(BaseModel):
@@ -606,7 +615,7 @@ async def generate_scene_audio(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Generate or retrieve cached audio for a scene"""
+    """Generate fresh audio for a scene (always regenerate, no caching)"""
     
     # Get scene
     scene = db.query(Scene).filter(Scene.id == scene_id).first()
@@ -627,11 +636,17 @@ async def generate_scene_audio(
         )
     
     try:
+        # Get TTS settings to check if progressive narration is enabled
+        tts_settings = db.query(TTSSettings).filter(
+            TTSSettings.user_id == current_user.id
+        ).first()
+        
         tts_service = TTSService(db)
+        # Always force regenerate (no caching)
         scene_audio = await tts_service.get_or_generate_scene_audio(
             scene=scene,
             user_id=current_user.id,
-            force_regenerate=request.force_regenerate
+            force_regenerate=True  # Always regenerate
         )
         
         if not scene_audio:
@@ -640,15 +655,20 @@ async def generate_scene_audio(
                 detail="TTS not configured"
             )
         
+        # Check if progressive narration is enabled
+        is_progressive = tts_settings and tts_settings.progressive_narration
+        
         return AudioInfoResponse(
             scene_id=scene_audio.scene_id,
-            voice_id=scene_audio.voice_used,  # Fixed: voice_used not voice_id
-            provider_type=scene_audio.provider_used,  # Fixed: provider_used not provider_type
+            voice_id=scene_audio.voice_used,
+            provider_type=scene_audio.provider_used,
             file_size=scene_audio.file_size,
             duration=scene_audio.duration,
-            format=scene_audio.audio_format,  # Fixed: audio_format not format
-            generated_at=scene_audio.created_at.isoformat(),  # Fixed: created_at not generated_at
-            cached=not request.force_regenerate
+            format=scene_audio.audio_format,
+            generated_at=scene_audio.created_at.isoformat(),
+            cached=False,  # Never cached
+            progressive=is_progressive,
+            chunk_count=scene_audio.chunk_count
         )
         
     except Exception as e:
@@ -729,7 +749,7 @@ async def get_scene_audio(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get audio file for a scene"""
+    """Get audio file for a scene (no caching - audio is deleted after serving)"""
     
     # Get scene
     scene = db.query(Scene).filter(Scene.id == scene_id).first()
@@ -761,7 +781,10 @@ async def get_scene_audio(
             audio_generator(),
             media_type="audio/wav",
             headers={
-                "Content-Disposition": f"inline; filename=scene_{scene_id}.wav"
+                "Content-Disposition": f"inline; filename=scene_{scene_id}.wav",
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0"
             }
         )
     else:
@@ -782,11 +805,11 @@ async def get_scene_audio(
         scene_audio = db.query(SceneAudio).filter(
             and_(
                 SceneAudio.scene_id == scene_id,
-                SceneAudio.voice_id == tts_settings.default_voice
+                SceneAudio.voice_used == tts_settings.default_voice
             )
         ).first()
         
-        if not scene_audio or not scene_audio.file_path or not os.path.exists(scene_audio.file_path):
+        if not scene_audio or not scene_audio.audio_url or not os.path.exists(scene_audio.audio_url):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Audio not found. Generate it first using POST /api/tts/generate/{scene_id}"
@@ -794,17 +817,278 @@ async def get_scene_audio(
         
         # Determine content type
         content_type = "audio/wav"
-        if scene_audio.format == "mp3":
+        if scene_audio.audio_format == "mp3":
             content_type = "audio/mpeg"
-        elif scene_audio.format == "ogg":
+        elif scene_audio.audio_format == "ogg":
             content_type = "audio/ogg"
         
-        return FileResponse(
-            scene_audio.file_path,
+        # Read file into memory
+        file_path = scene_audio.audio_url
+        with open(file_path, "rb") as f:
+            audio_data = f.read()
+        
+        # Delete the file immediately after reading
+        try:
+            os.remove(file_path)
+            logger.info(f"Deleted audio file after serving: {file_path}")
+        except Exception as e:
+            logger.warning(f"Failed to delete audio file {file_path}: {e}")
+        
+        # Delete database entry
+        db.delete(scene_audio)
+        db.commit()
+        logger.info(f"Deleted audio cache entry for scene {scene_id}")
+        
+        # Return audio data from memory
+        from fastapi.responses import Response
+        return Response(
+            content=audio_data,
             media_type=content_type,
             headers={
-                "Content-Disposition": f"inline; filename=scene_{scene_id}.{scene_audio.format}"
+                "Content-Disposition": f"inline; filename=scene_{scene_id}.{scene_audio.audio_format}",
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0"
             }
+        )
+
+
+@router.get("/audio/{scene_id}/chunk/{chunk_number}")
+async def get_scene_audio_chunk(
+    scene_id: int,
+    chunk_number: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get a specific audio chunk for progressive playback.
+    Generates the chunk on-demand and returns it immediately (no caching).
+    """
+    # Get scene
+    scene = db.query(Scene).filter(Scene.id == scene_id).first()
+    
+    if not scene:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scene not found"
+        )
+    
+    # Check access
+    from app.models.story import Story
+    story = db.query(Story).filter(Story.id == scene.story_id).first()
+    if not story or story.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied"
+        )
+    
+    # Get TTS settings
+    tts_settings = db.query(TTSSettings).filter(
+        TTSSettings.user_id == current_user.id
+    ).first()
+    
+    if not tts_settings or not tts_settings.tts_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="TTS not configured"
+        )
+    
+    # Get scene variant content
+    from app.models.story_flow import StoryFlow
+    from app.models.scene_variant import SceneVariant
+    
+    flow_entry = db.query(StoryFlow).filter(
+        StoryFlow.scene_id == scene.id,
+        StoryFlow.is_active == True
+    ).first()
+    
+    if not flow_entry or not flow_entry.scene_variant_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No active variant found for scene"
+        )
+    
+    variant = db.query(SceneVariant).filter(
+        SceneVariant.id == flow_entry.scene_variant_id
+    ).first()
+    
+    if not variant or not variant.content:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scene content not found"
+        )
+    
+    try:
+        # Get TTS settings
+        tts_settings = db.query(TTSSettings).filter(
+            TTSSettings.user_id == current_user.id
+        ).first()
+        
+        if not tts_settings or not tts_settings.tts_enabled:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="TTS not configured"
+            )
+        
+        # Get scene audio metadata (get most recent entry)
+        from app.models.tts_settings import SceneAudio
+        scene_audio = db.query(SceneAudio).filter(
+            SceneAudio.scene_id == scene_id,
+            SceneAudio.user_id == current_user.id
+        ).order_by(SceneAudio.id.desc()).first()
+        
+        if not scene_audio or chunk_number >= scene_audio.chunk_count:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Chunk {chunk_number} not found. Scene has {scene_audio.chunk_count if scene_audio else 0} chunks."
+            )
+        
+        # Build chunk file path
+        from pathlib import Path
+        import os
+        
+        # Resolve audio directory path (stored as relative path in DB)
+        audio_base_path = Path(scene_audio.audio_url)
+        if not audio_base_path.is_absolute():
+            # Resolve relative to current working directory
+            cwd = Path(os.getcwd())
+            audio_base_path = cwd / audio_base_path
+        
+        chunk_filename = f"scene_{scene_id}_chunk_{chunk_number}_{tts_settings.default_voice or 'default'}.{scene_audio.audio_format}"
+        chunk_path = audio_base_path / chunk_filename
+        
+        if not chunk_path.exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Chunk file not found: {chunk_filename}"
+            )
+        
+        # Read chunk file
+        with open(chunk_path, "rb") as f:
+            audio_data = f.read()
+        
+        # Get duration from file metadata if possible
+        import wave
+        duration = 0.0
+        try:
+            if scene_audio.audio_format == "wav":
+                with wave.open(str(chunk_path), 'rb') as wav_file:
+                    frames = wav_file.getnframes()
+                    rate = wav_file.getframerate()
+                    duration = frames / float(rate)
+        except Exception:
+            # If we can't get duration, estimate it
+            duration = len(audio_data) / 32000.0  # Rough estimate
+        
+        # Determine content type
+        content_type = "audio/mpeg" if scene_audio.audio_format == "mp3" else f"audio/{scene_audio.audio_format}"
+        
+        logger.info(f"Serving chunk {chunk_number} for scene {scene_id}: {len(audio_data)} bytes, {duration:.2f}s")
+        
+        # Return audio immediately
+        from fastapi.responses import Response
+        return Response(
+            content=audio_data,
+            media_type=content_type,
+            headers={
+                "Content-Disposition": f"inline; filename=scene_{scene_id}_chunk_{chunk_number}.{scene_audio.audio_format}",
+                "X-Chunk-Number": str(chunk_number),
+                "X-Total-Chunks": str(scene_audio.chunk_count),
+                "X-Chunk-Duration": str(duration),
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0"
+            }
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to serve chunk {chunk_number} for scene {scene_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to serve audio chunk: {str(e)}"
+        )
+
+
+@router.delete("/audio/{scene_id}/chunks")
+async def delete_scene_audio_chunks(
+    scene_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete all audio chunks for a scene after playback is complete.
+    Called by frontend when progressive playback finishes.
+    """
+    # Get scene and verify access
+    scene = db.query(Scene).filter(Scene.id == scene_id).first()
+    
+    if not scene:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scene not found"
+        )
+    
+    from app.models.story import Story
+    story = db.query(Story).filter(Story.id == scene.story_id).first()
+    if not story or story.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied"
+        )
+    
+    try:
+        # Get scene audio metadata (get most recent entry)
+        from app.models.tts_settings import SceneAudio
+        scene_audio = db.query(SceneAudio).filter(
+            SceneAudio.scene_id == scene_id,
+            SceneAudio.user_id == current_user.id
+        ).order_by(SceneAudio.id.desc()).first()
+        
+        if not scene_audio:
+            # Already deleted or never existed
+            return {"message": "No audio chunks to delete"}
+        
+        # Delete all chunk files
+        from pathlib import Path
+        import glob
+        import os
+        
+        # Resolve audio directory path
+        audio_base_path = Path(scene_audio.audio_url)
+        if not audio_base_path.is_absolute():
+            cwd = Path(os.getcwd())
+            audio_base_path = cwd / audio_base_path
+        
+        chunk_pattern = str(audio_base_path / f"scene_{scene_id}_chunk_*")
+        chunk_files = glob.glob(chunk_pattern)
+        
+        deleted_count = 0
+        for chunk_file in chunk_files:
+            try:
+                os.remove(chunk_file)
+                deleted_count += 1
+                logger.info(f"Deleted chunk file: {chunk_file}")
+            except Exception as e:
+                logger.warning(f"Could not delete chunk file {chunk_file}: {e}")
+        
+        # Delete database entry
+        db.delete(scene_audio)
+        db.commit()
+        
+        logger.info(f"Deleted {deleted_count} chunk files and database entry for scene {scene_id}")
+        
+        return {
+            "message": f"Deleted {deleted_count} audio chunks",
+            "scene_id": scene_id
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to delete audio chunks for scene {scene_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete audio chunks: {str(e)}"
         )
 
 
