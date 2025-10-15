@@ -777,4 +777,8 @@ class ApiClient {
   }
 }
 
+// Export singleton instance as default
 export default new ApiClient(API_BASE_URL);
+
+// Export API_BASE_URL for direct URL construction when needed
+export { API_BASE_URL };

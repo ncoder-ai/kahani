@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore, useStoryStore, useHasHydrated } from '@/store';
 import { X, Settings, LogOut, User } from 'lucide-react';
+import apiClient, { API_BASE_URL } from '@/lib/api';
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -44,7 +45,7 @@ export default function DashboardPage() {
       }
       
       // Make direct fetch request with explicit Authorization header - include all stories (active and archived)
-      const response = await fetch('http://localhost:8000/api/stories/?skip=0&limit=10&include_archived=true', {
+      const response = await fetch(`${API_BASE_URL}/api/stories/?skip=0&limit=10&include_archived=true`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -99,7 +100,7 @@ export default function DashboardPage() {
     
     try {
       const { token } = useAuthStore.getState();
-      const url = `http://localhost:8000/api/stories/${storyId}/summary`;
+      const url = `${API_BASE_URL}/api/stories/${storyId}/summary`;
       console.log('[SUMMARY] Fetching from:', url);
       
       const response = await fetch(url, {
@@ -143,7 +144,7 @@ export default function DashboardPage() {
     
     try {
       const { token } = useAuthStore.getState();
-      const response = await fetch(`http://localhost:8000/api/stories/${storyId}`, {
+      const response = await fetch(`${API_BASE_URL}/api/stories/${storyId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -156,7 +157,7 @@ export default function DashboardPage() {
         console.log('[DELETE] Story deleted:', data);
         
         // Refresh the stories list
-        const storiesData = await fetch('http://localhost:8000/api/stories', {
+        const storiesData = await fetch(`${API_BASE_URL}/api/stories`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
@@ -450,7 +451,7 @@ export default function DashboardPage() {
                     setLoadingSummary(true);
                     try {
                       const { token } = useAuthStore.getState();
-                      const url = `http://localhost:8000/api/stories/${selectedStory.id}/regenerate-summary`;
+                      const url = `${API_BASE_URL}/api/stories/${selectedStory.id}/regenerate-summary`;
                       console.log('[SUMMARY] Calling API:', url);
                       
                       const response = await fetch(url, {
