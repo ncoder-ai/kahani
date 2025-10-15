@@ -354,3 +354,125 @@ async def regenerate_story_summary(
     except Exception as e:
         logger.error(f"Error regenerating story summary: {e}")
         raise HTTPException(status_code=500, detail="Failed to regenerate summary")
+
+
+@router.post("/stories/{story_id}/generate-story-summary")
+async def generate_story_summary_from_chapters(
+    story_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Generate story-level summary from chapter summaries (summary of summaries approach).
+    This is more efficient than summarizing all scenes individually.
+    """
+    try:
+        from ..models import Chapter, Scene, StoryFlow
+        
+        # Get the story
+        story = db.query(Story).filter(
+            Story.id == story_id,
+            Story.owner_id == current_user.id
+        ).first()
+        
+        if not story:
+            raise HTTPException(status_code=404, detail="Story not found")
+        
+        # Get all chapters for this story
+        chapters = db.query(Chapter).filter(
+            Chapter.story_id == story_id
+        ).order_by(Chapter.chapter_number).all()
+        
+        if not chapters:
+            raise HTTPException(status_code=400, detail="Story has no chapters to summarize")
+        
+        # Get user settings
+        user_settings = None
+        if hasattr(current_user, 'settings') and current_user.settings:
+            settings_obj = current_user.settings
+            user_settings = {
+                "api_type": settings_obj.llm_api_type,
+                "api_url": settings_obj.llm_api_url,
+                "api_key": settings_obj.llm_api_key,
+                "model_name": settings_obj.llm_model_name,
+                "max_tokens": settings_obj.llm_max_tokens,
+                "temperature": settings_obj.llm_temperature,
+                "top_p": settings_obj.llm_top_p
+            }
+        
+        # Collect chapter summaries
+        chapter_summaries = []
+        total_scenes = 0
+        for chapter in chapters:
+            total_scenes += chapter.scenes_count
+            if chapter.auto_summary:
+                chapter_summaries.append(
+                    f"Chapter {chapter.chapter_number} ({chapter.title or 'Untitled'}):\n{chapter.auto_summary}"
+                )
+            elif chapter.scenes_count > 0:
+                # Chapter has scenes but no summary - get scene content
+                scenes = db.query(Scene).filter(
+                    Scene.chapter_id == chapter.id
+                ).order_by(Scene.sequence_number).all()
+                
+                scene_previews = []
+                for scene in scenes[:3]:  # Just first 3 scenes for preview
+                    flow = db.query(StoryFlow).filter(
+                        StoryFlow.scene_id == scene.id,
+                        StoryFlow.is_active == True
+                    ).first()
+                    if flow and flow.scene_variant:
+                        content = flow.scene_variant.content[:300] + "..." if len(flow.scene_variant.content) > 300 else flow.scene_variant.content
+                        scene_previews.append(f"Scene {scene.sequence_number}: {content}")
+                
+                if scene_previews:
+                    chapter_summaries.append(
+                        f"Chapter {chapter.chapter_number} ({chapter.title or 'Untitled'}) - {chapter.scenes_count} scenes:\n" + "\n".join(scene_previews)
+                    )
+        
+        if not chapter_summaries:
+            raise HTTPException(status_code=400, detail="No chapter content available to summarize")
+        
+        # Combine chapter summaries
+        combined_summaries = "\n\n".join(chapter_summaries)
+        
+        # Generate story-level summary
+        prompt = f"""Create a comprehensive story summary from the following chapter summaries. This should capture the overall narrative arc, key plot points, character development, and major themes of the entire story.
+
+Story Title: {story.title}
+Genre: {story.genre or 'Unknown'}
+Total Chapters: {len(chapters)}
+Total Scenes: {total_scenes}
+
+Chapter Summaries:
+{combined_summaries}
+
+Provide a cohesive, well-structured summary that reads as a complete narrative overview (3-5 paragraphs):"""
+        
+        logger.info(f"[STORY SUMMARY] Generating story summary from {len(chapter_summaries)} chapters")
+        
+        story_summary = await llm_service._generate(
+            prompt=prompt,
+            user_id=current_user.id,
+            user_settings=user_settings,
+            system_prompt="You are a helpful assistant that creates comprehensive story summaries from chapter summaries.",
+            max_tokens=800  # More tokens for full story summary
+        )
+        
+        # Save the summary to the story
+        story.summary = story_summary
+        db.commit()
+        
+        logger.info(f"[STORY SUMMARY] Generated and saved story summary: {len(story_summary)} chars")
+        
+        return {
+            "message": "Story summary generated successfully",
+            "summary": story_summary,
+            "chapters_summarized": len(chapters),
+            "total_scenes": total_scenes,
+            "approach": "summary_of_summaries"
+        }
+            
+    except Exception as e:
+        logger.error(f"Error generating story summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

@@ -58,6 +58,7 @@ interface Story {
   creation_step: number;
   created_at: string;
   updated_at: string;
+  summary?: string;  // AI-generated story summary
   scenes?: Scene[];
 }
 

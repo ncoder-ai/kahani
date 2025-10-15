@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useParams } from 'next/navigation';
 import { useAuthStore, useStoryStore, useHasHydrated } from '@/store';
-import apiClient from '@/lib/api';
+import apiClient, { API_BASE_URL } from '@/lib/api';
 import CharacterQuickAdd from '@/components/CharacterQuickAdd';
 import { ContextInfo } from '@/components/ContextInfo';
 import FormattedText from '@/components/FormattedText';
@@ -411,7 +411,7 @@ export default function StoryPage() {
         setStorySummary(null);
       } else {
         // Fallback to old summary endpoint if no chapter summary exists
-        const response = await fetch(`http://localhost:8000/api/stories/${storyId}/summary`, {
+        const response = await fetch(`${API_BASE_URL}/api/stories/${storyId}/summary`, {
           headers: {
             'Authorization': `Bearer ${token}`,
           },
@@ -459,7 +459,7 @@ export default function StoryPage() {
       }
       
       // Fallback to old regenerate-summary endpoint
-      const url = `http://localhost:8000/api/stories/${storyId}/regenerate-summary`;
+      const url = `${API_BASE_URL}/api/stories/${storyId}/regenerate-summary`;
       console.log('[SUMMARY] Calling fallback API:', url);
       
       const response = await fetch(url, {
