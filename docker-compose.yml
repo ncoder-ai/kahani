@@ -13,16 +13,29 @@ services:
       - "8000:8000"
     volumes:
       - kahani_data:/app/data
+      - kahani_audio:/app/data/audio  # TTS audio files
       - kahani_exports:/app/exports
       - kahani_logs:/app/logs
     environment:
+      # Database
       - DATABASE_URL=${DATABASE_URL:-sqlite:///./data/kahani.db}
       - SECRET_KEY=${SECRET_KEY:-kahani-secret-key-change-in-production}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-your-super-secret-jwt-key-change-in-production}
+      
+      # LLM Configuration
       - LLM_BASE_URL=${LLM_BASE_URL:-http://host.docker.internal:1234/v1}
       - LLM_API_KEY=${LLM_API_KEY:-not-needed-for-local}
       - LLM_MODEL=${LLM_MODEL:-local-model}
+      
+      # TTS Configuration (optional - configure via UI after first run)
+      - TTS_PROVIDER=${TTS_PROVIDER:-openai-compatible}
+      - TTS_API_URL=${TTS_API_URL:-http://host.docker.internal:8080/v1/audio/speech}
+      - TTS_API_KEY=${TTS_API_KEY:-}
+      
+      # Application Settings
       - DEBUG=${DEBUG:-false}
       - CORS_ORIGINS=["http://localhost:3000", "http://kahani-frontend:3000"]
+      - PYTHONPATH=/app
     depends_on:
       - postgres
     extra_hosts:
@@ -120,6 +133,8 @@ services:
 volumes:
   kahani_data:
     name: kahani_data
+  kahani_audio:
+    name: kahani_audio
   kahani_exports:
     name: kahani_exports
   kahani_logs:

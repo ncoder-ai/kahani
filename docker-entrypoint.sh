@@ -10,38 +10,90 @@ wait_for_service() {
     local host=$1
     local port=$2
     local service_name=$3
+    local max_attempts=${4:-30}
+    local attempt=0
     
     echo "⏳ Waiting for $service_name to be ready..."
-    while ! nc -z $host $port; do
+    while ! nc -z $host $port 2>/dev/null; do
+        attempt=$((attempt+1))
+        if [ $attempt -ge $max_attempts ]; then
+            echo "❌ Failed to connect to $service_name after $max_attempts attempts"
+            return 1
+        fi
         sleep 1
     done
     echo "✅ $service_name is ready!"
+    return 0
 }
 
 # Create necessary directories
-mkdir -p backend/data backend/logs frontend/logs
-
-# Set proper permissions
-chmod -R 755 backend/data backend/logs
-
-# Run database migrations if needed
-if [ ! -f "backend/data/kahani.db" ]; then
-    echo "🗄️ Setting up database..."
-    cd backend
-    python migrate_add_auto_open_last_story.py || echo "Migration already applied or not needed"
-    python migrate_add_prompt_templates.py || echo "Migration already applied or not needed"
-    cd ..
-    echo "✅ Database setup complete"
-fi
+echo "📁 Creating directories..."
+mkdir -p /app/data /app/data/audio /app/logs /app/exports /app/backups
+chmod -R 755 /app/data /app/logs /app/exports /app/backups
 
 # If PostgreSQL is configured, wait for it
 if [[ "$DATABASE_URL" == postgresql* ]]; then
-    # Extract host and port from DATABASE_URL if using PostgreSQL
+    echo "🐘 PostgreSQL database detected"
+    # Extract host and port from DATABASE_URL
     DB_HOST=$(echo $DATABASE_URL | sed -n 's/.*@\([^:]*\):.*/\1/p' || echo "postgres")
-    wait_for_service $DB_HOST 5432 "PostgreSQL"
+    DB_PORT=$(echo $DATABASE_URL | sed -n 's/.*:\([0-9]*\)\/.*/\1/p' || echo "5432")
+    
+    wait_for_service $DB_HOST $DB_PORT "PostgreSQL" 60
+    
+    # Give PostgreSQL a bit more time to fully initialize
+    sleep 2
 fi
 
-echo "🚀 Starting Kahani services..."
+# Initialize database if needed
+if [ ! -f "/app/data/kahani.db" ] && [[ "$DATABASE_URL" == sqlite* ]]; then
+    echo "🗄️ Initializing SQLite database..."
+    cd /app
+    
+    # Run init script if it exists
+    if [ -f "init_database.py" ]; then
+        echo "Running database initialization..."
+        python init_database.py || echo "⚠️  Database initialization warning (may already exist)"
+    fi
+    
+    # Run migrations
+    echo "Running database migrations..."
+    if [ -f "migrate_add_tts.py" ]; then
+        python migrate_add_tts.py || echo "⚠️  TTS migration warning (may already be applied)"
+    fi
+    
+    if [ -f "migrate_add_auto_open_last_story.py" ]; then
+        python migrate_add_auto_open_last_story.py || echo "⚠️  Auto-open migration warning (may already be applied)"
+    fi
+    
+    if [ -f "migrate_add_prompt_templates.py" ]; then
+        python migrate_add_prompt_templates.py || echo "⚠️  Prompt templates migration warning (may already be applied)"
+    fi
+    
+    echo "✅ Database initialization complete"
+else
+    echo "✅ Database already exists"
+fi
+
+# Check for TTS provider availability (optional)
+if [ ! -z "$TTS_API_URL" ]; then
+    echo "🔊 TTS provider configured at: $TTS_API_URL"
+    # Extract host and port for health check (optional, non-blocking)
+    TTS_HOST=$(echo $TTS_API_URL | sed -n 's|.*//\([^:]*\).*|\1|p')
+    TTS_PORT=$(echo $TTS_API_URL | sed -n 's|.*:\([0-9]*\)/.*|\1|p')
+    
+    if [ ! -z "$TTS_HOST" ] && [ ! -z "$TTS_PORT" ]; then
+        echo "⏳ Checking TTS provider availability (non-blocking)..."
+        if wait_for_service $TTS_HOST $TTS_PORT "TTS Provider" 10; then
+            echo "✅ TTS provider is available"
+        else
+            echo "⚠️  TTS provider not available, can be configured later via Settings UI"
+        fi
+    fi
+else
+    echo "ℹ️  TTS not pre-configured, can be set up via Settings UI"
+fi
+
+echo "🚀 Starting Kahani application..."
 
 # Execute the main command
 exec "$@"

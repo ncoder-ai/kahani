@@ -853,6 +853,96 @@ async def get_scene_audio(
         )
 
 
+@router.get("/audio/{scene_id}/status")
+async def get_audio_generation_status(
+    scene_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get the current status of audio generation for a scene.
+    Returns information about how many chunks are ready and total expected chunks.
+    """
+    # Get scene
+    scene = db.query(Scene).filter(Scene.id == scene_id).first()
+    
+    if not scene:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scene not found"
+        )
+    
+    # Check access
+    from app.models.story import Story
+    story = db.query(Story).filter(Story.id == scene.story_id).first()
+    if not story or story.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied"
+        )
+    
+    try:
+        # Get scene audio metadata (get most recent entry)
+        from app.models.tts_settings import SceneAudio
+        scene_audio = db.query(SceneAudio).filter(
+            SceneAudio.scene_id == scene_id,
+            SceneAudio.user_id == current_user.id
+        ).order_by(SceneAudio.id.desc()).first()
+        
+        if not scene_audio:
+            return {
+                "scene_id": scene_id,
+                "status": "not_started",
+                "chunks_ready": 0,
+                "total_chunks": 0,
+                "is_progressive": False
+            }
+        
+        # Check how many chunk files actually exist
+        from pathlib import Path
+        import os
+        
+        audio_base_path = Path(scene_audio.audio_url)
+        if not audio_base_path.is_absolute():
+            cwd = Path(os.getcwd())
+            audio_base_path = cwd / audio_base_path
+        
+        # Get TTS settings for voice info
+        tts_settings = db.query(TTSSettings).filter(
+            TTSSettings.user_id == current_user.id
+        ).first()
+        
+        chunks_ready = 0
+        if scene_audio.chunk_count > 1:
+            # Progressive mode - count existing chunk files
+            for chunk_num in range(scene_audio.chunk_count):
+                chunk_filename = f"scene_{scene_id}_chunk_{chunk_num}_{tts_settings.default_voice or 'default'}.{scene_audio.audio_format}"
+                chunk_path = audio_base_path / chunk_filename
+                if chunk_path.exists():
+                    chunks_ready += 1
+        else:
+            # Single file mode
+            chunks_ready = 1 if audio_base_path.exists() else 0
+        
+        status_str = "complete" if chunks_ready == scene_audio.chunk_count else "generating"
+        
+        return {
+            "scene_id": scene_id,
+            "status": status_str,
+            "chunks_ready": chunks_ready,
+            "total_chunks": scene_audio.chunk_count,
+            "is_progressive": scene_audio.chunk_count > 1,
+            "duration": scene_audio.duration
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get status for scene {scene_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get audio status: {str(e)}"
+        )
+
+
 @router.get("/audio/{scene_id}/chunk/{chunk_number}")
 async def get_scene_audio_chunk(
     scene_id: int,

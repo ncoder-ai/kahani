@@ -97,10 +97,11 @@ export const useTTS = ({ sceneId, onPlaybackStart, onPlaybackEnd, onError }: Use
     }
   }, [sceneId, onError]);
 
-  // Play a specific chunk with retry logic
+  // Play a specific chunk with smart retry logic
   const playChunk = useCallback(async (chunkNumber: number, retryCount = 0) => {
-    const MAX_RETRIES = 3;
-    const RETRY_DELAY_MS = 1000; // Start with 1 second
+    const MAX_RETRIES = 15; // Allow more retries for slow generation
+    const BASE_DELAY_MS = 500; // Start with shorter delay
+    const MAX_DELAY_MS = 3000; // Cap maximum delay
     
     try {
       const audioInfo = audioInfoRef.current;
@@ -125,12 +126,41 @@ export const useTTS = ({ sceneId, onPlaybackStart, onPlaybackEnd, onError }: Use
         }
       });
 
-      // If chunk not found and we haven't exceeded retries, wait and retry
+      // If chunk not found and we haven't exceeded retries, wait and retry with smart backoff
       if (response.status === 404 && retryCount < MAX_RETRIES) {
-        const delay = RETRY_DELAY_MS * Math.pow(2, retryCount); // Exponential backoff
-        console.log(`[useTTS] Chunk ${chunkNumber} not ready yet, retrying in ${delay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+        // Smart backoff: increases gradually but caps at MAX_DELAY_MS
+        // Formula: min(BASE * (1 + retryCount * 0.3), MAX_DELAY)
+        // Results: 500ms, 650ms, 800ms, 950ms, 1100ms... up to 3000ms
+        const delay = Math.min(
+          BASE_DELAY_MS * (1 + retryCount * 0.3),
+          MAX_DELAY_MS
+        );
         
+        console.log(`[useTTS] Chunk ${chunkNumber} not ready yet, retrying in ${Math.round(delay)}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+        
+        // Wait before retrying
         await new Promise(resolve => setTimeout(resolve, delay));
+        
+        // Check generation status before retrying (optional optimization)
+        try {
+          const statusResponse = await fetch(
+            `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/tts/audio/${sceneId}/status`,
+            {
+              headers: {
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+              }
+            }
+          );
+          
+          if (statusResponse.ok) {
+            const status = await statusResponse.json();
+            console.log(`[useTTS] Generation status: ${status.chunks_ready}/${status.total_chunks} chunks ready`);
+          }
+        } catch (statusErr) {
+          // Status check failed, but continue with retry anyway
+          console.warn('[useTTS] Failed to check generation status:', statusErr);
+        }
+        
         return await playChunk(chunkNumber, retryCount + 1);
       }
 
