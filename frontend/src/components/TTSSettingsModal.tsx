@@ -347,13 +347,21 @@ export default function TTSSettingsModal({ isOpen, onClose, onSaved }: TTSSettin
         ...settings.extra_params,
       } : settings.extra_params;
       
+      // Prepare the full settings object with all fields
+      const fullSettings = {
+        ...settings,
+        extra_params,
+        // Explicitly include these fields to ensure they're saved
+        tts_enabled: settings.tts_enabled,
+        progressive_narration: settings.progressive_narration,
+        chunk_size: settings.chunk_size,
+        stream_audio: settings.stream_audio,
+      };
+      
       // Save to provider-specific config endpoint
       const savedConfig = await apiClient.put<TTSSettings>(
         `/api/tts/provider-configs/${settings.provider_type}`,
-        {
-          ...settings,
-          extra_params,
-        }
+        fullSettings
       );
       
       // Update local provider configs cache
@@ -362,11 +370,8 @@ export default function TTSSettingsModal({ isOpen, onClose, onSaved }: TTSSettin
         [settings.provider_type]: savedConfig,
       }));
       
-      // Also update the global TTS settings (for backward compatibility)
-      await apiClient.put('/api/tts/settings', {
-        ...settings,
-        extra_params,
-      });
+      // Also update the global TTS settings (this is the main one that matters)
+      await apiClient.put('/api/tts/settings', fullSettings);
       
       setSuccessMessage('Settings saved successfully!');
       setTimeout(() => {
