@@ -106,13 +106,13 @@ class TTSService:
                 )
             ).first()
             
-            if cached_audio and cached_audio.file_path:
+            if cached_audio and cached_audio.audio_url:
                 # Check if file still exists
-                if os.path.exists(cached_audio.file_path):
+                if os.path.exists(cached_audio.audio_url):
                     logger.info(f"Using cached audio for scene {scene.id}")
                     return cached_audio
                 else:
-                    logger.warning(f"Cached audio file not found: {cached_audio.file_path}")
+                    logger.warning(f"Cached audio file not found: {cached_audio.audio_url}")
                     # Delete invalid cache entry
                     self.db.delete(cached_audio)
                     self.db.commit()
@@ -139,7 +139,106 @@ class TTSService:
             return None
         
         try:
-            audio_data, duration, format = await self._generate_scene_audio(
+            # For progressive narration, generate all chunks and store them separately
+            if tts_settings.progressive_narration:
+                logger.info("Progressive narration enabled - generating chunks asynchronously")
+                
+                # Chunk the text
+                from app.services.tts.text_chunker import TextChunker
+                chunk_size = tts_settings.chunk_size or 280
+                chunker = TextChunker(
+                    max_chunk_size=chunk_size,
+                    min_chunk_size=50,
+                    respect_sentences=True,
+                    respect_paragraphs=True
+                )
+                chunks = chunker.chunk_text(variant.content)
+                chunk_count = len(chunks)
+                
+                logger.info(f"Will generate {chunk_count} chunks for progressive playback")
+                
+                # Get provider
+                from app.services.tts.factory import TTSProviderFactory
+                provider = TTSProviderFactory.create_provider(
+                    provider_type=tts_settings.tts_provider_type,
+                    api_url=tts_settings.tts_api_url,
+                    api_key=tts_settings.tts_api_key or "",
+                    timeout=tts_settings.tts_timeout or 30,
+                    extra_params=tts_settings.tts_extra_params or {}
+                )
+                
+                # Get audio format
+                format = AudioFormat.MP3
+                if tts_settings.tts_extra_params:
+                    format_str = tts_settings.tts_extra_params.get("format", "mp3")
+                    try:
+                        format = AudioFormat(format_str)
+                    except ValueError:
+                        pass
+                
+                # Generate first chunk immediately, then continue rest in background
+                user_dir = self._get_user_audio_dir(user_id)
+                total_duration = 0.0
+                actual_format = format  # Will be updated with first chunk's actual format
+                
+                # Generate FIRST chunk only
+                logger.info(f"Generating first chunk: {len(chunks[0].text)} chars")
+                
+                from app.services.tts.base import TTSRequest
+                request = TTSRequest(
+                    text=chunks[0].text,
+                    voice_id=tts_settings.default_voice or "default",
+                    speed=tts_settings.speech_speed or 1.0,
+                    format=format
+                )
+                
+                response = await provider.synthesize(request)
+                total_duration = response.duration
+                actual_format = response.format
+                
+                # Save first chunk
+                chunk_filename = f"scene_{scene.id}_chunk_0_{tts_settings.default_voice or 'default'}.{actual_format.value}"
+                chunk_path = user_dir / chunk_filename
+                
+                with open(chunk_path, "wb") as f:
+                    f.write(response.audio_data)
+                
+                logger.info(f"Saved chunk 0 to {chunk_path}: {len(response.audio_data)} bytes, {response.duration:.2f}s")
+                
+                # Estimate total duration (rough estimate for now)
+                estimated_total_duration = total_duration * chunk_count
+                
+                # Create DB entry immediately with first chunk
+                scene_audio = self._create_scene_audio_entry(
+                    scene.id,
+                    user_id,
+                    str(user_dir),
+                    0,
+                    estimated_total_duration,
+                    actual_format,
+                    tts_settings,
+                    chunk_count
+                )
+                self.db.add(scene_audio)
+                self.db.commit()
+                self.db.refresh(scene_audio)
+                
+                # Start background task to generate remaining chunks
+                import asyncio
+                asyncio.create_task(self._generate_remaining_chunks(
+                    scene.id,
+                    chunks[1:],  # Remaining chunks
+                    provider,
+                    tts_settings,
+                    user_dir,
+                    actual_format
+                ))
+                
+                logger.info(f"First chunk ready for scene {scene.id}, generating {chunk_count - 1} more in background")
+                return scene_audio
+            
+            # Non-progressive: generate complete audio file
+            audio_data, duration, format, chunk_count = await self._generate_scene_audio(
                 variant.content,  # Use variant content instead of scene.content
                 tts_settings
             )
@@ -181,6 +280,7 @@ class TTSService:
                     scene_audio.file_size = len(audio_data)
                     scene_audio.duration = duration
                     scene_audio.audio_format = format.value
+                    scene_audio.chunk_count = chunk_count
                     scene_audio.created_at = datetime.utcnow()
                 else:
                     scene_audio = self._create_scene_audio_entry(
@@ -190,7 +290,8 @@ class TTSService:
                         len(audio_data),
                         duration,
                         format,
-                        tts_settings
+                        tts_settings,
+                        chunk_count
                     )
                     self.db.add(scene_audio)
             else:
@@ -201,7 +302,8 @@ class TTSService:
                     len(audio_data),
                     duration,
                     format,
-                    tts_settings
+                    tts_settings,
+                    chunk_count
                 )
                 self.db.add(scene_audio)
             
@@ -344,7 +446,8 @@ class TTSService:
         file_size: int,
         duration: float,
         format: AudioFormat,
-        tts_settings: TTSSettings
+        tts_settings: TTSSettings,
+        chunk_count: int = 1
     ) -> SceneAudio:
         """Create a new SceneAudio database entry."""
         return SceneAudio(
@@ -356,7 +459,8 @@ class TTSService:
             provider_used=tts_settings.tts_provider_type,
             file_size=file_size,
             duration=duration,
-            audio_format=format.value
+            audio_format=format.value,
+            chunk_count=chunk_count
         )
     
     def _concatenate_wav_chunks(self, chunks: List[bytes]) -> bytes:
@@ -450,8 +554,13 @@ class TTSService:
             extra_params=tts_settings.tts_extra_params or {}
         )
         
-        # Get max text length from provider
-        max_length = provider.max_text_length
+        # Get max text length - use user's chunk_size if progressive narration is enabled
+        if tts_settings.progressive_narration and tts_settings.chunk_size:
+            max_length = tts_settings.chunk_size
+            logger.info(f"Progressive narration enabled, using user's chunk_size: {max_length}")
+        else:
+            max_length = provider.max_text_length
+            logger.info(f"Using provider's max_text_length: {max_length}")
         
         # Determine format
         format = AudioFormat.MP3
@@ -463,7 +572,7 @@ class TTSService:
                 logger.warning(f"Invalid format '{format_str}', using MP3")
         
         # Check if text needs chunking
-        logger.info(f"Text length: {len(text)}, max_length: {max_length}, needs chunking: {len(text) > max_length}")
+        logger.info(f"Text length: {len(text)}, max_length: {max_length}, progressive_narration: {tts_settings.progressive_narration}, needs chunking: {len(text) > max_length}")
         
         if len(text) <= max_length:
             # Single request
@@ -476,7 +585,7 @@ class TTSService:
             )
             
             response = await provider.synthesize(request)
-            return response.audio_data, response.duration, response.format
+            return response.audio_data, response.duration, response.format, 1  # Single chunk
         else:
             # Need to chunk - generate all chunks and concatenate properly
             logger.info(f"Text needs chunking ({len(text)} > {max_length})")
@@ -488,10 +597,12 @@ class TTSService:
                 max_length
             )
             
+            chunk_count = len(audio_chunks)
+            
             # Properly concatenate audio chunks
-            logger.info(f"Concatenating {len(audio_chunks)} chunks, format: {format.value}")
-            if format == AudioFormat.WAV and len(audio_chunks) > 1:
-                logger.info(f"Concatenating {len(audio_chunks)} WAV chunks")
+            logger.info(f"Concatenating {chunk_count} chunks, format: {format.value}")
+            if format == AudioFormat.WAV and chunk_count > 1:
+                logger.info(f"Concatenating {chunk_count} WAV chunks")
                 try:
                     concatenated_audio = self._concatenate_wav_chunks(audio_chunks)
                     logger.info(f"Concatenated audio: {len(concatenated_audio)} bytes")
@@ -503,7 +614,7 @@ class TTSService:
                 # For non-WAV or single chunk, simple concatenation is fine
                 concatenated_audio = b"".join(audio_chunks)
             
-            return concatenated_audio, duration, format
+            return concatenated_audio, duration, format, chunk_count
     
     async def _generate_chunked_audio(
         self,
@@ -608,10 +719,10 @@ class TTSService:
             )
         ).first()
         
-        if cached_audio and cached_audio.file_path and os.path.exists(cached_audio.file_path):
+        if cached_audio and cached_audio.audio_url and os.path.exists(cached_audio.audio_url):
             # Stream from cached file
             logger.info(f"Streaming cached audio for scene {scene.id}")
-            with open(cached_audio.file_path, "rb") as f:
+            with open(cached_audio.audio_url, "rb") as f:
                 while True:
                     chunk = f.read(8192)  # 8KB chunks
                     if not chunk:
@@ -722,7 +833,7 @@ class TTSService:
                 
                 # Check if file has database entry
                 exists = self.db.query(SceneAudio).filter(
-                    SceneAudio.file_path == file_path
+                    SceneAudio.audio_url == file_path
                 ).first()
                 
                 if not exists:
@@ -735,3 +846,45 @@ class TTSService:
         
         logger.info(f"Cleanup complete: {files_deleted} files, {entries_deleted} entries")
         return files_deleted, entries_deleted
+    
+    async def _generate_remaining_chunks(
+        self,
+        scene_id: int,
+        chunks: list,
+        provider,
+        tts_settings,
+        user_dir,
+        actual_format
+    ):
+        """Generate remaining chunks in the background"""
+        try:
+            logger.info(f"Background generation started for scene {scene_id}: {len(chunks)} chunks remaining")
+            
+            from app.services.tts.base import TTSRequest
+            
+            for i, chunk in enumerate(chunks, start=1):  # Start from chunk 1
+                logger.info(f"Generating background chunk {i}/{len(chunks)+1}: {len(chunk.text)} chars")
+                
+                request = TTSRequest(
+                    text=chunk.text,
+                    voice_id=tts_settings.default_voice or "default",
+                    speed=tts_settings.speech_speed or 1.0,
+                    format=actual_format
+                )
+                
+                response = await provider.synthesize(request)
+                
+                # Save chunk
+                chunk_filename = f"scene_{scene_id}_chunk_{i}_{tts_settings.default_voice or 'default'}.{actual_format.value}"
+                chunk_path = user_dir / chunk_filename
+                
+                with open(chunk_path, "wb") as f:
+                    f.write(response.audio_data)
+                
+                logger.info(f"Saved background chunk {i} to {chunk_path}: {len(response.audio_data)} bytes")
+            
+            logger.info(f"Background generation complete for scene {scene_id}")
+            
+        except Exception as e:
+            logger.error(f"Background chunk generation failed for scene {scene_id}: {e}")
+

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { ArrowLeftIcon, ArrowRightIcon, PlayIcon, ArrowPathIcon, PlusCircleIcon, StopIcon, SparklesIcon } from '@heroicons/react/24/outline';
 import SceneDisplay from './SceneDisplay';
+import { SceneAudioControls } from './SceneAudioControls';
 import apiClient from '@/lib/api';
 
 interface SceneVariant {
@@ -400,6 +401,9 @@ export default function SceneVariantDisplay({
         isStreamingContinuation={isStreamingContinuation}
         isStreamingVariant={isStreamingVariant}
       />
+      
+      {/* Audio Controls */}
+      <SceneAudioControls sceneId={scene.id} className="mt-4" />
       </div>
       
       {/* Scene Management - Only show for last scene */}
