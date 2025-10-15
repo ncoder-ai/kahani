@@ -538,17 +538,23 @@ async def generate_scene_streaming_endpoint(
                     logger.info(f"[CHAPTER] Linked scene {scene.id} to chapter {active_chapter.id} ({active_chapter.scenes_count} scenes, {active_chapter.context_tokens_used} tokens)")
                     
                     # Check if auto-summary is needed (use user's summary threshold setting)
-                    summary_threshold = user_settings.context_summary_threshold if user_settings else 5
+                    # user_settings is a dict from to_dict(), not an object
+                    summary_threshold = user_settings.get('context_settings', {}).get('summary_threshold', 5) if user_settings else 5
                     scenes_since_last_summary = active_chapter.scenes_count - active_chapter.last_summary_scene_count
+                    logger.info(f"[CHAPTER] Auto-summary check: {scenes_since_last_summary} scenes since last summary (threshold: {summary_threshold})")
                     if scenes_since_last_summary >= summary_threshold:
                         logger.info(f"[CHAPTER] Chapter {active_chapter.id} reached {summary_threshold} scenes since last summary, triggering auto-summary")
                         try:
-                            # Generate summary asynchronously (don't wait for it)
-                            from ..api.chapters import generate_chapter_summary
+                            # Step 1: Generate chapter summary (just this chapter's content)
+                            from ..api.chapters import generate_chapter_summary, generate_story_so_far
                             await generate_chapter_summary(active_chapter.id, db, current_user.id)
+                            
+                            # Step 2: Generate "Story So Far" (all previous + current)
+                            await generate_story_so_far(active_chapter.id, db, current_user.id)
+                            
                             active_chapter.last_summary_scene_count = active_chapter.scenes_count
                             db.commit()
-                            logger.info(f"[CHAPTER] Auto-summary generated for chapter {active_chapter.id}")
+                            logger.info(f"[CHAPTER] Auto-summary and story-so-far generated for chapter {active_chapter.id}")
                         except Exception as e:
                             logger.error(f"[CHAPTER] Failed to generate auto-summary for chapter {active_chapter.id}: {e}")
                             # Don't fail if summary generation fails

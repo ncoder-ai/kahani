@@ -147,14 +147,31 @@ async def create_chapter(
         active_chapter.status = ChapterStatus.COMPLETED
         active_chapter.completed_at = datetime.utcnow()
         logger.info(f"[CHAPTER] Marked chapter {active_chapter.id} as completed")
+        
+        # Generate summary for the completed chapter if it doesn't have one yet
+        if not active_chapter.auto_summary and active_chapter.scenes_count > 0:
+            logger.info(f"[CHAPTER] Generating summary for completed chapter {active_chapter.id}")
+            try:
+                # Generate the chapter's own summary
+                await generate_chapter_summary(active_chapter.id, db, current_user.id)
+                
+                # Also update its story_so_far (for reference)
+                await generate_story_so_far(active_chapter.id, db, current_user.id)
+                
+                db.refresh(active_chapter)  # Refresh to get the auto_summary
+                logger.info(f"[CHAPTER] Summary generated for completed chapter {active_chapter.id}")
+            except Exception as e:
+                logger.error(f"[CHAPTER] Failed to generate summary for completed chapter {active_chapter.id}: {e}")
+                # Continue with chapter creation even if summary fails
     
     # Create new chapter
+    # Generate initial story_so_far for the new chapter based on all previous chapters
     new_chapter = Chapter(
         story_id=story_id,
         chapter_number=next_chapter_number,
         title=chapter_data.title or f"Chapter {next_chapter_number}",
         description=chapter_data.description,
-        story_so_far=chapter_data.story_so_far or "Continuing the story...",
+        story_so_far="Generating story summary...",  # Placeholder
         plot_point=chapter_data.plot_point,
         status=ChapterStatus.ACTIVE,
         context_tokens_used=0,
@@ -166,6 +183,17 @@ async def create_chapter(
     db.refresh(new_chapter)
     
     logger.info(f"[CHAPTER] Created chapter {new_chapter.id} (Chapter {next_chapter_number})")
+    
+    # Generate the story_so_far for the new chapter (combining all previous chapters)
+    try:
+        await generate_story_so_far(new_chapter.id, db, current_user.id)
+        db.refresh(new_chapter)
+        logger.info(f"[CHAPTER] Generated story_so_far for new chapter {new_chapter.id}")
+    except Exception as e:
+        logger.error(f"[CHAPTER] Failed to generate story_so_far for new chapter {new_chapter.id}: {e}")
+        # Set a fallback if generation fails
+        new_chapter.story_so_far = "Continuing the story..."
+        db.commit()
     
     return new_chapter
 
@@ -325,12 +353,18 @@ async def get_chapter_context_status(
 async def generate_chapter_summary_endpoint(
     story_id: int,
     chapter_id: int,
+    regenerate_story_so_far: bool = False,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Generate or regenerate chapter summary"""
+    """
+    Generate or regenerate chapter summary and optionally story_so_far.
+    - Generates chapter.auto_summary (summary of this chapter's scenes)
+    - If regenerate_story_so_far=True, also regenerates chapter.story_so_far
+      (combined summary of all previous chapters + current chapter)
+    """
     
-    logger.info(f"[CHAPTER] Generating summary for chapter {chapter_id}")
+    logger.info(f"[CHAPTER] Generating summary for chapter {chapter_id} (regenerate_story_so_far={regenerate_story_so_far})")
     
     # Verify story ownership
     story = db.query(Story).filter(
@@ -349,17 +383,27 @@ async def generate_chapter_summary_endpoint(
     if not chapter:
         raise HTTPException(status_code=404, detail="Chapter not found")
     
-    summary = await generate_chapter_summary(chapter_id, db, current_user.id)
+    # Generate chapter summary (this chapter's content only)
+    chapter_summary = await generate_chapter_summary(chapter_id, db, current_user.id)
+    
+    # Optionally regenerate story_so_far (all previous + current)
+    story_so_far = None
+    if regenerate_story_so_far:
+        story_so_far = await generate_story_so_far(chapter_id, db, current_user.id)
     
     return {
         "message": "Chapter summary generated successfully",
-        "summary": summary,
+        "chapter_summary": chapter_summary,
+        "story_so_far": story_so_far,
         "scenes_summarized": chapter.scenes_count
     }
 
 
 async def generate_chapter_summary(chapter_id: int, db: Session, user_id: int) -> str:
-    """Internal helper to generate chapter summary"""
+    """
+    Generate a summary of the chapter's scenes.
+    This is stored in chapter.auto_summary and represents ONLY this chapter's content.
+    """
     
     chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
     if not chapter:
@@ -418,7 +462,7 @@ Provide a clear, comprehensive summary in 2-3 paragraphs:"""
         max_tokens=400  # Enough for a good summary
     )
     
-    # Update chapter
+    # Update chapter's auto_summary (just this chapter's content)
     chapter.auto_summary = summary
     chapter.last_summary_scene_count = chapter.scenes_count
     db.commit()
@@ -426,6 +470,97 @@ Provide a clear, comprehensive summary in 2-3 paragraphs:"""
     logger.info(f"[CHAPTER] Generated summary for chapter {chapter_id}: {len(summary)} chars")
     
     return summary
+
+
+async def generate_story_so_far(chapter_id: int, db: Session, user_id: int) -> str:
+    """
+    Generate "Story So Far" for a chapter by combining:
+    1. Summaries of ALL previous chapters (from their auto_summary)
+    2. Recent scenes from the current chapter
+    
+    This is stored in chapter.story_so_far
+    """
+    
+    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+    if not chapter:
+        return ""
+    
+    story_id = chapter.story_id
+    
+    # Get all previous chapters (completed or active, in order)
+    previous_chapters = db.query(Chapter).filter(
+        Chapter.story_id == story_id,
+        Chapter.chapter_number < chapter.chapter_number
+    ).order_by(Chapter.chapter_number).all()
+    
+    # Build the story so far from previous chapter summaries
+    previous_summaries = []
+    for prev_ch in previous_chapters:
+        if prev_ch.auto_summary:
+            previous_summaries.append(f"Chapter {prev_ch.chapter_number}: {prev_ch.auto_summary}")
+    
+    # Get recent scenes from CURRENT chapter
+    from ..models import StoryFlow
+    recent_scenes = db.query(Scene).filter(
+        Scene.chapter_id == chapter_id
+    ).order_by(Scene.sequence_number.desc()).limit(3).all()
+    
+    recent_scenes = list(reversed(recent_scenes))  # Put back in chronological order
+    
+    current_chapter_content = []
+    for scene in recent_scenes:
+        flow = db.query(StoryFlow).filter(
+            StoryFlow.scene_id == scene.id,
+            StoryFlow.is_active == True
+        ).first()
+        
+        if flow and flow.scene_variant:
+            # Use just first 200 chars of recent scenes
+            content_preview = flow.scene_variant.content[:200] + "..." if len(flow.scene_variant.content) > 200 else flow.scene_variant.content
+            current_chapter_content.append(f"Scene {scene.sequence_number}: {content_preview}")
+    
+    # Combine everything
+    story_parts = []
+    
+    if previous_summaries:
+        story_parts.append("=== Previous Chapters ===\n" + "\n\n".join(previous_summaries))
+    
+    if current_chapter_content:
+        story_parts.append(f"=== Chapter {chapter.chapter_number} (Current) - Recent Scenes ===\n" + "\n\n".join(current_chapter_content))
+    
+    if not story_parts:
+        return "The story begins..."
+    
+    combined_story = "\n\n".join(story_parts)
+    
+    # Now use LLM to create a cohesive "Story So Far" summary
+    prompt = f"""Create a cohesive "Story So Far" summary from the following chapter summaries and recent events. This should read as a continuous narrative that helps the reader understand where the story currently stands.
+
+{combined_story}
+
+Provide a clear, engaging summary that flows naturally and captures the story's progression:"""
+    
+    # Get user settings
+    from ..models import UserSettings
+    user_settings_obj = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+    user_settings = user_settings_obj.to_dict() if user_settings_obj else None
+    
+    # Generate story so far
+    story_so_far = await llm_service._generate(
+        prompt=prompt,
+        user_id=user_id,
+        user_settings=user_settings,
+        system_prompt="You are a helpful assistant that creates cohesive story summaries from chapter summaries and recent events.",
+        max_tokens=600  # More tokens since it combines multiple chapters
+    )
+    
+    # Update chapter's story_so_far
+    chapter.story_so_far = story_so_far
+    db.commit()
+    
+    logger.info(f"[CHAPTER] Generated story_so_far for chapter {chapter_id}: {len(story_so_far)} chars")
+    
+    return story_so_far
 
 
 @router.delete("/{story_id}/chapters/{chapter_id}/scenes")

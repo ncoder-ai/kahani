@@ -6,6 +6,7 @@ import { useAuthStore } from '@/store';
 import { useUISettings } from '@/hooks/useUISettings';
 import { useNotifications } from '@/hooks/useNotifications';
 import WritingPresetsManager from '@/components/writing-presets/WritingPresetsManager';
+import { API_BASE_URL } from '@/lib/api';
 
 interface LLMSettings {
   temperature: number;
@@ -103,7 +104,7 @@ export default function SettingsPage() {
   const loadSettings = async () => {
     try {
       console.log('Loading settings with token:', token ? 'exists' : 'missing');
-      const response = await fetch('http://localhost:8000/api/settings/', {
+      const response = await fetch(`${API_BASE_URL}/api/settings/`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -140,7 +141,7 @@ export default function SettingsPage() {
 
   const loadPresets = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/settings/presets');
+      const response = await fetch(`${API_BASE_URL}/api/settings/presets`);
       if (response.ok) {
         const data = await response.json();
         setPresets(data.presets);
@@ -153,7 +154,7 @@ export default function SettingsPage() {
   const loadPromptTemplates = async () => {
     setLoadingTemplates(true);
     try {
-      const response = await fetch('http://localhost:8000/api/prompt-templates/', {
+      const response = await fetch(`${API_BASE_URL}/api/prompt-templates/`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -173,7 +174,7 @@ export default function SettingsPage() {
 
   const updatePromptTemplate = async (templateId: number, updates: any) => {
     try {
-      const response = await fetch(`http://localhost:8000/api/prompt-templates/${templateId}`, {
+      const response = await fetch(`${API_BASE_URL}/api/prompt-templates/${templateId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -240,7 +241,7 @@ export default function SettingsPage() {
         },
       };
 
-      const response = await fetch('http://localhost:8000/api/settings/', {
+      const response = await fetch(`${API_BASE_URL}/api/settings/`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -273,7 +274,7 @@ export default function SettingsPage() {
 
     setSaving(true);
     try {
-      const response = await fetch('http://localhost:8000/api/settings/reset', {
+      const response = await fetch(`${API_BASE_URL}/api/settings/reset`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -391,7 +392,7 @@ export default function SettingsPage() {
     
     setTestingConnection(true);
     try {
-      const response = await fetch('http://localhost:8000/api/settings/test-api-connection', {
+      const response = await fetch(`${API_BASE_URL}/api/settings/test-api-connection`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -425,7 +426,7 @@ export default function SettingsPage() {
     
     setLoadingModels(true);
     try {
-      const response = await fetch('http://localhost:8000/api/settings/available-models', {
+      const response = await fetch(`${API_BASE_URL}/api/settings/available-models`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },

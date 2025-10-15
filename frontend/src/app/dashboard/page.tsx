@@ -16,6 +16,7 @@ export default function DashboardPage() {
   const [storySummary, setStorySummary] = useState<any>(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [showMainMenu, setShowMainMenu] = useState(false);
+  const [generatingStorySummaryId, setGeneratingStorySummaryId] = useState<number | null>(null);
 
   useEffect(() => {
     if (!hasHydrated) return; 
@@ -133,6 +134,45 @@ export default function DashboardPage() {
 
   const handleCreateStory = () => {
     router.push('/create-story');
+  };
+
+  const handleGenerateStorySummary = async (storyId: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    
+    setGeneratingStorySummaryId(storyId);
+    
+    try {
+      const { token } = useAuthStore.getState();
+      const response = await fetch(
+        `${API_BASE_URL}/api/summaries/stories/${storyId}/generate-story-summary`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      
+      if (!response.ok) {
+        throw new Error('Failed to generate story summary');
+      }
+      
+      const data = await response.json();
+      
+      // Update the story in the local state
+      const updatedStories = stories.map(s => 
+        s.id === storyId ? { ...s, summary: data.summary } : s
+      );
+      setStories(updatedStories);
+      
+      alert(`✓ Story summary generated!\n\nChapters: ${data.chapters_summarized}\nScenes: ${data.total_scenes}`);
+    } catch (error) {
+      console.error('Failed to generate story summary:', error);
+      alert('✗ Failed to generate story summary. Please try again.');
+    } finally {
+      setGeneratingStorySummaryId(null);
+    }
   };
 
   const handleDeleteStory = async (storyId: number, storyTitle: string) => {
@@ -290,6 +330,31 @@ export default function DashboardPage() {
                     <p className="text-white/70 text-sm mb-4 line-clamp-3">
                       {story.description}
                     </p>
+                  )}
+
+                  {/* Story Summary - NEW */}
+                  {story.summary ? (
+                    <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xs font-semibold text-blue-300">📖 STORY SUMMARY</span>
+                      </div>
+                      <p className="text-white/80 text-xs line-clamp-3 whitespace-pre-wrap">
+                        {story.summary}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="mb-4 p-3 bg-gray-500/10 border border-gray-500/20 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-400">No story summary yet</span>
+                        <button
+                          onClick={(e) => handleGenerateStorySummary(story.id, e)}
+                          disabled={generatingStorySummaryId === story.id}
+                          className="px-2 py-1 text-xs bg-green-600/20 hover:bg-green-600/40 text-green-200 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                          {generatingStorySummaryId === story.id ? '⚙️ Generating...' : '✨ Generate'}
+                        </button>
+                      </div>
+                    </div>
                   )}
 
                   {/* Story Footer */}
