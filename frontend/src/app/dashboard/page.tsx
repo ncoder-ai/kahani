@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore, useStoryStore, useHasHydrated } from '@/store';
+import { X, Settings, LogOut, User } from 'lucide-react';
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -13,6 +14,7 @@ export default function DashboardPage() {
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [storySummary, setStorySummary] = useState<any>(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
+  const [showMainMenu, setShowMainMenu] = useState(false);
 
   useEffect(() => {
     if (!hasHydrated) return; 
@@ -486,6 +488,96 @@ export default function DashboardPage() {
             )}
           </div>
         </div>
+      )}
+      
+      {/* Menu Button - Bottom Left */}
+      <button
+        onClick={() => setShowMainMenu(true)}
+        className="fixed left-4 bottom-4 z-40 p-4 bg-gradient-to-br from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white rounded-full shadow-2xl transition-all hover:scale-110"
+        aria-label="Open menu"
+      >
+        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+      </button>
+      
+      {/* Main Menu Modal */}
+      {showMainMenu && (
+        <>
+          {/* Backdrop */}
+          <div 
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40"
+            onClick={() => setShowMainMenu(false)}
+          />
+          
+          {/* Menu Modal */}
+          <div className="fixed left-4 bottom-20 z-50 w-80 max-w-[calc(100vw-2rem)] bg-slate-900 border border-slate-700 rounded-lg shadow-2xl overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b border-slate-700 bg-gradient-to-r from-purple-900/50 to-pink-900/50">
+              <h2 className="text-lg font-semibold text-white">Menu</h2>
+              <button
+                onClick={() => setShowMainMenu(false)}
+                className="p-1 hover:bg-slate-700 rounded transition-colors"
+              >
+                <X className="w-5 h-5 text-white" />
+              </button>
+            </div>
+            
+            {/* Menu Items */}
+            <div className="p-2">
+              {/* Settings */}
+              <button
+                onClick={() => {
+                  setShowMainMenu(false);
+                  router.push('/settings');
+                }}
+                className="w-full flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors text-left group"
+              >
+                <div className="p-2 bg-purple-600/20 rounded-lg group-hover:bg-purple-600/30 transition-colors">
+                  <Settings className="w-5 h-5 text-purple-400" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-white">Settings</div>
+                  <div className="text-xs text-gray-400">TTS and app preferences</div>
+                </div>
+              </button>
+              
+              {/* Profile */}
+              <button
+                onClick={() => {
+                  setShowMainMenu(false);
+                  // Add profile page route when ready
+                }}
+                className="w-full flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors text-left group"
+              >
+                <div className="p-2 bg-blue-600/20 rounded-lg group-hover:bg-blue-600/30 transition-colors">
+                  <User className="w-5 h-5 text-blue-400" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-white">Profile</div>
+                  <div className="text-xs text-gray-400">{user?.email}</div>
+                </div>
+              </button>
+              
+              {/* Logout */}
+              <button
+                onClick={() => {
+                  setShowMainMenu(false);
+                  handleLogout();
+                }}
+                className="w-full flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors text-left group"
+              >
+                <div className="p-2 bg-red-600/20 rounded-lg group-hover:bg-red-600/30 transition-colors">
+                  <LogOut className="w-5 h-5 text-red-400" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-white">Logout</div>
+                  <div className="text-xs text-gray-400">Sign out of your account</div>
+                </div>
+              </button>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
