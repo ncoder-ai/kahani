@@ -5,6 +5,8 @@ import { Play, Pause, RotateCcw, Volume2, Wifi } from 'lucide-react';
 interface SceneAudioControlsWSProps {
   sceneId: number;
   className?: string;
+  pendingAutoPlay?: {session_id: string, scene_id: number} | null;
+  onAutoPlayProcessed?: () => void;
 }
 
 /**
@@ -20,7 +22,9 @@ interface SceneAudioControlsWSProps {
  */
 export const SceneAudioControlsWS: React.FC<SceneAudioControlsWSProps> = ({ 
   sceneId, 
-  className = '' 
+  className = '',
+  pendingAutoPlay,
+  onAutoPlayProcessed
 }) => {
   const {
     generate,
@@ -36,7 +40,9 @@ export const SceneAudioControlsWS: React.FC<SceneAudioControlsWSProps> = ({
     onPlaybackStart: () => console.log('[Audio] Playback started'),
     onPlaybackEnd: () => console.log('[Audio] Playback ended'),
     onError: (err) => console.error('[Audio] Error:', err),
-    onProgress: (progress) => console.log('[Audio] Progress:', progress)
+    onProgress: (progress) => console.log('[Audio] Progress:', progress),
+    pendingAutoPlay,
+    onAutoPlayProcessed
   });
 
   return (

@@ -82,7 +82,21 @@ async def websocket_tts_stream(
         # Attach WebSocket to session
         tts_session_manager.attach_websocket(session_id, websocket)
         
-        print(f"[WebSocket] Client connected to TTS session: {session_id}")
+        print(f"[WebSocket] Client connected to TTS session: {session_id} (auto_play={session.auto_play})")
+        
+        # Only auto-start generation for auto-play sessions
+        # Regular TTS button clicks start generation via POST endpoint
+        if session.auto_play and not session.is_generating:
+            from ..routers.tts import generate_and_stream_chunks
+            import asyncio
+            
+            print(f"[WebSocket] Auto-starting TTS generation for auto-play session: {session_id}")
+            # Start generation in background task
+            asyncio.create_task(generate_and_stream_chunks(
+                session_id=session_id,
+                scene_id=session.scene_id,
+                user_id=session.user_id
+            ))
         
         # Keep connection alive and handle any client messages
         # (In current implementation, client doesn't send messages,

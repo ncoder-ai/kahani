@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
+import { flushSync } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { useParams } from 'next/navigation';
 import { useAuthStore, useStoryStore, useHasHydrated } from '@/store';
@@ -148,6 +149,10 @@ export default function StoryPage() {
   
   // Chapter sidebar state
   const [isChapterSidebarOpen, setIsChapterSidebarOpen] = useState(false); // Start closed
+  
+  // Auto-play TTS state - stores pending auto-play info until component mounts
+  const [pendingAutoPlay, setPendingAutoPlay] = useState<{session_id: string, scene_id: number} | null>(null);
+  const pendingAutoPlayRef = useRef<{session_id: string, scene_id: number} | null>(null);
   const [chapterSidebarRefreshKey, setChapterSidebarRefreshKey] = useState(0);
   const [selectedChapterId, setSelectedChapterId] = useState<number | null>(null); // For viewing specific chapter
   const [currentChapterInfo, setCurrentChapterInfo] = useState<{id: number, number: number, title: string | null, isActive: boolean} | null>(null);
@@ -514,6 +519,21 @@ export default function StoryPage() {
       setLastGenerationTime(generationTime);
       setGenerationStartTime(null);
 
+      // AUTO-PLAY TTS if enabled and session provided - SET BEFORE loadStory()
+      if (response.auto_play && response.auto_play.session_id) {
+        console.log('[AUTO-PLAY] Storing pending auto-play for scene', response.auto_play);
+        const autoPlayData = {
+          session_id: response.auto_play.session_id,
+          scene_id: response.auto_play.scene_id
+        };
+        // Use flushSync to ensure state is updated BEFORE loadStory() renders
+        flushSync(() => {
+          pendingAutoPlayRef.current = autoPlayData;
+          setPendingAutoPlay(autoPlayData);
+        });
+        console.log('[AUTO-PLAY] State set synchronously, pendingAutoPlay:', autoPlayData);
+      }
+
       // Reload the story to get the new scene and its choices
       await loadStory(false, true); // Scroll to new scene after generation
       setCustomPrompt('');
@@ -564,8 +584,8 @@ export default function StoryPage() {
           setStreamingContent(prev => prev + chunk);
         },
         // onComplete
-        async (sceneId: number, choices: any[]) => {
-          console.log('Scene generation complete', { sceneId, choices });
+        async (sceneId: number, choices: any[], autoPlay?: { enabled: boolean; session_id: string; scene_id: number }) => {
+          console.log('Scene generation complete', { sceneId, choices, autoPlay });
           
           // End timing
           const endTime = Date.now();
@@ -580,6 +600,21 @@ export default function StoryPage() {
           // Reset choice selection state
           setSelectedChoice(null);
           setShowChoicesDuringGeneration(true);
+
+          // AUTO-PLAY TTS if enabled and session provided - SET BEFORE loadStory()
+          if (autoPlay && autoPlay.session_id) {
+            console.log('[AUTO-PLAY] Storing pending auto-play for scene', autoPlay);
+            const autoPlayData = {
+              session_id: autoPlay.session_id,
+              scene_id: autoPlay.scene_id
+            };
+            // Use flushSync to ensure state is updated BEFORE loadStory() renders
+            flushSync(() => {
+              pendingAutoPlayRef.current = autoPlayData;
+              setPendingAutoPlay(autoPlayData);
+            });
+            console.log('[AUTO-PLAY] State set synchronously, pendingAutoPlay:', autoPlayData);
+          }
 
           // Reload the story to get the updated data
           await loadStory(false, true); // Scroll to new scene after streaming
@@ -1646,6 +1681,11 @@ export default function StoryPage() {
                           isSceneOperationInProgress={isSceneOperationInProgress}
                           streamingVariantContent={streamingVariantSceneId === scene.id ? streamingVariantContent : ''}
                           isStreamingVariant={streamingVariantSceneId === scene.id}
+                          pendingAutoPlay={pendingAutoPlay}
+                          onAutoPlayProcessed={() => {
+                            pendingAutoPlayRef.current = null;
+                            setPendingAutoPlay(null);
+                          }}
                         />
                       </div>
                     );
