@@ -33,6 +33,7 @@ interface TTSSettings {
   progressive_narration?: boolean;
   chunk_size?: number;
   stream_audio?: boolean;
+  auto_play_last_scene?: boolean;
 }
 
 interface TTSSettingsModalProps {
@@ -61,6 +62,7 @@ export default function TTSSettingsModal({ isOpen, onClose, onSaved }: TTSSettin
     progressive_narration: false,
     chunk_size: 280,
     stream_audio: true,
+    auto_play_last_scene: false,
   });
   const [providerConfigs, setProviderConfigs] = useState<Record<string, TTSSettings>>({});
   const [isLoadingProviders, setIsLoadingProviders] = useState(false);
@@ -140,6 +142,7 @@ export default function TTSSettingsModal({ isOpen, onClose, onSaved }: TTSSettin
           progressive_narration: data.progressive_narration || false,
           chunk_size: data.chunk_size || 280,
           stream_audio: data.stream_audio !== undefined ? data.stream_audio : true,
+          auto_play_last_scene: data.auto_play_last_scene || false,
         });
         
         // Load Chatterbox-specific settings if present
@@ -357,6 +360,7 @@ export default function TTSSettingsModal({ isOpen, onClose, onSaved }: TTSSettin
         progressive_narration: settings.progressive_narration,
         chunk_size: settings.chunk_size,
         stream_audio: settings.stream_audio,
+        auto_play_last_scene: settings.auto_play_last_scene,
       };
       
       // Save to provider-specific config endpoint
@@ -560,6 +564,32 @@ export default function TTSSettingsModal({ isOpen, onClose, onSaved }: TTSSettin
                 </p>
               </div>
             )}
+
+            {/* Auto-play Last Scene Toggle */}
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <label className="text-sm font-medium text-gray-300">
+                  Auto-play New Scenes
+                </label>
+                <p className="text-xs text-gray-500 mt-1">
+                  Automatically narrate scenes after generation completes
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSettings(prev => ({ ...prev, auto_play_last_scene: !prev.auto_play_last_scene }))}
+                disabled={!settings.tts_enabled}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  settings.auto_play_last_scene ? 'bg-purple-600' : 'bg-gray-700'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    settings.auto_play_last_scene ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
           </div>
 
           {/* Provider Selection */}

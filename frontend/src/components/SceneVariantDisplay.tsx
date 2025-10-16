@@ -81,6 +81,9 @@ interface SceneVariantDisplayProps {
   isStreamingVariant?: boolean;
   // Global flag to prevent scroll-disrupting operations
   isSceneOperationInProgress?: boolean;
+  // Auto-play TTS props
+  pendingAutoPlay?: {session_id: string, scene_id: number} | null;
+  onAutoPlayProcessed?: () => void;
 }
 
 export default function SceneVariantDisplay({
@@ -117,7 +120,9 @@ export default function SceneVariantDisplay({
   isStreamingContinuation = false,
   streamingVariantContent = '',
   isStreamingVariant = false,
-  isSceneOperationInProgress = false
+  isSceneOperationInProgress = false,
+  pendingAutoPlay,
+  onAutoPlayProcessed
 }: SceneVariantDisplayProps) {
   const [variants, setVariants] = useState<SceneVariant[]>([]);
   const [currentVariantId, setCurrentVariantId] = useState<number | null>(null);
@@ -403,7 +408,12 @@ export default function SceneVariantDisplay({
       />
       
       {/* Audio Controls */}
-      <SceneAudioControlsWS sceneId={scene.id} className="mt-4" />
+      <SceneAudioControlsWS 
+        sceneId={scene.id} 
+        className="mt-4" 
+        pendingAutoPlay={pendingAutoPlay}
+        onAutoPlayProcessed={onAutoPlayProcessed}
+      />
       </div>
       
       {/* Scene Management - Only show for last scene */}

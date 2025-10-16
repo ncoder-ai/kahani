@@ -42,6 +42,7 @@ class TTSSettingsRequest(BaseModel):
     progressive_narration: Optional[bool] = Field(False, description="Split scenes into chunks for progressive playback")
     chunk_size: Optional[int] = Field(280, ge=100, le=500, description="Chunk size for progressive narration (100=sentence, 500=paragraph)")
     stream_audio: Optional[bool] = Field(True, description="Future: Use provider streaming (SSE) when available")
+    auto_play_last_scene: Optional[bool] = Field(False, description="Auto-play TTS after scene generation completes")
 
 
 class TTSSettingsResponse(BaseModel):
@@ -59,6 +60,7 @@ class TTSSettingsResponse(BaseModel):
     progressive_narration: Optional[bool] = None
     chunk_size: Optional[int] = None
     stream_audio: Optional[bool] = None
+    auto_play_last_scene: Optional[bool] = None
 
     class Config:
         from_attributes = True
@@ -78,7 +80,8 @@ class TTSSettingsResponse(BaseModel):
             tts_enabled=db_model.tts_enabled,
             progressive_narration=db_model.progressive_narration,
             chunk_size=db_model.chunk_size,
-            stream_audio=db_model.stream_audio
+            stream_audio=db_model.stream_audio,
+            auto_play_last_scene=db_model.auto_play_last_scene
         )
 
 
@@ -201,6 +204,8 @@ async def update_tts_settings(
         tts_settings.chunk_size = settings_request.chunk_size
     if settings_request.stream_audio is not None:
         tts_settings.stream_audio = settings_request.stream_audio
+    if settings_request.auto_play_last_scene is not None:
+        tts_settings.auto_play_last_scene = settings_request.auto_play_last_scene
     
     db.commit()
     db.refresh(tts_settings)

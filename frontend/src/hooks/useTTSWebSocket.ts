@@ -7,6 +7,8 @@ interface UseTTSWebSocketOptions {
   onPlaybackEnd?: () => void;
   onError?: (error: string) => void;
   onProgress?: (progress: number) => void;
+  pendingAutoPlay?: {session_id: string, scene_id: number} | null;
+  onAutoPlayProcessed?: () => void;
 }
 
 interface TTSSessionResponse {
@@ -64,7 +66,9 @@ export const useTTSWebSocket = ({
   onPlaybackStart,
   onPlaybackEnd,
   onError,
-  onProgress
+  onProgress,
+  pendingAutoPlay,
+  onAutoPlayProcessed
 }: UseTTSWebSocketOptions) => {
   // State
   const [isGenerating, setIsGenerating] = useState(false);
@@ -344,6 +348,93 @@ export const useTTSWebSocket = ({
     setProgress(0);
     isPlayingRef.current = false;
   }, []);
+  
+  /**
+   * Connect to existing TTS session (for auto-play)
+   */
+  const connectToSession = useCallback(async (session_id: string) => {
+    try {
+      setIsGenerating(true);
+      setError(null);
+      setProgress(0);
+      setChunksReceived(0);
+      setTotalChunks(0);
+      
+      // Clear audio queue
+      audioQueueRef.current = [];
+      
+      // Stop current playback
+      if (currentAudioRef.current) {
+        currentAudioRef.current.pause();
+        currentAudioRef.current = null;
+      }
+      
+      // Play silent audio to establish permission
+      try {
+        const silentAudio = new Audio();
+        silentAudio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAAABmYWN0BAAAAAAAAABkYXRhAAAAAA==';
+        await silentAudio.play();
+        silentAudio.pause();
+        console.log('[AUTO-PLAY] Autoplay permission established');
+      } catch (e) {
+        console.warn('[AUTO-PLAY] Could not establish autoplay permission:', e);
+      }
+      
+      console.log('[AUTO-PLAY] Connecting to session:', session_id);
+      
+      // Connect to WebSocket with existing session
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876';
+      const apiHost = apiUrl.replace(/^https?:\/\//, '');
+      const wsProtocol = apiUrl.startsWith('https') ? 'wss:' : 'ws:';
+      const wsUrl = `${wsProtocol}//${apiHost}/ws/tts/${session_id}`;
+      
+      console.log('[AUTO-PLAY] WebSocket URL:', wsUrl);
+      
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+      
+      ws.onopen = () => {
+        console.log('[AUTO-PLAY] WebSocket connected');
+      };
+      
+      ws.onmessage = handleWebSocketMessage;
+      
+      ws.onerror = (error) => {
+        console.error('[AUTO-PLAY] WebSocket error:', error);
+        const errorMsg = 'Auto-play connection failed';
+        setError(errorMsg);
+        setIsGenerating(false);
+        onError?.(errorMsg);
+      };
+      
+      ws.onclose = () => {
+        console.log('[AUTO-PLAY] WebSocket disconnected');
+        wsRef.current = null;
+      };
+      
+    } catch (err: any) {
+      console.error('[AUTO-PLAY] Failed to connect:', err);
+      const errorMsg = err.message || 'Failed to start auto-play';
+      setError(errorMsg);
+      setIsGenerating(false);
+      onError?.(errorMsg);
+    }
+  }, [handleWebSocketMessage, onError]);
+  
+  /**
+   * Check for pending auto-play on mount and when pendingAutoPlay changes
+   */
+  useEffect(() => {
+    console.log(`[AUTO-PLAY] Hook initialized for scene ${sceneId}`, { pendingAutoPlay });
+    
+    // Check if there's a pending auto-play for this scene
+    if (pendingAutoPlay && pendingAutoPlay.scene_id === sceneId) {
+      console.log('[AUTO-PLAY] Found pending auto-play! Connecting to session:', pendingAutoPlay.session_id);
+      connectToSession(pendingAutoPlay.session_id);
+      // Clear the pending auto-play
+      onAutoPlayProcessed?.();
+    }
+  }, [sceneId, pendingAutoPlay, connectToSession, onAutoPlayProcessed]);
   
   /**
    * Cleanup on unmount

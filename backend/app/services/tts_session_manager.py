@@ -25,6 +25,7 @@ class TTSSession(BaseModel):
     chunks_sent: int = 0
     total_chunks: Optional[int] = None
     error: Optional[str] = None
+    auto_play: bool = False  # Flag to indicate if this is an auto-play session
     
     class Config:
         arbitrary_types_allowed = True
@@ -46,13 +47,14 @@ class TTSSessionManager:
         self.session_timeout = timedelta(minutes=session_timeout_minutes)
         self._cleanup_task: Optional[asyncio.Task] = None
     
-    def create_session(self, scene_id: int, user_id: int) -> str:
+    def create_session(self, scene_id: int, user_id: int, auto_play: bool = False) -> str:
         """
         Create a new TTS generation session.
         
         Args:
             scene_id: The scene to generate audio for
             user_id: The user requesting generation
+            auto_play: Whether this is an auto-play session
             
         Returns:
             session_id: Unique identifier for this session
@@ -63,7 +65,8 @@ class TTSSessionManager:
             session_id=session_id,
             scene_id=scene_id,
             user_id=user_id,
-            created_at=datetime.now()
+            created_at=datetime.now(),
+            auto_play=auto_play
         )
         
         self.sessions[session_id] = session

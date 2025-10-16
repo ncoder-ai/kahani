@@ -154,7 +154,7 @@ class ApiClient {
     storyId: number,
     customPrompt = '',
     onChunk?: (chunk: string) => void,
-    onComplete?: (sceneId: number, choices: any[]) => void,
+    onComplete?: (sceneId: number, choices: any[], autoPlay?: { enabled: boolean; session_id: string; scene_id: number }) => void,
     onError?: (error: string) => void
   ) {
     const formData = new FormData();
@@ -180,7 +180,7 @@ class ApiClient {
               try {
                 const parsed = JSON.parse(data);
                 if (parsed.type === 'content' && onChunk) onChunk(parsed.chunk);
-                else if (parsed.type === 'complete' && onComplete) onComplete(parsed.scene_id, parsed.choices);
+                else if (parsed.type === 'complete' && onComplete) onComplete(parsed.scene_id, parsed.choices, parsed.auto_play);
                 else if (parsed.type === 'error' && onError) onError(parsed.message);
               } catch {}
             }
