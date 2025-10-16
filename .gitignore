@@ -241,9 +241,11 @@ models/
 # SQLite databases
 *.sqlite
 *.sqlite3
-# *.db  # Commented out - we track backend/data/kahani.db
+# *.db  # Commented out - we track kahani.db files
 backend/data/*.db
 !backend/data/kahani.db
+data/*.db
+!data/kahani.db
 
 # Alembic
 alembic/versions/*.py
