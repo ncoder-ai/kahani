@@ -10,7 +10,7 @@ This script will:
 import requests
 import sys
 
-BASE_URL = "http://localhost:8000"
+BASE_URL = "http://localhost:9876"
 EMAIL = "test@test.com"
 PASSWORD = "test"
 

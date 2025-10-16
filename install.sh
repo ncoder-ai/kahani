@@ -197,36 +197,22 @@ setup_database() {
     # Activate Python environment
     source .venv/bin/activate
     
-    # Create data directory
-    mkdir -p backend/data
-    mkdir -p backend/backups
-    mkdir -p backend/logs
-    mkdir -p data
-    mkdir -p logs
-    mkdir -p exports
+    # Create required directories
+    mkdir -p backend/data backend/backups backend/logs exports
     
     # Check if database already exists
     if [[ -f backend/data/kahani.db ]]; then
-        log_warning "Database already exists at backend/data/kahani.db"
-        read -p "Do you want to recreate the database? This will DELETE all existing data! (yes/no): " -r
-        echo
-        if [[ $REPLY =~ ^[Yy][Ee][Ss]$ ]]; then
-            log_warning "Backing up existing database..."
-            BACKUP_NAME="kahani_backup_$(date +%Y%m%d_%H%M%S).db"
-            cp backend/data/kahani.db "backend/backups/$BACKUP_NAME"
-            log_info "Backup saved to backend/backups/$BACKUP_NAME"
-            rm backend/data/kahani.db
-        else
-            log_info "Keeping existing database"
-            return
-        fi
+        log_info "Database already exists, skipping initialization"
+        log_info "To recreate database, delete backend/data/kahani.db and run: cd backend && python init_database.py"
+        return
     fi
     
     # Initialize database with all tables
     log_info "Initializing database schema and creating default users..."
-    cd backend
-    python init_database.py
-    cd ..
+    cd backend && python init_database.py && cd .. || {
+        log_error "Database initialization failed"
+        exit 1
+    }
     
     log_success "Database setup complete"
 }
@@ -262,7 +248,7 @@ ADMIN_PASSWORD="admin123"
 DATABASE_URL="sqlite:///./data/kahani.db"
 
 # CORS
-CORS_ORIGINS=["http://localhost:3000", "http://localhost:3001", "http://127.0.0.1:3000", "http://0.0.0.0:3000"]
+CORS_ORIGINS=["http://localhost:6789", "http://localhost:3001", "http://127.0.0.1:6789", "http://0.0.0.0:6789"]
 
 # LLM Configuration (LM Studio defaults)
 LLM_BASE_URL="http://localhost:1234/v1"
@@ -300,7 +286,7 @@ EOF
     if [[ ! -f frontend/.env.local ]]; then
         cat > frontend/.env.local << EOF
 # Kahani Frontend Configuration
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+NEXT_PUBLIC_API_BASE_URL=http://localhost:9876
 
 # Optional: Analytics and monitoring
 # NEXT_PUBLIC_GA_ID=your-google-analytics-id
@@ -364,7 +350,7 @@ cd backend
 source ../.venv/bin/activate
 export PYTHONPATH=$(pwd)
 export $(grep -v '^#' .env | xargs)
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 2>&1 | sed 's/^/[BACKEND] /' &
+python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 9876 2>&1 | sed 's/^/[BACKEND] /' &
 BACKEND_PID=$!
 cd ..
 
@@ -373,7 +359,7 @@ echo "⏳ Waiting for backend to start..."
 sleep 5
 
 # Check if backend is running
-if ! curl -s http://localhost:8000/health > /dev/null 2>&1; then
+if ! curl -s http://localhost:9876/health > /dev/null 2>&1; then
     echo "⚠️  Warning: Backend might not be responding yet, giving it more time..."
     sleep 3
 fi
@@ -388,9 +374,9 @@ cd ..
 echo ""
 echo "✅ Kahani is running!"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "📖 Frontend:     http://localhost:3000"
-echo "📡 Backend API:  http://localhost:8000"
-echo "📚 API Docs:     http://localhost:8000/docs"
+echo "📖 Frontend:     http://localhost:6789"
+echo "📡 Backend API:  http://localhost:9876"
+echo "📚 API Docs:     http://localhost:9876/docs"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 echo "💡 Default login: test@test.com / test"
@@ -446,7 +432,7 @@ cd backend
 source ../.venv/bin/activate
 export PYTHONPATH=$(pwd)
 export $(grep -v '^#' .env | xargs)
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4 2>&1 | sed 's/^/[BACKEND] /' &
+python -m uvicorn app.main:app --host 0.0.0.0 --port 9876 --workers 4 2>&1 | sed 's/^/[BACKEND] /' &
 BACKEND_PID=$!
 cd ..
 
@@ -460,8 +446,8 @@ cd ..
 echo ""
 echo "✅ Kahani is running in production mode!"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "🌐 Application:  http://localhost:3000"
-echo "📡 Backend API:  http://localhost:8000"
+echo "🌐 Application:  http://localhost:6789"
+echo "📡 Backend API:  http://localhost:9876"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 echo "Press Ctrl+C to stop all servers"
@@ -603,9 +589,9 @@ main() {
     echo "   Production:   ./start-prod.sh"
     echo ""
     echo "🌐 Access URLs:"
-    echo "   Application:       http://localhost:3000"
-    echo "   API:              http://localhost:8000"
-    echo "   API Documentation: http://localhost:8000/docs"
+    echo "   Application:       http://localhost:6789"
+    echo "   API:              http://localhost:9876"
+    echo "   API Documentation: http://localhost:9876/docs"
     echo ""
     echo "🤖 LLM Configuration:"
     echo "   • Make sure LM Studio is running at http://localhost:1234"
@@ -619,7 +605,7 @@ main() {
     echo "💡 Troubleshooting:"
     echo "   • Check logs: backend/logs/kahani.log"
     echo "   • Verify database: backend/data/kahani.db"
-    echo "   • Test API: curl http://localhost:8000/health"
+    echo "   • Test API: curl http://localhost:9876/health"
     echo ""
     echo "❓ Need Help?"
     echo "   • GitHub Issues: https://github.com/ncoder-ai/kahani/issues"

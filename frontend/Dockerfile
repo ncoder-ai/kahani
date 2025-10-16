@@ -60,18 +60,20 @@ RUN npm ci --only=production && npm cache clean --force
 # Switch to non-root user
 USER nextjs
 
-# Health check
+# Set default port (can be overridden via environment variable)
+ENV PORT=6789
+
+# Health check (uses PORT env var)
 HEALTHCHECK --interval=30s --timeout=30s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:3000/ || exit 1
+    CMD sh -c "curl -f http://localhost:${PORT}/ || exit 1"
 
-# Expose port
-EXPOSE 3000
+# Expose port (respects PORT env var)
+EXPOSE ${PORT}
 
-ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
 
-# Start the application
+# Start the application (npm start respects PORT env var from package.json)
 CMD ["npm", "start"]

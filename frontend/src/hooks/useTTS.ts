@@ -117,8 +117,8 @@ export const useTTS = ({ sceneId, onPlaybackStart, onPlaybackEnd, onError }: Use
 
       // Fetch audio chunk with authentication
       const url = audioInfo.progressive 
-        ? `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/tts/audio/${sceneId}/chunk/${chunkNumber}`
-        : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/tts/audio/${sceneId}`;
+        ? `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876'}/api/tts/audio/${sceneId}/chunk/${chunkNumber}`
+        : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876'}/api/tts/audio/${sceneId}`;
 
       const response = await fetch(url, {
         headers: {
@@ -144,7 +144,7 @@ export const useTTS = ({ sceneId, onPlaybackStart, onPlaybackEnd, onError }: Use
         // Check generation status before retrying (optional optimization)
         try {
           const statusResponse = await fetch(
-            `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/tts/audio/${sceneId}/status`,
+            `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876'}/api/tts/audio/${sceneId}/status`,
             {
               headers: {
                 'Authorization': `Bearer ${localStorage.getItem('auth_token')}`

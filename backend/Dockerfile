@@ -64,15 +64,15 @@ RUN chown -R kahani:kahani /app
 # Switch to non-root user
 USER kahani
 
-# Health check
+# Health check (uses PORT env var with 9876 default)
 HEALTHCHECK --interval=30s --timeout=30s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:${PORT:-9876}/health || exit 1
 
-# Expose port
-EXPOSE 8000
+# Expose port (default 9876, can be overridden with PORT env var)
+EXPOSE ${PORT:-9876}
 
 # Set entrypoint
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 
-# Default command
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Default command (uses PORT env var with 9876 default)
+CMD sh -c "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-9876}"

@@ -41,10 +41,11 @@ interface TTSSettingsModalProps {
   onSaved?: () => void;
 }
 
+// Default TTS provider URLs - these are common defaults but should be configured per user
 const DEFAULT_PROVIDER_URLS: Record<string, string> = {
-  'openai-compatible': 'http://localhost:1234/v1',
-  'chatterbox': 'http://localhost:8880/v1',
-  'kokoro': 'http://localhost:8188/v1',
+  'openai-compatible': process.env.NEXT_PUBLIC_TTS_URL || 'http://localhost:1234/v1',
+  'chatterbox': process.env.NEXT_PUBLIC_CHATTERBOX_URL || 'http://localhost:8880/v1',
+  'kokoro': process.env.NEXT_PUBLIC_KOKORO_URL || 'http://localhost:8188/v1',
 };
 
 export default function TTSSettingsModal({ isOpen, onClose, onSaved }: TTSSettingsModalProps) {
@@ -52,7 +53,7 @@ export default function TTSSettingsModal({ isOpen, onClose, onSaved }: TTSSettin
   const [voices, setVoices] = useState<Voice[]>([]);
   const [settings, setSettings] = useState<TTSSettings>({
     provider_type: 'openai-compatible',
-    api_url: 'http://localhost:1234/v1',
+    api_url: DEFAULT_PROVIDER_URLS['openai-compatible'],
     voice_id: 'default',
     speed: 1.0,
     timeout: 30,
