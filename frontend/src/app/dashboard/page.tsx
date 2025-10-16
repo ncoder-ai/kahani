@@ -144,7 +144,7 @@ export default function DashboardPage() {
     try {
       const { token } = useAuthStore.getState();
       const response = await fetch(
-        `${API_BASE_URL}/api/summaries/stories/${storyId}/generate-story-summary`,
+        `${API_BASE_URL}/api/stories/${storyId}/generate-story-summary`,
         {
           method: 'POST',
           headers: {

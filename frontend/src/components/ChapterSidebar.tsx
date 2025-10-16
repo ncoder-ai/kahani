@@ -53,6 +53,11 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
   const [storySoFarDraft, setStorySoFarDraft] = useState('');
   const [isSavingStorySoFar, setIsSavingStorySoFar] = useState(false);
   
+  // Chapter Summary editing state
+  const [isEditingChapterSummary, setIsEditingChapterSummary] = useState(false);
+  const [chapterSummaryDraft, setChapterSummaryDraft] = useState('');
+  const [isSavingChapterSummary, setIsSavingChapterSummary] = useState(false);
+  
   // New Chapter creation state
   const [isCreatingChapter, setIsCreatingChapter] = useState(false);
   const [newChapterTitle, setNewChapterTitle] = useState('');
@@ -64,6 +69,7 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
   const [isGeneratingStorySummary, setIsGeneratingStorySummary] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [storySummaryError, setStorySummaryError] = useState<string | null>(null);
+  const [generatedStorySummary, setGeneratedStorySummary] = useState<string | null>(null);
 
   useEffect(() => {
     loadChapters();
@@ -149,6 +155,48 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
     setStorySoFarDraft('');
   };
 
+  const handleEditChapterSummary = () => {
+    const initialContent = activeChapter?.auto_summary || '';
+    setChapterSummaryDraft(initialContent);
+    setIsEditingChapterSummary(true);
+  };
+
+  const handleSaveChapterSummary = async () => {
+    if (!activeChapter) return;
+    
+    setIsSavingChapterSummary(true);
+    try {
+      await apiClient.updateChapter(storyId, activeChapter.id, {
+        auto_summary: chapterSummaryDraft
+      });
+      
+      // Update local state
+      setActiveChapter({
+        ...activeChapter,
+        auto_summary: chapterSummaryDraft
+      });
+      
+      // Also update in chapters list
+      setChapters(prev => prev.map(ch => 
+        ch.id === activeChapter.id 
+          ? { ...ch, auto_summary: chapterSummaryDraft }
+          : ch
+      ));
+      
+      setIsEditingChapterSummary(false);
+    } catch (err) {
+      console.error('Failed to save chapter summary:', err);
+      alert('Failed to save changes. Please try again.');
+    } finally {
+      setIsSavingChapterSummary(false);
+    }
+  };
+
+  const handleCancelChapterSummaryEdit = () => {
+    setIsEditingChapterSummary(false);
+    setChapterSummaryDraft('');
+  };
+
   const handleCreateNewChapter = () => {
     // Auto-populate with next chapter number
     const nextChapterNum = (chapters.length || 0) + 1;
@@ -210,7 +258,7 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
             'Content-Type': 'application/json'
           }
         }
@@ -222,8 +270,15 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
       
       const data = await response.json();
       
+      console.log('[CHAPTER SUMMARY] Generated:', data);
+      
       // Reload chapters to get updated summaries
       await loadChapters();
+      
+      // Notify parent to refresh if callback exists
+      if (onChapterChange) {
+        onChapterChange();
+      }
       
       alert('✓ Chapter summary generated successfully!');
     } catch (err) {
@@ -241,11 +296,11 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
     
     try {
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876'}/api/summaries/stories/${storyId}/generate-story-summary`,
+        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876'}/api/stories/${storyId}/generate-story-summary`,
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
             'Content-Type': 'application/json'
           }
         }
@@ -256,6 +311,17 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
       }
       
       const data = await response.json();
+      
+      // Store the generated summary to display
+      setGeneratedStorySummary(data.summary);
+      
+      // Reload chapters to get updated summaries
+      await loadChapters();
+      
+      // Notify parent to refresh if callback exists
+      if (onChapterChange) {
+        onChapterChange();
+      }
       
       alert(`✓ Story summary generated successfully!\n\nApproach: ${data.approach}\nChapters: ${data.chapters_summarized}\nScenes: ${data.total_scenes}`);
     } catch (err) {
@@ -470,6 +536,15 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
                     {storySummaryError && (
                       <p className="text-xs text-red-400">{storySummaryError}</p>
                     )}
+                    
+                    {/* Display generated story summary */}
+                    {generatedStorySummary && (
+                      <div className="mt-2 bg-slate-700/50 border border-slate-600 rounded-lg p-3 max-h-40 overflow-y-auto">
+                        <p className="text-sm text-gray-300 whitespace-pre-wrap">
+                          {generatedStorySummary}
+                        </p>
+                      </div>
+                    )}
                   </div>
                   
                   {/* Current Chapter Summary Generation */}
@@ -503,7 +578,16 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
                   {/* Current Chapter Summary Display */}
                   {activeChapter.auto_summary && (
                     <div className="space-y-2">
-                      <h4 className="text-xs font-semibold text-gray-400 uppercase">Chapter Summary</h4>
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-semibold text-gray-400 uppercase">Chapter Summary</h4>
+                        <button
+                          onClick={handleEditChapterSummary}
+                          className="p-1 hover:bg-slate-700 rounded transition-colors text-gray-400 hover:text-white"
+                          title="Edit chapter summary"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                        </button>
+                      </div>
                       <div className="bg-slate-700/50 border border-slate-600 rounded-lg p-3 max-h-40 overflow-y-auto">
                         <p className="text-sm text-gray-300 whitespace-pre-wrap">
                           {activeChapter.auto_summary}
@@ -644,6 +728,74 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
         </div>
       )}
 
+      {/* Edit Chapter Summary Modal */}
+      {isEditingChapterSummary && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={(e) => {
+          if (e.target === e.currentTarget) handleCancelChapterSummaryEdit();
+        }}>
+          <div className="bg-slate-800 rounded-lg border border-slate-700 w-full max-w-2xl max-h-[80vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b border-slate-700">
+              <div>
+                <h3 className="text-lg font-semibold text-white">Edit Chapter Summary</h3>
+                <p className="text-sm text-gray-400 mt-1">
+                  Customize the auto-generated summary for this chapter
+                </p>
+              </div>
+              <button
+                onClick={handleCancelChapterSummaryEdit}
+                className="p-2 hover:bg-slate-700 rounded transition-colors text-gray-400 hover:text-white"
+                disabled={isSavingChapterSummary}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-4">
+              <textarea
+                value={chapterSummaryDraft}
+                onChange={(e) => setChapterSummaryDraft(e.target.value)}
+                className="w-full h-full min-h-[300px] bg-slate-900 border border-slate-600 rounded-lg p-3 text-gray-200 placeholder-gray-500 resize-none focus:outline-none focus:border-purple-500"
+                placeholder="Enter a summary of this chapter's content..."
+                disabled={isSavingChapterSummary}
+              />
+              <p className="text-xs text-gray-500 mt-2">
+                {chapterSummaryDraft.length} characters
+              </p>
+            </div>
+            
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-2 p-4 border-t border-slate-700">
+              <button
+                onClick={handleCancelChapterSummaryEdit}
+                className="px-4 py-2 text-gray-400 hover:text-white transition-colors"
+                disabled={isSavingChapterSummary}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveChapterSummary}
+                disabled={isSavingChapterSummary}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+              >
+                {isSavingChapterSummary ? (
+                  <>
+                    <span className="animate-spin">⚙️</span>
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    Save Changes
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Create New Chapter Modal */}
       {isCreatingChapter && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -695,6 +847,15 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
                 </p>
                 {storySummaryError && (
                   <p className="text-xs text-red-400">{storySummaryError}</p>
+                )}
+                
+                {/* Display generated story summary */}
+                {generatedStorySummary && (
+                  <div className="bg-slate-700/50 border border-slate-600 rounded-lg p-3 max-h-40 overflow-y-auto">
+                    <p className="text-sm text-gray-300 whitespace-pre-wrap">
+                      {generatedStorySummary}
+                    </p>
+                  </div>
                 )}
               </div>
               

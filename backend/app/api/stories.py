@@ -374,6 +374,36 @@ async def generate_scene(
         # Format choices for response (already in correct format)
         formatted_choices = choices_data
         
+        # AUTO-GENERATE SUMMARIES if enabled and threshold reached
+        from ..models import Chapter
+        active_chapter = db.query(Chapter).filter(
+            Chapter.story_id == story_id,
+            Chapter.status.in_(["active", "in_progress"])
+        ).order_by(Chapter.chapter_number.desc()).first()
+        
+        if active_chapter and user_settings:
+            # Check if we should auto-generate summaries
+            auto_generate = user_settings.get("auto_generate_summaries", True)
+            threshold = user_settings.get("context_summary_threshold", 5)
+            
+            if auto_generate:
+                # Calculate scenes since last summary
+                scenes_since_summary = active_chapter.scenes_count - (active_chapter.last_summary_scene_count or 0)
+                
+                if scenes_since_summary >= threshold:
+                    logger.info(f"[AUTO-SUMMARY] Threshold reached ({scenes_since_summary}/{threshold}) for chapter {active_chapter.id}")
+                    
+                    # Generate chapter summary with context from previous chapters
+                    from ..api.chapters import generate_chapter_summary, generate_story_so_far
+                    try:
+                        await generate_chapter_summary(active_chapter.id, db, current_user.id)
+                        # Also update story_so_far for context in next scene
+                        await generate_story_so_far(active_chapter.id, db, current_user.id)
+                        logger.info(f"[AUTO-SUMMARY] Generated summaries for chapter {active_chapter.id}")
+                    except Exception as e:
+                        logger.error(f"[AUTO-SUMMARY] Failed to auto-generate summaries: {e}")
+                        # Don't fail the scene creation if summary fails
+        
     except Exception as e:
         logger.error(f"Failed to create scene with variant: {e}")
         raise HTTPException(

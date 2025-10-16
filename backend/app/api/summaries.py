@@ -451,7 +451,7 @@ Provide a cohesive, well-structured summary that reads as a complete narrative o
         
         logger.info(f"[STORY SUMMARY] Generating story summary from {len(chapter_summaries)} chapters")
         
-        story_summary = await llm_service._generate(
+        story_summary = await llm_service.generate(
             prompt=prompt,
             user_id=current_user.id,
             user_settings=user_settings,
