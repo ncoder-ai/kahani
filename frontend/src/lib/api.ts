@@ -657,6 +657,7 @@ class ApiClient {
     title?: string;
     description?: string;
     story_so_far?: string;
+    auto_summary?: string;
     plot_point?: string;
   }) {
     return this.request<{

@@ -24,6 +24,7 @@ class ChapterUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     story_so_far: Optional[str] = None
+    auto_summary: Optional[str] = None
     plot_point: Optional[str] = None
 
 class ChapterResponse(BaseModel):
@@ -401,15 +402,27 @@ async def generate_chapter_summary_endpoint(
 
 async def generate_chapter_summary(chapter_id: int, db: Session, user_id: int) -> str:
     """
-    Generate a summary of the chapter's scenes.
-    This is stored in chapter.auto_summary and represents ONLY this chapter's content.
+    Generate a summary of the chapter's scenes WITH CONTEXT from previous chapters.
+    This is stored in chapter.auto_summary and represents ONLY this chapter's content,
+    but the LLM receives previous chapter summaries to maintain consistency.
     """
     
     chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
     if not chapter:
         return ""
     
-    # Get all scenes in this chapter with their active variants
+    # Get ALL PREVIOUS chapters' summaries for context
+    previous_chapters = db.query(Chapter).filter(
+        Chapter.story_id == chapter.story_id,
+        Chapter.chapter_number < chapter.chapter_number
+    ).order_by(Chapter.chapter_number).all()
+    
+    previous_summaries = []
+    for ch in previous_chapters:
+        if ch.auto_summary:
+            previous_summaries.append(f"Chapter {ch.chapter_number} ({ch.title or 'Untitled'}): {ch.auto_summary}")
+    
+    # Get all scenes in THIS chapter with their active variants
     from .stories import SceneVariantServiceAdapter
     from ..models import StoryFlow
     
@@ -436,17 +449,32 @@ async def generate_chapter_summary(chapter_id: int, db: Session, user_id: int) -
     if not scene_contents:
         return "No content available to summarize."
     
-    # Prepare context for LLM
+    # Prepare context for LLM with previous chapters for continuity
     combined_content = "\n\n".join(scene_contents)
     
-    prompt = f"""Summarize the following chapter content into a concise summary that captures the key events, character developments, and plot progression. This summary will be used as context for future chapters.
+    # Build prompt with context from previous chapters
+    context_section = ""
+    if previous_summaries:
+        context_section = f"""
+Previous Chapters (for context - maintain consistency with these):
+{chr(10).join(previous_summaries)}
 
-Chapter {chapter.chapter_number}: {chapter.title or 'Untitled'}
+"""
+    
+    prompt = f"""Summarize Chapter {chapter.chapter_number} below into a concise summary that captures the key events, character developments, and plot progression.
 
-Content:
+{context_section}Current Chapter {chapter.chapter_number}: {chapter.title or 'Untitled'}
+
+Scenes to Summarize:
 {combined_content}
 
-Provide a clear, comprehensive summary in 2-3 paragraphs:"""
+Instructions:
+- Summarize ONLY Chapter {chapter.chapter_number}'s content
+- Maintain consistency with characters and events from previous chapters
+- Capture key events, character developments, and plot progression
+- Keep summary to 2-3 paragraphs
+
+Summary:"""
     
     # Get user settings
     from ..models import UserSettings
@@ -454,7 +482,7 @@ Provide a clear, comprehensive summary in 2-3 paragraphs:"""
     user_settings = user_settings_obj.to_dict() if user_settings_obj else None
     
     # Generate summary using basic LLM generation (not scene continuation)
-    summary = await llm_service._generate(
+    summary = await llm_service.generate(
         prompt=prompt,
         user_id=user_id,
         user_settings=user_settings,
@@ -475,10 +503,11 @@ Provide a clear, comprehensive summary in 2-3 paragraphs:"""
 async def generate_story_so_far(chapter_id: int, db: Session, user_id: int) -> str:
     """
     Generate "Story So Far" for a chapter by combining:
-    1. Summaries of ALL previous chapters (from their auto_summary)
-    2. Recent scenes from the current chapter
+    1. Summaries of ALL previous chapters (from their auto_summary) 
+    2. Summary of the CURRENT chapter (from its auto_summary)
     
-    This is stored in chapter.story_so_far
+    This creates a cumulative narrative context stored in chapter.story_so_far.
+    If current chapter doesn't have auto_summary yet, it will generate it first.
     """
     
     chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
@@ -497,36 +526,24 @@ async def generate_story_so_far(chapter_id: int, db: Session, user_id: int) -> s
     previous_summaries = []
     for prev_ch in previous_chapters:
         if prev_ch.auto_summary:
-            previous_summaries.append(f"Chapter {prev_ch.chapter_number}: {prev_ch.auto_summary}")
+            previous_summaries.append(f"Chapter {prev_ch.chapter_number} ({prev_ch.title or 'Untitled'}): {prev_ch.auto_summary}")
     
-    # Get recent scenes from CURRENT chapter
-    from ..models import StoryFlow
-    recent_scenes = db.query(Scene).filter(
-        Scene.chapter_id == chapter_id
-    ).order_by(Scene.sequence_number.desc()).limit(3).all()
+    # Get CURRENT chapter's summary (generate if doesn't exist)
+    if not chapter.auto_summary:
+        logger.info(f"[CHAPTER] Current chapter {chapter_id} has no summary, generating it first...")
+        await generate_chapter_summary(chapter_id, db, user_id)
+        # Refresh to get the updated auto_summary
+        db.refresh(chapter)
     
-    recent_scenes = list(reversed(recent_scenes))  # Put back in chronological order
+    current_summary = chapter.auto_summary or "No content yet."
     
-    current_chapter_content = []
-    for scene in recent_scenes:
-        flow = db.query(StoryFlow).filter(
-            StoryFlow.scene_id == scene.id,
-            StoryFlow.is_active == True
-        ).first()
-        
-        if flow and flow.scene_variant:
-            # Use just first 200 chars of recent scenes
-            content_preview = flow.scene_variant.content[:200] + "..." if len(flow.scene_variant.content) > 200 else flow.scene_variant.content
-            current_chapter_content.append(f"Scene {scene.sequence_number}: {content_preview}")
-    
-    # Combine everything
+    # Combine everything  
     story_parts = []
     
     if previous_summaries:
         story_parts.append("=== Previous Chapters ===\n" + "\n\n".join(previous_summaries))
     
-    if current_chapter_content:
-        story_parts.append(f"=== Chapter {chapter.chapter_number} (Current) - Recent Scenes ===\n" + "\n\n".join(current_chapter_content))
+    story_parts.append(f"=== Chapter {chapter.chapter_number} (Current): {chapter.title or 'Untitled'} ===\n{current_summary}")
     
     if not story_parts:
         return "The story begins..."
@@ -534,11 +551,17 @@ async def generate_story_so_far(chapter_id: int, db: Session, user_id: int) -> s
     combined_story = "\n\n".join(story_parts)
     
     # Now use LLM to create a cohesive "Story So Far" summary
-    prompt = f"""Create a cohesive "Story So Far" summary from the following chapter summaries and recent events. This should read as a continuous narrative that helps the reader understand where the story currently stands.
+    prompt = f"""Create a cohesive "Story So Far" summary from the following chapter summaries. This should read as a continuous narrative that helps the reader understand where the story currently stands.
 
 {combined_story}
 
-Provide a clear, engaging summary that flows naturally and captures the story's progression:"""
+Instructions:
+- Combine all chapter summaries into a flowing narrative
+- Maintain chronological order
+- Highlight key plot points and character developments
+- Keep the summary engaging and comprehensive (3-4 paragraphs)
+
+Story So Far:"""
     
     # Get user settings
     from ..models import UserSettings
@@ -546,7 +569,7 @@ Provide a clear, engaging summary that flows naturally and captures the story's 
     user_settings = user_settings_obj.to_dict() if user_settings_obj else None
     
     # Generate story so far
-    story_so_far = await llm_service._generate(
+    story_so_far = await llm_service.generate(
         prompt=prompt,
         user_id=user_id,
         user_settings=user_settings,
