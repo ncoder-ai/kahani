@@ -12,8 +12,8 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Configuration
-BACKEND_URL=${BACKEND_URL:-"http://localhost:8000"}
-FRONTEND_URL=${FRONTEND_URL:-"http://localhost:3000"}
+BACKEND_URL=${BACKEND_URL:-"http://localhost:9876"}
+FRONTEND_URL=${FRONTEND_URL:-"http://localhost:6789"}
 TIMEOUT=${TIMEOUT:-10}
 
 # Helper functions
@@ -226,8 +226,8 @@ case "${1:-all}" in
         echo "Usage: $0 [backend|frontend|database|llm|docker|all]"
         echo ""
         echo "Environment variables:"
-        echo "  BACKEND_URL   - Backend URL (default: http://localhost:8000)"
-        echo "  FRONTEND_URL  - Frontend URL (default: http://localhost:3000)"
+        echo "  BACKEND_URL   - Backend URL (default: http://localhost:9876)"
+        echo "  FRONTEND_URL  - Frontend URL (default: http://localhost:6789)"
         echo "  LLM_BASE_URL  - LLM service URL (default: http://localhost:1234/v1)"
         echo "  TIMEOUT       - Request timeout in seconds (default: 10)"
         exit 1

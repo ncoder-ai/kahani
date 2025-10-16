@@ -1,152 +1,33 @@
-# Kahani Docker Compose Configuration
 version: '3.8'
 
 services:
-  # Main Kahani Backend
-  kahani-backend:
-    build: 
-      context: ./backend
-      dockerfile: Dockerfile
+  backend:
+    build: ./backend
     container_name: kahani-backend
-    restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "9876:9876"
     volumes:
-      - kahani_data:/app/data
-      - kahani_audio:/app/data/audio  # TTS audio files
-      - kahani_exports:/app/exports
-      - kahani_logs:/app/logs
+      - ./backend/data:/app/data
+      - ./backend/logs:/app/logs
     environment:
-      # Database
-      - DATABASE_URL=${DATABASE_URL:-sqlite:///./data/kahani.db}
-      - SECRET_KEY=${SECRET_KEY:-kahani-secret-key-change-in-production}
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-your-super-secret-jwt-key-change-in-production}
-      
-      # LLM Configuration
+      - DATABASE_URL=sqlite:///./data/kahani.db
+      - SECRET_KEY=${SECRET_KEY:-change-this-secret-key}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-this-jwt-key}
       - LLM_BASE_URL=${LLM_BASE_URL:-http://host.docker.internal:1234/v1}
-      - LLM_API_KEY=${LLM_API_KEY:-not-needed-for-local}
+      - LLM_API_KEY=${LLM_API_KEY:-not-needed}
       - LLM_MODEL=${LLM_MODEL:-local-model}
-      
-      # TTS Configuration (optional - configure via UI after first run)
-      - TTS_PROVIDER=${TTS_PROVIDER:-openai-compatible}
-      - TTS_API_URL=${TTS_API_URL:-http://host.docker.internal:8080/v1/audio/speech}
-      - TTS_API_KEY=${TTS_API_KEY:-}
-      
-      # Application Settings
-      - DEBUG=${DEBUG:-false}
-      - CORS_ORIGINS=["http://localhost:3000", "http://kahani-frontend:3000"]
-      - PYTHONPATH=/app
-    depends_on:
-      - postgres
+      - CORS_ORIGINS=http://localhost:6789
+      - PORT=9876
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    networks:
-      - kahani-network
     
-  # Kahani Frontend
-  kahani-frontend:
-    build: 
-      context: ./frontend
-      dockerfile: Dockerfile
+  frontend:
+    build: ./frontend
     container_name: kahani-frontend
-    restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "6789:6789"
     environment:
-      - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
-      - NODE_ENV=${NODE_ENV:-production}
+      - NEXT_PUBLIC_API_BASE_URL=http://localhost:9876
+      - PORT=6789
     depends_on:
-      - kahani-backend
-    networks:
-      - kahani-network
-    
-  # PostgreSQL Database
-  postgres:
-    image: postgres:15-alpine
-    container_name: kahani-postgres
-    restart: unless-stopped
-    environment:
-      - POSTGRES_DB=${POSTGRES_DB:-kahani}
-      - POSTGRES_USER=${POSTGRES_USER:-kahani}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-kahani_password}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    networks:
-      - kahani-network
-
-  # Optional: Ollama LLM Service
-  ollama:
-    image: ollama/ollama:latest
-    container_name: kahani-ollama
-    restart: unless-stopped
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    networks:
-      - kahani-network
-    profiles:
-      - llm
-
-  # Optional: Redis for caching
-  redis:
-    image: redis:7-alpine
-    container_name: kahani-redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes
-    networks:
-      - kahani-network
-    profiles:
-      - redis
-
-  # Optional: Nginx reverse proxy
-  nginx:
-    image: nginx:alpine
-    container_name: kahani-nginx
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
-    depends_on:
-      - kahani-backend
-      - kahani-frontend
-    networks:
-      - kahani-network
-    profiles:
-      - proxy
-
-volumes:
-  kahani_data:
-    name: kahani_data
-  kahani_audio:
-    name: kahani_audio
-  kahani_exports:
-    name: kahani_exports
-  kahani_logs:
-    name: kahani_logs
-  postgres_data:
-    name: kahani_postgres_data
-  ollama_data:
-    name: kahani_ollama_data
-  redis_data:
-    name: kahani_redis_data
-
-networks:
-  kahani-network:
-    name: kahani-network
-    driver: bridge
+      - backend

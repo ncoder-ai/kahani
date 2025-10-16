@@ -13,13 +13,17 @@ sys.path.insert(0, str(backend_dir))
 from sqlalchemy import create_engine, inspect
 from app.database import Base, get_db
 from app.models.user import User
+from app.models.user_settings import UserSettings
 from app.models.story import Story
+from app.models.chapter import Chapter
 from app.models.scene import Scene, SceneChoice
 from app.models.scene_variant import SceneVariant
 from app.models.character import Character, StoryCharacter
-from app.models.user_settings import UserSettings
 from app.models.prompt_template import PromptTemplate
+from app.models.writing_style_preset import WritingStylePreset
 from app.models.story_flow import StoryFlow
+from app.models.tts_settings import TTSSettings, SceneAudio
+from app.models.tts_provider_config import TTSProviderConfig
 from app.config import Settings
 from passlib.context import CryptContext
 

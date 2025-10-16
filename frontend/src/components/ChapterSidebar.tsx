@@ -206,7 +206,7 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
     
     try {
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/stories/${storyId}/chapters/${activeChapter.id}/generate-summary?regenerate_story_so_far=true`,
+        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876'}/api/stories/${storyId}/chapters/${activeChapter.id}/generate-summary?regenerate_story_so_far=true`,
         {
           method: 'POST',
           headers: {
@@ -241,7 +241,7 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
     
     try {
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/summaries/stories/${storyId}/generate-story-summary`,
+        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876'}/api/summaries/stories/${storyId}/generate-story-summary`,
         {
           method: 'POST',
           headers: {

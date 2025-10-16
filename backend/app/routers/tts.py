@@ -320,8 +320,9 @@ async def list_providers():
             # Create dummy instance to get info
             try:
                 from app.services.tts import TTSProviderConfig
+                # Use a dummy URL - actual URL comes from user settings
                 dummy_config = TTSProviderConfig(
-                    api_url="http://localhost:1234",
+                    api_url="http://dummy-url-for-provider-info",
                     api_key="dummy"
                 )
                 instance = provider_class(config=dummy_config)
