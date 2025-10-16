@@ -46,6 +46,7 @@ class TTSSettings(Base):
     progressive_narration = Column(Boolean, default=False)  # Split scene into chunks for progressive playback
     chunk_size = Column(Integer, default=280)  # Chunk size for progressive narration (100-500)
     stream_audio = Column(Boolean, default=True)  # Future: Use provider streaming capabilities (SSE)
+    auto_play_last_scene = Column(Boolean, default=False)  # Auto-play TTS after scene generation completes
     
     # Advanced Settings
     pause_between_paragraphs = Column(Integer, default=500)  # milliseconds
@@ -81,6 +82,7 @@ class TTSSettings(Base):
                 "progressive_narration": self.progressive_narration,
                 "chunk_size": self.chunk_size,
                 "stream_audio": self.stream_audio,
+                "auto_play_last_scene": self.auto_play_last_scene,
                 "pause_between_paragraphs": self.pause_between_paragraphs,
                 "volume": self.volume
             },

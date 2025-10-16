@@ -4,12 +4,14 @@ TTS API Endpoints
 Provides REST API for text-to-speech functionality.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Response
+from fastapi import APIRouter, Depends, HTTPException, status, Response, BackgroundTasks
 from fastapi.responses import StreamingResponse, FileResponse
 from sqlalchemy.orm import Session
 from typing import Optional
 import logging
 import os
+import base64
+import asyncio
 
 from app.database import get_db
 from app.dependencies import get_current_user
@@ -18,6 +20,7 @@ from app.models.scene import Scene
 from app.models.tts_settings import TTSSettings
 from app.models.tts_provider_config import TTSProviderConfig as TTSProviderConfigModel
 from app.services.tts import TTSService, TTSProviderRegistry
+from app.services.tts_session_manager import tts_session_manager
 from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/api/tts", tags=["TTS"])
@@ -39,6 +42,7 @@ class TTSSettingsRequest(BaseModel):
     progressive_narration: Optional[bool] = Field(False, description="Split scenes into chunks for progressive playback")
     chunk_size: Optional[int] = Field(280, ge=100, le=500, description="Chunk size for progressive narration (100=sentence, 500=paragraph)")
     stream_audio: Optional[bool] = Field(True, description="Future: Use provider streaming (SSE) when available")
+    auto_play_last_scene: Optional[bool] = Field(False, description="Auto-play TTS after scene generation completes")
 
 
 class TTSSettingsResponse(BaseModel):
@@ -56,6 +60,7 @@ class TTSSettingsResponse(BaseModel):
     progressive_narration: Optional[bool] = None
     chunk_size: Optional[int] = None
     stream_audio: Optional[bool] = None
+    auto_play_last_scene: Optional[bool] = None
 
     class Config:
         from_attributes = True
@@ -75,7 +80,8 @@ class TTSSettingsResponse(BaseModel):
             tts_enabled=db_model.tts_enabled,
             progressive_narration=db_model.progressive_narration,
             chunk_size=db_model.chunk_size,
-            stream_audio=db_model.stream_audio
+            stream_audio=db_model.stream_audio,
+            auto_play_last_scene=db_model.auto_play_last_scene
         )
 
 
@@ -103,6 +109,14 @@ class AudioInfoResponse(BaseModel):
     cached: bool
     progressive: bool = Field(False, description="Whether audio is chunked for progressive playback")
     chunk_count: int = Field(1, description="Number of chunks (1 if not progressive)")
+
+
+class TTSSessionResponse(BaseModel):
+    """Response model for WebSocket TTS session"""
+    session_id: str
+    scene_id: int
+    websocket_url: str
+    message: str
 
 
 class ChunkMetadata(BaseModel):
@@ -190,6 +204,8 @@ async def update_tts_settings(
         tts_settings.chunk_size = settings_request.chunk_size
     if settings_request.stream_audio is not None:
         tts_settings.stream_audio = settings_request.stream_audio
+    if settings_request.auto_play_last_scene is not None:
+        tts_settings.auto_play_last_scene = settings_request.auto_play_last_scene
     
     db.commit()
     db.refresh(tts_settings)
@@ -678,6 +694,334 @@ async def generate_scene_audio(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate audio: {str(e)}"
         )
+
+
+@router.post("/generate-ws/{scene_id}", response_model=TTSSessionResponse)
+async def generate_scene_audio_websocket(
+    scene_id: int,
+    request: GenerateAudioRequest = GenerateAudioRequest(),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Generate audio for a scene with WebSocket streaming.
+    
+    This endpoint creates a TTS generation session and returns a session ID
+    and WebSocket URL. The client should:
+    
+    1. Call this endpoint to get session_id
+    2. Connect to the WebSocket at websocket_url
+    3. Receive audio chunks as they're generated via WebSocket messages
+    
+    Message types sent via WebSocket:
+    - chunk_ready: Audio chunk is ready (includes base64 audio data)
+    - progress: Generation progress update
+    - complete: All chunks generated
+    - error: An error occurred
+    
+    This approach eliminates polling and provides instant chunk delivery.
+    """
+    
+    # Get scene
+    scene = db.query(Scene).filter(Scene.id == scene_id).first()
+    
+    if not scene:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scene not found"
+        )
+    
+    # Check user has access to this scene's story
+    from app.models.story import Story
+    story = db.query(Story).filter(Story.id == scene.story_id).first()
+    if not story or story.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied"
+        )
+    
+    try:
+        # Create TTS session
+        session_id = tts_session_manager.create_session(
+            scene_id=scene_id,
+            user_id=current_user.id
+        )
+        
+        logger.info(f"Created TTS session {session_id} for scene {scene_id}")
+        
+        # Trigger background generation task
+        # Note: Pass scene_id instead of scene object to avoid DB session issues
+        background_tasks.add_task(
+            generate_and_stream_chunks,
+            session_id=session_id,
+            scene_id=scene_id,
+            user_id=current_user.id
+        )
+        
+        # Return session info
+        return TTSSessionResponse(
+            session_id=session_id,
+            scene_id=scene_id,
+            websocket_url=f"/ws/tts/{session_id}",
+            message="Connect to WebSocket to receive audio chunks"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to create TTS session: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create session: {str(e)}"
+        )
+
+
+async def generate_and_stream_chunks(
+    session_id: str,
+    scene_id: int,
+    user_id: int
+):
+    """
+    Background task that generates TTS audio chunks and streams them via WebSocket.
+    
+    This function:
+    1. Creates its own DB session (background tasks can't share sessions)
+    2. Waits for WebSocket connection
+    3. Generates audio chunks for the scene text
+    4. Sends each chunk via WebSocket as soon as it's ready
+    5. Sends progress updates
+    6. Handles errors gracefully
+    """
+    # Create a new DB session for this background task
+    db = next(get_db())
+    
+    try:
+        # Get the scene
+        scene = db.query(Scene).filter(Scene.id == scene_id).first()
+        if not scene:
+            logger.error(f"Scene {scene_id} not found")
+            return
+        
+        # Get the active variant content from story flow (same as working TTS code)
+        from app.models.story_flow import StoryFlow
+        from app.models.scene_variant import SceneVariant
+        
+        flow_entry = db.query(StoryFlow).filter(
+            StoryFlow.scene_id == scene_id,
+            StoryFlow.is_active == True
+        ).first()
+        
+        if not flow_entry or not flow_entry.scene_variant_id:
+            logger.error(f"No active variant found for scene {scene_id}")
+            await tts_session_manager.send_message(session_id, {
+                "type": "error",
+                "message": "No active scene variant found"
+            })
+            return
+        
+        variant = db.query(SceneVariant).filter(
+            SceneVariant.id == flow_entry.scene_variant_id
+        ).first()
+        
+        if not variant or not variant.content:
+            logger.error(f"Variant {flow_entry.scene_variant_id} has no content")
+            await tts_session_manager.send_message(session_id, {
+                "type": "error",
+                "message": "Scene variant has no content"
+            })
+            return
+        
+        # Use variant.content instead of scene.content!
+        scene_content = variant.content
+        
+        # Wait for WebSocket to connect (up to 10 seconds)
+        logger.info(f"Waiting for WebSocket connection for session {session_id}")
+        for i in range(20):  # 20 attempts × 0.5s = 10 seconds max
+            session = tts_session_manager.get_session(session_id)
+            if session and session.websocket:
+                logger.info(f"WebSocket connected for session {session_id}")
+                break
+            await asyncio.sleep(0.5)
+        else:
+            logger.error(f"WebSocket never connected for session {session_id}")
+            return
+        
+        # Mark session as generating
+        tts_session_manager.set_generating(session_id, True)
+        
+        # Get TTS service
+        tts_service = TTSService(db)
+        
+        # Get TTS settings
+        tts_settings = db.query(TTSSettings).filter(
+            TTSSettings.user_id == user_id
+        ).first()
+        
+        if not tts_settings or not tts_settings.tts_enabled:
+            await tts_session_manager.send_message(session_id, {
+                "type": "error",
+                "message": "TTS not configured or disabled"
+            })
+            return
+        
+        # Check if progressive narration is enabled
+        is_progressive = tts_settings.progressive_narration
+        
+        if is_progressive:
+            # Generate chunks and stream them
+            # Use text chunker to split scene text
+            from app.services.tts.text_chunker import TextChunker
+            chunker = TextChunker(max_chunk_size=tts_settings.chunk_size or 280)
+            
+            logger.info(f"Scene content length: {len(scene_content)} chars")
+            text_chunks = chunker.chunk_text(scene_content)
+            
+            total_chunks = len(text_chunks)
+            tts_session_manager.set_total_chunks(session_id, total_chunks)
+            
+            logger.info(f"Generating {total_chunks} chunks for session {session_id}")
+            
+            if total_chunks == 0:
+                logger.warning(f"No chunks generated for scene {scene_id}, scene content: '{scene.content[:100]}...'")
+                await tts_session_manager.send_message(session_id, {
+                    "type": "error",
+                    "message": "No text to generate audio for"
+                })
+                return
+            
+            # Get TTS provider
+            from app.services.tts.factory import TTSProviderFactory
+            from app.services.tts.base import TTSRequest, AudioFormat
+            
+            provider = TTSProviderFactory.create_provider(
+                provider_type=tts_settings.tts_provider_type,
+                api_url=tts_settings.tts_api_url,
+                api_key=tts_settings.tts_api_key or "",
+                timeout=tts_settings.tts_timeout or 30,
+                extra_params=tts_settings.tts_extra_params or {}
+            )
+            
+            # Get audio format
+            format = AudioFormat.MP3
+            if tts_settings.tts_extra_params:
+                format_str = tts_settings.tts_extra_params.get("format", "mp3")
+                try:
+                    format = AudioFormat(format_str)
+                except ValueError:
+                    pass
+            
+            # Generate each chunk and stream immediately
+            for i, text_chunk in enumerate(text_chunks, start=1):
+                try:
+                    # Extract text from TextChunk object
+                    chunk_text = text_chunk.text
+                    
+                    # Generate audio for this chunk using provider directly
+                    request = TTSRequest(
+                        text=chunk_text,
+                        voice_id=tts_settings.default_voice or "default",
+                        speed=tts_settings.speech_speed or 1.0,
+                        format=format
+                    )
+                    
+                    response = await provider.synthesize(request)
+                    audio_data = response.audio_data
+                    
+                    if not audio_data:
+                        raise Exception(f"Failed to generate audio for chunk {i}")
+                    
+                    # Convert to base64 for WebSocket transmission
+                    audio_base64 = base64.b64encode(audio_data).decode('utf-8')
+                    
+                    # Send chunk via WebSocket
+                    await tts_session_manager.send_message(session_id, {
+                        "type": "chunk_ready",
+                        "chunk_number": i,
+                        "total_chunks": total_chunks,
+                        "audio_base64": audio_base64,
+                        "text_preview": chunk_text[:50] + "..." if len(chunk_text) > 50 else chunk_text,
+                        "size_bytes": len(audio_data)
+                    })
+                    
+                    tts_session_manager.increment_chunks_sent(session_id)
+                    
+                    logger.info(f"Sent chunk {i}/{total_chunks} for session {session_id}")
+                    
+                    # Send progress update
+                    progress_percent = int((i / total_chunks) * 100)
+                    await tts_session_manager.send_message(session_id, {
+                        "type": "progress",
+                        "chunks_ready": i,
+                        "total_chunks": total_chunks,
+                        "progress_percent": progress_percent
+                    })
+                    
+                except Exception as chunk_error:
+                    logger.error(f"Error generating chunk {i}: {chunk_error}")
+                    await tts_session_manager.send_message(session_id, {
+                        "type": "error",
+                        "message": f"Failed to generate chunk {i}",
+                        "chunk_number": i
+                    })
+                    # Continue with other chunks
+                    continue
+            
+            # Send completion message
+            await tts_session_manager.send_message(session_id, {
+                "type": "complete",
+                "total_chunks": total_chunks,
+                "message": "All chunks generated successfully"
+            })
+            
+        else:
+            # Generate single audio file
+            scene_audio = await tts_service.get_or_generate_scene_audio(
+                scene=scene,
+                user_id=user_id,
+                force_regenerate=True
+            )
+            
+            if not scene_audio or not scene_audio.file_path:
+                await tts_session_manager.send_message(session_id, {
+                    "type": "error",
+                    "message": "Failed to generate audio"
+                })
+                return
+            
+            # Read audio file and send as single chunk
+            with open(scene_audio.file_path, 'rb') as f:
+                audio_data = f.read()
+            
+            audio_base64 = base64.b64encode(audio_data).decode('utf-8')
+            
+            await tts_session_manager.send_message(session_id, {
+                "type": "chunk_ready",
+                "chunk_number": 1,
+                "total_chunks": 1,
+                "audio_base64": audio_base64,
+                "size_bytes": len(audio_data),
+                "duration": scene_audio.duration
+            })
+            
+            await tts_session_manager.send_message(session_id, {
+                "type": "complete",
+                "total_chunks": 1,
+                "message": "Audio generated successfully"
+            })
+        
+    except Exception as e:
+        logger.error(f"Error in generate_and_stream_chunks: {e}", exc_info=True)
+        await tts_session_manager.send_message(session_id, {
+            "type": "error",
+            "message": str(e)
+        })
+        tts_session_manager.set_error(session_id, str(e))
+    
+    finally:
+        # Clean up
+        tts_session_manager.set_generating(session_id, False)
+        logger.info(f"Completed generation for session {session_id}")
+        # Close DB session
+        db.close()
 
 
 @router.post("/stream/{scene_id}")

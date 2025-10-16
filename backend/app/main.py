@@ -62,7 +62,7 @@ async def health_check():
     }
 
 # Import and include routers
-from .api import auth, stories, characters, summaries, chapters
+from .api import auth, stories, characters, summaries, chapters, websocket
 from .api import settings as settings_router
 from .routers import prompt_templates, writing_presets, tts
 
@@ -75,6 +75,7 @@ app.include_router(summaries.router, prefix="/api", tags=["summaries"])
 app.include_router(prompt_templates.router, prefix="/api/prompt-templates", tags=["prompt-templates"])
 app.include_router(writing_presets.router)
 app.include_router(tts.router)
+app.include_router(websocket.router)  # WebSocket endpoints
 
 # Root endpoint
 @app.get("/")

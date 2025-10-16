@@ -109,8 +109,8 @@ class LLMClient:
             if self.api_key:
                 litellm.api_key = self.api_key
         
-        # Configure logging
-        litellm.set_verbose = logger.level <= logging.DEBUG
+        # Disable verbose logging to reduce console noise
+        litellm.set_verbose = False
         
         logger.info(f"Configured LiteLLM for {self.api_type} with model {self.model_string}")
     

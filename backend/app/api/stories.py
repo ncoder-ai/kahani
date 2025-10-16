@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Form, Body
+from fastapi import APIRouter, Depends, HTTPException, status, Form, Body, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
@@ -97,6 +97,53 @@ def SceneVariantService(db: Session):
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
+
+
+async def trigger_auto_play_tts(scene_id: int, user_id: int):
+    """
+    Background task to create TTS session for auto-play.
+    
+    This creates a TTS session and returns the session_id that the frontend
+    can use to connect and start playback automatically.
+    
+    Note: This function just creates the session. The actual audio generation
+    happens when the frontend connects via WebSocket.
+    """
+    from ..database import SessionLocal
+    from ..models.tts_settings import TTSSettings
+    from ..services.tts_session_manager import tts_session_manager
+    
+    db = SessionLocal()
+    
+    try:
+        # Check if user has auto-play enabled
+        tts_settings = db.query(TTSSettings).filter(
+            TTSSettings.user_id == user_id
+        ).first()
+        
+        if not tts_settings or not tts_settings.tts_enabled or not tts_settings.auto_play_last_scene:
+            logger.info(f"[AUTO-PLAY] Skipping - auto-play not enabled for user {user_id}")
+            return None
+        
+        logger.info(f"[AUTO-PLAY] Creating TTS session for scene {scene_id}, user {user_id}")
+        
+        # Create TTS session with auto_play=True flag
+        session_id = tts_session_manager.create_session(
+            scene_id=scene_id,
+            user_id=user_id,
+            auto_play=True
+        )
+        
+        logger.info(f"[AUTO-PLAY] Created TTS session {session_id} for scene {scene_id}")
+        
+        return session_id
+        
+    except Exception as e:
+        logger.error(f"[AUTO-PLAY] Failed to create TTS session for scene {scene_id}: {e}")
+        return None
+    
+    finally:
+        db.close()
 
 router = APIRouter()
 
@@ -293,6 +340,7 @@ async def get_story(
 async def generate_scene(
     story_id: int,
     custom_prompt: str = Form(""),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -411,7 +459,22 @@ async def generate_scene(
             detail=f"Failed to create scene: {str(e)}"
         )
     
-    return {
+    # AUTO-PLAY TTS if enabled
+    from ..models.tts_settings import TTSSettings
+    tts_settings = db.query(TTSSettings).filter(
+        TTSSettings.user_id == current_user.id
+    ).first()
+    
+    auto_play_session_id = None
+    if tts_settings and tts_settings.tts_enabled and tts_settings.auto_play_last_scene:
+        logger.info(f"[AUTO-PLAY] Creating TTS session for scene {scene.id}")
+        # Create session immediately (not in background) so we can return session_id
+        auto_play_session_id = await trigger_auto_play_tts(
+            scene_id=scene.id,
+            user_id=current_user.id
+        )
+    
+    response_data = {
         "id": scene.id,
         "content": scene_content,
         "sequence_number": next_sequence,
@@ -428,6 +491,16 @@ async def generate_scene(
         },
         "message": "Scene generated successfully with smart context management"
     }
+    
+    # Add auto-play info if enabled
+    if auto_play_session_id:
+        response_data["auto_play"] = {
+            "enabled": True,
+            "session_id": auto_play_session_id,
+            "scene_id": scene.id
+        }
+    
+    return response_data
 
 @router.post("/{story_id}/scenes/stream")
 async def generate_scene_streaming_endpoint(
@@ -598,8 +671,49 @@ async def generate_scene_streaming_endpoint(
                 logger.error(f"Failed to create scene variant: {e}")
                 raise
             
+            # Check for auto-play TTS
+            auto_play_session_id = None
+            try:
+                print(f"[AUTO-PLAY DEBUG] Checking auto-play for user {current_user.id}")
+                from ..models.tts_settings import TTSSettings
+                tts_settings = db.query(TTSSettings).filter(
+                    TTSSettings.user_id == current_user.id
+                ).first()
+                
+                print(f"[AUTO-PLAY DEBUG] TTS Settings: tts_enabled={tts_settings.tts_enabled if tts_settings else None}, auto_play={tts_settings.auto_play_last_scene if tts_settings else None}")
+                
+                if tts_settings and tts_settings.tts_enabled and tts_settings.auto_play_last_scene:
+                    print(f"[AUTO-PLAY] Triggering TTS for scene {scene.id}")
+                    logger.info(f"[AUTO-PLAY] Triggering TTS for scene {scene.id}")
+                    auto_play_session_id = await trigger_auto_play_tts(scene.id, current_user.id)
+                    if auto_play_session_id:
+                        print(f"[AUTO-PLAY] Created TTS session: {auto_play_session_id}")
+                        logger.info(f"[AUTO-PLAY] Created TTS session: {auto_play_session_id}")
+                else:
+                    print(f"[AUTO-PLAY DEBUG] Auto-play NOT triggered - conditions not met")
+            except Exception as e:
+                print(f"[AUTO-PLAY ERROR] Failed to trigger auto-play: {e}")
+                logger.error(f"[AUTO-PLAY] Failed to trigger auto-play: {e}")
+                import traceback
+                traceback.print_exc()
+                # Don't fail scene generation if auto-play fails
+            
             # Send completion data
-            yield f"data: {json.dumps({'type': 'complete', 'scene_id': scene.id, 'choices': choices_data})}\n\n"
+            complete_data = {
+                'type': 'complete',
+                'scene_id': scene.id,
+                'choices': choices_data
+            }
+            
+            # Add auto-play info if enabled
+            if auto_play_session_id:
+                complete_data['auto_play'] = {
+                    'enabled': True,
+                    'session_id': auto_play_session_id,
+                    'scene_id': scene.id
+                }
+            
+            yield f"data: {json.dumps(complete_data)}\n\n"
             yield "data: [DONE]\n\n"
             
         except Exception as e:
