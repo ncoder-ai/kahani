@@ -252,3 +252,13 @@ alembic/versions/*.py
 # FastAPI uploads
 uploads/
 static/uploads/
+
+# TTS audio files
+backend/data/audio/
+**/audio/*.wav
+**/audio/*.mp3
+
+# Test and debug files
+test_*.py
+test_*.html
+debug_*.py
