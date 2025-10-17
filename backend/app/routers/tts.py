@@ -833,17 +833,26 @@ async def generate_and_stream_chunks(
         # Use variant.content instead of scene.content!
         scene_content = variant.content
         
-        # Wait for WebSocket to connect (up to 10 seconds)
-        logger.info(f"Waiting for WebSocket connection for session {session_id}")
-        for i in range(20):  # 20 attempts × 0.5s = 10 seconds max
-            session = tts_session_manager.get_session(session_id)
-            if session and session.websocket:
-                logger.info(f"WebSocket connected for session {session_id}")
-                break
-            await asyncio.sleep(0.5)
+        # Check if this is an auto-play session
+        session = tts_session_manager.get_session(session_id)
+        is_auto_play = session and session.auto_play
+        
+        if is_auto_play:
+            # For auto-play: Start generating immediately, don't wait for WebSocket
+            # Audio chunks will be buffered and sent when WebSocket connects
+            logger.info(f"[AUTO-PLAY] Starting TTS generation immediately for session {session_id} (no WebSocket wait)")
         else:
-            logger.error(f"WebSocket never connected for session {session_id}")
-            return
+            # For manual TTS: Wait for WebSocket to connect (up to 10 seconds)
+            logger.info(f"Waiting for WebSocket connection for session {session_id}")
+            for i in range(20):  # 20 attempts × 0.5s = 10 seconds max
+                session = tts_session_manager.get_session(session_id)
+                if session and session.websocket:
+                    logger.info(f"WebSocket connected for session {session_id}")
+                    break
+                await asyncio.sleep(0.5)
+            else:
+                logger.error(f"WebSocket never connected for session {session_id}")
+                return
         
         # Mark session as generating
         tts_session_manager.set_generating(session_id, True)

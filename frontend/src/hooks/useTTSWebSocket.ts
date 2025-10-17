@@ -166,14 +166,18 @@ export const useTTSWebSocket = ({
    * Queue an audio chunk for playback
    */
   const queueAudioChunk = useCallback((chunk: AudioChunk) => {
+    console.log(`[TTS] Queueing chunk ${chunk.chunk_number}, currently playing: ${isPlayingRef.current}, queue size: ${audioQueueRef.current.length}`);
     audioQueueRef.current.push(chunk);
     
-    // If not currently playing, start playback
+    // If not currently playing, start playback IMMEDIATELY
     if (!isPlayingRef.current) {
+      console.log('[TTS] Starting playback NOW with chunk', chunk.chunk_number);
       setIsPlaying(true);
       isPlayingRef.current = true;
       onPlaybackStart?.();
-      playNextChunk();
+      
+      // Use setTimeout to ensure state updates, then play
+      setTimeout(() => playNextChunk(), 0);
     }
   }, [playNextChunk, onPlaybackStart]);
   
@@ -353,6 +357,17 @@ export const useTTSWebSocket = ({
    * Connect to existing TTS session (for auto-play)
    */
   const connectToSession = useCallback(async (session_id: string) => {
+    // Prevent double connection
+    if (wsRef.current) {
+      console.log('[AUTO-PLAY] WebSocket already exists, skipping connection');
+      return;
+    }
+    
+    if (isGenerating) {
+      console.log('[AUTO-PLAY] Already generating, skipping connection');
+      return;
+    }
+    
     try {
       setIsGenerating(true);
       setError(null);
@@ -425,16 +440,17 @@ export const useTTSWebSocket = ({
    * Check for pending auto-play on mount and when pendingAutoPlay changes
    */
   useEffect(() => {
-    console.log(`[AUTO-PLAY] Hook initialized for scene ${sceneId}`, { pendingAutoPlay });
-    
     // Check if there's a pending auto-play for this scene
-    if (pendingAutoPlay && pendingAutoPlay.scene_id === sceneId) {
-      console.log('[AUTO-PLAY] Found pending auto-play! Connecting to session:', pendingAutoPlay.session_id);
+    // AND make sure we're not already generating (prevents double-connection)
+    if (pendingAutoPlay && pendingAutoPlay.scene_id === sceneId && !isGenerating && !wsRef.current) {
+      console.log('[AUTO-PLAY] Found pending auto-play! Connecting to session:', pendingAutoPlay.session_id, 'for scene:', sceneId);
       connectToSession(pendingAutoPlay.session_id);
       // Clear the pending auto-play
       onAutoPlayProcessed?.();
+    } else if (pendingAutoPlay && pendingAutoPlay.scene_id === sceneId && (isGenerating || wsRef.current)) {
+      console.log('[AUTO-PLAY] Skipping connection - already generating or WebSocket exists');
     }
-  }, [sceneId, pendingAutoPlay, connectToSession, onAutoPlayProcessed]);
+  }, [sceneId, pendingAutoPlay, connectToSession, onAutoPlayProcessed, isGenerating]);
   
   /**
    * Cleanup on unmount
