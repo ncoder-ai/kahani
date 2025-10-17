@@ -135,7 +135,13 @@ async def trigger_auto_play_tts(scene_id: int, user_id: int):
             auto_play=True
         )
         
+        print(f"[AUTO-PLAY] Created TTS session {session_id} for scene {scene_id}")
         logger.info(f"[AUTO-PLAY] Created TTS session {session_id} for scene {scene_id}")
+        
+        # DON'T set is_generating here - let generate_and_stream_chunks check and set it atomically
+        # This prevents the race condition where both asyncio.create_task AND WebSocket try to generate
+        
+        print(f"[AUTO-PLAY] Starting background task for session {session_id}")
         
         # START GENERATION IMMEDIATELY in background (don't wait for WebSocket)
         from ..routers.tts import generate_and_stream_chunks
@@ -144,6 +150,8 @@ async def trigger_auto_play_tts(scene_id: int, user_id: int):
             scene_id=scene_id,
             user_id=user_id
         ))
+        
+        print(f"[AUTO-PLAY] Background task started for session {session_id}")
         logger.info(f"[AUTO-PLAY] Started background TTS generation for session {session_id}")
         
         return session_id
@@ -699,6 +707,15 @@ async def generate_scene_streaming_endpoint(
                     if auto_play_session_id:
                         print(f"[AUTO-PLAY] Created TTS session: {auto_play_session_id}")
                         logger.info(f"[AUTO-PLAY] Created TTS session: {auto_play_session_id}")
+                        
+                        # Send auto_play_ready event IMMEDIATELY so frontend can connect early
+                        auto_play_event = {
+                            'type': 'auto_play_ready',
+                            'auto_play_session_id': auto_play_session_id,
+                            'scene_id': scene.id
+                        }
+                        yield f"data: {json.dumps(auto_play_event)}\n\n"
+                        logger.info(f"[AUTO-PLAY] Sent auto_play_ready event for new scene")
                 else:
                     print(f"[AUTO-PLAY DEBUG] Auto-play NOT triggered - conditions not met")
             except Exception as e:

@@ -247,13 +247,17 @@ export const useTTSWebSocket = ({
    * Generate and play audio using WebSocket
    */
   const generate = useCallback(async () => {
+    console.log('[TTS GENERATE] Function called for scene:', sceneId);
+    
     try {
+      console.log('[TTS GENERATE] Setting states...');
       setIsGenerating(true);
       setError(null);
       setProgress(0);
       setChunksReceived(0);
       setTotalChunks(0);
       
+      console.log('[TTS GENERATE] Clearing audio queue...');
       // Clear audio queue
       audioQueueRef.current = [];
       
@@ -263,16 +267,21 @@ export const useTTSWebSocket = ({
         currentAudioRef.current = null;
       }
       
+      console.log('[TTS GENERATE] Establishing autoplay permission...');
       // Create a silent audio element to establish autoplay permission
       // This is triggered by user click, so browser allows it
       try {
         const silentAudio = new Audio();
         silentAudio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAAABmYWN0BAAAAAAAAABkYXRhAAAAAA==';
-        await silentAudio.play();
+        
+        // Use a timeout to avoid hanging
+        const playPromise = silentAudio.play();
+        const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 100));
+        await Promise.race([playPromise, timeoutPromise]);
         silentAudio.pause();
         console.log('[Audio] Autoplay permission established');
       } catch (e) {
-        console.warn('[Audio] Could not establish autoplay permission:', e);
+        console.warn('[Audio] Could not establish autoplay permission (will continue anyway):', e);
       }
       
       console.log('[TTS] Creating session for scene:', sceneId);
@@ -384,15 +393,19 @@ export const useTTSWebSocket = ({
         currentAudioRef.current = null;
       }
       
-      // Play silent audio to establish permission
+      // Play silent audio to establish permission (with timeout)
       try {
         const silentAudio = new Audio();
         silentAudio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAAABmYWN0BAAAAAAAAABkYXRhAAAAAA==';
-        await silentAudio.play();
+        
+        // Use timeout to avoid hanging
+        const playPromise = silentAudio.play();
+        const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 100));
+        await Promise.race([playPromise, timeoutPromise]);
         silentAudio.pause();
         console.log('[AUTO-PLAY] Autoplay permission established');
       } catch (e) {
-        console.warn('[AUTO-PLAY] Could not establish autoplay permission:', e);
+        console.warn('[AUTO-PLAY] Could not establish autoplay permission (will continue):', e);
       }
       
       console.log('[AUTO-PLAY] Connecting to session:', session_id);

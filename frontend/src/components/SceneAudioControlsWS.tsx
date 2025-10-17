@@ -50,7 +50,16 @@ export const SceneAudioControlsWS: React.FC<SceneAudioControlsWSProps> = ({
       <div className="flex items-center gap-3">
         {/* Play/Stop Button */}
         <button
-          onClick={() => isGenerating || isPlaying ? stop() : generate()}
+          onClick={() => {
+            console.log('[TTS BUTTON] Clicked! isGenerating:', isGenerating, 'isPlaying:', isPlaying);
+            if (isGenerating || isPlaying) {
+              console.log('[TTS BUTTON] Calling stop()');
+              stop();
+            } else {
+              console.log('[TTS BUTTON] Calling generate() for scene:', sceneId);
+              generate();
+            }
+          }}
           className="flex items-center justify-center w-10 h-10 rounded-full bg-purple-600 hover:bg-purple-700 transition-colors"
           title={isPlaying ? 'Stop' : 'Generate & Play'}
         >

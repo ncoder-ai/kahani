@@ -155,7 +155,8 @@ class ApiClient {
     customPrompt = '',
     onChunk?: (chunk: string) => void,
     onComplete?: (sceneId: number, choices: any[], autoPlay?: { enabled: boolean; session_id: string; scene_id: number }) => void,
-    onError?: (error: string) => void
+    onError?: (error: string) => void,
+    onAutoPlayReady?: (sessionId: string) => void
   ) {
     const formData = new FormData();
     formData.append('custom_prompt', customPrompt);
@@ -180,6 +181,10 @@ class ApiClient {
               try {
                 const parsed = JSON.parse(data);
                 if (parsed.type === 'content' && onChunk) onChunk(parsed.chunk);
+                else if (parsed.type === 'auto_play_ready' && onAutoPlayReady) {
+                  // Connect to TTS immediately when session is ready
+                  onAutoPlayReady(parsed.auto_play_session_id);
+                }
                 else if (parsed.type === 'complete' && onComplete) onComplete(parsed.scene_id, parsed.choices, parsed.auto_play);
                 else if (parsed.type === 'error' && onError) onError(parsed.message);
               } catch {}

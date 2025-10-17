@@ -641,6 +641,21 @@ export default function StoryPage() {
           
           // Clear operation flag
           setIsSceneOperationInProgress(false);
+        },
+        // onAutoPlayReady - NEW! Connect to TTS session immediately
+        (sessionId: string) => {
+          console.log('[AUTO-PLAY-READY] Received session ID for new scene:', sessionId);
+          // This will be the actual scene ID once complete event arrives
+          // For now, we'll use a placeholder and update when complete arrives
+          const autoPlayData = {
+            session_id: sessionId,
+            scene_id: -1 // Will be updated in onComplete
+          };
+          flushSync(() => {
+            pendingAutoPlayRef.current = autoPlayData;
+            setPendingAutoPlay(autoPlayData);
+          });
+          console.log('[AUTO-PLAY-READY] Early connection enabled, TTS will start generating now');
         }
       );
     } catch (err) {
