@@ -89,19 +89,9 @@ async def websocket_tts_stream(
             print(f"[WebSocket] Flushing {len(session.message_buffer)} buffered messages for auto-play session")
             await tts_session_manager.flush_buffered_messages(session_id)
         
-        # Only auto-start generation for auto-play sessions IF not already generating
-        # (Generation may have already started in background)
-        if session.auto_play and not session.is_generating:
-            from ..routers.tts import generate_and_stream_chunks
-            import asyncio
-            
-            print(f"[WebSocket] Auto-starting TTS generation for auto-play session: {session_id}")
-            # Start generation in background task
-            asyncio.create_task(generate_and_stream_chunks(
-                session_id=session_id,
-                scene_id=session.scene_id,
-                user_id=session.user_id
-            ))
+        # DON'T start generation here for auto-play - it's already started by setup_auto_play_if_enabled()
+        # We only flush buffered messages that were generated before WebSocket connected
+        print(f"[WebSocket] Auto-play session connected, generation already running in background")
         
         # Keep connection alive and handle any client messages
         # (In current implementation, client doesn't send messages,

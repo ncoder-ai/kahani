@@ -99,22 +99,33 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 
-async def trigger_auto_play_tts(scene_id: int, user_id: int):
+async def setup_auto_play_if_enabled(
+    scene_id: int,
+    user_id: int,
+    db: Session
+) -> Optional[dict]:
     """
-    Background task to create TTS session and START GENERATION for auto-play.
+    UNIFIED auto-play setup for ANY scene operation (new scene or variant).
     
-    This creates a TTS session, returns the session_id immediately, and
-    starts audio generation in the background WITHOUT waiting for WebSocket.
+    This single function replaces all the duplicate auto-play logic scattered
+    across different endpoints. It:
+    1. Checks if auto-play is enabled for the user
+    2. Creates a TTS session
+    3. Starts audio generation immediately in background
+    4. Returns event data to be sent to frontend
     
-    The frontend can connect later and start receiving chunks that are already
-    generated or still being generated.
+    Args:
+        scene_id: The scene to setup TTS for
+        user_id: The user requesting auto-play
+        db: Database session
+        
+    Returns:
+        Dict with event data if auto-play was setup, None otherwise
+        Format: {'session_id': str, 'event': dict}
     """
-    from ..database import SessionLocal
     from ..models.tts_settings import TTSSettings
     from ..services.tts_session_manager import tts_session_manager
     import asyncio
-    
-    db = SessionLocal()
     
     try:
         # Check if user has auto-play enabled
@@ -122,28 +133,22 @@ async def trigger_auto_play_tts(scene_id: int, user_id: int):
             TTSSettings.user_id == user_id
         ).first()
         
-        if not tts_settings or not tts_settings.tts_enabled or not tts_settings.auto_play_last_scene:
-            logger.info(f"[AUTO-PLAY] Skipping - auto-play not enabled for user {user_id}")
+        if not (tts_settings and tts_settings.tts_enabled and tts_settings.auto_play_last_scene):
+            logger.info(f"[AUTO-PLAY] Skipping - not enabled for user {user_id}")
             return None
         
-        logger.info(f"[AUTO-PLAY] Creating TTS session for scene {scene_id}, user {user_id}")
+        logger.info(f"[AUTO-PLAY] Setting up for scene {scene_id}, user {user_id}")
         
-        # Create TTS session with auto_play=True flag
+        # Create TTS session
         session_id = tts_session_manager.create_session(
             scene_id=scene_id,
             user_id=user_id,
             auto_play=True
         )
         
-        print(f"[AUTO-PLAY] Created TTS session {session_id} for scene {scene_id}")
-        logger.info(f"[AUTO-PLAY] Created TTS session {session_id} for scene {scene_id}")
+        logger.info(f"[AUTO-PLAY] Created session {session_id}")
         
-        # DON'T set is_generating here - let generate_and_stream_chunks check and set it atomically
-        # This prevents the race condition where both asyncio.create_task AND WebSocket try to generate
-        
-        print(f"[AUTO-PLAY] Starting background task for session {session_id}")
-        
-        # START GENERATION IMMEDIATELY in background (don't wait for WebSocket)
+        # Start generation immediately in background
         from ..routers.tts import generate_and_stream_chunks
         asyncio.create_task(generate_and_stream_chunks(
             session_id=session_id,
@@ -151,15 +156,31 @@ async def trigger_auto_play_tts(scene_id: int, user_id: int):
             user_id=user_id
         ))
         
-        print(f"[AUTO-PLAY] Background task started for session {session_id}")
-        logger.info(f"[AUTO-PLAY] Started background TTS generation for session {session_id}")
+        logger.info(f"[AUTO-PLAY] Started background generation for session {session_id}")
         
-        return session_id
+        # Return event data for SSE streaming
+        return {
+            'session_id': session_id,
+            'event': {
+                'type': 'auto_play_ready',
+                'auto_play_session_id': session_id,
+                'scene_id': scene_id
+            }
+        }
         
     except Exception as e:
-        logger.error(f"[AUTO-PLAY] Failed to create TTS session for scene {scene_id}: {e}")
+        logger.error(f"[AUTO-PLAY] Failed to setup for scene {scene_id}: {e}")
         return None
-    
+
+
+# DEPRECATED: Old function kept for backward compatibility
+async def trigger_auto_play_tts(scene_id: int, user_id: int):
+    """DEPRECATED: Use setup_auto_play_if_enabled() instead."""
+    from ..database import SessionLocal
+    db = SessionLocal()
+    try:
+        result = await setup_auto_play_if_enabled(scene_id, user_id, db)
+        return result['session_id'] if result else None
     finally:
         db.close()
 
@@ -587,7 +608,38 @@ async def generate_scene_streaming_endpoint(
                 full_content += chunk
                 yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
             
-            # Generate choices for the new scene
+            # Save the scene to database FIRST (before choices)
+            variant_service = SceneVariantService(db)
+            try:
+                scene, variant = variant_service.create_scene_with_variant(
+                    story_id=story_id,
+                    sequence_number=next_sequence,
+                    content=full_content.strip(),
+                    title=f"Scene {next_sequence}",
+                    custom_prompt=custom_prompt if custom_prompt else None,
+                    choices=[]  # We'll add choices later
+                )
+                logger.info(f"Created scene {scene.id} with variant {variant.id} for story {story_id}")
+            except Exception as e:
+                logger.error(f"Failed to create scene variant: {e}")
+                raise
+            
+            # UNIFIED AUTO-PLAY SETUP - Do this BEFORE generating choices!
+            auto_play_session_id = None
+            try:
+                auto_play_data = await setup_auto_play_if_enabled(scene.id, current_user.id, db)
+                
+                if auto_play_data:
+                    auto_play_session_id = auto_play_data['session_id']
+                    # Send event immediately so frontend can connect while we generate choices
+                    yield f"data: {json.dumps(auto_play_data['event'])}\n\n"
+                    logger.info(f"[AUTO-PLAY] Sent auto_play_ready event BEFORE generating choices")
+                    
+            except Exception as e:
+                logger.error(f"[AUTO-PLAY] Failed to setup: {e}")
+                # Don't fail scene generation if auto-play fails
+            
+            # NOW generate choices (in parallel with TTS generation!)
             choices_data = []
             try:
                 choice_context = {
@@ -599,131 +651,83 @@ async def generate_scene_streaming_endpoint(
                 
                 choices = await llm_service.generate_choices(full_content, choice_context, current_user.id, user_settings)
                 
-                # Format choices for SceneVariantService
-                choices_data = []
+                # Format and save choices
                 for i, choice_text in enumerate(choices):
+                    choice = SceneChoice(
+                        scene_id=scene.id,
+                        scene_variant_id=variant.id,
+                        choice_text=choice_text,
+                        choice_order=i + 1
+                    )
+                    db.add(choice)
                     choices_data.append({
                         "text": choice_text,
                         "order": i + 1
                     })
                 
+                db.commit()
+                logger.info(f"Saved {len(choices_data)} choices for scene {scene.id}")
+                
             except Exception as e:
                 logger.warning(f"Failed to generate choices for scene: {e}")
                 choices_data = []
 
-            # Save the scene to database using SceneVariantService
-            variant_service = SceneVariantService(db)
+            # Chapter integration (optional - won't break if it fails)
             try:
-                scene, variant = variant_service.create_scene_with_variant(
-                    story_id=story_id,
-                    sequence_number=next_sequence,
-                    content=full_content.strip(),
-                    title=f"Scene {next_sequence}",
-                    custom_prompt=custom_prompt if custom_prompt else None,
-                    choices=choices_data  # Pass formatted choices
-                )
-                logger.info(f"Created scene {scene.id} with variant {variant.id} for story {story_id}")
+                # Get or create active chapter for this story
+                active_chapter = db.query(Chapter).filter(
+                    Chapter.story_id == story_id,
+                    Chapter.status == ChapterStatus.ACTIVE
+                ).order_by(Chapter.chapter_number.desc()).first()
                 
-                # Chapter integration (optional - won't break if it fails)
-                try:
-                    # Get or create active chapter for this story
-                    active_chapter = db.query(Chapter).filter(
-                        Chapter.story_id == story_id,
-                        Chapter.status == ChapterStatus.ACTIVE
-                    ).order_by(Chapter.chapter_number.desc()).first()
-                    
-                    if not active_chapter:
-                        # Create first chapter if none exists
-                        active_chapter = Chapter(
-                            story_id=story_id,
-                            chapter_number=1,
-                            title="Chapter 1",
-                            status=ChapterStatus.ACTIVE,
-                            context_tokens_used=0,
-                            scenes_count=0,
-                            last_summary_scene_count=0
-                        )
-                        db.add(active_chapter)
-                        db.flush()
-                        logger.info(f"[CHAPTER] Created first chapter {active_chapter.id} for story {story_id}")
-                    
-                    # Link scene to active chapter
-                    scene.chapter_id = active_chapter.id
-                    
-                    # Update chapter token tracking
-                    scene_tokens = context_manager.count_tokens(full_content.strip())
-                    active_chapter.context_tokens_used += scene_tokens
-                    active_chapter.scenes_count += 1
-                    
-                    db.commit()
-                    logger.info(f"[CHAPTER] Linked scene {scene.id} to chapter {active_chapter.id} ({active_chapter.scenes_count} scenes, {active_chapter.context_tokens_used} tokens)")
-                    
-                    # Check if auto-summary is needed (use user's summary threshold setting)
-                    # user_settings is a dict from to_dict(), not an object
-                    summary_threshold = user_settings.get('context_settings', {}).get('summary_threshold', 5) if user_settings else 5
-                    scenes_since_last_summary = active_chapter.scenes_count - active_chapter.last_summary_scene_count
-                    logger.info(f"[CHAPTER] Auto-summary check: {scenes_since_last_summary} scenes since last summary (threshold: {summary_threshold})")
-                    if scenes_since_last_summary >= summary_threshold:
-                        logger.info(f"[CHAPTER] Chapter {active_chapter.id} reached {summary_threshold} scenes since last summary, triggering auto-summary")
-                        try:
-                            # Step 1: Generate chapter summary (just this chapter's content)
-                            from ..api.chapters import generate_chapter_summary, generate_story_so_far
-                            await generate_chapter_summary(active_chapter.id, db, current_user.id)
-                            
-                            # Step 2: Generate "Story So Far" (all previous + current)
-                            await generate_story_so_far(active_chapter.id, db, current_user.id)
-                            
-                            active_chapter.last_summary_scene_count = active_chapter.scenes_count
-                            db.commit()
-                            logger.info(f"[CHAPTER] Auto-summary and story-so-far generated for chapter {active_chapter.id}")
-                        except Exception as e:
-                            logger.error(f"[CHAPTER] Failed to generate auto-summary for chapter {active_chapter.id}: {e}")
-                            # Don't fail if summary generation fails
-                except Exception as e:
-                    logger.warning(f"[CHAPTER] Chapter integration failed for scene {scene.id}, but scene was created successfully: {e}")
-                    # Don't fail the scene generation if chapter integration fails
-                    db.rollback()  # Rollback any chapter changes
-                    db.commit()    # But keep the scene
+                if not active_chapter:
+                    # Create first chapter if none exists
+                    active_chapter = Chapter(
+                        story_id=story_id,
+                        chapter_number=1,
+                        title="Chapter 1",
+                        status=ChapterStatus.ACTIVE,
+                        context_tokens_used=0,
+                        scenes_count=0,
+                        last_summary_scene_count=0
+                    )
+                    db.add(active_chapter)
+                    db.flush()
+                    logger.info(f"[CHAPTER] Created first chapter {active_chapter.id} for story {story_id}")
                 
-            except Exception as e:
-                logger.error(f"Failed to create scene variant: {e}")
-                raise
-            
-            # Check for auto-play TTS
-            auto_play_session_id = None
-            try:
-                print(f"[AUTO-PLAY DEBUG] Checking auto-play for user {current_user.id}")
-                from ..models.tts_settings import TTSSettings
-                tts_settings = db.query(TTSSettings).filter(
-                    TTSSettings.user_id == current_user.id
-                ).first()
+                # Link scene to active chapter
+                scene.chapter_id = active_chapter.id
                 
-                print(f"[AUTO-PLAY DEBUG] TTS Settings: tts_enabled={tts_settings.tts_enabled if tts_settings else None}, auto_play={tts_settings.auto_play_last_scene if tts_settings else None}")
+                # Update chapter token tracking
+                scene_tokens = context_manager.count_tokens(full_content.strip())
+                active_chapter.context_tokens_used += scene_tokens
+                active_chapter.scenes_count += 1
                 
-                if tts_settings and tts_settings.tts_enabled and tts_settings.auto_play_last_scene:
-                    print(f"[AUTO-PLAY] Triggering TTS for scene {scene.id}")
-                    logger.info(f"[AUTO-PLAY] Triggering TTS for scene {scene.id}")
-                    auto_play_session_id = await trigger_auto_play_tts(scene.id, current_user.id)
-                    if auto_play_session_id:
-                        print(f"[AUTO-PLAY] Created TTS session: {auto_play_session_id}")
-                        logger.info(f"[AUTO-PLAY] Created TTS session: {auto_play_session_id}")
+                db.commit()
+                logger.info(f"[CHAPTER] Linked scene {scene.id} to chapter {active_chapter.id} ({active_chapter.scenes_count} scenes, {active_chapter.context_tokens_used} tokens)")
+                
+                # Check if auto-summary is needed
+                summary_threshold = user_settings.get('context_settings', {}).get('summary_threshold', 5) if user_settings else 5
+                scenes_since_last_summary = active_chapter.scenes_count - active_chapter.last_summary_scene_count
+                logger.info(f"[CHAPTER] Auto-summary check: {scenes_since_last_summary} scenes since last summary (threshold: {summary_threshold})")
+                if scenes_since_last_summary >= summary_threshold:
+                    logger.info(f"[CHAPTER] Chapter {active_chapter.id} reached {summary_threshold} scenes since last summary, triggering auto-summary")
+                    try:
+                        from ..api.chapters import generate_chapter_summary, generate_story_so_far
+                        await generate_chapter_summary(active_chapter.id, db, current_user.id)
+                        await generate_story_so_far(active_chapter.id, db, current_user.id)
                         
-                        # Send auto_play_ready event IMMEDIATELY so frontend can connect early
-                        auto_play_event = {
-                            'type': 'auto_play_ready',
-                            'auto_play_session_id': auto_play_session_id,
-                            'scene_id': scene.id
-                        }
-                        yield f"data: {json.dumps(auto_play_event)}\n\n"
-                        logger.info(f"[AUTO-PLAY] Sent auto_play_ready event for new scene")
-                else:
-                    print(f"[AUTO-PLAY DEBUG] Auto-play NOT triggered - conditions not met")
+                        active_chapter.last_summary_scene_count = active_chapter.scenes_count
+                        db.commit()
+                        logger.info(f"[CHAPTER] Auto-summary and story-so-far generated for chapter {active_chapter.id}")
+                    except Exception as e:
+                        logger.error(f"[AUTO-SUMMARY] Failed to auto-generate summaries: {e}")
+                        # Don't fail the scene creation if summary fails
             except Exception as e:
-                print(f"[AUTO-PLAY ERROR] Failed to trigger auto-play: {e}")
-                logger.error(f"[AUTO-PLAY] Failed to trigger auto-play: {e}")
-                import traceback
-                traceback.print_exc()
-                # Don't fail scene generation if auto-play fails
+                logger.warning(f"[CHAPTER] Chapter integration failed for scene {scene.id}, but scene was created successfully: {e}")
+                # Don't fail the scene generation if chapter integration fails
+                db.rollback()  # Rollback any chapter changes
+                db.commit()    # But keep the scene
             
             # Send completion data
             complete_data = {
@@ -732,7 +736,7 @@ async def generate_scene_streaming_endpoint(
                 'choices': choices_data
             }
             
-            # Add auto-play info if enabled
+            # Add auto-play info to complete event if it was set up earlier
             if auto_play_session_id:
                 complete_data['auto_play'] = {
                     'enabled': True,
@@ -1642,7 +1646,7 @@ async def create_scene_variant_streaming(
                 logger.warning(f"No active StoryFlow entry found for scene {scene_id}")
             
             # Check if this is the last scene and trigger auto-play TTS if enabled
-            # Do this BEFORE generating choices so user can start listening sooner
+            # UNIFIED AUTO-PLAY SETUP
             auto_play_session_id = None
             try:
                 # Check if this scene is the last scene in the story
@@ -1652,39 +1656,18 @@ async def create_scene_variant_streaming(
                     .order_by(desc(Scene.sequence_number))\
                     .first()
                 
-                logger.info(f"[AUTO-PLAY DEBUG] Scene {scene_id}, Last scene: {last_scene.id if last_scene else None}, Match: {last_scene and last_scene.id == scene_id}")
-                
                 if last_scene and last_scene.id == scene_id:
-                    # This is the last scene, check auto-play settings
-                    from ..models.tts_settings import TTSSettings
-                    tts_settings = db.query(TTSSettings).filter(
-                        TTSSettings.user_id == current_user.id
-                    ).first()
+                    # Use unified auto-play setup
+                    auto_play_data = await setup_auto_play_if_enabled(scene_id, current_user.id, db)
                     
-                    logger.info(f"[AUTO-PLAY DEBUG] TTS Settings: enabled={tts_settings.tts_enabled if tts_settings else None}, auto_play={tts_settings.auto_play_last_scene if tts_settings else None}")
-                    
-                    if tts_settings and tts_settings.tts_enabled and tts_settings.auto_play_last_scene:
-                        logger.info(f"[AUTO-PLAY] Triggering TTS for variant {variant.id} of scene {scene_id}")
-                        auto_play_session_id = await trigger_auto_play_tts(scene_id, current_user.id)
-                        if auto_play_session_id:
-                            logger.info(f"[AUTO-PLAY] Created TTS session: {auto_play_session_id}")
-                            
-                            # Send auto-play event IMMEDIATELY so frontend can start connecting
-                            # Don't wait for choices to be generated
-                            auto_play_event = {
-                                'type': 'auto_play_ready',
-                                'auto_play_session_id': auto_play_session_id,
-                                'scene_id': scene_id,
-                                'variant_id': variant.id
-                            }
-                            yield f"data: {json.dumps(auto_play_event)}\n\n"
-                            logger.info(f"[AUTO-PLAY] Sent auto_play_ready event immediately")
-                        else:
-                            logger.warning(f"[AUTO-PLAY] trigger_auto_play_tts returned None!")
+                    if auto_play_data:
+                        auto_play_session_id = auto_play_data['session_id']
+                        # Send event immediately
+                        yield f"data: {json.dumps(auto_play_data['event'])}\n\n"
+                        logger.info(f"[AUTO-PLAY] Sent auto_play_ready event for variant")
+                        
             except Exception as e:
-                logger.error(f"[AUTO-PLAY] Failed to trigger auto-play: {e}")
-                import traceback
-                traceback.print_exc()
+                logger.error(f"[AUTO-PLAY] Failed to setup: {e}")
                 # Don't fail variant generation if auto-play fails
             
             # Generate choices for the new variant
