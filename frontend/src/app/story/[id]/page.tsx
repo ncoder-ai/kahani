@@ -776,6 +776,9 @@ export default function StoryPage() {
         setStreamingVariantSceneId(sceneId);
         setStreamingVariantContent('');
         
+        // Track if we already received auto_play_ready event to avoid double-connection
+        let autoPlayAlreadyTriggered = false;
+        
         await apiClient.createSceneVariantStreaming(
           story.id,
           sceneId,
@@ -785,41 +788,68 @@ export default function StoryPage() {
             setStreamingVariantContent(prev => prev + chunk);
           },
           // onComplete
-          async (variant: any) => {
-            console.log('Variant creation complete', { variant });
+          async (response: any) => {
+            console.log('[VARIANT COMPLETE] Full response:', JSON.stringify(response, null, 2));
+            console.log('[VARIANT COMPLETE] Has auto_play_session_id?', 'auto_play_session_id' in response);
+            console.log('[VARIANT COMPLETE] auto_play_session_id value:', response.auto_play_session_id);
+            
+            // Check if auto-play was triggered - but ONLY if we didn't already handle it via auto_play_ready
+            if (response.auto_play_session_id && !autoPlayAlreadyTriggered) {
+              console.log('[AUTO-PLAY] Setting pending auto-play from COMPLETE event:', response.auto_play_session_id, 'for scene:', sceneId);
+              setPendingAutoPlay({ session_id: response.auto_play_session_id, scene_id: sceneId });
+              pendingAutoPlayRef.current = { session_id: response.auto_play_session_id, scene_id: sceneId };
+            } else if (autoPlayAlreadyTriggered) {
+              console.log('[AUTO-PLAY] Skipping pending auto-play setup - already triggered via auto_play_ready event');
+            } else {
+              console.log('[AUTO-PLAY] NO session ID in response - auto-play will not trigger');
+            }
+            
             setStreamingVariantContent('');
             setStreamingVariantSceneId(null);
             setIsStreaming(false);
             
-            // Preserve current scroll position for variant operations
-            const currentScrollPosition = window.pageYOffset;
+            // NO RELOAD! The variant is already visible from streaming
+            // The scene component will reload variants when user switches between them
+            console.log('[VARIANT] Variant creation complete - NO page reload needed');
+            console.log('[VARIANT] Streaming showed the content, choices are in the response');
             
-            // Reload story to show new variant
-            await loadStory(false, false); // Don't auto-scroll for variants
-            
-            // Restore scroll position to stay at the scene being worked on
+            // Just scroll to the scene smoothly
             setTimeout(() => {
-              window.scrollTo({ top: currentScrollPosition, behavior: 'instant' });
-              
-              // Then smoothly scroll to the specific scene that was modified
               const sceneElement = document.querySelector(`[data-scene-id="${sceneId}"]`);
               if (sceneElement) {
                 sceneElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
               }
-            }, 50);
+            }, 100);
           },
           // onError
           (error: string) => {
-            console.error('Streaming variant creation error:', error);
-            setError(error);
+            console.error('[VARIANT ERROR]', error);
             setStreamingVariantContent('');
             setStreamingVariantSceneId(null);
             setIsStreaming(false);
+            alert(`Failed to create variant: ${error}`);
+          },
+          // onAutoPlayReady - NEW! Connect to TTS immediately when ready
+          (sessionId: string) => {
+            console.log('[AUTO-PLAY-READY] Received session ID immediately:', sessionId, 'for scene:', sceneId);
+            console.log('[AUTO-PLAY-READY] Setting pending auto-play NOW (before choices are generated)');
+            autoPlayAlreadyTriggered = true; // Mark that we handled auto-play
+            setPendingAutoPlay({ session_id: sessionId, scene_id: sceneId });
+            pendingAutoPlayRef.current = { session_id: sessionId, scene_id: sceneId };
           }
         );
       } else {
         // Non-streaming variant creation
         const response = await apiClient.createSceneVariant(story.id, sceneId, customPrompt);
+        
+        console.log('New variant created:', response.variant);
+        
+        // Check if auto-play was triggered
+        if (response.auto_play_session_id) {
+          console.log('[AUTO-PLAY] Setting pending auto-play:', response.auto_play_session_id, 'for scene:', sceneId);
+          setPendingAutoPlay({ session_id: response.auto_play_session_id, scene_id: sceneId });
+          pendingAutoPlayRef.current = { session_id: response.auto_play_session_id, scene_id: sceneId };
+        }
         
         // Preserve current scroll position for variant operations
         const currentScrollPosition = window.pageYOffset;
@@ -837,8 +867,6 @@ export default function StoryPage() {
             sceneElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
           }
         }, 50);
-        
-        console.log('New variant created:', response.variant);
       }
       
     } catch (error) {

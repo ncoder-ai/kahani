@@ -101,17 +101,18 @@ logger = logging.getLogger(__name__)
 
 async def trigger_auto_play_tts(scene_id: int, user_id: int):
     """
-    Background task to create TTS session for auto-play.
+    Background task to create TTS session and START GENERATION for auto-play.
     
-    This creates a TTS session and returns the session_id that the frontend
-    can use to connect and start playback automatically.
+    This creates a TTS session, returns the session_id immediately, and
+    starts audio generation in the background WITHOUT waiting for WebSocket.
     
-    Note: This function just creates the session. The actual audio generation
-    happens when the frontend connects via WebSocket.
+    The frontend can connect later and start receiving chunks that are already
+    generated or still being generated.
     """
     from ..database import SessionLocal
     from ..models.tts_settings import TTSSettings
     from ..services.tts_session_manager import tts_session_manager
+    import asyncio
     
     db = SessionLocal()
     
@@ -135,6 +136,15 @@ async def trigger_auto_play_tts(scene_id: int, user_id: int):
         )
         
         logger.info(f"[AUTO-PLAY] Created TTS session {session_id} for scene {scene_id}")
+        
+        # START GENERATION IMMEDIATELY in background (don't wait for WebSocket)
+        from ..routers.tts import generate_and_stream_chunks
+        asyncio.create_task(generate_and_stream_chunks(
+            session_id=session_id,
+            scene_id=scene_id,
+            user_id=user_id
+        ))
+        logger.info(f"[AUTO-PLAY] Started background TTS generation for session {session_id}")
         
         return session_id
         
@@ -1386,6 +1396,33 @@ async def create_scene_variant(
         else:
             logger.warning(f"No active StoryFlow entry found for scene {scene_id}")
         
+        # Check if this is the last scene and trigger auto-play TTS if enabled
+        # Do this BEFORE generating choices so user can start listening sooner
+        auto_play_session_id = None
+        try:
+            # Check if this scene is the last scene in the story
+            from sqlalchemy import desc
+            last_scene = db.query(Scene)\
+                .filter(Scene.story_id == story_id)\
+                .order_by(desc(Scene.sequence_number))\
+                .first()
+            
+            if last_scene and last_scene.id == scene_id:
+                # This is the last scene, check auto-play settings
+                from ..models.tts_settings import TTSSettings
+                tts_settings = db.query(TTSSettings).filter(
+                    TTSSettings.user_id == current_user.id
+                ).first()
+                
+                if tts_settings and tts_settings.tts_enabled and tts_settings.auto_play_last_scene:
+                    logger.info(f"[AUTO-PLAY] Triggering TTS for variant {variant.id} of scene {scene_id}")
+                    auto_play_session_id = await trigger_auto_play_tts(scene_id, current_user.id)
+                    if auto_play_session_id:
+                        logger.info(f"[AUTO-PLAY] Created TTS session: {auto_play_session_id}")
+        except Exception as e:
+            logger.error(f"[AUTO-PLAY] Failed to trigger auto-play: {e}")
+            # Don't fail variant generation if auto-play fails
+        
         # Generate choices for the new variant
         try:
             from ..services.context_manager import ContextManager
@@ -1420,7 +1457,7 @@ async def create_scene_variant(
             .order_by(SceneChoice.choice_order)\
             .all()
         
-        return {
+        response = {
             "message": "Scene variant created successfully",
             "variant": {
                 "id": variant.id,
@@ -1440,6 +1477,12 @@ async def create_scene_variant(
                 ]
             }
         }
+        
+        # Add auto_play_session_id to response if present
+        if auto_play_session_id:
+            response['auto_play_session_id'] = auto_play_session_id
+        
+        return response
         
     except Exception as e:
         logger.error(f"Failed to create scene variant: {e}")
@@ -1581,6 +1624,52 @@ async def create_scene_variant_streaming(
             else:
                 logger.warning(f"No active StoryFlow entry found for scene {scene_id}")
             
+            # Check if this is the last scene and trigger auto-play TTS if enabled
+            # Do this BEFORE generating choices so user can start listening sooner
+            auto_play_session_id = None
+            try:
+                # Check if this scene is the last scene in the story
+                from sqlalchemy import desc
+                last_scene = db.query(Scene)\
+                    .filter(Scene.story_id == story_id)\
+                    .order_by(desc(Scene.sequence_number))\
+                    .first()
+                
+                logger.info(f"[AUTO-PLAY DEBUG] Scene {scene_id}, Last scene: {last_scene.id if last_scene else None}, Match: {last_scene and last_scene.id == scene_id}")
+                
+                if last_scene and last_scene.id == scene_id:
+                    # This is the last scene, check auto-play settings
+                    from ..models.tts_settings import TTSSettings
+                    tts_settings = db.query(TTSSettings).filter(
+                        TTSSettings.user_id == current_user.id
+                    ).first()
+                    
+                    logger.info(f"[AUTO-PLAY DEBUG] TTS Settings: enabled={tts_settings.tts_enabled if tts_settings else None}, auto_play={tts_settings.auto_play_last_scene if tts_settings else None}")
+                    
+                    if tts_settings and tts_settings.tts_enabled and tts_settings.auto_play_last_scene:
+                        logger.info(f"[AUTO-PLAY] Triggering TTS for variant {variant.id} of scene {scene_id}")
+                        auto_play_session_id = await trigger_auto_play_tts(scene_id, current_user.id)
+                        if auto_play_session_id:
+                            logger.info(f"[AUTO-PLAY] Created TTS session: {auto_play_session_id}")
+                            
+                            # Send auto-play event IMMEDIATELY so frontend can start connecting
+                            # Don't wait for choices to be generated
+                            auto_play_event = {
+                                'type': 'auto_play_ready',
+                                'auto_play_session_id': auto_play_session_id,
+                                'scene_id': scene_id,
+                                'variant_id': variant.id
+                            }
+                            yield f"data: {json.dumps(auto_play_event)}\n\n"
+                            logger.info(f"[AUTO-PLAY] Sent auto_play_ready event immediately")
+                        else:
+                            logger.warning(f"[AUTO-PLAY] trigger_auto_play_tts returned None!")
+            except Exception as e:
+                logger.error(f"[AUTO-PLAY] Failed to trigger auto-play: {e}")
+                import traceback
+                traceback.print_exc()
+                # Don't fail variant generation if auto-play fails
+            
             # Generate choices for the new variant
             try:
                 choice_context = await context_manager.build_choice_generation_context(story_id, db)
@@ -1634,7 +1723,17 @@ async def create_scene_variant_streaming(
                     ]
                 }
             }
-            yield f"data: {json.dumps(variant_data)}\n\n"
+            
+            # Add auto_play_session_id to response if present
+            if auto_play_session_id:
+                variant_data['auto_play_session_id'] = auto_play_session_id
+                logger.info(f"[AUTO-PLAY DEBUG] Adding session ID to completion event: {auto_play_session_id}")
+            
+            completion_json = json.dumps(variant_data)
+            logger.info(f"[STREAMING DEBUG] Sending completion event (length: {len(completion_json)} chars)")
+            logger.info(f"[STREAMING DEBUG] Completion event includes auto_play_session_id: {'auto_play_session_id' in variant_data}")
+            
+            yield f"data: {completion_json}\n\n"
             yield "data: [DONE]\n\n"
             
         except Exception as e:
