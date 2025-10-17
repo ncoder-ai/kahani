@@ -26,6 +26,7 @@ class TTSSession(BaseModel):
     total_chunks: Optional[int] = None
     error: Optional[str] = None
     auto_play: bool = False  # Flag to indicate if this is an auto-play session
+    message_buffer: list = []  # Buffer messages when WebSocket not connected yet
     
     class Config:
         arbitrary_types_allowed = True
@@ -123,23 +124,76 @@ class TTSSessionManager:
     async def send_message(self, session_id: str, message: dict) -> bool:
         """
         Send a JSON message via the session's WebSocket.
+        If WebSocket not connected yet (auto-play), buffer the message.
         
         Args:
             session_id: The session to send to
             message: Dictionary to send as JSON
             
         Returns:
-            True if sent successfully, False otherwise
+            True if sent successfully or buffered, False otherwise
+        """
+        session = self.sessions.get(session_id)
+        if not session:
+            return False
+        
+        # If WebSocket connected, send immediately
+        if session.websocket:
+            try:
+                await session.websocket.send_json(message)
+                return True
+            except Exception as e:
+                print(f"Error sending message to session {session_id}: {e}")
+                return False
+        
+        # If no WebSocket yet (auto-play), buffer the message
+        if session.auto_play:
+            session.message_buffer.append(message)
+            print(f"[AUTO-PLAY] Buffered message for session {session_id} (buffer size: {len(session.message_buffer)})")
+            return True
+        
+        return False
+    
+    async def flush_buffered_messages(self, session_id: str) -> bool:
+        """
+        Send all buffered messages when WebSocket connects.
+        Called when WebSocket attaches to an auto-play session.
+        
+        Sends messages with tiny delays to avoid overwhelming the connection.
+        
+        Args:
+            session_id: The session to flush
+            
+        Returns:
+            True if all messages sent successfully
         """
         session = self.sessions.get(session_id)
         if not session or not session.websocket:
             return False
         
-        try:
-            await session.websocket.send_json(message)
+        if not session.message_buffer:
+            print(f"[AUTO-PLAY] No buffered messages for session {session_id}")
             return True
+        
+        print(f"[AUTO-PLAY] Flushing {len(session.message_buffer)} buffered messages for session {session_id}")
+        
+        try:
+            for i, message in enumerate(session.message_buffer):
+                await session.websocket.send_json(message)
+                print(f"[AUTO-PLAY] Flushed message {i+1}/{len(session.message_buffer)}: {message.get('type', 'unknown')}")
+                
+                # Add tiny delay after first chunk to ensure it's processed before next one
+                # This helps frontend start playback faster
+                if i == 0 and message.get('type') == 'chunk_ready':
+                    await asyncio.sleep(0.05)  # 50ms delay after first chunk
+            
+            # Clear buffer after sending
+            session.message_buffer = []
+            print(f"[AUTO-PLAY] Successfully flushed all messages for session {session_id}")
+            return True
+        
         except Exception as e:
-            print(f"Error sending message to session {session_id}: {e}")
+            print(f"Error flushing buffered messages for session {session_id}: {e}")
             return False
     
     def remove_session(self, session_id: str):

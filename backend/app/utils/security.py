@@ -40,12 +40,12 @@ def verify_token(token: str) -> Optional[dict]:
     logger = logging.getLogger(__name__)
     
     try:
-        logger.info(f"Verifying token: {token[:20]}...")
-        logger.info(f"Using secret: {settings.jwt_secret_key[:10]}...")
-        logger.info(f"Using algorithm: {settings.jwt_algorithm}")
+        # logger.info(f"Verifying token: {token[:20]}...")
+        # logger.info(f"Using secret: {settings.jwt_secret_key[:10]}...")
+        # logger.info(f"Using algorithm: {settings.jwt_algorithm}")
         
         payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
-        logger.info(f"Token decoded successfully: {payload}")
+        # logger.info(f"Token decoded successfully: {payload}")
         return payload
     except JWTError as e:
         logger.error(f"JWT decode error: {str(e)}")

@@ -155,7 +155,8 @@ class ApiClient {
     customPrompt = '',
     onChunk?: (chunk: string) => void,
     onComplete?: (sceneId: number, choices: any[], autoPlay?: { enabled: boolean; session_id: string; scene_id: number }) => void,
-    onError?: (error: string) => void
+    onError?: (error: string) => void,
+    onAutoPlayReady?: (sessionId: string, sceneId: number) => void
   ) {
     const formData = new FormData();
     formData.append('custom_prompt', customPrompt);
@@ -180,6 +181,10 @@ class ApiClient {
               try {
                 const parsed = JSON.parse(data);
                 if (parsed.type === 'content' && onChunk) onChunk(parsed.chunk);
+                else if (parsed.type === 'auto_play_ready' && onAutoPlayReady) {
+                  // Connect to TTS immediately when session is ready
+                  onAutoPlayReady(parsed.auto_play_session_id, parsed.scene_id);
+                }
                 else if (parsed.type === 'complete' && onComplete) onComplete(parsed.scene_id, parsed.choices, parsed.auto_play);
                 else if (parsed.type === 'error' && onError) onError(parsed.message);
               } catch {}
@@ -264,7 +269,7 @@ class ApiClient {
 
   // Scene Variants
   async createSceneVariant(storyId: number, sceneId: number, customPrompt?: string) {
-    return this.request<{ message: string; variant: any }>(`/api/stories/${storyId}/scenes/${sceneId}/variants`, {
+    return this.request<{ message: string; variant: any; auto_play_session_id?: string }>(`/api/stories/${storyId}/scenes/${sceneId}/variants`, {
       method: 'POST',
       body: JSON.stringify({ custom_prompt: customPrompt }),
     });
@@ -276,7 +281,8 @@ class ApiClient {
     customPrompt = '',
     onChunk?: (chunk: string) => void,
     onComplete?: (variant: any) => void,
-    onError?: (error: string) => void
+    onError?: (error: string) => void,
+    onAutoPlayReady?: (sessionId: string) => void
   ) {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json'
@@ -311,7 +317,14 @@ class ApiClient {
               try {
                 const parsed = JSON.parse(data);
                 if (parsed.type === 'content' && onChunk) onChunk(parsed.chunk);
-                else if (parsed.type === 'complete' && onComplete) onComplete(parsed.variant);
+                else if (parsed.type === 'auto_play_ready' && onAutoPlayReady) {
+                  // Auto-play session is ready - connect immediately!
+                  onAutoPlayReady(parsed.auto_play_session_id);
+                }
+                else if (parsed.type === 'complete' && onComplete) {
+                  // Pass the entire parsed object (includes auto_play_session_id if present)
+                  onComplete(parsed);
+                }
                 else if (parsed.type === 'error' && onError) onError(parsed.message);
               } catch (e) {
                 console.error('Failed to parse streaming data:', e);

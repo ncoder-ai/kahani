@@ -18,7 +18,7 @@ async def get_current_user(
     import logging
     
     logger = logging.getLogger(__name__)
-    logger.info(f"Auth attempt - Token received: {credentials.credentials[:20]}...")
+    # logger.info(f"Auth attempt - Token received: {credentials.credentials[:20]}...")
     
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -28,14 +28,14 @@ async def get_current_user(
     
     try:
         payload = verify_token(credentials.credentials)
-        logger.info(f"Token verification result: {payload}")
+        # logger.info(f"Token verification result: {payload}")
         
         if payload is None:
             logger.error("Token verification failed - payload is None")
             raise credentials_exception
         
         user_id: int = payload.get("sub")
-        logger.info(f"Extracted user_id: {user_id}")
+        # logger.info(f"Extracted user_id: {user_id}")
         
         if user_id is None:
             logger.error("No user_id in token payload")
@@ -53,13 +53,13 @@ async def get_current_user(
         raise credentials_exception
     
     user = db.query(User).filter(User.id == user_id).first()
-    logger.info(f"User lookup result: {user}")
+    # logger.info(f"User lookup result: {user}")
     
     if user is None:
         logger.error(f"No user found with id: {user_id}")
         raise credentials_exception
     
-    logger.info(f"Authentication successful for user: {user.email}")
+    # logger.info(f"Authentication successful for user: {user.email}")
     return user
 
 async def get_current_user_websocket(

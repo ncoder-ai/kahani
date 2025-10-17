@@ -742,13 +742,21 @@ async def generate_scene_audio_websocket(
         )
     
     try:
+        print(f"\n{'='*60}")
+        print(f"[MANUAL TTS] Step 1: Received request for scene {scene_id}, user {current_user.id}")
+        print(f"{'='*60}\n")
+        logger.info(f"[MANUAL TTS] Step 1: Received request for scene {scene_id}, user {current_user.id}")
+        
         # Create TTS session
         session_id = tts_session_manager.create_session(
             scene_id=scene_id,
             user_id=current_user.id
         )
         
-        logger.info(f"Created TTS session {session_id} for scene {scene_id}")
+        print(f"[MANUAL TTS] Step 2: Created TTS session {session_id}")
+        logger.info(f"[MANUAL TTS] Step 2: Created TTS session {session_id}")
+        print(f"[MANUAL TTS] Step 3: Adding background task for generation")
+        logger.info(f"[MANUAL TTS] Step 3: Adding background task for generation")
         
         # Trigger background generation task
         # Note: Pass scene_id instead of scene object to avoid DB session issues
@@ -758,6 +766,9 @@ async def generate_scene_audio_websocket(
             scene_id=scene_id,
             user_id=current_user.id
         )
+        
+        print(f"[MANUAL TTS] Step 4: Background task added, returning session info")
+        logger.info(f"[MANUAL TTS] Step 4: Background task added, returning session info")
         
         # Return session info
         return TTSSessionResponse(
@@ -791,15 +802,39 @@ async def generate_and_stream_chunks(
     5. Sends progress updates
     6. Handles errors gracefully
     """
+    # SAFETY CHECK: Prevent duplicate generation
+    logger.info(f"[GEN] Step 1: generate_and_stream_chunks called for session {session_id}")
+    
+    session = tts_session_manager.get_session(session_id)
+    if not session:
+        logger.error(f"[GEN] Step 1 FAILED: Session {session_id} not found")
+        return
+    
+    logger.info(f"[GEN] Step 2: Session found, is_generating={session.is_generating}, auto_play={session.auto_play}")
+    
+    if session.is_generating:
+        logger.warning(f"[GEN] Step 2 EXIT: Session {session_id} is already generating - skipping duplicate call")
+        return
+    
+    # IMMEDIATELY set flag to prevent race condition
+    tts_session_manager.set_generating(session_id, True)
+    logger.info(f"[GEN] Step 2b: Set is_generating=True to prevent race condition")
+    
+    logger.info(f"[GEN] Step 3: Creating DB session")
+    
     # Create a new DB session for this background task
     db = next(get_db())
     
     try:
+        logger.info(f"[GEN] Step 4: Querying scene {scene_id}")
+        
         # Get the scene
         scene = db.query(Scene).filter(Scene.id == scene_id).first()
         if not scene:
-            logger.error(f"Scene {scene_id} not found")
+            logger.error(f"[GEN] Step 4 FAILED: Scene {scene_id} not found")
             return
+        
+        logger.info(f"[GEN] Step 5: Scene found, querying active variant")
         
         # Get the active variant content from story flow (same as working TTS code)
         from app.models.story_flow import StoryFlow
@@ -811,42 +846,63 @@ async def generate_and_stream_chunks(
         ).first()
         
         if not flow_entry or not flow_entry.scene_variant_id:
-            logger.error(f"No active variant found for scene {scene_id}")
+            logger.error(f"[GEN] Step 5 FAILED: No active variant for scene {scene_id}")
             await tts_session_manager.send_message(session_id, {
                 "type": "error",
                 "message": "No active scene variant found"
             })
             return
         
+        logger.info(f"[GEN] Step 6: Flow entry found, variant_id={flow_entry.scene_variant_id}")
+        
         variant = db.query(SceneVariant).filter(
             SceneVariant.id == flow_entry.scene_variant_id
         ).first()
         
         if not variant or not variant.content:
-            logger.error(f"Variant {flow_entry.scene_variant_id} has no content")
+            logger.error(f"[GEN] Step 6 FAILED: Variant {flow_entry.scene_variant_id} has no content")
             await tts_session_manager.send_message(session_id, {
                 "type": "error",
                 "message": "Scene variant has no content"
             })
             return
         
+        logger.info(f"[GEN] Step 7: Variant found, content length={len(variant.content)}")
+        
         # Use variant.content instead of scene.content!
         scene_content = variant.content
         
-        # Wait for WebSocket to connect (up to 10 seconds)
-        logger.info(f"Waiting for WebSocket connection for session {session_id}")
-        for i in range(20):  # 20 attempts × 0.5s = 10 seconds max
-            session = tts_session_manager.get_session(session_id)
-            if session and session.websocket:
-                logger.info(f"WebSocket connected for session {session_id}")
-                break
-            await asyncio.sleep(0.5)
+        # Check if this is an auto-play session
+        session = tts_session_manager.get_session(session_id)
+        is_auto_play = session and session.auto_play
+        
+        logger.info(f"[GEN] Step 8: Checking WebSocket connection (auto_play={is_auto_play})")
+        
+        if is_auto_play:
+            # For auto-play: Start generating immediately, don't wait for WebSocket
+            # Audio chunks will be buffered and sent when WebSocket connects
+            logger.info(f"[GEN] Step 9 (AUTO-PLAY): Starting immediately, no WebSocket wait")
         else:
-            logger.error(f"WebSocket never connected for session {session_id}")
-            return
+            # For manual TTS: Wait for WebSocket to connect (up to 10 seconds)
+            logger.info(f"[GEN] Step 9 (MANUAL): Waiting for WebSocket connection...")
+            for i in range(20):  # 20 attempts × 0.5s = 10 seconds max
+                session = tts_session_manager.get_session(session_id)
+                if session and session.websocket:
+                    logger.info(f"[GEN] Step 9 SUCCESS: WebSocket connected after {i*0.5}s")
+                    break
+                if i % 4 == 0:  # Log every 2 seconds
+                    logger.info(f"[GEN] Step 9: Still waiting... ({i*0.5}s elapsed)")
+                await asyncio.sleep(0.5)
+            else:
+                logger.error(f"[GEN] Step 9 TIMEOUT: WebSocket never connected after 10s")
+                return
+        
+        logger.info(f"[GEN] Step 10: Setting is_generating=True")
         
         # Mark session as generating
         tts_session_manager.set_generating(session_id, True)
+        
+        logger.info(f"[GEN] Step 11: Getting TTS service and settings")
         
         # Get TTS service
         tts_service = TTSService(db)
