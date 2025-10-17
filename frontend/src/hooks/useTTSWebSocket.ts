@@ -83,6 +83,7 @@ export const useTTSWebSocket = ({
   const audioQueueRef = useRef<AudioChunk[]>([]);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const isPlayingRef = useRef(false);
+  const connectedSessionRef = useRef<string | null>(null); // Track connected session to prevent duplicate connections
   
   /**
    * Convert base64 string to Blob
@@ -454,12 +455,19 @@ export const useTTSWebSocket = ({
    */
   useEffect(() => {
     // Check if there's a pending auto-play for this scene
-    // AND make sure we're not already generating (prevents double-connection)
-    if (pendingAutoPlay && pendingAutoPlay.scene_id === sceneId && !isGenerating && !wsRef.current) {
+    // AND make sure we haven't already connected to this session
+    if (pendingAutoPlay && 
+        pendingAutoPlay.scene_id === sceneId && 
+        connectedSessionRef.current !== pendingAutoPlay.session_id &&
+        !isGenerating && 
+        !wsRef.current) {
       console.log('[AUTO-PLAY] Found pending auto-play! Connecting to session:', pendingAutoPlay.session_id, 'for scene:', sceneId);
+      connectedSessionRef.current = pendingAutoPlay.session_id; // Mark this session as connected
       connectToSession(pendingAutoPlay.session_id);
       // Clear the pending auto-play
       onAutoPlayProcessed?.();
+    } else if (pendingAutoPlay && pendingAutoPlay.scene_id === sceneId && connectedSessionRef.current === pendingAutoPlay.session_id) {
+      console.log('[AUTO-PLAY] Skipping connection - already connected to this session');
     } else if (pendingAutoPlay && pendingAutoPlay.scene_id === sceneId && (isGenerating || wsRef.current)) {
       console.log('[AUTO-PLAY] Skipping connection - already generating or WebSocket exists');
     }

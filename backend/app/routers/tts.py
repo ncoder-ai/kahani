@@ -816,6 +816,10 @@ async def generate_and_stream_chunks(
         logger.warning(f"[GEN] Step 2 EXIT: Session {session_id} is already generating - skipping duplicate call")
         return
     
+    # IMMEDIATELY set flag to prevent race condition
+    tts_session_manager.set_generating(session_id, True)
+    logger.info(f"[GEN] Step 2b: Set is_generating=True to prevent race condition")
+    
     logger.info(f"[GEN] Step 3: Creating DB session")
     
     # Create a new DB session for this background task
