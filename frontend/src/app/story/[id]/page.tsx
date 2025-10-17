@@ -601,30 +601,39 @@ export default function StoryPage() {
           setSelectedChoice(null);
           setShowChoicesDuringGeneration(true);
 
-          // AUTO-PLAY TTS if enabled and session provided - SET BEFORE loadStory()
-          if (autoPlay && autoPlay.session_id) {
-            console.log('[AUTO-PLAY] Storing pending auto-play for scene', autoPlay);
+          // AUTO-PLAY TTS if enabled and session provided
+          // BUT only if we didn't already trigger it via onAutoPlayReady
+          if (autoPlay && autoPlay.session_id && !pendingAutoPlayRef.current) {
+            console.log('[AUTO-PLAY] Storing pending auto-play for scene (from complete event)', autoPlay);
             const autoPlayData = {
               session_id: autoPlay.session_id,
               scene_id: autoPlay.scene_id
             };
-            // Use flushSync to ensure state is updated BEFORE loadStory() renders
+            // Use flushSync to ensure state is updated synchronously
             flushSync(() => {
               pendingAutoPlayRef.current = autoPlayData;
               setPendingAutoPlay(autoPlayData);
             });
             console.log('[AUTO-PLAY] State set synchronously, pendingAutoPlay:', autoPlayData);
+          } else if (autoPlay && autoPlay.session_id) {
+            console.log('[AUTO-PLAY] Already triggered via onAutoPlayReady, skipping complete event trigger');
           }
 
-          // Reload the story to get the updated data
-          await loadStory(false, true); // Scroll to new scene after streaming
-          setCustomPrompt('');
-          
-          // Refresh chapter sidebar to update context counter
-          setChapterSidebarRefreshKey(prev => prev + 1);
-          
-          // Clear operation flag with delay to let DOM settle
-          setTimeout(() => setIsSceneOperationInProgress(false), 1500);
+          // Reload the story to get the updated data - but DON'T await it
+          // This allows auto-play to start immediately without waiting for loadStory
+          loadStory(false, true).then(() => {
+            console.log('[SCENE COMPLETE] Story reloaded after scene generation');
+            setCustomPrompt('');
+            
+            // Refresh chapter sidebar to update context counter
+            setChapterSidebarRefreshKey(prev => prev + 1);
+            
+            // Clear operation flag with delay to let DOM settle
+            setTimeout(() => setIsSceneOperationInProgress(false), 1500);
+          }).catch(err => {
+            console.error('[SCENE COMPLETE] Error reloading story:', err);
+            setTimeout(() => setIsSceneOperationInProgress(false), 1500);
+          });
         },
         // onError
         (error: string) => {
@@ -641,6 +650,19 @@ export default function StoryPage() {
           
           // Clear operation flag
           setIsSceneOperationInProgress(false);
+        },
+        // onAutoPlayReady - NEW! Connect to TTS session immediately
+        (sessionId: string, sceneId: number) => {
+          console.log('[AUTO-PLAY-READY] Received session ID:', sessionId, 'for scene:', sceneId);
+          const autoPlayData = {
+            session_id: sessionId,
+            scene_id: sceneId
+          };
+          flushSync(() => {
+            pendingAutoPlayRef.current = autoPlayData;
+            setPendingAutoPlay(autoPlayData);
+          });
+          console.log('[AUTO-PLAY-READY] Early connection enabled, audio generation starting now');
         }
       );
     } catch (err) {
@@ -776,6 +798,9 @@ export default function StoryPage() {
         setStreamingVariantSceneId(sceneId);
         setStreamingVariantContent('');
         
+        // Track if we already received auto_play_ready event to avoid double-connection
+        let autoPlayAlreadyTriggered = false;
+        
         await apiClient.createSceneVariantStreaming(
           story.id,
           sceneId,
@@ -785,41 +810,70 @@ export default function StoryPage() {
             setStreamingVariantContent(prev => prev + chunk);
           },
           // onComplete
-          async (variant: any) => {
-            console.log('Variant creation complete', { variant });
+          async (response: any) => {
+            console.log('[VARIANT COMPLETE] Full response:', JSON.stringify(response, null, 2));
+            console.log('[VARIANT COMPLETE] Has auto_play_session_id?', 'auto_play_session_id' in response);
+            console.log('[VARIANT COMPLETE] auto_play_session_id value:', response.auto_play_session_id);
+            
+            // Check if auto-play was triggered - but ONLY if we didn't already handle it via auto_play_ready
+            if (response.auto_play_session_id && !autoPlayAlreadyTriggered) {
+              console.log('[AUTO-PLAY] Setting pending auto-play from COMPLETE event:', response.auto_play_session_id, 'for scene:', sceneId);
+              setPendingAutoPlay({ session_id: response.auto_play_session_id, scene_id: sceneId });
+              pendingAutoPlayRef.current = { session_id: response.auto_play_session_id, scene_id: sceneId };
+            } else if (autoPlayAlreadyTriggered) {
+              console.log('[AUTO-PLAY] Skipping pending auto-play setup - already triggered via auto_play_ready event');
+            } else {
+              console.log('[AUTO-PLAY] NO session ID in response - auto-play will not trigger');
+            }
+            
             setStreamingVariantContent('');
             setStreamingVariantSceneId(null);
             setIsStreaming(false);
             
-            // Preserve current scroll position for variant operations
-            const currentScrollPosition = window.pageYOffset;
+            // Reload story to show new variant, but delay to let audio start first
+            console.log('[VARIANT] Variant generation complete, reloading story in 500ms');
             
-            // Reload story to show new variant
-            await loadStory(false, false); // Don't auto-scroll for variants
-            
-            // Restore scroll position to stay at the scene being worked on
-            setTimeout(() => {
-              window.scrollTo({ top: currentScrollPosition, behavior: 'instant' });
+            setTimeout(async () => {
+              await loadStory(false, false); // Don't scroll
               
-              // Then smoothly scroll to the specific scene that was modified
-              const sceneElement = document.querySelector(`[data-scene-id="${sceneId}"]`);
-              if (sceneElement) {
-                sceneElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
-              }
-            }, 50);
+              // Then scroll to the scene
+              setTimeout(() => {
+                const sceneElement = document.querySelector(`[data-scene-id="${sceneId}"]`);
+                if (sceneElement) {
+                  sceneElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+              }, 100);
+            }, 500); // Delay long enough for TTS to mount and start
           },
           // onError
           (error: string) => {
-            console.error('Streaming variant creation error:', error);
-            setError(error);
+            console.error('[VARIANT ERROR]', error);
             setStreamingVariantContent('');
             setStreamingVariantSceneId(null);
             setIsStreaming(false);
+            alert(`Failed to create variant: ${error}`);
+          },
+          // onAutoPlayReady - NEW! Connect to TTS immediately when ready
+          (sessionId: string) => {
+            console.log('[AUTO-PLAY-READY] Received session ID immediately:', sessionId, 'for scene:', sceneId);
+            console.log('[AUTO-PLAY-READY] Setting pending auto-play NOW (before choices are generated)');
+            autoPlayAlreadyTriggered = true; // Mark that we handled auto-play
+            setPendingAutoPlay({ session_id: sessionId, scene_id: sceneId });
+            pendingAutoPlayRef.current = { session_id: sessionId, scene_id: sceneId };
           }
         );
       } else {
         // Non-streaming variant creation
         const response = await apiClient.createSceneVariant(story.id, sceneId, customPrompt);
+        
+        console.log('New variant created:', response.variant);
+        
+        // Check if auto-play was triggered
+        if (response.auto_play_session_id) {
+          console.log('[AUTO-PLAY] Setting pending auto-play:', response.auto_play_session_id, 'for scene:', sceneId);
+          setPendingAutoPlay({ session_id: response.auto_play_session_id, scene_id: sceneId });
+          pendingAutoPlayRef.current = { session_id: response.auto_play_session_id, scene_id: sceneId };
+        }
         
         // Preserve current scroll position for variant operations
         const currentScrollPosition = window.pageYOffset;
@@ -837,8 +891,6 @@ export default function StoryPage() {
             sceneElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
           }
         }, 50);
-        
-        console.log('New variant created:', response.variant);
       }
       
     } catch (error) {

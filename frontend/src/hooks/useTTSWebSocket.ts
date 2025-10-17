@@ -83,6 +83,7 @@ export const useTTSWebSocket = ({
   const audioQueueRef = useRef<AudioChunk[]>([]);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const isPlayingRef = useRef(false);
+  const connectedSessionRef = useRef<string | null>(null); // Track connected session to prevent duplicate connections
   
   /**
    * Convert base64 string to Blob
@@ -166,14 +167,18 @@ export const useTTSWebSocket = ({
    * Queue an audio chunk for playback
    */
   const queueAudioChunk = useCallback((chunk: AudioChunk) => {
+    console.log(`[TTS] Queueing chunk ${chunk.chunk_number}, currently playing: ${isPlayingRef.current}, queue size: ${audioQueueRef.current.length}`);
     audioQueueRef.current.push(chunk);
     
-    // If not currently playing, start playback
+    // If not currently playing, start playback IMMEDIATELY
     if (!isPlayingRef.current) {
+      console.log('[TTS] Starting playback NOW with chunk', chunk.chunk_number);
       setIsPlaying(true);
       isPlayingRef.current = true;
       onPlaybackStart?.();
-      playNextChunk();
+      
+      // Use setTimeout to ensure state updates, then play
+      setTimeout(() => playNextChunk(), 0);
     }
   }, [playNextChunk, onPlaybackStart]);
   
@@ -243,13 +248,17 @@ export const useTTSWebSocket = ({
    * Generate and play audio using WebSocket
    */
   const generate = useCallback(async () => {
+    console.log('[TTS GENERATE] Function called for scene:', sceneId);
+    
     try {
+      console.log('[TTS GENERATE] Setting states...');
       setIsGenerating(true);
       setError(null);
       setProgress(0);
       setChunksReceived(0);
       setTotalChunks(0);
       
+      console.log('[TTS GENERATE] Clearing audio queue...');
       // Clear audio queue
       audioQueueRef.current = [];
       
@@ -259,16 +268,21 @@ export const useTTSWebSocket = ({
         currentAudioRef.current = null;
       }
       
+      console.log('[TTS GENERATE] Establishing autoplay permission...');
       // Create a silent audio element to establish autoplay permission
       // This is triggered by user click, so browser allows it
       try {
         const silentAudio = new Audio();
         silentAudio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAAABmYWN0BAAAAAAAAABkYXRhAAAAAA==';
-        await silentAudio.play();
+        
+        // Use a timeout to avoid hanging
+        const playPromise = silentAudio.play();
+        const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 100));
+        await Promise.race([playPromise, timeoutPromise]);
         silentAudio.pause();
         console.log('[Audio] Autoplay permission established');
       } catch (e) {
-        console.warn('[Audio] Could not establish autoplay permission:', e);
+        console.warn('[Audio] Could not establish autoplay permission (will continue anyway):', e);
       }
       
       console.log('[TTS] Creating session for scene:', sceneId);
@@ -353,6 +367,17 @@ export const useTTSWebSocket = ({
    * Connect to existing TTS session (for auto-play)
    */
   const connectToSession = useCallback(async (session_id: string) => {
+    // Prevent double connection
+    if (wsRef.current) {
+      console.log('[AUTO-PLAY] WebSocket already exists, skipping connection');
+      return;
+    }
+    
+    if (isGenerating) {
+      console.log('[AUTO-PLAY] Already generating, skipping connection');
+      return;
+    }
+    
     try {
       setIsGenerating(true);
       setError(null);
@@ -369,15 +394,19 @@ export const useTTSWebSocket = ({
         currentAudioRef.current = null;
       }
       
-      // Play silent audio to establish permission
+      // Play silent audio to establish permission (with timeout)
       try {
         const silentAudio = new Audio();
         silentAudio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAAABmYWN0BAAAAAAAAABkYXRhAAAAAA==';
-        await silentAudio.play();
+        
+        // Use timeout to avoid hanging
+        const playPromise = silentAudio.play();
+        const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 100));
+        await Promise.race([playPromise, timeoutPromise]);
         silentAudio.pause();
         console.log('[AUTO-PLAY] Autoplay permission established');
       } catch (e) {
-        console.warn('[AUTO-PLAY] Could not establish autoplay permission:', e);
+        console.warn('[AUTO-PLAY] Could not establish autoplay permission (will continue):', e);
       }
       
       console.log('[AUTO-PLAY] Connecting to session:', session_id);
@@ -425,16 +454,24 @@ export const useTTSWebSocket = ({
    * Check for pending auto-play on mount and when pendingAutoPlay changes
    */
   useEffect(() => {
-    console.log(`[AUTO-PLAY] Hook initialized for scene ${sceneId}`, { pendingAutoPlay });
-    
     // Check if there's a pending auto-play for this scene
-    if (pendingAutoPlay && pendingAutoPlay.scene_id === sceneId) {
-      console.log('[AUTO-PLAY] Found pending auto-play! Connecting to session:', pendingAutoPlay.session_id);
+    // AND make sure we haven't already connected to this session
+    if (pendingAutoPlay && 
+        pendingAutoPlay.scene_id === sceneId && 
+        connectedSessionRef.current !== pendingAutoPlay.session_id &&
+        !isGenerating && 
+        !wsRef.current) {
+      console.log('[AUTO-PLAY] Found pending auto-play! Connecting to session:', pendingAutoPlay.session_id, 'for scene:', sceneId);
+      connectedSessionRef.current = pendingAutoPlay.session_id; // Mark this session as connected
       connectToSession(pendingAutoPlay.session_id);
       // Clear the pending auto-play
       onAutoPlayProcessed?.();
+    } else if (pendingAutoPlay && pendingAutoPlay.scene_id === sceneId && connectedSessionRef.current === pendingAutoPlay.session_id) {
+      console.log('[AUTO-PLAY] Skipping connection - already connected to this session');
+    } else if (pendingAutoPlay && pendingAutoPlay.scene_id === sceneId && (isGenerating || wsRef.current)) {
+      console.log('[AUTO-PLAY] Skipping connection - already generating or WebSocket exists');
     }
-  }, [sceneId, pendingAutoPlay, connectToSession, onAutoPlayProcessed]);
+  }, [sceneId, pendingAutoPlay, connectToSession, onAutoPlayProcessed, isGenerating]);
   
   /**
    * Cleanup on unmount
