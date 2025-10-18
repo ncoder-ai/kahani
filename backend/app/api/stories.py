@@ -8,6 +8,11 @@ from ..models import Story, Scene, Character, StoryCharacter, User, UserSettings
 from ..services.llm.service import UnifiedLLMService
 from sqlalchemy.sql import func
 from ..services.context_manager import ContextManager
+from ..services.semantic_integration import (
+    get_context_manager_for_user,
+    process_scene_embeddings,
+    get_semantic_stats
+)
 from ..dependencies import get_current_user
 import logging
 import json
@@ -573,8 +578,8 @@ async def generate_scene_streaming_endpoint(
     
     user_settings = user_settings_db.to_dict() if user_settings_db else None
     
-    # Create context manager with user settings
-    context_manager = ContextManager(user_settings=user_settings, user_id=current_user.id)
+    # Create context manager with user settings (semantic or linear)
+    context_manager = get_context_manager_for_user(user_settings, current_user.id)
     
     # Use context manager to build optimized context
     try:
@@ -628,6 +633,34 @@ async def generate_scene_streaming_endpoint(
             except Exception as e:
                 logger.error(f"Failed to create scene variant: {e}")
                 raise
+            
+            # Process semantic embeddings (async, non-blocking)
+            try:
+                # Get chapter ID if available
+                chapter_id = None
+                active_chapter = db.query(Chapter).filter(
+                    Chapter.story_id == story_id,
+                    Chapter.status == ChapterStatus.ACTIVE
+                ).first()
+                if active_chapter:
+                    chapter_id = active_chapter.id
+                
+                # Process embeddings
+                embedding_results = await process_scene_embeddings(
+                    scene_id=scene.id,
+                    variant_id=variant.id,
+                    story_id=story_id,
+                    scene_content=full_content.strip(),
+                    sequence_number=next_sequence,
+                    chapter_id=chapter_id,
+                    user_id=current_user.id,
+                    user_settings=user_settings or {},
+                    db=db
+                )
+                logger.info(f"Semantic processing results: {embedding_results}")
+            except Exception as e:
+                logger.error(f"Failed to process semantic embeddings: {e}")
+                # Don't fail scene generation if semantic processing fails
             
             # UNIFIED AUTO-PLAY SETUP - Create session but DON'T start generation yet!
             # For streaming scenes, we want TTS to start AFTER frontend receives all content

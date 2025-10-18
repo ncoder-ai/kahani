@@ -32,6 +32,29 @@ app = FastAPI(
     debug=settings.debug
 )
 
+# Initialize semantic memory service on startup
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services on application startup"""
+    logger.info("Initializing services...")
+    
+    # Initialize semantic memory service if enabled
+    if settings.enable_semantic_memory:
+        try:
+            from .services.semantic_memory import initialize_semantic_memory_service
+            initialize_semantic_memory_service(
+                persist_directory=settings.semantic_db_path,
+                embedding_model=settings.semantic_embedding_model
+            )
+            logger.info("Semantic memory service initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize semantic memory service: {e}")
+            logger.warning("Continuing without semantic memory features")
+    else:
+        logger.info("Semantic memory disabled in configuration")
+    
+    logger.info("Application startup complete")
+
 # Add CORS middleware
 logger.info(f"CORS Origins: {settings.cors_origins}")
 app.add_middleware(
@@ -62,7 +85,7 @@ async def health_check():
     }
 
 # Import and include routers
-from .api import auth, stories, characters, summaries, chapters, websocket
+from .api import auth, stories, characters, summaries, chapters, websocket, semantic_search
 from .api import settings as settings_router
 from .routers import prompt_templates, writing_presets, tts
 
@@ -72,6 +95,7 @@ app.include_router(chapters.router, prefix="/api/stories", tags=["chapters"])
 app.include_router(characters.router, prefix="/api/characters", tags=["characters"])
 app.include_router(settings_router.router, prefix="/api/settings", tags=["settings"])
 app.include_router(summaries.router, prefix="/api", tags=["summaries"])
+app.include_router(semantic_search.router, prefix="/api", tags=["semantic-search"])
 app.include_router(prompt_templates.router, prefix="/api/prompt-templates", tags=["prompt-templates"])
 app.include_router(writing_presets.router)
 app.include_router(tts.router)
