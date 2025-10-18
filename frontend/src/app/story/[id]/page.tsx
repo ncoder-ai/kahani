@@ -5,6 +5,7 @@ import { flushSync } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { useParams } from 'next/navigation';
 import { useAuthStore, useStoryStore, useHasHydrated } from '@/store';
+import { useGlobalTTS } from '@/contexts/GlobalTTSContext';
 import apiClient, { API_BASE_URL } from '@/lib/api';
 import CharacterQuickAdd from '@/components/CharacterQuickAdd';
 import { ContextInfo } from '@/components/ContextInfo';
@@ -91,6 +92,7 @@ export default function StoryPage() {
   
   const { user, token } = useAuthStore();
   const hasHydrated = useHasHydrated();
+  const globalTTS = useGlobalTTS();
   const [story, setStory] = useState<Story | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -150,9 +152,6 @@ export default function StoryPage() {
   // Chapter sidebar state
   const [isChapterSidebarOpen, setIsChapterSidebarOpen] = useState(false); // Start closed
   
-  // Auto-play TTS state - stores pending auto-play info until component mounts
-  const [pendingAutoPlay, setPendingAutoPlay] = useState<{session_id: string, scene_id: number} | null>(null);
-  const pendingAutoPlayRef = useRef<{session_id: string, scene_id: number} | null>(null);
   const [chapterSidebarRefreshKey, setChapterSidebarRefreshKey] = useState(0);
   const [selectedChapterId, setSelectedChapterId] = useState<number | null>(null); // For viewing specific chapter
   const [currentChapterInfo, setCurrentChapterInfo] = useState<{id: number, number: number, title: string | null, isActive: boolean} | null>(null);
@@ -519,19 +518,10 @@ export default function StoryPage() {
       setLastGenerationTime(generationTime);
       setGenerationStartTime(null);
 
-      // AUTO-PLAY TTS if enabled and session provided - SET BEFORE loadStory()
+      // AUTO-PLAY TTS if enabled and session provided
       if (response.auto_play && response.auto_play.session_id) {
-        console.log('[AUTO-PLAY] Storing pending auto-play for scene', response.auto_play);
-        const autoPlayData = {
-          session_id: response.auto_play.session_id,
-          scene_id: response.auto_play.scene_id
-        };
-        // Use flushSync to ensure state is updated BEFORE loadStory() renders
-        flushSync(() => {
-          pendingAutoPlayRef.current = autoPlayData;
-          setPendingAutoPlay(autoPlayData);
-        });
-        console.log('[AUTO-PLAY] State set synchronously, pendingAutoPlay:', autoPlayData);
+        console.log('[AUTO-PLAY] Connecting to global TTS for scene', response.auto_play);
+        globalTTS.connectToSession(response.auto_play.session_id, response.auto_play.scene_id);
       }
 
       // Reload the story to get the new scene and its choices
@@ -575,17 +565,22 @@ export default function StoryPage() {
     // Don't clear choices immediately - hide more options
     setShowMoreOptions(false);
     
+    // Accumulate content locally so callback can access it
+    let accumulatedContent = '';
+    
     try {
       await apiClient.generateSceneStreaming(
         story.id,
         prompt || customPrompt,
         // onChunk
         (chunk: string) => {
+          accumulatedContent += chunk;
           setStreamingContent(prev => prev + chunk);
         },
         // onComplete
         async (sceneId: number, choices: any[], autoPlay?: { enabled: boolean; session_id: string; scene_id: number }) => {
           console.log('Scene generation complete', { sceneId, choices, autoPlay });
+          console.log('[SCENE COMPLETE] Accumulated content length:', accumulatedContent.length);
           
           // End timing
           const endTime = Date.now();
@@ -602,38 +597,45 @@ export default function StoryPage() {
           setShowChoicesDuringGeneration(true);
 
           // AUTO-PLAY TTS if enabled and session provided
-          // BUT only if we didn't already trigger it via onAutoPlayReady
-          if (autoPlay && autoPlay.session_id && !pendingAutoPlayRef.current) {
-            console.log('[AUTO-PLAY] Storing pending auto-play for scene (from complete event)', autoPlay);
-            const autoPlayData = {
-              session_id: autoPlay.session_id,
-              scene_id: autoPlay.scene_id
-            };
-            // Use flushSync to ensure state is updated synchronously
-            flushSync(() => {
-              pendingAutoPlayRef.current = autoPlayData;
-              setPendingAutoPlay(autoPlayData);
-            });
-            console.log('[AUTO-PLAY] State set synchronously, pendingAutoPlay:', autoPlayData);
-          } else if (autoPlay && autoPlay.session_id) {
-            console.log('[AUTO-PLAY] Already triggered via onAutoPlayReady, skipping complete event trigger');
+          // This is a fallback in case onAutoPlayReady wasn't called
+          // (Global TTS will ignore duplicate connections to same session)
+          if (autoPlay && autoPlay.session_id) {
+            console.log('[AUTO-PLAY] Connecting to global TTS from complete event (fallback)', autoPlay);
+            globalTTS.connectToSession(autoPlay.session_id, autoPlay.scene_id);
           }
 
-          // Reload the story to get the updated data - but DON'T await it
-          // This allows auto-play to start immediately without waiting for loadStory
-          loadStory(false, true).then(() => {
-            console.log('[SCENE COMPLETE] Story reloaded after scene generation');
-            setCustomPrompt('');
+          // ADD the new scene to the story
+          // This is a NEW scene, not updating an existing one
+          console.log('[SCENE COMPLETE] Adding new scene to story');
+          
+          if (story && accumulatedContent) {
+            const newScene = {
+              id: sceneId,
+              sequence_number: nextSceneNumber,
+              title: `Scene ${nextSceneNumber}`,
+              content: accumulatedContent,
+              location: '',
+              characters_present: [],
+              choices: choices || []
+            };
             
-            // Refresh chapter sidebar to update context counter
-            setChapterSidebarRefreshKey(prev => prev + 1);
-            
-            // Clear operation flag with delay to let DOM settle
-            setTimeout(() => setIsSceneOperationInProgress(false), 1500);
-          }).catch(err => {
-            console.error('[SCENE COMPLETE] Error reloading story:', err);
-            setTimeout(() => setIsSceneOperationInProgress(false), 1500);
-          });
+            const updatedStory = {
+              ...story,
+              scenes: [...story.scenes, newScene]
+            };
+            setStory(updatedStory);
+            console.log('[SCENE COMPLETE] New scene added with choices, audio continues playing');
+          } else {
+            console.error('[SCENE COMPLETE] Failed to add scene - story:', !!story, 'content length:', accumulatedContent?.length || 0);
+          }
+          
+          setCustomPrompt('');
+          
+          // Refresh chapter sidebar to update context counter
+          setChapterSidebarRefreshKey(prev => prev + 1);
+          
+          // Clear operation flag with delay to let DOM settle
+          setTimeout(() => setIsSceneOperationInProgress(false), 1500);
         },
         // onError
         (error: string) => {
@@ -651,18 +653,11 @@ export default function StoryPage() {
           // Clear operation flag
           setIsSceneOperationInProgress(false);
         },
-        // onAutoPlayReady - NEW! Connect to TTS session immediately
+        // onAutoPlayReady - Connect to global TTS session immediately
         (sessionId: string, sceneId: number) => {
           console.log('[AUTO-PLAY-READY] Received session ID:', sessionId, 'for scene:', sceneId);
-          const autoPlayData = {
-            session_id: sessionId,
-            scene_id: sceneId
-          };
-          flushSync(() => {
-            pendingAutoPlayRef.current = autoPlayData;
-            setPendingAutoPlay(autoPlayData);
-          });
-          console.log('[AUTO-PLAY-READY] Early connection enabled, audio generation starting now');
+          console.log('[AUTO-PLAY-READY] Connecting to global TTS widget');
+          globalTTS.connectToSession(sessionId, sceneId);
         }
       );
     } catch (err) {
@@ -817,11 +812,10 @@ export default function StoryPage() {
             
             // Check if auto-play was triggered - but ONLY if we didn't already handle it via auto_play_ready
             if (response.auto_play_session_id && !autoPlayAlreadyTriggered) {
-              console.log('[AUTO-PLAY] Setting pending auto-play from COMPLETE event:', response.auto_play_session_id, 'for scene:', sceneId);
-              setPendingAutoPlay({ session_id: response.auto_play_session_id, scene_id: sceneId });
-              pendingAutoPlayRef.current = { session_id: response.auto_play_session_id, scene_id: sceneId };
+              console.log('[AUTO-PLAY] Connecting to global TTS from COMPLETE event:', response.auto_play_session_id, 'for scene:', sceneId);
+              globalTTS.connectToSession(response.auto_play_session_id, sceneId);
             } else if (autoPlayAlreadyTriggered) {
-              console.log('[AUTO-PLAY] Skipping pending auto-play setup - already triggered via auto_play_ready event');
+              console.log('[AUTO-PLAY] Skipping auto-play setup - already triggered via auto_play_ready event');
             } else {
               console.log('[AUTO-PLAY] NO session ID in response - auto-play will not trigger');
             }
@@ -830,20 +824,22 @@ export default function StoryPage() {
             setStreamingVariantSceneId(null);
             setIsStreaming(false);
             
-            // Reload story to show new variant, but delay to let audio start first
-            console.log('[VARIANT] Variant generation complete, reloading story in 500ms');
+            // Reload story after a delay to let audio start and buffer chunks
+            // This is needed to get the full variant list for the scene
+            console.log('[VARIANT] Variant generation complete, reloading story in 2 seconds');
             
             setTimeout(async () => {
               await loadStory(false, false); // Don't scroll
+              console.log('[VARIANT] Story reloaded, variant list updated');
               
-              // Then scroll to the scene
+              // Scroll to the scene
               setTimeout(() => {
                 const sceneElement = document.querySelector(`[data-scene-id="${sceneId}"]`);
                 if (sceneElement) {
                   sceneElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }
               }, 100);
-            }, 500); // Delay long enough for TTS to mount and start
+            }, 2000); // Wait 2 seconds for audio to start and buffer
           },
           // onError
           (error: string) => {
@@ -853,13 +849,12 @@ export default function StoryPage() {
             setIsStreaming(false);
             alert(`Failed to create variant: ${error}`);
           },
-          // onAutoPlayReady - NEW! Connect to TTS immediately when ready
+          // onAutoPlayReady - Connect to global TTS immediately when ready
           (sessionId: string) => {
             console.log('[AUTO-PLAY-READY] Received session ID immediately:', sessionId, 'for scene:', sceneId);
-            console.log('[AUTO-PLAY-READY] Setting pending auto-play NOW (before choices are generated)');
+            console.log('[AUTO-PLAY-READY] Connecting to global TTS NOW (before choices are generated)');
             autoPlayAlreadyTriggered = true; // Mark that we handled auto-play
-            setPendingAutoPlay({ session_id: sessionId, scene_id: sceneId });
-            pendingAutoPlayRef.current = { session_id: sessionId, scene_id: sceneId };
+            globalTTS.connectToSession(sessionId, sceneId);
           }
         );
       } else {
@@ -870,9 +865,8 @@ export default function StoryPage() {
         
         // Check if auto-play was triggered
         if (response.auto_play_session_id) {
-          console.log('[AUTO-PLAY] Setting pending auto-play:', response.auto_play_session_id, 'for scene:', sceneId);
-          setPendingAutoPlay({ session_id: response.auto_play_session_id, scene_id: sceneId });
-          pendingAutoPlayRef.current = { session_id: response.auto_play_session_id, scene_id: sceneId };
+          console.log('[AUTO-PLAY] Connecting to global TTS:', response.auto_play_session_id, 'for scene:', sceneId);
+          globalTTS.connectToSession(response.auto_play_session_id, sceneId);
         }
         
         // Preserve current scroll position for variant operations
@@ -1733,11 +1727,6 @@ export default function StoryPage() {
                           isSceneOperationInProgress={isSceneOperationInProgress}
                           streamingVariantContent={streamingVariantSceneId === scene.id ? streamingVariantContent : ''}
                           isStreamingVariant={streamingVariantSceneId === scene.id}
-                          pendingAutoPlay={pendingAutoPlay}
-                          onAutoPlayProcessed={() => {
-                            pendingAutoPlayRef.current = null;
-                            setPendingAutoPlay(null);
-                          }}
                         />
                       </div>
                     );

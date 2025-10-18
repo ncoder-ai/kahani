@@ -102,7 +102,8 @@ logger = logging.getLogger(__name__)
 async def setup_auto_play_if_enabled(
     scene_id: int,
     user_id: int,
-    db: Session
+    db: Session,
+    start_generation: bool = True
 ) -> Optional[dict]:
     """
     UNIFIED auto-play setup for ANY scene operation (new scene or variant).
@@ -111,13 +112,15 @@ async def setup_auto_play_if_enabled(
     across different endpoints. It:
     1. Checks if auto-play is enabled for the user
     2. Creates a TTS session
-    3. Starts audio generation immediately in background
+    3. Optionally starts audio generation immediately in background
     4. Returns event data to be sent to frontend
     
     Args:
         scene_id: The scene to setup TTS for
         user_id: The user requesting auto-play
         db: Database session
+        start_generation: If True, starts TTS generation immediately. 
+                         If False, generation will start when WebSocket connects.
         
     Returns:
         Dict with event data if auto-play was setup, None otherwise
@@ -148,15 +151,17 @@ async def setup_auto_play_if_enabled(
         
         logger.info(f"[AUTO-PLAY] Created session {session_id}")
         
-        # Start generation immediately in background
-        from ..routers.tts import generate_and_stream_chunks
-        asyncio.create_task(generate_and_stream_chunks(
-            session_id=session_id,
-            scene_id=scene_id,
-            user_id=user_id
-        ))
-        
-        logger.info(f"[AUTO-PLAY] Started background generation for session {session_id}")
+        # Conditionally start generation in background
+        if start_generation:
+            from ..routers.tts import generate_and_stream_chunks
+            asyncio.create_task(generate_and_stream_chunks(
+                session_id=session_id,
+                scene_id=scene_id,
+                user_id=user_id
+            ))
+            logger.info(f"[AUTO-PLAY] Started background generation for session {session_id}")
+        else:
+            logger.info(f"[AUTO-PLAY] Session created, generation will start when WebSocket connects")
         
         # Return event data for SSE streaming
         return {
@@ -624,16 +629,22 @@ async def generate_scene_streaming_endpoint(
                 logger.error(f"Failed to create scene variant: {e}")
                 raise
             
-            # UNIFIED AUTO-PLAY SETUP - Do this BEFORE generating choices!
+            # UNIFIED AUTO-PLAY SETUP - Create session but DON'T start generation yet!
+            # For streaming scenes, we want TTS to start AFTER frontend receives all content
             auto_play_session_id = None
             try:
-                auto_play_data = await setup_auto_play_if_enabled(scene.id, current_user.id, db)
+                auto_play_data = await setup_auto_play_if_enabled(
+                    scene.id, 
+                    current_user.id, 
+                    db,
+                    start_generation=False  # Don't start yet for streaming!
+                )
                 
                 if auto_play_data:
                     auto_play_session_id = auto_play_data['session_id']
                     # Send event immediately so frontend can connect while we generate choices
                     yield f"data: {json.dumps(auto_play_data['event'])}\n\n"
-                    logger.info(f"[AUTO-PLAY] Sent auto_play_ready event BEFORE generating choices")
+                    logger.info(f"[AUTO-PLAY] Sent auto_play_ready event (generation will start when WebSocket connects)")
                     
             except Exception as e:
                 logger.error(f"[AUTO-PLAY] Failed to setup: {e}")
