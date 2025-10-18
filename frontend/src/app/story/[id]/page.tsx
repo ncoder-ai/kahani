@@ -14,6 +14,7 @@ import SceneDisplay from '@/components/SceneDisplay';
 import SceneVariantDisplay from '@/components/SceneVariantDisplay';
 import ChapterSidebar from '@/components/ChapterSidebar';
 import TTSSettingsModal from '@/components/TTSSettingsModal';
+import { GlobalTTSWidget } from '@/components/GlobalTTSWidget';
 import { BookOpen, ChevronRight, X, AlertCircle, Sparkles, Volume2 } from 'lucide-react';
 import { 
   BookOpenIcon, 
@@ -1265,6 +1266,9 @@ export default function StoryPage() {
             
             {/* Menu Items */}
             <div className="p-2 max-h-[calc(100vh-12rem)] overflow-y-auto">
+              {/* TTS Audio Player */}
+              <GlobalTTSWidget />
+              
               {/* Chapter Navigation */}
               <button
                 onClick={() => {

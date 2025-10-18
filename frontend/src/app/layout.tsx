@@ -2,7 +2,6 @@ import './globals.css'
 import { Inter } from 'next/font/google'
 import PersistentBanner from '@/components/PersistentBanner'
 import { GlobalTTSProvider } from '@/contexts/GlobalTTSContext'
-import { GlobalTTSWidget } from '@/components/GlobalTTSWidget'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -24,7 +23,6 @@ export default function RootLayout({
         <GlobalTTSProvider apiBaseUrl={API_BASE_URL}>
           <PersistentBanner />
           {children}
-          <GlobalTTSWidget />
         </GlobalTTSProvider>
       </body>
     </html>
