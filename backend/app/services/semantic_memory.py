@@ -1,0 +1,617 @@
+"""
+Semantic Memory Service using ChromaDB and Sentence Transformers
+
+Provides vector-based semantic search capabilities for story content,
+enabling intelligent context retrieval beyond simple recency-based selection.
+"""
+
+import logging
+from typing import List, Dict, Any, Optional, Tuple
+from datetime import datetime
+import chromadb
+from chromadb.config import Settings
+from sentence_transformers import SentenceTransformer
+from sqlalchemy.orm import Session
+import os
+
+logger = logging.getLogger(__name__)
+
+
+class SemanticMemoryService:
+    """
+    Manages semantic memory using ChromaDB for vector storage and retrieval.
+    
+    Features:
+    - Scene-level embeddings for semantic search
+    - Character moment embeddings for character consistency
+    - Plot event embeddings for thread tracking
+    - Efficient similarity search with metadata filtering
+    """
+    
+    def __init__(self, persist_directory: str = "./data/chromadb", embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"):
+        """
+        Initialize the semantic memory service
+        
+        Args:
+            persist_directory: Directory for ChromaDB persistence
+            embedding_model: Sentence transformer model name
+        """
+        self.persist_directory = persist_directory
+        self.embedding_model_name = embedding_model
+        
+        # Ensure persist directory exists
+        os.makedirs(persist_directory, exist_ok=True)
+        
+        # Initialize ChromaDB client with persistence
+        self.client = chromadb.PersistentClient(
+            path=persist_directory,
+            settings=Settings(
+                anonymized_telemetry=False,
+                allow_reset=True
+            )
+        )
+        
+        # Initialize embedding model
+        logger.info(f"Loading embedding model: {embedding_model}")
+        self.embedding_model = SentenceTransformer(embedding_model)
+        logger.info(f"Embedding model loaded successfully. Dimension: {self.embedding_model.get_sentence_embedding_dimension()}")
+        
+        # Initialize collections
+        self._init_collections()
+    
+    def _init_collections(self):
+        """Initialize or get ChromaDB collections"""
+        
+        # Scene embeddings collection
+        self.scenes_collection = self.client.get_or_create_collection(
+            name="story_scenes",
+            metadata={"description": "Scene-level embeddings for semantic search"}
+        )
+        
+        # Character moments collection
+        self.character_moments_collection = self.client.get_or_create_collection(
+            name="character_moments",
+            metadata={"description": "Character-specific moments for tracking development"}
+        )
+        
+        # Plot events collection
+        self.plot_events_collection = self.client.get_or_create_collection(
+            name="plot_events",
+            metadata={"description": "Key plot events and story threads"}
+        )
+        
+        logger.info("ChromaDB collections initialized successfully")
+    
+    def generate_embedding(self, text: str) -> List[float]:
+        """
+        Generate embedding vector for text
+        
+        Args:
+            text: Text to embed
+            
+        Returns:
+            List of floats representing the embedding
+        """
+        try:
+            embedding = self.embedding_model.encode(text, convert_to_numpy=True)
+            return embedding.tolist()
+        except Exception as e:
+            logger.error(f"Failed to generate embedding: {e}")
+            raise
+    
+    # Scene Embeddings
+    
+    async def add_scene_embedding(
+        self,
+        scene_id: int,
+        variant_id: int,
+        story_id: int,
+        content: str,
+        metadata: Dict[str, Any]
+    ) -> str:
+        """
+        Add or update a scene embedding
+        
+        Args:
+            scene_id: Scene ID
+            variant_id: Scene variant ID
+            story_id: Story ID
+            content: Scene content text
+            metadata: Additional metadata (chapter_id, sequence, characters, etc.)
+            
+        Returns:
+            Embedding ID
+        """
+        try:
+            embedding_id = f"scene_{scene_id}_v{variant_id}"
+            
+            # Generate embedding
+            embedding = self.generate_embedding(content)
+            
+            # Prepare metadata
+            meta = {
+                "story_id": story_id,
+                "scene_id": scene_id,
+                "variant_id": variant_id,
+                "sequence": metadata.get("sequence", 0),
+                "chapter_id": metadata.get("chapter_id", 0),
+                "timestamp": metadata.get("timestamp", datetime.utcnow().isoformat()),
+                "characters": str(metadata.get("characters", [])),  # ChromaDB requires string metadata
+                "content_length": len(content)
+            }
+            
+            # Add to collection (upsert behavior)
+            self.scenes_collection.upsert(
+                ids=[embedding_id],
+                embeddings=[embedding],
+                documents=[content[:1000]],  # Store first 1000 chars for reference
+                metadatas=[meta]
+            )
+            
+            logger.info(f"Added scene embedding: {embedding_id}")
+            return embedding_id
+            
+        except Exception as e:
+            logger.error(f"Failed to add scene embedding: {e}")
+            raise
+    
+    async def search_similar_scenes(
+        self,
+        query_text: str,
+        story_id: int,
+        top_k: int = 5,
+        exclude_sequences: Optional[List[int]] = None,
+        chapter_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Search for semantically similar scenes
+        
+        Args:
+            query_text: Query text (e.g., recent scene content)
+            story_id: Story ID to filter by
+            top_k: Number of results to return
+            exclude_sequences: Scene sequences to exclude (e.g., recent scenes)
+            chapter_id: Optional chapter filter
+            
+        Returns:
+            List of similar scenes with metadata and similarity scores
+        """
+        try:
+            # Generate query embedding
+            query_embedding = self.generate_embedding(query_text)
+            
+            # Build where filter
+            where_filter = {"story_id": story_id}
+            if chapter_id is not None:
+                where_filter["chapter_id"] = chapter_id
+            
+            # Query collection
+            results = self.scenes_collection.query(
+                query_embeddings=[query_embedding],
+                n_results=top_k * 2,  # Get more results for filtering
+                where=where_filter
+            )
+            
+            # Process and filter results
+            similar_scenes = []
+            for i, (doc_id, metadata, distance) in enumerate(zip(
+                results['ids'][0],
+                results['metadatas'][0],
+                results['distances'][0]
+            )):
+                # Skip excluded sequences
+                if exclude_sequences and metadata['sequence'] in exclude_sequences:
+                    continue
+                
+                similar_scenes.append({
+                    'embedding_id': doc_id,
+                    'scene_id': metadata['scene_id'],
+                    'variant_id': metadata['variant_id'],
+                    'sequence': metadata['sequence'],
+                    'chapter_id': metadata['chapter_id'],
+                    'similarity_score': 1 - distance,  # Convert distance to similarity
+                    'timestamp': metadata['timestamp'],
+                    'characters': metadata.get('characters', '[]')
+                })
+                
+                if len(similar_scenes) >= top_k:
+                    break
+            
+            logger.info(f"Found {len(similar_scenes)} similar scenes for story {story_id}")
+            return similar_scenes
+            
+        except Exception as e:
+            logger.error(f"Failed to search similar scenes: {e}")
+            return []
+    
+    # Character Moments
+    
+    async def add_character_moment(
+        self,
+        character_id: int,
+        character_name: str,
+        scene_id: int,
+        story_id: int,
+        moment_type: str,
+        content: str,
+        metadata: Dict[str, Any]
+    ) -> str:
+        """
+        Add a character moment embedding
+        
+        Args:
+            character_id: Character ID
+            character_name: Character name
+            scene_id: Scene ID
+            story_id: Story ID
+            moment_type: Type of moment (action, dialogue, development, relationship)
+            content: Moment content/description
+            metadata: Additional metadata
+            
+        Returns:
+            Embedding ID
+        """
+        try:
+            embedding_id = f"char_{character_id}_scene_{scene_id}_{moment_type}"
+            
+            # Generate embedding
+            embedding = self.generate_embedding(content)
+            
+            # Prepare metadata
+            meta = {
+                "character_id": character_id,
+                "character_name": character_name,
+                "scene_id": scene_id,
+                "story_id": story_id,
+                "moment_type": moment_type,
+                "sequence": metadata.get("sequence", 0),
+                "timestamp": metadata.get("timestamp", datetime.utcnow().isoformat())
+            }
+            
+            # Add to collection
+            self.character_moments_collection.upsert(
+                ids=[embedding_id],
+                embeddings=[embedding],
+                documents=[content[:500]],
+                metadatas=[meta]
+            )
+            
+            logger.info(f"Added character moment: {embedding_id}")
+            return embedding_id
+            
+        except Exception as e:
+            logger.error(f"Failed to add character moment: {e}")
+            raise
+    
+    async def search_character_moments(
+        self,
+        character_id: int,
+        query_text: str,
+        story_id: int,
+        top_k: int = 3,
+        moment_type: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Search for relevant character moments
+        
+        Args:
+            character_id: Character ID
+            query_text: Query text (current situation)
+            story_id: Story ID
+            top_k: Number of results
+            moment_type: Optional filter by moment type
+            
+        Returns:
+            List of relevant character moments
+        """
+        try:
+            # Generate query embedding
+            query_embedding = self.generate_embedding(query_text)
+            
+            # Build where filter
+            where_filter = {
+                "character_id": character_id,
+                "story_id": story_id
+            }
+            if moment_type:
+                where_filter["moment_type"] = moment_type
+            
+            # Query collection
+            results = self.character_moments_collection.query(
+                query_embeddings=[query_embedding],
+                n_results=top_k,
+                where=where_filter
+            )
+            
+            # Process results
+            moments = []
+            for doc_id, metadata, distance in zip(
+                results['ids'][0],
+                results['metadatas'][0],
+                results['distances'][0]
+            ):
+                moments.append({
+                    'embedding_id': doc_id,
+                    'character_id': metadata['character_id'],
+                    'character_name': metadata['character_name'],
+                    'scene_id': metadata['scene_id'],
+                    'moment_type': metadata['moment_type'],
+                    'sequence': metadata['sequence'],
+                    'similarity_score': 1 - distance,
+                    'timestamp': metadata['timestamp']
+                })
+            
+            logger.info(f"Found {len(moments)} character moments for character {character_id}")
+            return moments
+            
+        except Exception as e:
+            logger.error(f"Failed to search character moments: {e}")
+            return []
+    
+    async def get_character_arc(
+        self,
+        character_id: int,
+        story_id: int
+    ) -> List[Dict[str, Any]]:
+        """
+        Get chronological character arc (all moments ordered by sequence)
+        
+        Args:
+            character_id: Character ID
+            story_id: Story ID
+            
+        Returns:
+            List of character moments in chronological order
+        """
+        try:
+            # Get all moments for this character
+            results = self.character_moments_collection.get(
+                where={
+                    "character_id": character_id,
+                    "story_id": story_id
+                }
+            )
+            
+            # Process and sort by sequence
+            moments = []
+            if results['ids']:
+                for doc_id, metadata in zip(results['ids'], results['metadatas']):
+                    moments.append({
+                        'embedding_id': doc_id,
+                        'character_name': metadata['character_name'],
+                        'scene_id': metadata['scene_id'],
+                        'moment_type': metadata['moment_type'],
+                        'sequence': metadata['sequence'],
+                        'timestamp': metadata['timestamp']
+                    })
+                
+                # Sort by sequence
+                moments.sort(key=lambda x: x['sequence'])
+            
+            logger.info(f"Retrieved {len(moments)} moments for character arc")
+            return moments
+            
+        except Exception as e:
+            logger.error(f"Failed to get character arc: {e}")
+            return []
+    
+    # Plot Events
+    
+    async def add_plot_event(
+        self,
+        event_id: str,
+        story_id: int,
+        scene_id: int,
+        event_type: str,
+        description: str,
+        metadata: Dict[str, Any]
+    ) -> str:
+        """
+        Add a plot event embedding
+        
+        Args:
+            event_id: Unique event ID
+            story_id: Story ID
+            scene_id: Scene ID
+            event_type: Event type (introduction, complication, revelation, resolution)
+            description: Event description
+            metadata: Additional metadata
+            
+        Returns:
+            Embedding ID
+        """
+        try:
+            embedding_id = f"plot_{event_id}"
+            
+            # Generate embedding
+            embedding = self.generate_embedding(description)
+            
+            # Prepare metadata
+            meta = {
+                "event_id": event_id,
+                "story_id": story_id,
+                "scene_id": scene_id,
+                "event_type": event_type,
+                "sequence": metadata.get("sequence", 0),
+                "is_resolved": metadata.get("is_resolved", False),
+                "involved_characters": str(metadata.get("involved_characters", [])),
+                "timestamp": metadata.get("timestamp", datetime.utcnow().isoformat())
+            }
+            
+            # Add to collection
+            self.plot_events_collection.upsert(
+                ids=[embedding_id],
+                embeddings=[embedding],
+                documents=[description[:500]],
+                metadatas=[meta]
+            )
+            
+            logger.info(f"Added plot event: {embedding_id}")
+            return embedding_id
+            
+        except Exception as e:
+            logger.error(f"Failed to add plot event: {e}")
+            raise
+    
+    async def search_related_plot_events(
+        self,
+        query_text: str,
+        story_id: int,
+        top_k: int = 5,
+        only_unresolved: bool = False
+    ) -> List[Dict[str, Any]]:
+        """
+        Search for related plot events
+        
+        Args:
+            query_text: Query text (current scene/situation)
+            story_id: Story ID
+            top_k: Number of results
+            only_unresolved: Only return unresolved plot threads
+            
+        Returns:
+            List of related plot events
+        """
+        try:
+            # Generate query embedding
+            query_embedding = self.generate_embedding(query_text)
+            
+            # Build where filter
+            where_filter = {"story_id": story_id}
+            if only_unresolved:
+                where_filter["is_resolved"] = False
+            
+            # Query collection
+            results = self.plot_events_collection.query(
+                query_embeddings=[query_embedding],
+                n_results=top_k,
+                where=where_filter
+            )
+            
+            # Process results
+            events = []
+            for doc_id, metadata, distance in zip(
+                results['ids'][0],
+                results['metadatas'][0],
+                results['distances'][0]
+            ):
+                events.append({
+                    'embedding_id': doc_id,
+                    'event_id': metadata['event_id'],
+                    'scene_id': metadata['scene_id'],
+                    'event_type': metadata['event_type'],
+                    'sequence': metadata['sequence'],
+                    'is_resolved': metadata['is_resolved'],
+                    'involved_characters': metadata.get('involved_characters', '[]'),
+                    'similarity_score': 1 - distance,
+                    'timestamp': metadata['timestamp']
+                })
+            
+            logger.info(f"Found {len(events)} related plot events for story {story_id}")
+            return events
+            
+        except Exception as e:
+            logger.error(f"Failed to search plot events: {e}")
+            return []
+    
+    # Utility Methods
+    
+    def delete_story_embeddings(self, story_id: int):
+        """
+        Delete all embeddings for a story
+        
+        Args:
+            story_id: Story ID to delete
+        """
+        try:
+            # Delete from scenes collection
+            self.scenes_collection.delete(
+                where={"story_id": story_id}
+            )
+            
+            # Delete from character moments collection
+            self.character_moments_collection.delete(
+                where={"story_id": story_id}
+            )
+            
+            # Delete from plot events collection
+            self.plot_events_collection.delete(
+                where={"story_id": story_id}
+            )
+            
+            logger.info(f"Deleted all embeddings for story {story_id}")
+            
+        except Exception as e:
+            logger.error(f"Failed to delete story embeddings: {e}")
+    
+    def delete_scene_embedding(self, scene_id: int, variant_id: int):
+        """
+        Delete a specific scene embedding
+        
+        Args:
+            scene_id: Scene ID
+            variant_id: Variant ID
+        """
+        try:
+            embedding_id = f"scene_{scene_id}_v{variant_id}"
+            self.scenes_collection.delete(ids=[embedding_id])
+            logger.info(f"Deleted scene embedding: {embedding_id}")
+        except Exception as e:
+            logger.error(f"Failed to delete scene embedding: {e}")
+    
+    def get_collection_stats(self) -> Dict[str, int]:
+        """
+        Get statistics about collection sizes
+        
+        Returns:
+            Dictionary with collection names and counts
+        """
+        try:
+            return {
+                "scenes": self.scenes_collection.count(),
+                "character_moments": self.character_moments_collection.count(),
+                "plot_events": self.plot_events_collection.count()
+            }
+        except Exception as e:
+            logger.error(f"Failed to get collection stats: {e}")
+            return {"scenes": 0, "character_moments": 0, "plot_events": 0}
+    
+    def reset_all_collections(self):
+        """
+        Reset all collections (use with caution!)
+        """
+        logger.warning("Resetting all semantic memory collections!")
+        self.client.reset()
+        self._init_collections()
+
+
+# Global instance (initialized in main.py)
+semantic_memory_service: Optional[SemanticMemoryService] = None
+
+
+def get_semantic_memory_service() -> SemanticMemoryService:
+    """Get the global semantic memory service instance"""
+    if semantic_memory_service is None:
+        raise RuntimeError("Semantic memory service not initialized")
+    return semantic_memory_service
+
+
+def initialize_semantic_memory_service(persist_directory: str, embedding_model: str) -> SemanticMemoryService:
+    """
+    Initialize the global semantic memory service
+    
+    Args:
+        persist_directory: ChromaDB persistence directory
+        embedding_model: Embedding model name
+        
+    Returns:
+        Initialized SemanticMemoryService instance
+    """
+    global semantic_memory_service
+    semantic_memory_service = SemanticMemoryService(
+        persist_directory=persist_directory,
+        embedding_model=embedding_model
+    )
+    logger.info("Semantic memory service initialized successfully")
+    return semantic_memory_service
+

@@ -13,6 +13,7 @@ from .story_flow import StoryFlow
 from .prompt_template import PromptTemplate
 from .writing_style_preset import WritingStylePreset
 from .tts_settings import TTSSettings, SceneAudio
+from .semantic_memory import CharacterMemory, PlotEvent, SceneEmbedding, MomentType, EventType
 
 __all__ = [
     "Base",
@@ -23,5 +24,6 @@ __all__ = [
     "Scene", "SceneChoice", "SceneType",
     "SceneVariant", "StoryFlow", "PromptTemplate",
     "WritingStylePreset",
-    "TTSSettings", "SceneAudio"
+    "TTSSettings", "SceneAudio",
+    "CharacterMemory", "PlotEvent", "SceneEmbedding", "MomentType", "EventType"
 ]

@@ -33,6 +33,23 @@ class Settings(BaseSettings):
     context_summary_threshold: int = 5  # Summarize when story has more than this many scenes
     context_summary_threshold_tokens: int = 10000  # Summarize when total tokens exceed this threshold
     
+    # Semantic Memory Configuration
+    enable_semantic_memory: bool = True  # Enable semantic search and vector embeddings
+    semantic_db_path: str = "./data/chromadb"  # ChromaDB persistence directory
+    semantic_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"  # Embedding model
+    semantic_search_top_k: int = 5  # Number of semantically similar scenes to retrieve
+    semantic_context_weight: float = 0.4  # Weight for semantic scenes vs recent scenes (0-1)
+    
+    # Context Assembly Strategy
+    context_strategy: str = "hybrid"  # "linear" (old) or "hybrid" (semantic + linear)
+    semantic_scenes_in_context: int = 5  # Number of semantically relevant scenes to include
+    character_moments_in_context: int = 3  # Number of character moments to include
+    
+    # Auto-extraction Settings
+    auto_extract_character_moments: bool = True  # Automatically extract character moments
+    auto_extract_plot_events: bool = True  # Automatically extract plot events
+    extraction_confidence_threshold: int = 70  # Minimum confidence (0-100) for auto-extraction
+    
     # CORS - Allow all origins for local development
     # In production, this should be restricted to specific domains
     cors_origins: List[str] = ["*"]  # Allow all origins for local network access
