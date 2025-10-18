@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { ArrowLeftIcon, ArrowRightIcon, PlayIcon, ArrowPathIcon, PlusCircleIcon, StopIcon, SparklesIcon } from '@heroicons/react/24/outline';
 import SceneDisplay from './SceneDisplay';
-import { SceneAudioControlsWS } from './SceneAudioControlsWS';
+import { SceneTTSButton } from './SceneTTSButton';
 import apiClient from '@/lib/api';
 
 interface SceneVariant {
@@ -81,9 +81,6 @@ interface SceneVariantDisplayProps {
   isStreamingVariant?: boolean;
   // Global flag to prevent scroll-disrupting operations
   isSceneOperationInProgress?: boolean;
-  // Auto-play TTS props
-  pendingAutoPlay?: {session_id: string, scene_id: number} | null;
-  onAutoPlayProcessed?: () => void;
 }
 
 export default function SceneVariantDisplay({
@@ -120,9 +117,7 @@ export default function SceneVariantDisplay({
   isStreamingContinuation = false,
   streamingVariantContent = '',
   isStreamingVariant = false,
-  isSceneOperationInProgress = false,
-  pendingAutoPlay,
-  onAutoPlayProcessed
+  isSceneOperationInProgress = false
 }: SceneVariantDisplayProps) {
   const [variants, setVariants] = useState<SceneVariant[]>([]);
   const [currentVariantId, setCurrentVariantId] = useState<number | null>(null);
@@ -408,12 +403,9 @@ export default function SceneVariantDisplay({
       />
       
       {/* Audio Controls */}
-      <SceneAudioControlsWS 
-        sceneId={scene.id} 
-        className="mt-4" 
-        pendingAutoPlay={pendingAutoPlay}
-        onAutoPlayProcessed={onAutoPlayProcessed}
-      />
+      <div className="mt-4">
+        <SceneTTSButton sceneId={scene.id} />
+      </div>
       </div>
       
       {/* Scene Management - Only show for last scene */}
