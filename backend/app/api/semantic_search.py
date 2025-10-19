@@ -12,12 +12,18 @@ from pydantic import BaseModel
 from ..database import get_db
 from ..models import User, Story
 from ..dependencies import get_current_user
-from ..services.semantic_memory import get_semantic_memory_service
-from ..services.character_memory_service import get_character_memory_service
-from ..services.plot_thread_service import get_plot_thread_service
-from ..services.semantic_integration import get_semantic_stats
 from ..config import settings
 
+# Try to import semantic services, disable endpoints if unavailable
+try:
+    from ..services.semantic_memory import get_semantic_memory_service
+    from ..services.character_memory_service import get_character_memory_service
+    from ..services.plot_thread_service import get_plot_thread_service
+    from ..services.semantic_integration import get_semantic_stats
+    SEMANTIC_MEMORY_AVAILABLE = True
+except Exception as e:
+    SEMANTIC_MEMORY_AVAILABLE = False
+    
 import logging
 
 logger = logging.getLogger(__name__)

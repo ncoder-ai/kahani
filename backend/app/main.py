@@ -38,7 +38,7 @@ async def startup_event():
     """Initialize services on application startup"""
     logger.info("Initializing services...")
     
-    # Initialize semantic memory service if enabled
+    # Initialize semantic memory service if enabled (lazy-loaded, won't download models yet)
     if settings.enable_semantic_memory:
         try:
             from .services.semantic_memory import initialize_semantic_memory_service
@@ -46,7 +46,7 @@ async def startup_event():
                 persist_directory=settings.semantic_db_path,
                 embedding_model=settings.semantic_embedding_model
             )
-            logger.info("Semantic memory service initialized successfully")
+            logger.info("Semantic memory service initialized (models will load on first use)")
         except Exception as e:
             logger.error(f"Failed to initialize semantic memory service: {e}")
             logger.warning("Continuing without semantic memory features")
