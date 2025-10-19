@@ -133,8 +133,17 @@ async def process_scene_embeddings(
             logger.error(f"Failed to create scene embedding: {e}")
             db.rollback()
         
-        # 2. Extract character moments (if enabled)
-        if settings.auto_extract_character_moments:
+        # 2. Extract character moments (if enabled in user settings)
+        auto_extract_chars = True
+        if user_settings and user_settings.get("context_settings"):
+            auto_extract_chars = user_settings["context_settings"].get(
+                "auto_extract_character_moments", 
+                settings.auto_extract_character_moments
+            )
+        else:
+            auto_extract_chars = settings.auto_extract_character_moments
+            
+        if auto_extract_chars:
             try:
                 char_service = get_character_memory_service()
                 moments = await char_service.extract_character_moments(
@@ -154,8 +163,17 @@ async def process_scene_embeddings(
             except Exception as e:
                 logger.error(f"Failed to extract character moments: {e}")
         
-        # 3. Extract plot events (if enabled)
-        if settings.auto_extract_plot_events:
+        # 3. Extract plot events (if enabled in user settings)
+        auto_extract_plot = True
+        if user_settings and user_settings.get("context_settings"):
+            auto_extract_plot = user_settings["context_settings"].get(
+                "auto_extract_plot_events", 
+                settings.auto_extract_plot_events
+            )
+        else:
+            auto_extract_plot = settings.auto_extract_plot_events
+            
+        if auto_extract_plot:
             try:
                 plot_service = get_plot_thread_service()
                 events = await plot_service.extract_plot_events(

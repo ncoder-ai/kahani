@@ -39,18 +39,29 @@ class SemanticContextManager(ContextManager):
         """
         super().__init__(max_tokens, user_settings, user_id)
         
-        # Load semantic settings
-        if user_settings and user_settings.get("semantic_settings"):
-            sem_settings = user_settings["semantic_settings"]
-            self.enable_semantic = sem_settings.get("enable_semantic_memory", settings.enable_semantic_memory)
-            self.semantic_top_k = sem_settings.get("semantic_search_top_k", settings.semantic_search_top_k)
-            self.semantic_weight = sem_settings.get("semantic_context_weight", settings.semantic_context_weight)
-            self.context_strategy = sem_settings.get("context_strategy", settings.context_strategy)
+        # Load semantic settings from user context_settings (now includes semantic options)
+        if user_settings and user_settings.get("context_settings"):
+            ctx_settings = user_settings["context_settings"]
+            self.enable_semantic = ctx_settings.get("enable_semantic_memory", settings.enable_semantic_memory)
+            self.semantic_top_k = ctx_settings.get("semantic_search_top_k", settings.semantic_search_top_k)
+            self.semantic_scenes_in_context = ctx_settings.get("semantic_scenes_in_context", settings.semantic_scenes_in_context)
+            self.semantic_weight = ctx_settings.get("semantic_context_weight", settings.semantic_context_weight)
+            self.character_moments_in_context = ctx_settings.get("character_moments_in_context", settings.character_moments_in_context)
+            self.context_strategy = ctx_settings.get("context_strategy", settings.context_strategy)
+            self.auto_extract_character_moments = ctx_settings.get("auto_extract_character_moments", settings.auto_extract_character_moments)
+            self.auto_extract_plot_events = ctx_settings.get("auto_extract_plot_events", settings.auto_extract_plot_events)
+            self.extraction_confidence_threshold = ctx_settings.get("extraction_confidence_threshold", settings.extraction_confidence_threshold)
         else:
+            # Fallback to global settings
             self.enable_semantic = settings.enable_semantic_memory
             self.semantic_top_k = settings.semantic_search_top_k
+            self.semantic_scenes_in_context = settings.semantic_scenes_in_context
             self.semantic_weight = settings.semantic_context_weight
+            self.character_moments_in_context = settings.character_moments_in_context
             self.context_strategy = settings.context_strategy
+            self.auto_extract_character_moments = settings.auto_extract_character_moments
+            self.auto_extract_plot_events = settings.auto_extract_plot_events
+            self.extraction_confidence_threshold = settings.extraction_confidence_threshold
         
         # Get semantic memory service
         try:
