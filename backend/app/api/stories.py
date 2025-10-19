@@ -8,11 +8,27 @@ from ..models import Story, Scene, Character, StoryCharacter, User, UserSettings
 from ..services.llm.service import UnifiedLLMService
 from sqlalchemy.sql import func
 from ..services.context_manager import ContextManager
-from ..services.semantic_integration import (
-    get_context_manager_for_user,
-    process_scene_embeddings,
-    get_semantic_stats
-)
+# Lazy import for semantic integration to avoid blocking startup
+try:
+    from ..services.semantic_integration import (
+        get_context_manager_for_user,
+        process_scene_embeddings,
+        get_semantic_stats
+    )
+    SEMANTIC_MEMORY_AVAILABLE = True
+except Exception as e:
+    SEMANTIC_MEMORY_AVAILABLE = False
+    # Fallback functions if semantic memory unavailable
+    def get_context_manager_for_user(user_settings, user_id):
+        from ..services.context_manager import ContextManager
+        return ContextManager(user_settings=user_settings, user_id=user_id)
+    
+    async def process_scene_embeddings(*args, **kwargs):
+        return {"scene_embedding_added": False, "character_moments_extracted": 0, "plot_events_extracted": 0}
+    
+    def get_semantic_stats(*args, **kwargs):
+        return {}
+
 from ..dependencies import get_current_user
 import logging
 import json

@@ -10,7 +10,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 import chromadb
 from chromadb.config import Settings
-from sentence_transformers import SentenceTransformer
+# SentenceTransformer is imported lazily in _ensure_model_loaded to avoid blocking startup
 from sqlalchemy.orm import Session
 import os
 
@@ -51,10 +51,9 @@ class SemanticMemoryService:
             )
         )
         
-        # Initialize embedding model
-        logger.info(f"Loading embedding model: {embedding_model}")
-        self.embedding_model = SentenceTransformer(embedding_model)
-        logger.info(f"Embedding model loaded successfully. Dimension: {self.embedding_model.get_sentence_embedding_dimension()}")
+        # Lazy-load embedding model to avoid blocking startup
+        self.embedding_model = None
+        self._embedding_dimension = None
         
         # Initialize collections
         self._init_collections()
@@ -82,6 +81,16 @@ class SemanticMemoryService:
         
         logger.info("ChromaDB collections initialized successfully")
     
+    def _ensure_model_loaded(self):
+        """Lazy-load the embedding model on first use"""
+        if self.embedding_model is None:
+            logger.info(f"Loading embedding model: {self.embedding_model_name}")
+            # Import SentenceTransformer only when actually needed to avoid blocking startup
+            from sentence_transformers import SentenceTransformer
+            self.embedding_model = SentenceTransformer(self.embedding_model_name)
+            self._embedding_dimension = self.embedding_model.get_sentence_embedding_dimension()
+            logger.info(f"Embedding model loaded successfully. Dimension: {self._embedding_dimension}")
+    
     def generate_embedding(self, text: str) -> List[float]:
         """
         Generate embedding vector for text
@@ -93,6 +102,7 @@ class SemanticMemoryService:
             List of floats representing the embedding
         """
         try:
+            self._ensure_model_loaded()
             embedding = self.embedding_model.encode(text, convert_to_numpy=True)
             return embedding.tolist()
         except Exception as e:
