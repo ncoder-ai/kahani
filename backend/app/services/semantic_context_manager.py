@@ -173,10 +173,11 @@ class SemanticContextManager(ContextManager):
                 "context_type": "recent_only"
             }
         
-        # Allocate tokens for different context types
-        semantic_tokens = int(remaining_tokens * 0.55)  # 55% for semantic scenes
-        character_tokens = int(remaining_tokens * 0.25)  # 25% for character context
-        summary_tokens = int(remaining_tokens * 0.20)    # 20% for summaries
+        # Allocate tokens for different context types (adjusted for entity states)
+        semantic_tokens = int(remaining_tokens * 0.45)    # 45% for semantic scenes
+        character_tokens = int(remaining_tokens * 0.20)   # 20% for character context
+        entity_tokens = int(remaining_tokens * 0.20)      # 20% for entity states (NEW!)
+        summary_tokens = int(remaining_tokens * 0.15)     # 15% for summaries
         
         # Get semantically relevant scenes
         semantic_content = await self._get_semantic_scenes(
@@ -186,6 +187,11 @@ class SemanticContextManager(ContextManager):
         # Get character-specific context
         character_content = await self._get_character_context(
             story_id, recent_scenes, character_tokens, db
+        )
+        
+        # Get entity states (NEW!)
+        entity_states_content = await self._get_entity_states(
+            story_id, entity_tokens, db
         )
         
         # Get chapter summaries
@@ -198,6 +204,9 @@ class SemanticContextManager(ContextManager):
         
         if summary_content:
             context_parts.append(f"Story Summary:\n{summary_content}")
+        
+        if entity_states_content:
+            context_parts.append(f"\n{entity_states_content}")
         
         if semantic_content:
             context_parts.append(f"\nRelevant Past Events:\n{semantic_content}")
@@ -212,11 +221,12 @@ class SemanticContextManager(ContextManager):
         return {
             "previous_scenes": full_context,
             "recent_scenes": recent_content,
-            "scene_summary": f"Hybrid context: {len(recent_scenes)} recent + semantic retrieval",
+            "scene_summary": f"Hybrid context: {len(recent_scenes)} recent + semantic retrieval + entity states",
             "total_scenes": total_scenes,
             "context_type": "hybrid",
             "semantic_scenes_included": semantic_content is not None,
-            "character_context_included": character_content is not None
+            "character_context_included": character_content is not None,
+            "entity_states_included": entity_states_content is not None
         }
     
     async def _get_base_context(self, story_id: int, db: Session) -> Dict[str, Any]:
@@ -451,6 +461,156 @@ class SemanticContextManager(ContextManager):
             
         except Exception as e:
             logger.error(f"Failed to get chapter summaries: {e}")
+            return None
+    
+    async def _get_entity_states(
+        self,
+        story_id: int,
+        token_budget: int,
+        db: Session
+    ) -> Optional[str]:
+        """
+        Get formatted entity states for context
+        
+        Args:
+            story_id: Story ID
+            token_budget: Available tokens
+            db: Database session
+            
+        Returns:
+            Formatted entity states or None
+        """
+        try:
+            from ..models import CharacterState, LocationState, ObjectState, Character
+            
+            # Get all entity states for this story
+            character_states = db.query(CharacterState).filter(
+                CharacterState.story_id == story_id
+            ).all()
+            
+            location_states = db.query(LocationState).filter(
+                LocationState.story_id == story_id
+            ).all()
+            
+            object_states = db.query(ObjectState).filter(
+                ObjectState.story_id == story_id
+            ).all()
+            
+            if not character_states and not location_states and not object_states:
+                return None
+            
+            # Format entity states
+            entity_parts = []
+            used_tokens = 0
+            
+            # Character States
+            if character_states:
+                entity_parts.append("CURRENT CHARACTER STATES:")
+                for char_state in character_states:
+                    # Get character name
+                    character = db.query(Character).filter(
+                        Character.id == char_state.character_id
+                    ).first()
+                    
+                    if not character:
+                        continue
+                    
+                    char_text = f"\n{character.name}:"
+                    
+                    if char_state.current_location:
+                        char_text += f"\n  Location: {char_state.current_location}"
+                    
+                    if char_state.emotional_state:
+                        char_text += f"\n  Emotional State: {char_state.emotional_state}"
+                    
+                    if char_state.physical_condition:
+                        char_text += f"\n  Physical Condition: {char_state.physical_condition}"
+                    
+                    if char_state.current_goal:
+                        char_text += f"\n  Current Goal: {char_state.current_goal}"
+                    
+                    if char_state.possessions:
+                        possessions_str = ", ".join(char_state.possessions[:5])  # Limit to 5
+                        char_text += f"\n  Possessions: {possessions_str}"
+                    
+                    if char_state.knowledge and len(char_state.knowledge) > 0:
+                        # Show most recent 3 knowledge items
+                        recent_knowledge = char_state.knowledge[-3:]
+                        char_text += f"\n  Recent Knowledge: {'; '.join(recent_knowledge)}"
+                    
+                    # Relationships (show top 3 most relevant)
+                    if char_state.relationships:
+                        char_text += f"\n  Key Relationships:"
+                        count = 0
+                        for rel_char, rel_data in char_state.relationships.items():
+                            if count >= 3:
+                                break
+                            if isinstance(rel_data, dict):
+                                status = rel_data.get('status', 'unknown')
+                                trust = rel_data.get('trust', 'unknown')
+                                char_text += f"\n    - {rel_char}: {status} (trust: {trust}/10)"
+                            count += 1
+                    
+                    # Check token budget
+                    char_tokens = self.count_tokens(char_text)
+                    if used_tokens + char_tokens > token_budget:
+                        break
+                    
+                    entity_parts.append(char_text)
+                    used_tokens += char_tokens
+            
+            # Location States (if tokens available)
+            if location_states and used_tokens < token_budget * 0.8:
+                entity_parts.append("\n\nCURRENT LOCATIONS:")
+                for loc_state in location_states[:3]:  # Limit to 3 most relevant locations
+                    loc_text = f"\n{loc_state.location_name}:"
+                    
+                    if loc_state.condition:
+                        loc_text += f"\n  Condition: {loc_state.condition}"
+                    
+                    if loc_state.atmosphere:
+                        loc_text += f"\n  Atmosphere: {loc_state.atmosphere}"
+                    
+                    if loc_state.current_occupants:
+                        occupants_str = ", ".join(loc_state.current_occupants[:5])
+                        loc_text += f"\n  Present: {occupants_str}"
+                    
+                    loc_tokens = self.count_tokens(loc_text)
+                    if used_tokens + loc_tokens > token_budget:
+                        break
+                    
+                    entity_parts.append(loc_text)
+                    used_tokens += loc_tokens
+            
+            # Object States (if tokens available)
+            if object_states and used_tokens < token_budget * 0.9:
+                entity_parts.append("\n\nIMPORTANT OBJECTS:")
+                for obj_state in object_states[:3]:  # Limit to 3 most important objects
+                    obj_text = f"\n{obj_state.object_name}:"
+                    
+                    if obj_state.current_location:
+                        obj_text += f"\n  Location: {obj_state.current_location}"
+                    
+                    if obj_state.condition:
+                        obj_text += f"\n  Condition: {obj_state.condition}"
+                    
+                    if obj_state.significance:
+                        obj_text += f"\n  Significance: {obj_state.significance}"
+                    
+                    obj_tokens = self.count_tokens(obj_text)
+                    if used_tokens + obj_tokens > token_budget:
+                        break
+                    
+                    entity_parts.append(obj_text)
+                    used_tokens += obj_tokens
+            
+            if len(entity_parts) > 0:
+                return "\n".join(entity_parts)
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to get entity states: {e}")
             return None
 
 
