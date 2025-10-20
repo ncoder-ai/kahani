@@ -27,6 +27,16 @@ interface ContextSettings {
   summary_threshold: number;
   summary_threshold_tokens: number;
   enable_summarization: boolean;
+  // Semantic Memory Settings
+  enable_semantic_memory?: boolean;
+  context_strategy?: string;
+  semantic_search_top_k?: number;
+  semantic_scenes_in_context?: number;
+  semantic_context_weight?: number;
+  character_moments_in_context?: number;
+  auto_extract_character_moments?: boolean;
+  auto_extract_plot_events?: boolean;
+  extraction_confidence_threshold?: number;
 }
 
 interface GenerationPreferences {
@@ -221,6 +231,16 @@ export default function SettingsPage() {
           summary_threshold: settings.context_settings.summary_threshold,
           summary_threshold_tokens: settings.context_settings.summary_threshold_tokens,
           enable_summarization: settings.context_settings.enable_summarization,
+          // Semantic Memory Settings
+          enable_semantic_memory: settings.context_settings.enable_semantic_memory,
+          context_strategy: settings.context_settings.context_strategy,
+          semantic_search_top_k: settings.context_settings.semantic_search_top_k,
+          semantic_scenes_in_context: settings.context_settings.semantic_scenes_in_context,
+          semantic_context_weight: settings.context_settings.semantic_context_weight,
+          character_moments_in_context: settings.context_settings.character_moments_in_context,
+          auto_extract_character_moments: settings.context_settings.auto_extract_character_moments,
+          auto_extract_plot_events: settings.context_settings.auto_extract_plot_events,
+          extraction_confidence_threshold: settings.context_settings.extraction_confidence_threshold,
         },
         generation_preferences: {
           default_genre: settings.generation_preferences.default_genre,
@@ -533,7 +553,7 @@ export default function SettingsPage() {
             { id: 'llm', name: 'LLM Settings' },
             { id: 'context', name: 'Context Management' },
             { id: 'generation', name: 'Generation' },
-            { id: 'prompts', name: 'AI Prompts' },
+            { id: 'prompts', name: '👁️ Prompt Inspector' },
             { id: 'ui', name: 'Interface' },
           ].map((tab) => (
             <button
@@ -931,6 +951,187 @@ export default function SettingsPage() {
                       Start summarizing when total token count exceeds this threshold (OR condition with scenes). Values automatically rounded to multiples of 8.
                     </div>
                   </div>
+
+                  {/* Semantic Memory Section */}
+                  <div className="border-t border-gray-700 pt-6 mt-6">
+                    <h3 className="text-lg font-semibold mb-4 flex items-center">
+                      🧠 Semantic Memory
+                      <span className="ml-2 px-2 py-1 text-xs bg-purple-600 rounded">Experimental</span>
+                    </h3>
+                    
+                    {/* Enable Semantic Memory */}
+                    <div className="mb-4">
+                      <label className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={settings.context_settings.enable_semantic_memory !== false}
+                          onChange={(e) => updateContextSetting('enable_semantic_memory', e.target.checked)}
+                          className="mr-2"
+                        />
+                        Enable Semantic Memory
+                      </label>
+                      <div className="text-xs text-gray-400 mt-1">
+                        Use vector embeddings to find semantically relevant past scenes, not just recent ones
+                      </div>
+                    </div>
+
+                    {settings.context_settings.enable_semantic_memory !== false && (
+                      <div className="space-y-4 ml-4 pl-4 border-l-2 border-purple-600">
+                        
+                        {/* Context Strategy */}
+                        <div>
+                          <label className="block text-sm font-medium mb-2">Context Strategy</label>
+                          <select
+                            value={settings.context_settings.context_strategy || 'hybrid'}
+                            onChange={(e) => updateContextSetting('context_strategy', e.target.value)}
+                            className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
+                          >
+                            <option value="linear">Linear (Recent scenes only)</option>
+                            <option value="hybrid">Hybrid (Recent + Semantic)</option>
+                          </select>
+                          <div className="text-xs text-gray-400 mt-1">
+                            <strong>Linear:</strong> Traditional approach - only recent scenes<br/>
+                            <strong>Hybrid:</strong> Recent scenes + semantically similar past scenes
+                          </div>
+                        </div>
+
+                        {settings.context_settings.context_strategy !== 'linear' && (
+                          <>
+                            {/* Semantic Scenes */}
+                            <div>
+                              <label className="block text-sm font-medium mb-2">
+                                Semantic Scenes: {settings.context_settings.semantic_scenes_in_context || 5}
+                              </label>
+                              <input
+                                type="range"
+                                min="0"
+                                max="10"
+                                step="1"
+                                value={settings.context_settings.semantic_scenes_in_context || 5}
+                                onChange={(e) => updateContextSetting('semantic_scenes_in_context', parseInt(e.target.value))}
+                                className="w-full"
+                              />
+                              <div className="text-xs text-gray-400 mt-1">
+                                Max semantically relevant scenes to include in context
+                              </div>
+                            </div>
+
+                            {/* Semantic Search Top K */}
+                            <div>
+                              <label className="block text-sm font-medium mb-2">
+                                Search Results: {settings.context_settings.semantic_search_top_k || 5}
+                              </label>
+                              <input
+                                type="range"
+                                min="1"
+                                max="20"
+                                step="1"
+                                value={settings.context_settings.semantic_search_top_k || 5}
+                                onChange={(e) => updateContextSetting('semantic_search_top_k', parseInt(e.target.value))}
+                                className="w-full"
+                              />
+                              <div className="text-xs text-gray-400 mt-1">
+                                Number of similar scenes to retrieve (higher = more options to choose from)
+                              </div>
+                            </div>
+
+                            {/* Semantic Context Weight */}
+                            <div>
+                              <label className="block text-sm font-medium mb-2">
+                                Semantic Weight: {((settings.context_settings.semantic_context_weight || 0.4) * 100).toFixed(0)}%
+                              </label>
+                              <input
+                                type="range"
+                                min="0"
+                                max="1"
+                                step="0.1"
+                                value={settings.context_settings.semantic_context_weight || 0.4}
+                                onChange={(e) => updateContextSetting('semantic_context_weight', parseFloat(e.target.value))}
+                                className="w-full"
+                              />
+                              <div className="text-xs text-gray-400 mt-1">
+                                Balance between recent vs semantic scenes (higher = more semantic)
+                              </div>
+                            </div>
+
+                            {/* Character Moments */}
+                            <div>
+                              <label className="block text-sm font-medium mb-2">
+                                Character Moments: {settings.context_settings.character_moments_in_context || 3}
+                              </label>
+                              <input
+                                type="range"
+                                min="0"
+                                max="10"
+                                step="1"
+                                value={settings.context_settings.character_moments_in_context || 3}
+                                onChange={(e) => updateContextSetting('character_moments_in_context', parseInt(e.target.value))}
+                                className="w-full"
+                              />
+                              <div className="text-xs text-gray-400 mt-1">
+                                Max character-specific moments to include
+                              </div>
+                            </div>
+                          </>
+                        )}
+
+                        {/* Auto-extraction Settings */}
+                        <div className="pt-2 space-y-3">
+                          <div>
+                            <label className="flex items-center">
+                              <input
+                                type="checkbox"
+                                checked={settings.context_settings.auto_extract_character_moments !== false}
+                                onChange={(e) => updateContextSetting('auto_extract_character_moments', e.target.checked)}
+                                className="mr-2"
+                              />
+                              Auto-extract character moments
+                            </label>
+                            <div className="text-xs text-gray-400 mt-1 ml-6">
+                              Automatically identify and save character development moments
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="flex items-center">
+                              <input
+                                type="checkbox"
+                                checked={settings.context_settings.auto_extract_plot_events !== false}
+                                onChange={(e) => updateContextSetting('auto_extract_plot_events', e.target.checked)}
+                                className="mr-2"
+                              />
+                              Auto-extract plot events
+                            </label>
+                            <div className="text-xs text-gray-400 mt-1 ml-6">
+                              Automatically identify and save significant plot points
+                            </div>
+                          </div>
+
+                          {/* Extraction Confidence Threshold */}
+                          {(settings.context_settings.auto_extract_character_moments !== false || 
+                            settings.context_settings.auto_extract_plot_events !== false) && (
+                            <div>
+                              <label className="block text-sm font-medium mb-2">
+                                Extraction Confidence: {settings.context_settings.extraction_confidence_threshold || 70}%
+                              </label>
+                              <input
+                                type="range"
+                                min="0"
+                                max="100"
+                                step="10"
+                                value={settings.context_settings.extraction_confidence_threshold || 70}
+                                onChange={(e) => updateContextSetting('extraction_confidence_threshold', parseInt(e.target.value))}
+                                className="w-full"
+                              />
+                              <div className="text-xs text-gray-400 mt-1">
+                                Minimum confidence threshold for auto-extraction (higher = fewer but more accurate)
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -1011,10 +1212,19 @@ export default function SettingsPage() {
               </div>
             )}
 
-            {/* AI Prompts Management */}
+            {/* Prompt Inspector (Read-only) */}
             {activeTab === 'prompts' && (
               <div className="bg-gray-800 rounded-lg p-6">
-                <h2 className="text-xl font-semibold mb-6">AI Prompt Templates</h2>
+                <h2 className="text-xl font-semibold mb-2">👁️ Prompt Inspector</h2>
+                <div className="mb-6 p-4 bg-blue-900/30 border border-blue-700 rounded-lg">
+                  <p className="text-sm text-blue-200">
+                    <strong>ℹ️ Read-Only View:</strong> This shows the prompt structure used by the app.
+                    <br/>
+                    To customize <strong>how the AI writes</strong> (style, tone, NSFW settings), use the <strong>Writing Styles</strong> tab.
+                    <br/>
+                    User prompts (the template structure) are locked for app stability.
+                  </p>
+                </div>
                 
                 {loadingTemplates ? (
                   <div className="flex items-center justify-center py-8">
