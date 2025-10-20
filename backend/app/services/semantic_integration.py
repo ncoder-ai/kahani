@@ -68,6 +68,7 @@ async def process_scene_embeddings(
     1. Creates scene embedding in vector database
     2. Extracts character moments (if enabled)
     3. Extracts plot events (if enabled)
+    4. Updates entity states (characters, locations, objects)
     
     Args:
         scene_id: Scene ID
@@ -86,7 +87,8 @@ async def process_scene_embeddings(
     results = {
         'scene_embedding': False,
         'character_moments': False,
-        'plot_events': False
+        'plot_events': False,
+        'entity_states': False
     }
     
     # Skip if semantic memory is disabled
@@ -192,6 +194,25 @@ async def process_scene_embeddings(
                 
             except Exception as e:
                 logger.error(f"Failed to extract plot events: {e}")
+        
+        # 4. Extract and update entity states (characters, locations, objects)
+        try:
+            from .entity_state_service import EntityStateService
+            entity_service = EntityStateService(user_id=user_id, user_settings=user_settings)
+            
+            entity_results = await entity_service.extract_and_update_states(
+                db=db,
+                story_id=story_id,
+                scene_id=scene_id,
+                scene_sequence=sequence_number,
+                scene_content=scene_content
+            )
+            
+            results['entity_states'] = entity_results.get('extraction_successful', False)
+            logger.info(f"Entity states updated for scene {scene_id}: {entity_results}")
+            
+        except Exception as e:
+            logger.error(f"Failed to update entity states: {e}")
         
         return results
         
