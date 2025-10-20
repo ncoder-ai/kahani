@@ -56,12 +56,24 @@ python download_models.py
 # Run database migrations
 echo ""
 echo "🗄️  Running database migrations..."
+
+# Semantic memory migration
 if [ -f "migrate_add_semantic_memory.py" ]; then
+    echo "   Running semantic memory migration..."
     python migrate_add_semantic_memory.py
-    echo "   ✅ Database migrations complete"
 else
-    echo "   ⚠️  Migration script not found, skipping..."
+    echo "   ⚠️  Semantic memory migration not found, skipping..."
 fi
+
+# Entity states migration
+if [ -f "migrate_add_entity_states.py" ]; then
+    echo "   Running entity states migration..."
+    python migrate_add_entity_states.py
+else
+    echo "   ⚠️  Entity states migration not found, skipping..."
+fi
+
+echo "   ✅ Database migrations complete"
 
 # Create necessary directories
 echo ""
