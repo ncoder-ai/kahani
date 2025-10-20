@@ -28,16 +28,18 @@ class SemanticMemoryService:
     - Efficient similarity search with metadata filtering
     """
     
-    def __init__(self, persist_directory: str = "./data/chromadb", embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"):
+    def __init__(self, persist_directory: str = "./data/chromadb", embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2", reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"):
         """
         Initialize the semantic memory service
         
         Args:
             persist_directory: Directory for ChromaDB persistence
             embedding_model: Sentence transformer model name
+            reranker_model: Cross-encoder model for reranking
         """
         self.persist_directory = persist_directory
         self.embedding_model_name = embedding_model
+        self.reranker_model_name = reranker_model
         
         # Ensure persist directory exists
         os.makedirs(persist_directory, exist_ok=True)
@@ -54,6 +56,10 @@ class SemanticMemoryService:
         # Lazy-load embedding model to avoid blocking startup
         self.embedding_model = None
         self._embedding_dimension = None
+        
+        # Lazy-load reranker model
+        self.reranker = None
+        self.enable_reranking = True  # Can be disabled if needed
         
         # Initialize collections
         self._init_collections()
@@ -90,6 +96,15 @@ class SemanticMemoryService:
             self.embedding_model = SentenceTransformer(self.embedding_model_name)
             self._embedding_dimension = self.embedding_model.get_sentence_embedding_dimension()
             logger.info(f"Embedding model loaded successfully. Dimension: {self._embedding_dimension}")
+    
+    def _ensure_reranker_loaded(self):
+        """Lazy-load the reranker model on first use"""
+        if self.reranker is None and self.enable_reranking:
+            logger.info(f"Loading reranker model: {self.reranker_model_name}")
+            # Import CrossEncoder only when actually needed
+            from sentence_transformers import CrossEncoder
+            self.reranker = CrossEncoder(self.reranker_model_name)
+            logger.info(f"Reranker model loaded successfully")
     
     def generate_embedding(self, text: str) -> List[float]:
         """
@@ -171,10 +186,15 @@ class SemanticMemoryService:
         story_id: int,
         top_k: int = 5,
         exclude_sequences: Optional[List[int]] = None,
-        chapter_id: Optional[int] = None
+        chapter_id: Optional[int] = None,
+        use_reranking: bool = True
     ) -> List[Dict[str, Any]]:
         """
-        Search for semantically similar scenes
+        Search for semantically similar scenes with optional cross-encoder reranking
+        
+        Two-stage retrieval:
+        1. Fast bi-encoder retrieval (get candidates)
+        2. Precise cross-encoder reranking (narrow to top_k)
         
         Args:
             query_text: Query text (e.g., recent scene content)
@@ -182,11 +202,16 @@ class SemanticMemoryService:
             top_k: Number of results to return
             exclude_sequences: Scene sequences to exclude (e.g., recent scenes)
             chapter_id: Optional chapter filter
+            use_reranking: Whether to use cross-encoder reranking
             
         Returns:
             List of similar scenes with metadata and similarity scores
         """
         try:
+            # Stage 1: Fast retrieval with bi-encoder
+            # Get more candidates for reranking (3x oversample)
+            retrieval_k = top_k * 3 if (use_reranking and self.enable_reranking) else top_k * 2
+            
             # Generate query embedding
             query_embedding = self.generate_embedding(query_text)
             
@@ -198,14 +223,16 @@ class SemanticMemoryService:
             # Query collection
             results = self.scenes_collection.query(
                 query_embeddings=[query_embedding],
-                n_results=top_k * 2,  # Get more results for filtering
-                where=where_filter
+                n_results=retrieval_k,
+                where=where_filter,
+                include=["metadatas", "distances", "documents"]  # Include documents for reranking
             )
             
             # Process and filter results
-            similar_scenes = []
-            for i, (doc_id, metadata, distance) in enumerate(zip(
+            candidates = []
+            for i, (doc_id, doc_text, metadata, distance) in enumerate(zip(
                 results['ids'][0],
+                results['documents'][0],
                 results['metadatas'][0],
                 results['distances'][0]
             )):
@@ -213,22 +240,63 @@ class SemanticMemoryService:
                 if exclude_sequences and metadata['sequence'] in exclude_sequences:
                     continue
                 
-                similar_scenes.append({
+                candidates.append({
                     'embedding_id': doc_id,
                     'scene_id': metadata['scene_id'],
                     'variant_id': metadata['variant_id'],
                     'sequence': metadata['sequence'],
                     'chapter_id': metadata['chapter_id'],
-                    'similarity_score': 1 - distance,  # Convert distance to similarity
+                    'bi_encoder_score': 1 - distance,  # Initial similarity
                     'timestamp': metadata['timestamp'],
-                    'characters': metadata.get('characters', '[]')
+                    'characters': metadata.get('characters', '[]'),
+                    'document_text': doc_text  # For reranking
                 })
-                
-                if len(similar_scenes) >= top_k:
-                    break
             
-            logger.info(f"Found {len(similar_scenes)} similar scenes for story {story_id}")
-            return similar_scenes
+            if not candidates:
+                logger.info(f"No candidates found for story {story_id}")
+                return []
+            
+            # Stage 2: Cross-encoder reranking (if enabled)
+            if use_reranking and self.enable_reranking and len(candidates) > top_k:
+                try:
+                    self._ensure_reranker_loaded()
+                    
+                    # Prepare query-document pairs
+                    pairs = [[query_text, candidate['document_text']] for candidate in candidates]
+                    
+                    # Get reranking scores
+                    rerank_scores = self.reranker.predict(pairs)
+                    
+                    # Update candidates with reranked scores
+                    for candidate, rerank_score in zip(candidates, rerank_scores):
+                        candidate['rerank_score'] = float(rerank_score)
+                        candidate['similarity_score'] = float(rerank_score)  # Use reranked score as final
+                    
+                    # Sort by reranked scores
+                    candidates.sort(key=lambda x: x['rerank_score'], reverse=True)
+                    
+                    logger.info(f"Reranked {len(candidates)} candidates for story {story_id}")
+                    
+                except Exception as e:
+                    logger.warning(f"Reranking failed, falling back to bi-encoder scores: {e}")
+                    # Fall back to bi-encoder scores
+                    for candidate in candidates:
+                        candidate['similarity_score'] = candidate['bi_encoder_score']
+                    candidates.sort(key=lambda x: x['bi_encoder_score'], reverse=True)
+            else:
+                # No reranking - use bi-encoder scores
+                for candidate in candidates:
+                    candidate['similarity_score'] = candidate['bi_encoder_score']
+                candidates.sort(key=lambda x: x['bi_encoder_score'], reverse=True)
+            
+            # Return top_k results (remove document_text to save memory)
+            final_results = []
+            for candidate in candidates[:top_k]:
+                result = {k: v for k, v in candidate.items() if k != 'document_text'}
+                final_results.append(result)
+            
+            logger.info(f"Returning {len(final_results)} similar scenes for story {story_id}")
+            return final_results
             
         except Exception as e:
             logger.error(f"Failed to search similar scenes: {e}")
@@ -299,10 +367,11 @@ class SemanticMemoryService:
         query_text: str,
         story_id: int,
         top_k: int = 3,
-        moment_type: Optional[str] = None
+        moment_type: Optional[str] = None,
+        use_reranking: bool = True
     ) -> List[Dict[str, Any]]:
         """
-        Search for relevant character moments
+        Search for relevant character moments with optional reranking
         
         Args:
             character_id: Character ID
@@ -310,11 +379,15 @@ class SemanticMemoryService:
             story_id: Story ID
             top_k: Number of results
             moment_type: Optional filter by moment type
+            use_reranking: Whether to use cross-encoder reranking
             
         Returns:
             List of relevant character moments
         """
         try:
+            # Get more candidates if reranking
+            retrieval_k = top_k * 3 if (use_reranking and self.enable_reranking) else top_k * 2
+            
             # Generate query embedding
             query_embedding = self.generate_embedding(query_text)
             
@@ -329,30 +402,64 @@ class SemanticMemoryService:
             # Query collection
             results = self.character_moments_collection.query(
                 query_embeddings=[query_embedding],
-                n_results=top_k,
-                where=where_filter
+                n_results=retrieval_k,
+                where=where_filter,
+                include=["metadatas", "distances", "documents"]
             )
             
             # Process results
-            moments = []
-            for doc_id, metadata, distance in zip(
+            candidates = []
+            for doc_id, doc_text, metadata, distance in zip(
                 results['ids'][0],
+                results['documents'][0],
                 results['metadatas'][0],
                 results['distances'][0]
             ):
-                moments.append({
+                candidates.append({
                     'embedding_id': doc_id,
                     'character_id': metadata['character_id'],
                     'character_name': metadata['character_name'],
                     'scene_id': metadata['scene_id'],
                     'moment_type': metadata['moment_type'],
                     'sequence': metadata['sequence'],
-                    'similarity_score': 1 - distance,
-                    'timestamp': metadata['timestamp']
+                    'bi_encoder_score': 1 - distance,
+                    'timestamp': metadata['timestamp'],
+                    'document_text': doc_text
                 })
             
-            logger.info(f"Found {len(moments)} character moments for character {character_id}")
-            return moments
+            if not candidates:
+                return []
+            
+            # Apply reranking if enabled
+            if use_reranking and self.enable_reranking and len(candidates) > top_k:
+                try:
+                    self._ensure_reranker_loaded()
+                    pairs = [[query_text, c['document_text']] for c in candidates]
+                    rerank_scores = self.reranker.predict(pairs)
+                    
+                    for candidate, score in zip(candidates, rerank_scores):
+                        candidate['similarity_score'] = float(score)
+                    
+                    candidates.sort(key=lambda x: x['similarity_score'], reverse=True)
+                    logger.info(f"Reranked {len(candidates)} character moments")
+                except Exception as e:
+                    logger.warning(f"Reranking failed for character moments: {e}")
+                    for c in candidates:
+                        c['similarity_score'] = c['bi_encoder_score']
+                    candidates.sort(key=lambda x: x['bi_encoder_score'], reverse=True)
+            else:
+                for c in candidates:
+                    c['similarity_score'] = c['bi_encoder_score']
+                candidates.sort(key=lambda x: x['bi_encoder_score'], reverse=True)
+            
+            # Return top_k without document_text
+            final_results = []
+            for c in candidates[:top_k]:
+                result = {k: v for k, v in c.items() if k != 'document_text'}
+                final_results.append(result)
+            
+            logger.info(f"Returning {len(final_results)} character moments for character {character_id}")
+            return final_results
             
         except Exception as e:
             logger.error(f"Failed to search character moments: {e}")
@@ -468,21 +575,26 @@ class SemanticMemoryService:
         query_text: str,
         story_id: int,
         top_k: int = 5,
-        only_unresolved: bool = False
+        only_unresolved: bool = False,
+        use_reranking: bool = True
     ) -> List[Dict[str, Any]]:
         """
-        Search for related plot events
+        Search for related plot events with optional reranking
         
         Args:
             query_text: Query text (current scene/situation)
             story_id: Story ID
             top_k: Number of results
             only_unresolved: Only return unresolved plot threads
+            use_reranking: Whether to use cross-encoder reranking
             
         Returns:
             List of related plot events
         """
         try:
+            # Get more candidates if reranking
+            retrieval_k = top_k * 3 if (use_reranking and self.enable_reranking) else top_k * 2
+            
             # Generate query embedding
             query_embedding = self.generate_embedding(query_text)
             
@@ -494,18 +606,20 @@ class SemanticMemoryService:
             # Query collection
             results = self.plot_events_collection.query(
                 query_embeddings=[query_embedding],
-                n_results=top_k,
-                where=where_filter
+                n_results=retrieval_k,
+                where=where_filter,
+                include=["metadatas", "distances", "documents"]
             )
             
             # Process results
-            events = []
-            for doc_id, metadata, distance in zip(
+            candidates = []
+            for doc_id, doc_text, metadata, distance in zip(
                 results['ids'][0],
+                results['documents'][0],
                 results['metadatas'][0],
                 results['distances'][0]
             ):
-                events.append({
+                candidates.append({
                     'embedding_id': doc_id,
                     'event_id': metadata['event_id'],
                     'scene_id': metadata['scene_id'],
@@ -513,12 +627,44 @@ class SemanticMemoryService:
                     'sequence': metadata['sequence'],
                     'is_resolved': metadata['is_resolved'],
                     'involved_characters': metadata.get('involved_characters', '[]'),
-                    'similarity_score': 1 - distance,
-                    'timestamp': metadata['timestamp']
+                    'bi_encoder_score': 1 - distance,
+                    'timestamp': metadata['timestamp'],
+                    'document_text': doc_text
                 })
             
-            logger.info(f"Found {len(events)} related plot events for story {story_id}")
-            return events
+            if not candidates:
+                return []
+            
+            # Apply reranking if enabled
+            if use_reranking and self.enable_reranking and len(candidates) > top_k:
+                try:
+                    self._ensure_reranker_loaded()
+                    pairs = [[query_text, c['document_text']] for c in candidates]
+                    rerank_scores = self.reranker.predict(pairs)
+                    
+                    for candidate, score in zip(candidates, rerank_scores):
+                        candidate['similarity_score'] = float(score)
+                    
+                    candidates.sort(key=lambda x: x['similarity_score'], reverse=True)
+                    logger.info(f"Reranked {len(candidates)} plot events")
+                except Exception as e:
+                    logger.warning(f"Reranking failed for plot events: {e}")
+                    for c in candidates:
+                        c['similarity_score'] = c['bi_encoder_score']
+                    candidates.sort(key=lambda x: x['bi_encoder_score'], reverse=True)
+            else:
+                for c in candidates:
+                    c['similarity_score'] = c['bi_encoder_score']
+                candidates.sort(key=lambda x: x['bi_encoder_score'], reverse=True)
+            
+            # Return top_k without document_text
+            final_results = []
+            for c in candidates[:top_k]:
+                result = {k: v for k, v in c.items() if k != 'document_text'}
+                final_results.append(result)
+            
+            logger.info(f"Returning {len(final_results)} plot events for story {story_id}")
+            return final_results
             
         except Exception as e:
             logger.error(f"Failed to search plot events: {e}")
