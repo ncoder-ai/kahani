@@ -61,6 +61,12 @@ COPY --from=backend-builder /usr/local/bin /usr/local/bin
 # Copy backend source
 COPY backend/ ./backend/
 
+# Download AI models (embedding + reranker) during build
+# This ensures models are cached in the image (~170MB)
+RUN echo "📦 Downloading AI models for semantic memory..." && \
+    cd backend && \
+    python download_models.py || echo "⚠️  Model download failed, will retry at runtime"
+
 # Copy built frontend
 COPY --from=frontend-builder /app/frontend/out ./frontend/out
 COPY --from=frontend-builder /app/frontend/package*.json ./frontend/
