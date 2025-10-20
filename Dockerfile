@@ -86,12 +86,12 @@ RUN chmod +x docker-entrypoint.sh start-prod.sh
 # Switch to app user
 USER kahani
 
-# Expose ports
-EXPOSE 3000 8000
+# Expose ports (same as development: 9876 backend, 6789 frontend)
+EXPOSE 9876 6789
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:8000/health || exit 1
+  CMD curl -f http://localhost:9876/health || exit 1
 
 # Start the application
 ENTRYPOINT ["./docker-entrypoint.sh"]

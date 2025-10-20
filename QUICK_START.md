@@ -53,10 +53,15 @@ Your advanced context management system is **fully configured** and **ready to u
 ### Production (Docker)
 ```bash
 docker build -t kahani .
-docker run -p 8000:8000 -p 3000:3000 kahani
+docker run -p 9876:9876 -p 6789:6789 kahani
+
+# Or map to different external ports:
+docker run -p 8000:9876 -p 3000:6789 kahani
 ```
 
 Models are **pre-cached** in the Docker image!
+
+**Note:** Container uses same ports internally (9876 backend, 6789 frontend) as development.
 
 ---
 
