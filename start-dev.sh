@@ -45,6 +45,17 @@ fi
 # Activate virtual environment
 source .venv/bin/activate
 
+# Check and download AI models if needed
+MODEL_CACHE="$HOME/.cache/torch/sentence_transformers/"
+if [[ ! -d "$MODEL_CACHE" ]] || [[ $(find "$MODEL_CACHE" -type f | wc -l) -lt 10 ]]; then
+    echo -e "${BLUE}📦 Downloading AI models (one-time setup)...${NC}"
+    cd backend
+    python download_models.py || echo -e "${YELLOW}⚠️  Model download failed, will try at runtime${NC}"
+    cd ..
+else
+    echo -e "${GREEN}✅ AI models already cached${NC}"
+fi
+
 # Load environment variables from .env file at project root
 if [[ -f .env ]]; then
     echo -e "${BLUE}Loading .env...${NC}"
