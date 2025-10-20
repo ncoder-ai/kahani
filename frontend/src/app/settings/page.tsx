@@ -1226,181 +1226,110 @@ export default function SettingsPage() {
                   </p>
                 </div>
                 
-                {loadingTemplates ? (
-                  <div className="flex items-center justify-center py-8">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-                    <span className="ml-3 text-gray-300">Loading templates...</span>
-                  </div>
-                ) : (
-                  <div className="space-y-6">
-                    
-                    {/* Template List */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {promptTemplates.map((template) => (
-                        <div 
-                          key={template.id}
-                          className="bg-gray-700 rounded-lg p-4 cursor-pointer hover:bg-gray-600 transition-colors"
-                          onClick={() => {
-                            setSelectedTemplate(template);
-                            setEditingTemplate(false);
-                          }}
-                        >
-                          <div className="flex items-center justify-between mb-2">
-                            <h3 className="font-medium text-white">{template.name}</h3>
-                            {template.is_default && (
-                              <span className="text-xs bg-blue-600 text-blue-100 px-2 py-1 rounded">
-                                Default
-                              </span>
-                            )}
+                <div className="space-y-6">
+                  
+                  {/* Prompt System Overview */}
+                  <div className="bg-gray-700 rounded-lg p-6">
+                    <h3 className="text-lg font-semibold mb-4">📋 How the Prompt System Works</h3>
+                    <div className="space-y-4 text-sm text-gray-300">
+                      <div>
+                        <h4 className="font-semibold text-white mb-2">Two-Tier Prompt System:</h4>
+                        <div className="ml-4 space-y-2">
+                          <div>
+                            <strong className="text-green-400">1. System Prompts</strong> (User-Customizable)
+                            <ul className="ml-6 mt-1 space-y-1 text-gray-400">
+                              <li>• Controlled by your <strong>Writing Style Presets</strong></li>
+                              <li>• Defines HOW the AI writes (tone, style, NSFW settings)</li>
+                              <li>• You can create multiple presets and switch between them</li>
+                              <li>• Applied to all generation types (scenes, choices, summaries)</li>
+                            </ul>
                           </div>
-                          <p className="text-sm text-gray-300 mb-2">{template.description}</p>
-                          <div className="text-xs text-gray-400">
-                            Category: {template.category}
+                          <div>
+                            <strong className="text-blue-400">2. User Prompts</strong> (Locked in YAML)
+                            <ul className="ml-6 mt-1 space-y-1 text-gray-400">
+                              <li>• Stored in <code className="bg-gray-800 px-1 rounded">prompts.yml</code></li>
+                              <li>• Defines WHAT to do (generate scene, create choices, etc.)</li>
+                              <li>• Locked for app stability and consistency</li>
+                              <li>• Contains template variables like {`{context}`}, {`{scene_content}`}</li>
+                            </ul>
                           </div>
                         </div>
-                      ))}
+                      </div>
+
+                      <div className="border-t border-gray-600 pt-4">
+                        <h4 className="font-semibold text-white mb-2">Available Prompt Templates:</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 ml-4">
+                          <div className="bg-gray-800 p-3 rounded">
+                            <strong className="text-purple-400">Scene Generation</strong>
+                            <p className="text-xs text-gray-400 mt-1">Creates immersive story scenes</p>
+                          </div>
+                          <div className="bg-gray-800 p-3 rounded">
+                            <strong className="text-purple-400">Choice Generation</strong>
+                            <p className="text-xs text-gray-400 mt-1">Creates meaningful story choices</p>
+                          </div>
+                          <div className="bg-gray-800 p-3 rounded">
+                            <strong className="text-purple-400">Story Summary</strong>
+                            <p className="text-xs text-gray-400 mt-1">Summarizes chapters and stories</p>
+                          </div>
+                          <div className="bg-gray-800 p-3 rounded">
+                            <strong className="text-purple-400">Character Generation</strong>
+                            <p className="text-xs text-gray-400 mt-1">Creates and expands characters</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="border-t border-gray-600 pt-4">
+                        <h4 className="font-semibold text-white mb-2">🎨 Want to Customize?</h4>
+                        <p className="text-gray-400">
+                          Go to the <button 
+                            onClick={() => setActiveTab('writing')}
+                            className="text-blue-400 hover:text-blue-300 underline"
+                          >Writing Styles</button> tab to create custom presets that control:
+                        </p>
+                        <ul className="ml-6 mt-2 space-y-1 text-gray-400">
+                          <li>• Writing style and tone (epic, cozy, dark, comedic)</li>
+                          <li>• Descriptiveness level</li>
+                          <li>• NSFW/content policies</li>
+                          <li>• Narrative voice and pacing</li>
+                          <li>• Character development approach</li>
+                        </ul>
+                      </div>
                     </div>
-
-                    {promptTemplates.length === 0 && (
-                      <div className="text-center py-8 text-gray-400">
-                        No prompt templates found. Loading default templates...
-                      </div>
-                    )}
-
-                    {/* Template Editor */}
-                    {selectedTemplate && (
-                      <div className="mt-8 bg-gray-700 rounded-lg p-6">
-                        <div className="flex items-center justify-between mb-4">
-                          <h3 className="text-lg font-semibold text-white">
-                            {selectedTemplate.name}
-                          </h3>
-                          <div className="flex space-x-2">
-                            {!editingTemplate ? (
-                              <button
-                                onClick={() => setEditingTemplate(true)}
-                                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                              >
-                                Edit Template
-                              </button>
-                            ) : (
-                              <>
-                                <button
-                                  onClick={() => {
-                                    // Save changes
-                                    updatePromptTemplate(selectedTemplate.id, {
-                                      system_prompt: selectedTemplate.system_prompt,
-                                      user_prompt_template: selectedTemplate.user_prompt_template,
-                                      max_tokens: selectedTemplate.max_tokens
-                                    });
-                                  }}
-                                  className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-                                >
-                                  Save Changes
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setEditingTemplate(false);
-                                    loadPromptTemplates(); // Reload to reset changes
-                                  }}
-                                  className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
-                                >
-                                  Cancel
-                                </button>
-                              </>
-                            )}
-                            <button
-                              onClick={() => setSelectedTemplate(null)}
-                              className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
-                            >
-                              Close
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="space-y-4">
-                          <div>
-                            <label className="block text-sm font-medium text-gray-300 mb-2">
-                              Description
-                            </label>
-                            <p className="text-sm text-gray-400 bg-gray-800 p-3 rounded">
-                              {selectedTemplate.description}
-                            </p>
-                          </div>
-
-                          <div>
-                            <label className="block text-sm font-medium text-gray-300 mb-2">
-                              System Prompt
-                            </label>
-                            <textarea
-                              value={selectedTemplate.system_prompt}
-                              onChange={(e) => {
-                                if (editingTemplate) {
-                                  setSelectedTemplate({
-                                    ...selectedTemplate,
-                                    system_prompt: e.target.value
-                                  });
-                                }
-                              }}
-                              readOnly={!editingTemplate}
-                              className={`w-full h-32 p-3 bg-gray-800 border border-gray-600 rounded text-sm text-gray-200 ${
-                                editingTemplate ? 'focus:outline-none focus:ring-2 focus:ring-blue-500' : 'cursor-default'
-                              }`}
-                              placeholder="System prompt for the AI..."
-                            />
-                          </div>
-
-                          {selectedTemplate.user_prompt_template && (
-                            <div>
-                              <label className="block text-sm font-medium text-gray-300 mb-2">
-                                User Prompt Template
-                              </label>
-                              <textarea
-                                value={selectedTemplate.user_prompt_template}
-                                onChange={(e) => {
-                                  if (editingTemplate) {
-                                    setSelectedTemplate({
-                                      ...selectedTemplate,
-                                      user_prompt_template: e.target.value
-                                    });
-                                  }
-                                }}
-                                readOnly={!editingTemplate}
-                                className={`w-full h-24 p-3 bg-gray-800 border border-gray-600 rounded text-sm text-gray-200 ${
-                                  editingTemplate ? 'focus:outline-none focus:ring-2 focus:ring-blue-500' : 'cursor-default'
-                                }`}
-                                placeholder="Template with placeholders like {title}, {genre}..."
-                              />
-                            </div>
-                          )}
-
-                          <div>
-                            <label className="block text-sm font-medium text-gray-300 mb-2">
-                              Max Tokens
-                            </label>
-                            <input
-                              type="number"
-                              value={selectedTemplate.max_tokens}
-                              onChange={(e) => {
-                                if (editingTemplate) {
-                                  setSelectedTemplate({
-                                    ...selectedTemplate,
-                                    max_tokens: parseInt(e.target.value)
-                                  });
-                                }
-                              }}
-                              readOnly={!editingTemplate}
-                              className={`w-32 p-2 bg-gray-800 border border-gray-600 rounded text-sm text-gray-200 ${
-                                editingTemplate ? 'focus:outline-none focus:ring-2 focus:ring-blue-500' : 'cursor-default'
-                              }`}
-                              min="100"
-                              max="8000"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    )}
                   </div>
-                )}
+
+                  {/* Example of Prompt Assembly */}
+                  <div className="bg-gray-700 rounded-lg p-6">
+                    <h3 className="text-lg font-semibold mb-4">🔍 Example: Scene Generation</h3>
+                    <div className="space-y-4">
+                      <div>
+                        <div className="text-sm font-semibold text-green-400 mb-2">System Prompt (from your active Writing Style Preset):</div>
+                        <div className="bg-gray-800 p-4 rounded text-sm text-gray-300 font-mono">
+                          "You are a creative storytelling assistant. Write in an engaging narrative style that:<br/>
+                          - Uses vivid, descriptive language...<br/>
+                          - Creates immersive scenes...<br/>
+                          [Your custom style settings]"
+                        </div>
+                      </div>
+                      <div className="text-center text-gray-500 text-2xl">+</div>
+                      <div>
+                        <div className="text-sm font-semibold text-blue-400 mb-2">User Prompt (locked template from YAML):</div>
+                        <div className="bg-gray-800 p-4 rounded text-sm text-gray-300 font-mono">
+                          "Story Context: {`{context}`}<br/>
+                          <br/>
+                          Generate the next scene in this story. Make it engaging and immersive...<br/>
+                          [Template structure]"
+                        </div>
+                      </div>
+                      <div className="text-center text-gray-500 text-2xl">=</div>
+                      <div>
+                        <div className="text-sm font-semibold text-purple-400 mb-2">Final Prompt sent to LLM:</div>
+                        <div className="bg-gray-800 p-4 rounded text-sm text-gray-300">
+                          System + User prompts combined with your story context, creating a complete instruction for scene generation.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
