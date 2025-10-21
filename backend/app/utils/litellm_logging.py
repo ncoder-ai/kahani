@@ -17,6 +17,9 @@ def configure_litellm_logging():
     os.environ["LITELLM_SUPPRESS_DEBUG_INFO"] = "true"
     os.environ["LITELLM_DROP_PARAMS"] = "true"
     os.environ["LITELLM_SET_VERBOSE"] = "false"
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
+    os.environ["TRANSFORMERS_VERBOSITY"] = "error"
+    os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
     
     # Suppress specific LiteLLM loggers
     litellm_loggers = [
@@ -27,7 +30,20 @@ def configure_litellm_logging():
         'litellm.utils',
         'openai._base_client',
         'httpcore.connection',
-        'httpcore.http11'
+        'httpcore.http11',
+        'multipart',
+        'urllib3',
+        'urllib3.connectionpool',
+        'chromadb',
+        'chromadb.auth',
+        'chromadb.telemetry',
+        'chromadb.config',
+        'chromadb.segment',
+        'sentence_transformers',
+        'transformers',
+        'huggingface_hub',
+        'tqdm',
+        'LiteLLM'  # Add the exact logger name from the messages
     ]
     
     for logger_name in litellm_loggers:
@@ -44,6 +60,28 @@ def configure_litellm_logging():
     for handler in root_logger.handlers:
         if hasattr(handler, 'setLevel'):
             handler.setLevel(logging.ERROR)
+    
+    # Add a filter to completely block LiteLLM debug messages
+    class LiteLLMFilter(logging.Filter):
+        def filter(self, record):
+            # Block any message containing these patterns
+            blocked_patterns = [
+                'PROCESSED ASYNC CHUNK',
+                'LiteLLM - DEBUG',
+                'ChatCompletionChunk',
+                'ChoiceDelta'
+            ]
+            message = record.getMessage()
+            return not any(pattern in message for pattern in blocked_patterns)
+    
+    # Apply the filter to all handlers
+    for handler in root_logger.handlers:
+        handler.addFilter(LiteLLMFilter())
+    
+    # Set the specific logger that's generating these messages to CRITICAL
+    litellm_debug_logger = logging.getLogger('LiteLLM')
+    litellm_debug_logger.setLevel(logging.CRITICAL)
+    litellm_debug_logger.disabled = True
     
     # Try to import and configure litellm directly
     try:

@@ -8,6 +8,12 @@ from ..models import Story, Scene, Character, StoryCharacter, User, UserSettings
 from ..services.llm.service import UnifiedLLMService
 from sqlalchemy.sql import func
 from ..services.context_manager import ContextManager
+from ..dependencies import get_current_user
+import logging
+import json
+
+logger = logging.getLogger(__name__)
+
 # Lazy import for semantic integration to avoid blocking startup
 try:
     from ..services.semantic_integration import (
@@ -16,8 +22,10 @@ try:
         get_semantic_stats
     )
     SEMANTIC_MEMORY_AVAILABLE = True
+    logger.info("Semantic integration imported successfully")
 except Exception as e:
     SEMANTIC_MEMORY_AVAILABLE = False
+    logger.error(f"Failed to import semantic integration: {e}")
     # Fallback functions if semantic memory unavailable
     def get_context_manager_for_user(user_settings, user_id):
         from ..services.context_manager import ContextManager
@@ -28,10 +36,6 @@ except Exception as e:
     
     def get_semantic_stats(*args, **kwargs):
         return {}
-
-from ..dependencies import get_current_user
-import logging
-import json
 
 # Initialize the unified LLM service
 llm_service = UnifiedLLMService()

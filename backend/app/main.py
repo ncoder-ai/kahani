@@ -1,6 +1,29 @@
 # Import LiteLLM logging configuration FIRST to suppress debug output
 from .utils.litellm_logging import configure_litellm_logging, suppress_httpcore_logging
 
+# Set logging level to ERROR immediately to suppress debug messages
+import logging
+import os
+
+# Suppress excessive logging from various libraries
+logging.getLogger('LiteLLM').setLevel(logging.ERROR)
+logging.getLogger('litellm').setLevel(logging.ERROR)
+logging.getLogger('multipart').setLevel(logging.ERROR)
+logging.getLogger('urllib3').setLevel(logging.ERROR)
+logging.getLogger('urllib3.connectionpool').setLevel(logging.ERROR)
+logging.getLogger('chromadb').setLevel(logging.ERROR)
+logging.getLogger('chromadb.auth').setLevel(logging.ERROR)
+logging.getLogger('chromadb.telemetry').setLevel(logging.ERROR)
+logging.getLogger('chromadb.config').setLevel(logging.ERROR)
+logging.getLogger('chromadb.segment').setLevel(logging.ERROR)
+logging.getLogger('sentence_transformers').setLevel(logging.ERROR)
+logging.getLogger('transformers').setLevel(logging.ERROR)
+
+# Set environment variables to reduce logging
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["TRANSFORMERS_VERBOSITY"] = "error"
+os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
