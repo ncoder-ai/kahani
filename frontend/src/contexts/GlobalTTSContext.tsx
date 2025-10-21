@@ -198,6 +198,12 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
       return;
     }
     
+    // If already playing or generating this scene, don't reconnect
+    if (currentSceneId === sceneId && (isPlaying || isGenerating)) {
+      console.log('[Global TTS] Already playing/generating scene:', sceneId, '- skipping reconnect');
+      return;
+    }
+    
     // Close existing connection if connecting to different session
     if (wsRef.current && currentSessionIdRef.current !== sessionId) {
       console.log('[Global TTS] Closing previous session:', currentSessionIdRef.current);
@@ -263,7 +269,7 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
       
       setIsGenerating(false);
     };
-  }, [apiBaseUrl, handleWebSocketMessage]);
+  }, [apiBaseUrl, handleWebSocketMessage, currentSceneId, isPlaying, isGenerating]);
   
   /**
    * Start manual TTS generation for a scene
