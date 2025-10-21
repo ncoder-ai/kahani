@@ -109,7 +109,6 @@ async def process_scene_embeddings(
                 metadata={
                     'sequence': sequence_number,
                     'chapter_id': chapter_id or 0,
-                    'timestamp': None,  # Will be set by service
                     'characters': []  # Could be enhanced later
                 }
             )

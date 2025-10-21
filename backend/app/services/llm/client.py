@@ -112,6 +112,43 @@ class LLMClient:
         # Disable verbose logging to reduce console noise
         litellm.set_verbose = False
         
+        # Suppress cost calculation warnings for custom models
+        litellm.suppress_debug_info = True
+        
+        # Disable cost calculation for unknown models to prevent warnings
+        litellm.drop_params = True
+        
+        # Suppress cost calculation warnings for custom models
+        import os
+        os.environ["LITELLM_LOG"] = "ERROR"  # Only show errors, not warnings
+        os.environ["LITELLM_LOG_LEVEL"] = "ERROR"
+        
+        # Additional debug suppression
+        os.environ["LITELLM_SUPPRESS_DEBUG_INFO"] = "true"
+        os.environ["LITELLM_DROP_PARAMS"] = "true"
+        
+        # Disable cost calculation completely
+        try:
+            litellm.cost_calculator = None
+        except:
+            pass
+        
+        # Monkey patch the cost calculation to prevent warnings
+        try:
+            def dummy_cost_calculator(*args, **kwargs):
+                return None
+            litellm.response_cost_calculator = dummy_cost_calculator
+        except:
+            pass
+        
+        # Disable all debug output
+        try:
+            litellm.set_verbose = False
+            litellm.suppress_debug_info = True
+            litellm.drop_params = True
+        except:
+            pass
+        
         logger.info(f"Configured LiteLLM for {self.api_type} with model {self.model_string}")
     
     def get_generation_params(self, max_tokens: Optional[int] = None, temperature: Optional[float] = None) -> Dict[str, Any]:

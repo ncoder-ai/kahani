@@ -46,8 +46,11 @@ fi
 source .venv/bin/activate
 
 # Check and download AI models if needed
-MODEL_CACHE="$HOME/.cache/torch/sentence_transformers/"
-if [[ ! -d "$MODEL_CACHE" ]] || [[ $(find "$MODEL_CACHE" -type f | wc -l) -lt 10 ]]; then
+MODEL_CACHE="$HOME/.cache/huggingface/hub/"
+EMBEDDING_MODEL_CACHE="$HOME/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2"
+RERANKER_MODEL_CACHE="$HOME/.cache/huggingface/hub/models--cross-encoder--ms-marco-MiniLM-L-6-v2"
+
+if [[ ! -d "$EMBEDDING_MODEL_CACHE" ]] || [[ ! -d "$RERANKER_MODEL_CACHE" ]]; then
     echo -e "${BLUE}📦 Downloading AI models (one-time setup)...${NC}"
     cd backend
     python download_models.py || echo -e "${YELLOW}⚠️  Model download failed, will try at runtime${NC}"
