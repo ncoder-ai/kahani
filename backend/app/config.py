@@ -1,6 +1,8 @@
 from pydantic_settings import BaseSettings
 from typing import List, Optional
+from pydantic import field_validator
 import os
+import json
 
 class Settings(BaseSettings):
     # Application
@@ -52,7 +54,22 @@ class Settings(BaseSettings):
     extraction_confidence_threshold: int = 70  # Minimum confidence (0-100) for auto-extraction
     
     # CORS - Will be auto-configured based on deployment environment
-    cors_origins: List[str] = ["*"]  # Default, will be overridden by network config
+    cors_origins: str = "*"  # Default, will be overridden by network config
+    
+    @field_validator('cors_origins', mode='after')
+    @classmethod
+    def parse_cors_origins(cls, v):
+        """Parse CORS_ORIGINS from environment variable"""
+        if isinstance(v, str):
+            if v == "*":
+                return ["*"]
+            try:
+                # Try to parse as JSON array
+                return json.loads(v)
+            except (json.JSONDecodeError, ValueError):
+                # If not JSON, treat as comma-separated string
+                return [origin.strip() for origin in v.split(',')]
+        return v
     
     # File storage
     data_dir: str = "./data"
@@ -70,7 +87,7 @@ class Settings(BaseSettings):
     log_file: str = "./logs/kahani.log"
     
     class Config:
-        env_file = ".env"
+        env_file = "../.env"
         case_sensitive = False
 
 # Create global settings instance
