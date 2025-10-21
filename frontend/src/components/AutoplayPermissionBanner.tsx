@@ -7,11 +7,30 @@ export default function AutoplayPermissionBanner() {
   const { hasPermission, requestPermission } = useAutoplayPermission();
   const [isDismissed, setIsDismissed] = useState(false);
   const [isRequesting, setIsRequesting] = useState(false);
-  const [permissionGranted, setPermissionGranted] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
+  const [shouldHide, setShouldHide] = useState(false);
 
-  // Don't show if already has permission, user dismissed, or permission just granted
-  if (hasPermission || isDismissed || permissionGranted) {
+  // Watch for permission changes and trigger close animation
+  useEffect(() => {
+    if (hasPermission && !isClosing && !shouldHide) {
+      console.log('[Banner] Permission detected, starting close animation');
+      setIsClosing(true);
+      
+      // After animation completes, fully hide the banner
+      setTimeout(() => {
+        console.log('[Banner] Animation complete, banner will now hide');
+        setShouldHide(true);
+      }, 500);
+    }
+  }, [hasPermission, isClosing, shouldHide]);
+
+  // Don't show if already dismissed, or if animation completed
+  if (isDismissed || shouldHide) {
+    return null;
+  }
+  
+  // Also don't show if permission was granted before component mounted
+  if (hasPermission && !isClosing) {
     return null;
   }
 
@@ -21,13 +40,8 @@ export default function AutoplayPermissionBanner() {
     setIsRequesting(false);
     
     if (granted) {
-      console.log('[Autoplay] Permission granted!');
-      // Start closing animation
-      setIsClosing(true);
-      // Wait for animation, then hide
-      setTimeout(() => {
-        setPermissionGranted(true);
-      }, 500); // Match animation duration
+      console.log('[Autoplay] Permission granted - animation will trigger via useEffect');
+      // Animation and hiding handled by useEffect watching hasPermission
     } else {
       alert('Failed to enable autoplay. Please check your browser settings and try again.');
     }
