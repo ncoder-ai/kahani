@@ -89,8 +89,19 @@ async def startup_event():
     
     logger.info("Application startup complete")
 
+# Configure network settings
+from .utils.network_config import NetworkConfig
+network_config = NetworkConfig.get_deployment_config()
+
+# Update CORS origins based on deployment environment
+settings.cors_origins = network_config['cors_origins']
+
 # Add CORS middleware
 logger.info(f"CORS Origins: {settings.cors_origins}")
+logger.info(f"API URL: {network_config['api_url']}")
+logger.info(f"Frontend URL: {network_config['frontend_url']}")
+logger.info(f"Network IP: {network_config['network_ip']}")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,

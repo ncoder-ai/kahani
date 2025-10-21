@@ -59,9 +59,15 @@ else
     echo -e "${GREEN}✅ AI models already cached${NC}"
 fi
 
+# Setup environment if .env doesn't exist
+if [[ ! -f .env ]]; then
+    echo -e "${YELLOW}⚠️  .env file not found, setting up environment...${NC}"
+    ./setup-env.sh
+fi
+
 # Load environment variables from .env file at project root
 if [[ -f .env ]]; then
-    echo -e "${BLUE}Loading .env...${NC}"
+    echo -e "${BLUE}📄 Loading environment variables from .env${NC}"
     set -a
     source .env
     set +a
@@ -71,7 +77,7 @@ fi
 if [[ -f config.yaml ]]; then
     export BACKEND_PORT=$(grep -A 2 'backend:' config.yaml | grep 'port:' | grep -o '[0-9]*')
     export FRONTEND_PORT=$(grep -A 2 'frontend:' config.yaml | grep 'port:' | grep -o '[0-9]*')
-    export NEXT_PUBLIC_API_URL=$(grep -A 2 'frontend:' config.yaml | grep 'apiUrl:' | awk '{print $2}')
+    # API URL will be auto-detected by the network configuration utility
 fi
 
 # Set defaults

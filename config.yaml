@@ -8,7 +8,8 @@ server:
   
   frontend:
     port: 6789
-    apiUrl: http://localhost:9876
+    # API URL will be auto-detected or use environment variable
+    # apiUrl: ${KAHANI_API_URL:-auto}
 
 deployment:
   environment: development
