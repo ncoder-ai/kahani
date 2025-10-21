@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAutoplayPermission } from '@/hooks/useAutoplayPermission';
 
 export default function AutoplayPermissionBanner() {
@@ -8,6 +8,7 @@ export default function AutoplayPermissionBanner() {
   const [isDismissed, setIsDismissed] = useState(false);
   const [isRequesting, setIsRequesting] = useState(false);
   const [permissionGranted, setPermissionGranted] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
 
   // Don't show if already has permission, user dismissed, or permission just granted
   if (hasPermission || isDismissed || permissionGranted) {
@@ -21,7 +22,12 @@ export default function AutoplayPermissionBanner() {
     
     if (granted) {
       console.log('[Autoplay] Permission granted!');
-      setPermissionGranted(true); // Hide the banner immediately
+      // Start closing animation
+      setIsClosing(true);
+      // Wait for animation, then hide
+      setTimeout(() => {
+        setPermissionGranted(true);
+      }, 500); // Match animation duration
     } else {
       alert('Failed to enable autoplay. Please check your browser settings and try again.');
     }
@@ -32,7 +38,9 @@ export default function AutoplayPermissionBanner() {
   };
 
   return (
-    <div className="fixed top-20 right-4 left-4 md:left-auto md:w-96 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg shadow-lg p-4 z-[100] animate-slide-down">
+    <div className={`fixed top-20 right-4 left-4 md:left-auto md:w-96 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg shadow-lg p-4 z-[100] transition-all duration-500 ${
+      isClosing ? 'opacity-0 translate-y-4 scale-95' : 'opacity-100 translate-y-0 scale-100 animate-slide-down'
+    }`}>
       <div className="flex items-start gap-3">
         <div className="flex-shrink-0">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
