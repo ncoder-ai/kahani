@@ -10,7 +10,7 @@ export const metadata = {
   description: 'Create and explore AI-powered interactive stories',
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:9876';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876';
 
 export default function RootLayout({
   children,
