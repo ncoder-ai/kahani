@@ -236,7 +236,8 @@ frontend/out/
 
 # LM Studio cache and models (if stored locally)
 *.gguf
-models/
+/models/
+!backend/app/models/
 
 # SQLite databases
 *.sqlite
