@@ -665,8 +665,35 @@ async def generate_scene_streaming_endpoint(
                 if active_chapter:
                     chapter_id = active_chapter.id
                 
-                # Process embeddings
-                embedding_results = await process_scene_embeddings(
+            except Exception as e:
+                logger.error(f"Failed to extract chapter: {e}")
+            
+            # PRIORITY: Setup TTS IMMEDIATELY so user can start listening ASAP!
+            # This happens BEFORE semantic processing to minimize delay
+            auto_play_session_id = None
+            try:
+                auto_play_data = await setup_auto_play_if_enabled(
+                    scene.id, 
+                    current_user.id, 
+                    db,
+                    start_generation=False  # Generation starts when WebSocket connects
+                )
+                
+                if auto_play_data:
+                    auto_play_session_id = auto_play_data['session_id']
+                    # Send event immediately so frontend can connect NOW!
+                    yield f"data: {json.dumps(auto_play_data['event'])}\n\n"
+                    logger.info(f"[AUTO-PLAY] Sent auto_play_ready event (TTS can start now)")
+                    
+            except Exception as e:
+                logger.error(f"[AUTO-PLAY] Failed to setup: {e}")
+                # Don't fail scene generation if auto-play fails
+            
+            # NOW process embeddings in background (don't block TTS!)
+            try:
+                # Fire and forget - this happens asynchronously
+                import asyncio
+                asyncio.create_task(process_scene_embeddings(
                     scene_id=scene.id,
                     variant_id=variant.id,
                     story_id=story_id,
@@ -676,32 +703,11 @@ async def generate_scene_streaming_endpoint(
                     user_id=current_user.id,
                     user_settings=user_settings or {},
                     db=db
-                )
-                logger.info(f"Semantic processing results: {embedding_results}")
+                ))
+                logger.info(f"[SEMANTIC] Started background processing for scene {scene.id}")
             except Exception as e:
-                logger.error(f"Failed to process semantic embeddings: {e}")
+                logger.error(f"[SEMANTIC] Failed to start background processing: {e}")
                 # Don't fail scene generation if semantic processing fails
-            
-            # UNIFIED AUTO-PLAY SETUP - Create session but DON'T start generation yet!
-            # For streaming scenes, we want TTS to start AFTER frontend receives all content
-            auto_play_session_id = None
-            try:
-                auto_play_data = await setup_auto_play_if_enabled(
-                    scene.id, 
-                    current_user.id, 
-                    db,
-                    start_generation=False  # Don't start yet for streaming!
-                )
-                
-                if auto_play_data:
-                    auto_play_session_id = auto_play_data['session_id']
-                    # Send event immediately so frontend can connect while we generate choices
-                    yield f"data: {json.dumps(auto_play_data['event'])}\n\n"
-                    logger.info(f"[AUTO-PLAY] Sent auto_play_ready event (generation will start when WebSocket connects)")
-                    
-            except Exception as e:
-                logger.error(f"[AUTO-PLAY] Failed to setup: {e}")
-                # Don't fail scene generation if auto-play fails
             
             # NOW generate choices (in parallel with TTS generation!)
             choices_data = []
