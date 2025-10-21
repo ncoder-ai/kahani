@@ -30,8 +30,8 @@ check_requirements() {
     local missing_deps=()
     
     # Check for essential tools
-    if ! command_exists python3; then
-        missing_deps+=("python3")
+    if ! command_exists python3.11; then
+        missing_deps+=("python3.11")
     fi
     
     if ! command_exists node; then
@@ -52,7 +52,7 @@ check_requirements() {
     fi
     
     # Check Python version
-    python_version=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+    python_version=$(python3.11 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
     if [[ $(echo "$python_version" | cut -d. -f1) -lt 3 ]] || [[ $(echo "$python_version" | cut -d. -f2) -lt 11 ]]; then
         log_error "Python 3.11+ required, found: $python_version"
         log_info "Please upgrade Python manually"
@@ -75,7 +75,7 @@ setup_python_env() {
     log_info "Setting up Python virtual environment..."
     
     # Create virtual environment
-    python3 -m venv .venv
+    python3.11 -m venv .venv
     
     # Activate and upgrade pip
     source .venv/bin/activate
@@ -157,8 +157,8 @@ create_env_files() {
     cp .env.example .env
     
     # Generate secure secrets
-    SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
-    JWT_SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+    SECRET_KEY=$(python3.11 -c "import secrets; print(secrets.token_urlsafe(32))")
+    JWT_SECRET_KEY=$(python3.11 -c "import secrets; print(secrets.token_urlsafe(32))")
     
     # Update secrets in .env file
     if [[ "$OSTYPE" == "darwin"* ]]; then
