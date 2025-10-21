@@ -89,6 +89,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = "../.env"
         case_sensitive = False
+        extra = "ignore"  # Ignore frontend-specific and other extra env vars
 
 # Create global settings instance
 settings = Settings()
