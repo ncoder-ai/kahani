@@ -24,6 +24,8 @@ from app.models.writing_style_preset import WritingStylePreset
 from app.models.story_flow import StoryFlow
 from app.models.tts_settings import TTSSettings, SceneAudio
 from app.models.tts_provider_config import TTSProviderConfig
+from app.models.semantic_memory import CharacterMemory, PlotEvent, SceneEmbedding
+from app.models.entity_state import CharacterState, LocationState, ObjectState
 from app.config import Settings
 from passlib.context import CryptContext
 

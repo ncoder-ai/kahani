@@ -124,17 +124,20 @@ setup_database() {
     # Create required directories
     mkdir -p backend/data backend/backups backend/logs exports data/audio backend/data/chromadb
     
-    # Initialize database
+    # Initialize or update database
     if [[ -f backend/data/kahani.db ]]; then
-        log_warning "Database already exists, skipping initialization"
-        return
+        log_warning "Database already exists, updating schema..."
+        cd backend && python3.11 update_database_schema.py && cd .. || {
+            log_error "Failed to update database schema"
+            exit 1
+        }
+    else
+        log_info "Initializing database..."
+        cd backend && python3.11 init_database.py && cd .. || {
+            log_error "Database initialization failed"
+            exit 1
+        }
     fi
-    
-    log_info "Initializing database..."
-    cd backend && python init_database.py && cd .. || {
-        log_error "Database initialization failed"
-        exit 1
-    }
     
     log_success "Database setup complete"
 }
