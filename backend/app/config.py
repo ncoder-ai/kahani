@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     context_keep_recent_scenes: int = 3  # Always keep this many recent scenes
     context_summary_threshold: int = 5  # Summarize when story has more than this many scenes
     context_summary_threshold_tokens: int = 10000  # Summarize when total tokens exceed this threshold
+    context_token_buffer: float = 0.9  # Use 90% of max tokens as safety margin
     
     # Semantic Memory Configuration
     enable_semantic_memory: bool = True  # Enable semantic search and vector embeddings

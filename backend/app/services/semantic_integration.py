@@ -93,14 +93,17 @@ async def process_scene_embeddings(
     
     # Skip if semantic memory is disabled
     if not settings.enable_semantic_memory:
-        logger.debug("Semantic memory disabled, skipping embeddings")
+        logger.info("Semantic memory disabled, skipping embeddings")
         return results
     
     try:
+        logger.info(f"Starting semantic processing for scene {scene_id}")
         semantic_memory = get_semantic_memory_service()
+        logger.info(f"Semantic memory service obtained successfully")
         
         # 1. Create scene embedding
         try:
+            logger.info(f"Creating scene embedding for scene {scene_id}")
             embedding_id = await semantic_memory.add_scene_embedding(
                 scene_id=scene_id,
                 variant_id=variant_id,
@@ -115,11 +118,17 @@ async def process_scene_embeddings(
             
             # Store embedding reference in database
             from ..models import SceneEmbedding
+            import hashlib
+            
+            # Generate content hash for change detection
+            content_hash = hashlib.sha256(scene_content.encode('utf-8')).hexdigest()
+            
             scene_embedding = SceneEmbedding(
                 story_id=story_id,
                 scene_id=scene_id,
                 variant_id=variant_id,
                 embedding_id=embedding_id,
+                content_hash=content_hash,
                 sequence_order=sequence_number,
                 chapter_id=chapter_id,
                 content_length=len(scene_content)
@@ -132,6 +141,8 @@ async def process_scene_embeddings(
             
         except Exception as e:
             logger.error(f"Failed to create scene embedding: {e}")
+            import traceback
+            logger.error(f"Scene embedding traceback: {traceback.format_exc()}")
             db.rollback()
         
         # 2. Extract character moments (if enabled in user settings)
@@ -220,6 +231,8 @@ async def process_scene_embeddings(
         return results
     except Exception as e:
         logger.error(f"Unexpected error in semantic processing: {e}")
+        import traceback
+        logger.error(f"Semantic processing traceback: {traceback.format_exc()}")
         return results
 
 

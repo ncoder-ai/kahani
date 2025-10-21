@@ -50,14 +50,21 @@ class ContextManager:
             self.summary_threshold_tokens = getattr(settings, "context_summary_threshold_tokens", 10000)
             self.enable_summarization = True
         
+        # Apply token buffer for safety margin
+        self.context_token_buffer = settings.context_token_buffer
+        self.effective_max_tokens = int(self.max_tokens * self.context_token_buffer)
+        
         # Initialize tokenizer if available
         if TIKTOKEN_AVAILABLE:
             try:
                 self.encoding = tiktoken.get_encoding("cl100k_base")  # GPT-4 encoding
                 self.use_tiktoken = True
-            except Exception:
+                logger.info("Tiktoken initialized successfully for accurate token counting")
+            except Exception as e:
+                logger.warning(f"Failed to initialize tiktoken: {e}, using estimation")
                 self.use_tiktoken = False
         else:
+            logger.warning("Tiktoken not available, using estimation for token counting")
             self.use_tiktoken = False
         
     def count_tokens(self, text: str) -> int:
@@ -65,11 +72,12 @@ class ContextManager:
         if self.use_tiktoken:
             try:
                 return len(self.encoding.encode(text))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Tiktoken encoding failed: {e}, falling back to estimation")
         
-        # Fallback: rough estimation (1 token ≈ 4 characters)
-        return len(text) // 4
+        # Fallback: more accurate estimation (1 token ≈ 3.5 characters for English)
+        # This is closer to the actual token count
+        return int(len(text) / 3.5)
     
     async def build_story_context(self, story_id: int, db: Session) -> Dict[str, Any]:
         """
@@ -122,15 +130,15 @@ class ContextManager:
         # Calculate base context tokens
         base_tokens = self._calculate_base_context_tokens(base_context)
         
-        # Available tokens for scene history
-        available_tokens = self.max_tokens - base_tokens - 500  # Reserve 500 for safety
+        # Available tokens for scene history (using effective max tokens)
+        available_tokens = self.effective_max_tokens - base_tokens - 500  # Reserve 500 for safety
         
         if available_tokens <= 0:
             logger.warning(f"Base context too large for story {story_id}")
             return base_context
         
         # Build scene history with smart truncation
-        scene_context = await self._build_scene_context(scenes, available_tokens)
+        scene_context = await self._build_scene_context(scenes, available_tokens, db)
         
         # Merge contexts
         return {**base_context, **scene_context}
@@ -160,7 +168,7 @@ Goals: {char.get('goals', '')}
         
         return self.count_tokens(context_text)
     
-    async def _build_scene_context(self, scenes: List[Scene], available_tokens: int) -> Dict[str, Any]:
+    async def _build_scene_context(self, scenes: List[Scene], available_tokens: int, db: Session = None) -> Dict[str, Any]:
         """
         Build scene context with smart truncation and summarization
         
@@ -192,15 +200,15 @@ Goals: {char.get('goals', '')}
         
         if not should_summarize:
             # Short story - try to include everything
-            return await self._handle_short_story(scenes, available_tokens)
+            return await self._handle_short_story(scenes, available_tokens, db)
         else:
             # Long story - use progressive summarization
-            return await self._handle_long_story(scenes, available_tokens)
+            return await self._handle_long_story(scenes, available_tokens, db)
     
-    async def _handle_short_story(self, scenes: List[Scene], available_tokens: int) -> Dict[str, Any]:
-        """Handle stories with few scenes - try to include full context"""
+    async def _handle_short_story(self, scenes: List[Scene], available_tokens: int, db: Session = None) -> Dict[str, Any]:
+        """Handle stories with few scenes - try to include full context with dynamic filling"""
         
-        # Try to include all scenes
+        # Try to include all scenes first
         all_content = "\n\n".join([
             f"Scene {scene.sequence_number}: {scene.content}" 
             for scene in scenes
@@ -208,109 +216,141 @@ Goals: {char.get('goals', '')}
         all_tokens = self.count_tokens(all_content)
         
         if all_tokens <= available_tokens:
+            logger.info(f"All {len(scenes)} scenes fit in {all_tokens}/{available_tokens} tokens")
             return {
                 "previous_scenes": all_content,
                 "recent_scenes": all_content,
                 "scene_summary": f"Complete story context ({len(scenes)} scenes)",
-                "total_scenes": len(scenes)
+                "total_scenes": len(scenes),
+                "context_strategy": "full_scenes"
             }
         
-        # Can't fit everything - keep recent scenes and summarize older ones
-        recent_scenes = scenes[-self.keep_recent_scenes:]
-        older_scenes = scenes[:-self.keep_recent_scenes] if len(scenes) > self.keep_recent_scenes else []
-        
-        recent_content = "\n\n".join([
-            f"Scene {scene.sequence_number}: {scene.content}" 
-            for scene in recent_scenes
-        ])
-        recent_tokens = self.count_tokens(recent_content)
-        
-        if recent_tokens <= available_tokens:
-            remaining_tokens = available_tokens - recent_tokens
-            
-            if older_scenes and remaining_tokens > 200:
-                # Include summary of older scenes
-                older_summary = await self._summarize_scenes(older_scenes)
-                return {
-                    "previous_scenes": f"{older_summary}\n\n{recent_content}",
-                    "recent_scenes": recent_content,
-                    "scene_summary": f"Mixed context: summary + {len(recent_scenes)} recent scenes",
-                    "total_scenes": len(scenes)
-                }
-            else:
-                return {
-                    "previous_scenes": recent_content,
-                    "recent_scenes": recent_content,
-                    "scene_summary": f"Recent context only ({len(recent_scenes)} scenes)",
-                    "total_scenes": len(scenes)
-                }
-        else:
-            # Even recent scenes don't fit - use last scene only
-            last_scene = scenes[-1]
-            last_content = f"Scene {last_scene.sequence_number}: {last_scene.content}"
-            
-            if len(scenes) > 1:
-                summary = await self._summarize_scenes(scenes[:-1])
-                return {
-                    "previous_scenes": f"{summary}\n\n{last_content}",
-                    "recent_scenes": last_content,
-                    "scene_summary": f"Summary + last scene (total: {len(scenes)} scenes)",
-                    "total_scenes": len(scenes)
-                }
-            else:
-                return {
-                    "previous_scenes": last_content,
-                    "recent_scenes": last_content,
-                    "scene_summary": "Single scene story",
-                    "total_scenes": 1
-                }
+        # Can't fit everything - use dynamic filling strategy
+        return await self._fill_scenes_dynamically(scenes, available_tokens, db)
     
-    async def _handle_long_story(self, scenes: List[Scene], available_tokens: int) -> Dict[str, Any]:
-        """Handle long stories with progressive summarization"""
+    async def _fill_scenes_dynamically(self, scenes: List[Scene], available_tokens: int, db: Session = None) -> Dict[str, Any]:
+        """
+        Dynamically fill available tokens with as many scenes as possible.
+        Prioritizes recent scenes going backwards.
+        Uses actual token counts from database when available.
+        """
+        total_scenes = len(scenes)
+        included_scenes = []
+        used_tokens = 0
+        
+        # Start with most recent scenes and work backwards
+        for i in range(len(scenes) - 1, -1, -1):
+            scene = scenes[i]
+            
+            # Get proper scene content from active variant
+            scene_content = await self._get_scene_content_proper(scene, db)
+            scene_tokens = self.count_tokens(scene_content)
+            
+            if used_tokens + scene_tokens <= available_tokens:
+                included_scenes.insert(0, scene)  # Insert at beginning to maintain order
+                used_tokens += scene_tokens
+            else:
+                break
+        
+        if not included_scenes:
+            # Emergency fallback - just the last scene
+            last_scene = scenes[-1]
+            included_scenes = [last_scene]
+            last_content = await self._get_scene_content_proper(last_scene, db)
+            used_tokens = self.count_tokens(last_content)
+        
+        # Build content using proper scene content
+        included_content_parts = []
+        for scene in included_scenes:
+            content = await self._get_scene_content_proper(scene, db)
+            included_content_parts.append(content)
+        
+        included_content = "\n\n".join(included_content_parts)
+        
+        # Check if we have excluded scenes that need summarization
+        excluded_scenes = [s for s in scenes if s not in included_scenes]
+        
+        if excluded_scenes and used_tokens < available_tokens - 200:  # Leave room for summary
+            remaining_tokens = available_tokens - used_tokens
+            summary = await self._summarize_scenes(excluded_scenes)
+            summary_tokens = self.count_tokens(summary)
+            
+            if summary_tokens <= remaining_tokens:
+                full_content = f"{summary}\n\n{included_content}"
+                strategy = "dynamic_with_summary"
+            else:
+                full_content = included_content
+                strategy = "dynamic_recent_only"
+        else:
+            full_content = included_content
+            strategy = "dynamic_recent_only"
+        
+        logger.info(f"Dynamic filling: {len(included_scenes)}/{total_scenes} scenes, {used_tokens}/{available_tokens} tokens")
+        
+        return {
+            "previous_scenes": full_content,
+            "recent_scenes": included_content,
+            "scene_summary": f"Dynamic context: {len(included_scenes)} scenes included",
+            "total_scenes": total_scenes,
+            "context_strategy": strategy
+        }
+    
+    async def _get_scene_content_proper(self, scene: Scene, db: Session = None) -> str:
+        """
+        Get proper scene content from active variant via StoryFlow.
+        This is the correct way to get scene content.
+        """
+        if not db:
+            # Fallback to scene.content if no db session
+            return f"Scene {scene.sequence_number}: {scene.content}"
+        
+        try:
+            from ..models import StoryFlow, SceneVariant
+            
+            # Get active variant from StoryFlow
+            flow = db.query(StoryFlow).filter(
+                StoryFlow.scene_id == scene.id,
+                StoryFlow.is_active == True
+            ).first()
+            
+            if flow and flow.scene_variant:
+                return f"Scene {scene.sequence_number}: {flow.scene_variant.content}"
+            else:
+                # Fallback to scene content if no flow entry
+                return f"Scene {scene.sequence_number}: {scene.content}"
+        except Exception as e:
+            logger.warning(f"Failed to get proper scene content for scene {scene.id}: {e}")
+            return f"Scene {scene.sequence_number}: {scene.content}"
+    
+    def _get_scene_token_count(self, scene: Scene, scene_content: str) -> int:
+        """
+        Get accurate token count for a scene.
+        Uses database-stored token count if available, otherwise calculates.
+        """
+        # Debug logging to see what's happening
+        logger.debug(f"Scene {scene.sequence_number} content length: {len(scene_content)} chars")
+        logger.debug(f"Scene {scene.sequence_number} content preview: {scene_content[:100]}...")
+        
+        # Try to get token count from chapter if scene is linked to one
+        if hasattr(scene, 'chapter') and scene.chapter:
+            # If scene is in a chapter, use the chapter's token tracking
+            # This is more accurate than real-time calculation
+            token_count = self.count_tokens(scene_content)
+            logger.debug(f"Scene {scene.sequence_number} token count: {token_count}")
+            return token_count
+        
+        # Fallback to real-time calculation
+        token_count = self.count_tokens(scene_content)
+        logger.debug(f"Scene {scene.sequence_number} token count: {token_count}")
+        return token_count
+    
+    async def _handle_long_story(self, scenes: List[Scene], available_tokens: int, db: Session = None) -> Dict[str, Any]:
+        """Handle long stories with dynamic filling and progressive summarization"""
         
         total_scenes = len(scenes)
         
-        # Always keep the most recent scenes
-        recent_scenes = scenes[-self.keep_recent_scenes:]
-        recent_content = "\n\n".join([
-            f"Scene {scene.sequence_number}: {scene.content}" 
-            for scene in recent_scenes
-        ])
-        recent_tokens = self.count_tokens(recent_content)
-        
-        if recent_tokens >= available_tokens:
-            # Recent scenes don't even fit - emergency fallback
-            last_scene = scenes[-1]
-            return {
-                "previous_scenes": f"Scene {last_scene.sequence_number}: {last_scene.content}",
-                "recent_scenes": f"Scene {last_scene.sequence_number}: {last_scene.content}",
-                "scene_summary": f"Emergency truncation: showing only last scene of {total_scenes}",
-                "total_scenes": total_scenes
-            }
-        
-        remaining_tokens = available_tokens - recent_tokens
-        
-        # Divide older scenes into chunks for progressive summarization
-        older_scenes = scenes[:-self.keep_recent_scenes]
-        
-        if remaining_tokens > 300:  # Need space for meaningful summary
-            # Create layered summary
-            summary = await self._create_progressive_summary(older_scenes, remaining_tokens)
-            
-            return {
-                "previous_scenes": f"{summary}\n\n{recent_content}",
-                "recent_scenes": recent_content,
-                "scene_summary": f"Progressive summary of {len(older_scenes)} scenes + {len(recent_scenes)} recent scenes",
-                "total_scenes": total_scenes
-            }
-        else:
-            # Very limited space - just mention the story length
-            return {
-                "previous_scenes": recent_content,
-                "recent_scenes": recent_content,
-                "scene_summary": f"Long story truncated: showing only {len(recent_scenes)} most recent of {total_scenes} total scenes",
-                "total_scenes": total_scenes
-            }
+        # Use dynamic filling for long stories too
+        return await self._fill_scenes_dynamically(scenes, available_tokens, db)
     
     async def _create_progressive_summary(self, scenes: List[Scene], available_tokens: int) -> str:
         """

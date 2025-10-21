@@ -6,7 +6,7 @@ for intelligent context retrieval in long-form narratives.
 """
 
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from sqlalchemy.orm import Session
 
 from .context_manager import ContextManager
@@ -122,8 +122,8 @@ class SemanticContextManager(ContextManager):
         base_context = await self._get_base_context(story_id, db)
         base_tokens = self._calculate_base_context_tokens(base_context)
         
-        # Available tokens for scene history
-        available_tokens = self.max_tokens - base_tokens - 500  # Safety buffer
+        # Available tokens for scene history (using effective max tokens)
+        available_tokens = self.effective_max_tokens - base_tokens - 500  # Safety buffer
         
         if available_tokens <= 0:
             logger.warning(f"Base context too large for story {story_id}")
@@ -173,15 +173,26 @@ class SemanticContextManager(ContextManager):
                 "context_type": "recent_only"
             }
         
-        # Allocate tokens for different context types (adjusted for entity states)
-        semantic_tokens = int(remaining_tokens * 0.45)    # 45% for semantic scenes
-        character_tokens = int(remaining_tokens * 0.20)   # 20% for character context
-        entity_tokens = int(remaining_tokens * 0.20)      # 20% for entity states (NEW!)
-        summary_tokens = int(remaining_tokens * 0.15)     # 15% for summaries
+        # Dynamic allocation: prioritize recent scenes, then semantic
+        # 50% for additional recent scenes (going backwards)
+        # 25% for semantic scenes
+        # 15% for character moments  
+        # 5% for entity states
+        # 5% for chapter summaries
+        additional_recent_tokens = int(remaining_tokens * 0.50)
+        semantic_tokens = int(remaining_tokens * 0.25)
+        character_tokens = int(remaining_tokens * 0.15)
+        entity_tokens = int(remaining_tokens * 0.05)
+        summary_tokens = int(remaining_tokens * 0.05)
+        
+        # Get additional recent scenes dynamically
+        additional_recent_content, additional_recent_scenes = await self._add_recent_scenes_dynamically(
+            scenes, len(recent_scenes), additional_recent_tokens, db
+        )
         
         # Get semantically relevant scenes
         semantic_content = await self._get_semantic_scenes(
-            story_id, recent_scenes, semantic_tokens, db
+            story_id, recent_scenes + additional_recent_scenes, semantic_tokens, db
         )
         
         # Get character-specific context
@@ -612,6 +623,73 @@ class SemanticContextManager(ContextManager):
         except Exception as e:
             logger.error(f"Failed to get entity states: {e}")
             return None
+    
+    async def _get_scene_content_proper(self, scene: Scene, db: Session = None) -> str:
+        """
+        Get proper scene content from active variant via StoryFlow.
+        This is the correct way to get scene content.
+        """
+        if not db:
+            # Fallback to scene.content if no db session
+            return f"Scene {scene.sequence_number}: {scene.content}"
+        
+        try:
+            from ..models import StoryFlow, SceneVariant
+            
+            # Get active variant from StoryFlow
+            flow = db.query(StoryFlow).filter(
+                StoryFlow.scene_id == scene.id,
+                StoryFlow.is_active == True
+            ).first()
+            
+            if flow and flow.scene_variant:
+                return f"Scene {scene.sequence_number}: {flow.scene_variant.content}"
+            else:
+                # Fallback to scene content if no flow entry
+                return f"Scene {scene.sequence_number}: {scene.content}"
+        except Exception as e:
+            logger.warning(f"Failed to get proper scene content for scene {scene.id}: {e}")
+            return f"Scene {scene.sequence_number}: {scene.content}"
+
+    async def _add_recent_scenes_dynamically(
+        self,
+        scenes: List[Scene],
+        min_recent_count: int,
+        available_tokens: int,
+        db: Session
+    ) -> Tuple[str, List[Scene]]:
+        """
+        Add as many recent scenes as possible within token budget.
+        Starts with minimum, adds more going backwards.
+        """
+        if not scenes or available_tokens <= 0:
+            return "", []
+        
+        included_scenes = []
+        used_tokens = 0
+        
+        # Start from the most recent scenes and work backwards
+        for i in range(len(scenes) - 1, -1, -1):
+            scene = scenes[i]
+            # Use proper scene content retrieval
+            scene_content = await self._get_scene_content_proper(scene, db)
+            scene_tokens = self.count_tokens(scene_content)
+            
+            if used_tokens + scene_tokens <= available_tokens:
+                included_scenes.insert(0, scene)  # Insert at beginning to maintain order
+                used_tokens += scene_tokens
+            else:
+                break
+        
+        # Build content
+        content = "\n\n".join([
+            f"Scene {scene.sequence_number}: {scene.content}" 
+            for scene in included_scenes
+        ])
+        
+        logger.info(f"Dynamic recent scenes: {len(included_scenes)} scenes, {used_tokens}/{available_tokens} tokens")
+        
+        return content, included_scenes
 
 
 # Global instance factory
