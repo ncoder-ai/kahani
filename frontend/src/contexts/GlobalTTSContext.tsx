@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react';
+import { useAutoplayPermission } from '@/hooks/useAutoplayPermission';
 
 interface TTSMessage {
   type: string;
@@ -54,6 +55,9 @@ interface GlobalTTSProviderProps {
 }
 
 export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, apiBaseUrl }) => {
+  // Autoplay permission
+  const { hasPermission } = useAutoplayPermission();
+  
   // State
   const [isPlaying, setIsPlaying] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -118,9 +122,18 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
       isPlayingRef.current = true;
     }).catch(err => {
       console.error('[Global TTS] Failed to play chunk:', err);
-      setError('Failed to play audio chunk');
+      
+      // Check if this is an autoplay permission issue
+      if (err.name === 'NotAllowedError' && !hasPermission) {
+        setError('Please enable audio autoplay in the banner above');
+      } else {
+        setError(`Playback failed: ${err.message}`);
+      }
+      
+      isPlayingRef.current = false;
+      setIsPlaying(false);
     });
-  }, []);
+  }, [hasPermission]);
   
   /**
    * Handle WebSocket messages
