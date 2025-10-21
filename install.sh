@@ -70,15 +70,15 @@ check_requirements() {
         exit 1
     fi
     
-    # Check available disk space (need at least 2GB)
+    # Check available disk space (need at least 5GB for models)
     if [[ "$OS" == "linux" ]]; then
         available_space=$(df -BG . | awk 'NR==2 {print $4}' | sed 's/G//')
     else
         available_space=$(df -g . | awk 'NR==2 {print $4}')
     fi
     
-    if [[ $available_space -lt 2 ]]; then
-        log_warning "Low disk space: ${available_space}GB available. Recommended: 2GB+"
+    if [[ $available_space -lt 5 ]]; then
+        log_warning "Low disk space: ${available_space}GB available. Recommended: 5GB+ (includes AI models)"
     fi
     
     log_success "System requirements check passed"
@@ -190,6 +190,24 @@ setup_nodejs_env() {
     log_success "Node.js environment setup complete"
 }
 
+# Download AI models
+download_ai_models() {
+    log_info "Downloading AI models for semantic memory..."
+    log_info "This may take several minutes depending on your internet connection..."
+    
+    # Activate Python environment
+    source .venv/bin/activate
+    
+    cd backend
+    python download_models.py || {
+        log_warning "Model download failed, but installation will continue"
+        log_info "You can download models later by running: cd backend && python download_models.py"
+    }
+    cd ..
+    
+    log_success "AI models download complete"
+}
+
 # Setup database
 setup_database() {
     log_info "Setting up database..."
@@ -198,11 +216,11 @@ setup_database() {
     source .venv/bin/activate
     
     # Create required directories
-    mkdir -p backend/data backend/backups backend/logs exports
+    mkdir -p backend/data backend/backups backend/logs exports data/audio backend/data/chromadb
     
     # Check if database already exists
     if [[ -f backend/data/kahani.db ]]; then
-        log_info "Database already exists, skipping initialization"
+        log_warning "Database already exists, skipping initialization"
         log_info "To recreate database, delete backend/data/kahani.db and run: cd backend && python init_database.py"
         return
     fi
@@ -221,244 +239,40 @@ setup_database() {
 create_env_files() {
     log_info "Creating environment configuration files..."
     
-    # Backend .env
-    if [[ ! -f backend/.env ]]; then
-        # Generate a random secret key
-        SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
-        JWT_SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
-        
-        cat > backend/.env << EOF
-# Kahani Backend Configuration
-APP_NAME="Kahani"
-APP_VERSION="1.0.0"
-DEBUG=true
-LOG_LEVEL="INFO"
-LOG_FILE="logs/kahani.log"
-
-# Security
-SECRET_KEY="$SECRET_KEY"
-JWT_SECRET_KEY="$JWT_SECRET_KEY"
-ACCESS_TOKEN_EXPIRE_MINUTES=720
-
-# Default Admin Account
-ADMIN_EMAIL="admin@kahani.local"
-ADMIN_PASSWORD="admin123"
-
-# Database
-DATABASE_URL="sqlite:///./data/kahani.db"
-
-# CORS
-CORS_ORIGINS=["http://localhost:6789", "http://localhost:3001", "http://127.0.0.1:6789", "http://0.0.0.0:6789"]
-
-# LLM Configuration (LM Studio defaults)
-LLM_BASE_URL="http://localhost:1234/v1"
-LLM_API_KEY="not-needed-for-local"
-LLM_MODEL="local-model"
-LLM_MAX_TOKENS=2048
-LLM_TEMPERATURE=0.7
-
-# Context Management
-MAX_CONTEXT_TOKENS=8000
-CONTEXT_WARNING_THRESHOLD=6400
-
-# Scene Generation
-DEFAULT_SCENE_LENGTH="medium"
-SCENE_GENERATION_TIMEOUT=60
-
-# TTS Configuration (Optional)
-TTS_ENABLED=false
-TTS_PROVIDER="chatterbox"
-TTS_API_URL="http://localhost:8010"
-
-# Storage
-UPLOAD_DIR="./uploads"
-EXPORT_DIR="./exports"
-BACKUP_DIR="./backups"
-EOF
-        log_success "Created backend/.env file with auto-generated secrets"
-        log_warning "⚠️  Default admin credentials: admin@kahani.local / admin123"
-        log_warning "⚠️  Please change these credentials after first login!"
-    else
-        log_info "backend/.env already exists, skipping..."
+    # Check if .env already exists in root
+    if [[ -f .env ]]; then
+        log_info ".env file already exists, skipping..."
+        return
     fi
     
-    # Frontend .env.local
-    if [[ ! -f frontend/.env.local ]]; then
-        cat > frontend/.env.local << EOF
-# Kahani Frontend Configuration
-NEXT_PUBLIC_API_BASE_URL=http://localhost:9876
-
-# Optional: Analytics and monitoring
-# NEXT_PUBLIC_GA_ID=your-google-analytics-id
-EOF
-        log_success "Created frontend/.env.local file"
-    else
-        log_info "frontend/.env.local already exists, skipping..."
+    # Check if .env.example exists
+    if [[ ! -f .env.example ]]; then
+        log_error ".env.example not found! Cannot create .env file."
+        log_info "This file should be in the repository."
+        exit 1
     fi
     
+    # Copy .env.example to .env
+    log_info "Creating .env file from .env.example..."
+    cp .env.example .env
+    
+    # Generate secure secrets and replace placeholders
+    SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+    JWT_SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+    
+    # Update secrets in .env file
+    if [[ "$OS" == "macos" ]]; then
+        sed -i '' "s|SECRET_KEY=.*|SECRET_KEY=\"$SECRET_KEY\"|g" .env
+        sed -i '' "s|JWT_SECRET_KEY=.*|JWT_SECRET_KEY=\"$JWT_SECRET_KEY\"|g" .env
+    else
+        sed -i "s|SECRET_KEY=.*|SECRET_KEY=\"$SECRET_KEY\"|g" .env
+        sed -i "s|JWT_SECRET_KEY=.*|JWT_SECRET_KEY=\"$JWT_SECRET_KEY\"|g" .env
+    fi
+    
+    log_success "Created .env file with auto-generated secrets"
+    log_warning "⚠️  Default admin credentials: admin@kahani.local / admin123"
+    log_warning "⚠️  Please change these credentials after first login!"
     log_success "Environment files created"
-}
-
-# Create startup scripts
-create_startup_scripts() {
-    log_info "Creating startup scripts..."
-    
-    # Development startup script
-    cat > start-dev.sh << 'EOF'
-#!/bin/bash
-# Kahani Development Startup Script
-
-set -e
-
-echo "🚀 Starting Kahani in development mode..."
-
-# Check if virtual environment exists
-if [[ ! -d ".venv" ]]; then
-    echo "❌ Error: Virtual environment not found!"
-    echo "Please run ./install.sh first"
-    exit 1
-fi
-
-# Check if backend/.env exists
-if [[ ! -f "backend/.env" ]]; then
-    echo "❌ Error: Backend configuration not found!"
-    echo "Please run ./install.sh first"
-    exit 1
-fi
-
-# Check if database exists
-if [[ ! -f "backend/data/kahani.db" ]]; then
-    echo "❌ Error: Database not initialized!"
-    echo "Please run ./install.sh first"
-    exit 1
-fi
-
-# Function to handle cleanup
-cleanup() {
-    echo ""
-    echo "🛑 Shutting down Kahani..."
-    kill $(jobs -p) 2>/dev/null || true
-    exit 0
-}
-
-# Set up signal handlers
-trap cleanup SIGINT SIGTERM
-
-# Start backend
-echo "📡 Starting backend server..."
-cd backend
-source ../.venv/bin/activate
-export PYTHONPATH=$(pwd)
-export $(grep -v '^#' .env | xargs)
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 9876 2>&1 | sed 's/^/[BACKEND] /' &
-BACKEND_PID=$!
-cd ..
-
-# Wait for backend to start
-echo "⏳ Waiting for backend to start..."
-sleep 5
-
-# Check if backend is running
-if ! curl -s http://localhost:9876/health > /dev/null 2>&1; then
-    echo "⚠️  Warning: Backend might not be responding yet, giving it more time..."
-    sleep 3
-fi
-
-# Start frontend
-echo "🎨 Starting frontend server..."
-cd frontend
-npm run dev 2>&1 | sed 's/^/[FRONTEND] /' &
-FRONTEND_PID=$!
-cd ..
-
-echo ""
-echo "✅ Kahani is running!"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "📖 Frontend:     http://localhost:6789"
-echo "📡 Backend API:  http://localhost:9876"
-echo "📚 API Docs:     http://localhost:9876/docs"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo ""
-echo "💡 Default login: test@test.com / test"
-echo "🔧 Admin login:   admin@kahani.local / admin123"
-echo ""
-echo "⚠️  Make sure LM Studio is running at http://localhost:1234"
-echo "   or update LLM_BASE_URL in backend/.env"
-echo ""
-echo "Press Ctrl+C to stop all servers"
-
-# Wait for both processes
-wait
-EOF
-    
-    chmod +x start-dev.sh
-    
-    # Production startup script
-    cat > start-prod.sh << 'EOF'
-#!/bin/bash
-# Kahani Production Startup Script
-
-set -e
-
-echo "🚀 Starting Kahani in production mode..."
-
-# Check if virtual environment exists
-if [[ ! -d ".venv" ]]; then
-    echo "❌ Error: Virtual environment not found!"
-    echo "Please run ./install.sh first"
-    exit 1
-fi
-
-# Function to handle cleanup
-cleanup() {
-    echo ""
-    echo "🛑 Shutting down Kahani..."
-    kill $(jobs -p) 2>/dev/null || true
-    exit 0
-}
-
-# Set up signal handlers
-trap cleanup SIGINT SIGTERM
-
-# Build frontend
-echo "🔨 Building frontend..."
-cd frontend
-npm run build
-cd ..
-
-# Start backend
-echo "📡 Starting backend server..."
-cd backend
-source ../.venv/bin/activate
-export PYTHONPATH=$(pwd)
-export $(grep -v '^#' .env | xargs)
-python -m uvicorn app.main:app --host 0.0.0.0 --port 9876 --workers 4 2>&1 | sed 's/^/[BACKEND] /' &
-BACKEND_PID=$!
-cd ..
-
-# Start frontend
-echo "🎨 Starting frontend server..."
-cd frontend
-npm start 2>&1 | sed 's/^/[FRONTEND] /' &
-FRONTEND_PID=$!
-cd ..
-
-echo ""
-echo "✅ Kahani is running in production mode!"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "🌐 Application:  http://localhost:6789"
-echo "📡 Backend API:  http://localhost:9876"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo ""
-echo "Press Ctrl+C to stop all servers"
-
-# Wait for both processes
-wait
-EOF
-    
-    chmod +x start-prod.sh
-    
-    log_success "Startup scripts created"
 }
 
 # Verify installation
@@ -484,18 +298,11 @@ verify_installation() {
     fi
     
     # Check configuration files
-    if [[ ! -f "backend/.env" ]]; then
-        log_error "Backend configuration missing"
+    if [[ ! -f ".env" ]]; then
+        log_error "Root .env configuration missing"
         ((errors++))
     else
-        log_success "Backend config: OK"
-    fi
-    
-    if [[ ! -f "frontend/.env.local" ]]; then
-        log_error "Frontend configuration missing"
-        ((errors++))
-    else
-        log_success "Frontend config: OK"
+        log_success "Configuration: OK"
     fi
     
     # Check startup scripts
@@ -521,6 +328,19 @@ verify_installation() {
     else
         log_success "Backend dependencies: OK"
     fi
+    
+    # Check AI models
+    MODEL_CACHE="$HOME/.cache/huggingface/hub/"
+    EMBEDDING_MODEL_CACHE="$MODEL_CACHE/models--sentence-transformers--all-MiniLM-L6-v2"
+    RERANKER_MODEL_CACHE="$MODEL_CACHE/models--cross-encoder--ms-marco-MiniLM-L-6-v2"
+    
+    if [[ ! -d "$EMBEDDING_MODEL_CACHE" ]] || [[ ! -d "$RERANKER_MODEL_CACHE" ]]; then
+        log_warning "AI models may not be fully downloaded"
+        log_info "Run: cd backend && python download_models.py"
+    else
+        log_success "AI models: OK"
+    fi
+    
     deactivate
     
     if [[ $errors -gt 0 ]]; then
@@ -558,14 +378,14 @@ main() {
     setup_python_env
     setup_nodejs_env
     
+    # Download AI models
+    download_ai_models
+    
     # Setup database
     setup_database
     
     # Create configuration files
     create_env_files
-    
-    # Create startup scripts
-    create_startup_scripts
     
     # Verify installation
     verify_installation
@@ -576,8 +396,7 @@ main() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
     echo "📋 Configuration Files Created:"
-    echo "   ✓ backend/.env          (Backend configuration)"
-    echo "   ✓ frontend/.env.local   (Frontend configuration)"
+    echo "   ✓ .env                  (Application configuration)"
     echo ""
     echo "🔐 Default Accounts Created:"
     echo "   • User:  test@test.com / test"
@@ -588,28 +407,48 @@ main() {
     echo "   Development:  ./start-dev.sh"
     echo "   Production:   ./start-prod.sh"
     echo ""
-    echo "🌐 Access URLs:"
+    echo "🌐 Access URLs (Development):"
     echo "   Application:       http://localhost:6789"
     echo "   API:              http://localhost:9876"
     echo "   API Documentation: http://localhost:9876/docs"
     echo ""
+    echo "🌐 Network Access:"
+    echo "   • Application auto-detects network IP"
+    echo "   • Access from other devices: http://<your-ip>:6789"
+    echo "   • CORS is configured for network access"
+    echo ""
     echo "🤖 LLM Configuration:"
-    echo "   • Make sure LM Studio is running at http://localhost:1234"
-    echo "   • Or update LLM_BASE_URL in backend/.env"
+    echo "   • Default: LM Studio at http://localhost:1234"
+    echo "   • Update in Settings page after login"
+    echo "   • Or edit .env file: LLM_BASE_URL"
+    echo ""
+    echo "🧠 AI Models:"
+    echo "   • Semantic memory models downloaded"
+    echo "   • Located in: ~/.cache/huggingface/hub/"
+    echo "   • Re-download: cd backend && python download_models.py"
     echo ""
     echo "📚 Documentation:"
     echo "   • README.md              - Project overview"
-    echo "   • docs/                  - Detailed documentation"
-    echo "   • backend/.env           - Backend configuration"
+    echo "   • QUICK_START.md         - Quick start guide"
+    echo "   • CONFIGURATION_GUIDE.md - Configuration details"
+    echo "   • docs/                  - Feature documentation"
     echo ""
     echo "💡 Troubleshooting:"
     echo "   • Check logs: backend/logs/kahani.log"
     echo "   • Verify database: backend/data/kahani.db"
     echo "   • Test API: curl http://localhost:9876/health"
+    echo "   • Network issues: Check .env CORS_ORIGINS"
+    echo ""
+    echo "🎯 Next Steps:"
+    echo "   1. Start the application: ./start-dev.sh"
+    echo "   2. Open http://localhost:6789 in your browser"
+    echo "   3. Login with test@test.com / test"
+    echo "   4. Configure LLM settings in Settings page"
+    echo "   5. Start creating stories!"
     echo ""
     echo "❓ Need Help?"
-    echo "   • GitHub Issues: https://github.com/ncoder-ai/kahani/issues"
-    echo "   • Documentation: See docs/ directory"
+    echo "   • GitHub: https://github.com/ncoder-ai/kahani"
+    echo "   • Issues: https://github.com/ncoder-ai/kahani/issues"
     echo ""
 }
 
