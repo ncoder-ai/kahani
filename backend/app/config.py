@@ -50,9 +50,8 @@ class Settings(BaseSettings):
     auto_extract_plot_events: bool = True  # Automatically extract plot events
     extraction_confidence_threshold: int = 70  # Minimum confidence (0-100) for auto-extraction
     
-    # CORS - Allow all origins for local development
-    # In production, this should be restricted to specific domains
-    cors_origins: List[str] = ["*"]  # Allow all origins for local network access
+    # CORS - Will be auto-configured based on deployment environment
+    cors_origins: List[str] = ["*"]  # Default, will be overridden by network config
     
     # File storage
     data_dir: str = "./data"
@@ -70,7 +69,7 @@ class Settings(BaseSettings):
     log_file: str = "./logs/kahani.log"
     
     class Config:
-        env_file = "/Users/nishant/apps/kahani/.env"
+        env_file = ".env"
         case_sensitive = False
 
 # Create global settings instance
