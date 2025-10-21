@@ -7,9 +7,10 @@ export default function AutoplayPermissionBanner() {
   const { hasPermission, requestPermission } = useAutoplayPermission();
   const [isDismissed, setIsDismissed] = useState(false);
   const [isRequesting, setIsRequesting] = useState(false);
+  const [permissionGranted, setPermissionGranted] = useState(false);
 
-  // Don't show if already has permission or user dismissed
-  if (hasPermission || isDismissed) {
+  // Don't show if already has permission, user dismissed, or permission just granted
+  if (hasPermission || isDismissed || permissionGranted) {
     return null;
   }
 
@@ -19,8 +20,8 @@ export default function AutoplayPermissionBanner() {
     setIsRequesting(false);
     
     if (granted) {
-      // Banner will auto-hide when hasPermission becomes true
       console.log('[Autoplay] Permission granted!');
+      setPermissionGranted(true); // Hide the banner immediately
     } else {
       alert('Failed to enable autoplay. Please check your browser settings and try again.');
     }
@@ -31,7 +32,7 @@ export default function AutoplayPermissionBanner() {
   };
 
   return (
-    <div className="fixed top-4 right-4 left-4 md:left-auto md:w-96 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg shadow-lg p-4 z-50 animate-slide-down">
+    <div className="fixed top-20 right-4 left-4 md:left-auto md:w-96 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg shadow-lg p-4 z-[100] animate-slide-down">
       <div className="flex items-start gap-3">
         <div className="flex-shrink-0">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
