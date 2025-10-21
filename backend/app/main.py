@@ -1,3 +1,6 @@
+# Import LiteLLM logging configuration FIRST to suppress debug output
+from .utils.litellm_logging import configure_litellm_logging, suppress_httpcore_logging
+
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,6 +40,37 @@ app = FastAPI(
 async def startup_event():
     """Initialize services on application startup"""
     logger.info("Initializing services...")
+    
+    # Configure LiteLLM to suppress cost calculation warnings
+    try:
+        import litellm
+        import os
+        
+        # Disable verbose logging and cost calculation warnings
+        litellm.set_verbose = False
+        litellm.suppress_debug_info = True
+        litellm.drop_params = True
+        
+        # Set environment variables to suppress warnings
+        os.environ["LITELLM_LOG"] = "ERROR"
+        os.environ["LITELLM_LOG_LEVEL"] = "ERROR"
+        os.environ["LITELLM_SUPPRESS_DEBUG_INFO"] = "true"
+        os.environ["LITELLM_DROP_PARAMS"] = "true"
+        
+        # Disable cost calculation completely
+        litellm.cost_calculator = None
+        
+        # Additional suppression
+        try:
+            litellm.set_verbose = False
+            litellm.suppress_debug_info = True
+            litellm.drop_params = True
+        except:
+            pass
+        
+        logger.info("LiteLLM configured to suppress cost calculation warnings")
+    except Exception as e:
+        logger.warning(f"Failed to configure LiteLLM warnings suppression: {e}")
     
     # Initialize semantic memory service if enabled (lazy-loaded, won't download models yet)
     if settings.enable_semantic_memory:

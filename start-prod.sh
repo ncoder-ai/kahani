@@ -1,8 +1,27 @@
 #!/bin/bash
 # Production startup script for Docker container
+# ⚠️  THIS SCRIPT IS FOR DOCKER CONTAINERS ONLY ⚠️
+# For bare-metal/development, use: ./start-dev.sh
+#
 # Starts both backend and frontend with correct ports
 
 set -e
+
+# Check if we're inside a Docker container
+if [ ! -d "/app/backend" ]; then
+    echo "❌ ERROR: This script is designed to run inside a Docker container"
+    echo ""
+    echo "📍 You're trying to run it on bare-metal (your local machine)"
+    echo ""
+    echo "✅ For local development, use:"
+    echo "   ./start-dev.sh"
+    echo ""
+    echo "🐳 For production (Docker), use:"
+    echo "   docker build -t kahani ."
+    echo "   docker run -p 9876:9876 -p 6789:6789 kahani"
+    echo ""
+    exit 1
+fi
 
 echo "🚀 Starting Kahani Production Services..."
 

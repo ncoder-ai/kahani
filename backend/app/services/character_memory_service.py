@@ -282,7 +282,7 @@ Only include moments that are significant for character development or plot. Ski
                     'moment_type': moment.moment_type.value,
                     'content': moment.content,
                     'confidence': moment.confidence_score,
-                    'timestamp': moment.created_at.isoformat() if moment.created_at else None
+                    'timestamp': moment.created_at.isoformat() if moment.created_at else datetime.utcnow().isoformat()
                 })
             
             return arc
@@ -377,7 +377,7 @@ Only include moments that are significant for character development or plot. Ski
                     'sequence': moment.sequence_order,
                     'content': moment.content,
                     'confidence': moment.confidence_score,
-                    'timestamp': moment.created_at.isoformat() if moment.created_at else None
+                    'timestamp': moment.created_at.isoformat() if moment.created_at else datetime.utcnow().isoformat()
                 })
             
             return relationships

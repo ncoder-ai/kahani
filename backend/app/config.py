@@ -66,7 +66,7 @@ class Settings(BaseSettings):
     enable_public_stories: bool = False
     
     # Logging
-    log_level: str = "INFO"
+    log_level: str = "DEBUG"  # Changed to DEBUG to see semantic operations
     log_file: str = "./logs/kahani.log"
     
     class Config:

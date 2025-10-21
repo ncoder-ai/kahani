@@ -34,6 +34,16 @@ Your advanced context management system is **fully configured** and **ready to u
 
 ## 🚀 Just Run It!
 
+### 📋 Available Scripts
+
+| Script | Use Case | Environment |
+|--------|----------|-------------|
+| `./start-dev.sh` | **Development** (Frontend + Backend) | Bare-metal ✅ |
+| `./start-backend.sh` | **Backend only** (for API testing) | Bare-metal ✅ |
+| `./start-prod.sh` | **Production** (inside container) | Docker only 🐳 |
+
+---
+
 ### Development (Frontend + Backend)
 ```bash
 ./start-dev.sh
@@ -44,6 +54,7 @@ Your advanced context management system is **fully configured** and **ready to u
 - ✅ Start backend on port 9876
 - ✅ Start frontend on port 6789
 - ✅ Auto-reload on changes
+- ✅ Works on your local machine
 
 ### Backend Only
 ```bash
@@ -61,7 +72,7 @@ docker run -p 8000:9876 -p 3000:6789 kahani
 
 Models are **pre-cached** in the Docker image!
 
-**Note:** Container uses same ports internally (9876 backend, 6789 frontend) as development.
+**⚠️  Note:** Do NOT run `./start-prod.sh` on your local machine - it's for Docker containers only. The container will automatically execute it internally.
 
 ---
 
@@ -185,13 +196,27 @@ docker build -t kahani .
 
 ### Run Docker Container
 ```bash
+# Standard ports (same as development)
 docker run -d \
-  -p 8000:8000 \
-  -p 3000:3000 \
+  -p 9876:9876 \
+  -p 6789:6789 \
+  -v kahani-data:/app/backend/data \
+  --name kahani \
+  kahani
+
+# Or map to custom external ports
+docker run -d \
+  -p 8000:9876 \
+  -p 3000:6789 \
   -v kahani-data:/app/backend/data \
   --name kahani \
   kahani
 ```
+
+**Port Mapping**:
+- Container internal: `9876` (backend), `6789` (frontend)
+- External: Map to any ports you want
+- Example: `-p 8000:9876` = Access backend at `localhost:8000`
 
 ---
 
