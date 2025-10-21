@@ -259,8 +259,8 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
     console.log('[Global TTS] Starting manual TTS for scene:', sceneId);
     
     try {
-      // Create TTS session
-      const response = await fetch(`${apiBaseUrl}/api/tts/generate/${sceneId}`, {
+      // Create TTS session (use WebSocket endpoint)
+      const response = await fetch(`${apiBaseUrl}/api/tts/generate-ws/${sceneId}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
