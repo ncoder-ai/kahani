@@ -85,6 +85,14 @@ export PYTHONPATH="${SCRIPT_DIR}/backend"
 BACKEND_PORT="${BACKEND_PORT:-9876}"
 FRONTEND_PORT="${FRONTEND_PORT:-6789}"
 
+# Auto-detect network IP if NEXT_PUBLIC_API_URL is not set
+if [[ -z "$NEXT_PUBLIC_API_URL" ]]; then
+    # Try to detect network IP
+    NETWORK_IP=$(python3 -c "import socket; s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.connect(('8.8.8.8', 80)); print(s.getsockname()[0]); s.close()" 2>/dev/null || echo "localhost")
+    export NEXT_PUBLIC_API_URL="http://${NETWORK_IP}:${BACKEND_PORT}"
+    echo -e "${BLUE}🌐 Auto-detected API URL: ${NEXT_PUBLIC_API_URL}${NC}"
+fi
+
 # Start backend
 echo -e "${BLUE}📡 Starting backend server on port ${BACKEND_PORT}...${NC}"
 cd backend
@@ -119,9 +127,15 @@ cd ..
 echo ""
 echo -e "${GREEN}✅ Kahani is running!${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo -e "${BLUE}📖 Frontend:${NC}     http://localhost:$FRONTEND_PORT"
-echo -e "${BLUE}📡 Backend API:${NC}  http://localhost:$BACKEND_PORT"
-echo -e "${BLUE}📚 API Docs:${NC}     http://localhost:$BACKEND_PORT/docs"
+echo -e "${BLUE}📖 Frontend (local):${NC}    http://localhost:$FRONTEND_PORT"
+if [[ "$NETWORK_IP" != "localhost" ]]; then
+    echo -e "${BLUE}📖 Frontend (network):${NC}  http://$NETWORK_IP:$FRONTEND_PORT"
+fi
+echo -e "${BLUE}📡 Backend API (local):${NC} http://localhost:$BACKEND_PORT"
+if [[ "$NETWORK_IP" != "localhost" ]]; then
+    echo -e "${BLUE}📡 Backend API (network):${NC} http://$NETWORK_IP:$BACKEND_PORT"
+fi
+echo -e "${BLUE}📚 API Docs:${NC}            http://localhost:$BACKEND_PORT/docs"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 echo -e "${BLUE}💡 Default login:${NC} test@test.com / test"
