@@ -35,7 +35,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && apt-get install -y \
     curl \
     netcat-openbsd \
-    su-exec \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
