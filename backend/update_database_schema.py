@@ -17,10 +17,14 @@ from app.database import Base
 
 def update_database_schema():
     """Update database schema to match current models."""
+    # Ensure data directory exists
+    data_dir = Path(backend_dir) / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Now load settings
     settings = Settings()
     
     # Database file path
-    data_dir = Path(backend_dir) / "data"
     db_path = data_dir / "kahani.db"
     
     if not db_path.exists():
