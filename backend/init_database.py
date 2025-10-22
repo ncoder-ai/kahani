@@ -88,13 +88,8 @@ def init_database():
     
     if existing_tables:
         print(f"Warning: Database already has {len(existing_tables)} tables: {', '.join(existing_tables)}")
-        response = input("Drop all tables and recreate? (yes/no): ")
-        if response.lower() != 'yes':
-            print("Aborted.")
-            return
-        
-        print("Dropping all tables...")
-        Base.metadata.drop_all(bind=engine)
+        print("Skipping table creation (database already initialized)")
+        return
     
     # Create all tables
     print("Creating all tables...")

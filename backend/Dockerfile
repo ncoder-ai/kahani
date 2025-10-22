@@ -54,18 +54,17 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # Copy application code
 COPY . .
 
-# Copy entrypoint and startup scripts and make them executable
+# Copy entrypoint script and make it executable
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
-COPY start.sh /app/start.sh
-RUN chmod +x /app/docker-entrypoint.sh /app/start.sh
+RUN chmod +x /app/docker-entrypoint.sh
 
 # Download AI models (embedding + reranker) during build
 # This ensures models are cached in the image
 RUN echo "📦 Downloading AI models for semantic memory..." && \
     python download_models.py || echo "⚠️  Model download failed, will retry at runtime"
 
-# Set ownership of application files and model cache (let container handle this dynamically)
-# RUN chown -R 1000:1000 /app
+# Set ownership of application files and model cache
+RUN chown -R 1000:1000 /app
 
 # User will be set via docker-compose user mapping
 

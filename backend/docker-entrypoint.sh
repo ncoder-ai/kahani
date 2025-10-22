@@ -38,12 +38,20 @@ chmod -R 755 /app/data 2>/dev/null || echo "⚠️  Could not set data directory
 chmod -R 755 /app/logs 2>/dev/null || echo "⚠️  Could not set logs directory permissions (mounted volume)"
 chmod -R 755 /app/exports /app/backups 2>/dev/null || echo "⚠️  Could not set export/backup permissions"
 
-# If we still can't write to data directory, try to fix ownership
+# Handle ownership for user 1000:1000 (Docker user mapping)
+echo "🔧 Ensuring proper ownership for user 1000:1000..."
+# If we can't write to data directory, try to fix ownership
 if [ ! -w /app/data ]; then
     echo "🔧 Attempting to fix data directory ownership..."
-    # Try to change ownership to the current user
-    chown -R $(id -u):$(id -g) /app/data 2>/dev/null || echo "⚠️  Could not change data directory ownership"
+    # Try to change ownership to the current user (1000:1000)
+    chown -R 1000:1000 /app/data 2>/dev/null || echo "⚠️  Could not change data directory ownership to 1000:1000"
     chmod -R 755 /app/data 2>/dev/null || echo "⚠️  Could not set data directory permissions after ownership change"
+    
+    # If still not writable, try with current user
+    if [ ! -w /app/data ]; then
+        chown -R $(id -u):$(id -g) /app/data 2>/dev/null || echo "⚠️  Could not change data directory ownership to current user"
+        chmod -R 755 /app/data 2>/dev/null || echo "⚠️  Could not set data directory permissions for current user"
+    fi
 fi
 
 # Ensure data directory is writable by the application (critical for SQLite)
