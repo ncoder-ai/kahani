@@ -2,7 +2,7 @@
 
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/store';
-import { X, Settings, LogOut, User, Home, SpeakerWaveIcon, SpeakerXMarkIcon } from 'lucide-react';
+import { X, Settings, LogOut, User, Home, Volume2, VolumeX } from 'lucide-react';
 import { useAutoplayPermission } from '@/hooks/useAutoplayPermission';
 
 interface GlobalMenuProps {
@@ -111,9 +111,9 @@ export default function GlobalMenu({ isOpen, onClose }: GlobalMenuProps) {
                 : 'bg-gray-600/20 group-hover:bg-gray-600/30'
             }`}>
               {isEnabled ? (
-                <SpeakerWaveIcon className="w-5 h-5 text-green-400" />
+                <Volume2 className="w-5 h-5 text-green-400" />
               ) : (
-                <SpeakerXMarkIcon className="w-5 h-5 text-gray-400" />
+                <VolumeX className="w-5 h-5 text-gray-400" />
               )}
             </div>
             <div className="flex-1">
