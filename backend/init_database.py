@@ -33,11 +33,12 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def init_database():
     """Initialize database with all tables."""
-    settings = Settings()
-    
-    # Create data directory if it doesn't exist
+    # Create data directory BEFORE loading settings
     data_dir = Path(backend_dir) / "data"
-    data_dir.mkdir(exist_ok=True)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Now load settings
+    settings = Settings()
     
     # Database file path
     db_path = data_dir / "kahani.db"
