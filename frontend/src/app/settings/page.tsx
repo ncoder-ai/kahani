@@ -364,7 +364,7 @@ export default function SettingsPage() {
     return Math.floor(value / 8) * 8;
   };
 
-  const updateContextSetting = (key: keyof ContextSettings, value: number | boolean) => {
+  const updateContextSetting = (key: keyof ContextSettings, value: number | boolean | string) => {
     if (!settings) return;
     
     // Apply rounding to specific token fields
