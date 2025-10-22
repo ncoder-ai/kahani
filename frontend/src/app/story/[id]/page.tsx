@@ -1160,7 +1160,7 @@ export default function StoryPage() {
       
       {/* Context Warning Modal - Shows at 80% */}
       {showContextWarning && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
           <div className="bg-gradient-to-br from-yellow-900/90 to-orange-900/90 backdrop-blur-md rounded-lg shadow-2xl w-full max-w-md border-2 border-yellow-500/50">
             {/* Header */}
             <div className="p-6 border-b border-yellow-500/30">
@@ -2004,7 +2004,7 @@ export default function StoryPage() {
 
       {/* Story Summary Modal */}
       {showSummaryModal && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
           <div className="bg-gray-800 rounded-xl max-w-2xl w-full max-h-[90vh] flex flex-col">
             {/* Header - fixed */}
             <div className="flex items-center justify-between p-6 border-b border-gray-700 flex-shrink-0">
