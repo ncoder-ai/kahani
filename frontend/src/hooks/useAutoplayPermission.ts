@@ -25,6 +25,7 @@ export const useAutoplayPermission = () => {
    * This must be called in response to a user gesture (click/tap)
    */
   const requestPermission = useCallback(async (): Promise<boolean> => {
+    console.log('[Autoplay Hook] requestPermission called');
     try {
       // Create a silent audio element and play it
       const audio = new Audio();
@@ -32,15 +33,20 @@ export const useAutoplayPermission = () => {
       audio.volume = 0.01; // Very quiet
       audio.muted = true; // Start muted
       
+      console.log('[Autoplay Hook] Attempting to play audio...');
       // Play the audio
       const playPromise = audio.play();
       
       if (playPromise !== undefined) {
+        console.log('[Autoplay Hook] Play promise received, awaiting...');
         await playPromise;
         
+        console.log('[Autoplay Hook] Audio played successfully! Setting permission...');
         // If we got here, autoplay is allowed
         localStorage.setItem(AUTOPLAY_PERMISSION_KEY, 'true');
         setHasPermission(true);
+        
+        console.log('[Autoplay Hook] Permission set, hasPermission should now be true');
         
         // Stop and cleanup
         audio.pause();
@@ -49,9 +55,10 @@ export const useAutoplayPermission = () => {
         return true;
       }
       
+      console.log('[Autoplay Hook] No play promise, returning false');
       return false;
     } catch (error) {
-      console.error('[Autoplay] Permission denied:', error);
+      console.error('[Autoplay Hook] Permission denied:', error);
       return false;
     }
   }, []);
