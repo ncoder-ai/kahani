@@ -221,15 +221,28 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
     currentSessionIdRef.current = sessionId; // Update ref
     setIsGenerating(true);
     
-    // Establish autoplay permission
+    // Check if user has granted autoplay permission
+    if (!hasPermission) {
+      console.log('[Global TTS] Autoplay not enabled - skipping audio generation');
+      setIsGenerating(false);
+      return;
+    }
+    
+    // Establish autoplay permission for mobile browsers
     try {
       const silentAudio = new Audio('data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAADhAC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7///////////////////////////////////////////////////////////////////////////AAAA5TEFNRTMuMTAwBK8AAAAAAAAAABUgJAU9QgAAgAAABITMLqMCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//sQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAETEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV');
+      silentAudio.volume = 0.01;
+      silentAudio.muted = true;
+      
+      // Try to play immediately (this should work since user just clicked)
       const playPromise = silentAudio.play();
-      const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 100));
-      await Promise.race([playPromise, timeoutPromise]);
-      console.log('[Global TTS] Autoplay permission established');
+      if (playPromise !== undefined) {
+        await playPromise;
+        console.log('[Global TTS] Autoplay permission established');
+      }
     } catch (err) {
       console.warn('[Global TTS] Autoplay permission may be blocked:', err);
+      // Continue anyway - user might have already granted permission
     }
     
     // Connect WebSocket
