@@ -21,7 +21,7 @@ export default function AutoplayPermissionBanner() {
   };
 
   return (
-    <div className="fixed top-20 right-4 left-4 md:left-auto md:w-80 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg shadow-lg p-4 z-[100] animate-slide-down">
+    <div className="fixed top-16 right-4 w-80 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg shadow-lg p-4 z-[60] animate-slide-down">
       <div className="flex items-center gap-3">
         <div className="flex-shrink-0">
           {isEnabled ? (
