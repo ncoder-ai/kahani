@@ -9,6 +9,10 @@ import logging
 import sys
 import os
 
+# Set cache directory to a location accessible by the container user
+os.environ['HF_HOME'] = '/app/.cache/huggingface'
+os.environ['TRANSFORMERS_CACHE'] = '/app/.cache/huggingface'
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
