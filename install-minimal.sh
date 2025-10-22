@@ -251,8 +251,8 @@ main() {
     setup_python_env
     setup_nodejs_env
     download_ai_models
-    setup_database
     create_env_files
+    setup_database
     verify_installation
     
     echo ""
