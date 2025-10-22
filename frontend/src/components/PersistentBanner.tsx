@@ -2,29 +2,20 @@
 
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store';
-import { CogIcon, ArrowLeftOnRectangleIcon, HomeIcon, ArrowLeftIcon, SpeakerWaveIcon, SpeakerXMarkIcon } from '@heroicons/react/24/outline';
+import { HomeIcon, ArrowLeftIcon, Bars3Icon } from '@heroicons/react/24/outline';
 import { useEffect, useState } from 'react';
-import { useAutoplayPermission } from '@/hooks/useAutoplayPermission';
+import GlobalMenu from './GlobalMenu';
 
 export default function PersistentBanner() {
   const router = useRouter();
-  const { user, logout } = useAuthStore();
+  const { user } = useAuthStore();
   const [canGoBack, setCanGoBack] = useState(false);
-  const { isEnabled, toggleAutoplay } = useAutoplayPermission();
+  const [showMenu, setShowMenu] = useState(false);
 
   useEffect(() => {
     // Check if we can go back in history
     setCanGoBack(window.history.length > 1);
   }, []);
-
-  const handleLogout = () => {
-    logout();
-    router.push('/login');
-  };
-
-  const handleSettings = () => {
-    router.push('/settings');
-  };
 
   const handleHome = () => {
     router.push('/dashboard');
@@ -67,63 +58,21 @@ export default function PersistentBanner() {
 
           {/* Right side - Action buttons */}
           <div className="flex items-center space-x-2">
+            {/* Menu Button */}
             <button
-              onClick={handleHome}
+              onClick={() => setShowMenu(true)}
               className="flex items-center space-x-1 text-white/80 hover:text-white hover:bg-white/10 px-3 py-2 rounded-lg transition-all duration-200"
-              title="Dashboard"
+              title="Menu"
             >
-              <HomeIcon className="w-4 h-4" />
-              <span className="hidden sm:inline text-sm">Dashboard</span>
-            </button>
-            
-            {/* Audio Toggle Button */}
-            <button
-              onClick={() => {
-                console.log('[Mobile] Audio toggle clicked, current state:', isEnabled);
-                toggleAutoplay();
-              }}
-              onTouchEnd={(e) => {
-                e.preventDefault();
-                console.log('[Mobile] Audio toggle touched, current state:', isEnabled);
-                toggleAutoplay();
-              }}
-              className={`flex items-center justify-center min-w-[44px] min-h-[44px] px-2 sm:px-3 py-2 rounded-lg transition-all duration-200 touch-manipulation ${
-                isEnabled 
-                  ? 'text-green-300 hover:text-green-200 hover:bg-green-500/20 active:bg-green-500/30' 
-                  : 'text-white/80 hover:text-white hover:bg-white/10 active:bg-white/20'
-              }`}
-              title={isEnabled ? 'Audio enabled - click to disable' : 'Audio disabled - click to enable'}
-            >
-              {isEnabled ? (
-                <SpeakerWaveIcon className="w-5 h-5 sm:w-4 sm:h-4" />
-              ) : (
-                <SpeakerXMarkIcon className="w-5 h-5 sm:w-4 sm:h-4" />
-              )}
-              <span className="hidden sm:inline text-sm ml-1">
-                {isEnabled ? 'Audio ON' : 'Audio OFF'}
-              </span>
-            </button>
-            
-            <button
-              onClick={handleSettings}
-              className="flex items-center space-x-1 text-white/80 hover:text-white hover:bg-white/10 px-3 py-2 rounded-lg transition-all duration-200"
-              title="Settings"
-            >
-              <CogIcon className="w-4 h-4" />
-              <span className="hidden sm:inline text-sm">Settings</span>
-            </button>
-            
-            <button
-              onClick={handleLogout}
-              className="flex items-center space-x-1 text-white/80 hover:text-white hover:bg-white/10 px-3 py-2 rounded-lg transition-all duration-200"
-              title="Sign Out"
-            >
-              <ArrowLeftOnRectangleIcon className="w-4 h-4" />
-              <span className="hidden sm:inline text-sm">Sign Out</span>
+              <Bars3Icon className="w-5 h-5" />
+              <span className="hidden sm:inline text-sm">Menu</span>
             </button>
           </div>
         </div>
       </div>
+
+      {/* Global Menu */}
+      <GlobalMenu isOpen={showMenu} onClose={() => setShowMenu(false)} />
     </div>
   );
 }
