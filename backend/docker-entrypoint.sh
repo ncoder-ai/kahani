@@ -29,7 +29,10 @@ wait_for_service() {
 # Create necessary directories
 echo "📁 Creating directories..."
 mkdir -p /app/data /app/data/audio /app/logs /app/exports /app/backups
-chmod -R 755 /app/data /app/logs /app/exports /app/backups
+
+# Set permissions only if we can (avoid errors on mounted volumes)
+echo "🔧 Setting permissions..."
+chmod -R 755 /app/data /app/logs /app/exports /app/backups 2>/dev/null || echo "⚠️  Some permissions could not be set (mounted volumes)"
 
 # If PostgreSQL is configured, wait for it
 if [[ "$DATABASE_URL" == postgresql* ]]; then
