@@ -31,10 +31,20 @@ echo "📁 Creating directories..."
 mkdir -p /app/data /app/data/audio /app/logs 2>/dev/null || echo "⚠️  Some directories could not be created (mounted volumes)"
 mkdir -p /app/exports /app/backups 2>/dev/null || echo "⚠️  Some directories could not be created (mounted volumes)"
 
-# Set permissions only if we can (avoid errors on mounted volumes)
-echo "🔧 Setting permissions..."
-chmod -R 755 /app/data /app/logs 2>/dev/null || echo "⚠️  Some permissions could not be set (mounted volumes)"
-chmod -R 755 /app/exports /app/backups 2>/dev/null || echo "⚠️  Some permissions could not be set (mounted volumes)"
+# Fix permissions for mounted volumes (critical for Docker volume mounts)
+echo "🔧 Fixing permissions for mounted volumes..."
+# Try to fix permissions, but don't fail if we can't
+chmod -R 755 /app/data 2>/dev/null || echo "⚠️  Could not set data directory permissions (mounted volume)"
+chmod -R 755 /app/logs 2>/dev/null || echo "⚠️  Could not set logs directory permissions (mounted volume)"
+chmod -R 755 /app/exports /app/backups 2>/dev/null || echo "⚠️  Could not set export/backup permissions"
+
+# If we still can't write to data directory, try to fix ownership
+if [ ! -w /app/data ]; then
+    echo "🔧 Attempting to fix data directory ownership..."
+    # Try to change ownership to the current user (1000:1000)
+    chown -R 1000:1000 /app/data 2>/dev/null || echo "⚠️  Could not change data directory ownership"
+    chmod -R 755 /app/data 2>/dev/null || echo "⚠️  Could not set data directory permissions after ownership change"
+fi
 
 # Ensure data directory is writable by the application (critical for SQLite)
 echo "🗄️  Ensuring data directory is writable..."
