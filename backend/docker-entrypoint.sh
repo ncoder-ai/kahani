@@ -50,9 +50,9 @@ if [[ "$DATABASE_URL" == postgresql* ]]; then
 fi
 
 # Initialize database if needed
-if [ ! -f "/app/backend/data/kahani.db" ] && [[ "$DATABASE_URL" == sqlite* ]]; then
+if [ ! -f "/app/data/kahani.db" ] && [[ "$DATABASE_URL" == sqlite* ]]; then
     echo "🗄️ Initializing SQLite database with admin system..."
-    cd /app/backend
+    cd /app
     
     # Run database initialization with admin system
     if [ -f "init_database.py" ]; then
