@@ -113,17 +113,30 @@ install_system_deps() {
 
 # Install Python
 install_python() {
-    if command_exists python3.11; then
-        log_info "Python 3.11 already installed"
+    # Check for Python 3.11+ (3.11, 3.12, 3.13, etc.)
+    local python_cmd=""
+    for version in 3.13 3.12 3.11; do
+        if command_exists "python$version"; then
+            python_cmd="python$version"
+            log_info "Python $version already installed"
+            break
+        fi
+    done
+    
+    if [[ -n "$python_cmd" ]]; then
         return
     fi
     
-    log_info "Installing Python 3.11..."
+    log_info "Installing Python 3.11+ (will try 3.12 first, then 3.11)..."
     
     if [[ "$OS" == "linux" ]]; then
-        # Try to install Python 3.11 from default repositories first
-        if ! sudo apt install -y --no-upgrade python3.11 python3.11-venv python3.11-pip 2>/dev/null; then
-            log_info "Python 3.11 not available in default repos, adding deadsnakes PPA..."
+        # Try Python 3.12 first (newer, often available in default repos)
+        if sudo apt install -y --no-upgrade python3.12 python3.12-venv python3.12-pip 2>/dev/null; then
+            log_success "Python 3.12 installed from default repositories"
+        elif sudo apt install -y --no-upgrade python3.11 python3.11-venv python3.11-pip 2>/dev/null; then
+            log_success "Python 3.11 installed from default repositories"
+        else
+            log_info "Python 3.11+ not available in default repos, adding deadsnakes PPA..."
             sudo apt install -y --no-upgrade software-properties-common
             sudo add-apt-repository -y ppa:deadsnakes/ppa
             # Only update package list for the new PPA, don't touch existing packages
@@ -132,10 +145,15 @@ install_python() {
         fi
         
     elif [[ "$OS" == "macos" ]]; then
-        brew install python@3.11
+        # Try Python 3.12 first, fallback to 3.11
+        if brew install python@3.12 2>/dev/null; then
+            log_success "Python 3.12 installed via Homebrew"
+        else
+            brew install python@3.11
+        fi
     fi
     
-    log_success "Python 3.11 installed"
+    log_success "Python 3.11+ installed"
 }
 
 # Install Node.js
@@ -165,12 +183,20 @@ verify_system_deps() {
     
     local errors=0
     
-    # Check Python installation
-    if ! command_exists python3.11; then
-        log_error "Python 3.11 not found"
+    # Check Python installation (3.11+)
+    local python_cmd=""
+    for version in 3.13 3.12 3.11; do
+        if command_exists "python$version"; then
+            python_cmd="python$version"
+            break
+        fi
+    done
+    
+    if [[ -z "$python_cmd" ]]; then
+        log_error "Python 3.11+ not found"
         ((errors++))
     else
-        python_version=$(python3.11 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+        python_version=$($python_cmd -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
         log_success "Python $python_version: OK"
     fi
     
