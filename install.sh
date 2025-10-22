@@ -98,9 +98,15 @@ setup_python_env() {
     for version in 3.13 3.12 3.11; do
         if command_exists "python$version"; then
             python_cmd="python$version"
+            log_info "Using Python version: $python_cmd"
             break
         fi
     done
+    
+    if [[ -z "$python_cmd" ]]; then
+        log_error "No suitable Python version found (3.11+)"
+        exit 1
+    fi
     
     # Create virtual environment
     $python_cmd -m venv .venv
@@ -156,6 +162,22 @@ setup_database() {
     # Debug: Check directory permissions
     log_info "Checking directory permissions..."
     ls -la backend/ | grep data
+    
+    # Find the best available Python version
+    local python_cmd=""
+    for version in 3.13 3.12 3.11; do
+        if command_exists "python$version"; then
+            python_cmd="python$version"
+            break
+        fi
+    done
+    
+    if [[ -z "$python_cmd" ]]; then
+        log_error "No suitable Python version found (3.11+)"
+        exit 1
+    fi
+    
+    log_info "Using Python command: $python_cmd"
     
     # Initialize or update database
     if [[ -f backend/data/kahani.db ]]; then
