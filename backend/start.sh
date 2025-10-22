@@ -1,29 +1,31 @@
 #!/bin/bash
+# Startup script for Kahani backend
 
-# Kahani Backend Start Script
+set -e
 
-echo "🚀 Starting Kahani Backend..."
+echo "🎭 Starting Kahani Backend..."
 
-# Check if virtual environment exists
-if [ ! -d ".venv" ]; then
-    echo "❌ Error: Virtual environment not found"
-    echo "   Please run ./setup.sh first"
-    exit 1
+# Create directories if they don't exist
+mkdir -p /app/data /app/logs /app/exports /app/backups
+
+# Set permissions for directories
+chmod -R 755 /app/data /app/logs /app/exports /app/backups 2>/dev/null || true
+
+# Try to fix ownership if we can't write
+if [ ! -w /app/data ]; then
+    echo "🔧 Fixing data directory permissions..."
+    chown -R $(id -u):$(id -g) /app/data 2>/dev/null || true
+    chmod -R 755 /app/data 2>/dev/null || true
 fi
 
-# Activate virtual environment
-source .venv/bin/activate
-
-# Check and download AI models if needed
-MODEL_CACHE="$HOME/.cache/torch/sentence_transformers/"
-if [[ ! -d "$MODEL_CACHE" ]] || [[ $(find "$MODEL_CACHE" -type f | wc -l) -lt 10 ]]; then
-    echo "📦 Downloading AI models (one-time setup)..."
-    python download_models.py || echo "⚠️  Model download failed, will try at runtime"
+# Test if we can write to data directory
+if [ ! -w /app/data ]; then
+    echo "❌ WARNING: Cannot write to data directory /app/data"
+    echo "   This may cause database initialization to fail."
+    echo "   Check Docker volume permissions."
 else
-    echo "✅ AI models already cached"
+    echo "✅ Data directory is writable"
 fi
 
-# Start the server
-echo "   Starting server on http://0.0.0.0:9876"
-uvicorn app.main:app --host 0.0.0.0 --port 9876 --reload
-
+# Run the main application
+exec "$@"

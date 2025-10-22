@@ -32,7 +32,7 @@ mkdir -p /app/data /app/data/audio /app/logs 2>/dev/null || echo "⚠️  Some d
 mkdir -p /app/exports /app/backups 2>/dev/null || echo "⚠️  Some directories could not be created (mounted volumes)"
 
 # Fix permissions for mounted volumes (critical for Docker volume mounts)
-echo "🔧 Fixing permissions for mounted volumes..."
+echo "🔧 Setting up permissions for mounted volumes..."
 # Try to fix permissions, but don't fail if we can't
 chmod -R 755 /app/data 2>/dev/null || echo "⚠️  Could not set data directory permissions (mounted volume)"
 chmod -R 755 /app/logs 2>/dev/null || echo "⚠️  Could not set logs directory permissions (mounted volume)"
@@ -41,8 +41,8 @@ chmod -R 755 /app/exports /app/backups 2>/dev/null || echo "⚠️  Could not se
 # If we still can't write to data directory, try to fix ownership
 if [ ! -w /app/data ]; then
     echo "🔧 Attempting to fix data directory ownership..."
-    # Try to change ownership to the current user (1000:1000)
-    chown -R 1000:1000 /app/data 2>/dev/null || echo "⚠️  Could not change data directory ownership"
+    # Try to change ownership to the current user
+    chown -R $(id -u):$(id -g) /app/data 2>/dev/null || echo "⚠️  Could not change data directory ownership"
     chmod -R 755 /app/data 2>/dev/null || echo "⚠️  Could not set data directory permissions after ownership change"
 fi
 
