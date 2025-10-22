@@ -40,18 +40,30 @@ chmod -R 755 /app/exports /app/backups 2>/dev/null || echo "⚠️  Could not se
 
 # Handle ownership for user 1000:1000 (Docker user mapping)
 echo "🔧 Ensuring proper ownership for user 1000:1000..."
-# If we can't write to data directory, try to fix ownership
-if [ ! -w /app/data ]; then
-    echo "🔧 Attempting to fix data directory ownership..."
-    # Try to change ownership to the current user (1000:1000)
-    chown -R 1000:1000 /app/data 2>/dev/null || echo "⚠️  Could not change data directory ownership to 1000:1000"
-    chmod -R 755 /app/data 2>/dev/null || echo "⚠️  Could not set data directory permissions after ownership change"
+echo "  - Current user: $(id -u):$(id -g)"
+echo "  - Target user: 1000:1000"
+
+# Fix ownership of mounted volumes (run as root to have permission to change ownership)
+if [ "$(id -u)" = "0" ]; then
+    echo "🔧 Running as root - fixing ownership of mounted volumes..."
+    chown -R 1000:1000 /app/data 2>/dev/null && echo "✅ Fixed data directory ownership" || echo "⚠️  Could not change data directory ownership"
+    chown -R 1000:1000 /app/logs 2>/dev/null && echo "✅ Fixed logs directory ownership" || echo "⚠️  Could not change logs directory ownership"
     
-    # If still not writable, try with current user
-    if [ ! -w /app/data ]; then
-        chown -R $(id -u):$(id -g) /app/data 2>/dev/null || echo "⚠️  Could not change data directory ownership to current user"
-        chmod -R 755 /app/data 2>/dev/null || echo "⚠️  Could not set data directory permissions for current user"
-    fi
+    # Set permissions after ownership change
+    chmod -R 755 /app/data 2>/dev/null && echo "✅ Set data directory permissions" || echo "⚠️  Could not set data directory permissions"
+    chmod -R 755 /app/logs 2>/dev/null && echo "✅ Set logs directory permissions" || echo "⚠️  Could not set logs directory permissions"
+    
+    # Switch to user 1000:1000 for the application
+    echo "🔧 Switching to user 1000:1000 for application..."
+    exec su-exec 1000:1000 "$@"
+else
+    # If not running as root, try to fix ownership with current user
+    echo "🔧 Not running as root - attempting to fix ownership with current user..."
+    chown -R 1000:1000 /app/data 2>/dev/null && echo "✅ Fixed data directory ownership" || echo "⚠️  Could not change data directory ownership"
+    chown -R 1000:1000 /app/logs 2>/dev/null && echo "✅ Fixed logs directory ownership" || echo "⚠️  Could not change logs directory ownership"
+    
+    chmod -R 755 /app/data 2>/dev/null && echo "✅ Set data directory permissions" || echo "⚠️  Could not set data directory permissions"
+    chmod -R 755 /app/logs 2>/dev/null && echo "✅ Set logs directory permissions" || echo "⚠️  Could not set logs directory permissions"
 fi
 
 # Ensure data directory is writable by the application (critical for SQLite)
