@@ -55,7 +55,7 @@ if [ "$(id -u)" = "0" ]; then
     
     # Switch to user 1000:1000 for the application
     echo "🔧 Switching to user 1000:1000 for application..."
-    exec su-exec 1000:1000 "$@"
+    exec gosu 1000:1000 "$@"
 else
     # If not running as root, try to fix ownership with current user
     echo "🔧 Not running as root - attempting to fix ownership with current user..."
