@@ -91,10 +91,8 @@ install_system_deps() {
     log_info "Using --no-upgrade flag to avoid breaking existing system packages"
     
     if [[ "$OS" == "linux" ]]; then
-        # Update package list only (no upgrade)
-        sudo apt update
-        
-        # Install required packages without upgrading existing ones
+        # Install required packages without updating package list or upgrading existing ones
+        # This is the safest approach for production servers
         sudo apt install -y --no-upgrade curl wget git build-essential libssl-dev zlib1g-dev \
             libbz2-dev libreadline-dev libsqlite3-dev llvm libncurses5-dev \
             libncursesw5-dev xz-utils tk-dev libffi-dev liblzma-dev
@@ -123,12 +121,15 @@ install_python() {
     log_info "Installing Python 3.11..."
     
     if [[ "$OS" == "linux" ]]; then
-        # Install Python 3.11 via deadsnakes PPA
-        sudo apt update
-        sudo apt install -y --no-upgrade software-properties-common
-        sudo add-apt-repository -y ppa:deadsnakes/ppa
-        sudo apt update
-        sudo apt install -y --no-upgrade python3.11 python3.11-venv python3.11-pip
+        # Try to install Python 3.11 from default repositories first
+        if ! sudo apt install -y --no-upgrade python3.11 python3.11-venv python3.11-pip 2>/dev/null; then
+            log_info "Python 3.11 not available in default repos, adding deadsnakes PPA..."
+            sudo apt install -y --no-upgrade software-properties-common
+            sudo add-apt-repository -y ppa:deadsnakes/ppa
+            # Only update package list for the new PPA, don't touch existing packages
+            sudo apt update --allow-releaseinfo-change
+            sudo apt install -y --no-upgrade python3.11 python3.11-venv python3.11-pip
+        fi
         
     elif [[ "$OS" == "macos" ]]; then
         brew install python@3.11
