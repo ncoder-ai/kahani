@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { StoryData } from '@/app/create-story/page';
+import { useAuthStore } from '@/store';
 
 interface GenreSelectionProps {
   storyData: StoryData;
@@ -110,7 +111,11 @@ const TONES = [
 ];
 
 export default function GenreSelection({ storyData, onUpdate, onNext, isFirstStep }: GenreSelectionProps) {
+  const { user } = useAuthStore();
   const [showNSFW, setShowNSFW] = useState(false);
+  
+  // Check if user has NSFW permission
+  const canAccessNSFW = user?.allow_nsfw ?? false;
   
   const handleGenreSelect = (genreId: string) => {
     onUpdate({ genre: genreId });
@@ -152,18 +157,20 @@ export default function GenreSelection({ storyData, onUpdate, onNext, isFirstSte
         ))}
       </div>
 
-      {/* NSFW Section Toggle */}
-      <div className="text-center">
-        <button
-          onClick={() => setShowNSFW(!showNSFW)}
-          className="px-6 py-3 rounded-xl bg-red-900/30 border border-red-500/50 text-red-200 hover:bg-red-900/50 transition-all duration-200"
-        >
-          {showNSFW ? '🔒 Hide' : '🔓 Show'} Adult Content (18+)
-        </button>
-      </div>
+      {/* NSFW Section Toggle - Only show if user has permission */}
+      {canAccessNSFW && (
+        <div className="text-center">
+          <button
+            onClick={() => setShowNSFW(!showNSFW)}
+            className="px-6 py-3 rounded-xl bg-red-900/30 border border-red-500/50 text-red-200 hover:bg-red-900/50 transition-all duration-200"
+          >
+            {showNSFW ? '🔒 Hide' : '🔓 Show'} Adult Content (18+)
+          </button>
+        </div>
+      )}
 
-      {/* NSFW Genres */}
-      {showNSFW && (
+      {/* NSFW Genres - Only show if user has permission and toggle is enabled */}
+      {canAccessNSFW && showNSFW && (
         <div className="space-y-4">
           <div className="text-center">
             <h3 className="text-2xl font-bold text-red-200 mb-2">Adult Content (18+)</h3>

@@ -16,7 +16,8 @@ class Settings(BaseSettings):
     # Security
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = 120  # 2 hours for better user experience
+    access_token_expire_minutes: int = 120  # 2 hours for normal sessions
+    refresh_token_expire_days: int = 30  # 30 days for remember me sessions
     
     # Admin user
     admin_email: str = "admin@localhost"

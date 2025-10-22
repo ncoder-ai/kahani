@@ -4,6 +4,7 @@ from ..database import Base
 # Import all models to ensure they're registered with SQLAlchemy
 from .user import User
 from .user_settings import UserSettings
+from .system_settings import SystemSettings
 from .story import Story, StoryStatus, PrivacyLevel, StoryMode
 from .character import Character, StoryCharacter
 from .chapter import Chapter, ChapterStatus
@@ -18,7 +19,7 @@ from .entity_state import CharacterState, LocationState, ObjectState
 
 __all__ = [
     "Base",
-    "User", "UserSettings",
+    "User", "UserSettings", "SystemSettings",
     "Story", "StoryStatus", "PrivacyLevel", "StoryMode",
     "Chapter", "ChapterStatus",
     "Character", "StoryCharacter", 

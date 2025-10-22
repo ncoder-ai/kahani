@@ -118,9 +118,22 @@ class UnifiedLLMService:
         
         client = self.get_user_client(user_id, user_settings)
         
+        # Check if NSFW filter should be injected
+        from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
+        user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
+        
         messages = []
         if system_prompt and system_prompt.strip():
+            # Inject NSFW filter if user doesn't have NSFW permissions
+            if should_inject_nsfw_filter(user_allow_nsfw):
+                system_prompt = system_prompt.strip() + "\n\n" + get_nsfw_prevention_prompt()
+                logger.info(f"NSFW filter injected for user {user_id}")
+            
             messages.append({"role": "system", "content": system_prompt.strip()})
+        elif should_inject_nsfw_filter(user_allow_nsfw):
+            # No system prompt provided, but we need to inject NSFW filter
+            messages.append({"role": "system", "content": get_nsfw_prevention_prompt()})
+            logger.info(f"NSFW filter injected (no system prompt) for user {user_id}")
         
         # Ensure prompt is valid string
         if not prompt or not isinstance(prompt, str) or not prompt.strip():
@@ -246,9 +259,22 @@ class UnifiedLLMService:
         
         client = self.get_user_client(user_id, user_settings)
         
+        # Check if NSFW filter should be injected
+        from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
+        user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
+        
         messages = []
         if system_prompt and system_prompt.strip():
+            # Inject NSFW filter if user doesn't have NSFW permissions
+            if should_inject_nsfw_filter(user_allow_nsfw):
+                system_prompt = system_prompt.strip() + "\n\n" + get_nsfw_prevention_prompt()
+                logger.info(f"NSFW filter injected for streaming user {user_id}")
+            
             messages.append({"role": "system", "content": system_prompt.strip()})
+        elif should_inject_nsfw_filter(user_allow_nsfw):
+            # No system prompt provided, but we need to inject NSFW filter
+            messages.append({"role": "system", "content": get_nsfw_prevention_prompt()})
+            logger.info(f"NSFW filter injected (no system prompt) for streaming user {user_id}")
         
         # Ensure prompt is valid string
         if not prompt or not isinstance(prompt, str) or not prompt.strip():

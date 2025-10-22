@@ -307,7 +307,28 @@ async def create_story(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Create a new story"""
+    """Create a new story with NSFW content validation"""
+    from ..utils.content_filter import validate_story_content, validate_genre
+    
+    # Validate genre permissions
+    is_valid_genre, genre_error = validate_genre(story_data.genre, current_user.allow_nsfw)
+    if not is_valid_genre:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=genre_error
+        )
+    
+    # Validate story content for NSFW keywords
+    is_valid_content, content_error = validate_story_content(
+        story_data.title,
+        story_data.description or "",
+        current_user.allow_nsfw
+    )
+    if not is_valid_content:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=content_error
+        )
     
     story = Story(
         title=story_data.title,
@@ -426,8 +447,10 @@ async def generate_scene(
             detail="Story not found"
         )
     
-    # Get user settings
+    # Get user settings and include permission flags
     user_settings = get_or_create_user_settings(current_user.id, db)
+    # Add user permissions to settings for NSFW filtering
+    user_settings['allow_nsfw'] = current_user.allow_nsfw
     
     # Create context manager with user settings
     context_manager = ContextManager(user_settings=user_settings, user_id=current_user.id)
@@ -1120,6 +1143,8 @@ async def generate_scenario_endpoint(
         
         # Get user settings
         user_settings = get_or_create_user_settings(current_user.id, db)
+        # Add user permissions to settings for NSFW filtering
+        user_settings['allow_nsfw'] = current_user.allow_nsfw
         
         # Generate scenario using LLM
         scenario = await llm_service.generate_scenario(context, current_user.id, user_settings)
@@ -1168,6 +1193,8 @@ async def generate_title(
         
         # Get user settings
         user_settings = get_or_create_user_settings(current_user.id, db)
+        # Add user permissions to settings for NSFW filtering
+        user_settings['allow_nsfw'] = current_user.allow_nsfw
         
         # Generate multiple title options using LLM
         titles = await llm_service.generate_story_title(context, current_user.id, user_settings)
@@ -1213,6 +1240,8 @@ async def generate_plot_endpoint(
         
         # Get user settings
         user_settings = get_or_create_user_settings(current_user.id, db)
+        # Add user permissions to settings for NSFW filtering
+        user_settings['allow_nsfw'] = current_user.allow_nsfw
         
         # Generate plot using LLM
         if request.plot_type == "complete":

@@ -9,6 +9,7 @@ import apiClient from '@/lib/api';
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   
@@ -25,7 +26,7 @@ export default function LoginPage() {
       console.log('API Base URL:', process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876');
       console.log('Attempting login with email:', email);
       
-      const response = await apiClient.login(email, password);
+      const response = await apiClient.login(email, password, rememberMe);
       console.log('✅ Login API call successful');
       console.log('Response keys:', Object.keys(response));
       console.log('Token received:', response.access_token ? 'Yes' : 'No');
@@ -36,8 +37,15 @@ export default function LoginPage() {
       console.log('✅ Token set in API client');
       
       // Update auth store
-      login(response.user, response.access_token);
+      login(response.user, response.access_token, response.refresh_token);
       console.log('✅ Auth store updated');
+      
+      // Check if user is approved
+      if (!response.user.is_approved && !response.user.is_admin) {
+        console.log('User not approved, redirecting to pending approval page');
+        router.push('/pending-approval');
+        return;
+      }
       
       // Check if user wants to auto-open last story
       try {
@@ -128,6 +136,19 @@ export default function LoginPage() {
                 className="w-full px-4 py-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                 placeholder="Enter your password"
               />
+            </div>
+
+            <div className="flex items-center">
+              <input
+                id="remember-me"
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded"
+              />
+              <label htmlFor="remember-me" className="ml-2 block text-sm text-white/80">
+                Remember me for 30 days
+              </label>
             </div>
 
             <button

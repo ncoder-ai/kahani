@@ -17,6 +17,16 @@ class ApiClient {
     }
   }
 
+  private async handleTokenRefresh() {
+    if (typeof window !== 'undefined') {
+      // Import the auth store dynamically to avoid circular dependencies
+      const { useAuthStore } = await import('@/store');
+      const refreshAccessToken = useAuthStore.getState().refreshAccessToken;
+      return await refreshAccessToken();
+    }
+    return false;
+  }
+
   setToken(token: string) {
     this.token = token;
     if (typeof window !== 'undefined') {
@@ -55,7 +65,20 @@ class ApiClient {
 
       if (!response.ok) {
         if (response.status === 401) {
-          console.log('[API] 401 Unauthorized - removing token');
+          console.log('[API] 401 Unauthorized - attempting token refresh');
+          const refreshSuccess = await this.handleTokenRefresh();
+          if (refreshSuccess) {
+            console.log('[API] Token refreshed, retrying request');
+            // Retry the request with the new token
+            const retryResponse = await fetch(url, { ...options, headers: { ...headers, Authorization: `Bearer ${this.token}` } });
+            if (retryResponse.ok) {
+              const retryData = await retryResponse.json();
+              console.log('[API] Retry successful');
+              return retryData;
+            }
+          }
+          
+          console.log('[API] Token refresh failed or not available - redirecting to login');
           this.removeToken();
           if (typeof window !== 'undefined') {
             window.location.href = '/login';
@@ -98,14 +121,25 @@ class ApiClient {
   }
 
   // Authentication
-  async login(email: string, password: string) {
+  async login(email: string, password: string, rememberMe: boolean = false) {
     return this.request<{
       access_token: string;
       token_type: string;
+      refresh_token?: string;
       user: any;
     }>(`/api/auth/login`, {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, remember_me: rememberMe }),
+    });
+  }
+
+  async refreshToken(refreshToken: string) {
+    return this.request<{
+      access_token: string;
+      token_type: string;
+    }>(`/api/auth/refresh`, {
+      method: 'POST',
+      body: JSON.stringify({ refresh_token: refreshToken }),
     });
   }
 
