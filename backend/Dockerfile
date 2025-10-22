@@ -41,7 +41,7 @@ RUN apt-get update && apt-get install -y \
 RUN groupadd -r kahani && useradd -r -g kahani kahani
 
 # Create app directory with proper permissions
-RUN mkdir -p /app /app/data /app/logs && \
+RUN mkdir -p /app /app/data /app/logs /app/.cache/huggingface && \
     chown -R 1000:1000 /app
 
 # Set working directory
