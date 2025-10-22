@@ -30,9 +30,17 @@ check_requirements() {
     
     local missing_deps=()
     
-    # Check for essential tools
-    if ! command_exists python3.11; then
-        missing_deps+=("python3.11")
+    # Check for essential tools (Python 3.11+)
+    local python_cmd=""
+    for version in 3.13 3.12 3.11; do
+        if command_exists "python$version"; then
+            python_cmd="python$version"
+            break
+        fi
+    done
+    
+    if [[ -z "$python_cmd" ]]; then
+        missing_deps+=("python3.11+")
     fi
     
     if ! command_exists node; then
@@ -52,12 +60,22 @@ check_requirements() {
         exit 1
     fi
     
-    # Check Python version
-    python_version=$(python3.11 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
-    if [[ $(echo "$python_version" | cut -d. -f1) -lt 3 ]] || [[ $(echo "$python_version" | cut -d. -f2) -lt 11 ]]; then
-        log_error "Python 3.11+ required, found: $python_version"
-        log_info "Please upgrade Python manually"
-        exit 1
+    # Check Python version (3.11+)
+    local python_cmd=""
+    for version in 3.13 3.12 3.11; do
+        if command_exists "python$version"; then
+            python_cmd="python$version"
+            break
+        fi
+    done
+    
+    if [[ -n "$python_cmd" ]]; then
+        python_version=$($python_cmd -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+        if [[ $(echo "$python_version" | cut -d. -f1) -lt 3 ]] || [[ $(echo "$python_version" | cut -d. -f2) -lt 11 ]]; then
+            log_error "Python 3.11+ required, found: $python_version"
+            log_info "Please upgrade Python manually"
+            exit 1
+        fi
     fi
     
     # Check Node version
@@ -75,8 +93,17 @@ check_requirements() {
 setup_python_env() {
     log_info "Setting up Python virtual environment..."
     
+    # Find the best available Python version
+    local python_cmd=""
+    for version in 3.13 3.12 3.11; do
+        if command_exists "python$version"; then
+            python_cmd="python$version"
+            break
+        fi
+    done
+    
     # Create virtual environment
-    python3.11 -m venv .venv
+    $python_cmd -m venv .venv
     
     # Activate and upgrade pip
     source .venv/bin/activate
@@ -133,13 +160,13 @@ setup_database() {
     # Initialize or update database
     if [[ -f backend/data/kahani.db ]]; then
         log_warning "Database already exists, updating schema..."
-        cd backend && python3.11 update_database_schema.py && cd .. || {
+        cd backend && $python_cmd update_database_schema.py && cd .. || {
             log_error "Failed to update database schema"
             exit 1
         }
     else
         log_info "Initializing database..."
-        cd backend && python3.11 init_database.py && cd .. || {
+        cd backend && $python_cmd init_database.py && cd .. || {
             log_error "Database initialization failed"
             exit 1
         }
@@ -170,9 +197,18 @@ create_env_files() {
     ABSOLUTE_DB_PATH="${SCRIPT_DIR}/backend/data/kahani.db"
     ABSOLUTE_CHROMA_PATH="${SCRIPT_DIR}/backend/data/chromadb"
     
+    # Find the best available Python version
+    local python_cmd=""
+    for version in 3.13 3.12 3.11; do
+        if command_exists "python$version"; then
+            python_cmd="python$version"
+            break
+        fi
+    done
+    
     # Generate secure secrets
-    SECRET_KEY=$(python3.11 -c "import secrets; print(secrets.token_urlsafe(32))")
-    JWT_SECRET_KEY=$(python3.11 -c "import secrets; print(secrets.token_urlsafe(32))")
+    SECRET_KEY=$($python_cmd -c "import secrets; print(secrets.token_urlsafe(32))")
+    JWT_SECRET_KEY=$($python_cmd -c "import secrets; print(secrets.token_urlsafe(32))")
     
     # Update secrets and paths in .env file
     if [[ "$OSTYPE" == "darwin"* ]]; then
