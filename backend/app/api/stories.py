@@ -668,7 +668,27 @@ async def generate_scene_streaming_endpoint(
             except Exception as e:
                 logger.error(f"Failed to extract chapter: {e}")
             
-            # PRIORITY 1: Generate choices IMMEDIATELY so user can continue the story!
+            # PRIORITY 1: Setup TTS IMMEDIATELY (different server, runs in parallel)
+            auto_play_session_id = None
+            try:
+                auto_play_data = await setup_auto_play_if_enabled(
+                    scene.id, 
+                    current_user.id, 
+                    db,
+                    start_generation=False  # Generation starts when WebSocket connects
+                )
+                
+                if auto_play_data:
+                    auto_play_session_id = auto_play_data['session_id']
+                    # Send event immediately so frontend can connect NOW!
+                    yield f"data: {json.dumps(auto_play_data['event'])}\n\n"
+                    logger.info(f"[AUTO-PLAY] Sent auto_play_ready event (TTS can start now)")
+                    
+            except Exception as e:
+                logger.error(f"[AUTO-PLAY] Failed to setup: {e}")
+                # Don't fail scene generation if auto-play fails
+            
+            # PRIORITY 2: Generate choices IMMEDIATELY (runs in parallel with TTS)
             # This is the most important UX - user shouldn't wait for background processes
             choices_data = []
             try:
@@ -759,27 +779,7 @@ async def generate_scene_streaming_endpoint(
                 db.rollback()  # Rollback any chapter changes
                 db.commit()    # But keep the scene
             
-            # PRIORITY 2: Setup TTS for autoplay (after choices are ready)
-            auto_play_session_id = None
-            try:
-                auto_play_data = await setup_auto_play_if_enabled(
-                    scene.id, 
-                    current_user.id, 
-                    db,
-                    start_generation=False  # Generation starts when WebSocket connects
-                )
-                
-                if auto_play_data:
-                    auto_play_session_id = auto_play_data['session_id']
-                    # Send event immediately so frontend can connect NOW!
-                    yield f"data: {json.dumps(auto_play_data['event'])}\n\n"
-                    logger.info(f"[AUTO-PLAY] Sent auto_play_ready event (TTS can start now)")
-                    
-            except Exception as e:
-                logger.error(f"[AUTO-PLAY] Failed to setup: {e}")
-                # Don't fail scene generation if auto-play fails
-            
-            # Send completion data with choices
+            # Send completion data with choices (TTS was already setup earlier)
             complete_data = {
                 'type': 'complete',
                 'scene_id': scene.id,
