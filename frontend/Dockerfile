@@ -51,8 +51,10 @@ WORKDIR /app
 
 # Copy built application from builder stage
 COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
-COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/package*.json ./
+
+# Create public directory if it doesn't exist (optional for Next.js)
+RUN mkdir -p ./public
 
 # Install only production dependencies
 RUN npm ci --only=production && npm cache clean --force
