@@ -7,6 +7,7 @@ Uses LLM to extract state changes from scenes and maintains authoritative truth.
 
 import logging
 import json
+import re
 from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
 from ..models import (
@@ -16,6 +17,35 @@ from ..models import (
 from ..services.llm.service import UnifiedLLMService
 
 logger = logging.getLogger(__name__)
+
+
+def clean_llm_json(json_str: str) -> str:
+    """
+    Clean common JSON errors from LLM responses.
+    
+    Common issues:
+    - Unquoted values (e.g., location: above instead of location: "above")
+    - Trailing commas
+    - Comments
+    """
+    # Fix unquoted values in key-value pairs
+    # Pattern: "key": value, or "key": value}
+    # Replace with: "key": "value", or "key": "value"}
+    # This regex finds: "key": <word_without_quotes>
+    json_str = re.sub(
+        r':\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*([,}\]])',
+        r': "\1"\2',
+        json_str
+    )
+    
+    # Remove trailing commas before closing brackets
+    json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
+    
+    # Remove comments (// or /* */)
+    json_str = re.sub(r'//.*?$', '', json_str, flags=re.MULTILINE)
+    json_str = re.sub(r'/\*.*?\*/', '', json_str, flags=re.DOTALL)
+    
+    return json_str
 
 
 class EntityStateService:
@@ -194,12 +224,16 @@ If no changes for a category, use empty array. Return ONLY the JSON, no other te
                 response_clean = response_clean[:-3]
             response_clean = response_clean.strip()
             
+            # Clean common JSON errors from LLM
+            response_clean = clean_llm_json(response_clean)
+            
             state_changes = json.loads(response_clean)
             return state_changes
             
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse LLM response as JSON: {e}")
-            logger.debug(f"Response was: {response}")
+            logger.debug(f"Original response was: {response}")
+            logger.debug(f"Cleaned response was: {response_clean}")
             return None
         except Exception as e:
             logger.error(f"Failed to extract state changes: {e}")
