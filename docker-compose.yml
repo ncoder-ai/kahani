@@ -11,7 +11,7 @@ services:
     volumes:
       - ./backend/data:/app/data
       - ./backend/logs:/app/logs
-    user: "1000:1000"  # Use host user to avoid permission issues
+    # Remove user mapping to allow container to run as intended user
     environment:
       - DATABASE_URL=sqlite:///./data/kahani.db
       - SECRET_KEY=${SECRET_KEY:-change-this-secret-key}
