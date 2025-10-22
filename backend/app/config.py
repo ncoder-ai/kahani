@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     debug: bool = False
     
     # Database
-    database_url: str = "sqlite:///./backend/data/kahani.db"
+    database_url: str = "sqlite:///./data/kahani.db"
     
     # Security
     jwt_secret_key: str
@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     
     # Semantic Memory Configuration
     enable_semantic_memory: bool = True  # Enable semantic search and vector embeddings
-    semantic_db_path: str = "./backend/data/chromadb"  # ChromaDB persistence directory
+    semantic_db_path: str = "./data/chromadb"  # ChromaDB persistence directory
     semantic_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"  # Embedding model
     semantic_search_top_k: int = 5  # Number of semantically similar scenes to retrieve
     semantic_context_weight: float = 0.4  # Weight for semantic scenes vs recent scenes (0-1)
