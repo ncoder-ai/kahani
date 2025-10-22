@@ -216,7 +216,7 @@ setup_database() {
     source .venv/bin/activate
     
     # Create required directories
-    mkdir -p backend/data backend/backups backend/logs exports data/audio backend/data/chromadb
+    mkdir -p backend/data backend/backups backend/logs exports backend/data/audio backend/data/chromadb
     
     # Check if database already exists
     if [[ -f backend/data/kahani.db ]]; then

@@ -69,7 +69,7 @@ JWT_SECRET_KEY=your-super-secret-jwt-key-change-this-in-production
 # KAHANI_CORS_ORIGINS=["*"]
 
 # Database
-DATABASE_URL=sqlite:///./data/kahani.db
+DATABASE_URL=sqlite:///./backend/data/kahani.db
 
 # LLM Configuration
 LLM_BASE_URL=http://localhost:1234/v1
@@ -77,7 +77,7 @@ LLM_MODEL=local-model
 
 # Semantic Memory
 ENABLE_SEMANTIC_MEMORY=true
-SEMANTIC_DB_PATH=./data/chromadb
+SEMANTIC_DB_PATH=./backend/data/chromadb
 ```
 
 ### **3. backend/app/config.py**
