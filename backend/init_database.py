@@ -44,6 +44,14 @@ def init_database():
     print(f"  - Directory is writable: {os.access(data_dir, os.W_OK)}")
     print(f"  - Current user: {os.getuid()}")
     
+    # Check if we can write to the data directory
+    if not os.access(data_dir, os.W_OK):
+        print(f"❌ ERROR: Cannot write to data directory: {data_dir}")
+        print(f"  - Current working directory: {os.getcwd()}")
+        print(f"  - Directory permissions: {oct(data_dir.stat().st_mode)[-3:]}")
+        print(f"  - Try running: chmod 755 {data_dir}")
+        sys.exit(1)
+    
     # Now load settings
     settings = Settings()
     
@@ -56,6 +64,17 @@ def init_database():
     # Use absolute path for database to avoid any path resolution issues
     absolute_db_url = f"sqlite:///{db_path.absolute()}"
     print(f"  - Using absolute path: {absolute_db_url}")
+    
+    # Test if we can create the database file
+    try:
+        # Try to create a test file in the same directory
+        test_file = data_dir / ".test_db_write"
+        test_file.touch()
+        test_file.unlink()
+        print(f"✓ Database directory is writable")
+    except Exception as e:
+        print(f"❌ ERROR: Cannot write to database directory: {e}")
+        sys.exit(1)
     
     # Create engine with absolute path
     engine = create_engine(

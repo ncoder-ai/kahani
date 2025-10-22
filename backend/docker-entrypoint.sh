@@ -36,6 +36,10 @@ echo "🔧 Setting permissions..."
 chmod -R 755 /app/data /app/logs 2>/dev/null || echo "⚠️  Some permissions could not be set (mounted volumes)"
 chmod -R 755 /app/exports /app/backups 2>/dev/null || echo "⚠️  Some permissions could not be set (mounted volumes)"
 
+# Ensure data directory is writable by the application (critical for SQLite)
+echo "🗄️  Ensuring data directory is writable..."
+touch /app/data/.test_write 2>/dev/null && rm -f /app/data/.test_write && echo "✅ Data directory is writable" || echo "❌ Data directory is not writable - database will fail!"
+
 # Ensure logs directory is writable by the application
 echo "📝 Ensuring logs directory is writable..."
 touch /app/logs/.test_write 2>/dev/null && rm -f /app/logs/.test_write && echo "✅ Logs directory is writable" || echo "⚠️  Logs directory may not be writable, will use console logging"

@@ -6,7 +6,16 @@ import os
 from pathlib import Path
 
 # Ensure data directory exists
-os.makedirs(settings.data_dir, exist_ok=True)
+try:
+    os.makedirs(settings.data_dir, exist_ok=True)
+    # Test if we can write to the data directory
+    test_file = os.path.join(settings.data_dir, '.test_write')
+    with open(test_file, 'w') as f:
+        f.write('test')
+    os.remove(test_file)
+except (PermissionError, OSError) as e:
+    print(f"⚠️  Warning: Cannot write to data directory {settings.data_dir}: {e}")
+    print("   Database operations may fail. Check directory permissions.")
 
 # Convert relative database URL to absolute path if it's SQLite
 database_url = settings.database_url
