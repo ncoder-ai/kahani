@@ -10,15 +10,31 @@ interface User {
   email: string;
   display_name: string;
   is_admin: boolean;
+  is_approved: boolean;
+  // Content permissions
+  allow_nsfw: boolean;
+  // Feature permissions
+  can_change_llm_provider: boolean;
+  can_change_tts_settings: boolean;
+  can_use_stt?: boolean;  // Future feature
+  can_use_image_generation?: boolean;  // Future feature
+  can_export_stories: boolean;
+  can_import_stories: boolean;
+  // Resource limits
+  max_stories?: number | null;
+  max_images_per_story?: number | null;  // Future feature
+  max_stt_minutes_per_month?: number | null;  // Future feature
 }
 
 interface AuthState {
   user: User | null;
   token: string | null;
+  refreshToken: string | null;
   isAuthenticated: boolean;
-  login: (user: User, token: string) => void;
+  login: (user: User, token: string, refreshToken?: string) => void;
   logout: () => void;
   setUser: (user: User) => void;
+  refreshAccessToken: () => Promise<boolean>;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -26,22 +42,64 @@ export const useAuthStore = create<AuthState>()(
     (set, get) => ({
       user: null,
       token: null,
+      refreshToken: null,
       isAuthenticated: false,
-      login: (user, token) => {
+      login: (user, token, refreshToken) => {
         apiClient.setToken(token);
-        set({ user, token, isAuthenticated: true });
+        set({ user, token, refreshToken, isAuthenticated: true });
       },
       logout: () => {
         apiClient.removeToken();
-        set({ user: null, token: null, isAuthenticated: false });
+        set({ user: null, token: null, refreshToken: null, isAuthenticated: false });
       },
       setUser: (user) => set({ user }),
+      refreshAccessToken: async () => {
+        const { refreshToken } = get();
+        if (!refreshToken) {
+          console.log('No refresh token available');
+          return false;
+        }
+
+        try {
+          console.log('Attempting to refresh access token...');
+          const response = await apiClient.refreshToken(refreshToken);
+          console.log('Token refresh successful');
+          
+          apiClient.setToken(response.access_token);
+          set({ token: response.access_token });
+          return true;
+        } catch (error) {
+          console.error('Token refresh failed:', error);
+          // If refresh fails, logout the user
+          get().logout();
+          return false;
+        }
+      },
     }),
     {
       name: 'auth-storage',
-      onRehydrateStorage: () => (state) => {
-        if (state?.token) {
+      onRehydrateStorage: () => async (state) => {
+        if (state?.token && state?.user) {
           apiClient.setToken(state.token);
+          // Set isAuthenticated to true when rehydrating from storage
+          state.isAuthenticated = true;
+          
+          // If we have a refresh token, try to refresh the access token in the background
+          if (state.refreshToken) {
+            try {
+              console.log('[AuthStore] Rehydration: Attempting background token refresh...');
+              const response = await apiClient.refreshToken(state.refreshToken);
+              console.log('[AuthStore] Background token refresh successful');
+              
+              // Update the token in both the store and API client
+              apiClient.setToken(response.access_token);
+              state.token = response.access_token;
+            } catch (error) {
+              console.log('[AuthStore] Background token refresh failed, keeping existing token');
+              // Don't logout here - let the user try to use the app
+              // If the token is truly expired, the API client will handle it
+            }
+          }
         }
       },
     }

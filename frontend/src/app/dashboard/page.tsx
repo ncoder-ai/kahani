@@ -5,8 +5,9 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore, useStoryStore, useHasHydrated } from '@/store';
 import { X } from 'lucide-react';
 import apiClient, { API_BASE_URL } from '@/lib/api';
+import RouteProtection from '@/components/RouteProtection';
 
-export default function DashboardPage() {
+function DashboardContent() {
   const router = useRouter();
   const { user, logout } = useAuthStore();
   const { stories, setStories, isLoading, setLoading } = useStoryStore();
@@ -254,6 +255,14 @@ export default function DashboardPage() {
             >
               👥 Manage Characters
             </button>
+            {user?.is_admin && (
+              <button
+                onClick={() => router.push('/admin')}
+                className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white px-8 py-4 rounded-2xl font-semibold text-lg transform hover:scale-105 transition-all duration-200 shadow-lg"
+              >
+                🛡️ Admin Panel
+              </button>
+            )}
           </div>
         </div>
 
@@ -555,5 +564,13 @@ export default function DashboardPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <RouteProtection requireAuth={true} requireApproval={true}>
+      <DashboardContent />
+    </RouteProtection>
   );
 }

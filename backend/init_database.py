@@ -14,6 +14,7 @@ from sqlalchemy import create_engine, inspect
 from app.database import Base, get_db
 from app.models.user import User
 from app.models.user_settings import UserSettings
+from app.models.system_settings import SystemSettings
 from app.models.story import Story
 from app.models.chapter import Chapter
 from app.models.scene import Scene, SceneChoice
@@ -28,6 +29,7 @@ from app.models.semantic_memory import CharacterMemory, PlotEvent, SceneEmbeddin
 from app.models.entity_state import CharacterState, LocationState, ObjectState
 from app.config import Settings
 from passlib.context import CryptContext
+from datetime import datetime
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -84,45 +86,57 @@ def init_database():
     tables = inspector.get_table_names()
     print(f"Created {len(tables)} tables: {', '.join(tables)}")
     
-    # Create default users
-    print("\nCreating default users...")
+    # Create system settings (singleton)
+    print("\nCreating system settings...")
     from sqlalchemy.orm import Session
     db = Session(engine)
     
     try:
-        # Create test user
-        test_user = User(
-            email="test@test.com",
-            username="test",
-            display_name="Test User",
-            hashed_password=pwd_context.hash("test"),
-            is_active=True,
-            is_admin=False
+        # Create system settings with safe defaults
+        system_settings = SystemSettings(
+            id=1,
+            # Default permissions for new users
+            default_allow_nsfw=False,
+            default_can_change_llm_provider=True,
+            default_can_change_tts_settings=True,
+            default_can_use_stt=True,
+            default_can_use_image_generation=True,
+            default_can_export_stories=True,
+            default_can_import_stories=True,
+            # Default resource limits (None = unlimited)
+            default_max_stories=None,
+            default_max_images_per_story=None,
+            default_max_stt_minutes_per_month=None,
+            # Default LLM settings
+            default_llm_api_url=None,
+            default_llm_api_key=None,
+            default_llm_model_name=None,
+            default_llm_temperature=0.7,
+            # Registration settings
+            registration_requires_approval=True,
         )
-        db.add(test_user)
-        
-        # Create admin user
-        admin_user = User(
-            email=settings.admin_email,
-            username="admin",
-            display_name="Administrator",
-            hashed_password=pwd_context.hash(settings.admin_password),
-            is_active=True,
-            is_admin=True
-        )
-        db.add(admin_user)
-        
+        db.add(system_settings)
         db.commit()
+        print("✓ Created system settings with safe defaults")
         
-        print(f"✓ Created test user: test@test.com / test")
-        print(f"✓ Created admin user: {settings.admin_email} / {settings.admin_password}")
+        # NOTE: We do NOT create any default users!
+        # The first user to register will automatically become admin.
+        # This is handled in /api/auth/register endpoint.
+        print("\n✓ Database ready - first user to register will be admin")
         
-        # Verify users were created
+        # Verify system settings
         user_count = db.query(User).count()
         print(f"\nTotal users in database: {user_count}")
+        print("  First user to register will automatically:")
+        print("    - Become admin (is_admin=True)")
+        print("    - Be auto-approved (is_approved=True)")
+        print("    - Get all permissions")
+        print("\n  Subsequent users will:")
+        print("    - Inherit defaults from SystemSettings")
+        print("    - Require admin approval (if registration_requires_approval=True)")
         
     except Exception as e:
-        print(f"Error creating users: {e}")
+        print(f"Error initializing database: {e}")
         db.rollback()
         raise
     finally:

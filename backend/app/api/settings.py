@@ -120,12 +120,30 @@ async def update_user_settings(
     # Update LLM settings
     if settings_update.llm_settings:
         llm = settings_update.llm_settings
+        
+        # Check if user is trying to change provider settings
+        is_changing_provider = (
+            llm.api_url is not None or 
+            llm.api_key is not None or 
+            llm.api_type is not None or 
+            llm.model_name is not None
+        )
+        
+        # Verify permission if changing provider configuration
+        if is_changing_provider and not current_user.can_change_llm_provider:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to change LLM provider settings. Please contact an administrator."
+            )
+        
+        # Update generation parameters (always allowed)
         user_settings.llm_temperature = llm.temperature
         user_settings.llm_top_p = llm.top_p
         user_settings.llm_top_k = llm.top_k
         user_settings.llm_repetition_penalty = llm.repetition_penalty
         user_settings.llm_max_tokens = llm.max_tokens
-        # Update API configuration fields
+        
+        # Update API configuration fields (only if permitted)
         if llm.api_url is not None:
             user_settings.llm_api_url = llm.api_url
         if llm.api_key is not None:
@@ -352,6 +370,13 @@ async def test_api_connection(
     """Test connection to the configured LLM API"""
     import httpx
     
+    # Verify user has permission to manage LLM provider settings
+    if not current_user.can_change_llm_provider:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to test LLM provider connections. Please contact an administrator."
+        )
+    
     # Get user settings
     user_settings = db.query(UserSettings).filter(
         UserSettings.user_id == current_user.id
@@ -428,6 +453,13 @@ async def get_available_models(
 ):
     """Fetch available models from the configured LLM API"""
     import httpx
+    
+    # Verify user has permission to manage LLM provider settings
+    if not current_user.can_change_llm_provider:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to view available LLM models. Please contact an administrator."
+        )
     
     # Get user settings
     user_settings = db.query(UserSettings).filter(

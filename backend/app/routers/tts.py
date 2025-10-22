@@ -170,6 +170,13 @@ async def update_tts_settings(
 ):
     """Update user's TTS settings"""
     
+    # Verify user has permission to change TTS settings
+    if not current_user.can_change_tts_settings:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to change TTS settings. Please contact an administrator."
+        )
+    
     # Validate provider type
     if not TTSProviderRegistry.is_registered(settings_request.provider_type):
         raise HTTPException(
@@ -279,6 +286,13 @@ async def save_provider_config(
 ):
     """Save configuration for a specific provider"""
     
+    # Verify user has permission to change TTS settings
+    if not current_user.can_change_tts_settings:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to save TTS provider configurations. Please contact an administrator."
+        )
+    
     # Validate provider type
     if not TTSProviderRegistry.is_registered(provider_type):
         raise HTTPException(
@@ -362,6 +376,13 @@ async def test_connection(
     Test connection to TTS provider and return health status.
     Returns voices if connection is successful.
     """
+    
+    # Verify user has permission to change TTS settings
+    if not current_user.can_change_tts_settings:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to test TTS provider connections. Please contact an administrator."
+        )
     
     # Validate provider type
     if not TTSProviderRegistry.is_registered(settings_request.provider_type):

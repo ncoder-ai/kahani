@@ -38,8 +38,18 @@ export default function RegisterPage() {
         password: formData.password,
         display_name: formData.displayName,
       });
+      
+      // Update auth store with user and token
       login(response.user, response.access_token);
-      router.push('/dashboard');
+      
+      // Check if user needs approval
+      if (response.user.is_approved || response.user.is_admin) {
+        // First user (admin) or pre-approved user - go to dashboard
+        router.push('/dashboard');
+      } else {
+        // User needs admin approval - show pending screen
+        router.push('/pending-approval');
+      }
     } catch (err) {
       console.error('Registration error:', err);
       if (err instanceof Error) {

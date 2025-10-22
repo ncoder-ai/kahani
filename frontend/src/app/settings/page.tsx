@@ -84,6 +84,10 @@ export default function SettingsPage() {
   const [messageType, setMessageType] = useState<'success' | 'error' | 'info'>('success');
   const { addNotification } = useNotifications();
 
+  // Permission checks
+  const canChangeLLMProvider = user?.can_change_llm_provider ?? true;
+  const canChangeTTSSettings = user?.can_change_tts_settings ?? true;
+
   // Model management state
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [currentModel, setCurrentModel] = useState<string>('');
@@ -610,7 +614,14 @@ export default function SettingsPage() {
 
                 {/* API Configuration */}
                 <div className="mb-8">
-                  <h3 className="text-lg font-medium mb-4">API Configuration</h3>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-medium">API Configuration</h3>
+                    {!canChangeLLMProvider && (
+                      <div className="text-xs text-yellow-400 bg-yellow-400/10 px-3 py-1 rounded-full border border-yellow-400/30">
+                        🔒 View Only - Contact admin for changes
+                      </div>
+                    )}
+                  </div>
                   <div className="space-y-4">
                     
                     {/* API Type */}
@@ -619,7 +630,8 @@ export default function SettingsPage() {
                       <select
                         value={settings.llm_settings.api_type || 'openai-compatible'}
                         onChange={(e) => updateLLMSetting('api_type', e.target.value)}
-                        className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
+                        disabled={!canChangeLLMProvider}
+                        className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <option value="openai-compatible">OpenAI Compatible</option>
                         <option value="openai">OpenAI Official</option>
@@ -638,8 +650,9 @@ export default function SettingsPage() {
                         type="url"
                         value={settings.llm_settings.api_url || ''}
                         onChange={(e) => updateLLMSetting('api_url', e.target.value)}
+                        disabled={!canChangeLLMProvider}
                         placeholder="Enter your LLM API URL (e.g., https://api.openai.com/v1)"
-                        className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
+                        className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                       />
                       <div className="text-xs text-gray-400 mt-1">
                         Base URL for your LLM API server
@@ -653,8 +666,9 @@ export default function SettingsPage() {
                         type="password"
                         value={settings.llm_settings.api_key || ''}
                         onChange={(e) => updateLLMSetting('api_key', e.target.value)}
+                        disabled={!canChangeLLMProvider}
                         placeholder="Enter API key if required"
-                        className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
+                        className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                       />
                       <div className="text-xs text-gray-400 mt-1">
                         API key for authentication (leave empty for local servers)
@@ -665,15 +679,15 @@ export default function SettingsPage() {
                     <div className="flex gap-3">
                       <button
                         onClick={testApiConnection}
-                        disabled={testingConnection}
-                        className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 px-4 py-2 rounded-md text-white transition-colors"
+                        disabled={testingConnection || !canChangeLLMProvider}
+                        className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed px-4 py-2 rounded-md text-white transition-colors"
                       >
                         {testingConnection ? 'Testing...' : 'Test Connection'}
                       </button>
                       <button
                         onClick={fetchAvailableModels}
-                        disabled={loadingModels}
-                        className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 px-4 py-2 rounded-md text-white transition-colors"
+                        disabled={loadingModels || !canChangeLLMProvider}
+                        className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed px-4 py-2 rounded-md text-white transition-colors"
                       >
                         {loadingModels ? 'Loading...' : 'Fetch Models'}
                       </button>
@@ -697,7 +711,8 @@ export default function SettingsPage() {
                             updateLLMSetting('model_name', e.target.value);
                             setCurrentModel(e.target.value);
                           }}
-                          className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
+                          disabled={!canChangeLLMProvider}
+                          className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <option value="">Select a model...</option>
                           {availableModels.map((model) => (
