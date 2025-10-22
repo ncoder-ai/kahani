@@ -42,7 +42,8 @@ RUN groupadd -r kahani && useradd -r -g kahani kahani
 
 # Create app directory with proper permissions
 RUN mkdir -p /app /app/data /app/logs /app/.cache/huggingface && \
-    chown -R 1000:1000 /app
+    chown -R 1000:1000 /app && \
+    chmod -R 755 /app/logs
 
 # Set working directory
 WORKDIR /app

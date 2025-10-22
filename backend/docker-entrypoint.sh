@@ -36,6 +36,10 @@ echo "🔧 Setting permissions..."
 chmod -R 755 /app/data /app/logs 2>/dev/null || echo "⚠️  Some permissions could not be set (mounted volumes)"
 chmod -R 755 /app/exports /app/backups 2>/dev/null || echo "⚠️  Some permissions could not be set (mounted volumes)"
 
+# Ensure logs directory is writable by the application
+echo "📝 Ensuring logs directory is writable..."
+touch /app/logs/.test_write 2>/dev/null && rm -f /app/logs/.test_write && echo "✅ Logs directory is writable" || echo "⚠️  Logs directory may not be writable, will use console logging"
+
 # If PostgreSQL is configured, wait for it
 if [[ "$DATABASE_URL" == postgresql* ]]; then
     echo "🐘 PostgreSQL database detected"

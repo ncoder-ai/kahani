@@ -36,15 +36,25 @@ import logging
 import os
 
 # Configure logging
-os.makedirs(os.path.dirname(settings.log_file), exist_ok=True)
-logging.basicConfig(
-    level=getattr(logging, settings.log_level.upper()),
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler(settings.log_file),
-        logging.StreamHandler()
-    ]
-)
+try:
+    # Try to create logs directory and configure file logging
+    os.makedirs(os.path.dirname(settings.log_file), exist_ok=True)
+    logging.basicConfig(
+        level=getattr(logging, settings.log_level.upper()),
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.FileHandler(settings.log_file),
+            logging.StreamHandler()
+        ]
+    )
+except (PermissionError, OSError) as e:
+    # Fallback to console-only logging if file logging fails
+    print(f"⚠️  File logging disabled due to permissions: {e}")
+    logging.basicConfig(
+        level=getattr(logging, settings.log_level.upper()),
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[logging.StreamHandler()]
+    )
 
 logger = logging.getLogger(__name__)
 
