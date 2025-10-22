@@ -34,9 +34,13 @@ def update_database_schema():
     
     print(f"Updating database schema at: {db_path}")
     
-    # Create engine
+    # Use absolute path for database to avoid any path resolution issues
+    absolute_db_url = f"sqlite:///{db_path.absolute()}"
+    print(f"  - Using absolute path: {absolute_db_url}")
+    
+    # Create engine with absolute path
     engine = create_engine(
-        settings.database_url,
+        absolute_db_url,
         connect_args={"check_same_thread": False}
     )
     

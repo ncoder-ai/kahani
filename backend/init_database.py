@@ -37,17 +37,27 @@ def init_database():
     data_dir = Path(backend_dir) / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     
+    print(f"✓ Created data directory: {data_dir}")
+    print(f"  - Directory exists: {data_dir.exists()}")
+    print(f"  - Directory is writable: {os.access(data_dir, os.W_OK)}")
+    print(f"  - Current user: {os.getuid()}")
+    
     # Now load settings
     settings = Settings()
     
     # Database file path
     db_path = data_dir / "kahani.db"
     
-    print(f"Initializing database at: {db_path}")
+    print(f"\nInitializing database at: {db_path}")
+    print(f"  - Database URL from settings: {settings.database_url}")
     
-    # Create engine
+    # Use absolute path for database to avoid any path resolution issues
+    absolute_db_url = f"sqlite:///{db_path.absolute()}"
+    print(f"  - Using absolute path: {absolute_db_url}")
+    
+    # Create engine with absolute path
     engine = create_engine(
-        settings.database_url,
+        absolute_db_url,
         connect_args={"check_same_thread": False}
     )
     
