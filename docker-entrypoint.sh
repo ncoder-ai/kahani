@@ -45,31 +45,18 @@ if [[ "$DATABASE_URL" == postgresql* ]]; then
 fi
 
 # Initialize database if needed
-if [ ! -f "/app/data/kahani.db" ] && [[ "$DATABASE_URL" == sqlite* ]]; then
-    echo "🗄️ Initializing SQLite database..."
-    cd /app
+if [ ! -f "/app/backend/data/kahani.db" ] && [[ "$DATABASE_URL" == sqlite* ]]; then
+    echo "🗄️ Initializing SQLite database with admin system..."
+    cd /app/backend
     
-    # Run init script if it exists
+    # Run database initialization with admin system
     if [ -f "init_database.py" ]; then
-        echo "Running database initialization..."
+        echo "Running database initialization with admin system..."
         python init_database.py || echo "⚠️  Database initialization warning (may already exist)"
     fi
     
-    # Run migrations
-    echo "Running database migrations..."
-    if [ -f "migrate_add_tts.py" ]; then
-        python migrate_add_tts.py || echo "⚠️  TTS migration warning (may already be applied)"
-    fi
-    
-    if [ -f "migrate_add_auto_open_last_story.py" ]; then
-        python migrate_add_auto_open_last_story.py || echo "⚠️  Auto-open migration warning (may already be applied)"
-    fi
-    
-    if [ -f "migrate_add_prompt_templates.py" ]; then
-        python migrate_add_prompt_templates.py || echo "⚠️  Prompt templates migration warning (may already be applied)"
-    fi
-    
     echo "✅ Database initialization complete"
+    echo "🔐 First user to register will become admin automatically"
 else
     echo "✅ Database already exists"
 fi
