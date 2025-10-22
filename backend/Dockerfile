@@ -55,7 +55,7 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 COPY . .
 
 # Copy entrypoint script and make it executable
-COPY ../docker-entrypoint.sh /app/docker-entrypoint.sh
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
 
 # Download AI models (embedding + reranker) during build
