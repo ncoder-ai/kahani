@@ -8,40 +8,40 @@ export default function AutoplayPermissionBanner() {
   const [isDismissed, setIsDismissed] = useState(false);
   const [isRequesting, setIsRequesting] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
-  const [shouldHide, setShouldHide] = useState(false);
 
-  // Watch for permission changes and trigger close animation
-  useEffect(() => {
-    if (hasPermission && !isClosing && !shouldHide) {
-      console.log('[Banner] Permission detected, starting close animation');
-      setIsClosing(true);
-      
-      // After animation completes, fully hide the banner
-      setTimeout(() => {
-        console.log('[Banner] Animation complete, banner will now hide');
-        setShouldHide(true);
-      }, 500);
-    }
-  }, [hasPermission, isClosing, shouldHide]);
+  // Debug logging
+  console.log('[Banner] Render - hasPermission:', hasPermission, 'isClosing:', isClosing, 'isDismissed:', isDismissed);
 
-  // Don't show if already dismissed, or if animation completed
-  if (isDismissed || shouldHide) {
+  // Don't show if user dismissed
+  if (isDismissed) {
+    console.log('[Banner] Hidden - user dismissed');
     return null;
   }
   
-  // Also don't show if permission was granted before component mounted
+  // Don't show if permission was already granted before component mounted
   if (hasPermission && !isClosing) {
+    console.log('[Banner] Hidden - permission already granted');
     return null;
   }
 
   const handleEnableAutoplay = async () => {
+    console.log('[Banner] Enable button clicked');
     setIsRequesting(true);
     const granted = await requestPermission();
     setIsRequesting(false);
     
+    console.log('[Banner] Permission result:', granted);
+    
     if (granted) {
-      console.log('[Autoplay] Permission granted - animation will trigger via useEffect');
-      // Animation and hiding handled by useEffect watching hasPermission
+      console.log('[Autoplay] Permission granted! Starting close animation...');
+      // Start closing animation immediately
+      setIsClosing(true);
+      
+      // After animation completes, the component will re-render and return null
+      // because hasPermission will be true and isClosing will be true
+      setTimeout(() => {
+        console.log('[Banner] Animation complete');
+      }, 500);
     } else {
       alert('Failed to enable autoplay. Please check your browser settings and try again.');
     }
