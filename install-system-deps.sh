@@ -88,13 +88,14 @@ check_requirements() {
 # Install system dependencies
 install_system_deps() {
     log_info "Installing system dependencies..."
+    log_info "Using --no-upgrade flag to avoid breaking existing system packages"
     
     if [[ "$OS" == "linux" ]]; then
-        # Update package list
+        # Update package list only (no upgrade)
         sudo apt update
         
-        # Install required packages
-        sudo apt install -y curl wget git build-essential libssl-dev zlib1g-dev \
+        # Install required packages without upgrading existing ones
+        sudo apt install -y --no-upgrade curl wget git build-essential libssl-dev zlib1g-dev \
             libbz2-dev libreadline-dev libsqlite3-dev llvm libncurses5-dev \
             libncursesw5-dev xz-utils tk-dev libffi-dev liblzma-dev
             
@@ -124,10 +125,10 @@ install_python() {
     if [[ "$OS" == "linux" ]]; then
         # Install Python 3.11 via deadsnakes PPA
         sudo apt update
-        sudo apt install -y software-properties-common
+        sudo apt install -y --no-upgrade software-properties-common
         sudo add-apt-repository -y ppa:deadsnakes/ppa
         sudo apt update
-        sudo apt install -y python3.11 python3.11-venv python3.11-pip
+        sudo apt install -y --no-upgrade python3.11 python3.11-venv python3.11-pip
         
     elif [[ "$OS" == "macos" ]]; then
         brew install python@3.11
@@ -148,7 +149,7 @@ install_nodejs() {
     # Install Node.js via NodeSource
     if [[ "$OS" == "linux" ]]; then
         curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-        sudo apt-get install -y nodejs
+        sudo apt-get install -y --no-upgrade nodejs
         
     elif [[ "$OS" == "macos" ]]; then
         brew install node
