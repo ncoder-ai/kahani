@@ -42,7 +42,7 @@ RUN groupadd -r kahani && useradd -r -g kahani kahani
 
 # Create app directory with proper permissions
 RUN mkdir -p /app /app/data /app/logs && \
-    chown -R kahani:kahani /app
+    chown -R 1000:1000 /app
 
 # Set working directory
 WORKDIR /app
@@ -64,10 +64,9 @@ RUN echo "📦 Downloading AI models for semantic memory..." && \
     python download_models.py || echo "⚠️  Model download failed, will retry at runtime"
 
 # Set ownership of application files and model cache
-RUN chown -R kahani:kahani /app
+RUN chown -R 1000:1000 /app
 
-# Switch to non-root user
-USER kahani
+# User will be set via docker-compose user mapping
 
 # Health check (uses PORT env var with 9876 default)
 HEALTHCHECK --interval=30s --timeout=30s --start-period=40s --retries=3 \

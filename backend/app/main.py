@@ -37,20 +37,13 @@ import os
 
 # Configure logging
 os.makedirs(os.path.dirname(settings.log_file), exist_ok=True)
-# Set up logging with fallback for permission issues
-handlers = [logging.StreamHandler()]
-
-# Try to add file handler, but don't fail if we can't write to the log file
-try:
-    handlers.append(logging.FileHandler(settings.log_file))
-except (PermissionError, OSError) as e:
-    print(f"Warning: Could not create log file {settings.log_file}: {e}")
-    print("Continuing with console logging only...")
-
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper()),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=handlers
+    handlers=[
+        logging.FileHandler(settings.log_file),
+        logging.StreamHandler()
+    ]
 )
 
 logger = logging.getLogger(__name__)
