@@ -17,7 +17,7 @@ interface Character {
   is_public: boolean;
   creator_id: number;
   created_at: string;
-  updated_at?: string;
+  updated_at: string | null;
 }
 
 export default function CharacterLibrary() {
