@@ -34,15 +34,28 @@ export const useAutoplayPermission = () => {
       audio.muted = true; // Start muted
       
       console.log('[Autoplay Hook] Attempting to play audio...');
-      // Play the audio
+      
+      // Try to play with timeout to avoid hanging
       const playPromise = audio.play();
       
       if (playPromise !== undefined) {
-        console.log('[Autoplay Hook] Play promise received, awaiting...');
-        await playPromise;
+        console.log('[Autoplay Hook] Play promise received, awaiting with timeout...');
         
-        console.log('[Autoplay Hook] Audio played successfully! Setting permission...');
-        // If we got here, autoplay is allowed
+        // Add timeout to prevent hanging
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Audio play timeout')), 2000)
+        );
+        
+        try {
+          await Promise.race([playPromise, timeoutPromise]);
+          console.log('[Autoplay Hook] Audio played successfully! Setting permission...');
+        } catch (error) {
+          console.log('[Autoplay Hook] Audio play failed or timed out:', error);
+          // Even if audio fails, we can still grant permission since user clicked
+          console.log('[Autoplay Hook] Granting permission anyway (user interaction detected)');
+        }
+        
+        // Grant permission regardless of audio success (user clicked the button)
         localStorage.setItem(AUTOPLAY_PERMISSION_KEY, 'true');
         setHasPermission(true);
         
@@ -55,11 +68,17 @@ export const useAutoplayPermission = () => {
         return true;
       }
       
-      console.log('[Autoplay Hook] No play promise, returning false');
-      return false;
+      console.log('[Autoplay Hook] No play promise, granting permission anyway');
+      // Grant permission anyway since user clicked
+      localStorage.setItem(AUTOPLAY_PERMISSION_KEY, 'true');
+      setHasPermission(true);
+      return true;
     } catch (error) {
-      console.error('[Autoplay Hook] Permission denied:', error);
-      return false;
+      console.error('[Autoplay Hook] Error occurred, but granting permission anyway:', error);
+      // Grant permission anyway since user clicked
+      localStorage.setItem(AUTOPLAY_PERMISSION_KEY, 'true');
+      setHasPermission(true);
+      return true;
     }
   }, []);
 
