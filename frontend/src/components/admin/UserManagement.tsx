@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { API_BASE_URL } from '@/lib/api';
 import { useAuthStore } from '@/store';
 
@@ -399,7 +400,7 @@ export default function UserManagement() {
       )}
 
       {/* Edit User Modal */}
-      {showEditModal && editingUser && (
+      {showEditModal && editingUser && typeof window !== 'undefined' && createPortal(
         <div 
           className="fixed inset-0 bg-black/70 flex items-center justify-center p-4" 
           style={{ 
@@ -644,7 +645,8 @@ export default function UserManagement() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
