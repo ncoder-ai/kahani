@@ -17,7 +17,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # Stage 2: Backend Setup
-FROM python:3.11-slim AS backend-builder
+FROM python:3.12-slim AS backend-builder
 
 WORKDIR /app/backend
 
@@ -33,7 +33,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 # Stage 3: Production Image
-FROM python:3.11-slim AS production
+FROM python:3.12-slim AS production
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
@@ -55,7 +55,7 @@ RUN groupadd -r kahani && useradd -r -g kahani -s /bin/bash kahani
 WORKDIR /app
 
 # Copy Python dependencies from builder
-COPY --from=backend-builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=backend-builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=backend-builder /usr/local/bin /usr/local/bin
 
 # Copy backend source

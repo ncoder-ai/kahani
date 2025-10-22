@@ -1,5 +1,9 @@
 version: '3.8'
 
+# Kahani Docker Compose Configuration
+# First user to register becomes admin automatically
+# No default users - register your first account to get started
+
 services:
   backend:
     build: ./backend
