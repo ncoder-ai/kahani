@@ -121,8 +121,13 @@ setup_database() {
     
     source .venv/bin/activate
     
-    # Create required directories
+    # Create required directories with proper permissions
     mkdir -p backend/data backend/backups backend/logs exports backend/data/audio backend/data/chromadb
+    chmod -R 755 backend/data backend/backups backend/logs exports
+    
+    # Debug: Check directory permissions
+    log_info "Checking directory permissions..."
+    ls -la backend/ | grep data
     
     # Initialize or update database
     if [[ -f backend/data/kahani.db ]]; then
