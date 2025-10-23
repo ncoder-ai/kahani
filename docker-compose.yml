@@ -4,7 +4,9 @@
 
 services:
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.alpine
     container_name: kahani-backend
     ports:
       - "9876:9876"
