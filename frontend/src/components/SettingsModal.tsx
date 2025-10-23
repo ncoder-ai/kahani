@@ -127,7 +127,8 @@ export default function SettingsModal({ isOpen, onClose, onSaved }: SettingsModa
       }
 
       const data = await response.json();
-      setSettings(data);
+      // The API returns { settings: { ... } }, so we need to extract the settings object
+      setSettings(data.settings || data);
     } catch (error) {
       console.error('Error loading settings:', error);
       setMessage('Failed to load settings');
@@ -185,7 +186,7 @@ export default function SettingsModal({ isOpen, onClose, onSaved }: SettingsModa
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify(settings),
+        body: JSON.stringify({ settings }),
       });
 
       if (!response.ok) {
@@ -220,7 +221,7 @@ export default function SettingsModal({ isOpen, onClose, onSaved }: SettingsModa
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify(settings.llm_settings),
+        body: JSON.stringify({ settings: { llm_settings: settings.llm_settings } }),
       });
 
       if (response.ok) {
