@@ -1,7 +1,7 @@
 # Multi-stage build for Next.js frontend
 
 # Dependencies stage
-FROM node:18-alpine as deps
+FROM node:22-alpine as deps
 
 # Check https://github.com/nodejs/docker-node/tree/b4117f9333da4138b03a546ec926ef50a31506c3#nodealpine to understand why libc6-compat might be needed.
 RUN apk add --no-cache libc6-compat
@@ -15,7 +15,7 @@ COPY package*.json ./
 RUN npm ci --only=production && npm cache clean --force
 
 # Builder stage
-FROM node:18-alpine as builder
+FROM node:22-alpine as builder
 
 WORKDIR /app
 
@@ -33,7 +33,7 @@ ENV NODE_ENV=production
 RUN npm run build
 
 # Production stage
-FROM node:18-alpine as production
+FROM node:22-alpine as production
 
 # Set environment variables
 ENV NODE_ENV=production
