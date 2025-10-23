@@ -296,40 +296,6 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
   }, [apiBaseUrl, handleWebSocketMessage, currentSceneId, isPlaying, isGenerating]);
   
   /**
-   * Start manual TTS generation for a scene
-   */
-  const playScene = useCallback(async (sceneId: number) => {
-    console.log('[Global TTS] Starting manual TTS for scene:', sceneId);
-    
-    // Stop any existing playback first to prevent audio overlap
-    stop();
-    
-    try {
-      // Create TTS session (use WebSocket endpoint)
-      const response = await fetch(`${apiBaseUrl}/api/tts/generate-ws/${sceneId}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      
-      const data = await response.json();
-      console.log('[Global TTS] Session created:', data.session_id);
-      
-      // Connect to the session (manual TTS - bypass autoplay check)
-      await connectToSession(data.session_id, sceneId, true);
-    } catch (err) {
-      console.error('[Global TTS] Failed to start TTS:', err);
-      setError(err instanceof Error ? err.message : 'Failed to start TTS');
-    }
-  }, [apiBaseUrl, connectToSession, stop]);
-  
-  /**
    * Stop playback
    */
   const stop = useCallback(() => {
@@ -384,6 +350,40 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
       isPlayingRef.current = true;
     }
   }, []);
+  
+  /**
+   * Start manual TTS generation for a scene
+   */
+  const playScene = useCallback(async (sceneId: number) => {
+    console.log('[Global TTS] Starting manual TTS for scene:', sceneId);
+    
+    // Stop any existing playback first to prevent audio overlap
+    stop();
+    
+    try {
+      // Create TTS session (use WebSocket endpoint)
+      const response = await fetch(`${apiBaseUrl}/api/tts/generate-ws/${sceneId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log('[Global TTS] Session created:', data.session_id);
+      
+      // Connect to the session (manual TTS - bypass autoplay check)
+      await connectToSession(data.session_id, sceneId, true);
+    } catch (err) {
+      console.error('[Global TTS] Failed to start TTS:', err);
+      setError(err instanceof Error ? err.message : 'Failed to start TTS');
+    }
+  }, [apiBaseUrl, connectToSession, stop]);
   
   // Cleanup on unmount
   useEffect(() => {
