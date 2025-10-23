@@ -94,6 +94,7 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
   const playNextChunk = useCallback(() => {
     if (audioQueueRef.current.length === 0) {
       isPlayingRef.current = false;
+      setIsPlaying(false);
       return;
     }
     
@@ -176,6 +177,7 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
       case 'complete':
         console.log('[Global TTS] Generation complete');
         setIsGenerating(false);
+        // Note: isPlaying will be set to false by playNextChunk when queue is empty
         break;
         
       case 'error':
