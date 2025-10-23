@@ -19,6 +19,11 @@ class LLMClient:
         if not user_settings:
             raise ValueError("No LLM settings provided. Please configure your LLM settings first.")
         
+        # Debug logging for user settings in LLMClient
+        logger.info(f"LLMClient Debug - Received user_settings: {user_settings}")
+        logger.info(f"LLMClient Debug - allow_nsfw in user_settings: {'allow_nsfw' in user_settings}")
+        logger.info(f"LLMClient Debug - allow_nsfw value: {user_settings.get('allow_nsfw', 'NOT_FOUND')}")
+        
         self.user_settings = user_settings
         
         # Support both nested and flat structure for backwards compatibility
