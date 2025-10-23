@@ -83,10 +83,17 @@ class LLMClient:
     
     def _configure_litellm(self):
         """Configure LiteLLM with provider-specific settings"""
-        # For openai-compatible, we DON'T set api_base globally because LiteLLM
-        # automatically adds /v1. Instead, we pass it per-request in get_generation_params()
+        # For openai-compatible, we need to handle the /v1 endpoint correctly
         if self.api_type == "openai-compatible":
-            # Just set the API key if needed
+            # Set the API base URL to include /v1 if not already present
+            if self.api_url.endswith("/v1"):
+                # URL already has /v1, use as-is
+                litellm.api_base = self.api_url
+            else:
+                # Add /v1 to the URL
+                litellm.api_base = f"{self.api_url}/v1"
+            
+            # Set the API key if needed
             if self.api_key and self.api_key.strip():
                 litellm.api_key = self.api_key
             else:
