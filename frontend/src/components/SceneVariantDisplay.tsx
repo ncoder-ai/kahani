@@ -367,15 +367,18 @@ export default function SceneVariantDisplay({
 
   // Handle regeneration animation
   useEffect(() => {
-    if (isRegenerating && layoutMode === 'modern') {
+    // Skip animation if we're auto-switching to a newly generated variant
+    const isAutoSwitching = variantReloadTrigger && variantReloadTrigger.sceneId === scene.id;
+    
+    if (isRegenerating && layoutMode === 'modern' && !isAutoSwitching) {
       const container = sceneContentRef.current;
       if (container) {
         // Slide out the current scene when regeneration starts
         container.classList.remove('variant-slide-in');
         container.classList.add('variant-transitioning');
       }
-    } else {
-      // Slide in from right when regeneration completes or variant changes
+    } else if (!isAutoSwitching) {
+      // Slide in from right when regeneration completes or variant changes (but not for auto-switching)
       const container = sceneContentRef.current;
       if (container && container.classList.contains('variant-transitioning')) {
         container.classList.remove('variant-transitioning');
@@ -389,7 +392,7 @@ export default function SceneVariantDisplay({
         }, 50);
       }
     }
-  }, [isRegenerating, layoutMode, currentVariantId]);
+  }, [isRegenerating, layoutMode, currentVariantId, variantReloadTrigger, scene.id]);
 
   // Get the currently displayed variant's data
   const getCurrentVariant = (): SceneVariant | null => {
