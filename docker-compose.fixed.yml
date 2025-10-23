@@ -1,6 +1,8 @@
-# Kahani Docker Compose Configuration
+# Kahani Docker Compose Configuration - Fixed Version
+# This version includes proper networking and CORS configuration
 # First user to register becomes admin automatically
-# No default users - register your first account to get started
+
+version: '3.8'
 
 services:
   backend:
@@ -11,8 +13,6 @@ services:
     volumes:
       - ./backend/data:/app/data
       - ./backend/logs:/app/logs
-    # Run as root initially to fix permissions, then switch to 1000:1000
-    # user: "1000:1000"  # Temporarily disabled to allow permission fixing
     environment:
       - DATABASE_URL=sqlite:///./data/kahani.db
       - SECRET_KEY=${SECRET_KEY:-change-this-secret-key}
@@ -20,7 +20,7 @@ services:
       - LLM_BASE_URL=${LLM_BASE_URL:-http://host.docker.internal:1234/v1}
       - LLM_API_KEY=${LLM_API_KEY:-not-needed}
       - LLM_MODEL=${LLM_MODEL:-local-model}
-      - CORS_ORIGINS=["http://localhost:6789","http://localhost:3000","http://localhost:3001"]
+      - CORS_ORIGINS=["http://localhost:6789","http://localhost:3000","http://localhost:3001","http://frontend:6789"]
       - DOCKER_CONTAINER=true
       - KAHANI_ENV=development
       - KAHANI_API_URL=http://localhost:9876
@@ -28,6 +28,14 @@ services:
       - PORT=9876
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - kahani-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9876/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     
   frontend:
     build: ./frontend
@@ -39,4 +47,17 @@ services:
       - NEXT_PUBLIC_API_BASE_URL=http://localhost:9876
       - PORT=6789
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    networks:
+      - kahani-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6789/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  kahani-network:
+    driver: bridge
