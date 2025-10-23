@@ -114,6 +114,7 @@ export default function StoryPage() {
   const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [userSettings, setUserSettings] = useState<any>(null);
+  const [variantReloadTrigger, setVariantReloadTrigger] = useState<{sceneId: number, timestamp: number} | null>(null);
   
   // New variant system states - now managed by SceneVariantDisplay
   // const [selectedSceneVariants, setSelectedSceneVariants] = useState<{[sceneId: number]: SceneVariant[]}>({});
@@ -811,7 +812,7 @@ export default function StoryPage() {
             console.log('[VARIANT COMPLETE] Has auto_play_session_id?', 'auto_play_session_id' in response);
             console.log('[VARIANT COMPLETE] auto_play_session_id value:', response.auto_play_session_id);
             
-            // Check if auto-play was triggered - but ONLY if we didn't already handle it via auto_play_ready
+            // Handle auto-play if present
             if (response.auto_play_session_id && !autoPlayAlreadyTriggered) {
               console.log('[AUTO-PLAY] Connecting to global TTS from COMPLETE event:', response.auto_play_session_id, 'for scene:', sceneId);
               globalTTS.connectToSession(response.auto_play_session_id, sceneId);
@@ -821,26 +822,45 @@ export default function StoryPage() {
               console.log('[AUTO-PLAY] NO session ID in response - auto-play will not trigger');
             }
             
+            // UPDATE: Instead of reloading entire story, update scene locally
+            if (story && response.variant) {
+              console.log('[VARIANT] Updating scene locally with new variant info');
+              
+              // Update the scene with variant metadata
+              const updatedScenes = story.scenes.map(scene => {
+                if (scene.id === sceneId) {
+                  return {
+                    ...scene,
+                    has_multiple_variants: true,
+                    variant_count: (scene.variant_count || 1) + 1
+                  };
+                }
+                return scene;
+              });
+              
+              setStory({
+                ...story,
+                scenes: updatedScenes
+              });
+              
+              // Trigger variant reload for this specific scene
+              setVariantReloadTrigger({ sceneId, timestamp: Date.now() });
+              
+              console.log('[VARIANT] Updated scene locally, triggered variant reload');
+            }
+            
+            // Clear streaming states
             setStreamingVariantContent('');
             setStreamingVariantSceneId(null);
             setIsStreaming(false);
             
-            // Reload story after a delay to let audio start and buffer chunks
-            // This is needed to get the full variant list for the scene
-            console.log('[VARIANT] Variant generation complete, reloading story in 2 seconds');
-            
-            setTimeout(async () => {
-              await loadStory(false, false); // Don't scroll
-              console.log('[VARIANT] Story reloaded, variant list updated');
-              
-              // Scroll to the scene
-              setTimeout(() => {
-                const sceneElement = document.querySelector(`[data-scene-id="${sceneId}"]`);
-                if (sceneElement) {
-                  sceneElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
-              }, 100);
-            }, 2000); // Wait 2 seconds for audio to start and buffer
+            // Scroll to scene (no delay needed since we're not reloading)
+            setTimeout(() => {
+              const sceneElement = document.querySelector(`[data-scene-id="${sceneId}"]`);
+              if (sceneElement) {
+                sceneElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }
+            }, 100);
           },
           // onError
           (error: string) => {
@@ -1731,6 +1751,7 @@ export default function StoryPage() {
                           isSceneOperationInProgress={isSceneOperationInProgress}
                           streamingVariantContent={streamingVariantSceneId === scene.id ? streamingVariantContent : ''}
                           isStreamingVariant={streamingVariantSceneId === scene.id}
+                          variantReloadTrigger={variantReloadTrigger?.sceneId === scene.id ? variantReloadTrigger : null}
                         />
                       </div>
                     );
