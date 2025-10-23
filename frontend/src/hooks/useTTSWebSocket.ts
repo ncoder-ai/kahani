@@ -426,7 +426,8 @@ export const useTTSWebSocket = ({
       console.log('[AUTO-PLAY] Connecting to session:', session_id);
       
       // Connect to WebSocket with existing session
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876';
+      const { getApiBaseUrl } = await import('@/lib/apiUrl');
+      const apiUrl = getApiBaseUrl();
       const apiHost = apiUrl.replace(/^https?:\/\//, '');
       const wsProtocol = apiUrl.startsWith('https') ? 'wss:' : 'ws:';
       const wsUrl = `${wsProtocol}//${apiHost}/ws/tts/${session_id}`;
