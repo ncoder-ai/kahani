@@ -8,14 +8,14 @@ Get Kahani running in **under 5 minutes** with Docker!
 - Docker and Docker Compose installed
 - Git installed
 
-### Step 1: Clone and Setup
+### Step 1: Clone and Install
 ```bash
 # Clone the repository
 git clone https://github.com/ncoder-ai/kahani.git
 cd kahani
 
-# Set up environment configuration
-./setup-env.sh
+# Install the application
+./install.sh
 ```
 
 ### Step 2: Start with Docker
@@ -43,34 +43,23 @@ docker-compose ps
 - Node.js 18+
 - Git
 
-### Step 1: Clone and Setup
+### Step 1: Clone and Install
 ```bash
 # Clone the repository
 git clone https://github.com/ncoder-ai/kahani.git
 cd kahani
 
-# Set up environment
-./setup-env.sh
+# Install the application
+./install.sh
 ```
 
-### Step 2: Install Dependencies
-```bash
-# Backend dependencies
-cd backend
-pip install -r requirements.txt
-
-# Frontend dependencies
-cd ../frontend
-npm install
-```
-
-### Step 3: Start Development Server
+### Step 2: Start Development Server
 ```bash
 # Start both frontend and backend
 ./start-dev.sh
 ```
 
-### Step 4: Access the Application
+### Step 3: Access the Application
 - **Frontend**: http://localhost:6789
 - **Backend API**: http://localhost:9876
 
