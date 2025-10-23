@@ -56,14 +56,40 @@ Kahani (meaning "story" in Hindi) is a modern interactive storytelling platform 
 
 ## 🚀 Quick Start
 
-### **Option 1: Automated Setup (Recommended)**
+### **🐳 Docker Deployment (Recommended)**
+
+The easiest way to get started with Kahani is using Docker:
 
 ```bash
 # Clone the repository
 git clone https://github.com/ncoder-ai/kahani.git
 cd kahani
 
-# Set up environment (automated)
+# Set up environment
+./setup-env.sh
+
+# Start with Docker
+docker-compose up -d
+```
+
+**That's it!** Docker will:
+- ✅ Automatically build and start all services
+- ✅ Handle networking between frontend and backend
+- ✅ Download AI models during first build
+- ✅ Set up the database automatically
+
+**Access the application**: http://localhost:6789
+
+### **🖥️ Baremetal Installation (Advanced)**
+
+For development or custom deployments:
+
+```bash
+# Clone the repository
+git clone https://github.com/ncoder-ai/kahani.git
+cd kahani
+
+# Set up environment
 ./setup-env.sh
 
 # Start the development server
@@ -78,23 +104,7 @@ cd kahani
 
 **Access the application**: http://localhost:6789
 
-### **Option 2: Docker Deployment**
-
-```bash
-# Clone the repository
-git clone https://github.com/ncoder-ai/kahani.git
-cd kahani
-
-# Set up environment
-./setup-env.sh
-
-# Start with Docker
-docker-compose up -d
-```
-
-**Access the application**: http://localhost:6789
-
-### **Option 3: Manual Setup**
+### **⚙️ Manual Setup (Expert)**
 
 ```bash
 # Clone the repository
@@ -230,10 +240,22 @@ cd backend && python backup_database.py
 
 ## 🐳 Docker Deployment
 
-### **Development**
+### **Why Docker?**
+
+Docker is the **recommended** way to run Kahani because it:
+- 🚀 **Zero Configuration**: No need to install Python, Node.js, or manage dependencies
+- 🔒 **Isolated Environment**: Prevents conflicts with your system packages
+- 🌐 **Network Ready**: Automatically handles frontend-backend communication
+- 📦 **Self-Contained**: Includes all AI models and dependencies
+- 🔄 **Easy Updates**: Simple `git pull` and `docker-compose up` to update
+
+### **Quick Start with Docker**
 
 ```bash
-# Start with Docker
+# Clone and start
+git clone https://github.com/ncoder-ai/kahani.git
+cd kahani
+./setup-env.sh
 docker-compose up -d
 
 # View logs
@@ -243,14 +265,15 @@ docker-compose logs -f
 docker-compose down
 ```
 
-### **Production**
+### **Production Deployment**
 
 ```bash
-# Start production services
-docker-compose -f docker-compose.network.yml up -d
+# For production with custom domain
+# Edit .env file with your domain
+docker-compose up -d
 
-# With custom configuration
-KAHANI_ENV=production docker-compose -f docker-compose.network.yml up -d
+# Check status
+docker-compose ps
 ```
 
 ## 📚 Documentation
