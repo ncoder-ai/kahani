@@ -1,21 +1,46 @@
 # Network Configuration Guide
 
-This guide explains how to configure Kahani for different deployment scenarios without hard-coding IP addresses.
+This guide explains how to configure Kahani for different deployment scenarios, with Docker as the recommended approach.
 
-## 🎯 **Automatic Network Detection**
+## 🐳 **Docker Deployment (Recommended)**
 
-The system now automatically detects network configuration based on the deployment environment:
+Docker handles networking automatically - no manual configuration needed!
+
+### **Default Docker Setup**
+```bash
+# Clone and start
+git clone https://github.com/ncoder-ai/kahani.git
+cd kahani
+docker-compose up -d
+```
+
+**Access**: http://localhost:6789
+
+### **Docker Network Benefits**
+- ✅ **Automatic networking** between frontend and backend
+- ✅ **No port conflicts** with your system
+- ✅ **Isolated environment** - no system dependencies
+- ✅ **Easy updates** with `git pull` and `docker-compose up`
+
+### **Custom Docker Configuration**
+```bash
+# For custom ports
+docker-compose up -d -p 3000:6789 -p 8000:9876
+
+# For production with domain
+# Edit .env file with your domain
+docker-compose up -d
+```
+
+## 🖥️ **Baremetal Deployment (Advanced)**
+
+For development or custom deployments:
 
 ### **Development Environment**
 - **Auto-detects** network IP address
 - **CORS**: Allows all origins (`*`)
 - **API URL**: Uses detected network IP
 - **Frontend URL**: Uses detected network IP
-
-### **Docker Environment**
-- **API URL**: Uses `host.docker.internal` or container IP
-- **CORS**: Configured via environment variables
-- **Network**: Uses Docker networking
 
 ### **Production Environment**
 - **API URL**: Uses environment variables or domain
