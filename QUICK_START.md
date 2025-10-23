@@ -1,287 +1,160 @@
-# Quick Start Guide - Advanced Context Ready! 🚀
+# 🚀 Kahani Quick Start Guide
 
-## ✅ All Done!
+Get Kahani running in **under 5 minutes** with Docker!
 
-Your advanced context management system is **fully configured** and **ready to use**!
+## 🐳 Docker Installation (Recommended)
+
+### Prerequisites
+- Docker and Docker Compose installed
+- Git installed
+
+### Step 1: Clone and Setup
+```bash
+# Clone the repository
+git clone https://github.com/ncoder-ai/kahani.git
+cd kahani
+
+# Set up environment configuration
+./setup-env.sh
+```
+
+### Step 2: Start with Docker
+```bash
+# Start all services
+docker-compose up -d
+
+# Check status
+docker-compose ps
+```
+
+### Step 3: Access the Application
+- **Frontend**: http://localhost:6789
+- **Backend API**: http://localhost:9876
+- **API Documentation**: http://localhost:9876/docs
+
+**That's it!** 🎉
 
 ---
 
-## 🎯 What's Ready
+## 🖥️ Baremetal Installation (Advanced)
 
-### ✅ Migrations Completed
+### Prerequisites
+- Python 3.11+
+- Node.js 18+
+- Git
+
+### Step 1: Clone and Setup
 ```bash
-✓ semantic_memory tables created
-✓ entity_states tables created (character_states, location_states, object_states)
-✓ Database ready
+# Clone the repository
+git clone https://github.com/ncoder-ai/kahani.git
+cd kahani
+
+# Set up environment
+./setup-env.sh
 ```
 
-### ✅ Models Downloaded
+### Step 2: Install Dependencies
 ```bash
-✓ all-MiniLM-L6-v2 (90MB) - Semantic embeddings
-✓ ms-marco-MiniLM-L-6-v2 (80MB) - Cross-encoder reranking
-✓ Total: 170MB cached in ~/.cache/torch/sentence_transformers/
+# Backend dependencies
+cd backend
+pip install -r requirements.txt
+
+# Frontend dependencies
+cd ../frontend
+npm install
 ```
 
-### ✅ Auto-Download Configured
+### Step 3: Start Development Server
 ```bash
-✓ start-dev.sh - Auto-downloads models on first run
-✓ start-backend.sh - Auto-downloads models on first run
-✓ backend/start.sh - Auto-downloads models on first run
-✓ Dockerfiles - Models included in images
-```
-
----
-
-## 🚀 Just Run It!
-
-### 📋 Available Scripts
-
-| Script | Use Case | Environment |
-|--------|----------|-------------|
-| `./start-dev.sh` | **Development** (Frontend + Backend) | Bare-metal ✅ |
-| `./start-backend.sh` | **Backend only** (for API testing) | Bare-metal ✅ |
-| `./start-prod.sh` | **Production** (inside container) | Docker only 🐳 |
-
----
-
-### Development (Frontend + Backend)
-```bash
+# Start both frontend and backend
 ./start-dev.sh
 ```
 
-**That's it!** The script will:
-- ✅ Check for models (already downloaded!)
-- ✅ Start backend on port 9876
-- ✅ Start frontend on port 6789
-- ✅ Auto-reload on changes
-- ✅ Works on your local machine
-
-### Backend Only
-```bash
-./start-backend.sh
-```
-
-### Production (Docker)
-```bash
-docker build -t kahani .
-docker run -p 9876:9876 -p 6789:6789 kahani
-
-# Or map to different external ports:
-docker run -p 8000:9876 -p 3000:6789 kahani
-```
-
-Models are **pre-cached** in the Docker image!
-
-**⚠️  Note:** Do NOT run `./start-prod.sh` on your local machine - it's for Docker containers only. The container will automatically execute it internally.
-
----
-
-## 🎨 Access Your App
-
-Once running:
-
+### Step 4: Access the Application
 - **Frontend**: http://localhost:6789
 - **Backend API**: http://localhost:9876
-- **API Docs**: http://localhost:9876/docs
-
-**Default Login**: `test@test.com` / `test`
 
 ---
 
-## 🎯 New Features Active
+## ⚙️ Configuration
 
-### 1. Cross-Encoder Reranking ✨
-- **Automatic** - No configuration needed
-- **15-25% better** semantic search
-- Two-stage retrieval (fast → precise)
-
-### 2. Entity State Tracking ✨
-- **Automatic** - Extracts after each scene
-- **40% better** character consistency
-- Tracks: locations, emotions, possessions, relationships
-
-### 3. Enhanced Context ✨
-- Entity states in LLM prompts
-- Reranked semantic search
-- Relationship tracking with trust levels
-- Knowledge accumulation
-
----
-
-## 🧪 Test It Out
-
-1. **Open your app**: http://localhost:6789
-2. **Create or open a story**
-3. **Generate a scene**
-4. **Check backend logs**:
+### LLM Setup
+Edit `.env` file to configure your AI model:
 
 ```bash
-# You should see:
-INFO: Updated entity states for scene X: {
-  'characters_updated': 2,
-  'locations_updated': 1,
-  'objects_updated': 1,
-  'extraction_successful': True
-}
+# For LM Studio (local)
+LLM_BASE_URL=http://localhost:1234/v1
+LLM_MODEL=your-model-name
 
-INFO: Reranked 15 candidates for story Y
-INFO: entity_states_included: True
+# For OpenAI (cloud)
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_API_KEY=your-api-key
+LLM_MODEL=gpt-4
 ```
 
----
-
-## 📊 Expected Results
-
-### Before (Old System)
-- Character consistency: ~60%
-- Detail retention: ~70%
-- Semantic search: ~70% accuracy
-
-### After (New System)
-- Character consistency: **~85-95%** 🎉
-- Detail retention: **~90%** 🎉
-- Semantic search: **~85-90%** 🎉
-- **+25-30% overall story quality**
+### TTS Setup
+Configure text-to-speech in the application:
+1. Go to **Settings** → **TTS Settings**
+2. Choose your TTS provider
+3. Configure voice and speed preferences
 
 ---
 
-## 🔍 Verify Everything Works
+## 🎯 First Steps
 
-### Quick Health Check
+1. **Register an account** at http://localhost:6789
+2. **Create your first story**
+3. **Generate a scene** with AI assistance
+4. **Try the TTS feature** to hear your story narrated
+5. **Explore character management** and story organization
 
+---
+
+## 🔧 Troubleshooting
+
+### Docker Issues
 ```bash
-# Backend health
-curl http://localhost:9876/health
+# View logs
+docker-compose logs -f
 
-# Models loaded
-tail -f backend/logs/*.log | grep "model loaded"
+# Restart services
+docker-compose restart
 
-# Entity extraction working
-tail -f backend/logs/*.log | grep "entity states"
+# Rebuild if needed
+docker-compose build --no-cache
 ```
 
-### Full Testing
-
-See **[TESTING_GUIDE.md](TESTING_GUIDE.md)** for comprehensive tests.
-
----
-
-## 📖 Configuration
-
-All features are **user-configurable** in Settings!
-
-**Settings → Context Management → Semantic Memory**:
-- Enable/disable semantic memory
-- Context strategy (linear vs hybrid)
-- Reranking parameters
-- Entity extraction toggles
-- Token allocation
-
-**Already configured with good defaults** - no changes needed!
-
----
-
-## 🐳 Docker Notes
-
-### Build Docker Image
+### Baremetal Issues
 ```bash
-docker build -t kahani .
+# Check backend logs
+tail -f backend/logs/kahani.log
+
+# Verify dependencies
+cd backend && pip list
+cd frontend && npm list
 ```
 
-**Build includes**:
-- ✅ All dependencies
-- ✅ AI models (~170MB)
-- ✅ Database migrations
-- ✅ Ready to run
-
-### Run Docker Container
-```bash
-# Standard ports (same as development)
-docker run -d \
-  -p 9876:9876 \
-  -p 6789:6789 \
-  -v kahani-data:/app/backend/data \
-  --name kahani \
-  kahani
-
-# Or map to custom external ports
-docker run -d \
-  -p 8000:9876 \
-  -p 3000:6789 \
-  -v kahani-data:/app/backend/data \
-  --name kahani \
-  kahani
-```
-
-**Port Mapping**:
-- Container internal: `9876` (backend), `6789` (frontend)
-- External: Map to any ports you want
-- Example: `-p 8000:9876` = Access backend at `localhost:8000`
+### Common Issues
+- **Port conflicts**: Change ports in `.env` file
+- **Model download**: First run downloads AI models (~200MB)
+- **Database**: Automatically created on first run
 
 ---
 
-## 🎊 You're All Set!
+## 📚 Next Steps
 
-Everything is ready:
-- ✅ Database migrated
-- ✅ Models downloaded
-- ✅ Scripts updated
-- ✅ Docker configured
-- ✅ Features enabled
-
-**Just run `./start-dev.sh` and start generating stories!**
+- **Configuration Guide**: See `CONFIGURATION_GUIDE.md` for detailed setup
+- **Network Setup**: See `NETWORK_CONFIGURATION.md` for remote access
+- **Documentation**: Check `docs/` folder for feature guides
 
 ---
 
-## 📚 Documentation
+## 🆘 Need Help?
 
-- **TESTING_GUIDE.md** - 8 comprehensive tests
-- **IMPLEMENTATION_COMPLETE.md** - Full technical details
-- **ENTITY_STATE_DESIGN.md** - Entity tracking architecture
-- **CONTEXT_ENHANCEMENTS_COMPLETE.md** - Feature overview
-
----
-
-## 🆘 Troubleshooting
-
-### Models not found?
-```bash
-cd backend
-python download_models.py
-```
-
-### Database tables missing?
-```bash
-cd backend
-python migrate_add_entity_states.py
-```
-
-### Backend won't start?
-```bash
-# Check logs
-tail -f backend/logs/*.log
-
-# Verify venv
-source .venv/bin/activate
-pip install -r backend/requirements.txt
-```
+- **Issues**: [GitHub Issues](https://github.com/ncoder-ai/kahani/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/ncoder-ai/kahani/discussions)
+- **Documentation**: Check the `docs/` folder
 
 ---
 
-## 🎉 Success Metrics
-
-After generating a few scenes, you should notice:
-
-- ✅ Characters remember what they said
-- ✅ Possessions don't vanish
-- ✅ Relationships evolve naturally
-- ✅ Locations stay consistent
-- ✅ No contradictions in story
-- ✅ Better callback to past events
-
-**Enjoy your upgraded storytelling platform!** 📖✨
-
----
-
-*Branch: `advanced_context` | 14 commits | Ready for production*
-
+**Happy storytelling!** 📖✨
