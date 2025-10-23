@@ -114,7 +114,7 @@ export default function StoryPage() {
   const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [userSettings, setUserSettings] = useState<any>(null);
-  const [variantReloadTrigger, setVariantReloadTrigger] = useState<{sceneId: number, timestamp: number} | null>(null);
+  const [variantReloadTrigger, setVariantReloadTrigger] = useState<{sceneId: number, timestamp: number, newVariantId?: number} | null>(null);
   
   // New variant system states - now managed by SceneVariantDisplay
   // const [selectedSceneVariants, setSelectedSceneVariants] = useState<{[sceneId: number]: SceneVariant[]}>({});
@@ -843,8 +843,12 @@ export default function StoryPage() {
                 scenes: updatedScenes
               });
               
-              // Trigger variant reload for this specific scene
-              setVariantReloadTrigger({ sceneId, timestamp: Date.now() });
+              // Trigger variant reload for this specific scene with new variant ID
+              setVariantReloadTrigger({ 
+                sceneId, 
+                timestamp: Date.now(), 
+                newVariantId: response.variant?.id 
+              });
               
               console.log('[VARIANT] Updated scene locally, triggered variant reload');
             }
