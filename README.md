@@ -65,8 +65,8 @@ The easiest way to get started with Kahani is using Docker:
 git clone https://github.com/ncoder-ai/kahani.git
 cd kahani
 
-# Set up environment
-./setup-env.sh
+# Install the application
+./install.sh
 
 # Start with Docker
 docker-compose up -d
@@ -89,8 +89,8 @@ For development or custom deployments:
 git clone https://github.com/ncoder-ai/kahani.git
 cd kahani
 
-# Set up environment
-./setup-env.sh
+# Install the application
+./install.sh
 
 # Start the development server
 ./start-dev.sh
@@ -111,12 +111,8 @@ cd kahani
 git clone https://github.com/ncoder-ai/kahani.git
 cd kahani
 
-# Set up environment
-./setup-env.sh
-
-# Install dependencies
-cd backend && pip install -r requirements.txt
-cd ../frontend && npm install
+# Install the application
+./install.sh
 
 # Start backend
 cd backend && uvicorn app.main:app --reload --host 0.0.0.0 --port 9876
@@ -132,8 +128,8 @@ cd frontend && npm run dev
 The application uses a template-based configuration system:
 
 ```bash
-# Set up environment (creates .env from .env.example)
-./setup-env.sh
+# Install the application (creates .env from .env.example)
+./install.sh
 
 # Validate configuration
 ./validate-config.sh
@@ -255,7 +251,7 @@ Docker is the **recommended** way to run Kahani because it:
 # Clone and start
 git clone https://github.com/ncoder-ai/kahani.git
 cd kahani
-./setup-env.sh
+./install.sh
 docker-compose up -d
 
 # View logs
