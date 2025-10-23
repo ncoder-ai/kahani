@@ -88,20 +88,51 @@ if [[ "$DATABASE_URL" == postgresql* ]]; then
 fi
 
 # Initialize database if needed
-if [ ! -f "/app/data/kahani.db" ] && [[ "$DATABASE_URL" == sqlite* ]]; then
-    echo "🗄️ Initializing SQLite database with admin system..."
+if [[ "$DATABASE_URL" == sqlite* ]]; then
+    echo "🗄️ Checking SQLite database..."
     cd /app
     
-    # Run database initialization with admin system
+    # Check if database exists and is valid
+    if [ ! -f "/app/data/kahani.db" ]; then
+        echo "🗄️ Database does not exist - initializing..."
+    else
+        echo "🔍 Database exists - checking integrity..."
+        # Test if database is accessible and has tables
+        python -c "
+import sqlite3
+try:
+    conn = sqlite3.connect('/app/data/kahani.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT name FROM sqlite_master WHERE type=\"table\"')
+    tables = cursor.fetchall()
+    conn.close()
+    if not tables:
+        print('⚠️  Database exists but is empty - will reinitialize')
+        import os
+        os.remove('/app/data/kahani.db')
+        exit(1)
+    else:
+        print('✅ Database is valid and contains tables')
+except Exception as e:
+    print(f'⚠️  Database is corrupted: {e} - will reinitialize')
+    import os
+    os.remove('/app/data/kahani.db')
+    exit(1)
+" || {
+            echo "🗄️ Reinitializing database..."
+        }
+    fi
+    
+    # Run database initialization
     if [ -f "init_database.py" ]; then
         echo "Running database initialization with admin system..."
-        python init_database.py || echo "⚠️  Database initialization warning (may already exist)"
+        python init_database.py || echo "⚠️  Database initialization warning"
     fi
     
     echo "✅ Database initialization complete"
     echo "🔐 First user to register will become admin automatically"
 else
-    echo "✅ Database already exists"
+    echo "✅ Using non-SQLite database - skipping initialization"
 fi
 
 # Check for TTS provider availability (optional)

@@ -144,6 +144,9 @@ class NetworkConfig:
         # Check for explicit configuration
         cors_origins = os.getenv('CORS_ORIGINS') or os.getenv('KAHANI_CORS_ORIGINS')
         if cors_origins:
+            # Handle wildcard
+            if cors_origins.strip() == '*':
+                return ["*"]
             try:
                 import json
                 return json.loads(cors_origins)
