@@ -206,14 +206,23 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
       return;
     }
     
-    // Close existing connection if connecting to different session
+    // Stop any existing audio and close WebSocket if connecting to different session
     if (wsRef.current && currentSessionIdRef.current !== sessionId) {
       console.log('[Global TTS] Closing previous session:', currentSessionIdRef.current);
       wsRef.current.close();
     }
     
-    // Clear state
+    // Stop any currently playing audio to prevent overlap
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+      currentAudioRef.current = null;
+    }
+    
+    // Clear audio queue and revoke URLs to prevent memory leaks
+    audioQueueRef.current.forEach(chunk => URL.revokeObjectURL(chunk.audio_url));
     audioQueueRef.current = [];
+    
+    // Clear state
     setError(null);
     setProgress(0);
     setChunksReceived(0);
@@ -292,6 +301,9 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
   const playScene = useCallback(async (sceneId: number) => {
     console.log('[Global TTS] Starting manual TTS for scene:', sceneId);
     
+    // Stop any existing playback first to prevent audio overlap
+    stop();
+    
     try {
       // Create TTS session (use WebSocket endpoint)
       const response = await fetch(`${apiBaseUrl}/api/tts/generate-ws/${sceneId}`, {
@@ -315,7 +327,7 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
       console.error('[Global TTS] Failed to start TTS:', err);
       setError(err instanceof Error ? err.message : 'Failed to start TTS');
     }
-  }, [apiBaseUrl, connectToSession]);
+  }, [apiBaseUrl, connectToSession, stop]);
   
   /**
    * Stop playback
