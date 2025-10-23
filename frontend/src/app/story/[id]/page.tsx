@@ -45,6 +45,7 @@ interface Scene {
   variant_number?: number;
   is_original?: boolean;
   has_multiple_variants?: boolean;
+  variant_count?: number;
   choices?: Array<{
     id: number;
     text: string;
