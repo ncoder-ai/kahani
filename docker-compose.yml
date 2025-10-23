@@ -4,9 +4,7 @@
 
 services:
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.venv
+    build: ./backend
     container_name: kahani-backend
     ports:
       - "9876:9876"
