@@ -2,7 +2,7 @@ name: Build and Publish Docker Images
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, dev ]
     tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
@@ -17,7 +17,7 @@ jobs:
     strategy:
       matrix:
         python-version: [3.11]
-        node-version: [18]
+        node-version: [22]
 
     steps:
     - uses: actions/checkout@v4
@@ -98,6 +98,7 @@ jobs:
           type=ref,event=pr
           type=semver,pattern={{version}}
           type=semver,pattern={{major}}.{{minor}}
+          type=raw,value=latest,enable={{is_default_branch}}
 
     - name: Extract metadata for frontend
       id: meta-frontend
@@ -109,6 +110,7 @@ jobs:
           type=ref,event=pr
           type=semver,pattern={{version}}
           type=semver,pattern={{major}}.{{minor}}
+          type=raw,value=latest,enable={{is_default_branch}}
 
     - name: Build and push backend Docker image
       uses: docker/build-push-action@v5

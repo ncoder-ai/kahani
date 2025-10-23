@@ -1,0 +1,48 @@
+# Kahani Docker Compose Configuration - Pre-built Images
+# Uses pre-built images from GitHub Container Registry (GHCR)
+# No build time required - just download and run!
+
+version: '3.8'
+
+services:
+  backend:
+    image: ghcr.io/ncoder-ai/kahani-backend:latest
+    container_name: kahani-backend
+    ports:
+      - "9876:9876"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - DATABASE_URL=sqlite:///./data/kahani.db
+      - SECRET_KEY=${SECRET_KEY:-change-this-secret-key}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-this-jwt-key}
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://host.docker.internal:1234/v1}
+      - LLM_API_KEY=${LLM_API_KEY:-not-needed}
+      - LLM_MODEL=${LLM_MODEL:-local-model}
+      - CORS_ORIGINS=*
+      - DOCKER_CONTAINER=true
+      - KAHANI_ENV=production
+      - PORT=9876
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - kahani-network
+    restart: unless-stopped
+
+  frontend:
+    image: ghcr.io/ncoder-ai/kahani-frontend:latest
+    container_name: kahani-frontend
+    ports:
+      - "6789:6789"
+    environment:
+      - PORT=6789
+    depends_on:
+      - backend
+    networks:
+      - kahani-network
+    restart: unless-stopped
+
+networks:
+  kahani-network:
+    driver: bridge
