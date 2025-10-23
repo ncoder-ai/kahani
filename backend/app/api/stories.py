@@ -455,6 +455,8 @@ async def generate_scene(
     # Debug logging for user permissions
     logger.info(f"User Permission Debug - User {current_user.id}: allow_nsfw={current_user.allow_nsfw}, is_admin={current_user.is_admin}")
     logger.info(f"User Permission Debug - User settings before: {user_settings}")
+    logger.info(f"User Permission Debug - allow_nsfw in settings: {'allow_nsfw' in user_settings}")
+    logger.info(f"User Permission Debug - allow_nsfw value: {user_settings.get('allow_nsfw', 'NOT_FOUND')}")
     
     # Create context manager with user settings
     context_manager = ContextManager(user_settings=user_settings, user_id=current_user.id)
@@ -1153,6 +1155,8 @@ async def generate_scenario_endpoint(
         # Debug logging for user permissions
         logger.info(f"User Permission Debug (Scenario) - User {current_user.id}: allow_nsfw={current_user.allow_nsfw}, is_admin={current_user.is_admin}")
         logger.info(f"User Permission Debug (Scenario) - User settings: {user_settings}")
+        logger.info(f"User Permission Debug (Scenario) - allow_nsfw in settings: {'allow_nsfw' in user_settings}")
+        logger.info(f"User Permission Debug (Scenario) - allow_nsfw value: {user_settings.get('allow_nsfw', 'NOT_FOUND')}")
         
         # Generate scenario using LLM
         scenario = await llm_service.generate_scenario(context, current_user.id, user_settings)
