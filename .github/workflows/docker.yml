@@ -134,23 +134,29 @@ jobs:
 
   security-scan:
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
     permissions:
       contents: read
       security-events: write
+      actions: read
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
       
     - name: Run Trivy vulnerability scanner
+      id: trivy
       uses: aquasecurity/trivy-action@master
+      env:
+        TRIVY_NO_TELEMETRY: 1
       with:
         scan-type: 'repo'
         scan-ref: '.'
         format: 'sarif'
         output: 'trivy-results.sarif'
+        skip-dirs: '.git,node_modules'
 
     - name: Upload Trivy scan results to GitHub Security tab
       uses: github/codeql-action/upload-sarif@v3
-      if: always()
+      if: always() && steps.trivy.outcome == 'success'
       with:
         sarif_file: 'trivy-results.sarif'
