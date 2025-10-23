@@ -187,10 +187,10 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
   }, [base64ToBlob, playNextChunk]);
   
   /**
-   * Connect to existing TTS session (for auto-play)
+   * Connect to existing TTS session
    */
-  const connectToSession = useCallback(async (sessionId: string, sceneId: number) => {
-    console.log('[Global TTS] Connecting to session:', sessionId, 'for scene:', sceneId);
+  const connectToSession = useCallback(async (sessionId: string, sceneId: number, isManual = false) => {
+    console.log('[Global TTS] Connecting to session:', sessionId, 'for scene:', sceneId, isManual ? '(manual)' : '(auto)');
     
     // If already connected to this session, don't reconnect
     if (currentSessionIdRef.current === sessionId && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -221,9 +221,9 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
     currentSessionIdRef.current = sessionId; // Update ref
     setIsGenerating(true);
     
-    // Check if user has granted autoplay permission
-    if (!hasPermission) {
-      console.log('[Global TTS] Autoplay not enabled - skipping audio generation');
+    // Only check autoplay permission for automatic TTS, not manual
+    if (!isManual && !hasPermission) {
+      console.log('[Global TTS] Autoplay not enabled - skipping automatic audio generation');
       setIsGenerating(false);
       return;
     }
@@ -307,8 +307,8 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
       const data = await response.json();
       console.log('[Global TTS] Session created:', data.session_id);
       
-      // Connect to the session
-      await connectToSession(data.session_id, sceneId);
+      // Connect to the session (manual TTS - bypass autoplay check)
+      await connectToSession(data.session_id, sceneId, true);
     } catch (err) {
       console.error('[Global TTS] Failed to start TTS:', err);
       setError(err instanceof Error ? err.message : 'Failed to start TTS');
