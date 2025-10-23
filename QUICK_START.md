@@ -8,21 +8,18 @@ Get Kahani running in **under 5 minutes** with Docker!
 - Docker and Docker Compose installed
 - Git installed
 
-### Step 1: Clone and Install
+### Step 1: Clone and Start
 ```bash
 # Clone the repository
 git clone https://github.com/ncoder-ai/kahani.git
 cd kahani
 
-# Install the application
-./install.sh
+# Start with Docker
+docker-compose up -d
 ```
 
-### Step 2: Start with Docker
+### Step 2: Check Status
 ```bash
-# Start all services
-docker-compose up -d
-
 # Check status
 docker-compose ps
 ```
