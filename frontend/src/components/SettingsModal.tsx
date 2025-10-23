@@ -304,7 +304,7 @@ export default function SettingsModal({ isOpen, onClose, onSaved }: SettingsModa
               )}
 
               {/* LLM Settings Tab */}
-              {activeTab === 'llm' && settings && (
+              {activeTab === 'llm' && settings && settings.llm_settings && (
                 <div className="space-y-6">
                   <h3 className="text-lg font-semibold text-white">LLM Configuration</h3>
                   
@@ -315,7 +315,7 @@ export default function SettingsModal({ isOpen, onClose, onSaved }: SettingsModa
                       </label>
                       <input
                         type="url"
-                        value={settings.llm_settings.api_url}
+                        value={settings.llm_settings?.api_url || ''}
                         onChange={(e) => setSettings(prev => prev ? {
                           ...prev,
                           llm_settings: { ...prev.llm_settings, api_url: e.target.value }
@@ -331,7 +331,7 @@ export default function SettingsModal({ isOpen, onClose, onSaved }: SettingsModa
                       </label>
                       <input
                         type="password"
-                        value={settings.llm_settings.api_key}
+                        value={settings.llm_settings?.api_key || ''}
                         onChange={(e) => setSettings(prev => prev ? {
                           ...prev,
                           llm_settings: { ...prev.llm_settings, api_key: e.target.value }
@@ -347,7 +347,7 @@ export default function SettingsModal({ isOpen, onClose, onSaved }: SettingsModa
                       </label>
                       <input
                         type="text"
-                        value={settings.llm_settings.model_name}
+                        value={settings.llm_settings?.model_name || ''}
                         onChange={(e) => setSettings(prev => prev ? {
                           ...prev,
                           llm_settings: { ...prev.llm_settings, model_name: e.target.value }
@@ -359,14 +359,14 @@ export default function SettingsModal({ isOpen, onClose, onSaved }: SettingsModa
 
                     <div>
                       <label className="block text-sm font-medium text-gray-300 mb-2">
-                        Temperature: {settings.llm_settings.temperature}
+                        Temperature: {settings.llm_settings?.temperature || 0.7}
                       </label>
                       <input
                         type="range"
                         min="0"
                         max="2"
                         step="0.1"
-                        value={settings.llm_settings.temperature}
+                        value={settings.llm_settings?.temperature || 0.7}
                         onChange={(e) => setSettings(prev => prev ? {
                           ...prev,
                           llm_settings: { ...prev.llm_settings, temperature: parseFloat(e.target.value) }
@@ -390,21 +390,21 @@ export default function SettingsModal({ isOpen, onClose, onSaved }: SettingsModa
               )}
 
               {/* Context Management Tab */}
-              {activeTab === 'context' && settings && (
+              {activeTab === 'context' && settings && settings.context_settings && (
                 <div className="space-y-6">
                   <h3 className="text-lg font-semibold text-white">Context Management</h3>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-300 mb-2">
-                        Max Context Tokens: {settings.context_settings.max_tokens}
+                        Max Context Tokens: {settings.context_settings?.max_tokens || 8000}
                       </label>
                       <input
                         type="range"
                         min="1000"
                         max="32000"
                         step="1000"
-                        value={settings.context_settings.max_tokens}
+                        value={settings.context_settings?.max_tokens || 8000}
                         onChange={(e) => setSettings(prev => prev ? {
                           ...prev,
                           context_settings: { ...prev.context_settings, max_tokens: parseInt(e.target.value) }
@@ -415,14 +415,14 @@ export default function SettingsModal({ isOpen, onClose, onSaved }: SettingsModa
 
                     <div>
                       <label className="block text-sm font-medium text-gray-300 mb-2">
-                        Keep Recent Scenes: {settings.context_settings.keep_recent_scenes}
+                        Keep Recent Scenes: {settings.context_settings?.keep_recent_scenes || 5}
                       </label>
                       <input
                         type="range"
                         min="1"
                         max="20"
                         step="1"
-                        value={settings.context_settings.keep_recent_scenes}
+                        value={settings.context_settings?.keep_recent_scenes || 5}
                         onChange={(e) => setSettings(prev => prev ? {
                           ...prev,
                           context_settings: { ...prev.context_settings, keep_recent_scenes: parseInt(e.target.value) }
@@ -436,7 +436,7 @@ export default function SettingsModal({ isOpen, onClose, onSaved }: SettingsModa
                     <input
                       type="checkbox"
                       id="enable_summarization"
-                      checked={settings.context_settings.enable_summarization}
+                      checked={settings.context_settings?.enable_summarization || false}
                       onChange={(e) => setSettings(prev => prev ? {
                         ...prev,
                         context_settings: { ...prev.context_settings, enable_summarization: e.target.checked }
@@ -451,7 +451,7 @@ export default function SettingsModal({ isOpen, onClose, onSaved }: SettingsModa
               )}
 
               {/* Generation Tab */}
-              {activeTab === 'generation' && settings && (
+              {activeTab === 'generation' && settings && settings.generation_preferences && (
                 <div className="space-y-6">
                   <h3 className="text-lg font-semibold text-white">Generation Preferences</h3>
                   
@@ -461,7 +461,7 @@ export default function SettingsModal({ isOpen, onClose, onSaved }: SettingsModa
                         Default Genre
                       </label>
                       <select
-                        value={settings.generation_preferences.default_genre}
+                        value={settings.generation_preferences?.default_genre || 'fantasy'}
                         onChange={(e) => setSettings(prev => prev ? {
                           ...prev,
                           generation_preferences: { ...prev.generation_preferences, default_genre: e.target.value }
@@ -482,7 +482,7 @@ export default function SettingsModal({ isOpen, onClose, onSaved }: SettingsModa
                         Default Tone
                       </label>
                       <select
-                        value={settings.generation_preferences.default_tone}
+                        value={settings.generation_preferences?.default_tone || 'serious'}
                         onChange={(e) => setSettings(prev => prev ? {
                           ...prev,
                           generation_preferences: { ...prev.generation_preferences, default_tone: e.target.value }
@@ -501,7 +501,7 @@ export default function SettingsModal({ isOpen, onClose, onSaved }: SettingsModa
               )}
 
               {/* UI Tab */}
-              {activeTab === 'ui' && settings && (
+              {activeTab === 'ui' && settings && settings.ui_preferences && (
                 <div className="space-y-6">
                   <h3 className="text-lg font-semibold text-white">Interface Preferences</h3>
                   
@@ -511,7 +511,7 @@ export default function SettingsModal({ isOpen, onClose, onSaved }: SettingsModa
                         Theme
                       </label>
                       <select
-                        value={settings.ui_preferences.theme}
+                        value={settings.ui_preferences?.theme || 'dark'}
                         onChange={(e) => setSettings(prev => prev ? {
                           ...prev,
                           ui_preferences: { ...prev.ui_preferences, theme: e.target.value }
@@ -529,7 +529,7 @@ export default function SettingsModal({ isOpen, onClose, onSaved }: SettingsModa
                         Font Size
                       </label>
                       <select
-                        value={settings.ui_preferences.font_size}
+                        value={settings.ui_preferences?.font_size || 'medium'}
                         onChange={(e) => setSettings(prev => prev ? {
                           ...prev,
                           ui_preferences: { ...prev.ui_preferences, font_size: e.target.value }
@@ -548,7 +548,7 @@ export default function SettingsModal({ isOpen, onClose, onSaved }: SettingsModa
                       <input
                         type="checkbox"
                         id="sidebar_collapsed"
-                        checked={settings.ui_preferences.sidebar_collapsed}
+                        checked={settings.ui_preferences?.sidebar_collapsed || false}
                         onChange={(e) => setSettings(prev => prev ? {
                           ...prev,
                           ui_preferences: { ...prev.ui_preferences, sidebar_collapsed: e.target.checked }
@@ -564,7 +564,7 @@ export default function SettingsModal({ isOpen, onClose, onSaved }: SettingsModa
                       <input
                         type="checkbox"
                         id="show_advanced_options"
-                        checked={settings.ui_preferences.show_advanced_options}
+                        checked={settings.ui_preferences?.show_advanced_options || false}
                         onChange={(e) => setSettings(prev => prev ? {
                           ...prev,
                           ui_preferences: { ...prev.ui_preferences, show_advanced_options: e.target.checked }
