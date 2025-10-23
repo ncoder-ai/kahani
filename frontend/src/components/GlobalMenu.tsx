@@ -4,14 +4,17 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/store';
 import { X, Settings, LogOut, User, Home, Volume2, VolumeX, Mic } from 'lucide-react';
 import { useAutoplayPermission } from '@/hooks/useAutoplayPermission';
+import { useState } from 'react';
+import SettingsModal from './SettingsModal';
 
 interface GlobalMenuProps {
   isOpen: boolean;
   onClose: () => void;
   onOpenTTSSettings: () => void;
+  onOpenSettings: () => void;
 }
 
-export default function GlobalMenu({ isOpen, onClose, onOpenTTSSettings }: GlobalMenuProps) {
+export default function GlobalMenu({ isOpen, onClose, onOpenTTSSettings, onOpenSettings }: GlobalMenuProps) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, logout } = useAuthStore();
@@ -27,7 +30,7 @@ export default function GlobalMenu({ isOpen, onClose, onOpenTTSSettings }: Globa
 
   const handleSettings = () => {
     onClose();
-    router.push('/settings');
+    onOpenSettings();
   };
 
   const handleDashboard = () => {

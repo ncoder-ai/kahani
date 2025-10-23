@@ -6,6 +6,7 @@ import { HomeIcon, ArrowLeftIcon, Bars3Icon } from '@heroicons/react/24/outline'
 import { useEffect, useState } from 'react';
 import GlobalMenu from './GlobalMenu';
 import TTSSettingsModal from './TTSSettingsModal';
+import SettingsModal from './SettingsModal';
 
 export default function PersistentBanner() {
   const router = useRouter();
@@ -13,6 +14,7 @@ export default function PersistentBanner() {
   const [canGoBack, setCanGoBack] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [showTTSSettings, setShowTTSSettings] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
     // Check if we can go back in history
@@ -78,6 +80,7 @@ export default function PersistentBanner() {
         isOpen={showMenu} 
         onClose={() => setShowMenu(false)}
         onOpenTTSSettings={() => setShowTTSSettings(true)}
+        onOpenSettings={() => setShowSettings(true)}
       />
 
       {/* TTS Settings Modal */}
@@ -86,6 +89,15 @@ export default function PersistentBanner() {
         onClose={() => setShowTTSSettings(false)}
         onSaved={() => {
           setShowTTSSettings(false);
+        }}
+      />
+
+      {/* Settings Modal */}
+      <SettingsModal 
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        onSaved={() => {
+          setShowSettings(false);
         }}
       />
     </div>
