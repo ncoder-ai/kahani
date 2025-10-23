@@ -887,6 +887,10 @@ async def get_story_context_info(
         
         user_settings = user_settings_db.to_dict() if user_settings_db else None
         
+        # Add user permissions to settings for NSFW filtering
+        if user_settings:
+            user_settings['allow_nsfw'] = current_user.allow_nsfw
+        
         # Create context manager with user settings
         context_manager = ContextManager(user_settings=user_settings)
         
@@ -1006,6 +1010,10 @@ async def generate_more_choices(
     ).first()
     
     user_settings = user_settings_db.to_dict() if user_settings_db else None
+    
+    # Add user permissions to settings for NSFW filtering
+    if user_settings:
+        user_settings['allow_nsfw'] = current_user.allow_nsfw
     
     # Create context manager with user settings
     context_manager = ContextManager(user_settings=user_settings)

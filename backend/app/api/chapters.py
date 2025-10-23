@@ -477,9 +477,15 @@ Instructions:
 Summary:"""
     
     # Get user settings
-    from ..models import UserSettings
+    from ..models import UserSettings, User
     user_settings_obj = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
     user_settings = user_settings_obj.to_dict() if user_settings_obj else None
+    
+    # Add user permissions to settings for NSFW filtering
+    if user_settings:
+        user_obj = db.query(User).filter(User.id == user_id).first()
+        if user_obj:
+            user_settings['allow_nsfw'] = user_obj.allow_nsfw
     
     # Generate summary using basic LLM generation (not scene continuation)
     summary = await llm_service.generate(
@@ -564,9 +570,15 @@ Instructions:
 Story So Far:"""
     
     # Get user settings
-    from ..models import UserSettings
+    from ..models import UserSettings, User
     user_settings_obj = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
     user_settings = user_settings_obj.to_dict() if user_settings_obj else None
+    
+    # Add user permissions to settings for NSFW filtering
+    if user_settings:
+        user_obj = db.query(User).filter(User.id == user_id).first()
+        if user_obj:
+            user_settings['allow_nsfw'] = user_obj.allow_nsfw
     
     # Generate story so far
     story_so_far = await llm_service.generate(
