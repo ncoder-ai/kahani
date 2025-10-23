@@ -1,4 +1,4 @@
-# Multi-stage build for Python FastAPI backend
+# Multi-stage build for Python FastAPI backend - with venv
 
 # Build stage
 FROM python:3.12-slim as builder
@@ -17,11 +17,17 @@ RUN apt-get update && apt-get install -y \
 # Create and set working directory
 WORKDIR /app
 
+# Create virtual environment
+RUN python -m venv /app/venv
+
+# Activate virtual environment and upgrade pip
+RUN /app/venv/bin/pip install --upgrade pip
+
 # Copy requirements first to leverage Docker cache
 COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies in venv
+RUN /app/venv/bin/pip install --no-cache-dir -r requirements.txt
 
 # Production stage
 FROM python:3.12-slim as production
@@ -29,7 +35,9 @@ FROM python:3.12-slim as production
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app
+    PYTHONPATH=/app \
+    VIRTUAL_ENV=/app/venv \
+    PATH="/app/venv/bin:$PATH"
 
 # Install system dependencies for runtime
 RUN apt-get update && apt-get install -y \
@@ -48,9 +56,8 @@ RUN mkdir -p /app /app/data /app/logs /app/.cache/huggingface && \
 # Set working directory
 WORKDIR /app
 
-# Copy Python packages from builder stage
-COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
+# Copy virtual environment from builder stage
+COPY --from=builder /app/venv /app/venv
 
 # Copy application code
 COPY . .
@@ -60,24 +67,21 @@ COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
 
 # Download AI models (embedding + reranker) during build
-# This ensures models are cached in the image
 RUN echo "📦 Downloading AI models for semantic memory..." && \
     python download_models.py || echo "⚠️  Model download failed, will retry at runtime"
 
 # Set ownership of application files and model cache
 RUN chown -R 1000:1000 /app
 
-# User will be set via docker-compose user mapping
-
-# Health check (uses PORT env var with 9876 default)
+# Health check
 HEALTHCHECK --interval=30s --timeout=30s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:${PORT:-9876}/health || exit 1
 
-# Expose port (default 9876, can be overridden with PORT env var)
+# Expose port
 EXPOSE ${PORT:-9876}
 
 # Set entrypoint
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 
-# Default command (uses PORT env var with 9876 default)
+# Default command
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9876"]
