@@ -6,7 +6,7 @@ services:
   backend:
     build:
       context: ./backend
-      dockerfile: Dockerfile.alpine-hybrid
+      dockerfile: Dockerfile.venv
     container_name: kahani-backend
     ports:
       - "9876:9876"
