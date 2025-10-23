@@ -149,16 +149,8 @@ export default function SceneVariantDisplay({
         const newVariant = response.variants.find(v => v.id === newVariantId);
         if (newVariant) {
           console.log(`[SceneVariantDisplay] Switching to new variant ${newVariantId} for scene ${scene.id}`);
-          setCurrentVariantId(newVariantId);
-          // Also activate it on the backend
-          try {
-            await apiClient.activateSceneVariant(storyId, scene.id, newVariantId);
-            if (onVariantChanged) {
-              onVariantChanged();
-            }
-          } catch (error) {
-            console.error('Failed to activate new variant:', error);
-          }
+          // Use switchToVariant with no animation for auto-switching to newly generated variant
+          await switchToVariant(newVariantId, false);
         } else {
           console.warn(`[SceneVariantDisplay] New variant ${newVariantId} not found in loaded variants for scene ${scene.id}`);
           // Fallback to existing logic
@@ -193,7 +185,7 @@ export default function SceneVariantDisplay({
   };
 
   // Switch to a specific variant with smooth transitions
-  const switchToVariant = async (variantId: number) => {
+  const switchToVariant = async (variantId: number, animate: boolean = true) => {
     try {
       await apiClient.activateSceneVariant(storyId, scene.id, variantId);
       setCurrentVariantId(variantId);
@@ -208,8 +200,8 @@ export default function SceneVariantDisplay({
         }
       }
 
-      // For modern layout, slide transition
-      if (layoutMode === 'modern') {
+      // For modern layout, slide transition (only if animate is true)
+      if (layoutMode === 'modern' && animate) {
         const container = sceneContentRef.current;
         if (container) {
           // Start slide-out animation
