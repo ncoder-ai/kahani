@@ -65,9 +65,6 @@ The easiest way to get started with Kahani is using Docker:
 git clone https://github.com/ncoder-ai/kahani.git
 cd kahani
 
-# Install the application
-./install.sh
-
 # Start with Docker
 docker-compose up -d
 ```
@@ -251,7 +248,6 @@ Docker is the **recommended** way to run Kahani because it:
 # Clone and start
 git clone https://github.com/ncoder-ai/kahani.git
 cd kahani
-./install.sh
 docker-compose up -d
 
 # View logs
