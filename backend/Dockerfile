@@ -1,7 +1,7 @@
 # Multi-stage build for Python FastAPI backend - with venv
 
 # Build stage
-FROM python:3.12-slim as builder
+FROM python:3.12-alpine as builder
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -10,9 +10,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache \
+    build-base \
+    gcc \
+    musl-dev \
+    libffi-dev
 
 # Create and set working directory
 WORKDIR /app
@@ -30,7 +32,7 @@ COPY requirements.txt .
 RUN /app/venv/bin/pip install --no-cache-dir -r requirements.txt
 
 # Production stage
-FROM python:3.12-slim as production
+FROM python:3.12-alpine as production
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -40,11 +42,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/venv/bin:$PATH"
 
 # Install system dependencies for runtime
-RUN apt-get update && apt-get install -y \
+RUN apk add --no-cache \
     curl \
     netcat-openbsd \
     gosu \
-    && rm -rf /var/lib/apt/lists/*
+    libffi
 
 # Create non-root user with UID/GID 1000
 RUN groupadd -r -g 1000 kahani && useradd -r -u 1000 -g kahani kahani
