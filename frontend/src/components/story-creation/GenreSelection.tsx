@@ -107,12 +107,17 @@ const TONES = [
   { id: 'dark', name: 'Dark', icon: '🌙' },
   { id: 'humorous', name: 'Humorous', icon: '😄' },
   { id: 'mysterious', name: 'Mysterious', icon: '🔮' },
-  { id: 'epic', name: 'Epic', icon: '⚔️' }
+  { id: 'epic', name: 'Epic', icon: '⚔️' },
+  { id: 'melancholic', name: 'Melancholic', icon: '🌧️' },
+  { id: 'romantic', name: 'Romantic', icon: '💕' },
+  { id: 'suspenseful', name: 'Suspenseful', icon: '⏰' },
+  { id: 'philosophical', name: 'Philosophical', icon: '🤔' },
+  { id: 'nostalgic', name: 'Nostalgic', icon: '📸' },
+  { id: 'satirical', name: 'Satirical', icon: '🎭' }
 ];
 
 export default function GenreSelection({ storyData, onUpdate, onNext, isFirstStep }: GenreSelectionProps) {
   const { user } = useAuthStore();
-  const [showNSFW, setShowNSFW] = useState(false);
   
   // Check if user has NSFW permission
   const canAccessNSFW = user?.allow_nsfw ?? false;
@@ -157,25 +162,13 @@ export default function GenreSelection({ storyData, onUpdate, onNext, isFirstSte
         ))}
       </div>
 
-      {/* NSFW Section Toggle - Only show if user has permission */}
+      {/* NSFW Genres - Show directly if user has permission */}
       {canAccessNSFW && (
-        <div className="text-center">
-          <button
-            onClick={() => setShowNSFW(!showNSFW)}
-            className="px-6 py-3 rounded-xl bg-red-900/30 border border-red-500/50 text-red-200 hover:bg-red-900/50 transition-all duration-200"
-          >
-            {showNSFW ? '🔒 Hide' : '🔓 Show'} Adult Content (18+)
-          </button>
-        </div>
-      )}
-
-      {/* NSFW Genres - Only show if user has permission and toggle is enabled */}
-      {canAccessNSFW && showNSFW && (
         <div className="space-y-4">
           <div className="text-center">
-            <h3 className="text-2xl font-bold text-red-200 mb-2">Adult Content (18+)</h3>
-            <p className="text-red-300/80 text-sm">
-              ⚠️ These genres contain mature themes and are intended for adult audiences only
+            <h3 className="text-2xl font-bold text-white mb-2">Mature Content</h3>
+            <p className="text-white/70 text-sm">
+              Genres with mature themes and adult content
             </p>
           </div>
           
@@ -186,15 +179,15 @@ export default function GenreSelection({ storyData, onUpdate, onNext, isFirstSte
                 onClick={() => handleGenreSelect(genre.id)}
                 className={`p-6 rounded-2xl border transition-all duration-200 text-left group hover:scale-105 ${
                   storyData.genre === genre.id
-                    ? 'border-red-400 bg-red-900/30 scale-105'
-                    : 'border-red-500/50 bg-red-900/20 hover:bg-red-900/40'
+                    ? 'border-white bg-white/20 scale-105'
+                    : 'border-white/30 bg-white/10 hover:bg-white/15'
                 }`}
               >
                 <div className={`text-3xl mb-3 bg-gradient-to-r ${genre.gradient} bg-clip-text text-transparent`}>
                   {genre.icon}
                 </div>
-                <h3 className="text-red-200 font-semibold mb-2">{genre.name}</h3>
-                <p className="text-red-300/70 text-sm">{genre.description}</p>
+                <h3 className="text-white font-semibold mb-2">{genre.name}</h3>
+                <p className="text-white/70 text-sm">{genre.description}</p>
               </button>
             ))}
           </div>

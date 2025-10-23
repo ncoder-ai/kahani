@@ -122,6 +122,10 @@ class UnifiedLLMService:
         from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
         user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
         
+        # Debug logging for NSFW filter injection
+        logger.info(f"NSFW Debug - User {user_id}: allow_nsfw={user_allow_nsfw}, should_inject={should_inject_nsfw_filter(user_allow_nsfw)}")
+        logger.info(f"NSFW Debug - User settings: {user_settings}")
+        
         messages = []
         if system_prompt and system_prompt.strip():
             # Inject NSFW filter if user doesn't have NSFW permissions
@@ -262,6 +266,10 @@ class UnifiedLLMService:
         # Check if NSFW filter should be injected
         from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
         user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
+        
+        # Debug logging for NSFW filter injection
+        logger.info(f"NSFW Debug (Streaming) - User {user_id}: allow_nsfw={user_allow_nsfw}, should_inject={should_inject_nsfw_filter(user_allow_nsfw)}")
+        logger.info(f"NSFW Debug (Streaming) - User settings: {user_settings}")
         
         messages = []
         if system_prompt and system_prompt.strip():
