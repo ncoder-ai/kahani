@@ -9,9 +9,10 @@ import logging
 import sys
 import os
 
-# Set cache directory to a location accessible by the container user
-os.environ['HF_HOME'] = '/app/.cache/huggingface'
-os.environ['TRANSFORMERS_CACHE'] = '/app/.cache/huggingface'
+# Set cache directory - use /app/.cache/huggingface in Docker, ~/.cache/huggingface on baremetal
+cache_dir = '/app/.cache/huggingface' if os.path.exists('/app') else os.path.expanduser('~/.cache/huggingface')
+os.environ['HF_HOME'] = cache_dir
+os.environ['TRANSFORMERS_CACHE'] = cache_dir
 
 logging.basicConfig(
     level=logging.INFO,
