@@ -22,7 +22,7 @@ services:
       - LLM_BASE_URL=${LLM_BASE_URL:-http://host.docker.internal:1234/v1}
       - LLM_API_KEY=${LLM_API_KEY:-not-needed}
       - LLM_MODEL=${LLM_MODEL:-local-model}
-      - CORS_ORIGINS=["http://localhost:6789","http://localhost:3000","http://localhost:3001","http://frontend:6789"]
+      - CORS_ORIGINS=*
       - DOCKER_CONTAINER=true
       - KAHANI_ENV=development
       - KAHANI_API_URL=http://localhost:9876

@@ -1,6 +1,21 @@
 // API configuration and utilities
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876';
+// For remote access: use the same hostname as the frontend, but port 9876
+// For local access: use localhost
+const getApiBaseUrl = () => {
+  // Server-side: use environment variable or container name
+  if (typeof window === 'undefined') {
+    return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876';
+  }
+  
+  // Client-side: use window.location.hostname with backend port
+  // This makes it work for both localhost and remote access (e.g., 192.168.1.100:6789)
+  const hostname = window.location.hostname;
+  const protocol = window.location.protocol;
+  return `${protocol}//${hostname}:9876`;
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 class ApiClient {
   private baseURL: string;
