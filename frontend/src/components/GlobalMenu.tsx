@@ -137,8 +137,11 @@ export default function GlobalMenu({ isOpen, onClose }: GlobalMenuProps) {
           {/* TTS Settings */}
           <button
             onClick={() => {
-              setShowTTSSettings(true);
               onClose();
+              // Small delay to ensure menu closes before modal opens
+              setTimeout(() => {
+                setShowTTSSettings(true);
+              }, 100);
             }}
             className="w-full flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors text-left group"
           >
