@@ -142,13 +142,15 @@ class NetworkConfig:
             List of allowed CORS origins
         """
         # Check for explicit configuration
-        cors_origins = os.getenv('KAHANI_CORS_ORIGINS')
+        cors_origins = os.getenv('CORS_ORIGINS') or os.getenv('KAHANI_CORS_ORIGINS')
         if cors_origins:
             try:
                 import json
                 return json.loads(cors_origins)
             except json.JSONDecodeError:
                 logger.warning(f"Invalid CORS_ORIGINS format: {cors_origins}")
+                # Fallback to comma-separated values
+                return [origin.strip() for origin in cors_origins.split(',')]
         
         # Production environment
         if os.getenv('KAHANI_ENV') == 'production':
@@ -156,6 +158,17 @@ class NetworkConfig:
             return [
                 os.getenv('KAHANI_FRONTEND_URL', 'http://localhost:6789'),
                 os.getenv('KAHANI_DOMAIN', 'https://kahani.app')
+            ]
+        
+        # Docker environment - include container names and localhost
+        if os.getenv('DOCKER_CONTAINER'):
+            return [
+                "http://localhost:6789",
+                "http://localhost:3000", 
+                "http://localhost:3001",
+                "http://frontend:6789",
+                "http://kahani-frontend:6789",
+                "http://127.0.0.1:6789"
             ]
         
         # Development environment - allow all origins for local network access
