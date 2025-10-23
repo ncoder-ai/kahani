@@ -2,6 +2,30 @@
 
 Get Kahani running in **under 5 minutes** with Docker!
 
+## 🚀 Fastest Start - Pre-built Docker Images
+
+No build time, no dependencies - just download and run!
+
+### Step 1: Get the Compose File
+```bash
+curl -O https://raw.githubusercontent.com/ncoder-ai/kahani/main/docker-compose.prebuilt.yml
+```
+
+### Step 2: Start Kahani
+```bash
+docker-compose -f docker-compose.prebuilt.yml up -d
+```
+
+### Step 3: Access the Application
+- **Frontend**: http://localhost:6789
+- **Backend API**: http://localhost:9876
+
+**That's it!** No building required. 🎉
+
+---
+
+## Alternative: Build from Source
+
 ## 🐳 Docker Installation (Recommended)
 
 ### Prerequisites

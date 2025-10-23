@@ -1,15 +1,38 @@
 # 📚 Kahani - Interactive Storytelling Platform
 
+[![GitHub Container Registry](https://img.shields.io/badge/ghcr-kahani-blue)](https://github.com/ncoder-ai/kahani/pkgs/container/kahani-backend)
+[![Docker Build](https://github.com/ncoder-ai/kahani/actions/workflows/docker.yml/badge.svg)](https://github.com/ncoder-ai/kahani/actions/workflows/docker.yml)
+[![License](https://img.shields.io/github/license/ncoder-ai/kahani)](LICENSE)
+
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.11+-blue.svg" alt="Python Version">
-  <img src="https://img.shields.io/badge/Node.js-18+-green.svg" alt="Node.js Version">
+  <img src="https://img.shields.io/badge/Node.js-22+-green.svg" alt="Node.js Version">
   <img src="https://img.shields.io/badge/FastAPI-Latest-teal.svg" alt="FastAPI">
   <img src="https://img.shields.io/badge/Next.js-14-black.svg" alt="Next.js">
   <img src="https://img.shields.io/badge/Docker-Supported-blue.svg" alt="Docker">
-  <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License">
 </p>
 
 Kahani (meaning "story" in Hindi) is a modern interactive storytelling platform that combines the power of AI with intuitive story management. Create, organize, and evolve your stories with AI assistance, configurable prompts, and a beautiful, responsive interface.
+
+## 🐳 Quick Start with Pre-built Images (Recommended)
+
+The fastest way to get started - no building required!
+
+### Using Pre-built Images from GitHub Container Registry
+
+```bash
+# Download the pre-built docker-compose file
+curl -O https://raw.githubusercontent.com/ncoder-ai/kahani/main/docker-compose.prebuilt.yml
+
+# Start Kahani
+docker-compose -f docker-compose.prebuilt.yml up -d
+```
+
+**Access the application**: http://localhost:6789
+
+For more details, see [DOCKER_IMAGES.md](DOCKER_IMAGES.md).
+
+---
 
 > **🚀 New here?** Check out the [5-Minute Quick Start Guide](QUICK_START.md) to get up and running fast!
 
