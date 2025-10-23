@@ -66,12 +66,11 @@ COPY . .
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
 
-# Download AI models (embedding + reranker) during build
-RUN echo "📦 Downloading AI models for semantic memory..." && \
-    python download_models.py || echo "⚠️  Model download failed, will retry at runtime"
-
-# Set ownership of application files and model cache
+# Set ownership of application files
 RUN chown -R 1000:1000 /app
+
+# Note: AI models will be downloaded on first use at runtime
+# This avoids the slow chown operation on large model files during build
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=30s --start-period=40s --retries=3 \
