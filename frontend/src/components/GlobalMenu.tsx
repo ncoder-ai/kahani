@@ -2,8 +2,10 @@
 
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/store';
-import { X, Settings, LogOut, User, Home, Volume2, VolumeX } from 'lucide-react';
+import { X, Settings, LogOut, User, Home, Volume2, VolumeX, Mic } from 'lucide-react';
 import { useAutoplayPermission } from '@/hooks/useAutoplayPermission';
+import { useState } from 'react';
+import TTSSettingsModal from './TTSSettingsModal';
 
 interface GlobalMenuProps {
   isOpen: boolean;
@@ -15,6 +17,7 @@ export default function GlobalMenu({ isOpen, onClose }: GlobalMenuProps) {
   const pathname = usePathname();
   const { user, logout } = useAuthStore();
   const { isEnabled, toggleAutoplay } = useAutoplayPermission();
+  const [showTTSSettings, setShowTTSSettings] = useState(false);
 
   if (!isOpen) return null;
 
@@ -131,6 +134,23 @@ export default function GlobalMenu({ isOpen, onClose }: GlobalMenuProps) {
             </div>
           </button>
 
+          {/* TTS Settings */}
+          <button
+            onClick={() => {
+              setShowTTSSettings(true);
+              onClose();
+            }}
+            className="w-full flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors text-left group"
+          >
+            <div className="p-2 bg-orange-600/20 rounded-lg group-hover:bg-orange-600/30 transition-colors">
+              <Mic className="w-5 h-5 text-orange-400" />
+            </div>
+            <div className="flex-1">
+              <div className="font-medium text-white">TTS Settings</div>
+              <div className="text-xs text-gray-400">Voice, speed & audio preferences</div>
+            </div>
+          </button>
+
           {/* Settings */}
           <button
             onClick={handleSettings}
@@ -141,7 +161,7 @@ export default function GlobalMenu({ isOpen, onClose }: GlobalMenuProps) {
             </div>
             <div className="flex-1">
               <div className="font-medium text-white">Settings</div>
-              <div className="text-xs text-gray-400">TTS, LLM & app preferences</div>
+              <div className="text-xs text-gray-400">LLM & app preferences</div>
             </div>
           </button>
 
@@ -181,6 +201,15 @@ export default function GlobalMenu({ isOpen, onClose }: GlobalMenuProps) {
           </button>
         </div>
       </div>
+
+      {/* TTS Settings Modal */}
+      <TTSSettingsModal 
+        isOpen={showTTSSettings}
+        onClose={() => setShowTTSSettings(false)}
+        onSaved={() => {
+          setShowTTSSettings(false);
+        }}
+      />
     </>
   );
 }
