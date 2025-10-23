@@ -55,6 +55,16 @@ class UnifiedLLMService:
         
         return client
     
+    def clear_user_cache(self, user_id: int = None):
+        """Clear LLM client cache for a specific user or all users"""
+        if user_id is not None:
+            if user_id in self._client_cache:
+                del self._client_cache[user_id]
+                logger.info(f"Cleared LLM client cache for user {user_id}")
+        else:
+            self._client_cache.clear()
+            logger.info("Cleared all LLM client cache")
+    
     async def validate_user_connection(self, user_id: int, user_settings: Dict[str, Any]) -> tuple[bool, str]:
         """Validate user's LLM connection and return detailed error info"""
         try:
