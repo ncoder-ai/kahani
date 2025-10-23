@@ -82,7 +82,7 @@ interface SceneVariantDisplayProps {
   // Global flag to prevent scroll-disrupting operations
   isSceneOperationInProgress?: boolean;
   // Variant reload trigger
-  variantReloadTrigger?: {sceneId: number, timestamp: number} | null;
+  variantReloadTrigger?: {sceneId: number, timestamp: number, newVariantId?: number} | null;
 }
 
 export default function SceneVariantDisplay({
@@ -130,26 +130,56 @@ export default function SceneVariantDisplay({
   const hasLoadedVariantsRef = useRef<Set<number>>(new Set());
 
   // Load variants for this scene
-  const loadVariants = async () => {
+  const loadVariants = async (newVariantId?: number) => {
     if (isLoadingVariants) {
       console.log(`[SceneVariantDisplay] Skipping loadVariants for scene ${scene.id} - already loading`);
       return;
     }
     
-    console.log(`[SceneVariantDisplay] Starting loadVariants for scene ${scene.id}`);
+    console.log(`[SceneVariantDisplay] Starting loadVariants for scene ${scene.id}${newVariantId ? `, targeting new variant ${newVariantId}` : ''}`);
     
     setIsLoadingVariants(true);
     try {
       const response = await apiClient.getSceneVariants(storyId, scene.id);
       setVariants(response.variants);
       
-      // Set current variant ID if not set
-      if (!currentVariantId && response.variants.length > 0) {
-        const activeVariant = response.variants.find(v => v.id === scene.variant_id);
-        if (activeVariant) {
-          setCurrentVariantId(activeVariant.id);
+      // Handle variant selection logic
+      if (newVariantId) {
+        // If we have a specific new variant ID, try to switch to it
+        const newVariant = response.variants.find(v => v.id === newVariantId);
+        if (newVariant) {
+          console.log(`[SceneVariantDisplay] Switching to new variant ${newVariantId} for scene ${scene.id}`);
+          setCurrentVariantId(newVariantId);
+          // Also activate it on the backend
+          try {
+            await apiClient.activateSceneVariant(storyId, scene.id, newVariantId);
+            if (onVariantChanged) {
+              onVariantChanged();
+            }
+          } catch (error) {
+            console.error('Failed to activate new variant:', error);
+          }
         } else {
-          setCurrentVariantId(response.variants[0].id);
+          console.warn(`[SceneVariantDisplay] New variant ${newVariantId} not found in loaded variants for scene ${scene.id}`);
+          // Fallback to existing logic
+          if (!currentVariantId && response.variants.length > 0) {
+            const activeVariant = response.variants.find(v => v.id === scene.variant_id);
+            if (activeVariant) {
+              setCurrentVariantId(activeVariant.id);
+            } else {
+              setCurrentVariantId(response.variants[0].id);
+            }
+          }
+        }
+      } else {
+        // Set current variant ID if not set (existing logic)
+        if (!currentVariantId && response.variants.length > 0) {
+          const activeVariant = response.variants.find(v => v.id === scene.variant_id);
+          if (activeVariant) {
+            setCurrentVariantId(activeVariant.id);
+          } else {
+            setCurrentVariantId(response.variants[0].id);
+          }
         }
       }
       
@@ -301,7 +331,7 @@ export default function SceneVariantDisplay({
   // Force reload variants when triggered by parent
   useEffect(() => {
     if (variantReloadTrigger && variantReloadTrigger.sceneId === scene.id) {
-      console.log(`[SceneVariantDisplay] Force reloading variants for scene ${scene.id} due to trigger`);
+      console.log(`[SceneVariantDisplay] Force reloading variants for scene ${scene.id} due to trigger${variantReloadTrigger.newVariantId ? `, targeting new variant ${variantReloadTrigger.newVariantId}` : ''}`);
       
       // Clear the ref so loadVariants will run
       hasLoadedVariantsRef.current.delete(scene.id);
@@ -310,9 +340,9 @@ export default function SceneVariantDisplay({
       setVariants([]);
       setIsLoadingVariants(false);
       
-      // Trigger loadVariants after a small delay
+      // Trigger loadVariants after a small delay with new variant ID
       setTimeout(() => {
-        loadVariants();
+        loadVariants(variantReloadTrigger.newVariantId);
       }, 100);
     }
   }, [variantReloadTrigger, scene.id]);
