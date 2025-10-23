@@ -81,6 +81,8 @@ interface SceneVariantDisplayProps {
   isStreamingVariant?: boolean;
   // Global flag to prevent scroll-disrupting operations
   isSceneOperationInProgress?: boolean;
+  // Variant reload trigger
+  variantReloadTrigger?: {sceneId: number, timestamp: number} | null;
 }
 
 export default function SceneVariantDisplay({
@@ -117,7 +119,8 @@ export default function SceneVariantDisplay({
   isStreamingContinuation = false,
   streamingVariantContent = '',
   isStreamingVariant = false,
-  isSceneOperationInProgress = false
+  isSceneOperationInProgress = false,
+  variantReloadTrigger = null
 }: SceneVariantDisplayProps) {
   const [variants, setVariants] = useState<SceneVariant[]>([]);
   const [currentVariantId, setCurrentVariantId] = useState<number | null>(null);
@@ -294,6 +297,25 @@ export default function SceneVariantDisplay({
       setCurrentVariantId(scene.variant_id);
     }
   }, [scene.variant_id, currentVariantId]);
+
+  // Force reload variants when triggered by parent
+  useEffect(() => {
+    if (variantReloadTrigger && variantReloadTrigger.sceneId === scene.id) {
+      console.log(`[SceneVariantDisplay] Force reloading variants for scene ${scene.id} due to trigger`);
+      
+      // Clear the ref so loadVariants will run
+      hasLoadedVariantsRef.current.delete(scene.id);
+      
+      // Reset variants to trigger reload
+      setVariants([]);
+      setIsLoadingVariants(false);
+      
+      // Trigger loadVariants after a small delay
+      setTimeout(() => {
+        loadVariants();
+      }, 100);
+    }
+  }, [variantReloadTrigger, scene.id]);
 
   // Keyboard navigation for variants (only for last scene)
   useEffect(() => {
