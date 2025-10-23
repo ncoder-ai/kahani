@@ -76,6 +76,15 @@ class UserSettings(Base):
     
     def to_dict(self):
         """Convert settings to dictionary for API responses"""
+        # Get user permissions from the related User model
+        user_permissions = {}
+        if self.user:
+            user_permissions = {
+                "allow_nsfw": self.user.allow_nsfw,
+                "can_change_llm_provider": self.user.can_change_llm_provider,
+                "is_admin": self.user.is_admin
+            }
+        
         return {
             "llm_settings": {
                 "temperature": self.llm_temperature,
@@ -131,7 +140,9 @@ class UserSettings(Base):
             "advanced": {
                 "custom_system_prompt": self.custom_system_prompt,
                 "experimental_features": self.enable_experimental_features
-            }
+            },
+            # Include user permissions
+            **user_permissions
         }
     
     @classmethod

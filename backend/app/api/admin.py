@@ -353,6 +353,12 @@ async def update_user(
     
     logger.info(f"Admin {current_user.id} updated user {user_id}")
     
+    # Clear LLM cache if permissions were changed
+    if 'allow_nsfw' in perm_dict or 'can_change_llm_provider' in perm_dict:
+        from ...services.llm.service import llm_service
+        llm_service.clear_user_cache(user_id)
+        logger.info(f"Cleared LLM cache for user {user_id} due to permission changes")
+    
     db.commit()
     db.refresh(user)
     
