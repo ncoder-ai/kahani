@@ -67,8 +67,10 @@ COPY --chown=1000:1000 docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
 
 # Download AI models (embedding + reranker) during build as the kahani user
+# Use BuildKit cache mount to persist model downloads between builds
 USER kahani
-RUN echo "📦 Downloading AI models for semantic memory..." && \
+RUN --mount=type=cache,target=/app/.cache/huggingface \
+    echo "📦 Downloading AI models for semantic memory..." && \
     python download_models.py || echo "⚠️  Model download failed, will retry at runtime"
 
 # Switch back to root for final setup (entrypoint will handle user switching)
