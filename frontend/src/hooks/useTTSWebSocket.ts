@@ -295,8 +295,22 @@ export const useTTSWebSocket = ({
       console.log('[TTS] Session created:', data.session_id);
       
       // 2. Connect to WebSocket
-      // Use the same base URL as the API client (strips protocol and path)
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876';
+      // Use the same dynamic API URL logic as the main API client
+      const getApiBaseUrl = () => {
+        if (typeof window === 'undefined') {
+          return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876';
+        }
+        const hostname = window.location.hostname;
+        const protocol = window.location.protocol;
+        const port = window.location.port;
+        const isReverseProxy = !port || port === '80' || port === '443';
+        if (isReverseProxy) {
+          return `${protocol}//${hostname}`;
+        }
+        return `${protocol}//${hostname}:9876`;
+      };
+      
+      const apiUrl = getApiBaseUrl();
       const apiHost = apiUrl.replace(/^https?:\/\//, ''); // Remove protocol
       const wsProtocol = apiUrl.startsWith('https') ? 'wss:' : 'ws:';
       const wsUrl = `${wsProtocol}//${apiHost}${data.websocket_url}`;

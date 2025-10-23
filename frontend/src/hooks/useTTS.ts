@@ -116,9 +116,25 @@ export const useTTS = ({ sceneId, onPlaybackStart, onPlaybackEnd, onError }: Use
       console.log(`[useTTS] Playing chunk ${chunkNumber}/${audioInfo.chunk_count} (attempt ${retryCount + 1})`);
 
       // Fetch audio chunk with authentication
+      // Use the same dynamic API URL logic as the main API client
+      const getApiBaseUrl = () => {
+        if (typeof window === 'undefined') {
+          return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876';
+        }
+        const hostname = window.location.hostname;
+        const protocol = window.location.protocol;
+        const port = window.location.port;
+        const isReverseProxy = !port || port === '80' || port === '443';
+        if (isReverseProxy) {
+          return `${protocol}//${hostname}`;
+        }
+        return `${protocol}//${hostname}:9876`;
+      };
+      
+      const apiBaseUrl = getApiBaseUrl();
       const url = audioInfo.progressive 
-        ? `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876'}/api/tts/audio/${sceneId}/chunk/${chunkNumber}`
-        : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876'}/api/tts/audio/${sceneId}`;
+        ? `${apiBaseUrl}/api/tts/audio/${sceneId}/chunk/${chunkNumber}`
+        : `${apiBaseUrl}/api/tts/audio/${sceneId}`;
 
       const response = await fetch(url, {
         headers: {
