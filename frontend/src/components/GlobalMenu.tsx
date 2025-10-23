@@ -4,20 +4,18 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/store';
 import { X, Settings, LogOut, User, Home, Volume2, VolumeX, Mic } from 'lucide-react';
 import { useAutoplayPermission } from '@/hooks/useAutoplayPermission';
-import { useState } from 'react';
-import TTSSettingsModal from './TTSSettingsModal';
 
 interface GlobalMenuProps {
   isOpen: boolean;
   onClose: () => void;
+  onOpenTTSSettings: () => void;
 }
 
-export default function GlobalMenu({ isOpen, onClose }: GlobalMenuProps) {
+export default function GlobalMenu({ isOpen, onClose, onOpenTTSSettings }: GlobalMenuProps) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, logout } = useAuthStore();
   const { isEnabled, toggleAutoplay } = useAutoplayPermission();
-  const [showTTSSettings, setShowTTSSettings] = useState(false);
 
   if (!isOpen) return null;
 
@@ -138,10 +136,7 @@ export default function GlobalMenu({ isOpen, onClose }: GlobalMenuProps) {
           <button
             onClick={() => {
               onClose();
-              // Small delay to ensure menu closes before modal opens
-              setTimeout(() => {
-                setShowTTSSettings(true);
-              }, 100);
+              onOpenTTSSettings();
             }}
             className="w-full flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors text-left group"
           >
@@ -204,15 +199,6 @@ export default function GlobalMenu({ isOpen, onClose }: GlobalMenuProps) {
           </button>
         </div>
       </div>
-
-      {/* TTS Settings Modal */}
-      <TTSSettingsModal 
-        isOpen={showTTSSettings}
-        onClose={() => setShowTTSSettings(false)}
-        onSaved={() => {
-          setShowTTSSettings(false);
-        }}
-      />
     </>
   );
 }
