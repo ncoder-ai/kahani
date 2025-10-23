@@ -46,31 +46,33 @@ RUN apt-get update && apt-get install -y \
     gosu \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user
-RUN groupadd -r kahani && useradd -r -g kahani kahani
-
-# Create app directory with proper permissions
-RUN mkdir -p /app /app/data /app/logs /app/.cache/huggingface && \
-    chmod -R 755 /app/data /app/logs
+# Create non-root user with UID/GID 1000
+RUN groupadd -r -g 1000 kahani && useradd -r -u 1000 -g kahani kahani
 
 # Set working directory
 WORKDIR /app
 
-# Copy virtual environment from builder stage
-COPY --from=builder /app/venv /app/venv
+# Create app directories with proper ownership from the start
+RUN mkdir -p /app/data /app/logs /app/.cache/huggingface && \
+    chown -R 1000:1000 /app
 
-# Copy application code
-COPY . .
+# Copy virtual environment from builder stage with correct ownership
+COPY --from=builder --chown=1000:1000 /app/venv /app/venv
 
-# Copy entrypoint script and make it executable
-COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+# Copy application code with correct ownership
+COPY --chown=1000:1000 . .
+
+# Copy entrypoint script with correct ownership and make it executable
+COPY --chown=1000:1000 docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
 
-# Set ownership of application files
-RUN chown -R 1000:1000 /app
+# Download AI models (embedding + reranker) during build as the kahani user
+USER kahani
+RUN echo "📦 Downloading AI models for semantic memory..." && \
+    python download_models.py || echo "⚠️  Model download failed, will retry at runtime"
 
-# Note: AI models will be downloaded on first use at runtime
-# This avoids the slow chown operation on large model files during build
+# Switch back to root for final setup (entrypoint will handle user switching)
+USER root
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=30s --start-period=40s --retries=3 \
