@@ -27,7 +27,7 @@ RUN /app/venv/bin/pip install --upgrade pip
 COPY requirements.txt .
 
 # Install CPU-only PyTorch first to avoid CUDA dependencies
-RUN /app/venv/bin/pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.1.0
+RUN /app/venv/bin/pip install --no-cache-dir torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cpu
 
 # Install Python dependencies in venv
 RUN /app/venv/bin/pip install --no-cache-dir -r requirements.txt
