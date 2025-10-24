@@ -1,10 +1,9 @@
 # Multi-stage build for Next.js frontend
 
+# ============================================
 # Dependencies stage
-FROM node:22-alpine as deps
-
-# Check https://github.com/nodejs/docker-node/tree/b4117f9333da4138b03a546ec926ef50a31506c3#nodealpine to understand why libc6-compat might be needed.
-RUN apk add --no-cache libc6-compat
+# ============================================
+FROM node:20-alpine AS deps
 
 WORKDIR /app
 
@@ -12,17 +11,19 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm ci --only=production && npm cache clean --force
+RUN npm ci
 
+# ============================================
 # Builder stage
-FROM node:22-alpine as builder
+# ============================================
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
 # Copy dependencies from deps stage
 COPY --from=deps /app/node_modules ./node_modules
 
-# Copy source code
+# Copy source files
 COPY . .
 
 # Set environment variables for build
@@ -32,8 +33,10 @@ ENV NODE_ENV=production
 # Build application
 RUN npm run build
 
+# ============================================
 # Production stage
-FROM node:22-alpine as production
+# ============================================
+FROM node:20-alpine AS production
 
 # Set environment variables
 ENV NODE_ENV=production
@@ -57,13 +60,13 @@ COPY --from=builder --chown=nextjs:nodejs /app/package*.json ./
 RUN mkdir -p ./public
 
 # Install only production dependencies
-RUN npm ci --only=production && npm cache clean --force
+RUN npm ci --production --ignore-scripts
 
 # Switch to non-root user
 USER nextjs
 
 # Set default port (can be overridden via environment variable)
-ENV PORT=6789
+ENV PORT=3000
 
 # Health check (uses PORT env var)
 HEALTHCHECK --interval=30s --timeout=30s --start-period=40s --retries=3 \
