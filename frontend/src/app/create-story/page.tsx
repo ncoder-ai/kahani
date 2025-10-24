@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/store';
 import apiClient from '@/lib/api';
@@ -41,7 +41,7 @@ const STEPS = [
   { id: 'review', title: 'Review', component: FinalReview },
 ];
 
-export default function CreateStoryPage() {
+function CreateStoryContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useAuthStore();
@@ -444,5 +444,20 @@ export default function CreateStoryPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function CreateStoryPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-white/80">Loading...</p>
+        </div>
+      </div>
+    }>
+      <CreateStoryContent />
+    </Suspense>
   );
 }

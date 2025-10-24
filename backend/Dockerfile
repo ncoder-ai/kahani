@@ -1,39 +1,42 @@
-# Multi-stage build for Python FastAPI backend - with venv
+# Multi-stage build for Python FastAPI backend
 
+# ============================================
 # Build stage
+# ============================================
 FROM python:3.12-slim as builder
 
-# Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Install system dependencies
+# Install MINIMAL build dependencies (not build-essential)
 RUN apt-get update && apt-get install -y \
-    build-essential \
+    gcc \
+    g++ \
+    libffi-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Create and set working directory
 WORKDIR /app
 
 # Create virtual environment
 RUN python -m venv /app/venv
-
-# Activate virtual environment and upgrade pip
 RUN /app/venv/bin/pip install --upgrade pip
 
-# Copy requirements first to leverage Docker cache
-COPY requirements.txt .
+# Copy production requirements
+COPY requirements-prod.txt .
 
-# Install CPU-only PyTorch first to avoid CUDA dependencies
-RUN /app/venv/bin/pip install --no-cache-dir torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cpu
+# Install CPU-only PyTorch FIRST (no torchvision/torchaudio)
+RUN /app/venv/bin/pip install --no-cache-dir \
+    torch==2.6.0+cpu \
+    --extra-index-url https://download.pytorch.org/whl/cpu
 
-# Install sentence-transformers after CPU-only PyTorch to avoid CUDA dependencies
-RUN /app/venv/bin/pip install --no-cache-dir sentence-transformers==2.3.0
+# Install sentence-transformers AFTER PyTorch
+RUN /app/venv/bin/pip install --no-cache-dir \
+    sentence-transformers==2.3.0
 
-# Install Python dependencies in venv
-RUN /app/venv/bin/pip install --no-cache-dir -r requirements.txt
+# Install remaining dependencies
+RUN /app/venv/bin/pip install --no-cache-dir -r requirements-prod.txt
 
 # Production stage
 FROM python:3.12-slim as production
