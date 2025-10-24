@@ -128,7 +128,7 @@ jobs:
         labels: ${{ steps.meta-backend.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
-        platforms: linux/amd64
+        platforms: linux/amd64,linux/arm64
 
     - name: Build and push frontend Docker image
       uses: docker/build-push-action@v5
@@ -139,17 +139,24 @@ jobs:
         labels: ${{ steps.meta-frontend.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
-        platforms: linux/amd64
+        platforms: linux/amd64,linux/arm64
 
     - name: Make images public
       run: |
+        # Wait a moment for images to be fully processed
+        sleep 10
+        
         # Make backend image public
+        echo "Making backend image public..."
         gh api -X PATCH /user/packages/container/${{ env.IMAGE_NAME }}-backend/visibility \
           -f visibility=public || echo "Failed to make backend public"
         
         # Make frontend image public  
+        echo "Making frontend image public..."
         gh api -X PATCH /user/packages/container/${{ env.IMAGE_NAME }}-frontend/visibility \
           -f visibility=public || echo "Failed to make frontend public"
+        
+        echo "Images should now be public and accessible"
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
