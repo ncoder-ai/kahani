@@ -26,6 +26,9 @@ RUN /app/venv/bin/pip install --upgrade pip
 # Copy requirements first to leverage Docker cache
 COPY requirements.txt .
 
+# Install CPU-only PyTorch first to avoid CUDA dependencies
+RUN /app/venv/bin/pip install --no-cache-dir torch==2.1.0+cpu --index-url https://download.pytorch.org/whl/cpu
+
 # Install Python dependencies in venv
 RUN /app/venv/bin/pip install --no-cache-dir -r requirements.txt
 
