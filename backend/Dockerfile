@@ -29,6 +29,9 @@ COPY requirements.txt .
 # Install CPU-only PyTorch first to avoid CUDA dependencies
 RUN /app/venv/bin/pip install --no-cache-dir torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cpu
 
+# Install sentence-transformers after CPU-only PyTorch to avoid CUDA dependencies
+RUN /app/venv/bin/pip install --no-cache-dir sentence-transformers==2.3.0
+
 # Install Python dependencies in venv
 RUN /app/venv/bin/pip install --no-cache-dir -r requirements.txt
 

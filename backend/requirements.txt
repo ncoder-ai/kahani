@@ -14,8 +14,7 @@ pytest==7.4.3
 pytest-asyncio==0.21.1
 litellm==1.40.0  # Modern LLM provider abstraction
 chromadb==0.4.22  # Vector database for semantic search
-torch==2.1.0+cpu --index-url https://download.pytorch.org/whl/cpu
-sentence-transformers==2.3.0  # Embedding generation (compatible with newer huggingface_hub)
+# sentence-transformers==2.3.0  # Moved to Dockerfile to install after CPU-only PyTorch
 tiktoken==0.5.2  # Token counting for context management
 numpy==1.26.4  # ChromaDB 0.4.22 requires NumPy 1.x
 huggingface-hub==0.20.0  # Required for sentence-transformers
