@@ -310,7 +310,9 @@ docker-compose ps
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License - see the [LICENSE](LICENSE) file for details.
+
+**Important:** This license prohibits commercial use. You may use, share, and modify the software for non-commercial purposes only.
 
 ## 🙏 Acknowledgments
 
