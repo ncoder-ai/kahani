@@ -1,14 +1,38 @@
 // API configuration and utilities
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876';
+// Runtime API URL detection - only runs in browser context
+function getApiBaseUrl(): string {
+  // First check environment variable
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL;
+  }
+  
+  // Only run in browser context
+  if (typeof window !== 'undefined') {
+    const currentHost = window.location.hostname;
+    const protocol = window.location.protocol;
+    
+    // Use current host with backend port
+    return `${protocol}//${currentHost}:9876`;
+  }
+  
+  // Fallback for server-side rendering
+  return 'http://localhost:9876';
+}
 
 class ApiClient {
-  private baseURL: string;
+  private baseURL: string | null = null;
   private token: string | null = null;
 
-  constructor(baseURL: string) {
-    this.baseURL = baseURL;
+  constructor() {
     this.loadToken();
+  }
+
+  private getBaseURLInternal(): string {
+    if (!this.baseURL) {
+      this.baseURL = getApiBaseUrl();
+    }
+    return this.baseURL;
   }
 
   private loadToken() {
@@ -42,7 +66,8 @@ class ApiClient {
   }
 
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-    const url = `${this.baseURL}${endpoint}`;
+    const baseURL = this.getBaseURLInternal();
+    const url = `${baseURL}${endpoint}`;
     const isFormData = (typeof FormData !== 'undefined') && (options.body instanceof FormData);
 
     const headers: Record<string, string> = {
@@ -55,7 +80,7 @@ class ApiClient {
     }
 
     console.log(`[API] ${options.method || 'GET'} ${url}`);
-    console.log('[API] Base URL:', this.baseURL);
+    console.log('[API] Base URL:', baseURL);
     console.log('[API] Endpoint:', endpoint);
     console.log('[API] Headers:', Object.keys(headers));
 
@@ -197,7 +222,7 @@ class ApiClient {
     const headers: Record<string, string> = {};
     if (this.token) headers.Authorization = `Bearer ${this.token}`;
     try {
-      const response = await fetch(`${this.baseURL}/api/stories/${storyId}/scenes/stream`, { method: 'POST', headers, body: formData });
+      const response = await fetch(`${this.getBaseURLInternal()}/api/stories/${storyId}/scenes/stream`, { method: 'POST', headers, body: formData });
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       if (!response.body) throw new Error('No response body');
       const reader = response.body.getReader();
@@ -270,7 +295,7 @@ class ApiClient {
     try {
       const formData = new FormData();
       formData.append('custom_prompt', customPrompt);
-      const response = await fetch(`${this.baseURL}/api/stories/${storyId}/regenerate-last-scene/stream`, { method: 'POST', headers, body: formData });
+      const response = await fetch(`${this.getBaseURLInternal()}/api/stories/${storyId}/regenerate-last-scene/stream`, { method: 'POST', headers, body: formData });
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const reader = response.body?.getReader();
       if (!reader) throw new Error('Failed to get response reader');
@@ -324,7 +349,7 @@ class ApiClient {
     if (this.token) headers.Authorization = `Bearer ${this.token}`;
     
     try {
-      const response = await fetch(`${this.baseURL}/api/stories/${storyId}/scenes/${sceneId}/variants/stream`, {
+      const response = await fetch(`${this.getBaseURLInternal()}/api/stories/${storyId}/scenes/${sceneId}/variants/stream`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ custom_prompt: customPrompt })
@@ -405,7 +430,7 @@ class ApiClient {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (this.token) headers.Authorization = `Bearer ${this.token}`;
     try {
-      const response = await fetch(`${this.baseURL}/api/stories/${storyId}/scenes/${sceneId}/continue/stream`, {
+      const response = await fetch(`${this.getBaseURLInternal()}/api/stories/${storyId}/scenes/${sceneId}/continue/stream`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ custom_prompt: customPrompt }),
@@ -817,7 +842,7 @@ class ApiClient {
 
   // Utility methods
   getBaseURL(): string {
-    return this.baseURL;
+    return this.getBaseURLInternal();
   }
 
   getToken(): string | null {
@@ -826,7 +851,4 @@ class ApiClient {
 }
 
 // Export singleton instance as default
-export default new ApiClient(API_BASE_URL);
-
-// Export API_BASE_URL for direct URL construction when needed
-export { API_BASE_URL };
+export default new ApiClient();
