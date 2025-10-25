@@ -1,6 +1,6 @@
 """Add user settings table
 
-Revision ID: add_user_settings
+Revision ID: 001
 Revises: 
 Create Date: 2024-01-01 00:00:00.000000
 
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import sqlite
 
 # revision identifiers, used by Alembic.
-revision = 'add_user_settings'
+revision = '001'
 down_revision = None
 branch_labels = None
 depends_on = None

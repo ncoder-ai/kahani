@@ -87,6 +87,10 @@ if [[ "$DATABASE_URL" == postgresql* ]]; then
     sleep 2
 fi
 
+## Run Alembic migrations before starting the app
+echo "🗄️ Running Alembic migrations..."
+alembic upgrade head || echo "⚠️ Alembic migration failed"
+
 # Initialize database if needed
 if [[ "$DATABASE_URL" == sqlite* ]]; then
     echo "🗄️ Checking SQLite database..."

@@ -1,7 +1,7 @@
 """add scenario field to stories
 
-Revision ID: 004_add_scenario_field_to_stories
-Revises: 003_add_admin_system
+Revision ID: 004
+Revises: 003
 Create Date: 2024-01-01 00:00:00.000000
 
 """
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '004_add_scenario_field_to_stories'
-down_revision = '003_add_admin_system'
+revision = '004'
+down_revision = '003'
 branch_labels = None
 depends_on = None
 
