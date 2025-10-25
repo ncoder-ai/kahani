@@ -136,6 +136,15 @@ class CharacterMemoryService:
                     }
                 )
                 
+                # Check if memory with this embedding_id already exists
+                existing_memory = db.query(CharacterMemory).filter(
+                    CharacterMemory.embedding_id == embedding_id
+                ).first()
+                
+                if existing_memory:
+                    logger.info(f"Memory with embedding_id {embedding_id} already exists, skipping")
+                    continue
+                
                 # Create database record
                 char_memory = CharacterMemory(
                     character_id=character.id,
