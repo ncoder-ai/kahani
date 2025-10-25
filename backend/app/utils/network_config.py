@@ -157,21 +157,33 @@ class NetworkConfig:
         
         # Production environment
         if os.getenv('KAHANI_ENV') == 'production':
-            # In production, be more restrictive
-            return [
+            # In production, be more restrictive but include detected network IP for Docker
+            network_ip = NetworkConfig.get_network_ip()
+            origins = [
                 os.getenv('KAHANI_FRONTEND_URL', 'http://localhost:6789'),
                 os.getenv('KAHANI_DOMAIN', 'https://kahani.app')
             ]
+            # Add network IP for Docker production deployments
+            if network_ip != 'localhost':
+                origins.extend([
+                    f"http://{network_ip}:6789",
+                    f"http://{network_ip}:3000"
+                ])
+            return origins
         
         # Docker environment - include container names and localhost
         if os.getenv('DOCKER_CONTAINER'):
+            # Get the detected network IP for Docker environments
+            network_ip = NetworkConfig.get_network_ip()
             return [
                 "http://localhost:6789",
                 "http://localhost:3000", 
                 "http://localhost:3001",
+                "http://127.0.0.1:6789",
+                f"http://{network_ip}:6789",  # Add detected network IP
+                f"http://{network_ip}:3000",  # Add detected network IP for port 3000
                 "http://frontend:6789",
-                "http://kahani-frontend:6789",
-                "http://127.0.0.1:6789"
+                "http://kahani-frontend:6789"
             ]
         
         # Development environment - allow all origins for local network access
