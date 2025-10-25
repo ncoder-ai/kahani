@@ -87,11 +87,7 @@ if [[ "$DATABASE_URL" == postgresql* ]]; then
     sleep 2
 fi
 
-## Run Alembic migrations before starting the app
-echo "🗄️ Running Alembic migrations..."
-alembic upgrade head || echo "⚠️ Alembic migration failed"
-
-# Initialize database if needed
+# Initialize database if needed (must run BEFORE Alembic migrations)
 if [[ "$DATABASE_URL" == sqlite* ]]; then
     echo "🗄️ Checking SQLite database..."
     cd /app
@@ -127,9 +123,9 @@ except Exception as e:
         }
     fi
     
-    # Run database initialization
+    # Run database initialization (creates tables if DB is new)
     if [ -f "init_database.py" ]; then
-        echo "Running database initialization with admin system..."
+        echo "Running database initialization..."
         python init_database.py || echo "⚠️  Database initialization warning"
     fi
     
@@ -138,6 +134,10 @@ except Exception as e:
 else
     echo "✅ Using non-SQLite database - skipping initialization"
 fi
+
+# Run Alembic migrations AFTER database initialization
+echo "🗄️ Running Alembic migrations to upgrade schema..."
+alembic upgrade head || echo "⚠️ Alembic migration failed"
 
 # Check for TTS provider availability (optional)
 if [ ! -z "$TTS_API_URL" ]; then
