@@ -42,6 +42,7 @@ class Story(Base):
     # Story settings and context
     world_setting = Column(Text)
     initial_premise = Column(Text)
+    scenario = Column(Text)  # Scenario created during story setup
     story_context = Column(JSON, default={})  # Current story state, character states, etc.
     
     # Draft progress tracking
