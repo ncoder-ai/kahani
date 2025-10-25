@@ -43,6 +43,9 @@ class StoryCharacter(Base):
     story_id = Column(Integer, ForeignKey("stories.id"), nullable=False)
     character_id = Column(Integer, ForeignKey("characters.id"), nullable=False)
     
+    # Story-specific character properties
+    role = Column(String(100))  # Role in this specific story (protagonist, antagonist, etc.)
+    
     # Story-specific character state
     current_location = Column(String(200))
     current_emotional_state = Column(String(100))
