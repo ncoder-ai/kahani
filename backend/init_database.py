@@ -69,13 +69,20 @@ def init_database():
     
     if existing_tables:
         print(f"Warning: Database already has {len(existing_tables)} tables: {', '.join(existing_tables)}")
-        response = input("Drop all tables and recreate? (yes/no): ")
-        if response.lower() != 'yes':
-            print("Aborted.")
-            return
-        
-        print("Dropping all tables...")
-        Base.metadata.drop_all(bind=engine)
+        # Check for non-interactive mode (Docker or CI)
+        no_prompt = os.environ.get("KAHANI_NO_PROMPT", "false").lower() == "true"
+        if no_prompt:
+            print("Non-interactive mode detected (KAHANI_NO_PROMPT=true). Skipping drop/recreate prompt.")
+        else:
+            try:
+                response = input("Drop all tables and recreate? (yes/no): ")
+                if response.lower() != 'yes':
+                    print("Aborted.")
+                    return
+                print("Dropping all tables...")
+                Base.metadata.drop_all(bind=engine)
+            except EOFError:
+                print("Non-interactive environment detected. Skipping drop/recreate prompt.")
     
     # Create all tables
     print("Creating all tables...")

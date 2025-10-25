@@ -1,7 +1,7 @@
 """add admin system with user permissions and system settings
 
-Revision ID: 003_add_admin_system
-Revises: 002_add_semantic_memory_models
+Revision ID: 003
+Revises: 002
 Create Date: 2025-01-15 00:00:00.000000
 
 """
@@ -12,8 +12,8 @@ from sqlalchemy import String, Integer, Boolean, DateTime
 
 
 # revision identifiers, used by Alembic.
-revision = '003_add_admin_system'
-down_revision = '002_add_semantic_memory_models'
+revision = '003'
+down_revision = '002'
 branch_labels = None
 depends_on = None
 
