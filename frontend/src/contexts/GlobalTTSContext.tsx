@@ -94,7 +94,6 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
   const playNextChunk = useCallback(() => {
     if (audioQueueRef.current.length === 0) {
       isPlayingRef.current = false;
-      setIsPlaying(false);
       return;
     }
     
@@ -177,7 +176,6 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
       case 'complete':
         console.log('[Global TTS] Generation complete');
         setIsGenerating(false);
-        // Note: isPlaying will be set to false by playNextChunk when queue is empty
         break;
         
       case 'error':
@@ -189,10 +187,10 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
   }, [base64ToBlob, playNextChunk]);
   
   /**
-   * Connect to existing TTS session
+   * Connect to existing TTS session (for auto-play)
    */
-  const connectToSession = useCallback(async (sessionId: string, sceneId: number, isManual = false) => {
-    console.log('[Global TTS] Connecting to session:', sessionId, 'for scene:', sceneId, isManual ? '(manual)' : '(auto)');
+  const connectToSession = useCallback(async (sessionId: string, sceneId: number) => {
+    console.log('[Global TTS] Connecting to session:', sessionId, 'for scene:', sceneId);
     
     // If already connected to this session, don't reconnect
     if (currentSessionIdRef.current === sessionId && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -206,23 +204,14 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
       return;
     }
     
-    // Stop any existing audio and close WebSocket if connecting to different session
+    // Close existing connection if connecting to different session
     if (wsRef.current && currentSessionIdRef.current !== sessionId) {
       console.log('[Global TTS] Closing previous session:', currentSessionIdRef.current);
       wsRef.current.close();
     }
     
-    // Stop any currently playing audio to prevent overlap
-    if (currentAudioRef.current) {
-      currentAudioRef.current.pause();
-      currentAudioRef.current = null;
-    }
-    
-    // Clear audio queue and revoke URLs to prevent memory leaks
-    audioQueueRef.current.forEach(chunk => URL.revokeObjectURL(chunk.audio_url));
-    audioQueueRef.current = [];
-    
     // Clear state
+    audioQueueRef.current = [];
     setError(null);
     setProgress(0);
     setChunksReceived(0);
@@ -232,9 +221,9 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
     currentSessionIdRef.current = sessionId; // Update ref
     setIsGenerating(true);
     
-    // Only check autoplay permission for automatic TTS, not manual
-    if (!isManual && !hasPermission) {
-      console.log('[Global TTS] Autoplay not enabled - skipping automatic audio generation');
+    // Check if user has granted autoplay permission
+    if (!hasPermission) {
+      console.log('[Global TTS] Autoplay not enabled - skipping audio generation');
       setIsGenerating(false);
       return;
     }
@@ -296,6 +285,37 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
   }, [apiBaseUrl, handleWebSocketMessage, currentSceneId, isPlaying, isGenerating]);
   
   /**
+   * Start manual TTS generation for a scene
+   */
+  const playScene = useCallback(async (sceneId: number) => {
+    console.log('[Global TTS] Starting manual TTS for scene:', sceneId);
+    
+    try {
+      // Create TTS session (use WebSocket endpoint)
+      const response = await fetch(`${apiBaseUrl}/api/tts/generate-ws/${sceneId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log('[Global TTS] Session created:', data.session_id);
+      
+      // Connect to the session
+      await connectToSession(data.session_id, sceneId);
+    } catch (err) {
+      console.error('[Global TTS] Failed to start TTS:', err);
+      setError(err instanceof Error ? err.message : 'Failed to start TTS');
+    }
+  }, [apiBaseUrl, connectToSession]);
+  
+  /**
    * Stop playback
    */
   const stop = useCallback(() => {
@@ -350,40 +370,6 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
       isPlayingRef.current = true;
     }
   }, []);
-  
-  /**
-   * Start manual TTS generation for a scene
-   */
-  const playScene = useCallback(async (sceneId: number) => {
-    console.log('[Global TTS] Starting manual TTS for scene:', sceneId);
-    
-    // Stop any existing playback first to prevent audio overlap
-    stop();
-    
-    try {
-      // Create TTS session (use WebSocket endpoint)
-      const response = await fetch(`${apiBaseUrl}/api/tts/generate-ws/${sceneId}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      
-      const data = await response.json();
-      console.log('[Global TTS] Session created:', data.session_id);
-      
-      // Connect to the session (manual TTS - bypass autoplay check)
-      await connectToSession(data.session_id, sceneId, true);
-    } catch (err) {
-      console.error('[Global TTS] Failed to start TTS:', err);
-      setError(err instanceof Error ? err.message : 'Failed to start TTS');
-    }
-  }, [apiBaseUrl, connectToSession, stop]);
   
   // Cleanup on unmount
   useEffect(() => {

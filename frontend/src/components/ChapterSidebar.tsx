@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, BookOpen, AlertCircle, Edit2, Save, X, Plus } from 'lucide-react';
 import apiClient from '@/lib/api';
-import { getApiBaseUrl } from '@/lib/apiUrl';
 
 interface Chapter {
   id: number;
@@ -255,7 +254,7 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
     
     try {
       const response = await fetch(
-        `${getApiBaseUrl()}/api/stories/${storyId}/chapters/${activeChapter.id}/generate-summary?regenerate_story_so_far=true`,
+        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876'}/api/stories/${storyId}/chapters/${activeChapter.id}/generate-summary?regenerate_story_so_far=true`,
         {
           method: 'POST',
           headers: {
@@ -297,7 +296,7 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
     
     try {
       const response = await fetch(
-        `${getApiBaseUrl()}/api/stories/${storyId}/generate-story-summary`,
+        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876'}/api/stories/${storyId}/generate-story-summary`,
         {
           method: 'POST',
           headers: {

@@ -116,11 +116,9 @@ export const useTTS = ({ sceneId, onPlaybackStart, onPlaybackEnd, onError }: Use
       console.log(`[useTTS] Playing chunk ${chunkNumber}/${audioInfo.chunk_count} (attempt ${retryCount + 1})`);
 
       // Fetch audio chunk with authentication
-      const { getApiBaseUrl } = await import('@/lib/apiUrl');
-      const apiBaseUrl = getApiBaseUrl();
       const url = audioInfo.progressive 
-        ? `${apiBaseUrl}/api/tts/audio/${sceneId}/chunk/${chunkNumber}`
-        : `${apiBaseUrl}/api/tts/audio/${sceneId}`;
+        ? `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876'}/api/tts/audio/${sceneId}/chunk/${chunkNumber}`
+        : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876'}/api/tts/audio/${sceneId}`;
 
       const response = await fetch(url, {
         headers: {
@@ -145,9 +143,8 @@ export const useTTS = ({ sceneId, onPlaybackStart, onPlaybackEnd, onError }: Use
         
         // Check generation status before retrying (optional optimization)
         try {
-          const { getApiBaseUrl } = await import('@/lib/apiUrl');
           const statusResponse = await fetch(
-            `${getApiBaseUrl()}/api/tts/audio/${sceneId}/status`,
+            `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876'}/api/tts/audio/${sceneId}/status`,
             {
               headers: {
                 'Authorization': `Bearer ${localStorage.getItem('auth_token')}`

@@ -81,8 +81,6 @@ interface SceneVariantDisplayProps {
   isStreamingVariant?: boolean;
   // Global flag to prevent scroll-disrupting operations
   isSceneOperationInProgress?: boolean;
-  // Variant reload trigger
-  variantReloadTrigger?: {sceneId: number, timestamp: number, newVariantId?: number} | null;
 }
 
 export default function SceneVariantDisplay({
@@ -119,8 +117,7 @@ export default function SceneVariantDisplay({
   isStreamingContinuation = false,
   streamingVariantContent = '',
   isStreamingVariant = false,
-  isSceneOperationInProgress = false,
-  variantReloadTrigger = null
+  isSceneOperationInProgress = false
 }: SceneVariantDisplayProps) {
   const [variants, setVariants] = useState<SceneVariant[]>([]);
   const [currentVariantId, setCurrentVariantId] = useState<number | null>(null);
@@ -130,48 +127,26 @@ export default function SceneVariantDisplay({
   const hasLoadedVariantsRef = useRef<Set<number>>(new Set());
 
   // Load variants for this scene
-  const loadVariants = async (newVariantId?: number) => {
+  const loadVariants = async () => {
     if (isLoadingVariants) {
       console.log(`[SceneVariantDisplay] Skipping loadVariants for scene ${scene.id} - already loading`);
       return;
     }
     
-    console.log(`[SceneVariantDisplay] Starting loadVariants for scene ${scene.id}${newVariantId ? `, targeting new variant ${newVariantId}` : ''}`);
+    console.log(`[SceneVariantDisplay] Starting loadVariants for scene ${scene.id}`);
     
     setIsLoadingVariants(true);
     try {
       const response = await apiClient.getSceneVariants(storyId, scene.id);
       setVariants(response.variants);
       
-      // Handle variant selection logic
-      if (newVariantId) {
-        // If we have a specific new variant ID, try to switch to it
-        const newVariant = response.variants.find(v => v.id === newVariantId);
-        if (newVariant) {
-          console.log(`[SceneVariantDisplay] Switching to new variant ${newVariantId} for scene ${scene.id}`);
-          // Use switchToVariant with no animation for auto-switching to newly generated variant
-          await switchToVariant(newVariantId, false);
+      // Set current variant ID if not set
+      if (!currentVariantId && response.variants.length > 0) {
+        const activeVariant = response.variants.find(v => v.id === scene.variant_id);
+        if (activeVariant) {
+          setCurrentVariantId(activeVariant.id);
         } else {
-          console.warn(`[SceneVariantDisplay] New variant ${newVariantId} not found in loaded variants for scene ${scene.id}`);
-          // Fallback to existing logic
-          if (!currentVariantId && response.variants.length > 0) {
-            const activeVariant = response.variants.find(v => v.id === scene.variant_id);
-            if (activeVariant) {
-              setCurrentVariantId(activeVariant.id);
-            } else {
-              setCurrentVariantId(response.variants[0].id);
-            }
-          }
-        }
-      } else {
-        // Set current variant ID if not set (existing logic)
-        if (!currentVariantId && response.variants.length > 0) {
-          const activeVariant = response.variants.find(v => v.id === scene.variant_id);
-          if (activeVariant) {
-            setCurrentVariantId(activeVariant.id);
-          } else {
-            setCurrentVariantId(response.variants[0].id);
-          }
+          setCurrentVariantId(response.variants[0].id);
         }
       }
       
@@ -185,7 +160,7 @@ export default function SceneVariantDisplay({
   };
 
   // Switch to a specific variant with smooth transitions
-  const switchToVariant = async (variantId: number, animate: boolean = true) => {
+  const switchToVariant = async (variantId: number) => {
     try {
       await apiClient.activateSceneVariant(storyId, scene.id, variantId);
       setCurrentVariantId(variantId);
@@ -200,8 +175,8 @@ export default function SceneVariantDisplay({
         }
       }
 
-      // For modern layout, slide transition (only if animate is true)
-      if (layoutMode === 'modern' && animate) {
+      // For modern layout, slide transition
+      if (layoutMode === 'modern') {
         const container = sceneContentRef.current;
         if (container) {
           // Start slide-out animation
@@ -320,25 +295,6 @@ export default function SceneVariantDisplay({
     }
   }, [scene.variant_id, currentVariantId]);
 
-  // Force reload variants when triggered by parent
-  useEffect(() => {
-    if (variantReloadTrigger && variantReloadTrigger.sceneId === scene.id) {
-      console.log(`[SceneVariantDisplay] Force reloading variants for scene ${scene.id} due to trigger${variantReloadTrigger.newVariantId ? `, targeting new variant ${variantReloadTrigger.newVariantId}` : ''}`);
-      
-      // Clear the ref so loadVariants will run
-      hasLoadedVariantsRef.current.delete(scene.id);
-      
-      // Reset variants to trigger reload
-      setVariants([]);
-      setIsLoadingVariants(false);
-      
-      // Trigger loadVariants after a small delay with new variant ID
-      setTimeout(() => {
-        loadVariants(variantReloadTrigger.newVariantId);
-      }, 100);
-    }
-  }, [variantReloadTrigger, scene.id]);
-
   // Keyboard navigation for variants (only for last scene)
   useEffect(() => {
     if (!isLastScene) return;
@@ -367,18 +323,15 @@ export default function SceneVariantDisplay({
 
   // Handle regeneration animation
   useEffect(() => {
-    // Skip animation if we're auto-switching to a newly generated variant
-    const isAutoSwitching = variantReloadTrigger && variantReloadTrigger.sceneId === scene.id;
-    
-    if (isRegenerating && layoutMode === 'modern' && !isAutoSwitching) {
+    if (isRegenerating && layoutMode === 'modern') {
       const container = sceneContentRef.current;
       if (container) {
         // Slide out the current scene when regeneration starts
         container.classList.remove('variant-slide-in');
         container.classList.add('variant-transitioning');
       }
-    } else if (!isAutoSwitching) {
-      // Slide in from right when regeneration completes or variant changes (but not for auto-switching)
+    } else {
+      // Slide in from right when regeneration completes or variant changes
       const container = sceneContentRef.current;
       if (container && container.classList.contains('variant-transitioning')) {
         container.classList.remove('variant-transitioning');
@@ -392,7 +345,7 @@ export default function SceneVariantDisplay({
         }, 50);
       }
     }
-  }, [isRegenerating, layoutMode, currentVariantId, variantReloadTrigger, scene.id]);
+  }, [isRegenerating, layoutMode, currentVariantId]);
 
   // Get the currently displayed variant's data
   const getCurrentVariant = (): SceneVariant | null => {
