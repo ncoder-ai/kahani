@@ -2286,10 +2286,9 @@ async def finalize_draft_story(
                 character = existing_char
                 logger.info(f"[FINALIZE] Using existing character: {character.name} (ID: {character.id})")
             else:
-                # Create new character
+                # Create new character (without role - role is story-specific)
                 character = Character(
                     name=char_data.get('name', 'Unnamed'),
-                    role=char_data.get('role', ''),
                     description=char_data.get('description', ''),
                     creator_id=current_user.id,
                     is_template=False,
@@ -2306,13 +2305,14 @@ async def finalize_draft_story(
             ).first()
             
             if not existing_story_char:
-                # Create StoryCharacter relationship
+                # Create StoryCharacter relationship with story-specific role
                 story_character = StoryCharacter(
                     story_id=story_id,
-                    character_id=character.id
+                    character_id=character.id,
+                    role=char_data.get('role', '')  # Store role in the relationship
                 )
                 db.add(story_character)
-                logger.info(f"[FINALIZE] Linked character {character.name} to story {story_id}")
+                logger.info(f"[FINALIZE] Linked character {character.name} to story {story_id} with role: {char_data.get('role', 'N/A')}")
     
     # Mark as active
     story.status = StoryStatus.ACTIVE

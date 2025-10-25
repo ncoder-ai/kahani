@@ -55,16 +55,6 @@ class UnifiedLLMService:
         
         return client
     
-    def clear_user_cache(self, user_id: int = None):
-        """Clear LLM client cache for a specific user or all users"""
-        if user_id is not None:
-            if user_id in self._client_cache:
-                del self._client_cache[user_id]
-                logger.info(f"Cleared LLM client cache for user {user_id}")
-        else:
-            self._client_cache.clear()
-            logger.info("Cleared all LLM client cache")
-    
     async def validate_user_connection(self, user_id: int, user_settings: Dict[str, Any]) -> tuple[bool, str]:
         """Validate user's LLM connection and return detailed error info"""
         try:
@@ -131,10 +121,6 @@ class UnifiedLLMService:
         # Check if NSFW filter should be injected
         from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
         user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
-        
-        # Debug logging for NSFW filter injection
-        logger.info(f"NSFW Debug - User {user_id}: allow_nsfw={user_allow_nsfw}, should_inject={should_inject_nsfw_filter(user_allow_nsfw)}")
-        logger.info(f"NSFW Debug - User settings: {user_settings}")
         
         messages = []
         if system_prompt and system_prompt.strip():
@@ -276,10 +262,6 @@ class UnifiedLLMService:
         # Check if NSFW filter should be injected
         from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
         user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
-        
-        # Debug logging for NSFW filter injection
-        logger.info(f"NSFW Debug (Streaming) - User {user_id}: allow_nsfw={user_allow_nsfw}, should_inject={should_inject_nsfw_filter(user_allow_nsfw)}")
-        logger.info(f"NSFW Debug (Streaming) - User settings: {user_settings}")
         
         messages = []
         if system_prompt and system_prompt.strip():
@@ -726,18 +708,38 @@ class UnifiedLLMService:
         if context.get("world_setting"):
             context_parts.append(f"Setting: {context['world_setting']}")
         
+        if context.get("scenario"):
+            context_parts.append(f"Story Scenario: {context['scenario']}")
+        
+        if context.get("initial_premise"):
+            context_parts.append(f"Initial Premise: {context['initial_premise']}")
+        
         if context.get("characters"):
-            char_descriptions = [f"- {char.get('name', 'Unknown')}: {char.get('description', 'No description')}" 
-                               for char in context["characters"]]
-            context_parts.append(f"Characters present:\n{chr(10).join(char_descriptions)}")
+            char_descriptions = []
+            for char in context["characters"]:
+                char_desc = f"- {char.get('name', 'Unknown')}"
+                if char.get('role'):
+                    char_desc += f" ({char['role']})"
+                char_desc += f": {char.get('description', 'No description')}"
+                if char.get('personality'):
+                    char_desc += f". Personality: {char['personality']}"
+                if char.get('background'):
+                    char_desc += f". Background: {char['background']}"
+                if char.get('goals'):
+                    char_desc += f". Goals: {char['goals']}"
+                char_descriptions.append(char_desc)
+            context_parts.append(f"Characters:\n{chr(10).join(char_descriptions)}")
+        
+        if context.get("scene_summary"):
+            context_parts.append(f"Story Summary: {context['scene_summary']}")
         
         if context.get("previous_scenes"):
-            context_parts.append(f"Previous events: {context['previous_scenes']}")
+            context_parts.append(f"Previous Events:\n{context['previous_scenes']}")
         
         if context.get("current_situation"):
-            context_parts.append(f"Current situation: {context['current_situation']}")
+            context_parts.append(f"Current Situation: {context['current_situation']}")
         
-        return "\n".join(context_parts)
+        return "\n\n".join(context_parts)
     
     def _format_context_for_continuation(self, context: Dict[str, Any]) -> str:
         """Format context for scene continuation"""

@@ -108,12 +108,12 @@ class ContextManager:
             if character:
                 characters.append({
                     "name": character.name,
-                    "role": character.role,
-                    "description": character.description,
-                    "personality": character.personality,
-                    "background": character.background,
-                    "goals": character.goals,
-                    "relationships": character.relationships
+                    "role": sc.role or "",  # Get role from StoryCharacter (story-specific)
+                    "description": character.description or "",
+                    "personality": ", ".join(character.personality_traits) if character.personality_traits else "",
+                    "background": character.background or "",
+                    "goals": character.goals or "",
+                    "relationships": ""  # Could extract from StoryCharacter relationships JSON if needed
                 })
         
         # Build base context
@@ -124,6 +124,7 @@ class ContextManager:
             "tone": story.tone,
             "world_setting": story.world_setting,
             "initial_premise": story.initial_premise,
+            "scenario": story.scenario,
             "characters": characters
         }
         
@@ -152,6 +153,7 @@ Genre: {base_context.get('genre', '')}
 Tone: {base_context.get('tone', '')}
 Setting: {base_context.get('world_setting', '')}
 Premise: {base_context.get('initial_premise', '')}
+Scenario: {base_context.get('scenario', '')}
 """
         
         # Add character information
@@ -574,6 +576,8 @@ Goals: {char.get('goals', '')}
             "genre": full_context.get("genre"),
             "tone": full_context.get("tone"), 
             "world_setting": full_context.get("world_setting"),
+            "scenario": full_context.get("scenario"),  # Include scenario
+            "initial_premise": full_context.get("initial_premise"),  # Include initial premise
             "characters": full_context.get("characters", []),
             "previous_scenes": full_context.get("recent_scenes", ""),
             "current_situation": full_context.get("current_situation", ""),

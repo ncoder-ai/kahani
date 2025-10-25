@@ -259,12 +259,12 @@ class SemanticContextManager(ContextManager):
             if character:
                 characters.append({
                     "name": character.name,
-                    "role": character.role,
-                    "description": character.description,
-                    "personality": character.personality,
-                    "background": character.background,
-                    "goals": character.goals,
-                    "relationships": character.relationships
+                    "role": sc.role or "",  # Get role from StoryCharacter (story-specific)
+                    "description": character.description or "",
+                    "personality": ", ".join(character.personality_traits) if character.personality_traits else "",
+                    "background": character.background or "",
+                    "goals": character.goals or "",
+                    "relationships": ""  # Could extract from StoryCharacter relationships JSON if needed
                 })
         
         return {
@@ -274,6 +274,7 @@ class SemanticContextManager(ContextManager):
             "tone": story.tone,
             "world_setting": story.world_setting,
             "initial_premise": story.initial_premise,
+            "scenario": story.scenario,
             "characters": characters
         }
     
