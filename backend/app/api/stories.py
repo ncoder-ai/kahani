@@ -452,12 +452,6 @@ async def generate_scene(
     # Add user permissions to settings for NSFW filtering
     user_settings['allow_nsfw'] = current_user.allow_nsfw
     
-    # Debug logging for user permissions
-    logger.info(f"User Permission Debug - User {current_user.id}: allow_nsfw={current_user.allow_nsfw}, is_admin={current_user.is_admin}")
-    logger.info(f"User Permission Debug - User settings before: {user_settings}")
-    logger.info(f"User Permission Debug - allow_nsfw in settings: {'allow_nsfw' in user_settings}")
-    logger.info(f"User Permission Debug - allow_nsfw value: {user_settings.get('allow_nsfw', 'NOT_FOUND')}")
-    
     # Create context manager with user settings
     context_manager = ContextManager(user_settings=user_settings, user_id=current_user.id)
     
@@ -887,10 +881,6 @@ async def get_story_context_info(
         
         user_settings = user_settings_db.to_dict() if user_settings_db else None
         
-        # Add user permissions to settings for NSFW filtering
-        if user_settings:
-            user_settings['allow_nsfw'] = current_user.allow_nsfw
-        
         # Create context manager with user settings
         context_manager = ContextManager(user_settings=user_settings)
         
@@ -1010,10 +1000,6 @@ async def generate_more_choices(
     ).first()
     
     user_settings = user_settings_db.to_dict() if user_settings_db else None
-    
-    # Add user permissions to settings for NSFW filtering
-    if user_settings:
-        user_settings['allow_nsfw'] = current_user.allow_nsfw
     
     # Create context manager with user settings
     context_manager = ContextManager(user_settings=user_settings)
@@ -1159,12 +1145,6 @@ async def generate_scenario_endpoint(
         user_settings = get_or_create_user_settings(current_user.id, db)
         # Add user permissions to settings for NSFW filtering
         user_settings['allow_nsfw'] = current_user.allow_nsfw
-        
-        # Debug logging for user permissions
-        logger.info(f"User Permission Debug (Scenario) - User {current_user.id}: allow_nsfw={current_user.allow_nsfw}, is_admin={current_user.is_admin}")
-        logger.info(f"User Permission Debug (Scenario) - User settings: {user_settings}")
-        logger.info(f"User Permission Debug (Scenario) - allow_nsfw in settings: {'allow_nsfw' in user_settings}")
-        logger.info(f"User Permission Debug (Scenario) - allow_nsfw value: {user_settings.get('allow_nsfw', 'NOT_FOUND')}")
         
         # Generate scenario using LLM
         scenario = await llm_service.generate_scenario(context, current_user.id, user_settings)
@@ -2161,6 +2141,8 @@ async def create_draft_story(
             story.world_setting = story_data['world_setting']
         if 'initial_premise' in story_data and story_data['initial_premise']:
             story.initial_premise = story_data['initial_premise']
+        if 'scenario' in story_data and story_data['scenario']:
+            story.scenario = story_data['scenario']
             
         story.updated_at = func.now()
         
@@ -2174,6 +2156,7 @@ async def create_draft_story(
             tone=story_data.get('tone', ''),
             world_setting=story_data.get('world_setting', ''),
             initial_premise=story_data.get('initial_premise', ''),
+            scenario=story_data.get('scenario', ''),
             status=StoryStatus.DRAFT,
             creation_step=step,
             draft_data=story_data
@@ -2264,7 +2247,7 @@ async def finalize_draft_story(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Convert a draft story to active status"""
+    """Convert a draft story to active status and process draft data"""
     
     story = db.query(Story).filter(
         Story.id == story_id,
@@ -2277,6 +2260,59 @@ async def finalize_draft_story(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Draft story not found"
         )
+    
+    # Extract data from draft_data JSON
+    draft_data = story.draft_data or {}
+    
+    # Transfer scenario from draft_data to scenario column
+    if 'scenario' in draft_data and draft_data['scenario']:
+        story.scenario = draft_data['scenario']
+        logger.info(f"[FINALIZE] Transferred scenario to story {story_id}")
+    
+    # Process characters from draft_data and create StoryCharacter relationships
+    characters_data = draft_data.get('characters', [])
+    if characters_data:
+        logger.info(f"[FINALIZE] Processing {len(characters_data)} characters for story {story_id}")
+        
+        for char_data in characters_data:
+            # Check if character already exists for this story
+            existing_char = db.query(Character).filter(
+                Character.name == char_data.get('name'),
+                Character.creator_id == current_user.id
+            ).first()
+            
+            if existing_char:
+                # Use existing character
+                character = existing_char
+                logger.info(f"[FINALIZE] Using existing character: {character.name} (ID: {character.id})")
+            else:
+                # Create new character
+                character = Character(
+                    name=char_data.get('name', 'Unnamed'),
+                    role=char_data.get('role', ''),
+                    description=char_data.get('description', ''),
+                    creator_id=current_user.id,
+                    is_template=False,
+                    is_public=False
+                )
+                db.add(character)
+                db.flush()  # Get the character ID
+                logger.info(f"[FINALIZE] Created new character: {character.name} (ID: {character.id})")
+            
+            # Check if StoryCharacter relationship already exists
+            existing_story_char = db.query(StoryCharacter).filter(
+                StoryCharacter.story_id == story_id,
+                StoryCharacter.character_id == character.id
+            ).first()
+            
+            if not existing_story_char:
+                # Create StoryCharacter relationship
+                story_character = StoryCharacter(
+                    story_id=story_id,
+                    character_id=character.id
+                )
+                db.add(story_character)
+                logger.info(f"[FINALIZE] Linked character {character.name} to story {story_id}")
     
     # Mark as active
     story.status = StoryStatus.ACTIVE
