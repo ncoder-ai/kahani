@@ -93,6 +93,13 @@ if [[ -z "$NEXT_PUBLIC_API_URL" ]]; then
     echo -e "${BLUE}🌐 Auto-detected API URL: ${NEXT_PUBLIC_API_URL}${NC}"
 fi
 
+
+# Run Alembic migrations to upgrade schema before starting backend
+echo -e "${BLUE}🗄️ Running Alembic migrations to upgrade database schema...${NC}"
+source .venv/bin/activate
+cd backend && alembic upgrade head && cd ..
+deactivate
+
 # Start backend
 echo -e "${BLUE}📡 Starting backend server on port ${BACKEND_PORT}...${NC}"
 cd backend

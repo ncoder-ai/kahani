@@ -218,10 +218,11 @@ tail -f logs/kahani.log
 ### **Database Management**
 
 ```bash
+
 # Initialize database
 cd backend && python init_database.py
 
-# Run migrations
+# Upgrade database schema (run Alembic migrations)
 cd backend && alembic upgrade head
 
 # Backup database

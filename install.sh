@@ -193,6 +193,11 @@ setup_database() {
             exit 1
         }
     fi
+    # Run Alembic migrations to upgrade schema
+    log_info "Running Alembic migrations to upgrade database schema..."
+    source .venv/bin/activate
+    cd backend && alembic upgrade head && cd ..
+    deactivate
     
     log_success "Database setup complete"
 }
