@@ -90,13 +90,13 @@ class LLMClient:
         """Configure LiteLLM with provider-specific settings"""
         # For openai-compatible, we need to handle the /v1 endpoint correctly
         if self.api_type == "openai-compatible":
-            # Set the API base URL to include /v1 if not already present
+            # If URL already has /v1, remove it because LiteLLM will add it back
             if self.api_url.endswith("/v1"):
-                # URL already has /v1, use as-is
-                litellm.api_base = self.api_url
+                base_url = self.api_url.replace("/v1", "")
+                litellm.api_base = base_url
             else:
-                # Add /v1 to the URL
-                litellm.api_base = f"{self.api_url}/v1"
+                # URL doesn't have /v1, LiteLLM will add it
+                litellm.api_base = self.api_url
             
             # Set the API key if needed
             if self.api_key and self.api_key.strip():
