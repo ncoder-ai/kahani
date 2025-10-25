@@ -2,21 +2,27 @@
 
 // Runtime API URL detection - only runs in browser context
 function getApiBaseUrl(): string {
+  console.log('[getApiBaseUrl] Called - window available:', typeof window !== 'undefined');
+  console.log('[getApiBaseUrl] window.location:', typeof window !== 'undefined' ? window.location?.hostname : 'N/A');
+  
   // First check environment variable
   if (process.env.NEXT_PUBLIC_API_URL) {
+    console.log('[getApiBaseUrl] Using env var:', process.env.NEXT_PUBLIC_API_URL);
     return process.env.NEXT_PUBLIC_API_URL;
   }
   
-  // Only run in browser context
-  if (typeof window !== 'undefined') {
+  // Only run in browser context with proper window object
+  if (typeof window !== 'undefined' && window.location && window.location.hostname) {
     const currentHost = window.location.hostname;
     const protocol = window.location.protocol;
+    const url = `${protocol}//${currentHost}:9876`;
     
-    // Use current host with backend port
-    return `${protocol}//${currentHost}:9876`;
+    console.log('[getApiBaseUrl] Using runtime detection:', url);
+    return url;
   }
   
   // Fallback for server-side rendering
+  console.log('[getApiBaseUrl] Using fallback localhost');
   return 'http://localhost:9876';
 }
 
@@ -850,8 +856,8 @@ class ApiClient {
   }
 }
 
-// Export singleton instance as default
-export default new ApiClient();
-
 // Export function to get API base URL at runtime
 export { getApiBaseUrl };
+
+// Export singleton instance as default
+export default new ApiClient();
