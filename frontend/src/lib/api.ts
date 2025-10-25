@@ -852,3 +852,6 @@ class ApiClient {
 
 // Export singleton instance as default
 export default new ApiClient();
+
+// Export function to get API base URL at runtime
+export { getApiBaseUrl };

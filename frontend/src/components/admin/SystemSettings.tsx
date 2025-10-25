@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { API_BASE_URL } from '@/lib/api';
+import { getApiBaseUrl } from '@/lib/api';
 import { useAuthStore } from '@/store';
 
 interface SystemSettingsData {
@@ -40,7 +40,7 @@ export default function SystemSettings() {
   const fetchSettings = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/api/admin/settings`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/admin/settings`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -69,7 +69,7 @@ export default function SystemSettings() {
 
     try {
       setSaving(true);
-      const response = await fetch(`${API_BASE_URL}/api/admin/settings`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/admin/settings`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,

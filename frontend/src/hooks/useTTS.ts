@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import api from '@/lib/api';
+import api, { getApiBaseUrl } from '@/lib/api';
 
 interface UseTTSOptions {
   sceneId: number;
@@ -117,8 +117,8 @@ export const useTTS = ({ sceneId, onPlaybackStart, onPlaybackEnd, onError }: Use
 
       // Fetch audio chunk with authentication
       const url = audioInfo.progressive 
-        ? `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876'}/api/tts/audio/${sceneId}/chunk/${chunkNumber}`
-        : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876'}/api/tts/audio/${sceneId}`;
+        ? `${getApiBaseUrl()}/api/tts/audio/${sceneId}/chunk/${chunkNumber}`
+        : `${getApiBaseUrl()}/api/tts/audio/${sceneId}`;
 
       const response = await fetch(url, {
         headers: {
@@ -144,7 +144,7 @@ export const useTTS = ({ sceneId, onPlaybackStart, onPlaybackEnd, onError }: Use
         // Check generation status before retrying (optional optimization)
         try {
           const statusResponse = await fetch(
-            `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876'}/api/tts/audio/${sceneId}/status`,
+            `${getApiBaseUrl()}/api/tts/audio/${sceneId}/status`,
             {
               headers: {
                 'Authorization': `Bearer ${localStorage.getItem('auth_token')}`

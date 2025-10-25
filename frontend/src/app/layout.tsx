@@ -10,7 +10,7 @@ export const metadata = {
   description: 'Create and explore AI-powered interactive stories',
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876';
+import { getApiBaseUrl } from '@/lib/api';
 
 export default function RootLayout({
   children,
@@ -20,7 +20,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        <GlobalTTSProvider apiBaseUrl={API_BASE_URL}>
+        <GlobalTTSProvider apiBaseUrl={getApiBaseUrl()}>
           <PersistentBanner />
           {children}
         </GlobalTTSProvider>

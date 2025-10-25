@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/store';
-import apiClient from '@/lib/api';
+import apiClient, { getApiBaseUrl } from '@/lib/api';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -23,7 +23,7 @@ export default function LoginPage() {
 
     try {
       console.log('=== LOGIN PROCESS STARTING ===');
-      console.log('API Base URL:', process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876');
+      console.log('API Base URL:', getApiBaseUrl());
       console.log('Attempting login with email:', email);
       
       const response = await apiClient.login(email, password, rememberMe);

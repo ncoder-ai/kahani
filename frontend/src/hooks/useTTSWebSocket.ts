@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import api from '@/lib/api';
+import api, { getApiBaseUrl } from '@/lib/api';
 
 interface UseTTSWebSocketOptions {
   sceneId: number;
@@ -296,7 +296,7 @@ export const useTTSWebSocket = ({
       
       // 2. Connect to WebSocket
       // Use the same base URL as the API client (strips protocol and path)
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876';
+      const apiUrl = getApiBaseUrl();
       const apiHost = apiUrl.replace(/^https?:\/\//, ''); // Remove protocol
       const wsProtocol = apiUrl.startsWith('https') ? 'wss:' : 'ws:';
       const wsUrl = `${wsProtocol}//${apiHost}${data.websocket_url}`;
@@ -412,7 +412,7 @@ export const useTTSWebSocket = ({
       console.log('[AUTO-PLAY] Connecting to session:', session_id);
       
       // Connect to WebSocket with existing session
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876';
+      const apiUrl = getApiBaseUrl();
       const apiHost = apiUrl.replace(/^https?:\/\//, '');
       const wsProtocol = apiUrl.startsWith('https') ? 'wss:' : 'ws:';
       const wsUrl = `${wsProtocol}//${apiHost}/ws/tts/${session_id}`;
