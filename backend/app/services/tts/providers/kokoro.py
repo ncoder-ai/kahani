@@ -139,18 +139,9 @@ class KokoroProvider(TTSProviderBase):
             if "normalization_options" in request.extra_params:
                 payload["normalization_options"] = request.extra_params["normalization_options"]
         
-        # Ensure API URL doesn't already include the path
-        base_url = self.config.api_url.rstrip('/')
-        if base_url.endswith('/v1/audio/speech'):
-            # URL already contains the path, use as-is
-            endpoint = base_url
-        else:
-            # URL is base URL, add the path
-            endpoint = f"{base_url}/v1/audio/speech"
-            
         try:
             response = await self.client.post(
-                endpoint,
+                f"{self.config.api_url}/v1/audio/speech",
                 json=payload,
                 headers={"Content-Type": "application/json"}
             )
@@ -228,19 +219,10 @@ class KokoroProvider(TTSProviderBase):
             if "normalization_options" in request.extra_params:
                 payload["normalization_options"] = request.extra_params["normalization_options"]
         
-        # Ensure API URL doesn't already include the path
-        base_url = self.config.api_url.rstrip('/')
-        if base_url.endswith('/v1/audio/speech'):
-            # URL already contains the path, use as-is
-            endpoint = base_url
-        else:
-            # URL is base URL, add the path
-            endpoint = f"{base_url}/v1/audio/speech"
-            
         try:
             async with self.client.stream(
                 "POST",
-                endpoint,
+                f"{self.config.api_url}/v1/audio/speech",
                 json=payload,
                 headers={"Content-Type": "application/json"}
             ) as response:
@@ -271,17 +253,10 @@ class KokoroProvider(TTSProviderBase):
         """
         logger.info("Fetching voices from Kokoro")
         
-        # Ensure API URL doesn't already include the path
-        base_url = self.config.api_url.rstrip('/')
-        if base_url.endswith('/v1/audio/voices'):
-            # URL already contains the path, use as-is
-            endpoint = base_url
-        else:
-            # URL is base URL, add the path
-            endpoint = f"{base_url}/v1/audio/voices"
-            
         try:
-            response = await self.client.get(endpoint)
+            response = await self.client.get(
+                f"{self.config.api_url}/v1/audio/voices"
+            )
             response.raise_for_status()
             
             voices_data = response.json()
@@ -387,18 +362,9 @@ class KokoroProvider(TTSProviderBase):
         if len(voice_ids) < 2 or len(voice_ids) > 4:
             raise ValueError("Must provide 2-4 voices to combine")
         
-        # Ensure API URL doesn't already include the path
-        base_url = self.config.api_url.rstrip('/')
-        if base_url.endswith('/v1/audio/voices/combine'):
-            # URL already contains the path, use as-is
-            endpoint = base_url
-        else:
-            # URL is base URL, add the path
-            endpoint = f"{base_url}/v1/audio/voices/combine"
-            
         try:
             response = await self.client.post(
-                endpoint,
+                f"{self.config.api_url}/v1/audio/voices/combine",
                 json=voice_ids,
                 headers={"Content-Type": "application/json"}
             )
@@ -427,18 +393,9 @@ class KokoroProvider(TTSProviderBase):
         """
         logger.info(f"Phonemizing text: {len(text)} chars, language={language}")
         
-        # Ensure API URL doesn't already include the path
-        base_url = self.config.api_url.rstrip('/')
-        if base_url.endswith('/dev/phonemize'):
-            # URL already contains the path, use as-is
-            endpoint = base_url
-        else:
-            # URL is base URL, add the path
-            endpoint = f"{base_url}/dev/phonemize"
-            
         try:
             response = await self.client.post(
-                endpoint,
+                f"{self.config.api_url}/dev/phonemize",
                 json={"text": text, "language": language},
                 headers={"Content-Type": "application/json"}
             )
@@ -471,18 +428,9 @@ class KokoroProvider(TTSProviderBase):
         """
         logger.info(f"Generating from phonemes: voice={voice_id}, phoneme_length={len(phonemes)}")
         
-        # Ensure API URL doesn't already include the path
-        base_url = self.config.api_url.rstrip('/')
-        if base_url.endswith('/dev/generate_from_phonemes'):
-            # URL already contains the path, use as-is
-            endpoint = base_url
-        else:
-            # URL is base URL, add the path
-            endpoint = f"{base_url}/dev/generate_from_phonemes"
-            
         try:
             response = await self.client.post(
-                endpoint,
+                f"{self.config.api_url}/dev/generate_from_phonemes",
                 json={"phonemes": phonemes, "voice": voice_id},
                 headers={"Content-Type": "application/json"}
             )
@@ -530,19 +478,10 @@ class KokoroProvider(TTSProviderBase):
             "return_timestamps": True
         }
         
-        # Ensure API URL doesn't already include the path
-        base_url = self.config.api_url.rstrip('/')
-        if base_url.endswith('/dev/captioned_speech'):
-            # URL already contains the path, use as-is
-            endpoint = base_url
-        else:
-            # URL is base URL, add the path
-            endpoint = f"{base_url}/dev/captioned_speech"
-            
         try:
             async with self.client.stream(
                 "POST",
-                endpoint,
+                f"{self.config.api_url}/dev/captioned_speech",
                 json=payload,
                 headers={"Content-Type": "application/json"}
             ) as response:

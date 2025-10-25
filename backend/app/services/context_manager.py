@@ -572,6 +572,7 @@ Goals: {char.get('goals', '')}
             full_context["current_situation"] = custom_prompt
         
         # Optimize for scene generation (focus on recent events and character state)
+        # Use "previous_scenes" which contains full context (including semantic scenes for SemanticContextManager)
         scene_context = {
             "genre": full_context.get("genre"),
             "tone": full_context.get("tone"), 
@@ -579,10 +580,11 @@ Goals: {char.get('goals', '')}
             "scenario": full_context.get("scenario"),  # Include scenario
             "initial_premise": full_context.get("initial_premise"),  # Include initial premise
             "characters": full_context.get("characters", []),
-            "previous_scenes": full_context.get("recent_scenes", ""),
+            "previous_scenes": full_context.get("previous_scenes", ""),  # Full context (includes semantic for semantic manager)
             "current_situation": full_context.get("current_situation", ""),
             "scene_summary": full_context.get("scene_summary", ""),
-            "total_scenes": full_context.get("total_scenes", 0)
+            "total_scenes": full_context.get("total_scenes", 0),
+            "context_type": full_context.get("context_type", "linear")  # Indicate which context manager was used
         }
         
         return scene_context

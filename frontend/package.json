@@ -6,8 +6,7 @@
     "dev": "next dev -H 0.0.0.0 -p ${PORT:-6789}",
     "build": "next build",
     "start": "next start -p ${PORT:-6789}",
-    "lint": "next lint",
-    "test": "echo 'No tests configured' && exit 0"
+    "lint": "next lint"
   },
   "dependencies": {
     "@headlessui/react": "^1.7.17",
@@ -18,7 +17,7 @@
     "autoprefixer": "^10.4.16",
     "axios": "^1.6.0",
     "lucide-react": "^0.290.0",
-    "next": "^14.2.33",
+    "next": "14.0.0",
     "postcss": "^8.4.31",
     "react": "^18.0.0",
     "react-dom": "^18.0.0",

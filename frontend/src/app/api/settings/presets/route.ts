@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const BACKEND_URL = process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://backend:9876';
-
-// Force dynamic rendering
-export const dynamic = 'force-dynamic';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:9876';
 
 export async function GET(request: NextRequest) {
   try {

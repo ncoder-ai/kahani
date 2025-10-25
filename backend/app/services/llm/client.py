@@ -19,11 +19,6 @@ class LLMClient:
         if not user_settings:
             raise ValueError("No LLM settings provided. Please configure your LLM settings first.")
         
-        # Debug logging for user settings in LLMClient
-        logger.info(f"LLMClient Debug - Received user_settings: {user_settings}")
-        logger.info(f"LLMClient Debug - allow_nsfw in user_settings: {'allow_nsfw' in user_settings}")
-        logger.info(f"LLMClient Debug - allow_nsfw value: {user_settings.get('allow_nsfw', 'NOT_FOUND')}")
-        
         self.user_settings = user_settings
         
         # Support both nested and flat structure for backwards compatibility
@@ -88,17 +83,10 @@ class LLMClient:
     
     def _configure_litellm(self):
         """Configure LiteLLM with provider-specific settings"""
-        # For openai-compatible, we need to handle the /v1 endpoint correctly
+        # For openai-compatible, we DON'T set api_base globally because LiteLLM
+        # automatically adds /v1. Instead, we pass it per-request in get_generation_params()
         if self.api_type == "openai-compatible":
-            # If URL already has /v1, remove it because LiteLLM will add it back
-            if self.api_url.endswith("/v1"):
-                base_url = self.api_url.replace("/v1", "")
-                litellm.api_base = base_url
-            else:
-                # URL doesn't have /v1, LiteLLM will add it
-                litellm.api_base = self.api_url
-            
-            # Set the API key if needed
+            # Just set the API key if needed
             if self.api_key and self.api_key.strip():
                 litellm.api_key = self.api_key
             else:

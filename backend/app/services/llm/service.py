@@ -419,6 +419,15 @@ class UnifiedLLMService:
             context=self._format_context_for_scene(context)
         )
         
+        # Log the complete prompt for debugging
+        logger.info("=" * 80)
+        logger.info("SCENE GENERATION PROMPT")
+        logger.info("=" * 80)
+        logger.info(f"SYSTEM PROMPT:\n{system_prompt}")
+        logger.info("-" * 80)
+        logger.info(f"USER PROMPT:\n{user_prompt}")
+        logger.info("=" * 80)
+        
         max_tokens = prompt_manager.get_max_tokens("scene")
         
         response = await self._generate(
@@ -438,6 +447,15 @@ class UnifiedLLMService:
             "scene_generation", "scene_generation",
             context=self._format_context_for_scene(context)
         )
+        
+        # Log the complete prompt for debugging
+        logger.info("=" * 80)
+        logger.info("SCENE GENERATION PROMPT (STREAMING)")
+        logger.info("=" * 80)
+        logger.info(f"SYSTEM PROMPT:\n{system_prompt}")
+        logger.info("-" * 80)
+        logger.info(f"USER PROMPT:\n{user_prompt}")
+        logger.info("=" * 80)
         
         max_tokens = prompt_manager.get_max_tokens("scene")
         

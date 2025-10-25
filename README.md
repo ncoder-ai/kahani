@@ -1,38 +1,15 @@
 # 📚 Kahani - Interactive Storytelling Platform
 
-[![GitHub Container Registry](https://img.shields.io/badge/ghcr-kahani-blue)](https://github.com/ncoder-ai/kahani/pkgs/container/kahani-backend)
-[![Docker Build](https://github.com/ncoder-ai/kahani/actions/workflows/docker.yml/badge.svg)](https://github.com/ncoder-ai/kahani/actions/workflows/docker.yml)
-[![License](https://img.shields.io/github/license/ncoder-ai/kahani)](LICENSE)
-
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.11+-blue.svg" alt="Python Version">
-  <img src="https://img.shields.io/badge/Node.js-22+-green.svg" alt="Node.js Version">
+  <img src="https://img.shields.io/badge/Node.js-18+-green.svg" alt="Node.js Version">
   <img src="https://img.shields.io/badge/FastAPI-Latest-teal.svg" alt="FastAPI">
   <img src="https://img.shields.io/badge/Next.js-14-black.svg" alt="Next.js">
   <img src="https://img.shields.io/badge/Docker-Supported-blue.svg" alt="Docker">
+  <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License">
 </p>
 
 Kahani (meaning "story" in Hindi) is a modern interactive storytelling platform that combines the power of AI with intuitive story management. Create, organize, and evolve your stories with AI assistance, configurable prompts, and a beautiful, responsive interface.
-
-## 🐳 Quick Start with Pre-built Images (Recommended)
-
-The fastest way to get started - no building required!
-
-### Using Pre-built Images from GitHub Container Registry
-
-```bash
-# Download the pre-built docker-compose file
-curl -O https://raw.githubusercontent.com/ncoder-ai/kahani/main/docker-compose.prebuilt.yml
-
-# Start Kahani
-docker-compose -f docker-compose.prebuilt.yml up -d
-```
-
-**Access the application**: http://localhost:6789
-
-For more details, see [DOCKER_IMAGES.md](DOCKER_IMAGES.md).
-
----
 
 > **🚀 New here?** Check out the [5-Minute Quick Start Guide](QUICK_START.md) to get up and running fast!
 
@@ -79,38 +56,15 @@ For more details, see [DOCKER_IMAGES.md](DOCKER_IMAGES.md).
 
 ## 🚀 Quick Start
 
-### **🐳 Docker Deployment (Recommended)**
-
-The easiest way to get started with Kahani is using Docker:
+### **Option 1: Automated Setup (Recommended)**
 
 ```bash
 # Clone the repository
 git clone https://github.com/ncoder-ai/kahani.git
 cd kahani
 
-# Start with Docker
-docker-compose up -d
-```
-
-**That's it!** Docker will:
-- ✅ Automatically build and start all services
-- ✅ Handle networking between frontend and backend
-- ✅ Download AI models during first build
-- ✅ Set up the database automatically
-
-**Access the application**: http://localhost:6789
-
-### **🖥️ Baremetal Installation (Advanced)**
-
-For development or custom deployments:
-
-```bash
-# Clone the repository
-git clone https://github.com/ncoder-ai/kahani.git
-cd kahani
-
-# Install the application
-./install.sh
+# Set up environment (automated)
+./setup-env.sh
 
 # Start the development server
 ./start-dev.sh
@@ -124,15 +78,35 @@ cd kahani
 
 **Access the application**: http://localhost:6789
 
-### **⚙️ Manual Setup (Expert)**
+### **Option 2: Docker Deployment**
 
 ```bash
 # Clone the repository
 git clone https://github.com/ncoder-ai/kahani.git
 cd kahani
 
-# Install the application
-./install.sh
+# Set up environment
+./setup-env.sh
+
+# Start with Docker
+docker-compose up -d
+```
+
+**Access the application**: http://localhost:6789
+
+### **Option 3: Manual Setup**
+
+```bash
+# Clone the repository
+git clone https://github.com/ncoder-ai/kahani.git
+cd kahani
+
+# Set up environment
+./setup-env.sh
+
+# Install dependencies
+cd backend && pip install -r requirements.txt
+cd ../frontend && npm install
 
 # Start backend
 cd backend && uvicorn app.main:app --reload --host 0.0.0.0 --port 9876
@@ -148,8 +122,8 @@ cd frontend && npm run dev
 The application uses a template-based configuration system:
 
 ```bash
-# Install the application (creates .env from .env.example)
-./install.sh
+# Set up environment (creates .env from .env.example)
+./setup-env.sh
 
 # Validate configuration
 ./validate-config.sh
@@ -256,21 +230,10 @@ cd backend && python backup_database.py
 
 ## 🐳 Docker Deployment
 
-### **Why Docker?**
-
-Docker is the **recommended** way to run Kahani because it:
-- 🚀 **Zero Configuration**: No need to install Python, Node.js, or manage dependencies
-- 🔒 **Isolated Environment**: Prevents conflicts with your system packages
-- 🌐 **Network Ready**: Automatically handles frontend-backend communication
-- 📦 **Self-Contained**: Includes all AI models and dependencies
-- 🔄 **Easy Updates**: Simple `git pull` and `docker-compose up` to update
-
-### **Quick Start with Docker**
+### **Development**
 
 ```bash
-# Clone and start
-git clone https://github.com/ncoder-ai/kahani.git
-cd kahani
+# Start with Docker
 docker-compose up -d
 
 # View logs
@@ -280,15 +243,14 @@ docker-compose logs -f
 docker-compose down
 ```
 
-### **Production Deployment**
+### **Production**
 
 ```bash
-# For production with custom domain
-# Edit .env file with your domain
-docker-compose up -d
+# Start production services
+docker-compose -f docker-compose.network.yml up -d
 
-# Check status
-docker-compose ps
+# With custom configuration
+KAHANI_ENV=production docker-compose -f docker-compose.network.yml up -d
 ```
 
 ## 📚 Documentation
@@ -310,9 +272,7 @@ docker-compose ps
 
 ## 📄 License
 
-This project is licensed under the Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License - see the [LICENSE](LICENSE) file for details.
-
-**Important:** This license prohibits commercial use. You may use, share, and modify the software for non-commercial purposes only.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 

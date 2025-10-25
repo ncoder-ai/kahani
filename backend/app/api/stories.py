@@ -452,8 +452,8 @@ async def generate_scene(
     # Add user permissions to settings for NSFW filtering
     user_settings['allow_nsfw'] = current_user.allow_nsfw
     
-    # Create context manager with user settings
-    context_manager = ContextManager(user_settings=user_settings, user_id=current_user.id)
+    # Create context manager with user settings (semantic or linear)
+    context_manager = get_context_manager_for_user(user_settings, current_user.id)
     
     # Use context manager to build optimized context
     try:
