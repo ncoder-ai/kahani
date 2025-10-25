@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/store';
-import { API_BASE_URL } from '@/lib/api';
+import { getApiBaseUrl } from '@/lib/api';
 
 interface ContextInfoProps {
   className?: string;
@@ -44,7 +44,7 @@ export const ContextInfo: React.FC<ContextInfoProps> = ({ className = '', storyI
     const fetchContextStats = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`${API_BASE_URL}/api/stories/${storyId}/summary`, {
+        const response = await fetch(`${getApiBaseUrl()}/api/stories/${storyId}/summary`, {
           headers: {
             'Authorization': `Bearer ${token}`,
           },
