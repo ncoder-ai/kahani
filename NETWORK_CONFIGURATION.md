@@ -70,7 +70,6 @@ Edit `.env` file for custom configuration:
 
 ```bash
 # API Configuration
-NEXT_PUBLIC_API_URL=http://localhost:9876
 INTERNAL_API_URL=http://localhost:9876
 
 # CORS Configuration
