@@ -357,8 +357,8 @@ async def update_user(
     if 'allow_nsfw' in perm_dict or 'can_change_llm_provider' in perm_dict:
         from ..services.llm.service import UnifiedLLMService
         llm_service = UnifiedLLMService()
-        llm_service.clear_user_cache(user_id)
-        logger.info(f"Cleared LLM cache for user {user_id} due to permission changes")
+        llm_service.invalidate_user_client(user_id)
+        logger.info(f"Invalidated LLM client cache for user {user_id} due to permission changes")
     
     db.commit()
     db.refresh(user)
