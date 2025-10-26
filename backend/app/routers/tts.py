@@ -232,6 +232,11 @@ async def get_all_provider_configs(
         TTSProviderConfigModel.user_id == current_user.id
     ).all()
     
+    # Get global TTS settings to include in provider configs
+    global_settings = db.query(TTSSettings).filter(
+        TTSSettings.user_id == current_user.id
+    ).first()
+    
     return [
         TTSSettingsResponse(
             id=config.id,
@@ -241,7 +246,13 @@ async def get_all_provider_configs(
             voice_id=config.voice_id,
             speed=config.speed,
             timeout=config.timeout,
-            extra_params=config.extra_params
+            extra_params=config.extra_params,
+            # Include global TTS settings
+            tts_enabled=global_settings.tts_enabled if global_settings else True,
+            progressive_narration=global_settings.progressive_narration if global_settings else False,
+            chunk_size=global_settings.chunk_size if global_settings else 280,
+            stream_audio=global_settings.stream_audio if global_settings else True,
+            auto_play_last_scene=global_settings.auto_play_last_scene if global_settings else False
         )
         for config in configs
     ]
@@ -265,6 +276,11 @@ async def get_provider_config(
             detail=f"No saved configuration found for provider: {provider_type}"
         )
     
+    # Get global TTS settings to include in provider config
+    global_settings = db.query(TTSSettings).filter(
+        TTSSettings.user_id == current_user.id
+    ).first()
+    
     return TTSSettingsResponse(
         id=config.id,
         user_id=config.user_id,
@@ -273,7 +289,13 @@ async def get_provider_config(
         voice_id=config.voice_id,
         speed=config.speed,
         timeout=config.timeout,
-        extra_params=config.extra_params
+        extra_params=config.extra_params,
+        # Include global TTS settings
+        tts_enabled=global_settings.tts_enabled if global_settings else True,
+        progressive_narration=global_settings.progressive_narration if global_settings else False,
+        chunk_size=global_settings.chunk_size if global_settings else 280,
+        stream_audio=global_settings.stream_audio if global_settings else True,
+        auto_play_last_scene=global_settings.auto_play_last_scene if global_settings else False
     )
 
 

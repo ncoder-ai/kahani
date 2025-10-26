@@ -299,10 +299,10 @@ export default function SystemSettings() {
               type="url"
               value={settings.default_llm_api_url || ''}
               onChange={(e) => updateSetting('default_llm_api_url', e.target.value || null)}
-              placeholder="e.g., http://localhost:11434/v1"
+              placeholder="http://localhost:11434"
               className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white"
             />
-            <p className="text-white/60 text-sm mt-1">Default LLM API endpoint for new users</p>
+            <p className="text-white/60 text-sm mt-1">Enter base URL and port only (e.g., http://localhost:11434). The system automatically adds the correct API path for each provider.</p>
           </div>
 
           <div>

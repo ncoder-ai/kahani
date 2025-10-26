@@ -98,7 +98,7 @@ class ChatterboxProvider(TTSProviderBase):
                 
                 # Make API request
                 response = await client.post(
-                    f"{self.config.api_url}/audio/speech",
+                    f"{self.config.api_url}/v1/audio/speech",
                     headers=headers,
                     json=payload
                 )
@@ -187,7 +187,7 @@ class ChatterboxProvider(TTSProviderBase):
                 # Use ChatterboxTTS streaming endpoint
                 async with client.stream(
                     "POST",
-                    f"{self.config.api_url}/audio/speech/stream",
+                    f"{self.config.api_url}/v1/audio/speech/stream",
                     headers=headers,
                     json=payload
                 ) as response:
@@ -221,7 +221,7 @@ class ChatterboxProvider(TTSProviderBase):
                     headers.update(self.config.custom_headers)
                 
                 response = await client.get(
-                    f"{self.config.api_url}/voices",
+                    f"{self.config.api_url}/v1/voices",
                     headers=headers
                 )
                 
@@ -284,7 +284,7 @@ class ChatterboxProvider(TTSProviderBase):
                     headers.update(self.config.custom_headers)
                 
                 response = await client.get(
-                    f"{self.config.api_url}/languages",
+                    f"{self.config.api_url}/v1/languages",
                     headers=headers
                 )
                 
@@ -316,7 +316,7 @@ class ChatterboxProvider(TTSProviderBase):
                     headers.update(self.config.custom_headers)
                 
                 response = await client.get(
-                    f"{self.config.api_url}/voices/default",
+                    f"{self.config.api_url}/v1/voices/default",
                     headers=headers
                 )
                 
@@ -344,7 +344,7 @@ class ChatterboxProvider(TTSProviderBase):
                     headers.update(self.config.custom_headers)
                 
                 response = await client.post(
-                    f"{self.config.api_url}/voices/default",
+                    f"{self.config.api_url}/v1/voices/default",
                     headers=headers,
                     data={"voice_name": voice_name}
                 )
@@ -389,7 +389,7 @@ class ChatterboxProvider(TTSProviderBase):
                 }
                 
                 response = await client.post(
-                    f"{self.config.api_url}/voices",
+                    f"{self.config.api_url}/v1/voices",
                     headers=headers,
                     files=files,
                     data=data
@@ -420,7 +420,7 @@ class ChatterboxProvider(TTSProviderBase):
                     headers.update(self.config.custom_headers)
                 
                 response = await client.delete(
-                    f"{self.config.api_url}/voices/{voice_name}",
+                    f"{self.config.api_url}/v1/voices/{voice_name}",
                     headers=headers
                 )
                 
@@ -467,7 +467,7 @@ class ChatterboxProvider(TTSProviderBase):
                 
                 # Create long text job
                 response = await client.post(
-                    f"{self.config.api_url}/audio/speech/long",
+                    f"{self.config.api_url}/v1/audio/speech/long",
                     headers=headers,
                     json=payload
                 )
@@ -487,7 +487,7 @@ class ChatterboxProvider(TTSProviderBase):
                     await asyncio.sleep(2)  # Poll every 2 seconds
                     
                     status_response = await client.get(
-                        f"{self.config.api_url}/audio/speech/long/{job_id}",
+                        f"{self.config.api_url}/v1/audio/speech/long/{job_id}",
                         headers=headers
                     )
                     
@@ -500,7 +500,7 @@ class ChatterboxProvider(TTSProviderBase):
                     if status == "completed":
                         # Download audio
                         download_response = await client.get(
-                            f"{self.config.api_url}/audio/speech/long/{job_id}/download",
+                            f"{self.config.api_url}/v1/audio/speech/long/{job_id}/download",
                             headers=headers
                         )
                         

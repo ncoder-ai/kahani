@@ -422,6 +422,12 @@ export default function SettingsPage() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
+        body: JSON.stringify({
+          api_url: settings.llm_settings.api_url,
+          api_key: settings.llm_settings.api_key,
+          api_type: settings.llm_settings.api_type,
+          model_name: settings.llm_settings.model_name
+        }),
       });
       
       if (response.ok) {
@@ -451,9 +457,17 @@ export default function SettingsPage() {
     setLoadingModels(true);
     try {
       const response = await fetch(`${getApiBaseUrl()}/api/settings/available-models`, {
+        method: 'POST',
         headers: {
+          'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
+        body: JSON.stringify({
+          api_url: settings.llm_settings.api_url,
+          api_key: settings.llm_settings.api_key,
+          api_type: settings.llm_settings.api_type,
+          model_name: settings.llm_settings.model_name
+        }),
       });
       
       if (response.ok) {
@@ -628,12 +642,14 @@ export default function SettingsPage() {
                     <div>
                       <label className="block text-sm font-medium mb-2">API Type</label>
                       <select
-                        value={settings.llm_settings.api_type || 'openai-compatible'}
+                        value={settings.llm_settings.api_type || ''}
                         onChange={(e) => updateLLMSetting('api_type', e.target.value)}
                         disabled={!canChangeLLMProvider}
                         className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                       >
+                        <option value="">Select API Type...</option>
                         <option value="openai-compatible">OpenAI Compatible</option>
+                        <option value="tabbyapi">TabbyAPI</option>
                         <option value="openai">OpenAI Official</option>
                         <option value="koboldcpp">KoboldCpp</option>
                         <option value="ollama">Ollama</option>
@@ -651,11 +667,11 @@ export default function SettingsPage() {
                         value={settings.llm_settings.api_url || ''}
                         onChange={(e) => updateLLMSetting('api_url', e.target.value)}
                         disabled={!canChangeLLMProvider}
-                        placeholder="Enter your LLM API URL (e.g., https://api.openai.com/v1)"
+                        placeholder="http://localhost:1234"
                         className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                       />
                       <div className="text-xs text-gray-400 mt-1">
-                        Base URL for your LLM API server
+                        Enter base URL and port only (e.g., http://localhost:1234). The system automatically adds the correct API path for your provider.
                       </div>
                     </div>
 

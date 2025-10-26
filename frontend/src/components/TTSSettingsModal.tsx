@@ -44,9 +44,9 @@ interface TTSSettingsModalProps {
 
 // Default TTS provider URLs - these are common defaults but should be configured per user
 const DEFAULT_PROVIDER_URLS: Record<string, string> = {
-  'openai-compatible': process.env.NEXT_PUBLIC_TTS_URL || 'http://localhost:1234/v1',
-  'chatterbox': process.env.NEXT_PUBLIC_CHATTERBOX_URL || 'http://localhost:8880/v1',
-  'kokoro': process.env.NEXT_PUBLIC_KOKORO_URL || 'http://localhost:8188/v1',
+  'openai-compatible': process.env.NEXT_PUBLIC_TTS_URL || 'http://localhost:1234',
+  'chatterbox': process.env.NEXT_PUBLIC_CHATTERBOX_URL || 'http://localhost:8880',
+  'kokoro': process.env.NEXT_PUBLIC_KOKORO_URL || 'http://localhost:8188',
 };
 
 export default function TTSSettingsModal({ isOpen, onClose, onSaved }: TTSSettingsModalProps) {
@@ -203,6 +203,12 @@ export default function TTSSettingsModal({ isOpen, onClose, onSaved }: TTSSettin
         speed: savedConfig.speed || 1.0,
         timeout: savedConfig.timeout || 30,
         extra_params: savedConfig.extra_params,
+        // Preserve global TTS settings from current settings
+        tts_enabled: settings.tts_enabled,
+        progressive_narration: settings.progressive_narration,
+        chunk_size: settings.chunk_size,
+        stream_audio: settings.stream_audio,
+        auto_play_last_scene: settings.auto_play_last_scene,
       };
       
       // Load provider-specific settings
@@ -221,6 +227,12 @@ export default function TTSSettingsModal({ isOpen, onClose, onSaved }: TTSSettin
         speed: 1.0,
         timeout: 30,
         extra_params: {},
+        // Preserve global TTS settings from current settings
+        tts_enabled: settings.tts_enabled,
+        progressive_narration: settings.progressive_narration,
+        chunk_size: settings.chunk_size,
+        stream_audio: settings.stream_audio,
+        auto_play_last_scene: settings.auto_play_last_scene,
       };
       
       // Reset provider-specific settings to defaults
@@ -628,11 +640,11 @@ export default function TTSSettingsModal({ isOpen, onClose, onSaved }: TTSSettin
               value={settings.api_url}
               onChange={(e) => setSettings(prev => ({ ...prev, api_url: e.target.value }))}
               disabled={isLoadingSettings}
-              placeholder="http://localhost:1234/v1"
+              placeholder="http://localhost:1234"
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50"
             />
             <p className="text-xs text-gray-500">
-              Base URL for the TTS API endpoint
+              Enter base URL and port only (e.g., http://localhost:1234). The system automatically adds the correct API path for your provider.
             </p>
           </div>
 
