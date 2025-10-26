@@ -1,28 +1,15 @@
 // API configuration and utilities
 
-// Runtime API URL detection - only runs in browser context
+// Runtime API URL detection - always uses browser hostname
 function getApiBaseUrl(): string {
-  console.log('[getApiBaseUrl] Called - window available:', typeof window !== 'undefined');
-  console.log('[getApiBaseUrl] window.location:', typeof window !== 'undefined' ? window.location?.hostname : 'N/A');
-  
-  // First check environment variable
-  if (process.env.NEXT_PUBLIC_API_URL) {
-    console.log('[getApiBaseUrl] Using env var:', process.env.NEXT_PUBLIC_API_URL);
-    return process.env.NEXT_PUBLIC_API_URL;
-  }
-  
-  // Only run in browser context with proper window object
+  // In browser context, always use runtime detection
   if (typeof window !== 'undefined' && window.location && window.location.hostname) {
     const currentHost = window.location.hostname;
     const protocol = window.location.protocol;
-    const url = `${protocol}//${currentHost}:9876`;
-    
-    console.log('[getApiBaseUrl] Using runtime detection:', url);
-    return url;
+    return `${protocol}//${currentHost}:9876`;
   }
   
-  // Fallback for server-side rendering
-  console.log('[getApiBaseUrl] Using fallback localhost');
+  // Fallback for server-side rendering only
   return 'http://localhost:9876';
 }
 

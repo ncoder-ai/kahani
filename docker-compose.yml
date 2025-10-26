@@ -32,6 +32,5 @@ services:
       - "6789:6789"
     environment:
       - PORT=6789
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://172.16.23.80:9876}
     depends_on:
       - backend
