@@ -48,8 +48,8 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-# Create tables - TEMPORARILY DISABLED to preserve existing data
-# Base.metadata.create_all(bind=engine)
+# Create tables if they don't exist (safe - only creates missing tables, never modifies existing ones)
+Base.metadata.create_all(bind=engine)
 
 # Create FastAPI app
 app = FastAPI(
