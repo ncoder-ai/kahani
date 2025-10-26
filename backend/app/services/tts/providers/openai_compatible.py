@@ -85,7 +85,7 @@ class OpenAICompatibleProvider(TTSProviderBase):
                 
                 # Make API request
                 response = await client.post(
-                    f"{self.config.api_url}/audio/speech",
+                    f"{self.config.api_url}/v1/audio/speech",
                     headers=headers,
                     json=payload
                 )
@@ -162,7 +162,7 @@ class OpenAICompatibleProvider(TTSProviderBase):
                 
                 async with client.stream(
                     "POST",
-                    f"{self.config.api_url}/audio/speech",
+                    f"{self.config.api_url}/v1/audio/speech",
                     headers=headers,
                     json=payload
                 ) as response:
@@ -194,7 +194,7 @@ class OpenAICompatibleProvider(TTSProviderBase):
                     headers["Authorization"] = f"Bearer {self.config.api_key}"
                 
                 response = await client.get(
-                    f"{self.config.api_url}/voices",
+                    f"{self.config.api_url}/v1/voices",
                     headers=headers
                 )
                 

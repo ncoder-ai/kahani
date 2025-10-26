@@ -362,8 +362,15 @@ async def get_settings_presets():
         "message": "Available settings presets"
     }
 
+class TestConnectionRequest(BaseModel):
+    api_url: Optional[str] = None
+    api_key: Optional[str] = None
+    api_type: Optional[str] = None
+    model_name: Optional[str] = None
+
 @router.post("/test-api-connection")
 async def test_api_connection(
+    request: TestConnectionRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -377,26 +384,24 @@ async def test_api_connection(
             detail="You do not have permission to test LLM provider connections. Please contact an administrator."
         )
     
-    # Get user settings
-    user_settings = db.query(UserSettings).filter(
-        UserSettings.user_id == current_user.id
-    ).first()
+    # Use provided values or fall back to saved settings
+    if request.api_url:
+        api_url = request.api_url
+    else:
+        # Get user settings
+        user_settings = db.query(UserSettings).filter(
+            UserSettings.user_id == current_user.id
+        ).first()
+        
+        if not user_settings or not user_settings.llm_api_url:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="LLM API URL not configured. Please provide your LLM endpoint URL first."
+            )
+        api_url = user_settings.llm_api_url
     
-    if not user_settings:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User settings not found"
-        )
-    
-    api_url = user_settings.llm_api_url
-    if not api_url:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="LLM API URL not configured. Please provide your LLM endpoint URL first."
-        )
-    
-    api_key = user_settings.llm_api_key
-    api_type = user_settings.llm_api_type or "openai_compatible"
+    api_key = request.api_key or ""
+    api_type = request.api_type or "openai_compatible"
     
     try:
         # Configure request based on API type
@@ -412,12 +417,9 @@ async def test_api_connection(
             test_url = f"{api_url}/api/v1/model"
         elif api_type == 'ollama':
             test_url = f"{api_url}/api/tags"
-        else:  # openai_compatible
-            # Check if URL already has /v1, don't add it again
-            if api_url.endswith('/v1'):
-                test_url = f"{api_url}/models"
-            else:
-                test_url = f"{api_url}/v1/models"
+        else:  # openai_compatible, tabbyapi
+            # Always add /v1 for these providers
+            test_url = f"{api_url}/v1/models"
             if api_key:
                 headers['Authorization'] = f'Bearer {api_key}'
             headers['Content-Type'] = 'application/json'
@@ -446,8 +448,9 @@ async def test_api_connection(
             "error": str(e)
         }
 
-@router.get("/available-models")
+@router.post("/available-models")
 async def get_available_models(
+    request: TestConnectionRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -461,26 +464,24 @@ async def get_available_models(
             detail="You do not have permission to view available LLM models. Please contact an administrator."
         )
     
-    # Get user settings
-    user_settings = db.query(UserSettings).filter(
-        UserSettings.user_id == current_user.id
-    ).first()
+    # Use provided values or fall back to saved settings
+    if request.api_url:
+        api_url = request.api_url
+    else:
+        # Get user settings
+        user_settings = db.query(UserSettings).filter(
+            UserSettings.user_id == current_user.id
+        ).first()
+        
+        if not user_settings or not user_settings.llm_api_url:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="LLM API URL not configured. Please provide your LLM endpoint URL first."
+            )
+        api_url = user_settings.llm_api_url
     
-    if not user_settings:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User settings not found"
-        )
-    
-    api_url = user_settings.llm_api_url
-    if not api_url:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="LLM API URL not configured. Please provide your LLM endpoint URL first."
-        )
-    
-    api_key = user_settings.llm_api_key
-    api_type = user_settings.llm_api_type or "openai_compatible"
+    api_key = request.api_key or ""
+    api_type = request.api_type or "openai_compatible"
     
     try:
         # Configure request based on API type
@@ -496,12 +497,9 @@ async def get_available_models(
             models_url = f"{api_url}/api/v1/model"
         elif api_type == 'ollama':
             models_url = f"{api_url}/api/tags"
-        else:  # openai_compatible
-            # Check if URL already has /v1, don't add it again
-            if api_url.endswith('/v1'):
-                models_url = f"{api_url}/models"
-            else:
-                models_url = f"{api_url}/v1/models"
+        else:  # openai_compatible, tabbyapi
+            # Always add /v1 for these providers
+            models_url = f"{api_url}/v1/models"
             if api_key:
                 headers['Authorization'] = f'Bearer {api_key}'
             headers['Content-Type'] = 'application/json'

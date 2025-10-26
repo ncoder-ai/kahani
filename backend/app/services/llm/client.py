@@ -66,6 +66,9 @@ class LLMClient:
             # For OpenAI-compatible APIs, MUST use openai/ prefix
             # As per LiteLLM docs: model="openai/mistral"
             return f"openai/{self.model_name}"
+        elif self.api_type == "tabbyapi":
+            # TabbyAPI is OpenAI-compatible, use openai/ prefix
+            return f"openai/{self.model_name}"
         elif self.api_type == "lm_studio":
             # LM Studio is also OpenAI-compatible
             return f"openai/{self.model_name}"
@@ -83,8 +86,8 @@ class LLMClient:
     
     def _configure_litellm(self):
         """Configure LiteLLM with provider-specific settings"""
-        # For openai-compatible, we DON'T set api_base globally because LiteLLM
-        # automatically adds /v1. Instead, we pass it per-request in get_generation_params()
+        # For openai-compatible and tabbyapi, we pass api_base per-request in get_generation_params()
+        # The backend will add the appropriate /v1 path for each provider
         if self.api_type == "openai-compatible":
             # Just set the API key if needed
             if self.api_key and self.api_key.strip():
@@ -181,10 +184,12 @@ class LLMClient:
         if self.top_p is not None:
             params["top_p"] = self.top_p
         
-        # Add API base and key for openai-compatible providers
+        # Add API base and key for openai-compatible and tabbyapi providers
         # Pass api_base per-request so LiteLLM uses it directly without modification
-        if self.api_type == "openai-compatible":
-            params["api_base"] = self.api_url
+        if self.api_type in ["openai-compatible", "tabbyapi"]:
+            # Add /v1 to the base URL for these providers
+            api_base_url = f"{self.api_url}/v1" if not self.api_url.endswith("/v1") else self.api_url
+            params["api_base"] = api_base_url
             # For localhost (LM Studio, etc), use a dummy key that LiteLLM accepts
             # LiteLLM will pass it through but local servers typically ignore it
             if "localhost" in self.api_url or "127.0.0.1" in self.api_url:
@@ -206,7 +211,7 @@ class LLMClient:
                 params["top_k"] = self.top_k
             if self.repetition_penalty is not None:
                 params["repetition_penalty"] = self.repetition_penalty
-        elif self.api_type in ["openai-compatible", "lm_studio"]:
+        elif self.api_type in ["openai-compatible", "tabbyapi", "lm_studio"]:
             # For OpenAI-compatible APIs, use extra_body for non-standard params
             extra_body = {}
             if self.top_k is not None:
@@ -249,8 +254,8 @@ class LLMClient:
             
             # Provide helpful error messages based on common issues
             if "404" in error_msg or "Not Found" in error_msg:
-                if self.api_type == "openai_compatible":
-                    return False, f"API endpoint not found. For TabbyAPI and similar services, try adding '/v1' to your URL: {self.api_url}/v1"
+                if self.api_type in ["openai_compatible", "tabbyapi"]:
+                    return False, f"API endpoint not found. The system automatically adds '/v1' to your URL. Please check that your base URL is correct: {self.api_url}"
                 else:
                     return False, f"API endpoint not found at {self.api_url}. Please check your URL."
             elif "401" in error_msg or "Unauthorized" in error_msg:

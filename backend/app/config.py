@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     admin_password: str = "changeme123"
     
     # LLM Configuration
-    llm_base_url: str = "http://localhost:1234/v1"
+    llm_base_url: str = "http://localhost:1234"
     llm_api_key: str = "not-needed-for-local"
     llm_model: str = "local-model"
     llm_max_tokens: int = 2048

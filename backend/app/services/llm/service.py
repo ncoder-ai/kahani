@@ -161,8 +161,8 @@ class UnifiedLLMService:
             
             # Provide helpful error messages for common connection issues
             if "404" in error_msg or "Not Found" in error_msg:
-                if client.api_type == "openai_compatible":
-                    raise ValueError(f"API endpoint not found. For TabbyAPI and similar services, try adding '/v1' to your URL: {client.api_url}/v1")
+                if client.api_type in ["openai_compatible", "tabbyapi"]:
+                    raise ValueError(f"API endpoint not found. The system automatically adds '/v1' to your URL. Please check that your base URL is correct: {client.api_url}")
                 else:
                     raise ValueError(f"API endpoint not found at {client.api_url}. Please check your URL.")
             elif "401" in error_msg or "Unauthorized" in error_msg:
@@ -173,7 +173,7 @@ class UnifiedLLMService:
                 raise ValueError(f"Cannot connect to {client.api_url}. Please check if the service is running and accessible.")
             else:
                 # Fallback to direct HTTP for LM Studio and TabbyAPI
-                if client.api_type in ["lm_studio", "openai_compatible"]:
+                if client.api_type in ["lm_studio", "openai_compatible", "tabbyapi"]:
                     logger.info(f"Attempting direct HTTP fallback for {client.api_type}")
                     return await self._direct_http_fallback(client, messages, max_tokens, temperature, False)
                 else:
@@ -200,11 +200,8 @@ class UnifiedLLMService:
             headers["Authorization"] = f"Bearer {client.api_key}"
         
         try:
-            # Determine the correct endpoint URL
-            if client.api_url.endswith("/v1"):
-                endpoint_url = f"{client.api_url}/chat/completions"
-            else:
-                endpoint_url = f"{client.api_url}/v1/chat/completions"
+            # For openai-compatible, tabbyapi, and lm_studio, always use /v1/chat/completions
+            endpoint_url = f"{client.api_url}/v1/chat/completions"
             
             async with httpx.AsyncClient() as http_client:
                 response = await http_client.post(
