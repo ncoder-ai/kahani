@@ -181,8 +181,14 @@ setup_database() {
     
     # Initialize or update database
     if [[ -f backend/data/kahani.db ]]; then
-        log_warning "Database already exists, running migrations..."
-        # For existing database, just run migrations
+        log_warning "Database already exists, checking Alembic state..."
+        # Repair any Alembic version mismatches before running migrations
+        cd backend && $python_cmd repair_alembic_version.py && cd .. || {
+            log_error "Database repair failed"
+            exit 1
+        }
+        log_info "Running migrations..."
+        # For existing database, run migrations to bring it up to date
         source .venv/bin/activate
         cd backend && alembic upgrade head && cd ..
         deactivate
