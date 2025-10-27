@@ -10,10 +10,8 @@ import { useAuthStore } from '@/store';
 interface UIPreferences {
   color_theme: string;
   font_size: string;
-  show_token_info: boolean;
   show_context_info: boolean;
   notifications: boolean;
-  scene_display_format: string;
   auto_open_last_story: boolean;
 }
 
@@ -116,10 +114,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [uiSettings, setUiSettings] = useState<UIPreferences>({
     color_theme: 'pure-dark',
     font_size: 'medium',
-    show_token_info: false,
     show_context_info: false,
     notifications: true,
-    scene_display_format: 'default',
     auto_open_last_story: false,
   });
 
@@ -1240,35 +1236,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   </div>
 
 
-                  {/* Scene Display Format */}
-                  <div>
-                    <label className="block text-sm font-medium text-white mb-2">Scene Display Format</label>
-                    <select
-                      value={uiSettings.scene_display_format}
-                      onChange={(e) => updateUIPreference('scene_display_format', e.target.value)}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
-                    >
-                      <option value="default">Default</option>
-                      <option value="bubble">Bubble</option>
-                      <option value="card">Card</option>
-                      <option value="minimal">Minimal</option>
-                    </select>
-                    <p className="text-sm text-gray-400 mt-1">
-                      Choose how story scenes are displayed (when using Cards container style)
-                    </p>
-                  </div>
 
                   {/* Checkboxes */}
                   <div className="space-y-3 pt-4 border-t border-gray-700">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={uiSettings.show_token_info}
-                        onChange={(e) => updateUIPreference('show_token_info', e.target.checked)}
-                        className="w-4 h-4 rounded"
-                      />
-                      <span className="text-sm text-white">Show token usage information</span>
-                    </label>
 
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input

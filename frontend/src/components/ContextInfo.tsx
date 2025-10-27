@@ -23,13 +23,17 @@ export const ContextInfo: React.FC<ContextInfoProps> = ({ className = '', storyI
   useEffect(() => {
     // Check if context info should be shown
     const checkSettings = () => {
-      setShowContextInfo(window.kahaniUISettings?.showContextInfo || false);
+      console.log('ContextInfo checking settings:', window.kahaniUISettings);
+      const shouldShow = window.kahaniUISettings?.showContextInfo || false;
+      console.log('ContextInfo should show:', shouldShow);
+      setShowContextInfo(shouldShow);
     };
 
     checkSettings();
 
     // Listen for settings changes
     const handleSettingsChange = () => {
+      console.log('ContextInfo settings changed event received');
       checkSettings();
     };
 
@@ -44,14 +48,17 @@ export const ContextInfo: React.FC<ContextInfoProps> = ({ className = '', storyI
     const fetchContextStats = async () => {
       try {
         setLoading(true);
+        console.log('Fetching context stats for story:', storyId);
         const response = await fetch(`${getApiBaseUrl()}/api/stories/${storyId}/summary`, {
           headers: {
             'Authorization': `Bearer ${token}`,
           },
         });
 
+        console.log('Context API response status:', response.status);
         if (response.ok) {
           const data = await response.json();
+          console.log('Context API data:', data);
           setContextStats({
             totalScenes: data.context_info.total_scenes,
             recentScenes: data.context_info.recent_scenes,
@@ -60,6 +67,8 @@ export const ContextInfo: React.FC<ContextInfoProps> = ({ className = '', storyI
             estimatedTokens: data.context_info.estimated_tokens || 0,
             usagePercentage: data.context_info.usage_percentage || 0
           });
+        } else {
+          console.error('Context API error:', response.status, response.statusText);
         }
       } catch (error) {
         console.error('Failed to fetch context stats:', error);
@@ -74,8 +83,11 @@ export const ContextInfo: React.FC<ContextInfoProps> = ({ className = '', storyI
 
   if (!showContextInfo) return null;
 
+  // Debug logging
+  console.log('ContextInfo rendering with stats:', contextStats);
+
   return (
-    <div className={`bg-gray-800/50 border border-gray-600 rounded-lg p-3 ${className}`}>
+    <div className={`bg-gray-800/50 border border-gray-600 rounded-lg p-3 relative z-50 mb-20 ${className}`}>
       {/* Context Usage Bar */}
       <div className="mb-3">
         <div className="flex justify-between items-center text-sm font-medium text-gray-300 mb-1">
@@ -97,22 +109,22 @@ export const ContextInfo: React.FC<ContextInfoProps> = ({ className = '', storyI
       </div>
 
       <div className="text-sm font-medium text-gray-300 mb-2">Context Management</div>
-      <div className="space-y-1 text-xs">
+      <div className="space-y-2 text-sm">
         <div className="flex justify-between">
-          <span className="text-gray-400">Total Scenes:</span>
-          <span className="text-white">{contextStats.totalScenes}</span>
+          <span className="text-gray-300">Total Scenes:</span>
+          <span className="text-white font-medium">{contextStats.totalScenes}</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-gray-400">Recent (Full):</span>
-          <span className="text-green-400">{contextStats.recentScenes}</span>
+          <span className="text-gray-300">Recent (Full):</span>
+          <span className="text-green-400 font-medium">{contextStats.recentScenes}</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-gray-400">Summarized:</span>
-          <span className="text-blue-400">{contextStats.summarizedScenes}</span>
+          <span className="text-gray-300">Summarized:</span>
+          <span className="text-blue-400 font-medium">{contextStats.summarizedScenes}</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-gray-400">Budget:</span>
-          <span className="text-white">{contextStats.contextBudget.toLocaleString()} tokens</span>
+          <span className="text-gray-300">Budget:</span>
+          <span className="text-white font-medium">{contextStats.contextBudget.toLocaleString()} tokens</span>
         </div>
       </div>
       

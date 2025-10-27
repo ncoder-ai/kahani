@@ -1419,16 +1419,17 @@ async def get_story_summary(
     summary_threshold = user_settings.context_summary_threshold if user_settings else 5
     summarization_enabled = user_settings.enable_context_summarization if user_settings else True
     
-    # Calculate context usage
-    total_scenes = len(flow)
+    # Calculate context usage - always use direct scene count for accuracy
+    total_scenes = db.query(Scene).filter(Scene.story_id == story_id).count()
+    
     recent_scenes = min(keep_recent, total_scenes)
     summarized_scenes = max(0, total_scenes - recent_scenes) if total_scenes > summary_threshold else 0
     
-    # Estimate token usage (rough calculation)
+    # Estimate token usage (rough calculation) - use all scenes
     estimated_tokens = 0
-    for scene_data in flow:
-        content = scene_data['variant']['content']
-        estimated_tokens += len(content.split()) * 1.3  # Rough token estimate
+    scenes = db.query(Scene).filter(Scene.story_id == story_id).all()
+    for scene in scenes:
+        estimated_tokens += len(scene.content.split()) * 1.3
     
     # Generate a basic summary from the story content
     story_summary = f"'{story.title}' is a {story.genre or 'story'} with {total_scenes} scenes."

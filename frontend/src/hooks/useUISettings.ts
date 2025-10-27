@@ -5,13 +5,13 @@ import { applyTheme } from '@/lib/themes';
 interface UIPreferences {
   color_theme: string;
   font_size: string;
-  show_token_info: boolean;
   show_context_info: boolean;
   notifications: boolean;
 }
 
 export const useUISettings = (settings: UIPreferences | null) => {
   useEffect(() => {
+    console.log('useUISettings called with:', settings);
     if (!settings) return;
 
     // Apply color theme
@@ -24,10 +24,11 @@ export const useUISettings = (settings: UIPreferences | null) => {
 
     // Store preferences for other components to use
     window.kahaniUISettings = {
-      showTokenInfo: settings.show_token_info,
       showContextInfo: settings.show_context_info,
       notifications: settings.notifications,
     };
+
+    console.log('useUISettings setting window.kahaniUISettings:', window.kahaniUISettings);
 
     // Dispatch custom event for other components to listen to
     window.dispatchEvent(new CustomEvent('kahaniUISettingsChanged', {
@@ -41,7 +42,6 @@ export const useUISettings = (settings: UIPreferences | null) => {
 declare global {
   interface Window {
     kahaniUISettings?: {
-      showTokenInfo: boolean;
       showContextInfo: boolean;
       notifications: boolean;
     };
