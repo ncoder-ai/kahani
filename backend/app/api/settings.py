@@ -50,12 +50,16 @@ class GenerationPreferencesUpdate(BaseModel):
     choices_count: Optional[int] = Field(ge=2, le=6, default=3)
 
 class UIPreferencesUpdate(BaseModel):
-    theme: str = Field(pattern="^(dark|light|auto)$", default="dark")
+    color_theme: Optional[str] = Field(
+        default=None,
+        pattern="^(pure-dark|midnight-blue|forest-night|crimson-noir|amber-dusk|purple-dream)$"
+    )
     font_size: str = Field(pattern="^(small|medium|large)$", default="medium")
     show_token_info: Optional[bool] = None
     show_context_info: Optional[bool] = None
     notifications: Optional[bool] = None
     scene_display_format: str = Field(pattern="^(default|bubble|card|minimal)$", default="default")
+    scene_container_style: Optional[str] = Field(default=None, pattern="^(lines|cards)$")
     show_scene_titles: Optional[bool] = None
     auto_open_last_story: Optional[bool] = None
 
@@ -194,12 +198,15 @@ async def update_user_settings(
     # Update UI preferences
     if settings_update.ui_preferences:
         ui = settings_update.ui_preferences
-        user_settings.theme = ui.theme
+        if ui.color_theme is not None:
+            user_settings.color_theme = ui.color_theme
         user_settings.font_size = ui.font_size
         user_settings.show_token_info = ui.show_token_info
         user_settings.show_context_info = ui.show_context_info
         user_settings.enable_notifications = ui.notifications
         user_settings.scene_display_format = ui.scene_display_format
+        if ui.scene_container_style is not None:
+            user_settings.scene_container_style = ui.scene_container_style
         if ui.show_scene_titles is not None:
             user_settings.show_scene_titles = ui.show_scene_titles
         if ui.auto_open_last_story is not None:

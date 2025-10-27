@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store';
+import { useUISettings } from '@/hooks/useUISettings';
+import apiClient from '@/lib/api';
 import RouteProtection from '@/components/RouteProtection';
 import UserManagement from '@/components/admin/UserManagement';
 import SystemSettings from '@/components/admin/SystemSettings';
@@ -12,6 +14,26 @@ function AdminContent() {
   const router = useRouter();
   const { user } = useAuthStore();
   const [activeTab, setActiveTab] = useState<'users' | 'settings' | 'stats'>('users');
+  const [userSettings, setUserSettings] = useState<any>(null);
+
+  // Apply UI settings (theme, font size, etc.)
+  useUISettings(userSettings?.ui_preferences || null);
+
+  // Load user settings
+  useEffect(() => {
+    const loadUserSettings = async () => {
+      try {
+        const settings = await apiClient.getUserSettings();
+        setUserSettings(settings.settings);
+      } catch (err) {
+        console.error('Failed to load user settings:', err);
+      }
+    };
+    
+    if (user) {
+      loadUserSettings();
+    }
+  }, [user]);
 
   const tabs = [
     { id: 'users' as const, name: 'User Management', icon: '👥' },
@@ -20,7 +42,7 @@ function AdminContent() {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 pt-16">
+    <div className="min-h-screen theme-bg-primary pt-16">
       {/* Header */}
       <div className="bg-white/10 backdrop-blur-md border-b border-white/20">
         <div className="max-w-7xl mx-auto px-6 py-4">
@@ -52,7 +74,7 @@ function AdminContent() {
               onClick={() => setActiveTab(tab.id)}
               className={`px-6 py-3 rounded-lg font-medium transition-all duration-200 ${
                 activeTab === tab.id
-                  ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white'
+                  ? 'theme-btn-primary text-white'
                   : 'bg-white/10 text-white/70 hover:bg-white/20 hover:text-white'
               }`}
             >

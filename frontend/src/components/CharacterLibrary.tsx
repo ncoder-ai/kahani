@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import apiClient from '@/lib/api';
+import { useUISettings } from '@/hooks/useUISettings';
 import Link from 'next/link';
 
 interface Character {
@@ -25,10 +26,24 @@ export default function CharacterLibrary() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'mine' | 'public'>('all');
   const [templatesOnly, setTemplatesOnly] = useState(false);
+  const [userSettings, setUserSettings] = useState<any>(null);
+
+  // Apply UI settings (theme, font size, etc.)
+  useUISettings(userSettings?.ui_preferences || null);
 
   useEffect(() => {
     loadCharacters();
+    loadUserSettings();
   }, [filter, templatesOnly]);
+
+  const loadUserSettings = async () => {
+    try {
+      const settings = await apiClient.getUserSettings();
+      setUserSettings(settings.settings);
+    } catch (err) {
+      console.error('Failed to load user settings:', err);
+    }
+  };
 
   const loadCharacters = async () => {
     try {
@@ -67,14 +82,14 @@ export default function CharacterLibrary() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center pt-16">
+      <div className="min-h-screen theme-bg-primary flex items-center justify-center pt-16">
         <div className="text-white text-xl">Loading characters...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 p-6 pt-16">
+    <div className="min-h-screen theme-bg-primary p-6 pt-16">
       <div className="max-w-6xl mx-auto">
         {/* Header */}
         <div className="flex justify-between items-center mb-8">
@@ -84,7 +99,7 @@ export default function CharacterLibrary() {
           </div>
           <Link
             href="/characters/create"
-            className="px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl hover:from-purple-600 hover:to-pink-600 transition-colors font-semibold"
+            className="px-6 py-3 theme-btn-primary rounded-xl transition-colors font-semibold"
           >
             + Create Character
           </Link>
@@ -98,7 +113,7 @@ export default function CharacterLibrary() {
                 onClick={() => setFilter('all')}
                 className={`px-4 py-2 rounded-lg font-medium transition-colors ${
                   filter === 'all'
-                    ? 'bg-purple-500 text-white'
+                    ? 'theme-btn-primary'
                     : 'bg-white/20 text-white hover:bg-white/30'
                 }`}
               >
@@ -108,7 +123,7 @@ export default function CharacterLibrary() {
                 onClick={() => setFilter('mine')}
                 className={`px-4 py-2 rounded-lg font-medium transition-colors ${
                   filter === 'mine'
-                    ? 'bg-purple-500 text-white'
+                    ? 'theme-btn-primary'
                     : 'bg-white/20 text-white hover:bg-white/30'
                 }`}
               >
@@ -118,7 +133,7 @@ export default function CharacterLibrary() {
                 onClick={() => setFilter('public')}
                 className={`px-4 py-2 rounded-lg font-medium transition-colors ${
                   filter === 'public'
-                    ? 'bg-purple-500 text-white'
+                    ? 'theme-btn-primary'
                     : 'bg-white/20 text-white hover:bg-white/30'
                 }`}
               >
@@ -147,7 +162,7 @@ export default function CharacterLibrary() {
             <div className="text-white/60 text-lg mb-4">No characters found</div>
             <Link
               href="/characters/create"
-              className="inline-flex px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl hover:from-purple-600 hover:to-pink-600 transition-colors font-semibold"
+              className="inline-flex px-6 py-3 theme-btn-primary rounded-xl transition-colors font-semibold"
             >
               Create Your First Character
             </Link>
@@ -182,13 +197,13 @@ export default function CharacterLibrary() {
                       {character.personality_traits.slice(0, 3).map((trait, index) => (
                         <span
                           key={index}
-                          className="px-2 py-1 bg-purple-500/20 text-purple-300 text-xs rounded"
+                          className="px-2 py-1 bg-white/20 text-white/80 text-xs rounded"
                         >
                           {trait}
                         </span>
                       ))}
                       {character.personality_traits.length > 3 && (
-                        <span className="px-2 py-1 bg-purple-500/20 text-purple-300 text-xs rounded">
+                        <span className="px-2 py-1 bg-white/20 text-white/80 text-xs rounded">
                           +{character.personality_traits.length - 3} more
                         </span>
                       )}

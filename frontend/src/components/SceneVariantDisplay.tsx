@@ -390,6 +390,7 @@ export default function SceneVariantDisplay({
           scene={getDisplayScene()}
           sceneNumber={sceneNumber}
           format={userSettings?.scene_display_format || 'default'}
+          containerStyle={userSettings?.scene_container_style || 'lines'}
           showTitle={userSettings?.show_scene_titles === true}
           isEditing={isEditing}
           editContent={editContent}

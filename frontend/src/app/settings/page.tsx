@@ -7,6 +7,7 @@ import { useUISettings } from '@/hooks/useUISettings';
 import { useNotifications } from '@/hooks/useNotifications';
 import WritingPresetsManager from '@/components/writing-presets/WritingPresetsManager';
 import { getApiBaseUrl } from '@/lib/api';
+import { getThemeList } from '@/lib/themes';
 
 interface LLMSettings {
   temperature: number;
@@ -48,12 +49,13 @@ interface GenerationPreferences {
 }
 
 interface UIPreferences {
-  theme: string;
+  color_theme: string;
   font_size: string;
   show_token_info: boolean;
   show_context_info: boolean;
   notifications: boolean;
   scene_display_format: string; // 'default', 'bubble', 'card', 'minimal'
+  scene_container_style: string; // 'lines', 'cards'
   show_scene_titles: boolean;
   auto_open_last_story: boolean;
 }
@@ -254,12 +256,13 @@ export default function SettingsPage() {
           choices_count: settings.generation_preferences.choices_count,
         },
         ui_preferences: {
-          theme: settings.ui_preferences.theme,
+          color_theme: settings.ui_preferences.color_theme || settings.ui_preferences.theme || 'pure-dark',
           font_size: settings.ui_preferences.font_size,
           show_token_info: settings.ui_preferences.show_token_info,
           show_context_info: settings.ui_preferences.show_context_info,
           notifications: settings.ui_preferences.notifications,
           scene_display_format: settings.ui_preferences.scene_display_format,
+          scene_container_style: settings.ui_preferences.scene_container_style || 'lines',
           show_scene_titles: settings.ui_preferences.show_scene_titles,
           auto_open_last_story: settings.ui_preferences.auto_open_last_story,
         },
@@ -1370,18 +1373,23 @@ export default function SettingsPage() {
                 <h2 className="text-xl font-semibold mb-6">Interface Preferences</h2>
                 <div className="space-y-6">
                   
-                  {/* Theme */}
+                  {/* Color Theme */}
                   <div>
-                    <label className="block text-sm font-medium mb-2">Theme</label>
+                    <label className="block text-sm font-medium mb-2">Color Theme</label>
                     <select
-                      value={settings.ui_preferences.theme}
-                      onChange={(e) => updateUIPreference('theme', e.target.value)}
+                      value={settings.ui_preferences.color_theme || 'pure-dark'}
+                      onChange={(e) => updateUIPreference('color_theme', e.target.value)}
                       className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2"
                     >
-                      <option value="dark">Dark</option>
-                      <option value="light">Light</option>
-                      <option value="auto">Auto</option>
+                      {getThemeList().map(theme => (
+                        <option key={theme.value} value={theme.value}>
+                          {theme.label} - {theme.description}
+                        </option>
+                      ))}
                     </select>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Choose your preferred color scheme for the entire app
+                    </p>
                   </div>
 
                   {/* Font Size */}
@@ -1455,6 +1463,22 @@ export default function SettingsPage() {
                     </p>
                   </div>
 
+                  {/* Scene Container Style */}
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Scene Container Style</label>
+                    <select
+                      value={settings.ui_preferences.scene_container_style || 'lines'}
+                      onChange={(e) => updateUIPreference('scene_container_style', e.target.value)}
+                      className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2"
+                    >
+                      <option value="lines">Simple Lines (Clean, Mobile-friendly)</option>
+                      <option value="cards">Cards/Bubbles (Rich, Desktop style)</option>
+                    </select>
+                    <p className="text-sm text-gray-400 mt-1">
+                      Choose between minimal line separators or rich card containers for scenes
+                    </p>
+                  </div>
+
                   {/* Show Scene Titles */}
                   <div>
                     <label className="flex items-center">
@@ -1497,7 +1521,7 @@ export default function SettingsPage() {
                 <div>Max Tokens: {settings.llm_settings.max_tokens}</div>
                 <div>Context Budget: {settings.context_settings.max_tokens}</div>
                 <div>Recent Scenes: {settings.context_settings.keep_recent_scenes}</div>
-                <div>Theme: {settings.ui_preferences.theme}</div>
+                <div>Theme: {settings.ui_preferences.color_theme}</div>
               </div>
             </div>
 

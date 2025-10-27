@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useParams } from 'next/navigation';
 import { useAuthStore, useStoryStore, useHasHydrated } from '@/store';
 import { useGlobalTTS } from '@/contexts/GlobalTTSContext';
+import { useUISettings } from '@/hooks/useUISettings';
 import apiClient, { getApiBaseUrl } from '@/lib/api';
 import CharacterQuickAdd from '@/components/CharacterQuickAdd';
 import { ContextInfo } from '@/components/ContextInfo';
@@ -181,7 +182,12 @@ export default function StoryPage() {
   const [showContextWarning, setShowContextWarning] = useState(false);
   const [hasShownContextWarning, setHasShownContextWarning] = useState(false);
   
-  const storyContentRef = useRef<HTMLDivElement>(null);  useEffect(() => {
+  const storyContentRef = useRef<HTMLDivElement>(null);
+  
+  // Apply UI settings (theme, font size, etc.)
+  useUISettings(userSettings?.ui_preferences || null);
+
+  useEffect(() => {
     // Wait for auth store to hydrate before checking authentication
     if (!hasHydrated) {
       return;
@@ -1602,7 +1608,7 @@ export default function StoryPage() {
       <div className="max-w-4xl mx-auto flex flex-col" style={{ height: 'calc(100vh - 80px)' }}>
         {/* Story Content Area */}
         <div className="flex-1 p-6 overflow-y-auto" ref={storyContentRef}>
-          <div className="bg-gray-800 rounded-2xl p-8 min-h-full shadow-2xl">
+          <div className="theme-card rounded-2xl p-8 min-h-full shadow-2xl">
             {/* Chapter Header */}
             <div className="flex items-center justify-between mb-8">
               <div className="flex items-center space-x-3">
