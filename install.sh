@@ -181,23 +181,26 @@ setup_database() {
     
     # Initialize or update database
     if [[ -f backend/data/kahani.db ]]; then
-        log_warning "Database already exists, updating schema..."
-        cd backend && $python_cmd update_database_schema.py && cd .. || {
-            log_error "Failed to update database schema"
-            exit 1
-        }
+        log_warning "Database already exists, running migrations..."
+        # For existing database, just run migrations
+        source .venv/bin/activate
+        cd backend && alembic upgrade head && cd ..
+        deactivate
     else
-        log_info "Initializing database..."
+        log_info "Initializing new database..."
+        # Create database with all tables
         cd backend && $python_cmd init_database.py && cd .. || {
             log_error "Database initialization failed"
             exit 1
         }
+        
+        # Stamp alembic so it knows all base tables exist
+        # This prevents Alembic from trying to create tables that already exist
+        log_info "Marking Alembic migrations as applied..."
+        source .venv/bin/activate
+        cd backend && alembic stamp head && cd ..
+        deactivate
     fi
-    # Run Alembic migrations to upgrade schema
-    log_info "Running Alembic migrations to upgrade database schema..."
-    source .venv/bin/activate
-    cd backend && alembic upgrade head && cd ..
-    deactivate
     
     log_success "Database setup complete"
 }

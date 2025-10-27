@@ -48,8 +48,10 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-# Create tables if they don't exist (safe - only creates missing tables, never modifies existing ones)
-Base.metadata.create_all(bind=engine)
+# NOTE: We do NOT create tables here anymore! 
+# Database schema is managed by Alembic migrations.
+# Use: alembic upgrade head
+# This prevents conflicts between SQLAlchemy's create_all() and Alembic migrations.
 
 # Create FastAPI app
 app = FastAPI(

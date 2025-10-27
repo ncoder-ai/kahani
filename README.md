@@ -261,6 +261,7 @@ KAHANI_ENV=production docker-compose -f docker-compose.network.yml up -d
 | [QUICK_START.md](QUICK_START.md) | 5-minute setup guide |
 | [CONFIGURATION_GUIDE.md](CONFIGURATION_GUIDE.md) | Complete configuration guide |
 | [NETWORK_CONFIGURATION.md](NETWORK_CONFIGURATION.md) | Network setup and troubleshooting |
+| [docs/database-migration-troubleshooting.md](docs/database-migration-troubleshooting.md) | Database migration issues and fixes |
 | [docs/](docs/) | Detailed feature documentation |
 
 ## 🤝 Contributing

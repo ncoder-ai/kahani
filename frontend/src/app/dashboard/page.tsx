@@ -367,16 +367,7 @@ function DashboardContent() {
                     </div>
                   ) : (
                     <div className="mb-4 p-3 bg-gray-500/10 border border-gray-500/20 rounded-lg">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-gray-400">No story summary yet</span>
-                        <button
-                          onClick={(e) => handleGenerateStorySummary(story.id, e)}
-                          disabled={generatingStorySummaryId === story.id}
-                          className="px-2 py-1 text-xs bg-green-600/20 hover:bg-green-600/40 text-green-200 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        >
-                          {generatingStorySummaryId === story.id ? '⚙️ Generating...' : '✨ Generate'}
-                        </button>
-                      </div>
+                      <span className="text-xs text-gray-400">No story summary available</span>
                     </div>
                   )}
 

@@ -105,15 +105,15 @@ class SceneVariantServiceAdapter:
         return llm_service.delete_scenes_from_sequence(self.db, story_id, sequence_number)
 
 # Temporary adapter functions for old LLM function calls
-async def generate_scene_streaming(context, user_id, user_settings, db):
-    async for chunk in llm_service.generate_scene_streaming(context, user_id, user_settings, db):
+async def generate_scene_streaming(context, user_id, user_settings):
+    async for chunk in llm_service.generate_scene_streaming(context, user_id, user_settings):
         yield chunk
 
-async def generate_scene_continuation(context, user_id, user_settings, db):
-    return await llm_service.generate_scene_continuation(context, user_id, user_settings, db)
+async def generate_scene_continuation(context, user_id, user_settings):
+    return await llm_service.generate_scene_continuation(context, user_id, user_settings)
 
-async def generate_scene_continuation_streaming(context, user_id, user_settings, db):
-    async for chunk in llm_service.generate_scene_continuation_streaming(context, user_id, user_settings, db):
+async def generate_scene_continuation_streaming(context, user_id, user_settings):
+    async for chunk in llm_service.generate_scene_continuation_streaming(context, user_id, user_settings):
         yield chunk
 
 def SceneVariantService(db: Session):
@@ -469,7 +469,7 @@ async def generate_scene(
     
     # Generate scene content using enhanced method
     try:
-        scene_content = await llm_service.generate_scene(context, current_user.id, user_settings, db)
+        scene_content = await llm_service.generate_scene(context, current_user.id, user_settings)
     except Exception as e:
         logger.error(f"Failed to generate scene for story {story_id}: {e}")
         raise HTTPException(
@@ -485,7 +485,7 @@ async def generate_scene(
     choices_data = []
     try:
         choice_context = await context_manager.build_choice_generation_context(story_id, db)
-        choices_result = await llm_service.generate_choices(scene_content, choice_context, current_user.id, user_settings, db)
+        choices_result = await llm_service.generate_choices(scene_content, choice_context, current_user.id, user_settings)
         # Convert string choices to dict format expected by create_scene_with_variant
         choices_data = [
             {
@@ -656,8 +656,7 @@ async def generate_scene_streaming_endpoint(
             async for chunk in generate_scene_streaming(
                 scene_context,
                 current_user.id,
-                user_settings,
-                db
+                user_settings
             ):
                 full_content += chunk
                 yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
@@ -723,7 +722,7 @@ async def generate_scene_streaming_endpoint(
                     "current_situation": f"Scene {next_sequence}: {full_content}"
                 }
                 
-                choices = await llm_service.generate_choices(full_content, choice_context, current_user.id, user_settings, db)
+                choices = await llm_service.generate_choices(full_content, choice_context, current_user.id, user_settings)
                 
                 # Format and save choices
                 for i, choice_text in enumerate(choices):
@@ -1015,9 +1014,8 @@ async def generate_more_choices(
         choices = await llm_service.generate_choices(
             latest_scene.content, 
             choice_context, 
-            current_user.id, 
-            user_settings,
-            db
+            current_user.id,
+            user_settings
         )
         
         return {
@@ -1149,7 +1147,7 @@ async def generate_scenario_endpoint(
         user_settings['allow_nsfw'] = current_user.allow_nsfw
         
         # Generate scenario using LLM
-        scenario = await llm_service.generate_scenario(context, current_user.id, user_settings, db)
+        scenario = await llm_service.generate_scenario(context, current_user.id, user_settings)
         
         return {
             "scenario": scenario,
@@ -1199,7 +1197,7 @@ async def generate_title(
         user_settings['allow_nsfw'] = current_user.allow_nsfw
         
         # Generate multiple title options using LLM
-        titles = await llm_service.generate_story_title(context, current_user.id, user_settings, db)
+        titles = await llm_service.generate_story_title(context, current_user.id, user_settings)
         
         return {
             "titles": titles,
@@ -1247,13 +1245,13 @@ async def generate_plot_endpoint(
         
         # Generate plot using LLM
         if request.plot_type == "complete":
-            plot_points = await llm_service.generate_plot_points(context, current_user.id, user_settings, plot_type="complete", db=db)
+            plot_points = await llm_service.generate_plot_points(context, current_user.id, user_settings, plot_type="complete")
             return {
                 "plot_points": plot_points,
                 "message": "Complete plot generated successfully"
             }
         else:
-            plot_point = await llm_service.generate_plot_points(context, current_user.id, user_settings, plot_type="single", db=db)
+            plot_point = await llm_service.generate_plot_points(context, current_user.id, user_settings, plot_type="single")
             return {
                 "plot_point": plot_point,
                 "message": "Plot point generated successfully"
@@ -1419,17 +1417,16 @@ async def get_story_summary(
     summary_threshold = user_settings.context_summary_threshold if user_settings else 5
     summarization_enabled = user_settings.enable_context_summarization if user_settings else True
     
-    # Calculate context usage - always use direct scene count for accuracy
-    total_scenes = db.query(Scene).filter(Scene.story_id == story_id).count()
-    
+    # Calculate context usage
+    total_scenes = len(flow)
     recent_scenes = min(keep_recent, total_scenes)
     summarized_scenes = max(0, total_scenes - recent_scenes) if total_scenes > summary_threshold else 0
     
-    # Estimate token usage (rough calculation) - use all scenes
+    # Estimate token usage (rough calculation)
     estimated_tokens = 0
-    scenes = db.query(Scene).filter(Scene.story_id == story_id).all()
-    for scene in scenes:
-        estimated_tokens += len(scene.content.split()) * 1.3
+    for scene_data in flow:
+        content = scene_data['variant']['content']
+        estimated_tokens += len(content.split()) * 1.3  # Rough token estimate
     
     # Generate a basic summary from the story content
     story_summary = f"'{story.title}' is a {story.genre or 'story'} with {total_scenes} scenes."
@@ -1555,8 +1552,7 @@ async def create_scene_variant(
                 variant.content, 
                 choice_context, 
                 current_user.id, 
-                user_settings,
-                db
+                user_settings
             )
             
             # Create choice records for the variant
@@ -1680,7 +1676,7 @@ async def create_scene_variant_streaming(
 
             # Stream variant generation - pass context dict, not prompt string
             variant_content = ""
-            async for chunk in generate_scene_streaming(context, current_user.id, user_settings, db):
+            async for chunk in generate_scene_streaming(context, current_user.id, user_settings):
                 variant_content += chunk
                 yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
             
@@ -1695,7 +1691,7 @@ async def create_scene_variant_streaming(
 
             # Stream variant generation - pass context dict, not prompt string
             variant_content = ""
-            async for chunk in generate_scene_streaming(context, current_user.id, user_settings, db):
+            async for chunk in generate_scene_streaming(context, current_user.id, user_settings):
                 variant_content += chunk
                 yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
             
@@ -1777,11 +1773,10 @@ async def create_scene_variant_streaming(
             try:
                 choice_context = await context_manager.build_choice_generation_context(story_id, db)
                 generated_choices = await llm_service.generate_choices(
-                    variant_content,
-                    choice_context,
-                    current_user.id,
-                    user_settings,
-                    db
+                    variant_content, 
+                    choice_context, 
+                    current_user.id, 
+                    user_settings
                 )
                 
                 # Create choice records for the variant
@@ -2034,7 +2029,7 @@ async def continue_scene_streaming(
             
             # Stream continuation generation
             continuation_content = ""
-            async for chunk in generate_scene_continuation_streaming(context, current_user.id, user_settings, db):
+            async for chunk in generate_scene_continuation_streaming(context, current_user.id, user_settings):
                 continuation_content += chunk
                 yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
             

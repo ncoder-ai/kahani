@@ -85,6 +85,13 @@ export PYTHONPATH="${SCRIPT_DIR}/backend"
 BACKEND_PORT="${BACKEND_PORT:-9876}"
 FRONTEND_PORT="${FRONTEND_PORT:-6789}"
 
+# Auto-detect network IP if NEXT_PUBLIC_API_URL is not set
+if [[ -z "$NEXT_PUBLIC_API_URL" ]]; then
+    # Try to detect network IP
+    NETWORK_IP=$(python3 -c "import socket; s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.connect(('8.8.8.8', 80)); print(s.getsockname()[0]); s.close()" 2>/dev/null || echo "localhost")
+    export NEXT_PUBLIC_API_URL="http://${NETWORK_IP}:${BACKEND_PORT}"
+    echo -e "${BLUE}🌐 Auto-detected API URL: ${NEXT_PUBLIC_API_URL}${NC}"
+fi
 
 
 # Run Alembic migrations to upgrade schema before starting backend
