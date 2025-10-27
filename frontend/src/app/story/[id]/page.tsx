@@ -1591,7 +1591,7 @@ export default function StoryPage() {
               </div>
               <div className="hidden sm:flex items-center space-x-2 text-gray-500 text-xs md:text-sm">
                 <span>•</span>
-                <span>{getScenesToDisplay().length} scenes</span>
+                <span>{story?.scenes?.length || 0} scenes</span>
                 {storyCharacters.length > 0 && (
                   <>
                     <span>•</span>

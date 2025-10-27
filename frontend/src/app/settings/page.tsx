@@ -1404,18 +1404,6 @@ export default function SettingsPage() {
                     </select>
                   </div>
 
-                  {/* Show Token Info */}
-                  <div>
-                    <label className="flex items-center">
-                      <input
-                        type="checkbox"
-                        checked={settings.ui_preferences.show_token_info}
-                        onChange={(e) => updateUIPreference('show_token_info', e.target.checked)}
-                        className="mr-2"
-                      />
-                      Show token usage information
-                    </label>
-                  </div>
 
                   {/* Show Context Info */}
                   <div>
@@ -1443,23 +1431,6 @@ export default function SettingsPage() {
                     </label>
                   </div>
 
-                  {/* Scene Display Format */}
-                  <div>
-                    <label className="block text-sm font-medium mb-2">Scene Display Format</label>
-                    <select
-                      value={settings.ui_preferences.scene_display_format}
-                      onChange={(e) => updateUIPreference('scene_display_format', e.target.value)}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2"
-                    >
-                      <option value="default">Default</option>
-                      <option value="bubble">Bubble</option>
-                      <option value="card">Card</option>
-                      <option value="minimal">Minimal</option>
-                    </select>
-                    <p className="text-sm text-gray-400 mt-1">
-                      Choose how story scenes are displayed
-                    </p>
-                  </div>
 
 
                   {/* Show Scene Titles */}
