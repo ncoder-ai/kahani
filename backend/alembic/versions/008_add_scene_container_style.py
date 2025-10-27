@@ -13,8 +13,14 @@ branch_labels = None
 depends_on = None
 
 def upgrade():
-    op.add_column('user_settings', sa.Column('scene_container_style', sa.String(20), default='lines'))
-    op.execute("UPDATE user_settings SET scene_container_style = 'lines'")
+    # Check if column exists before adding (idempotent)
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    columns = [col['name'] for col in inspector.get_columns('user_settings')]
+    
+    if 'scene_container_style' not in columns:
+        op.add_column('user_settings', sa.Column('scene_container_style', sa.String(20), default='lines'))
+        op.execute("UPDATE user_settings SET scene_container_style = 'lines'")
 
 def downgrade():
     op.drop_column('user_settings', 'scene_container_style')

@@ -17,11 +17,19 @@ depends_on = None
 
 
 def upgrade():
+    # Check if columns exist before adding (idempotent)
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    columns = [col['name'] for col in inspector.get_columns('user_settings')]
+    
     # Add character assistant settings to user_settings table
     # SQLite doesn't support ALTER COLUMN, so we add with defaults
-    op.add_column('user_settings', sa.Column('enable_character_suggestions', sa.Boolean(), nullable=False, default=True))
-    op.add_column('user_settings', sa.Column('character_importance_threshold', sa.Integer(), nullable=False, default=70))
-    op.add_column('user_settings', sa.Column('character_mention_threshold', sa.Integer(), nullable=False, default=5))
+    if 'enable_character_suggestions' not in columns:
+        op.add_column('user_settings', sa.Column('enable_character_suggestions', sa.Boolean(), nullable=False, default=True))
+    if 'character_importance_threshold' not in columns:
+        op.add_column('user_settings', sa.Column('character_importance_threshold', sa.Integer(), nullable=False, default=70))
+    if 'character_mention_threshold' not in columns:
+        op.add_column('user_settings', sa.Column('character_mention_threshold', sa.Integer(), nullable=False, default=5))
 
 
 def downgrade():
