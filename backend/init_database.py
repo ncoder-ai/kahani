@@ -82,6 +82,25 @@ def init_database():
     tables = inspector.get_table_names()
     print(f"Created {len(tables)} tables: {', '.join(tables)}")
     
+    # Stamp Alembic to mark all migrations as applied
+    # This must happen BEFORE we create any data, to ensure atomicity
+    print("\nStamping Alembic version to mark base schema as applied...")
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["alembic", "stamp", "head"],
+            cwd=backend_dir,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        print("✓ Alembic version stamped successfully")
+    except subprocess.CalledProcessError as e:
+        print(f"⚠️  Warning: Could not stamp Alembic version:")
+        print(e.stdout)
+        print(e.stderr)
+        print("Continuing anyway...")
+    
     # Create system settings (singleton)
     print("\nCreating system settings...")
     from sqlalchemy.orm import Session
