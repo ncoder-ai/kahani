@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { useGlobalTTS } from '@/contexts/GlobalTTSContext';
-import { SpeakerWaveIcon } from '@heroicons/react/24/outline';
+import { SpeakerWaveIcon, StopIcon } from '@heroicons/react/24/outline';
 import { SpeakerWaveIcon as SpeakerWaveSolidIcon } from '@heroicons/react/24/solid';
 
 interface SceneTTSButtonProps {
@@ -19,69 +19,52 @@ export const SceneTTSButton: React.FC<SceneTTSButtonProps> = ({ sceneId, classNa
   const isThisSceneError = currentSceneId === sceneId && error;
   
   const handleClick = () => {
-    // IMMEDIATE feedback for debugging
-    console.log('[SceneTTSButton] BUTTON CLICKED for scene:', sceneId);
-    
     if (isThisSceneError) {
-      console.log('[SceneTTSButton] Retrying after error');
       // Clear error and retry
       stop();
       setTimeout(() => playScene(sceneId), 100);
-    } else if (!isThisScenePlaying && !isThisSceneGenerating) {
-      console.log('[SceneTTSButton] Starting playScene');
-      playScene(sceneId);
+    } else if (isThisScenePlaying || isThisSceneGenerating) {
+      // Stop TTS and clear session
+      stop();
     } else {
-      console.log('[SceneTTSButton] Button disabled - already playing/generating');
+      // Start TTS
+      playScene(sceneId);
     }
   };
   
   return (
-    <div className={className}>
+    <div className={`absolute -top-2 -right-2 z-10 ${className}`}>
       <button
         onClick={handleClick}
-        disabled={isThisScenePlaying || isThisSceneGenerating}
         className={`
-          w-full flex items-center gap-2 px-4 py-2 rounded-lg transition-all
+          w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200
+          backdrop-blur-sm border shadow-lg
           ${isThisSceneError
-            ? 'bg-red-600 hover:bg-red-700 text-white'
+            ? 'bg-red-500/90 hover:bg-red-600/90 text-white border-red-400/50'
             : isThisScenePlaying || isThisSceneGenerating
-            ? 'bg-blue-600 text-white cursor-not-allowed' 
-            : 'bg-gray-700 hover:bg-gray-600 text-gray-200'
+            ? 'bg-blue-500/90 hover:bg-blue-600/90 text-white border-blue-400/50' 
+            : 'bg-gray-700/90 hover:bg-gray-600/90 text-gray-200 border-gray-500/50'
           }
         `}
         title={
           isThisSceneError ? 'Error - click to retry'
-          : isThisScenePlaying ? 'Playing...' 
-          : isThisSceneGenerating ? 'Generating audio...' 
+          : isThisScenePlaying ? 'Click to stop narration' 
+          : isThisSceneGenerating ? 'Generating audio - click to stop' 
           : 'Click to hear scene narration'
         }
       >
         {isThisSceneError ? (
-          <>
-            <SpeakerWaveIcon className="w-5 h-5" />
-            <span className="text-sm">Retry TTS</span>
-          </>
-        ) : isThisScenePlaying ? (
-          <>
-            <SpeakerWaveSolidIcon className="w-5 h-5 animate-pulse" />
-            <span className="text-sm">Playing...</span>
-          </>
-        ) : isThisSceneGenerating ? (
-          <>
-            <SpeakerWaveSolidIcon className="w-5 h-5 animate-spin" />
-            <span className="text-sm">Generating...</span>
-          </>
+          <SpeakerWaveIcon className="w-4 h-4" />
+        ) : isThisScenePlaying || isThisSceneGenerating ? (
+          <StopIcon className="w-4 h-4" />
         ) : (
-          <>
-            <SpeakerWaveIcon className="w-5 h-5" />
-            <span className="text-sm">Narrate</span>
-          </>
+          <SpeakerWaveIcon className="w-4 h-4" />
         )}
       </button>
       
       {/* Error Message Display */}
       {isThisSceneError && (
-        <div className="mt-2 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+        <div className="absolute top-10 left-0 w-64 p-3 bg-red-500/10 border border-red-500/30 rounded-lg backdrop-blur-sm">
           <div className="flex items-start gap-2">
             <div className="flex-shrink-0 mt-0.5">
               <svg className="w-4 h-4 text-red-400" fill="currentColor" viewBox="0 0 20 20">

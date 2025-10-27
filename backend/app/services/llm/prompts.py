@@ -86,9 +86,21 @@ class PromptManager:
         """
         prompt_text = ""
         
-        # Handle SYSTEM prompts - use writing style presets
+        # Handle SYSTEM prompts - use writing style presets for specific generation types only
         if prompt_type == "system":
-            if user_id and db:
+            # Define which generation types should use user writing presets
+            # These are the core story writing operations that should respect user's writing style
+            user_preset_enabled_types = {
+                "scene_generation",           # Main story scenes
+                "scene_continuation",         # Scene continuations
+                "scene_variants",             # Scene variants
+                "scene_variants_streaming",   # Scene variants streaming
+                "story_summary",              # Story summaries (uses summary_system_prompt)
+                "scenario_generation"         # Story scenario/premise generation
+            }
+            
+            # Only use user presets for enabled generation types
+            if template_key in user_preset_enabled_types and user_id and db:
                 try:
                     # Get user's active writing style preset
                     active_preset = db.query(WritingStylePreset).filter(
@@ -102,15 +114,17 @@ class PromptManager:
                             prompt_text = active_preset.summary_system_prompt
                             logger.debug(f"Using custom summary system prompt from preset '{active_preset.name}'")
                         else:
-                            # Use universal system prompt for all other generations
+                            # Use universal system prompt for other enabled generations
                             prompt_text = active_preset.system_prompt
-                            logger.debug(f"Using universal system prompt from preset '{active_preset.name}'")
+                            logger.debug(f"Using universal system prompt from preset '{active_preset.name}' for {template_key}")
                         
                         if prompt_text:
                             return self._substitute_variables(prompt_text, **template_vars)
                             
                 except Exception as e:
                     logger.warning(f"Error querying writing style preset: {e}")
+            else:
+                logger.debug(f"Using YAML prompts for {template_key} (not user preset enabled)")
             
             # Fallback to YAML system prompt
             prompt_text = self._get_yaml_prompt(template_key, "system")

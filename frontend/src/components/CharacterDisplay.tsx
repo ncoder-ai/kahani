@@ -42,7 +42,7 @@ export default function CharacterDisplay({ characters, onAddCharacter, showAddBu
         {showAddButton && onAddCharacter && (
           <button
             onClick={onAddCharacter}
-            className="px-3 py-1 bg-purple-500 hover:bg-purple-600 text-white text-sm rounded-lg transition-colors"
+            className="px-3 py-1 theme-btn-primary text-white text-sm rounded-lg transition-colors"
           >
             + Add
           </button>

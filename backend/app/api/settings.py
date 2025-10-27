@@ -59,7 +59,6 @@ class UIPreferencesUpdate(BaseModel):
     show_context_info: Optional[bool] = None
     notifications: Optional[bool] = None
     scene_display_format: str = Field(pattern="^(default|bubble|card|minimal)$", default="default")
-    scene_container_style: Optional[str] = Field(default=None, pattern="^(lines|cards)$")
     show_scene_titles: Optional[bool] = None
     auto_open_last_story: Optional[bool] = None
 
@@ -72,11 +71,16 @@ class AdvancedSettingsUpdate(BaseModel):
     custom_system_prompt: str = Field(max_length=2000, default="")
     experimental_features: bool = False
 
+class EngineSettingsUpdate(BaseModel):
+    engine_settings: Optional[Dict[str, Any]] = None
+    current_engine: Optional[str] = None
+
 class UserSettingsUpdate(BaseModel):
     llm_settings: LLMSettingsUpdate = None
     context_settings: ContextSettingsUpdate = None
     generation_preferences: GenerationPreferencesUpdate = None
     ui_preferences: UIPreferencesUpdate = None
+    engine_settings: EngineSettingsUpdate = None
     export_settings: ExportSettingsUpdate = None
     advanced: AdvancedSettingsUpdate = None
 
@@ -205,8 +209,6 @@ async def update_user_settings(
         user_settings.show_context_info = ui.show_context_info
         user_settings.enable_notifications = ui.notifications
         user_settings.scene_display_format = ui.scene_display_format
-        if ui.scene_container_style is not None:
-            user_settings.scene_container_style = ui.scene_container_style
         if ui.show_scene_titles is not None:
             user_settings.show_scene_titles = ui.show_scene_titles
         if ui.auto_open_last_story is not None:
@@ -224,6 +226,15 @@ async def update_user_settings(
         adv = settings_update.advanced
         user_settings.custom_system_prompt = adv.custom_system_prompt
         user_settings.enable_experimental_features = adv.experimental_features
+    
+    # Update engine settings
+    if settings_update.engine_settings:
+        eng = settings_update.engine_settings
+        if eng.engine_settings is not None:
+            import json
+            user_settings.engine_settings = json.dumps(eng.engine_settings)
+        if eng.current_engine is not None:
+            user_settings.current_engine = eng.current_engine
     
     try:
         db.commit()

@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String, Float, Boolean, Text, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
+import json
 from ..database import Base
 
 class UserSettings(Base):
@@ -58,7 +59,6 @@ class UserSettings(Base):
     show_context_info = Column(Boolean, default=False)
     enable_notifications = Column(Boolean, default=True)
     scene_display_format = Column(String(20), default="default")  # default, bubble, card, minimal
-    scene_container_style = Column(String(20), default="lines")  # lines, cards
     show_scene_titles = Column(Boolean, default=True)
     auto_open_last_story = Column(Boolean, default=False)  # Auto-redirect to last story on login
     last_accessed_story_id = Column(Integer, default=None)  # Last story the user worked on
@@ -71,6 +71,10 @@ class UserSettings(Base):
     # Advanced Settings
     custom_system_prompt = Column(Text, default="")
     enable_experimental_features = Column(Boolean, default=False)
+    
+    # Engine-Specific Settings
+    engine_settings = Column(Text, default="{}")  # JSON string storing settings per engine
+    current_engine = Column(String(50), default="")  # Currently selected engine
     
     # Relationships
     user = relationship("User", back_populates="settings")
@@ -120,7 +124,6 @@ class UserSettings(Base):
                 "show_context_info": self.show_context_info,
                 "notifications": self.enable_notifications,
                 "scene_display_format": self.scene_display_format,
-                "scene_container_style": self.scene_container_style,
                 "show_scene_titles": self.show_scene_titles,
                 "auto_open_last_story": self.auto_open_last_story,
                 "last_accessed_story_id": self.last_accessed_story_id
@@ -133,8 +136,17 @@ class UserSettings(Base):
             "advanced": {
                 "custom_system_prompt": self.custom_system_prompt,
                 "experimental_features": self.enable_experimental_features
-            }
+            },
+            "engine_settings": self._parse_engine_settings(),
+            "current_engine": self.current_engine
         }
+    
+    def _parse_engine_settings(self):
+        """Parse engine_settings JSON string to dictionary"""
+        try:
+            return json.loads(self.engine_settings) if self.engine_settings else {}
+        except (json.JSONDecodeError, TypeError):
+            return {}
     
     @classmethod
     def get_defaults(cls):
@@ -178,7 +190,6 @@ class UserSettings(Base):
                 "show_context_info": False,
                 "notifications": True,
                 "scene_display_format": "default",
-                "scene_container_style": "lines",
                 "show_scene_titles": False,
                 "auto_open_last_story": False
             },
