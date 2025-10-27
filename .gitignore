@@ -254,9 +254,8 @@ backend/data/*.db
 backend/data/chromadb/
 backend/data/audio/
 
-# Alembic
-alembic/versions/*.py
-!alembic/versions/__init__.py
+# Alembic - migrations should be tracked in git
+# Only ignore __pycache__ in alembic directories (already covered by __pycache__/ rule)
 
 # FastAPI uploads
 uploads/
