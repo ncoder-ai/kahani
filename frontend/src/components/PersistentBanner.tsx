@@ -18,6 +18,22 @@ export default function PersistentBanner() {
   const [showTTSSettings, setShowTTSSettings] = useState(false);
   const [ttsPermissionEnabled, setTtsPermissionEnabled] = useState(false);
   
+  // Sync with AudioContext state
+  useEffect(() => {
+    const checkAudioState = () => {
+      const isUnlocked = audioContextManager.isAudioUnlocked();
+      setTtsPermissionEnabled(isUnlocked);
+    };
+    
+    // Check immediately
+    checkAudioState();
+    
+    // Check periodically to sync with manual unlocks
+    const interval = setInterval(checkAudioState, 1000);
+    
+    return () => clearInterval(interval);
+  }, []);
+  
   // Compute actual permission state
   const needsPermission = audioPermissionBlocked || !ttsPermissionEnabled;
   
