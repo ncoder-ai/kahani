@@ -2,8 +2,7 @@
 
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/store';
-import { X, Settings, LogOut, User, Home, Volume2, VolumeX, Mic } from 'lucide-react';
-import { useAutoplayPermission } from '@/hooks/useAutoplayPermission';
+import { X, Settings, LogOut, User, Home, Mic } from 'lucide-react';
 
 interface GlobalMenuProps {
   isOpen: boolean;
@@ -15,7 +14,6 @@ export default function GlobalMenu({ isOpen, onClose, onOpenTTSSettings }: Globa
   const router = useRouter();
   const pathname = usePathname();
   const { user, logout } = useAuthStore();
-  const { isEnabled, toggleAutoplay } = useAutoplayPermission();
 
   if (!isOpen) return null;
 
@@ -98,39 +96,6 @@ export default function GlobalMenu({ isOpen, onClose, onOpenTTSSettings }: Globa
 
           {/* Divider */}
           <div className="my-2 border-t border-slate-700"></div>
-
-          {/* Audio Toggle */}
-          <button
-            onClick={() => {
-              toggleAutoplay();
-            }}
-            className="w-full flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors text-left group"
-          >
-            <div className={`p-2 rounded-lg transition-colors ${
-              isEnabled 
-                ? 'bg-green-600/20 group-hover:bg-green-600/30' 
-                : 'bg-gray-600/20 group-hover:bg-gray-600/30'
-            }`}>
-              {isEnabled ? (
-                <Volume2 className="w-5 h-5 text-green-400" />
-              ) : (
-                <VolumeX className="w-5 h-5 text-gray-400" />
-              )}
-            </div>
-            <div className="flex-1">
-              <div className="font-medium text-white">Audio Autoplay</div>
-              <div className={`text-xs ${isEnabled ? 'text-green-400' : 'text-gray-400'}`}>
-                {isEnabled ? 'Audio enabled' : 'Audio disabled'}
-              </div>
-            </div>
-            <div className={`px-2 py-1 rounded text-xs font-medium ${
-              isEnabled 
-                ? 'bg-green-600/20 text-green-400' 
-                : 'bg-gray-600/20 text-gray-400'
-            }`}>
-              {isEnabled ? 'ON' : 'OFF'}
-            </div>
-          </button>
 
           {/* TTS Settings */}
           <button

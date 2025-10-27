@@ -1,7 +1,7 @@
 'use client';
 
-import React, { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react';
-import { useAutoplayPermission } from '@/hooks/useAutoplayPermission';
+import React, { createContext, useContext, useRef, useState, useCallback, useEffect, useMemo } from 'react';
+import { audioContextManager } from '@/utils/audioContextManager';
 
 interface TTSMessage {
   type: string;
@@ -30,6 +30,9 @@ interface GlobalTTSContextType {
   totalChunks: number;
   chunksReceived: number;
   error: string | null;
+  browserBlockedAutoplay: boolean;
+  audioPermissionBlocked: boolean;
+  debugLogs: string[];
   
   // Actions
   playScene: (sceneId: number) => Promise<void>;
@@ -55,8 +58,19 @@ interface GlobalTTSProviderProps {
 }
 
 export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, apiBaseUrl }) => {
-  // Autoplay permission
-  const { hasPermission } = useAutoplayPermission();
+  // Fix localhost URL when running on mobile/network
+  const actualApiUrl = useMemo(() => {
+    // If URL contains localhost, replace with actual hostname from browser
+    if (apiBaseUrl.includes('localhost') && typeof window !== 'undefined') {
+      const protocol = window.location.protocol;
+      const hostname = window.location.hostname;
+      const port = apiBaseUrl.match(/:(\d+)/)?.[1] || '9876';
+      const fixedUrl = `${protocol}//${hostname}:${port}`;
+      console.log('[Global TTS] Fixed localhost URL:', apiBaseUrl, '→', fixedUrl);
+      return fixedUrl;
+    }
+    return apiBaseUrl;
+  }, [apiBaseUrl]);
   
   // State
   const [isPlaying, setIsPlaying] = useState(false);
@@ -67,13 +81,38 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
   const [totalChunks, setTotalChunks] = useState(0);
   const [chunksReceived, setChunksReceived] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [browserBlockedAutoplay, setBrowserBlockedAutoplay] = useState(false);
+  const [audioPermissionBlocked, setAudioPermissionBlocked] = useState(false);
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+  
+  // Debug logging helper
+  const addDebugLog = useCallback((message: string) => {
+    const timestamp = new Date().toLocaleTimeString();
+    const logEntry = `${timestamp}: ${message}`;
+    setDebugLogs(prev => [...prev.slice(-19), logEntry]); // Keep last 20 logs
+    console.log('[Global TTS]', message);
+  }, []);
   
   // Refs
   const wsRef = useRef<WebSocket | null>(null);
   const audioQueueRef = useRef<AudioChunk[]>([]);
-  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const currentAudioSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const isPlayingRef = useRef(false);
   const currentSessionIdRef = useRef<string | null>(null);
+  
+  // Check AudioContext unlock status on mount
+  useEffect(() => {
+    const checkUnlock = () => {
+      const unlocked = audioContextManager.isAudioUnlocked();
+      if (unlocked) {
+        setAudioPermissionBlocked(false);
+      }
+    };
+    checkUnlock();
+    // Check periodically in case user unlocks later
+    const interval = setInterval(checkUnlock, 1000);
+    return () => clearInterval(interval);
+  }, []);
   
   /**
    * Convert base64 to Blob
@@ -89,51 +128,82 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
   }, []);
   
   /**
-   * Play next chunk in queue
+   * Play next chunk in queue using AudioContext
    */
   const playNextChunk = useCallback(() => {
     if (audioQueueRef.current.length === 0) {
       isPlayingRef.current = false;
+      setIsPlaying(false);
       return;
     }
     
     const chunk = audioQueueRef.current.shift()!;
     console.log('[Global TTS] Playing chunk', chunk.chunk_number);
     
-    const audio = new Audio(chunk.audio_url);
-    currentAudioRef.current = audio;
+    const context = audioContextManager.getContext();
     
-    audio.onended = () => {
-      console.log('[Global TTS] Chunk', chunk.chunk_number, 'ended');
-      URL.revokeObjectURL(chunk.audio_url);
-      playNextChunk();
-    };
-    
-    audio.onerror = (e) => {
-      console.error('[Global TTS] Audio playback error:', e);
-      setError('Audio playback failed');
+    // Check if AudioContext is unlocked
+    if (!context || !audioContextManager.isAudioUnlocked()) {
+      console.error('[Global TTS] AudioContext not unlocked');
+      setError('🔊 Audio locked - click "Enable TTS" button in top banner first');
+      setAudioPermissionBlocked(true);
+      setBrowserBlockedAutoplay(true);
       isPlayingRef.current = false;
       setIsPlaying(false);
-    };
+      return;
+    }
     
-    audio.play().then(() => {
-      console.log('[Global TTS] Chunk', chunk.chunk_number, 'playing');
-      setIsPlaying(true);
-      isPlayingRef.current = true;
-    }).catch(err => {
-      console.error('[Global TTS] Failed to play chunk:', err);
-      
-      // Check if this is an autoplay permission issue
-      if (err.name === 'NotAllowedError' && !hasPermission) {
-        setError('Please enable audio autoplay in the banner above');
-      } else {
+    // Decode audio from blob and play through AudioContext
+    chunk.audio_blob.arrayBuffer()
+      .then(arrayBuffer => {
+        return context.decodeAudioData(arrayBuffer);
+      })
+      .then(audioBuffer => {
+        console.log('[Global TTS] AudioBuffer decoded:', {
+          duration: audioBuffer.duration,
+          sampleRate: audioBuffer.sampleRate,
+          numberOfChannels: audioBuffer.numberOfChannels,
+          contextState: context.state
+        });
+        
+        // Create gain node for volume control
+        const gainNode = context.createGain();
+        gainNode.gain.value = 1.0; // Full volume
+        
+        // Create audio source
+        const source = context.createBufferSource();
+        source.buffer = audioBuffer;
+        
+        // Connect: source → gain → destination
+        source.connect(gainNode);
+        gainNode.connect(context.destination);
+        currentAudioSourceRef.current = source;
+        
+        // Handle end of playback
+        source.onended = () => {
+          console.log('[Global TTS] Chunk', chunk.chunk_number, 'ended');
+          URL.revokeObjectURL(chunk.audio_url);
+          currentAudioSourceRef.current = null;
+          playNextChunk(); // Play next chunk
+        };
+        
+        // Start playback
+        source.start(0);
+        console.log('[Global TTS] Chunk', chunk.chunk_number, 'playing via AudioContext at full volume');
+        console.log('[Global TTS] AudioContext state:', context.state);
+        setIsPlaying(true);
+        isPlayingRef.current = true;
+        setBrowserBlockedAutoplay(false);
+        setAudioPermissionBlocked(false);
+      })
+      .catch(err => {
+        console.error('[Global TTS] Failed to play chunk:', err);
         setError(`Playback failed: ${err.message}`);
-      }
-      
-      isPlayingRef.current = false;
-      setIsPlaying(false);
-    });
-  }, [hasPermission]);
+        isPlayingRef.current = false;
+        setIsPlaying(false);
+        URL.revokeObjectURL(chunk.audio_url);
+      });
+  }, []);
   
   /**
    * Handle WebSocket messages
@@ -187,7 +257,7 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
   }, [base64ToBlob, playNextChunk]);
   
   /**
-   * Connect to existing TTS session (for auto-play)
+   * Connect to existing TTS session (for auto-play or manual)
    */
   const connectToSession = useCallback(async (sessionId: string, sceneId: number) => {
     console.log('[Global TTS] Connecting to session:', sessionId, 'for scene:', sceneId);
@@ -220,13 +290,7 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
     setCurrentSessionId(sessionId);
     currentSessionIdRef.current = sessionId; // Update ref
     setIsGenerating(true);
-    
-    // Check if user has granted autoplay permission
-    if (!hasPermission) {
-      console.log('[Global TTS] Autoplay not enabled - skipping audio generation');
-      setIsGenerating(false);
-      return;
-    }
+    setBrowserBlockedAutoplay(false); // Clear any previous block state
     
     // Establish autoplay permission for mobile browsers
     try {
@@ -246,14 +310,27 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
     }
     
     // Connect WebSocket
-    const wsUrl = `${apiBaseUrl.replace('http', 'ws')}/ws/tts/${sessionId}`;
+    const wsProtocol = actualApiUrl.startsWith('https') ? 'wss' : 'ws';
+    const wsHost = actualApiUrl.replace(/^https?:\/\//, '');
+    const wsUrl = `${wsProtocol}://${wsHost}/ws/tts/${sessionId}`;
     console.log('[Global TTS] WebSocket URL:', wsUrl);
     
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
     
+    // Set a timeout for WebSocket connection
+    const connectionTimeout = setTimeout(() => {
+      if (ws.readyState === WebSocket.CONNECTING) {
+        console.error('[Global TTS] WebSocket connection timeout');
+        ws.close();
+        setError('Connection timeout - please try again');
+        setIsGenerating(false);
+      }
+    }, 10000); // 10 second timeout
+    
     ws.onopen = () => {
       console.log('[Global TTS] WebSocket connected');
+      clearTimeout(connectionTimeout);
     };
     
     ws.onmessage = (event) => {
@@ -267,32 +344,59 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
     
     ws.onerror = (error) => {
       console.error('[Global TTS] WebSocket error:', error);
-      setError('WebSocket connection failed');
+      setError('Connection failed - check your network');
       setIsGenerating(false);
     };
     
     ws.onclose = (event) => {
       console.log('[Global TTS] WebSocket disconnected. Code:', event.code, 'Reason:', event.reason);
       
-      // Handle session not found/expired (code 1008 or 1011 typically)
+      // Handle different close codes
       if (event.code === 1008 || event.code === 1011 || event.reason?.includes('not found') || event.reason?.includes('expired')) {
         setError('TTS session expired or not found');
         console.warn('[Global TTS] Session expired or not found');
+      } else if (event.code === 1006) {
+        // Abnormal closure - often network issues
+        setError('Connection lost - check your network');
+      } else if (event.code !== 1000) {
+        // Normal closure is 1000, anything else is an error
+        setError(`Connection closed (${event.code}) - please try again`);
       }
       
       setIsGenerating(false);
     };
-  }, [apiBaseUrl, handleWebSocketMessage, currentSceneId, isPlaying, isGenerating]);
+  }, [actualApiUrl, handleWebSocketMessage, currentSceneId, isPlaying, isGenerating]);
   
   /**
    * Start manual TTS generation for a scene
    */
   const playScene = useCallback(async (sceneId: number) => {
+    addDebugLog(`▶️ Starting TTS for scene ${sceneId}`);
     console.log('[Global TTS] Starting manual TTS for scene:', sceneId);
     
     try {
+      // FIRST: Stop any existing playback/generation
+      stop();
+      
+      // Wait a moment for cleanup
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Check if online
+      if (!navigator.onLine) {
+        addDebugLog('❌ No internet connection');
+        setError('No internet connection - please check your network');
+        setIsGenerating(false);
+        return;
+      }
+      
+      addDebugLog('✓ Making API call...');
+      
+      // Clear any previous errors
+      setError(null);
+      setIsGenerating(true);
+      
       // Create TTS session (use WebSocket endpoint)
-      const response = await fetch(`${apiBaseUrl}/api/tts/generate-ws/${sceneId}`, {
+      const response = await fetch(`${actualApiUrl}/api/tts/generate-ws/${sceneId}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -300,20 +404,54 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
         }
       });
       
+      addDebugLog(`Response: HTTP ${response.status}`);
+      
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        // Better error parsing to show helpful messages
+        let errorMessage = `HTTP ${response.status}`;
+        try {
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            const errorData = await response.json();
+            errorMessage = errorData.detail || errorData.message || errorMessage;
+            console.error('[Global TTS] Error response (JSON):', errorData);
+          } else {
+            const errorText = await response.text();
+            errorMessage = errorText || errorMessage;
+            console.error('[Global TTS] Error response (text):', errorText);
+          }
+        } catch (parseError) {
+          console.error('[Global TTS] Failed to parse error response:', parseError);
+        }
+        
+        // Add user-friendly context to common errors
+        if (response.status === 403) {
+          errorMessage = 'Access denied - please check your login';
+        } else if (response.status === 404) {
+          errorMessage = 'Scene not found - please refresh the page';
+        } else if (response.status === 500) {
+          errorMessage = `Server error: ${errorMessage}`;
+        }
+        
+        console.error('[Global TTS] Final error message:', errorMessage);
+        addDebugLog(`❌ Error: ${errorMessage}`);
+        throw new Error(errorMessage);
       }
       
       const data = await response.json();
-      console.log('[Global TTS] Session created:', data.session_id);
+      addDebugLog(`✓ Session created, connecting...`);
       
-      // Connect to the session
+      // Connect to the session (manual TTS)
       await connectToSession(data.session_id, sceneId);
     } catch (err) {
-      console.error('[Global TTS] Failed to start TTS:', err);
-      setError(err instanceof Error ? err.message : 'Failed to start TTS');
+      console.error('[Global TTS] TTS failed:', err);
+      
+      setIsGenerating(false);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to start TTS';
+      setError(errorMessage);
+      addDebugLog(`❌ FAILED: ${errorMessage}`);
     }
-  }, [apiBaseUrl, connectToSession]);
+  }, [actualApiUrl, connectToSession, addDebugLog]);
   
   /**
    * Stop playback
@@ -321,10 +459,14 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
   const stop = useCallback(() => {
     console.log('[Global TTS] Stopping playback');
     
-    // Stop current audio
-    if (currentAudioRef.current) {
-      currentAudioRef.current.pause();
-      currentAudioRef.current = null;
+    // Stop current audio source
+    if (currentAudioSourceRef.current) {
+      try {
+        currentAudioSourceRef.current.stop();
+      } catch (e) {
+        // Already stopped, ignore
+      }
+      currentAudioSourceRef.current = null;
     }
     
     // Clear queue
@@ -347,28 +489,28 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
     setCurrentSceneId(null);
     setCurrentSessionId(null);
     currentSessionIdRef.current = null; // Clear ref
+    setBrowserBlockedAutoplay(false);
+    setAudioPermissionBlocked(false);
   }, []);
   
   /**
    * Pause playback
+   * Note: AudioContext sources don't support pause/resume like Audio elements
+   * We'll just stop for now
    */
   const pause = useCallback(() => {
-    if (currentAudioRef.current) {
-      currentAudioRef.current.pause();
-      setIsPlaying(false);
-      isPlayingRef.current = false;
-    }
-  }, []);
+    console.log('[Global TTS] Pause requested - stopping playback');
+    stop();
+  }, [stop]);
   
   /**
    * Resume playback
+   * Note: AudioContext sources don't support pause/resume like Audio elements
+   * User will need to restart playback
    */
   const resume = useCallback(() => {
-    if (currentAudioRef.current) {
-      currentAudioRef.current.play();
-      setIsPlaying(true);
-      isPlayingRef.current = true;
-    }
+    console.log('[Global TTS] Resume not supported with AudioContext - user must restart');
+    // No-op for now
   }, []);
   
   // Cleanup on unmount
@@ -379,19 +521,22 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
   }, [stop]);
   
   const value: GlobalTTSContextType = {
-    isPlaying,
-    isGenerating,
-    currentSceneId,
-    currentSessionId,
-    progress,
-    totalChunks,
-    chunksReceived,
-    error,
-    playScene,
-    connectToSession,
-    stop,
-    pause,
-    resume
+        isPlaying,
+        isGenerating,
+        currentSceneId,
+        currentSessionId,
+        progress,
+        totalChunks,
+        chunksReceived,
+        error,
+        browserBlockedAutoplay,
+        audioPermissionBlocked,
+        debugLogs,
+        playScene,
+        connectToSession,
+        stop,
+        pause,
+        resume
   };
   
   return (

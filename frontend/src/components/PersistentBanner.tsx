@@ -6,13 +6,34 @@ import { HomeIcon, ArrowLeftIcon, Bars3Icon } from '@heroicons/react/24/outline'
 import { useEffect, useState } from 'react';
 import GlobalMenu from './GlobalMenu';
 import TTSSettingsModal from './TTSSettingsModal';
+import { useGlobalTTS } from '@/contexts/GlobalTTSContext';
+import { audioContextManager } from '@/utils/audioContextManager';
 
 export default function PersistentBanner() {
   const router = useRouter();
   const { user } = useAuthStore();
+  const { audioPermissionBlocked } = useGlobalTTS();
   const [canGoBack, setCanGoBack] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [showTTSSettings, setShowTTSSettings] = useState(false);
+  const [ttsPermissionEnabled, setTtsPermissionEnabled] = useState(false);
+  
+  // Compute actual permission state
+  const needsPermission = audioPermissionBlocked || !ttsPermissionEnabled;
+  
+  const handleEnableTTS = async () => {
+    console.log('[TTS Permission] Unlocking AudioContext...');
+    
+    const success = await audioContextManager.unlock();
+    
+    if (success) {
+      setTtsPermissionEnabled(true);
+      console.log('[TTS Permission] ✅ AudioContext unlocked! All TTS will now work.');
+      // NO ALERT - just visual feedback
+    } else {
+      console.error('[TTS Permission] ❌ Failed to unlock AudioContext');
+    }
+  };
 
   useEffect(() => {
     // Check if we can go back in history
@@ -60,6 +81,27 @@ export default function PersistentBanner() {
 
           {/* Right side - Action buttons */}
           <div className="flex items-center space-x-2">
+            {/* TTS Permission Button - Mobile Only */}
+            {/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) && (
+              <button
+                onClick={handleEnableTTS}
+                className={`flex items-center space-x-1 px-3 py-2 rounded-lg transition-all duration-200 ${
+                  needsPermission
+                    ? 'bg-orange-600/20 text-orange-400 hover:bg-orange-600/30 animate-pulse'
+                    : 'bg-green-600/20 text-green-400 hover:bg-green-600/30'
+                }`}
+                title={needsPermission ? 'Click to enable TTS' : 'TTS Ready'}
+              >
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+                  <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
+                </svg>
+                <span className="text-xs font-medium">
+                  {needsPermission ? '⚠️ Enable TTS' : '✓ TTS Ready'}
+                </span>
+              </button>
+            )}
+            
             {/* Menu Button */}
             <button
               onClick={() => setShowMenu(true)}
