@@ -8,12 +8,14 @@ import UnifiedMenu from './UnifiedMenu';
 import SettingsModal from './SettingsModal';
 import TTSSettingsModal from './TTSSettingsModal';
 import { useGlobalTTS } from '@/contexts/GlobalTTSContext';
+import { useStoryActions } from '@/contexts/StoryContext';
 import { audioContextManager } from '@/utils/audioContextManager';
 
 export default function PersistentBanner() {
   const router = useRouter();
   const { user } = useAuthStore();
   const { audioPermissionBlocked } = useGlobalTTS();
+  const { storyActions } = useStoryActions();
   const pathname = usePathname();
   const [canGoBack, setCanGoBack] = useState(false);
   const [showUnifiedMenu, setShowUnifiedMenu] = useState(false);
@@ -130,7 +132,7 @@ export default function PersistentBanner() {
       {/* Floating Menu Button (Bottom-Left) */}
       <button
         onClick={() => setShowUnifiedMenu(true)}
-        className="fixed left-4 bottom-4 z-50 p-4 rounded-full shadow-2xl transition-all hover:scale-110 bg-gradient-to-br from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white"
+        className="fixed left-4 bottom-4 z-50 p-4 rounded-full shadow-2xl transition-all hover:scale-110 theme-btn-primary hover:opacity-90"
         aria-label="Open menu"
       >
         <MenuIcon className="w-6 h-6" />
@@ -145,6 +147,7 @@ export default function PersistentBanner() {
           setShowSettings(true);
         }}
         isStoryPage={pathname?.startsWith('/story/')}
+        storyActions={storyActions}
       />
 
       {/* Settings Modal */}

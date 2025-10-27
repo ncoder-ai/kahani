@@ -390,7 +390,7 @@ export default function SceneVariantDisplay({
           scene={getDisplayScene()}
           sceneNumber={sceneNumber}
           format={userSettings?.scene_display_format || 'default'}
-          containerStyle={userSettings?.scene_container_style || 'lines'}
+          containerStyle="lines"
           showTitle={userSettings?.show_scene_titles === true}
           isEditing={isEditing}
           editContent={editContent}
@@ -403,10 +403,8 @@ export default function SceneVariantDisplay({
         isStreamingVariant={isStreamingVariant}
       />
       
-      {/* Audio Controls */}
-      <div className="mt-4">
-        <SceneTTSButton sceneId={scene.id} />
-      </div>
+      {/* Audio Controls - Floating speaker button */}
+      <SceneTTSButton sceneId={scene.id} />
       </div>
       
       {/* Scene Management - Only show for last scene */}
@@ -514,8 +512,8 @@ export default function SceneVariantDisplay({
           {showGuidedOptions && (
             <div className={`mt-4 space-y-2 ${
               layoutMode === 'modern' 
-                ? 'bg-gray-800/30 backdrop-filter backdrop-blur-sm rounded-lg p-3 border border-gray-600/30' 
-                : 'bg-gray-800 rounded-lg p-3 border border-gray-600'
+                ? 'theme-bg-secondary/30 backdrop-filter backdrop-blur-sm rounded-lg p-3 border border-gray-600/30' 
+                : 'theme-bg-secondary rounded-lg p-3 border border-gray-600'
             }`}>
               {[
                 { label: "Add More Dialogue", prompt: "Regenerate this scene with more dialogue and character interactions." },
@@ -565,7 +563,7 @@ export default function SceneVariantDisplay({
                     }}
                     disabled={!showChoicesDuringGeneration || isGenerating || isStreaming}
                     className={`w-full text-left p-3 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed group modern-choice-button compact ${
-                      layoutMode === 'modern' ? 'rounded-lg' : 'bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded-lg'
+                      layoutMode === 'modern' ? 'rounded-lg' : 'theme-btn-secondary hover:opacity-80 border border-gray-600 rounded-lg'
                     } ${selectedChoice === choice ? 'ring-2 ring-pink-500 bg-pink-900/20' : ''}`}
                   >
                     <div className="flex items-center justify-between relative z-10">
@@ -584,7 +582,7 @@ export default function SceneVariantDisplay({
 
           {/* Selected Choice Placeholder - Show when choice is selected but generation hasn't started */}
           {selectedChoice && !isGenerating && !isStreaming && !showChoicesDuringGeneration && (
-            <div className="mb-6 p-4 bg-gray-800/50 rounded-xl border border-gray-600">
+            <div className="mb-6 p-4 theme-bg-secondary/50 rounded-xl border border-gray-600">
               <div className="flex items-center space-x-3">
                 <div className="w-2 h-2 bg-pink-500 rounded-full animate-pulse"></div>
                 <span className="text-gray-300 text-sm">Selected: "{selectedChoice}"</span>
@@ -597,7 +595,7 @@ export default function SceneVariantDisplay({
             <div className={`${
               layoutMode === 'modern'
                 ? 'modern-input-container'
-                : 'bg-gray-700 rounded-xl border border-gray-600'
+                : 'theme-bg-secondary rounded-xl border border-gray-600'
             } p-4 transition-opacity duration-200 ${
               showChoicesDuringGeneration && !isGenerating && !isStreaming && !isRegenerating && !isStreamingContinuation
                 ? 'opacity-100 pointer-events-auto'
@@ -609,7 +607,8 @@ export default function SceneVariantDisplay({
                   value={customPrompt}
                   onChange={(e) => onCustomPromptChange?.(e.target.value)}
                   placeholder="Write what happens next..."
-                  className="flex-1 bg-transparent text-white placeholder-gray-400 outline-none"
+                  className="flex-1 bg-transparent outline-none theme-placeholder"
+                  style={{ color: 'var(--color-textPrimary)' }}
                   onKeyPress={(e) => {
                     if (e.key === 'Enter' && customPrompt.trim()) {
                       onGenerateScene?.(customPrompt);

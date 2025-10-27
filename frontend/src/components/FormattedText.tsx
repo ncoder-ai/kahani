@@ -129,7 +129,7 @@ export default function FormattedText({ content, className = "" }: FormattedText
   };
 
   return (
-    <div className={`prose prose-invert prose-lg max-w-none ${className}`}>
+    <div className={`prose prose-lg max-w-none ${className}`}>
       {formatText(content)}
     </div>
   );

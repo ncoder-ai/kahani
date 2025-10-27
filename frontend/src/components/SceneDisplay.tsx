@@ -45,11 +45,11 @@ export default function SceneDisplay({
   isStreamingVariant = false
 }: SceneDisplayProps) {
   const getSceneClassName = () => {
-    const baseClasses = "transition-all duration-200";
+    const baseClasses = "relative transition-all duration-200";
     
     // If user prefers simple lines, override format
     if (containerStyle === 'lines') {
-      return `${baseClasses} py-4 border-b border-gray-600 my-2`;
+      return `${baseClasses} py-4 my-2`;
     }
     
     // Otherwise use the selected format (bubble, card, etc.)
@@ -59,9 +59,9 @@ export default function SceneDisplay({
       case 'card':
         return `${baseClasses} theme-card rounded-lg p-6 mx-2 my-3 shadow-md theme-card-hover`;
       case 'minimal':
-        return `${baseClasses} py-4 border-b border-gray-600 my-2`;
+        return `${baseClasses} py-4 my-2`;
       default:
-        return `${baseClasses} bg-gray-800/50 rounded-md p-4 my-2 border border-gray-700/50`;
+        return `${baseClasses} theme-card rounded-md p-4 my-2 border border-gray-700/50`;
     }
   };
 

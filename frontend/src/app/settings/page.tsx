@@ -55,7 +55,6 @@ interface UIPreferences {
   show_context_info: boolean;
   notifications: boolean;
   scene_display_format: string; // 'default', 'bubble', 'card', 'minimal'
-  scene_container_style: string; // 'lines', 'cards'
   show_scene_titles: boolean;
   auto_open_last_story: boolean;
 }
@@ -262,7 +261,6 @@ export default function SettingsPage() {
           show_context_info: settings.ui_preferences.show_context_info,
           notifications: settings.ui_preferences.notifications,
           scene_display_format: settings.ui_preferences.scene_display_format,
-          scene_container_style: settings.ui_preferences.scene_container_style || 'lines',
           show_scene_titles: settings.ui_preferences.show_scene_titles,
           auto_open_last_story: settings.ui_preferences.auto_open_last_story,
         },
@@ -1463,21 +1461,6 @@ export default function SettingsPage() {
                     </p>
                   </div>
 
-                  {/* Scene Container Style */}
-                  <div>
-                    <label className="block text-sm font-medium mb-2">Scene Container Style</label>
-                    <select
-                      value={settings.ui_preferences.scene_container_style || 'lines'}
-                      onChange={(e) => updateUIPreference('scene_container_style', e.target.value)}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2"
-                    >
-                      <option value="lines">Simple Lines (Clean, Mobile-friendly)</option>
-                      <option value="cards">Cards/Bubbles (Rich, Desktop style)</option>
-                    </select>
-                    <p className="text-sm text-gray-400 mt-1">
-                      Choose between minimal line separators or rich card containers for scenes
-                    </p>
-                  </div>
 
                   {/* Show Scene Titles */}
                   <div>

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useParams } from 'next/navigation';
 import { useAuthStore, useStoryStore, useHasHydrated } from '@/store';
 import { useGlobalTTS } from '@/contexts/GlobalTTSContext';
+import { useStoryActions } from '@/contexts/StoryContext';
 import { useUISettings } from '@/hooks/useUISettings';
 import apiClient, { getApiBaseUrl } from '@/lib/api';
 import CharacterQuickAdd from '@/components/CharacterQuickAdd';
@@ -96,6 +97,7 @@ export default function StoryPage() {
   const { user, token } = useAuthStore();
   const hasHydrated = useHasHydrated();
   const globalTTS = useGlobalTTS();
+  const { setStoryActions } = useStoryActions();
   const [story, setStory] = useState<Story | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -210,6 +212,29 @@ export default function StoryPage() {
       console.error('Failed to load user settings:', err);
     }
   };
+
+  // Set up story actions for the PersistentBanner menu
+  useEffect(() => {
+    if (story) {
+      setStoryActions({
+        onChapters: () => setIsChapterSidebarOpen(true),
+        onAddCharacter: () => setShowCharacterQuickAdd(true),
+        onViewAllCharacters: () => router.push('/characters'),
+        onDirectorMode: () => setDirectorMode(!directorMode),
+        onLorebook: () => setShowLorebook(!showLorebook),
+        onDeleteMode: () => setIsInDeleteMode(!isInDeleteMode),
+        onExportStory: () => {
+          // TODO: Implement export functionality
+          console.log('Export story functionality not yet implemented');
+        },
+        directorModeActive: directorMode,
+        lorebookActive: showLorebook,
+        deleteModeActive: isInDeleteMode,
+      });
+    } else {
+      setStoryActions(undefined);
+    }
+  }, [story, directorMode, showLorebook, isInDeleteMode, setStoryActions, router]);
 
   // Auto-scroll to bottom when streaming starts
   useEffect(() => {
@@ -1083,7 +1108,7 @@ export default function StoryPage() {
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+      <div className="min-h-screen theme-bg-primary flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-pink-500 mx-auto"></div>
           <p className="mt-4 text-gray-400">Loading...</p>
@@ -1094,7 +1119,7 @@ export default function StoryPage() {
 
   if (!hasHydrated) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+      <div className="min-h-screen theme-bg-primary flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-pink-500 mx-auto mb-4"></div>
           <p className="text-gray-400">Loading...</p>
@@ -1105,7 +1130,7 @@ export default function StoryPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+      <div className="min-h-screen theme-bg-primary flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-pink-500 mx-auto"></div>
           <p className="mt-4 text-gray-400">Loading story...</p>
@@ -1116,7 +1141,7 @@ export default function StoryPage() {
 
   if (!story) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+      <div className="min-h-screen theme-bg-primary flex items-center justify-center">
         <div className="text-center">
           <h2 className="text-2xl font-bold text-white mb-4">Story not found</h2>
           <button
@@ -1133,7 +1158,7 @@ export default function StoryPage() {
   const currentScene = story.scenes?.[currentChapterIndex];
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white pt-16">
+    <div className="min-h-screen theme-bg-primary text-white pt-16">
       {/* Context Usage Progress Bar - Fixed at top */}
       <div className="fixed top-0 left-0 right-0 z-50 h-1 bg-gray-800">
         <div 
@@ -1599,7 +1624,7 @@ export default function StoryPage() {
       <div className="max-w-4xl mx-auto flex flex-col" style={{ height: 'calc(100vh - 80px)' }}>
         {/* Story Content Area */}
         <div className="flex-1 p-6 overflow-y-auto" ref={storyContentRef}>
-          <div className="theme-card rounded-2xl p-8 min-h-full shadow-2xl">
+          <div className="min-h-full">
             {/* Chapter Header */}
             <div className="flex items-center justify-between mb-8">
               <div className="flex items-center space-x-3">
