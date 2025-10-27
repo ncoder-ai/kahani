@@ -381,6 +381,22 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
       // Wait a moment for cleanup
       await new Promise(resolve => setTimeout(resolve, 100));
       
+      // AUTO-UNLOCK: For manual play, automatically unlock AudioContext
+      if (!audioContextManager.isAudioUnlocked()) {
+        addDebugLog('🔓 Auto-unlocking AudioContext for manual play...');
+        console.log('[Global TTS] Auto-unlocking AudioContext for manual play');
+        const unlockSuccess = await audioContextManager.unlock();
+        if (!unlockSuccess) {
+          addDebugLog('❌ Failed to unlock AudioContext');
+          setError('🔊 Failed to enable audio - please try again');
+          setAudioPermissionBlocked(true);
+          setIsGenerating(false);
+          return;
+        }
+        addDebugLog('✅ AudioContext unlocked successfully');
+        setAudioPermissionBlocked(false);
+      }
+      
       // Check if online
       if (!navigator.onLine) {
         addDebugLog('❌ No internet connection');
