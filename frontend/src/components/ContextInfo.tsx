@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/store';
-import { getApiBaseUrl } from '@/lib/api';
+import apiClient, { getApiBaseUrl } from '@/lib/api';
 
 interface ContextInfoProps {
   className?: string;
@@ -23,9 +23,7 @@ export const ContextInfo: React.FC<ContextInfoProps> = ({ className = '', storyI
   useEffect(() => {
     // Check if context info should be shown
     const checkSettings = () => {
-      console.log('ContextInfo checking settings:', window.kahaniUISettings);
       const shouldShow = window.kahaniUISettings?.showContextInfo || false;
-      console.log('ContextInfo should show:', shouldShow);
       setShowContextInfo(shouldShow);
     };
 
@@ -33,7 +31,6 @@ export const ContextInfo: React.FC<ContextInfoProps> = ({ className = '', storyI
 
     // Listen for settings changes
     const handleSettingsChange = () => {
-      console.log('ContextInfo settings changed event received');
       checkSettings();
     };
 
@@ -41,38 +38,66 @@ export const ContextInfo: React.FC<ContextInfoProps> = ({ className = '', storyI
     return () => window.removeEventListener('kahaniUISettingsChanged', handleSettingsChange);
   }, []);
 
-  // Fetch real context stats from the API
+  // Fetch both story summary (for scene counts) and chapter context (for token usage)
   useEffect(() => {
-    if (!storyId || !token || !showContextInfo) return;
+    if (!storyId || !token || !showContextInfo) {
+      return;
+    }
 
     const fetchContextStats = async () => {
       try {
         setLoading(true);
-        console.log('Fetching context stats for story:', storyId);
-        const response = await fetch(`${getApiBaseUrl()}/api/stories/${storyId}/summary`, {
+        
+        // Fetch story summary for scene counts and budget
+        const summaryResponse = await fetch(`${getApiBaseUrl()}/api/stories/${storyId}/summary`, {
           headers: {
             'Authorization': `Bearer ${token}`,
           },
         });
 
-        console.log('Context API response status:', response.status);
-        if (response.ok) {
-          const data = await response.json();
-          console.log('Context API data:', data);
-          setContextStats({
-            totalScenes: data.context_info.total_scenes,
-            recentScenes: data.context_info.recent_scenes,
-            summarizedScenes: data.context_info.summarized_scenes,
-            contextBudget: data.context_info.context_budget,
-            estimatedTokens: data.context_info.estimated_tokens || 0,
-            usagePercentage: data.context_info.usage_percentage || 0
-          });
-        } else {
-          console.error('Context API error:', response.status, response.statusText);
+        let summaryData = null;
+        if (summaryResponse.ok) {
+          summaryData = await summaryResponse.json();
+        }
+        
+        // Fetch chapter context status for actual token usage (same as context bar)
+        const activeChapter = await apiClient.getActiveChapter(storyId);
+        console.log('Active chapter:', activeChapter);
+        let chapterContextData = null;
+        if (activeChapter) {
+          chapterContextData = await apiClient.getChapterContextStatus(storyId, activeChapter.id);
+          console.log('Chapter context data:', chapterContextData);
+        }
+        
+        console.log('Summary data context_info:', summaryData?.context_info);
+        
+        // Combine data from both sources
+        if (summaryData?.context_info) {
+          const newStats = {
+            totalScenes: summaryData.context_info.total_scenes || 0,
+            recentScenes: summaryData.context_info.recent_scenes || 0,
+            summarizedScenes: summaryData.context_info.summarized_scenes || 0,
+            contextBudget: chapterContextData?.max_tokens || summaryData.context_info.context_budget || 4000,
+            estimatedTokens: chapterContextData?.current_tokens || 0, // Use chapter's actual token count
+            usagePercentage: chapterContextData?.percentage_used || 0
+          };
+          console.log('Setting combined stats:', newStats);
+          setContextStats(newStats);
+        } else if (chapterContextData) {
+          // Fallback to chapter data only
+          const newStats = {
+            totalScenes: 0,
+            recentScenes: 0,
+            summarizedScenes: 0,
+            contextBudget: chapterContextData.max_tokens || 4000,
+            estimatedTokens: chapterContextData.current_tokens || 0,
+            usagePercentage: chapterContextData.percentage_used || 0
+          };
+          console.log('Setting chapter-only stats:', newStats);
+          setContextStats(newStats);
         }
       } catch (error) {
         console.error('Failed to fetch context stats:', error);
-        // Keep default values on error
       } finally {
         setLoading(false);
       }
@@ -81,10 +106,9 @@ export const ContextInfo: React.FC<ContextInfoProps> = ({ className = '', storyI
     fetchContextStats();
   }, [storyId, token, showContextInfo]);
 
-  if (!showContextInfo) return null;
-
-  // Debug logging
-  console.log('ContextInfo rendering with stats:', contextStats);
+  if (!showContextInfo) {
+    return null;
+  }
 
   return (
     <div className={`bg-gray-800/50 border border-gray-600 rounded-lg p-3 relative z-50 mb-20 ${className}`}>
