@@ -189,17 +189,11 @@ setup_database() {
     else
         log_info "Initializing new database..."
         # Create database with all tables
+        # Note: init_database.py will also stamp the Alembic version internally
         cd backend && $python_cmd init_database.py && cd .. || {
             log_error "Database initialization failed"
             exit 1
         }
-        
-        # Stamp alembic so it knows all base tables exist
-        # This prevents Alembic from trying to create tables that already exist
-        log_info "Marking Alembic migrations as applied..."
-        source .venv/bin/activate
-        cd backend && alembic stamp head && cd ..
-        deactivate
     fi
     
     log_success "Database setup complete"
