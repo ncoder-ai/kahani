@@ -96,11 +96,9 @@ fi
 
 # Run Alembic migrations to upgrade schema before starting backend
 echo -e "${BLUE}🗄️ Running Alembic migrations to upgrade database schema...${NC}"
-source .venv/bin/activate
 cd backend && alembic upgrade head && cd ..
-deactivate
 
-# Start backend
+# Start backend (venv is already activated at line 46)
 echo -e "${BLUE}📡 Starting backend server on port ${BACKEND_PORT}...${NC}"
 cd backend
 PORT="$BACKEND_PORT" uvicorn app.main:app --reload --host 0.0.0.0 --port "$BACKEND_PORT" 2>&1 | sed 's/^/[BACKEND] /' &
