@@ -1240,18 +1240,9 @@ export default function StoryPage() {
         </div>
       )}
       
-      {/* Single Menu Button - Left Side */}
-      <button
-        onClick={() => setShowMainMenu(true)}
-        className="fixed left-4 bottom-4 z-40 p-4 bg-gradient-to-br from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white rounded-full shadow-2xl transition-all hover:scale-110"
-        aria-label="Open menu"
-      >
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-        </svg>
-      </button>
+      {/* Note: Floating menu button is now in PersistentBanner - always visible */}
       
-      {/* Main Menu Modal */}
+      {/* Story Menu Modal - For Phase 2: This will be removed when UnifiedMenu has all story actions */}
       {showMainMenu && (
         <>
           {/* Backdrop */}

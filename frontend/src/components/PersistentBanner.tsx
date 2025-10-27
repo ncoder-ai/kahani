@@ -1,10 +1,11 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/store';
-import { HomeIcon, ArrowLeftIcon, Bars3Icon } from '@heroicons/react/24/outline';
+import { HomeIcon, ArrowLeftIcon, Menu as MenuIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import GlobalMenu from './GlobalMenu';
+import UnifiedMenu from './UnifiedMenu';
+import SettingsModal from './SettingsModal';
 import TTSSettingsModal from './TTSSettingsModal';
 import { useGlobalTTS } from '@/contexts/GlobalTTSContext';
 import { audioContextManager } from '@/utils/audioContextManager';
@@ -13,8 +14,10 @@ export default function PersistentBanner() {
   const router = useRouter();
   const { user } = useAuthStore();
   const { audioPermissionBlocked } = useGlobalTTS();
+  const pathname = usePathname();
   const [canGoBack, setCanGoBack] = useState(false);
-  const [showMenu, setShowMenu] = useState(false);
+  const [showUnifiedMenu, setShowUnifiedMenu] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [showTTSSettings, setShowTTSSettings] = useState(false);
   const [ttsPermissionEnabled, setTtsPermissionEnabled] = useState(false);
   
@@ -118,27 +121,37 @@ export default function PersistentBanner() {
               </button>
             )}
             
-            {/* Menu Button */}
-            <button
-              onClick={() => setShowMenu(true)}
-              className="flex items-center space-x-1 text-white/80 hover:text-white hover:bg-white/10 px-3 py-2 rounded-lg transition-all duration-200"
-              title="Menu"
-            >
-              <Bars3Icon className="w-5 h-5" />
-              <span className="hidden sm:inline text-sm">Menu</span>
-            </button>
           </div>
         </div>
       </div>
 
-      {/* Global Menu */}
-      <GlobalMenu 
-        isOpen={showMenu} 
-        onClose={() => setShowMenu(false)}
-        onOpenTTSSettings={() => setShowTTSSettings(true)}
+      {/* Floating Menu Button (Bottom-Left) */}
+      <button
+        onClick={() => setShowUnifiedMenu(true)}
+        className="fixed left-4 bottom-4 z-40 theme-btn-primary p-4 rounded-full shadow-2xl transition-all hover:scale-110"
+        aria-label="Open menu"
+      >
+        <MenuIcon className="w-6 h-6 text-white" />
+      </button>
+
+      {/* Unified Menu */}
+      <UnifiedMenu 
+        isOpen={showUnifiedMenu} 
+        onClose={() => setShowUnifiedMenu(false)}
+        onOpenSettings={() => {
+          setShowUnifiedMenu(false);
+          setShowSettings(true);
+        }}
+        isStoryPage={pathname?.startsWith('/story/')}
       />
 
-      {/* TTS Settings Modal */}
+      {/* Settings Modal */}
+      <SettingsModal 
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+      />
+
+      {/* TTS Settings Modal (Temporary - for Phase 2 migration) */}
       <TTSSettingsModal 
         isOpen={showTTSSettings}
         onClose={() => setShowTTSSettings(false)}
