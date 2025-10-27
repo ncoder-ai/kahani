@@ -6,6 +6,7 @@ import { useAuthStore, useStoryStore, useHasHydrated } from '@/store';
 import { X } from 'lucide-react';
 import apiClient, { getApiBaseUrl } from '@/lib/api';
 import RouteProtection from '@/components/RouteProtection';
+import { useUISettings } from '@/hooks/useUISettings';
 
 function DashboardContent() {
   const router = useRouter();
@@ -17,6 +18,10 @@ function DashboardContent() {
   const [storySummary, setStorySummary] = useState<any>(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [generatingStorySummaryId, setGeneratingStorySummaryId] = useState<number | null>(null);
+  const [userSettings, setUserSettings] = useState<any>(null);
+
+  // Apply UI settings (theme, font size, etc.)
+  useUISettings(userSettings?.ui_preferences || null);
 
   useEffect(() => {
     if (!hasHydrated) return; 
@@ -29,7 +34,17 @@ function DashboardContent() {
     
     console.log('User found, loading stories:', user);
     loadStories();
+    loadUserSettings();
   }, [user, hasHydrated, router]);
+
+  const loadUserSettings = async () => {
+    try {
+      const settings = await apiClient.getUserSettings();
+      setUserSettings(settings.settings);
+    } catch (err) {
+      console.error('Failed to load user settings:', err);
+    }
+  };
 
   const loadStories = async () => {
     try {
@@ -222,7 +237,7 @@ function DashboardContent() {
   // Show loading while hydration is happening or user is not available
   if (!hasHydrated || !user) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
+      <div className="min-h-screen theme-bg-primary flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-white/80">Loading...</p>
@@ -232,7 +247,7 @@ function DashboardContent() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 pt-16">
+    <div className="min-h-screen theme-bg-primary pt-16">
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-6 py-12">
         {/* Hero Section */}
@@ -245,13 +260,13 @@ function DashboardContent() {
           <div className="flex justify-center gap-4">
             <button
               onClick={handleCreateStory}
-              className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white px-8 py-4 rounded-2xl font-semibold text-lg transform hover:scale-105 transition-all duration-200 shadow-lg"
+              className="theme-btn-primary px-8 py-4 rounded-2xl font-semibold text-lg transform hover:scale-105 transition-all duration-200 shadow-lg"
             >
               ✨ Create New Story
             </button>
             <button
               onClick={() => router.push('/characters')}
-              className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white px-8 py-4 rounded-2xl font-semibold text-lg transform hover:scale-105 transition-all duration-200 shadow-lg"
+              className="theme-btn-secondary px-8 py-4 rounded-2xl font-semibold text-lg transform hover:scale-105 transition-all duration-200 shadow-lg"
             >
               👥 Manage Characters
             </button>
@@ -282,7 +297,7 @@ function DashboardContent() {
               </p>
               <button
                 onClick={handleCreateStory}
-                className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white px-6 py-3 rounded-xl font-semibold transform hover:scale-105 transition-all duration-200"
+                className="theme-btn-primary px-6 py-3 rounded-xl font-semibold transform hover:scale-105 transition-all duration-200"
               >
                 Create Your First Story
               </button>
@@ -314,7 +329,7 @@ function DashboardContent() {
                   {/* Story Header */}
                   <div className="flex justify-between items-start mb-4">
                     <div className="flex-1">
-                      <h4 className="text-xl font-bold text-white mb-2 group-hover:text-purple-200 transition-colors">
+                      <h4 className="text-xl font-bold text-white mb-2 group-hover:text-gray-200 transition-colors">
                         {story.title}
                         {story.status === 'archived' && (
                           <span className="ml-2 text-xs bg-gray-600/50 text-gray-300 px-2 py-1 rounded">
@@ -323,7 +338,7 @@ function DashboardContent() {
                         )}
                       </h4>
                       {story.genre && (
-                        <span className="bg-gradient-to-r from-purple-400 to-pink-400 text-white px-3 py-1 rounded-lg text-sm font-medium">
+                        <span className="theme-accent-primary bg-opacity-20 text-white px-3 py-1 rounded-lg text-sm font-medium">
                           {story.genre.charAt(0).toUpperCase() + story.genre.slice(1)}
                         </span>
                       )}
@@ -342,9 +357,9 @@ function DashboardContent() {
 
                   {/* Story Summary - NEW */}
                   {story.summary ? (
-                    <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                    <div className="mb-4 p-3 theme-bg-secondary border theme-border-accent rounded-lg">
                       <div className="flex items-center gap-2 mb-2">
-                        <span className="text-xs font-semibold text-blue-300">📖 STORY SUMMARY</span>
+                        <span className="text-xs font-semibold theme-accent-primary">📖 STORY SUMMARY</span>
                       </div>
                       <p className="text-white/80 text-xs line-clamp-3 whitespace-pre-wrap">
                         {story.summary}

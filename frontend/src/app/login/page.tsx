@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/store';
 import apiClient, { getApiBaseUrl } from '@/lib/api';
+import { applyTheme } from '@/lib/themes';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -15,6 +16,11 @@ export default function LoginPage() {
   
   const router = useRouter();
   const { login } = useAuthStore();
+
+  useEffect(() => {
+    // Apply default theme for login page
+    applyTheme('pure-dark');
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -87,7 +93,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+    <div className="min-h-screen theme-bg-primary flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       {/* Header */}
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center mb-8">
         <h1 className="text-4xl font-bold text-white mb-2">✨ Kahani</h1>
@@ -118,7 +124,7 @@ export default function LoginPage() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                className="w-full px-4 py-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-transparent"
                 placeholder="Enter your email"
               />
             </div>
@@ -133,7 +139,7 @@ export default function LoginPage() {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                className="w-full px-4 py-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-transparent"
                 placeholder="Enter your password"
               />
             </div>
@@ -144,7 +150,7 @@ export default function LoginPage() {
                 type="checkbox"
                 checked={rememberMe}
                 onChange={(e) => setRememberMe(e.target.checked)}
-                className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded"
+                className="h-4 w-4 text-gray-600 focus:ring-gray-500 border-gray-300 rounded"
               />
               <label htmlFor="remember-me" className="ml-2 block text-sm text-white/80">
                 Remember me for 30 days
@@ -157,7 +163,7 @@ export default function LoginPage() {
               className={`w-full py-3 px-4 rounded-lg font-semibold transition-all duration-200 ${
                 isLoading
                   ? 'bg-white/20 text-white/50 cursor-not-allowed'
-                  : 'bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:from-purple-600 hover:to-pink-600 transform hover:scale-105'
+                  : 'theme-btn-primary transform hover:scale-105'
               }`}
             >
               {isLoading ? (

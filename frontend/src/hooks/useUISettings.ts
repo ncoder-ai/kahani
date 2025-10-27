@@ -1,8 +1,9 @@
 import { useEffect } from 'react';
 import { useAuthStore } from '@/store';
+import { applyTheme } from '@/lib/themes';
 
 interface UIPreferences {
-  theme: string;
+  color_theme: string;
   font_size: string;
   show_token_info: boolean;
   show_context_info: boolean;
@@ -13,22 +14,11 @@ export const useUISettings = (settings: UIPreferences | null) => {
   useEffect(() => {
     if (!settings) return;
 
-    // Apply theme
-    const root = document.documentElement;
-    if (settings.theme === 'light') {
-      root.classList.remove('dark');
-      root.classList.add('light');
-    } else if (settings.theme === 'dark') {
-      root.classList.remove('light');
-      root.classList.add('dark');
-    } else if (settings.theme === 'auto') {
-      // Use system preference
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      root.classList.remove('light', 'dark');
-      root.classList.add(prefersDark ? 'dark' : 'light');
-    }
+    // Apply color theme
+    applyTheme(settings.color_theme);
 
     // Apply font size
+    const root = document.documentElement;
     root.classList.remove('text-small', 'text-medium', 'text-large');
     root.classList.add(`text-${settings.font_size}`);
 

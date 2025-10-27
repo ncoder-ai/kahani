@@ -52,12 +52,13 @@ class UserSettings(Base):
     choices_count = Column(Integer, default=4)  # 2 - 6
     
     # UI Preferences
-    theme = Column(String(20), default="dark")  # dark, light, auto
+    color_theme = Column(String(30), default="pure-dark")  # pure-dark, midnight-blue, forest-night, crimson-noir, amber-dusk, purple-dream
     font_size = Column(String(20), default="medium")  # small, medium, large
     show_token_info = Column(Boolean, default=False)
     show_context_info = Column(Boolean, default=False)
     enable_notifications = Column(Boolean, default=True)
     scene_display_format = Column(String(20), default="default")  # default, bubble, card, minimal
+    scene_container_style = Column(String(20), default="lines")  # lines, cards
     show_scene_titles = Column(Boolean, default=True)
     auto_open_last_story = Column(Boolean, default=False)  # Auto-redirect to last story on login
     last_accessed_story_id = Column(Integer, default=None)  # Last story the user worked on
@@ -113,12 +114,13 @@ class UserSettings(Base):
                 "choices_count": self.choices_count
             },
             "ui_preferences": {
-                "theme": self.theme,
+                "color_theme": self.color_theme,
                 "font_size": self.font_size,
                 "show_token_info": self.show_token_info,
                 "show_context_info": self.show_context_info,
                 "notifications": self.enable_notifications,
                 "scene_display_format": self.scene_display_format,
+                "scene_container_style": self.scene_container_style,
                 "show_scene_titles": self.show_scene_titles,
                 "auto_open_last_story": self.auto_open_last_story,
                 "last_accessed_story_id": self.last_accessed_story_id
@@ -170,12 +172,13 @@ class UserSettings(Base):
                 "choices_count": 4
             },
             "ui_preferences": {
-                "theme": "dark",
+                "color_theme": "pure-dark",
                 "font_size": "medium",
                 "show_token_info": False,
                 "show_context_info": False,
                 "notifications": True,
                 "scene_display_format": "default",
+                "scene_container_style": "lines",
                 "show_scene_titles": False,
                 "auto_open_last_story": False
             },

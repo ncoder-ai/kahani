@@ -273,3 +273,53 @@ body {
   border-radius: 0.75rem;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
 }
+
+/* Theme-aware utilities */
+.theme-banner {
+  background: linear-gradient(to right, var(--color-bannerFrom), var(--color-bannerVia), var(--color-bannerTo));
+}
+
+.theme-bg-primary { background-color: var(--color-bgPrimary); }
+.theme-bg-secondary { background-color: var(--color-bgSecondary); }
+.theme-bg-tertiary { background-color: var(--color-bgTertiary); }
+
+.theme-card {
+  background-color: var(--color-cardBg);
+  border-color: var(--color-cardBorder);
+}
+
+.theme-card-hover:hover {
+  border-color: var(--color-cardHoverBorder);
+}
+
+.theme-btn-primary {
+  background-color: var(--color-btnPrimary);
+  color: var(--color-btnPrimaryText);
+}
+
+.theme-btn-primary:hover {
+  background-color: var(--color-btnPrimaryHover);
+}
+
+.theme-btn-secondary {
+  background-color: var(--color-btnSecondary);
+  color: var(--color-btnSecondaryText);
+}
+
+.theme-btn-secondary:hover {
+  background-color: var(--color-btnSecondaryHover);
+}
+
+.theme-text-primary { color: var(--color-textPrimary); }
+.theme-text-secondary { color: var(--color-textSecondary); }
+.theme-text-tertiary { color: var(--color-textTertiary); }
+
+.theme-accent-primary { color: var(--color-accentPrimary); }
+.theme-accent-secondary { color: var(--color-accentSecondary); }
+
+.theme-border-accent { border-color: var(--color-borderAccent); }
+
+.theme-scene-bubble {
+  background: linear-gradient(to right, var(--color-sceneBubbleFrom), var(--color-sceneBubbleTo));
+  border-color: var(--color-sceneBubbleBorder);
+}

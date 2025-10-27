@@ -15,6 +15,7 @@ interface SceneDisplayProps {
   scene: Scene;
   sceneNumber?: number; // Use this instead of scene.sequence_number for consistent numbering
   format: string; // 'default', 'bubble', 'card', 'minimal'
+  containerStyle?: string; // 'lines' or 'cards'
   showTitle: boolean;
   isEditing: boolean;
   editContent: string;
@@ -31,6 +32,7 @@ export default function SceneDisplay({
   scene, 
   sceneNumber,
   format, 
+  containerStyle = 'lines',
   showTitle, 
   isEditing, 
   editContent, 
@@ -45,13 +47,19 @@ export default function SceneDisplay({
   const getSceneClassName = () => {
     const baseClasses = "transition-all duration-200";
     
+    // If user prefers simple lines, override format
+    if (containerStyle === 'lines') {
+      return `${baseClasses} py-4 border-b border-gray-600 my-2`;
+    }
+    
+    // Otherwise use the selected format (bubble, card, etc.)
     switch (format) {
       case 'bubble':
-        return `${baseClasses} bg-gradient-to-r from-blue-900/30 to-purple-900/30 rounded-2xl p-6 mx-4 my-4 border border-blue-500/20 shadow-lg backdrop-blur-sm`;
+        return `${baseClasses} theme-scene-bubble rounded-2xl p-6 mx-4 my-4 shadow-lg backdrop-blur-sm`;
       case 'card':
-        return `${baseClasses} bg-gray-800 rounded-lg p-6 mx-2 my-3 border border-gray-600 shadow-md hover:shadow-lg hover:border-gray-500`;
+        return `${baseClasses} theme-card rounded-lg p-6 mx-2 my-3 shadow-md theme-card-hover`;
       case 'minimal':
-        return `${baseClasses} py-4 border-l-2 border-gray-600 pl-4 my-2`;
+        return `${baseClasses} py-4 border-b border-gray-600 my-2`;
       default:
         return `${baseClasses} bg-gray-800/50 rounded-md p-4 my-2 border border-gray-700/50`;
     }

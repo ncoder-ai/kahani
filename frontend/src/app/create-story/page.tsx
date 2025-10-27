@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/store';
+import { useUISettings } from '@/hooks/useUISettings';
 import apiClient from '@/lib/api';
 import CharacterQuickAdd from '@/components/CharacterQuickAdd';
 
@@ -51,6 +52,7 @@ export default function CreateStoryPage() {
   const [showCharacterQuickAdd, setShowCharacterQuickAdd] = useState(false);
   const [draftStoryId, setDraftStoryId] = useState<number | null>(null);
   const [isLoadingDraft, setIsLoadingDraft] = useState(true);
+  const [userSettings, setUserSettings] = useState<any>(null);
   const [storyData, setStoryData] = useState<StoryData>({
     story_mode: 'dynamic', // Default to dynamic mode
     title: '',
@@ -62,6 +64,25 @@ export default function CreateStoryPage() {
     plot_points: [],
     scenario: '',
   });
+
+  // Apply UI settings (theme, font size, etc.)
+  useUISettings(userSettings?.ui_preferences || null);
+
+  // Load user settings
+  useEffect(() => {
+    const loadUserSettings = async () => {
+      try {
+        const settings = await apiClient.getUserSettings();
+        setUserSettings(settings.settings);
+      } catch (err) {
+        console.error('Failed to load user settings:', err);
+      }
+    };
+    
+    if (user) {
+      loadUserSettings();
+    }
+  }, [user]);
 
   // Load existing draft on component mount
   useEffect(() => {
@@ -264,7 +285,7 @@ export default function CreateStoryPage() {
 
   if (isLoadingDraft) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
+      <div className="min-h-screen theme-bg-primary flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-white/80">Loading your story draft...</p>
@@ -274,7 +295,7 @@ export default function CreateStoryPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 pt-16">
+    <div className="min-h-screen theme-bg-primary pt-16">
       {/* Header */}
       <div className="bg-white/10 backdrop-blur-md border-b border-white/20">
         <div className="max-w-4xl mx-auto px-6 py-4">
@@ -309,7 +330,7 @@ export default function CreateStoryPage() {
               )}
               <button
                 onClick={() => setShowCharacterQuickAdd(true)}
-                className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white rounded-lg transition-colors text-sm font-medium"
+                className="px-4 py-2 theme-btn-primary rounded-lg transition-colors text-sm font-medium"
               >
                 + Add Character
               </button>
@@ -341,7 +362,7 @@ export default function CreateStoryPage() {
       <div className="max-w-4xl mx-auto px-6 py-6">
         <div className="bg-white/10 rounded-full h-2 mb-8">
           <div
-            className="bg-gradient-to-r from-purple-400 to-pink-400 h-2 rounded-full transition-all duration-500"
+            className="theme-accent-primary h-2 rounded-full transition-all duration-500"
             style={{ width: `${((currentStep + 1) / STEPS.length) * 100}%` }}
           />
         </div>
@@ -358,7 +379,7 @@ export default function CreateStoryPage() {
               <div
                 className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium mb-2 ${
                   index <= currentStep
-                    ? 'bg-gradient-to-r from-purple-400 to-pink-400 text-white'
+                    ? 'theme-accent-primary text-white'
                     : 'bg-white/20 text-white/60'
                 }`}
               >

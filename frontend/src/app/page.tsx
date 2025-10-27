@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore, useHasHydrated } from '@/store';
+import { applyTheme } from '@/lib/themes';
 
 export default function HomePage() {
   const router = useRouter();
@@ -11,6 +12,9 @@ export default function HomePage() {
   const hasHydrated = useHasHydrated();
 
   useEffect(() => {
+    // Apply default theme for landing page
+    applyTheme('pure-dark');
+    
     if (hasHydrated && isAuthenticated) {
       router.push('/dashboard');
     }
@@ -18,7 +22,7 @@ export default function HomePage() {
 
   if (!hasHydrated) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
+      <div className="min-h-screen theme-bg-primary flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-white/80">Loading...</p>
@@ -28,7 +32,7 @@ export default function HomePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900">
+    <div className="min-h-screen theme-bg-primary">
       {/* Header */}
       <header className="bg-white/10 backdrop-blur-md border-b border-white/20">
         <div className="max-w-7xl mx-auto px-6 py-4">
@@ -47,7 +51,7 @@ export default function HomePage() {
               </Link>
               <Link
                 href="/register"
-                className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white px-6 py-2 rounded-lg font-semibold transition-all duration-200"
+                className="theme-btn-primary px-6 py-2 rounded-lg font-semibold transition-all duration-200"
               >
                 Get Started
               </Link>
@@ -62,7 +66,7 @@ export default function HomePage() {
           <h2 className="text-6xl font-bold text-white mb-6">
             Create Stories That
             <br />
-            <span className="bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
+            <span className="theme-accent-primary">
               Come Alive
             </span>
           </h2>
@@ -74,7 +78,7 @@ export default function HomePage() {
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
             <Link
               href="/register"
-              className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white px-8 py-4 rounded-2xl font-semibold text-lg transform hover:scale-105 transition-all duration-200 shadow-lg"
+              className="theme-btn-primary px-8 py-4 rounded-2xl font-semibold text-lg transform hover:scale-105 transition-all duration-200 shadow-lg"
             >
               Start Creating Now
             </Link>
@@ -115,14 +119,14 @@ export default function HomePage() {
         </div>
 
         {/* CTA Section */}
-        <div className="bg-gradient-to-r from-purple-500/20 to-pink-500/20 border border-purple-300/30 rounded-3xl p-12 text-center">
+        <div className="theme-bg-secondary border theme-border-accent rounded-3xl p-12 text-center">
           <h3 className="text-3xl font-bold text-white mb-4">Ready to Begin Your Story?</h3>
           <p className="text-white/80 text-lg mb-8">
             Join thousands of creators who are bringing their imagination to life with Kahani
           </p>
           <Link
             href="/register"
-            className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white px-8 py-4 rounded-2xl font-semibold text-lg transform hover:scale-105 transition-all duration-200 shadow-lg"
+            className="theme-btn-primary px-8 py-4 rounded-2xl font-semibold text-lg transform hover:scale-105 transition-all duration-200 shadow-lg"
           >
             Create Your First Story
           </Link>

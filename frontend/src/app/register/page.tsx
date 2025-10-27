@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/store';
 import apiClient from '@/lib/api';
+import { applyTheme } from '@/lib/themes';
 
 export default function RegisterPage() {
   const [formData, setFormData] = useState({
@@ -18,6 +19,11 @@ export default function RegisterPage() {
   
   const router = useRouter();
   const { login } = useAuthStore();
+
+  useEffect(() => {
+    // Apply default theme for register page
+    applyTheme('pure-dark');
+  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
@@ -63,7 +69,7 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+    <div className="min-h-screen theme-bg-primary flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       {/* Header */}
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center mb-8">
         <h1 className="text-4xl font-bold text-white mb-2">✨ Kahani</h1>
@@ -95,7 +101,7 @@ export default function RegisterPage() {
                 required
                 value={formData.displayName}
                 onChange={handleChange}
-                className="w-full px-4 py-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                className="w-full px-4 py-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-transparent"
                 placeholder="Your display name"
               />
             </div>
@@ -111,7 +117,7 @@ export default function RegisterPage() {
                 required
                 value={formData.username}
                 onChange={handleChange}
-                className="w-full px-4 py-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                className="w-full px-4 py-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-transparent"
                 placeholder="Choose a username"
               />
             </div>
@@ -127,7 +133,7 @@ export default function RegisterPage() {
                 required
                 value={formData.email}
                 onChange={handleChange}
-                className="w-full px-4 py-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                className="w-full px-4 py-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-transparent"
                 placeholder="Enter your email"
               />
             </div>
@@ -143,7 +149,7 @@ export default function RegisterPage() {
                 required
                 value={formData.password}
                 onChange={handleChange}
-                className="w-full px-4 py-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                className="w-full px-4 py-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-transparent"
                 placeholder="Create a password"
               />
             </div>
@@ -155,7 +161,7 @@ export default function RegisterPage() {
                 className={`w-full py-3 px-4 rounded-lg font-semibold transition-all duration-200 ${
                   isLoading
                     ? 'bg-white/20 text-white/50 cursor-not-allowed'
-                    : 'bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:from-purple-600 hover:to-pink-600 transform hover:scale-105'
+                    : 'theme-btn-primary transform hover:scale-105'
                 }`}
               >
                 {isLoading ? (
