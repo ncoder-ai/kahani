@@ -15,6 +15,7 @@ import SceneVariantDisplay from '@/components/SceneVariantDisplay';
 import ChapterSidebar from '@/components/ChapterSidebar';
 import TTSSettingsModal from '@/components/TTSSettingsModal';
 import { GlobalTTSWidget } from '@/components/GlobalTTSWidget';
+import { TTSDebugPanel } from '@/components/TTSDebugPanel';
 import { BookOpen, ChevronRight, X, AlertCircle, Sparkles, Volume2 } from 'lucide-react';
 import { 
   BookOpenIcon, 
@@ -498,6 +499,7 @@ export default function StoryPage() {
   const generateNewScene = async (prompt?: string) => {
     if (!story) return;
     console.log('generateNewScene called', { storyId: story.id, prompt });
+    
     setError('');
     setIsGenerating(true);
     setIsSceneOperationInProgress(true); // Block variant loading operations
@@ -550,6 +552,7 @@ export default function StoryPage() {
   const generateNewSceneStreaming = async (prompt?: string) => {
     if (!story) return;
     console.log('generateNewSceneStreaming called', { storyId: story.id, prompt });
+    
     setError('');
     setIsStreaming(true);
     setIsSceneOperationInProgress(true); // Block variant loading operations
@@ -2001,6 +2004,9 @@ export default function StoryPage() {
           console.log('TTS settings saved');
         }}
       />
+      
+      {/* TTS Debug Panel - visible on mobile for troubleshooting */}
+      <TTSDebugPanel />
 
       {/* Story Summary Modal */}
       {showSummaryModal && (

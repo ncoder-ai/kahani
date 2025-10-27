@@ -10,13 +10,14 @@ export const GlobalTTSWidget: React.FC = () => {
     isGenerating, 
     currentSceneId,
     error,
+    browserBlockedAutoplay,
     stop,
     pause,
     resume
   } = useGlobalTTS();
   
-  // Don't show if nothing is playing or generating and no error
-  if (!isGenerating && !isPlaying && !currentSceneId && !error) {
+  // Don't show if nothing is playing or generating and no error or browser block
+  if (!isGenerating && !isPlaying && !currentSceneId && !error && !browserBlockedAutoplay) {
     return null;
   }
   
@@ -28,6 +29,8 @@ export const GlobalTTSWidget: React.FC = () => {
         <span className="text-xs text-gray-300 flex-1">
           {error ? (
             <span className="text-red-400">{error}</span>
+          ) : browserBlockedAutoplay ? (
+            <span className="text-yellow-400">🔊 Click play to enable audio</span>
           ) : isGenerating ? (
             'Generating...'
           ) : isPlaying ? (
