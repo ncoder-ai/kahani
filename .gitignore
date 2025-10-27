@@ -10,7 +10,12 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# lib/ - commented out to allow frontend/src/lib/
+# Only ignore Python lib directories
+backend/lib/
+backend/lib64/
+.venv/lib/
+.venv/lib64/
 lib64/
 parts/
 sdist/
