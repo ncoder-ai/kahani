@@ -10,6 +10,8 @@ import { useStoryActions } from '@/contexts/StoryContext';
 import { useUISettings } from '@/hooks/useUISettings';
 import apiClient, { getApiBaseUrl } from '@/lib/api';
 import CharacterQuickAdd from '@/components/CharacterQuickAdd';
+import CharacterWizard from '@/components/CharacterWizard';
+import CharacterSuggestionBanner from '@/components/CharacterSuggestionBanner';
 import { ContextInfo } from '@/components/ContextInfo';
 import FormattedText from '@/components/FormattedText';
 import SceneDisplay from '@/components/SceneDisplay';
@@ -111,6 +113,9 @@ export default function StoryPage() {
   const [editContent, setEditContent] = useState('');
   const [dynamicChoices, setDynamicChoices] = useState<Array<{text: string, order: number}>>([]);
   const [showCharacterQuickAdd, setShowCharacterQuickAdd] = useState(false);
+  const [showCharacterWizard, setShowCharacterWizard] = useState(false);
+  const [showCharacterBanner, setShowCharacterBanner] = useState(false);
+  const [currentChapterId, setCurrentChapterId] = useState<number | undefined>(undefined);
   const [storyCharacters, setStoryCharacters] = useState<Array<{name: string, role: string, description: string}>>([]);
   const [showMoreOptions, setShowMoreOptions] = useState(false);
   const [isGeneratingMoreOptions, setIsGeneratingMoreOptions] = useState(false);
@@ -569,6 +574,9 @@ export default function StoryPage() {
       // Refresh chapter sidebar to update context counter
       setChapterSidebarRefreshKey(prev => prev + 1);
 
+      // Check for new important characters
+      checkCharacterImportance();
+
     } catch (err) {
       console.error('generateNewScene error', err);
       setError(err instanceof Error ? err.message : 'Failed to generate scene');
@@ -695,6 +703,9 @@ export default function StoryPage() {
           globalTTS.connectToSession(sessionId, sceneId);
         }
       );
+
+      // Check for new important characters
+      checkCharacterImportance();
     } catch (err) {
       console.error('generateNewSceneStreaming error', err);
       setError(err instanceof Error ? err.message : 'Failed to generate scene');
@@ -750,6 +761,25 @@ export default function StoryPage() {
     };
     setStoryCharacters(prev => [...prev, newCharacter]);
     setShowCharacterQuickAdd(false);
+  };
+
+  const checkCharacterImportance = async () => {
+    try {
+      const response = await apiClient.checkCharacterImportance(storyId, currentChapterId);
+      setShowCharacterBanner(response.new_character_detected);
+    } catch (error) {
+      console.error('Failed to check character importance:', error);
+    }
+  };
+
+  const handleCharacterCreated = (character: any) => {
+    // Refresh story characters or add to local state
+    setStoryCharacters(prev => [...prev, {
+      name: character.name,
+      role: character.role,
+      description: character.description
+    }]);
+    setShowCharacterBanner(false);
   };
 
   const generateMoreOptions = async () => {
@@ -1583,6 +1613,15 @@ export default function StoryPage() {
       
       {/* Navigation Header - Simplified */}
       <div className="bg-gray-800/95 backdrop-blur-md border-b border-gray-700">
+        {/* Character Suggestion Banner */}
+        <CharacterSuggestionBanner
+          storyId={storyId}
+          chapterId={currentChapterId}
+          onDiscoverCharacters={() => setShowCharacterWizard(true)}
+          onDismiss={() => setShowCharacterBanner(false)}
+          isVisible={showCharacterBanner}
+        />
+
         <div className="max-w-4xl mx-auto px-4 md:px-6 py-3 md:py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2 md:space-x-4">
@@ -2014,6 +2053,19 @@ export default function StoryPage() {
           onCharacterAdd={handleCharacterAdd}
           onClose={() => setShowCharacterQuickAdd(false)}
           existingCharacters={storyCharacters}
+          storyId={storyId}
+          chapterId={currentChapterId}
+          onOpenCharacterWizard={() => setShowCharacterWizard(true)}
+        />
+      )}
+
+      {/* Character Wizard Modal */}
+      {showCharacterWizard && (
+        <CharacterWizard
+          storyId={storyId}
+          chapterId={currentChapterId}
+          onCharacterCreated={handleCharacterCreated}
+          onClose={() => setShowCharacterWizard(false)}
         />
       )}
 

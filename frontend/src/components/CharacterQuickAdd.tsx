@@ -31,6 +31,9 @@ interface CharacterQuickAddProps {
   onCharacterAdd: (character: Character) => void;
   onClose: () => void;
   existingCharacters: Character[];
+  storyId?: number;
+  chapterId?: number;
+  onOpenCharacterWizard?: () => void;
 }
 
 const CHARACTER_ROLES = [
@@ -44,8 +47,8 @@ const CHARACTER_ROLES = [
   { id: 'other', name: 'Other', icon: '👤', color: 'from-indigo-400 to-indigo-600' }
 ];
 
-export default function CharacterQuickAdd({ onCharacterAdd, onClose, existingCharacters }: CharacterQuickAddProps) {
-  const [activeTab, setActiveTab] = useState<'library' | 'create' | 'quick'>('quick');
+export default function CharacterQuickAdd({ onCharacterAdd, onClose, existingCharacters, storyId, chapterId, onOpenCharacterWizard }: CharacterQuickAddProps) {
+  const [activeTab, setActiveTab] = useState<'library' | 'create' | 'quick' | 'discover'>('quick');
   const [persistentCharacters, setPersistentCharacters] = useState<PersistentCharacter[]>([]);
   const [loadingLibrary, setLoadingLibrary] = useState(false);
   const [quickCharacter, setQuickCharacter] = useState<Partial<Character>>({});
@@ -158,6 +161,18 @@ export default function CharacterQuickAdd({ onCharacterAdd, onClose, existingCha
             >
               Create New
             </button>
+            {storyId && onOpenCharacterWizard && (
+              <button
+                onClick={() => setActiveTab('discover')}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  activeTab === 'discover'
+                    ? 'bg-purple-500 text-white'
+                    : 'bg-white/10 text-white/70 hover:bg-white/20'
+                }`}
+              >
+                Discover from Story
+              </button>
+            )}
           </div>
         </div>
         
@@ -283,6 +298,27 @@ export default function CharacterQuickAdd({ onCharacterAdd, onClose, existingCha
                   mode="inline"
                   onSave={handleCreateNewCharacter}
                 />
+              </div>
+            )}
+
+            {activeTab === 'discover' && (
+              <div className="text-center py-12">
+                <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-blue-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <span className="text-2xl">🔍</span>
+                </div>
+                <h3 className="text-xl font-semibold text-white mb-4">Discover Characters from Your Story</h3>
+                <p className="text-white/70 mb-8 max-w-md mx-auto">
+                  Let AI analyze your story content to find characters that might be worth adding to your character library.
+                </p>
+                <button
+                  onClick={() => {
+                    onClose();
+                    onOpenCharacterWizard?.();
+                  }}
+                  className="px-6 py-3 bg-gradient-to-r from-purple-500 to-blue-500 text-white rounded-lg hover:from-purple-600 hover:to-blue-600 transition-all font-semibold"
+                >
+                  Analyze Current Chapter
+                </button>
               </div>
             )}
           </div>
