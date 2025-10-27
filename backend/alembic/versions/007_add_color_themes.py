@@ -13,17 +13,24 @@ branch_labels = None
 depends_on = None
 
 def upgrade():
-    # For SQLite, we need to create a new table and copy data
-    # First, add the new column
-    op.add_column('user_settings', sa.Column('color_theme', sa.String(30), default='pure-dark'))
+    # Check if columns exist before modifying (idempotent)
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    columns = [col['name'] for col in inspector.get_columns('user_settings')]
     
-    # Copy existing theme values to color_theme
-    op.execute("UPDATE user_settings SET color_theme = 'pure-dark' WHERE theme = 'dark'")
-    op.execute("UPDATE user_settings SET color_theme = 'pure-dark' WHERE theme = 'light'")
-    op.execute("UPDATE user_settings SET color_theme = 'pure-dark' WHERE theme = 'auto'")
+    # Add color_theme column if it doesn't exist
+    if 'color_theme' not in columns:
+        op.add_column('user_settings', sa.Column('color_theme', sa.String(30), default='pure-dark'))
+        
+        # Copy existing theme values to color_theme if theme column exists
+        if 'theme' in columns:
+            op.execute("UPDATE user_settings SET color_theme = 'pure-dark' WHERE theme = 'dark'")
+            op.execute("UPDATE user_settings SET color_theme = 'pure-dark' WHERE theme = 'light'")
+            op.execute("UPDATE user_settings SET color_theme = 'pure-dark' WHERE theme = 'auto'")
     
-    # Drop the old theme column
-    op.drop_column('user_settings', 'theme')
+    # Drop the old theme column if it exists
+    if 'theme' in columns:
+        op.drop_column('user_settings', 'theme')
 
 def downgrade():
     # Add back the theme column

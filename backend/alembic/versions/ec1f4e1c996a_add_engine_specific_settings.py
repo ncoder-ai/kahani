@@ -17,9 +17,16 @@ depends_on = None
 
 
 def upgrade():
+    # Check if columns exist before adding (idempotent)
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    columns = [col['name'] for col in inspector.get_columns('user_settings')]
+    
     # Add engine-specific settings columns
-    op.add_column('user_settings', sa.Column('engine_settings', sa.Text(), server_default='{}', nullable=False))
-    op.add_column('user_settings', sa.Column('current_engine', sa.String(50), server_default='', nullable=False))
+    if 'engine_settings' not in columns:
+        op.add_column('user_settings', sa.Column('engine_settings', sa.Text(), server_default='{}', nullable=False))
+    if 'current_engine' not in columns:
+        op.add_column('user_settings', sa.Column('current_engine', sa.String(50), server_default='', nullable=False))
 
 
 def downgrade():
