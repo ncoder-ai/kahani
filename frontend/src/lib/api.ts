@@ -1,31 +1,34 @@
 // API configuration and utilities
 
-// Runtime API URL detection - always uses browser hostname
+// Runtime API URL detection - check if we're in browser and try to auto-detect
 function getApiBaseUrl(): string {
-  // In browser context, always use runtime detection
-  if (typeof window !== 'undefined' && window.location && window.location.hostname) {
-    const currentHost = window.location.hostname;
-    const protocol = window.location.protocol;
-    return `${protocol}//${currentHost}:9876`;
+  // First check environment variable
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL;
   }
   
-  // Fallback for server-side rendering only
+  // In browser, auto-detect based on current host
+  if (typeof window !== 'undefined') {
+    const currentHost = window.location.hostname;
+    // If not localhost, use current host with backend port
+    if (currentHost !== 'localhost' && currentHost !== '127.0.0.1') {
+      return `http://${currentHost}:9876`;
+    }
+  }
+  
+  // Default fallback
   return 'http://localhost:9876';
 }
 
+const API_BASE_URL = getApiBaseUrl();
+
 class ApiClient {
-  private baseURL: string | null = null;
+  private baseURL: string;
   private token: string | null = null;
 
-  constructor() {
+  constructor(baseURL: string) {
+    this.baseURL = baseURL;
     this.loadToken();
-  }
-
-  private getBaseURLInternal(): string {
-    if (!this.baseURL) {
-      this.baseURL = getApiBaseUrl();
-    }
-    return this.baseURL;
   }
 
   private loadToken() {
@@ -59,8 +62,7 @@ class ApiClient {
   }
 
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-    const baseURL = this.getBaseURLInternal();
-    const url = `${baseURL}${endpoint}`;
+    const url = `${this.baseURL}${endpoint}`;
     const isFormData = (typeof FormData !== 'undefined') && (options.body instanceof FormData);
 
     const headers: Record<string, string> = {
@@ -73,7 +75,7 @@ class ApiClient {
     }
 
     console.log(`[API] ${options.method || 'GET'} ${url}`);
-    console.log('[API] Base URL:', baseURL);
+    console.log('[API] Base URL:', this.baseURL);
     console.log('[API] Endpoint:', endpoint);
     console.log('[API] Headers:', Object.keys(headers));
 
@@ -215,7 +217,7 @@ class ApiClient {
     const headers: Record<string, string> = {};
     if (this.token) headers.Authorization = `Bearer ${this.token}`;
     try {
-      const response = await fetch(`${this.getBaseURLInternal()}/api/stories/${storyId}/scenes/stream`, { method: 'POST', headers, body: formData });
+      const response = await fetch(`${this.baseURL}/api/stories/${storyId}/scenes/stream`, { method: 'POST', headers, body: formData });
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       if (!response.body) throw new Error('No response body');
       const reader = response.body.getReader();
@@ -288,7 +290,7 @@ class ApiClient {
     try {
       const formData = new FormData();
       formData.append('custom_prompt', customPrompt);
-      const response = await fetch(`${this.getBaseURLInternal()}/api/stories/${storyId}/regenerate-last-scene/stream`, { method: 'POST', headers, body: formData });
+      const response = await fetch(`${this.baseURL}/api/stories/${storyId}/regenerate-last-scene/stream`, { method: 'POST', headers, body: formData });
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const reader = response.body?.getReader();
       if (!reader) throw new Error('Failed to get response reader');
@@ -342,7 +344,7 @@ class ApiClient {
     if (this.token) headers.Authorization = `Bearer ${this.token}`;
     
     try {
-      const response = await fetch(`${this.getBaseURLInternal()}/api/stories/${storyId}/scenes/${sceneId}/variants/stream`, {
+      const response = await fetch(`${this.baseURL}/api/stories/${storyId}/scenes/${sceneId}/variants/stream`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ custom_prompt: customPrompt })
@@ -423,7 +425,7 @@ class ApiClient {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (this.token) headers.Authorization = `Bearer ${this.token}`;
     try {
-      const response = await fetch(`${this.getBaseURLInternal()}/api/stories/${storyId}/scenes/${sceneId}/continue/stream`, {
+      const response = await fetch(`${this.baseURL}/api/stories/${storyId}/scenes/${sceneId}/continue/stream`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ custom_prompt: customPrompt }),
@@ -810,78 +812,6 @@ class ApiClient {
     });
   }
 
-  // Character Assistant Methods
-  async getCharacterSuggestions(storyId: number, chapterId?: number) {
-    const params = chapterId ? `?chapter_id=${chapterId}` : '';
-    return this.request<{
-      suggestions: Array<{
-        name: string;
-        mention_count: number;
-        importance_score: number;
-        first_appearance_scene: number;
-        last_appearance_scene: number;
-        is_in_library: boolean;
-        preview: string;
-        scenes: number[];
-      }>;
-      chapter_analyzed?: number;
-      total_scenes_analyzed: number;
-    }>(`/api/stories/${storyId}/character-suggestions${params}`);
-  }
-
-  async analyzeCharacterDetails(storyId: number, characterName: string) {
-    return this.request<{
-      name: string;
-      description: string;
-      personality_traits: string[];
-      background: string;
-      goals: string;
-      fears: string;
-      appearance: string;
-      suggested_role: string;
-      confidence: number;
-      scenes_analyzed: number[];
-    }>(`/api/stories/${storyId}/character-suggestions/${encodeURIComponent(characterName)}/analyze`, {
-      method: 'POST',
-    });
-  }
-
-  async createCharacterFromSuggestion(storyId: number, characterName: string, details: {
-    name: string;
-    description: string;
-    personality_traits: string[];
-    background: string;
-    goals: string;
-    fears: string;
-    appearance: string;
-    role: string;
-  }) {
-    return this.request<{
-      id: number;
-      name: string;
-      description: string;
-      personality_traits: string[];
-      background: string;
-      goals: string;
-      fears: string;
-      appearance: string;
-      role: string;
-      story_character_id: number;
-    }>(`/api/stories/${storyId}/character-suggestions/${encodeURIComponent(characterName)}/create`, {
-      method: 'POST',
-      body: JSON.stringify(details),
-    });
-  }
-
-  async checkCharacterImportance(storyId: number, chapterId?: number) {
-    const params = chapterId ? `?chapter_id=${chapterId}` : '';
-    return this.request<{
-      new_character_detected: boolean;
-      importance_threshold: number;
-      mention_threshold: number;
-    }>(`/api/stories/${storyId}/character-importance-check${params}`);
-  }
-
   // Generic HTTP methods
   async get<T>(endpoint: string): Promise<T> {
     return this.request<T>(endpoint, { method: 'GET' });
@@ -907,7 +837,7 @@ class ApiClient {
 
   // Utility methods
   getBaseURL(): string {
-    return this.getBaseURLInternal();
+    return this.baseURL;
   }
 
   getToken(): string | null {
@@ -915,8 +845,8 @@ class ApiClient {
   }
 }
 
-// Export function to get API base URL at runtime
-export { getApiBaseUrl };
-
 // Export singleton instance as default
-export default new ApiClient();
+export default new ApiClient(API_BASE_URL);
+
+// Export API_BASE_URL for direct URL construction when needed
+export { API_BASE_URL };

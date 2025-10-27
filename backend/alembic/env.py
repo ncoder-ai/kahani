@@ -75,8 +75,13 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
+        # For SQLite, enable batch mode for better ALTER TABLE support
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection, 
+            target_metadata=target_metadata,
+            render_as_batch=True,
+            compare_type=True,
+            compare_server_default=True,
         )
 
         with context.begin_transaction():

@@ -161,8 +161,8 @@ class UnifiedLLMService:
             
             # Provide helpful error messages for common connection issues
             if "404" in error_msg or "Not Found" in error_msg:
-                if client.api_type in ["openai_compatible", "tabbyapi"]:
-                    raise ValueError(f"API endpoint not found. The system automatically adds '/v1' to your URL. Please check that your base URL is correct: {client.api_url}")
+                if client.api_type == "openai_compatible":
+                    raise ValueError(f"API endpoint not found. For TabbyAPI and similar services, try adding '/v1' to your URL: {client.api_url}/v1")
                 else:
                     raise ValueError(f"API endpoint not found at {client.api_url}. Please check your URL.")
             elif "401" in error_msg or "Unauthorized" in error_msg:
@@ -173,7 +173,7 @@ class UnifiedLLMService:
                 raise ValueError(f"Cannot connect to {client.api_url}. Please check if the service is running and accessible.")
             else:
                 # Fallback to direct HTTP for LM Studio and TabbyAPI
-                if client.api_type in ["lm_studio", "openai_compatible", "tabbyapi"]:
+                if client.api_type in ["lm_studio", "openai_compatible"]:
                     logger.info(f"Attempting direct HTTP fallback for {client.api_type}")
                     return await self._direct_http_fallback(client, messages, max_tokens, temperature, False)
                 else:
@@ -200,8 +200,11 @@ class UnifiedLLMService:
             headers["Authorization"] = f"Bearer {client.api_key}"
         
         try:
-            # For openai-compatible, tabbyapi, and lm_studio, always use /v1/chat/completions
-            endpoint_url = f"{client.api_url}/v1/chat/completions"
+            # Determine the correct endpoint URL
+            if client.api_url.endswith("/v1"):
+                endpoint_url = f"{client.api_url}/chat/completions"
+            else:
+                endpoint_url = f"{client.api_url}/v1/chat/completions"
             
             async with httpx.AsyncClient() as http_client:
                 response = await http_client.post(
@@ -314,13 +317,11 @@ class UnifiedLLMService:
     
     # Story Generation Functions
     
-    async def generate_story_title(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], db: Session = None) -> List[str]:
+    async def generate_story_title(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> List[str]:
         """Generate creative story titles based on story content"""
         
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "title_generation", "title_generation",
-            user_id=user_id,
-            db=db,
             context=self._format_context_for_titles(context)
         )
         
@@ -365,13 +366,11 @@ class UnifiedLLMService:
         
         return cleaned_titles[:5]
     
-    async def generate_story_chapters(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], chapter_count: int = 5, db: Session = None) -> List[str]:
+    async def generate_story_chapters(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], chapter_count: int = 5) -> List[str]:
         """Generate a chapter structure for a story"""
         
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "summary_generation", "story_chapters",
-            user_id=user_id,
-            db=db,
             context=self._format_context_for_chapters(context),
             chapter_count=chapter_count
         )
@@ -412,13 +411,11 @@ class UnifiedLLMService:
         
         return chapters[:chapter_count]
     
-    async def generate_scene(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], db: Session = None) -> str:
+    async def generate_scene(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> str:
         """Generate a story scene"""
         
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "scene_generation", "scene_generation",
-            user_id=user_id,
-            db=db,
             context=self._format_context_for_scene(context)
         )
         
@@ -443,13 +440,11 @@ class UnifiedLLMService:
         
         return self._clean_scene_numbers(response)
     
-    async def generate_scene_streaming(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], db: Session = None) -> AsyncGenerator[str, None]:
+    async def generate_scene_streaming(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> AsyncGenerator[str, None]:
         """Generate a story scene with streaming"""
         
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "scene_generation", "scene_generation",
-            user_id=user_id,
-            db=db,
             context=self._format_context_for_scene(context)
         )
         
@@ -475,13 +470,11 @@ class UnifiedLLMService:
             if cleaned_chunk:  # Only yield non-empty chunks
                 yield cleaned_chunk
     
-    async def generate_scene_variants(self, original_scene: str, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], db: Session = None) -> str:
+    async def generate_scene_variants(self, original_scene: str, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> str:
         """Generate alternative versions of a scene"""
         
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "summary_generation", "scene_variants",
-            user_id=user_id,
-            db=db,
             original_scene=original_scene,
             context=self._format_context_for_scene(context)
         )
@@ -498,13 +491,11 @@ class UnifiedLLMService:
         
         return self._clean_scene_numbers(response)
     
-    async def generate_scene_variants_streaming(self, original_scene: str, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], db: Session = None) -> AsyncGenerator[str, None]:
+    async def generate_scene_variants_streaming(self, original_scene: str, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> AsyncGenerator[str, None]:
         """Generate alternative versions of a scene with streaming"""
         
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "summary_generation", "scene_variants_streaming",
-            user_id=user_id,
-            db=db,
             original_scene=original_scene,
             context=self._format_context_for_scene(context)
         )
@@ -522,13 +513,11 @@ class UnifiedLLMService:
             if cleaned_chunk:  # Only yield non-empty chunks
                 yield cleaned_chunk
     
-    async def generate_scene_continuation(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], db: Session = None) -> str:
+    async def generate_scene_continuation(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> str:
         """Generate continuation content for an existing scene"""
         
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "story_generation", "scene_continuation",
-            user_id=user_id,
-            db=db,
             context=self._format_context_for_continuation(context)
         )
         
@@ -544,13 +533,11 @@ class UnifiedLLMService:
         
         return self._clean_scene_numbers(response)
     
-    async def generate_scene_continuation_streaming(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], db: Session = None) -> AsyncGenerator[str, None]:
+    async def generate_scene_continuation_streaming(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> AsyncGenerator[str, None]:
         """Generate continuation content for an existing scene with streaming"""
         
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "story_generation", "scene_continuation",
-            user_id=user_id,
-            db=db,
             context=self._format_context_for_continuation(context)
         )
         
@@ -567,13 +554,11 @@ class UnifiedLLMService:
             if cleaned_chunk:  # Only yield non-empty chunks
                 yield cleaned_chunk
     
-    async def generate_choices(self, scene_content: str, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], db: Session = None) -> List[str]:
+    async def generate_choices(self, scene_content: str, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> List[str]:
         """Generate 4 narrative choices for the given scene"""
         
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "choice_generation", "choice_generation",
-            user_id=user_id,
-            db=db,
             scene_content=scene_content[-800:],  # Last 800 chars to avoid token limits
             context=self._format_context_for_choices(context)
         )
@@ -615,13 +600,11 @@ class UnifiedLLMService:
         
         return choices[:4]  # Return up to 4 choices
     
-    async def generate_scenario(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], db: Session = None) -> str:
+    async def generate_scenario(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> str:
         """Generate a creative scenario based on user selections and characters"""
         
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "scenario_generation", "scenario_generation",
-            user_id=user_id,
-            db=db,
             context=self._format_context_for_scenario(context),
             elements=self._format_elements_for_scenario(context)
         )
@@ -638,22 +621,18 @@ class UnifiedLLMService:
         
         return response
     
-    async def generate_plot_points(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], plot_type: str = "complete", db: Session = None) -> List[str]:
+    async def generate_plot_points(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], plot_type: str = "complete") -> List[str]:
         """Generate plot points based on characters and scenario"""
         
         if plot_type == "complete":
             system_prompt, user_prompt = prompt_manager.get_prompt_pair(
                 "plot_generation", "complete_plot",
-                user_id=user_id,
-                db=db,
                 context=self._format_context_for_plot(context)
             )
             max_tokens = prompt_manager.get_max_tokens("complete_plot")
         else:
             system_prompt, user_prompt = prompt_manager.get_prompt_pair(
                 "plot_generation", "single_plot_point",
-                user_id=user_id,
-                db=db,
                 context=self._format_context_for_plot(context),
                 point_name=self._get_plot_point_name(context.get("plot_point_index", 0))
             )
@@ -672,13 +651,11 @@ class UnifiedLLMService:
         else:
             return [response]
     
-    async def generate_summary(self, story_content: str, story_context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], db: Session = None) -> str:
+    async def generate_summary(self, story_content: str, story_context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> str:
         """Generate a comprehensive story summary"""
         
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "summary_generation", "story_summary",
-            user_id=user_id,
-            db=db,
             story_context=self._format_context_for_summary(story_context),
             story_content=story_content
         )
