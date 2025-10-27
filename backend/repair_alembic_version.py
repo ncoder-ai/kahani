@@ -97,14 +97,20 @@ def detect_schema_version(engine):
         return get_head_revision()
     
     # Check for engine-specific settings (added in ec1f4e1c996a)
-    if 'llm_koboldcpp_api_url' in user_settings_columns:
-        return 'bbf4e254a824'  # Before character assistant settings
+    has_engine_settings = 'llm_koboldcpp_api_url' in user_settings_columns
+    has_scene_container = 'scene_container_style' in user_settings_columns
     
-    # Check for scene_container_style removal (bbf4e254a824)
-    if 'scene_container_style' not in user_settings_columns:
-        # Check if we have the columns from ec1f4e1c996a
-        if 'llm_koboldcpp_api_url' not in user_settings_columns:
-            return 'ec1f4e1c996a'  # Has removal but not engine settings yet
+    # If has engine settings but NOT scene_container_style:
+    # - Either at bbf4e254a824 (which removes it) or later
+    # - OR migration 008 was never applied (column never existed)
+    if has_engine_settings and not has_scene_container:
+        # This is the state after bbf4e254a824 or if 008 was skipped
+        return 'bbf4e254a824'
+    
+    # If has engine settings AND scene_container_style:
+    # - At ec1f4e1c996a, before bbf4e254a824 removes it
+    if has_engine_settings and has_scene_container:
+        return 'ec1f4e1c996a'
     
     # Check for scene_container_style (added in 008, removed in bbf4e254a824)
     if 'scene_container_style' in user_settings_columns:
