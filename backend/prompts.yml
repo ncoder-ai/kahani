@@ -369,3 +369,52 @@ settings:
     default: 0.7
     creative: 0.8
     structured: 0.6
+
+# Character Assistant Prompts
+character_assistant:
+  detection:
+    system: |
+      Extract character names from story text and return as JSON array.
+    
+    user: |
+      Extract all character names from this text:
+      
+      {scene_content}
+      
+      Return JSON: [{{"name":"Name1","context":"role"}},{{"name":"Name2","context":"role"}}]
+
+  extraction:
+    system: |
+      You are a detailed character profiling assistant. Analyze all appearances of a character in a story
+      and extract comprehensive details about them. Be thorough but accurate - only include information
+      that is clearly supported by the text. Return ONLY valid JSON, no other text.
+    
+    user: |
+      Analyze all appearances of the character "{character_name}" in the following story scenes.
+      Extract comprehensive details about this character:
+      
+      Story scenes featuring {character_name}:
+      {character_scenes}
+      
+      Extract the following information:
+      - Physical description and appearance (how they look, dress, distinctive features)
+      - Personality traits (list of adjectives describing their character)
+      - Background and history (their past, where they're from, important life events)
+      - Goals and motivations (what they want, what drives them)
+      - Fears and weaknesses (what they're afraid of, their vulnerabilities)
+      - Brief overall description (2-3 sentence summary of who they are)
+      - Suggested role in the story (protagonist, antagonist, ally, mentor, love_interest, comic_relief, mysterious, or other)
+      
+      Return valid JSON with this exact structure:
+      {{
+        "name": "Character Name",
+        "description": "Overall 2-3 sentence description",
+        "personality_traits": ["trait1", "trait2", "trait3"],
+        "background": "Background and history text",
+        "goals": "Goals and motivations text",
+        "fears": "Fears and weaknesses text",
+        "appearance": "Physical description text",
+        "suggested_role": "role_name"
+      }}
+      
+      Return ONLY the JSON object, no other text or markdown formatting.

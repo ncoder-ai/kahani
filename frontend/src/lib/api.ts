@@ -810,6 +810,78 @@ class ApiClient {
     });
   }
 
+  // Character Assistant Methods
+  async getCharacterSuggestions(storyId: number, chapterId?: number) {
+    const params = chapterId ? `?chapter_id=${chapterId}` : '';
+    return this.request<{
+      suggestions: Array<{
+        name: string;
+        mention_count: number;
+        importance_score: number;
+        first_appearance_scene: number;
+        last_appearance_scene: number;
+        is_in_library: boolean;
+        preview: string;
+        scenes: number[];
+      }>;
+      chapter_analyzed?: number;
+      total_scenes_analyzed: number;
+    }>(`/api/stories/${storyId}/character-suggestions${params}`);
+  }
+
+  async analyzeCharacterDetails(storyId: number, characterName: string) {
+    return this.request<{
+      name: string;
+      description: string;
+      personality_traits: string[];
+      background: string;
+      goals: string;
+      fears: string;
+      appearance: string;
+      suggested_role: string;
+      confidence: number;
+      scenes_analyzed: number[];
+    }>(`/api/stories/${storyId}/character-suggestions/${encodeURIComponent(characterName)}/analyze`, {
+      method: 'POST',
+    });
+  }
+
+  async createCharacterFromSuggestion(storyId: number, characterName: string, details: {
+    name: string;
+    description: string;
+    personality_traits: string[];
+    background: string;
+    goals: string;
+    fears: string;
+    appearance: string;
+    role: string;
+  }) {
+    return this.request<{
+      id: number;
+      name: string;
+      description: string;
+      personality_traits: string[];
+      background: string;
+      goals: string;
+      fears: string;
+      appearance: string;
+      role: string;
+      story_character_id: number;
+    }>(`/api/stories/${storyId}/character-suggestions/${encodeURIComponent(characterName)}/create`, {
+      method: 'POST',
+      body: JSON.stringify(details),
+    });
+  }
+
+  async checkCharacterImportance(storyId: number, chapterId?: number) {
+    const params = chapterId ? `?chapter_id=${chapterId}` : '';
+    return this.request<{
+      new_character_detected: boolean;
+      importance_threshold: number;
+      mention_threshold: number;
+    }>(`/api/stories/${storyId}/character-importance-check${params}`);
+  }
+
   // Generic HTTP methods
   async get<T>(endpoint: string): Promise<T> {
     return this.request<T>(endpoint, { method: 'GET' });

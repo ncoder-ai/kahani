@@ -68,6 +68,11 @@ class UserSettings(Base):
     include_metadata = Column(Boolean, default=True)
     include_choices = Column(Boolean, default=True)
     
+    # Character Assistant Settings
+    enable_character_suggestions = Column(Boolean, default=True)  # Show automatic suggestions
+    character_importance_threshold = Column(Integer, default=70)  # 0-100, threshold for auto-suggestions
+    character_mention_threshold = Column(Integer, default=5)  # Minimum mentions to trigger suggestion
+    
     # Advanced Settings
     custom_system_prompt = Column(Text, default="")
     enable_experimental_features = Column(Boolean, default=False)
@@ -133,6 +138,11 @@ class UserSettings(Base):
                 "include_metadata": self.include_metadata,
                 "include_choices": self.include_choices
             },
+            "character_assistant_settings": {
+                "enable_suggestions": self.enable_character_suggestions,
+                "importance_threshold": self.character_importance_threshold,
+                "mention_threshold": self.character_mention_threshold
+            },
             "advanced": {
                 "custom_system_prompt": self.custom_system_prompt,
                 "experimental_features": self.enable_experimental_features
@@ -197,6 +207,11 @@ class UserSettings(Base):
                 "format": "markdown",
                 "include_metadata": True,
                 "include_choices": True
+            },
+            "character_assistant_settings": {
+                "enable_suggestions": True,
+                "importance_threshold": 70,
+                "mention_threshold": 5
             },
             "advanced": {
                 "custom_system_prompt": "",
