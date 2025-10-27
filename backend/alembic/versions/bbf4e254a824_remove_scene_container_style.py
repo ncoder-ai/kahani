@@ -18,7 +18,14 @@ depends_on = None
 
 def upgrade():
     # Remove scene_container_style column from user_settings table
-    op.drop_column('user_settings', 'scene_container_style')
+    # Check if column exists before trying to drop it (idempotent)
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    columns = [col['name'] for col in inspector.get_columns('user_settings')]
+    
+    if 'scene_container_style' in columns:
+        op.drop_column('user_settings', 'scene_container_style')
+    # If column doesn't exist, the migration effect is already applied
 
 
 def downgrade():
