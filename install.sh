@@ -179,26 +179,22 @@ setup_database() {
     
     log_info "Using Python command: $python_cmd"
     
-    # Initialize or update database
+    # Initialize or update database using pure Alembic approach
     if [[ -f backend/data/kahani.db ]]; then
-        log_warning "Database already exists, checking Alembic state..."
-        # Repair any Alembic version mismatches before running migrations
-        cd backend && $python_cmd repair_alembic_version.py && cd .. || {
-            log_error "Database repair failed"
-            exit 1
-        }
-        log_info "Running migrations..."
-        # For existing database, run migrations to bring it up to date
+        log_info "Existing database found - running migrations..."
         source .venv/bin/activate
         cd backend && alembic upgrade head && cd ..
         deactivate
     else
-        log_info "Initializing new database..."
-        # Create database with all tables
-        # Note: init_database.py will also stamp the Alembic version internally
-        cd backend && $python_cmd init_database.py && cd .. || {
-            log_error "Database initialization failed"
-            exit 1
+        log_info "Creating new database via Alembic..."
+        source .venv/bin/activate
+        cd backend && alembic upgrade head && cd ..
+        deactivate
+        
+        # Optionally seed default data
+        log_info "Seeding default data..."
+        cd backend && $python_cmd init_database_data.py && cd .. || {
+            log_warning "Failed to seed default data (database will still work)"
         }
     fi
     

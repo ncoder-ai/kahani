@@ -139,6 +139,10 @@ fi
 echo "🗄️ Running Alembic migrations to upgrade schema..."
 alembic upgrade head || echo "⚠️ Alembic migration failed"
 
+# Seed default data if needed
+echo "🌱 Seeding default data..."
+python init_database_data.py || echo "⚠️ Default data seeding failed (database will still work)"
+
 # Check for TTS provider availability (optional)
 if [ ! -z "$TTS_API_URL" ]; then
     echo "🔊 TTS provider configured at: $TTS_API_URL"
