@@ -353,9 +353,12 @@ export default function STTTestPage() {
             <li>• Click "Start Test" and speak continuously without pauses</li>
             <li>• Transcription updates every 2 seconds with real-time accumulation</li>
             <li>• Current model: <span className="text-blue-400 font-semibold">{deviceInfo?.model || 'loading...'}</span> (check Status panel)</li>
-            <li>• To switch models: Stop test → Edit <code className="bg-gray-800 px-1">backend/app/config.py</code> → Change <code className="bg-gray-800 px-1">stt_model</code> to "base", "small", or "medium" → Backend auto-reloads</li>
+            <li>• To switch models: Go to Settings → Voice Settings → Change STT Model Quality</li>
             <li>• Compare quality: "base" (fast) vs "small" (better) vs "medium" (best)</li>
             <li>• Use "Copy Text" to save results for comparison</li>
+            <li>• <strong>New:</strong> Microphone buttons now appear in Continue Scene and Director Mode!</li>
+            <li>• <strong>New:</strong> STT can be enabled/disabled per-user in Voice Settings</li>
+            <li>• <strong>New:</strong> Each user can choose their own model preference</li>
           </ul>
         </div>
       </div>
