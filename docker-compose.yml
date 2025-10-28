@@ -20,7 +20,7 @@ services:
       - LLM_BASE_URL=${LLM_BASE_URL:-http://host.docker.internal:1234/v1}
       - LLM_API_KEY=${LLM_API_KEY:-not-needed}
       - LLM_MODEL=${LLM_MODEL:-local-model}
-      - CORS_ORIGINS=http://localhost:6789
+      - CORS_ORIGINS=*
       - PORT=9876
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -32,6 +32,6 @@ services:
       - "6789:6789"
     environment:
       - PORT=6789
-      - NEXT_PUBLIC_API_URL=http://localhost:9876
+      # NEXT_PUBLIC_API_URL removed - frontend auto-detects at runtime
     depends_on:
       - backend
