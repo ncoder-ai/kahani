@@ -18,6 +18,7 @@ from app.dependencies import get_current_user_websocket
 from app.services.stt_session_manager import stt_session_manager
 from app.services.stt_service import stt_service
 from app.models.user import User
+from app.models.user_settings import UserSettings
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +155,7 @@ async def websocket_stt_stream(
                 "message": error_msg
             })
         
-        # Start STT transcription
+        # Start STT transcription with user's model preference
         await stt_service.start_transcription(
             on_final=on_final,
             on_partial=on_partial,
@@ -162,7 +163,8 @@ async def websocket_stt_stream(
             on_vad_stop=on_vad_stop,
             on_processing_start=on_processing_start,
             on_processing_stop=on_processing_stop,
-            on_error=on_error
+            on_error=on_error,
+            model=session.user_model
         )
         
         # Keep connection alive and handle audio data
@@ -242,6 +244,7 @@ async def convert_audio_to_pcm(audio_data: bytes) -> bytes:
 
 @router.post("/stt/create-session")
 async def create_stt_session(
+    current_user: User = Depends(get_current_user_websocket),
     db: Session = Depends(get_db)
 ):
     """
@@ -251,17 +254,44 @@ async def create_stt_session(
         Session ID and WebSocket URL for connection
     """
     try:
-        # Create STT session (using user_id 1 for testing)
-        session_id = stt_session_manager.create_session(1)
+        # Get user's STT settings
+        user_settings = db.query(UserSettings).filter(
+            UserSettings.user_id == current_user.id
+        ).first()
         
-        logger.info(f"Created STT session: {session_id} for user 1")
+        if not user_settings:
+            # Create default settings for new user
+            user_settings = UserSettings(user_id=current_user.id)
+            db.add(user_settings)
+            db.commit()
+            db.refresh(user_settings)
+        
+        # Check if STT is enabled for this user
+        if not user_settings.stt_enabled:
+            raise HTTPException(
+                status_code=403,
+                detail="STT is disabled for this user. Please enable it in Settings."
+            )
+        
+        # Create STT session with user's model preference
+        session_id = stt_session_manager.create_session(current_user.id)
+        
+        # Store user's model preference in session for later use
+        session = stt_session_manager.get_session(session_id)
+        if session:
+            session.user_model = user_settings.stt_model
+        
+        logger.info(f"Created STT session: {session_id} for user {current_user.id} with model: {user_settings.stt_model}")
         
         return {
             "session_id": session_id,
             "websocket_url": f"/ws/stt/{session_id}",
+            "model": user_settings.stt_model,
             "message": "Connect to WebSocket to start real-time transcription"
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to create STT session: {e}")
         raise HTTPException(
