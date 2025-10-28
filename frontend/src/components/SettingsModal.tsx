@@ -99,8 +99,11 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [uiSettings, setUiSettings] = useState<UIPreferences>({
     color_theme: 'pure-dark',
     font_size: 'medium',
+    show_token_info: false,
     show_context_info: false,
     notifications: true,
+    scene_display_format: 'default',
+    show_scene_titles: true,
     auto_open_last_story: false,
   });
 
