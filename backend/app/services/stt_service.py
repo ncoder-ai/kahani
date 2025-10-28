@@ -271,13 +271,13 @@ class STTService:
             segments, info = self.model.transcribe(
                 audio_data,
                 language=settings.stt_language,
-                beam_size=1,  # Faster processing
+                beam_size=5,  # Better quality (was 1)
                 word_timestamps=False,
                 vad_filter=False,  # We handle VAD ourselves
                 temperature=0.0,
                 compression_ratio_threshold=2.4,
-                log_prob_threshold=-1.0,
-                no_speech_threshold=0.3
+                log_prob_threshold=-0.5,  # More permissive (was -1.0)
+                no_speech_threshold=0.95  # Much more permissive (was 0.3)
             )
             
             # Combine segments
@@ -312,10 +312,12 @@ class STTService:
         segments, info = self.model.transcribe(
             audio_file_path,
             language=settings.stt_language,
-            beam_size=1,
+            beam_size=5,
             word_timestamps=False,
             vad_filter=False,
-            temperature=0.0
+            temperature=0.0,
+            log_prob_threshold=-0.5,
+            no_speech_threshold=0.95
         )
         
         full_text = ""

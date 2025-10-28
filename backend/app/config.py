@@ -88,7 +88,7 @@ class Settings(BaseSettings):
     log_file: str = "./logs/kahani.log"
     
     # STT Configuration
-    stt_model: str = "small"  # base, small, medium
+    stt_model: str = "base"  # tiny, base, small, medium (base recommended for quality)
     stt_device: str = "auto"  # auto (try GPU, fallback CPU), cuda, or cpu
     stt_compute_type: str = "int8"  # int8, int8_float16, float16 for GPU; int8 for CPU
     stt_language: str = "en"  # Language code
