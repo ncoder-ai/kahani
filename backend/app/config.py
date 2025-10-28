@@ -92,7 +92,7 @@ class Settings(BaseSettings):
     stt_device: str = "auto"  # auto (try GPU, fallback CPU), cuda, or cpu
     stt_compute_type: str = "int8"  # int8, int8_float16, float16 for GPU; int8 for CPU
     stt_language: str = "en"  # Language code
-    stt_vad_enabled: bool = True  # Voice activity detection
+    stt_vad_enabled: bool = False  # Voice activity detection
     stt_vad_sensitivity: int = 3  # 0 (aggressive) to 3 (permissive)
     
     class Config:
