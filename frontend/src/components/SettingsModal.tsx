@@ -658,7 +658,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         throw new Error(`Request failed: ${response.status}`);
       }
     } catch (error) {
-      showMessage(`Failed to fetch models: ${error.message}`, 'error');
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      showMessage(`Failed to fetch models: ${errorMessage}`, 'error');
     } finally {
       setLoadingModels(false);
     }
@@ -1519,7 +1520,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                               showMessage(`Connection failed: ${errorData.detail || 'Unknown error'}`, 'error');
                             }
                           } catch (error) {
-                            showMessage(`Connection error: ${error.message}`, 'error');
+                            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                            showMessage(`Connection error: ${errorMessage}`, 'error');
                           } finally {
                             setTestingConnection(false);
                           }
