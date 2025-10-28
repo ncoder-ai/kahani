@@ -29,6 +29,7 @@ class STTSession(BaseModel):
     partial_transcript: str = ""
     error: Optional[str] = None
     message_buffer: list = []  # Buffer messages when WebSocket not connected yet
+    user_model: Optional[str] = None  # User's preferred STT model
     
     class Config:
         arbitrary_types_allowed = True
