@@ -10,9 +10,13 @@ import { useAuthStore } from '@/store';
 interface UIPreferences {
   color_theme: string;
   font_size: string;
+  show_token_info: boolean;
   show_context_info: boolean;
   notifications: boolean;
+  scene_display_format: string;
+  show_scene_titles: boolean;
   auto_open_last_story: boolean;
+  last_accessed_story_id?: number;
 }
 
 interface WritingPreset {
