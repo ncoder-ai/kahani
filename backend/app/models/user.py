@@ -19,6 +19,9 @@ class User(Base):
     # User preferences
     preferences = Column(JSON, default={})
     
+    # Test field for migration verification
+    email_verified = Column(Boolean, default=False, nullable=False)
+    
     # Admin approval system
     is_approved = Column(Boolean, default=False, nullable=False)
     approved_at = Column(DateTime(timezone=True), nullable=True)
