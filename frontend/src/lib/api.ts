@@ -20,14 +20,12 @@ function getApiBaseUrl(): string {
   return 'http://localhost:9876';
 }
 
-const API_BASE_URL = getApiBaseUrl();
-
 class ApiClient {
   private baseURL: string;
   private token: string | null = null;
 
-  constructor(baseURL: string) {
-    this.baseURL = baseURL;
+  constructor(baseURL?: string) {
+    this.baseURL = baseURL || getApiBaseUrl();
     this.loadToken();
   }
 
@@ -913,7 +911,7 @@ class ApiClient {
 }
 
 // Export singleton instance as default
-export default new ApiClient(API_BASE_URL);
+export default new ApiClient();
 
-// Export API_BASE_URL and getApiBaseUrl for direct URL construction when needed
-export { API_BASE_URL, getApiBaseUrl };
+// Export getApiBaseUrl for direct URL construction when needed
+export { getApiBaseUrl };
