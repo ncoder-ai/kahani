@@ -52,6 +52,12 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isConnectingRef = useRef<boolean>(false);
   const fullTranscriptRef = useRef<string>(''); // Accumulate all partials here
+  const optionsRef = useRef(options); // Keep stable reference to options
+  
+  // Update options ref when they change
+  useEffect(() => {
+    optionsRef.current = options;
+  }, [options]);
 
   // Audio recorder
   const { recorder, startRecording, stopRecording, cleanup: cleanupRecorder } = useAudioRecorder({
@@ -64,15 +70,15 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
     },
     onError: (error: Error) => {
       setState(prev => ({ ...prev, error: error.message }));
-      options.onError?.(error.message);
+      optionsRef.current.onError?.(error.message);
     },
     onStart: () => {
       setState(prev => ({ ...prev, isRecording: true, error: null }));
-      options.onStatusChange?.(true, false);
+      optionsRef.current.onStatusChange?.(true, false);
     },
     onStop: () => {
       setState(prev => ({ ...prev, isRecording: false }));
-      options.onStatusChange?.(false, false);
+      optionsRef.current.onStatusChange?.(false, false);
     }
   });
 
@@ -179,20 +185,29 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
    * Handle WebSocket messages
    */
   const handleWebSocketMessage = useCallback((message: STTMessage) => {
+    console.log('[STT] Received message:', message.type, message.text?.substring(0, 50));
+    
     switch (message.type) {
       case 'partial':
         if (message.text) {
           // Accumulate partials into full transcript for continuous real-time updates
+          const previousTranscript = fullTranscriptRef.current;
           fullTranscriptRef.current = fullTranscriptRef.current 
             ? fullTranscriptRef.current + ' ' + message.text 
             : message.text;
+          
+          console.log('[STT] Accumulating partial:', {
+            previous: previousTranscript.substring(0, 50),
+            new: message.text.substring(0, 50),
+            full: fullTranscriptRef.current.substring(0, 100)
+          });
           
           setState(prev => ({ 
             ...prev, 
             transcript: fullTranscriptRef.current,
             partialTranscript: message.text // Show current chunk as "partial" for highlighting
           }));
-          options.onTranscript?.(fullTranscriptRef.current, true);
+          optionsRef.current.onTranscript?.(fullTranscriptRef.current, true);
           
           // Calculate latency
           if (startTimeRef.current) {
@@ -214,7 +229,7 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
             transcript: fullTranscriptRef.current,
             partialTranscript: ''
           }));
-          options.onTranscript?.(fullTranscriptRef.current, false);
+          optionsRef.current.onTranscript?.(fullTranscriptRef.current, false);
           
           // Calculate latency
           if (startTimeRef.current) {
@@ -231,7 +246,7 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
             isRecording: message.recording ?? prev.isRecording,
             isTranscribing: message.transcribing ?? prev.isTranscribing
           }));
-          options.onStatusChange?.(
+          optionsRef.current.onStatusChange?.(
             message.recording ?? false,
             message.transcribing ?? false
           );
@@ -240,14 +255,14 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
 
       case 'error':
         setState(prev => ({ ...prev, error: message.message || 'Unknown error' }));
-        options.onError?.(message.message || 'Unknown error');
+        optionsRef.current.onError?.(message.message || 'Unknown error');
         break;
 
       case 'complete':
         console.log('[STT] Transcription complete');
         break;
     }
-  }, [options]);
+  }, []); // No dependencies - use refs for everything
 
   /**
    * Schedule reconnection
