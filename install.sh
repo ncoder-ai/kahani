@@ -193,9 +193,9 @@ setup_database() {
         
         # Optionally seed default data
         log_info "Seeding default data..."
-        cd backend && $python_cmd init_database_data.py && cd .. || {
-            log_warning "Failed to seed default data (database will still work)"
-        }
+        source .venv/bin/activate
+        cd backend && python init_database_data.py && cd ..
+        deactivate
     fi
     
     log_success "Database setup complete"
