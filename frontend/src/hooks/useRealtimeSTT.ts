@@ -50,6 +50,7 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
   const sessionIdRef = useRef<string | null>(null);
   const startTimeRef = useRef<number | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isConnectingRef = useRef<boolean>(false);
 
   // Audio recorder
   const { recorder, startRecording, stopRecording, cleanup: cleanupRecorder } = useAudioRecorder({
@@ -103,11 +104,19 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
    * Connect to STT WebSocket
    */
   const connect = useCallback(async () => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      console.log('[STT] Already connected');
+    // Prevent multiple simultaneous connections
+    if (isConnectingRef.current) {
+      console.log('[STT] Connection already in progress');
+      return;
+    }
+    
+    if (wsRef.current?.readyState === WebSocket.OPEN || 
+        wsRef.current?.readyState === WebSocket.CONNECTING) {
+      console.log('[STT] Already connected or connecting');
       return;
     }
 
+    isConnectingRef.current = true;
     console.log('[STT] Starting connection process...');
     try {
       // Create session
@@ -128,6 +137,7 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
 
       ws.onopen = () => {
         console.log('[STT] WebSocket connected');
+        isConnectingRef.current = false;
         setState(prev => ({ ...prev, isConnected: true, error: null }));
       };
 
@@ -152,12 +162,14 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
 
       ws.onerror = (error) => {
         console.error('[STT] WebSocket error:', error);
+        isConnectingRef.current = false;
         setState(prev => ({ ...prev, error: 'WebSocket connection error' }));
       };
 
     } catch (error) {
       const err = error as Error;
       console.error('[STT] Connection failed:', err);
+      isConnectingRef.current = false;
       setState(prev => ({ ...prev, error: err.message }));
     }
   }, [createSession]);
@@ -271,6 +283,7 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
     }
 
     sessionIdRef.current = null;
+    isConnectingRef.current = false;
     setState(prev => ({ ...prev, isConnected: false }));
   }, []);
 
