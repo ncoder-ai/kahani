@@ -139,7 +139,6 @@ download_ai_models() {
     log_info "Downloading AI models for semantic memory..."
     log_info "This may take several minutes..."
     
-    source .venv/bin/activate
     cd backend
     python download_models.py || {
         log_warning "Model download failed, continuing anyway"
