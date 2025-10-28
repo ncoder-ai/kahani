@@ -76,7 +76,7 @@ export default function STTTestPage() {
 
   const fetchDeviceInfo = async () => {
     try {
-      const response = await fetch('/api/stt/device-info');
+      const response = await fetch('/ws/stt/device-info');
       if (response.ok) {
         const info = await response.json();
         setDeviceInfo(info);

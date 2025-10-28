@@ -79,7 +79,7 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
    */
   const createSession = useCallback(async (): Promise<string> => {
     try {
-      const response = await fetch('/api/stt/create-session', {
+      const response = await fetch('/ws/stt/create-session', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
