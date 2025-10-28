@@ -231,6 +231,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             show_context_info: settings.ui_preferences.show_context_info || false,
             notifications: settings.ui_preferences.notifications !== false,
             scene_display_format: settings.ui_preferences.scene_display_format || 'default',
+            show_scene_titles: settings.ui_preferences.show_scene_titles !== false,
             auto_open_last_story: settings.ui_preferences.auto_open_last_story || false,
           });
         }
@@ -325,6 +326,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             show_context_info: data.settings.ui_preferences.show_context_info || false,
             notifications: data.settings.ui_preferences.notifications !== false,
             scene_display_format: data.settings.ui_preferences.scene_display_format || 'default',
+            show_scene_titles: data.settings.ui_preferences.show_scene_titles !== false,
             auto_open_last_story: data.settings.ui_preferences.auto_open_last_story || false,
           });
         }
