@@ -37,6 +37,12 @@ class STTService:
         self.is_initialized = False
         self._initialization_lock = asyncio.Lock()
         
+        # Audio buffering
+        self.audio_buffer = np.array([], dtype=np.float32)
+        self.buffer_duration = 2.0  # Buffer 2 seconds of audio before processing
+        self.sample_rate = 16000
+        self.last_processing_time = 0
+        
         # Callbacks
         self._on_final_callback: Optional[Callable[[str], None]] = None
         self._on_partial_callback: Optional[Callable[[str], None]] = None
@@ -148,7 +154,7 @@ class STTService:
     
     async def feed_audio_data(self, audio_data: bytes, sample_rate: int = 16000):
         """
-        Feed audio data to the STT processor.
+        Feed audio data to the STT processor with buffering.
         
         Args:
             audio_data: Raw audio data (PCM format)
@@ -165,9 +171,18 @@ class STTService:
             # Normalize to float32 range [-1, 1]
             audio_float = audio_array.astype(np.float32) / 32768.0
             
-            # For now, we'll process the entire audio chunk at once
-            # In a real implementation, you'd want to buffer and process in chunks
-            await self._process_audio_chunk(audio_float, sample_rate)
+            # Add to buffer
+            self.audio_buffer = np.concatenate([self.audio_buffer, audio_float])
+            
+            # Check if we have enough audio to process
+            buffer_duration = len(self.audio_buffer) / sample_rate
+            current_time = asyncio.get_event_loop().time()
+            
+            # Process if we have enough audio OR if it's been a while since last processing
+            if buffer_duration >= self.buffer_duration or (current_time - self.last_processing_time) > 1.0:
+                await self._process_audio_chunk(self.audio_buffer.copy(), sample_rate)
+                self.audio_buffer = np.array([], dtype=np.float32)  # Clear buffer
+                self.last_processing_time = current_time
             
         except Exception as e:
             logger.error(f"Error feeding audio data: {e}")
@@ -190,10 +205,13 @@ class STTService:
             segments, info = self.model.transcribe(
                 audio_data,
                 language=settings.stt_language,
-                beam_size=5,
-                word_timestamps=True,
-                vad_filter=settings.stt_vad_enabled,
-                vad_parameters=dict(min_silence_duration_ms=500)
+                beam_size=1,  # Faster processing
+                word_timestamps=False,  # Disable for speed
+                vad_filter=False,  # Disable VAD - we'll handle it ourselves
+                temperature=0.0,  # More deterministic
+                compression_ratio_threshold=2.4,
+                log_prob_threshold=-1.0,
+                no_speech_threshold=0.6
             )
             
             # Process segments
