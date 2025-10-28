@@ -513,6 +513,49 @@ class ApiClient {
     }>(`/api/character-assistant/${storyId}/character-suggestions${params}`);
   }
 
+  async analyzeCharacterDetails(storyId: number, characterName: string) {
+    return this.request<{
+      name: string;
+      description: string;
+      personality_traits: string[];
+      background: string;
+      goals: string;
+      fears: string;
+      appearance: string;
+      suggested_role: string;
+      confidence: number;
+      scenes_analyzed: number[];
+    }>(`/api/character-assistant/${storyId}/character-suggestions/${encodeURIComponent(characterName)}/analyze`, {
+      method: 'POST'
+    });
+  }
+
+  async createCharacterFromSuggestion(storyId: number, characterName: string, characterData: {
+    name: string;
+    description: string;
+    personality_traits: string[];
+    background: string;
+    goals: string;
+    fears: string;
+    appearance: string;
+    role: string;
+  }) {
+    return this.request<{
+      id: number;
+      name: string;
+      description: string;
+      personality_traits: string[];
+      background: string;
+      goals: string;
+      fears: string;
+      appearance: string;
+      role: string;
+    }>(`/api/character-assistant/${storyId}/character-suggestions/${encodeURIComponent(characterName)}/create`, {
+      method: 'POST',
+      body: JSON.stringify(characterData)
+    });
+  }
+
   // Draft Stories
   async getDraftStory() {
     return this.request<{ id: number; title: string; scenario: string; characters: Array<{ id: number; name: string; description: string; }>; plot_points: string[]; created_at: string; updated_at: string; }>(`/api/stories/draft`);
