@@ -51,6 +51,7 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
   const startTimeRef = useRef<number | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isConnectingRef = useRef<boolean>(false);
+  const fullTranscriptRef = useRef<string>(''); // Accumulate all partials here
 
   // Audio recorder
   const { recorder, startRecording, stopRecording, cleanup: cleanupRecorder } = useAudioRecorder({
@@ -181,19 +182,39 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
     switch (message.type) {
       case 'partial':
         if (message.text) {
-          setState(prev => ({ ...prev, partialTranscript: message.text }));
-          options.onTranscript?.(message.text, true);
+          // Accumulate partials into full transcript for continuous real-time updates
+          fullTranscriptRef.current = fullTranscriptRef.current 
+            ? fullTranscriptRef.current + ' ' + message.text 
+            : message.text;
+          
+          setState(prev => ({ 
+            ...prev, 
+            transcript: fullTranscriptRef.current,
+            partialTranscript: message.text // Show current chunk as "partial" for highlighting
+          }));
+          options.onTranscript?.(fullTranscriptRef.current, true);
+          
+          // Calculate latency
+          if (startTimeRef.current) {
+            const latency = Date.now() - startTimeRef.current;
+            setState(prev => ({ ...prev, latency }));
+          }
         }
         break;
 
       case 'final':
         if (message.text) {
+          // Final is only sent when user stops speaking (for now, treat like partial)
+          fullTranscriptRef.current = fullTranscriptRef.current 
+            ? fullTranscriptRef.current + ' ' + message.text 
+            : message.text;
+          
           setState(prev => ({
             ...prev,
-            transcript: prev.transcript + ' ' + message.text,
+            transcript: fullTranscriptRef.current,
             partialTranscript: ''
           }));
-          options.onTranscript?.(message.text, false);
+          options.onTranscript?.(fullTranscriptRef.current, false);
           
           // Calculate latency
           if (startTimeRef.current) {
@@ -291,6 +312,7 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
    * Clear transcript
    */
   const clearTranscript = useCallback(() => {
+    fullTranscriptRef.current = ''; // Also clear the accumulator
     setState(prev => ({
       ...prev,
       transcript: '',
