@@ -406,8 +406,8 @@ export default function SettingsPage() {
     setSettings(newSettings);
     
     // Apply UI changes immediately for better UX
-    if (key === 'theme' || key === 'font_size') {
-      addNotification(`${key === 'theme' ? 'Theme' : 'Font size'} updated`, 'info', 1500);
+    if (key === 'color_theme' || key === 'font_size') {
+      addNotification(`${key === 'color_theme' ? 'Theme' : 'Font size'} updated`, 'info', 1500);
     }
   };
 
