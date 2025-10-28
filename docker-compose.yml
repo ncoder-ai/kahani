@@ -32,6 +32,6 @@ services:
       - "6789:6789"
     environment:
       - PORT=6789
-      # NEXT_PUBLIC_API_BASE_URL removed - frontend auto-detects at runtime
+      - NEXT_PUBLIC_API_URL=http://localhost:9876
     depends_on:
       - backend
