@@ -24,7 +24,7 @@ litellm==1.40.0
 
 # PyTorch CPU-only (must be installed before sentence-transformers)
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.1.2+cpu
+torch==2.2.0+cpu
 
 # Semantic memory and embeddings
 chromadb==0.4.22
