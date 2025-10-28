@@ -37,10 +37,11 @@ class STTService:
             
             # Audio buffering for real-time processing
             self.audio_buffer = np.array([], dtype=np.float32)
-            self.buffer_duration = 3.0  # Buffer 3 seconds before processing
+            self.buffer_duration = 2.0  # Process every 2 seconds for continuous transcription
             self.sample_rate = 16000
             self.last_processing_time = 0
-            self.silence_threshold = 2.0  # Wait 2 seconds of silence before processing
+            self.min_speech_duration = 0.5  # Minimum 0.5s of speech to transcribe
+            self.is_processing = False  # Prevent concurrent processing
             
             # Callbacks
             self._on_final_callback: Optional[Callable[[str], None]] = None
@@ -191,11 +192,16 @@ class STTService:
             buffer_duration = len(self.audio_buffer) / sample_rate
             current_time = time.time()
             
-            # Process only if we have enough audio AND enough time has passed
-            if buffer_duration >= self.buffer_duration and (current_time - self.last_processing_time) > self.silence_threshold:
-                if len(self.audio_buffer) > 0:
-                    # Process in background thread
-                    asyncio.create_task(self._process_buffer())
+            # Process every 2 seconds for continuous real-time transcription
+            # OR if we have a lot of audio buffered (>5s means user is speaking continuously)
+            should_process = (
+                buffer_duration >= self.buffer_duration or 
+                buffer_duration >= 5.0
+            ) and not self.is_processing
+            
+            if should_process and len(self.audio_buffer) > 0:
+                # Process in background thread
+                asyncio.create_task(self._process_buffer())
             
         except Exception as e:
             logger.error(f"Error feeding audio data: {e}")
@@ -203,20 +209,29 @@ class STTService:
                 await self._on_error_callback(e)
 
     async def _process_buffer(self):
-        """Process accumulated audio buffer."""
-        if len(self.audio_buffer) == 0:
+        """Process accumulated audio buffer for continuous transcription."""
+        if len(self.audio_buffer) == 0 or self.is_processing:
             return
-            
-        # Copy buffer and clear for next batch
-        audio_to_process = self.audio_buffer.copy()
-        self.audio_buffer = np.array([], dtype=np.float32)
-        self.last_processing_time = time.time()
+        
+        self.is_processing = True
         
         try:
+            # Process current buffer but keep last 0.5s for context continuity
+            overlap_samples = int(0.5 * self.sample_rate)
+            audio_to_process = self.audio_buffer.copy()
+            
+            # Keep last 0.5s in buffer for overlap (helps with word boundaries)
+            if len(self.audio_buffer) > overlap_samples:
+                self.audio_buffer = self.audio_buffer[-overlap_samples:]
+            else:
+                self.audio_buffer = np.array([], dtype=np.float32)
+            
+            self.last_processing_time = time.time()
+            
             if self._on_processing_start_callback:
                 await self._on_processing_start_callback()
             
-            # Check VAD if enabled
+            # Check VAD if enabled (permissive for continuous speech)
             if self.vad and not await self._check_vad(audio_to_process):
                 if self._on_processing_stop_callback:
                     await self._on_processing_stop_callback()
@@ -226,9 +241,9 @@ class STTService:
             text = await asyncio.to_thread(self._transcribe, audio_to_process)
             
             if text and text.strip():
-                # Send as final transcription
-                if self._on_final_callback:
-                    await self._on_final_callback(text.strip())
+                # Send as PARTIAL for continuous updates (not final)
+                if self._on_partial_callback:
+                    await self._on_partial_callback(text.strip())
             
             if self._on_processing_stop_callback:
                 await self._on_processing_stop_callback()
@@ -237,6 +252,8 @@ class STTService:
             logger.error(f"Error processing buffer: {e}")
             if self._on_error_callback:
                 await self._on_error_callback(e)
+        finally:
+            self.is_processing = False
 
     async def _check_vad(self, audio_data: np.ndarray) -> bool:
         """Check if audio contains speech using VAD."""
@@ -259,8 +276,8 @@ class STTService:
                     if self.vad.is_speech(frame.tobytes(), self.sample_rate):
                         speech_frames += 1
             
-            # Consider speech if >50% of frames contain speech (stricter)
-            return total_frames > 0 and (speech_frames / total_frames) > 0.5
+            # Consider speech if >30% of frames contain speech (permissive for continuous speech)
+            return total_frames > 0 and (speech_frames / total_frames) > 0.3
             
         except Exception as e:
             logger.error(f"VAD error: {e}")
