@@ -42,7 +42,7 @@ export const TTSDebugPanel: React.FC = () => {
       </button>
       
       {/* Debug Panel */}
-        <div className="fixed bottom-16 right-4 bg-black/95 text-white p-4 rounded-lg text-xs max-w-md z-50 shadow-2xl border border-gray-700">
+      <div className="fixed bottom-16 right-4 bg-black/95 text-white p-4 rounded-lg text-xs max-w-md z-50 shadow-2xl border border-gray-700">
       <div className="flex items-center justify-between mb-3">
         <div className="font-bold text-sm">🔍 TTS Debug Panel</div>
         <div className={`px-2 py-0.5 rounded text-[10px] ${
@@ -113,8 +113,7 @@ export const TTSDebugPanel: React.FC = () => {
           🔊 Test Audio (Beep)
         </button>
       </div>
-    </div>
-      )}
+      </div>
     </>
   );
 };
