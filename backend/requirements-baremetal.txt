@@ -1,0 +1,36 @@
+# Bare-metal installation requirements (non-Docker)
+# Includes PyTorch CPU and sentence-transformers
+
+# Core FastAPI dependencies
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+sqlalchemy==2.0.23
+alembic==1.12.1
+pydantic==2.5.0
+pydantic-settings==2.1.0
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.1.2
+python-multipart==0.0.6
+httpx==0.25.2
+python-dotenv==1.0.0
+
+# Testing (optional for development)
+pytest==7.4.3
+pytest-asyncio==0.21.1
+
+# LLM and AI dependencies
+litellm==1.40.0
+
+# PyTorch CPU-only (must be installed before sentence-transformers)
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.1.2+cpu
+torchvision==0.16.2+cpu
+
+# Semantic memory and embeddings
+chromadb==0.4.22
+sentence-transformers==2.3.0
+tiktoken==0.5.2
+numpy==1.26.4
+huggingface-hub==0.20.0
+
