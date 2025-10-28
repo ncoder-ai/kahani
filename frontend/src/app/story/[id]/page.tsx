@@ -20,6 +20,7 @@ import ChapterSidebar from '@/components/ChapterSidebar';
 import TTSSettingsModal from '@/components/TTSSettingsModal';
 import { GlobalTTSWidget } from '@/components/GlobalTTSWidget';
 import { TTSDebugPanel } from '@/components/TTSDebugPanel';
+import MicrophoneButton from '@/components/MicrophoneButton';
 import { BookOpen, ChevronRight, X, AlertCircle, Sparkles, Volume2 } from 'lucide-react';
 import { 
   BookOpenIcon, 
@@ -1929,13 +1930,20 @@ export default function StoryPage() {
                   />
                   <div className="flex justify-between items-center mt-3">
                     <span className="text-xs text-gray-500">Be specific about actions, dialogue, and scene details</span>
-                    <button
-                      onClick={() => generateScene()}
-                      disabled={isGenerating || isStreaming}
-                      className="bg-pink-600 hover:bg-pink-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg font-medium transition-colors"
-                    >
-                      {isGenerating || isStreaming ? 'Directing...' : 'Direct Scene'}
-                    </button>
+                    <div className="flex gap-2">
+                      <MicrophoneButton
+                        onTranscriptComplete={(text) => setCustomPrompt(customPrompt + (customPrompt ? ' ' : '') + text)}
+                        disabled={isGenerating || isStreaming}
+                        showPreview={true}
+                      />
+                      <button
+                        onClick={() => generateScene()}
+                        disabled={isGenerating || isStreaming}
+                        className="bg-pink-600 hover:bg-pink-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+                      >
+                        {isGenerating || isStreaming ? 'Directing...' : 'Direct Scene'}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
