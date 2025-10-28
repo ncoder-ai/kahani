@@ -116,10 +116,9 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
       console.log('[STT] Session created:', sessionId);
       sessionIdRef.current = sessionId;
 
-      // Get WebSocket URL
+      // Get WebSocket URL (connect to backend)
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = window.location.host;
-      const wsUrl = `${protocol}//${host}/ws/stt/${sessionId}`;
+      const wsUrl = `${protocol}//localhost:9876/ws/stt/${sessionId}`;
 
       console.log('[STT] Connecting to WebSocket:', wsUrl);
 
