@@ -136,17 +136,24 @@ setup_nodejs_env() {
 
 # Download AI models
 download_ai_models() {
-    log_info "Downloading AI models for semantic memory..."
-    log_info "This may take several minutes..."
+    log_info "Checking AI models for semantic memory..."
     
-    cd backend
-    python download_models.py || {
-        log_warning "Model download failed, continuing anyway"
-        log_info "You can download models later: cd backend && python download_models.py"
-    }
-    cd ..
-    
-    log_success "AI models download complete"
+    # Check if sentence-transformers is available (Docker installs only)
+    if python -c "import sentence_transformers" 2>/dev/null; then
+        log_info "Downloading AI models..."
+        log_info "This may take several minutes..."
+        
+        cd backend
+        python download_models.py || {
+            log_warning "Model download failed, continuing anyway"
+            log_info "You can download models later: cd backend && python download_models.py"
+        }
+        cd ..
+        log_success "AI models download complete"
+    else
+        log_info "Skipping model download (models will be downloaded on first use)"
+        log_info "Note: This is normal for non-Docker installations"
+    fi
 }
 
 # Setup database
