@@ -255,7 +255,7 @@ export default function SettingsPage() {
           choices_count: settings.generation_preferences.choices_count,
         },
         ui_preferences: {
-          color_theme: settings.ui_preferences.color_theme || settings.ui_preferences.theme || 'pure-dark',
+          color_theme: settings.ui_preferences.color_theme || 'pure-dark',
           font_size: settings.ui_preferences.font_size,
           show_token_info: settings.ui_preferences.show_token_info,
           show_context_info: settings.ui_preferences.show_context_info,
