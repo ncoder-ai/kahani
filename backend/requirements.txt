@@ -20,7 +20,5 @@ numpy==1.26.4  # ChromaDB 0.4.22 requires NumPy 1.x
 huggingface-hub==0.20.0  # Required for sentence-transformers
 
 # STT Dependencies
-RealtimeSTT==0.3.0  # Real-time STT with VAD
 faster-whisper==1.0.3  # Optimized Whisper inference
 webrtcvad==2.0.10  # Voice activity detection
-PyAudio==0.2.14  # Audio processing (requires PortAudio system dependency)

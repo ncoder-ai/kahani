@@ -1,26 +1,22 @@
 import os
 import asyncio
 import logging
-import io
-import wave
-import tempfile
-from typing import Optional, Callable, Dict, Any
-import threading
-import queue
 import time
+from typing import Optional, Callable
 import numpy as np
 
-from RealtimeSTT import AudioToTextRecorder
+from faster_whisper import WhisperModel
+import webrtcvad
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
 class STTService:
     """
-    Real-time Speech-to-Text service using RealtimeSTT.
+    Real-time Speech-to-Text service using faster-whisper with VAD.
     
-    This service provides true real-time transcription with VAD (Voice Activity Detection)
-    using RealtimeSTT library with faster-whisper backend.
+    This service provides real-time transcription with Voice Activity Detection
+    using faster-whisper for fast inference and webrtcvad for speech detection.
     """
     
     _instance: Optional["STTService"] = None
@@ -32,13 +28,18 @@ class STTService:
         return cls._instance
 
     def __init__(self):
-        """
-        Initialize STT service with model configuration.
-        """
+        """Initialize STT service with model configuration."""
         if not hasattr(self, '_initialized'):
-            self.recorder: Optional[AudioToTextRecorder] = None
+            self.model: Optional[WhisperModel] = None
+            self.vad: Optional[webrtcvad.Vad] = None
             self.is_initialized = False
             self._initialization_lock = asyncio.Lock()
+            
+            # Audio buffering for real-time processing
+            self.audio_buffer = np.array([], dtype=np.float32)
+            self.buffer_duration = 2.0  # Buffer 2 seconds before processing
+            self.sample_rate = 16000
+            self.last_processing_time = 0
             
             # Callbacks
             self._on_final_callback: Optional[Callable[[str], None]] = None
@@ -53,9 +54,8 @@ class STTService:
 
     async def initialize(self):
         """
-        Initialize the STT model and RealtimeSTT recorder.
-        This is called lazily on first use to avoid startup delays.
-        Runs in background thread to avoid blocking FastAPI event loop.
+        Initialize the STT model and VAD.
+        Runs in background thread to avoid blocking event loop.
         """
         async with self._initialization_lock:
             if self.is_initialized:
@@ -64,53 +64,37 @@ class STTService:
             logger.info(f"Initializing STT service with model: {settings.stt_model}")
             
             try:
-                # Run blocking initialization in thread pool to avoid blocking event loop
-                await asyncio.to_thread(self._initialize_recorder)
+                # Run initialization in thread pool
+                await asyncio.to_thread(self._initialize_models)
                 
-                logger.info(f"RealtimeSTT initialized successfully")
+                logger.info(f"STT service initialized successfully")
                 self.is_initialized = True
                 
             except Exception as e:
                 logger.error(f"Failed to initialize STT service: {e}")
-                self.recorder = None
+                self.model = None
+                self.vad = None
                 raise
     
-    def _initialize_recorder(self):
-        """
-        Blocking initialization that runs in a separate thread.
-        This prevents blocking the FastAPI event loop during model downloads.
-        """
+    def _initialize_models(self):
+        """Blocking initialization runs in separate thread."""
         # Get device configuration
         device, compute_type = self._get_device_config()
         
-        # Configure RealtimeSTT with correct parameters
-        # Disable wake words and use faster VAD to speed up initialization
-        self.recorder = AudioToTextRecorder(
-            model=settings.stt_model,
-            language=settings.stt_language,
-            use_microphone=False,  # We'll feed audio manually
+        # Initialize faster-whisper model
+        self.model = WhisperModel(
+            settings.stt_model,
             device=device,
             compute_type=compute_type,
-            enable_realtime_transcription=True,
-            webrtc_sensitivity=settings.stt_vad_sensitivity,
-            post_speech_silence_duration=1.0,  # 1 second of silence to finalize
-            min_length_of_recording=0.5,  # 500ms minimum recording
-            pre_recording_buffer_duration=0.2,  # 200ms pre-roll buffer
-            spinner=False,  # Disable spinner for server use
-            level=logging.WARNING,  # Reduce log verbosity
-            realtime_processing_pause=0.1,  # 100ms processing pause
-            beam_size=1,  # Faster processing
-            beam_size_realtime=1,  # Faster real-time processing
-            print_transcription_time=False,  # Disable timing logs
-            no_log_file=True,  # Disable log files
-            debug_mode=False,  # Disable debug mode
-            wake_words="",  # Disable wake word detection (not needed)
-            silero_use_onnx=True,  # Use faster ONNX VAD model
-            on_recording_start=None,  # Disable callbacks we don't need
-            on_recording_stop=None
+            download_root=os.path.join(settings.data_dir, "whisper_models")
         )
         
-        logger.info(f"RealtimeSTT recorder created with model '{settings.stt_model}' on {device} with {compute_type} compute type")
+        # Initialize VAD if enabled
+        if settings.stt_vad_enabled:
+            self.vad = webrtcvad.Vad(settings.stt_vad_sensitivity)
+            logger.info(f"WebRTC VAD enabled with sensitivity {settings.stt_vad_sensitivity}")
+        
+        logger.info(f"Faster-Whisper model '{settings.stt_model}' loaded on {device} with {compute_type}")
 
     def _get_device_config(self):
         """Get device and compute type configuration."""
@@ -129,12 +113,11 @@ class STTService:
                     device = "cpu"
                     if compute_type not in ["int8"]:
                         compute_type = "int8"
-                    logger.info(f"No CUDA GPU detected. Falling back to device='cpu', compute_type='{compute_type}'")
+                    logger.info(f"No CUDA GPU detected. Falling back to device='cpu', compute_type='int8'")
             except ImportError:
                 device = "cpu"
-                if compute_type not in ["int8"]:
-                    compute_type = "int8"
-                logger.info(f"PyTorch not installed or CUDA not available. Falling back to device='cpu', compute_type='{compute_type}'")
+                compute_type = "int8"
+                logger.info(f"PyTorch not available. Using device='cpu', compute_type='int8'")
         elif device == "cuda":
             if compute_type not in ["float16", "int8_float16", "int8"]:
                 compute_type = "float16"
@@ -154,21 +137,10 @@ class STTService:
         on_processing_stop: Optional[Callable[[], None]] = None,
         on_error: Optional[Callable[[Exception], None]] = None
     ):
-        """
-        Start real-time transcription with callbacks.
-        
-        Args:
-            on_final: Called when transcription is finalized
-            on_partial: Called during live transcription updates
-            on_vad_start: Called when voice activity starts
-            on_vad_stop: Called when voice activity stops
-            on_processing_start: Called when processing starts
-            on_processing_stop: Called when processing stops
-            on_error: Called on processing errors
-        """
+        """Start real-time transcription with callbacks."""
         await self.initialize()
         
-        if not self.recorder:
+        if not self.model:
             raise RuntimeError("STT service not initialized")
         
         # Set up callbacks
@@ -180,28 +152,27 @@ class STTService:
         self._on_processing_stop_callback = on_processing_stop
         self._on_error_callback = on_error
         
+        # Reset buffer
+        self.audio_buffer = np.array([], dtype=np.float32)
+        self.last_processing_time = time.time()
+        
         logger.info("STT transcription started")
 
     async def stop_transcription(self):
         """Stop real-time transcription."""
-        if self.recorder:
-            try:
-                # RealtimeSTT cleanup
-                self.recorder.stop()
-            except Exception as e:
-                logger.error(f"Error stopping recorder: {e}")
-        
+        # Clear buffer
+        self.audio_buffer = np.array([], dtype=np.float32)
         logger.info("STT transcription stopped")
 
     async def feed_audio_data(self, audio_data: bytes, sample_rate: int = 16000):
         """
-        Feed audio data to the STT processor.
+        Feed audio data to the STT processor with buffering.
         
         Args:
             audio_data: Raw audio data (PCM format)
             sample_rate: Sample rate of the audio (default 16000)
         """
-        if not self.is_initialized or not self.recorder:
+        if not self.is_initialized or not self.model:
             logger.warning("STT service not initialized")
             return
             
@@ -212,70 +183,148 @@ class STTService:
             # Normalize to float32 range [-1, 1]
             audio_float = audio_array.astype(np.float32) / 32768.0
             
-            # Feed audio to RealtimeSTT
-            self.recorder.feed_audio(audio_float)
+            # Add to buffer
+            self.audio_buffer = np.concatenate([self.audio_buffer, audio_float])
             
-            # Get transcription results
-            text = self.recorder.text()
-            if text and text.strip():
-                # Determine if this is partial or final
-                is_final = self.recorder.is_final()
-                
-                if is_final and self._on_final_callback:
-                    asyncio.create_task(self._on_final_callback(text.strip()))
-                elif not is_final and self._on_partial_callback:
-                    asyncio.create_task(self._on_partial_callback(text.strip()))
+            # Check if we have enough audio to process
+            buffer_duration = len(self.audio_buffer) / sample_rate
+            current_time = time.time()
             
-            # Check VAD status
-            if hasattr(self.recorder, 'is_speaking'):
-                is_speaking = self.recorder.is_speaking()
-                if is_speaking and self._on_vad_start_callback:
-                    asyncio.create_task(self._on_vad_start_callback())
-                elif not is_speaking and self._on_vad_stop_callback:
-                    asyncio.create_task(self._on_vad_stop_callback())
+            # Process if we have enough audio OR if it's been a while since last processing
+            if buffer_duration >= self.buffer_duration or (current_time - self.last_processing_time) > 1.5:
+                if len(self.audio_buffer) > 0:
+                    # Process in background thread
+                    asyncio.create_task(self._process_buffer())
             
         except Exception as e:
             logger.error(f"Error feeding audio data: {e}")
             if self._on_error_callback:
-                asyncio.create_task(self._on_error_callback(e))
+                await self._on_error_callback(e)
+
+    async def _process_buffer(self):
+        """Process accumulated audio buffer."""
+        if len(self.audio_buffer) == 0:
+            return
+            
+        # Copy buffer and clear for next batch
+        audio_to_process = self.audio_buffer.copy()
+        self.audio_buffer = np.array([], dtype=np.float32)
+        self.last_processing_time = time.time()
+        
+        try:
+            if self._on_processing_start_callback:
+                await self._on_processing_start_callback()
+            
+            # Check VAD if enabled
+            if self.vad and not await self._check_vad(audio_to_process):
+                if self._on_processing_stop_callback:
+                    await self._on_processing_stop_callback()
+                return
+            
+            # Transcribe in background thread
+            text = await asyncio.to_thread(self._transcribe, audio_to_process)
+            
+            if text and text.strip():
+                # Send as final transcription
+                if self._on_final_callback:
+                    await self._on_final_callback(text.strip())
+            
+            if self._on_processing_stop_callback:
+                await self._on_processing_stop_callback()
+                
+        except Exception as e:
+            logger.error(f"Error processing buffer: {e}")
+            if self._on_error_callback:
+                await self._on_error_callback(e)
+
+    async def _check_vad(self, audio_data: np.ndarray) -> bool:
+        """Check if audio contains speech using VAD."""
+        if not self.vad:
+            return True
+            
+        try:
+            # Convert to 16-bit PCM
+            audio_int16 = (audio_data * 32767).astype(np.int16)
+            
+            # Check 30ms frames
+            frame_length = int(self.sample_rate * 0.03)
+            speech_frames = 0
+            total_frames = 0
+            
+            for i in range(0, len(audio_int16), frame_length):
+                frame = audio_int16[i:i+frame_length]
+                if len(frame) == frame_length:
+                    total_frames += 1
+                    if self.vad.is_speech(frame.tobytes(), self.sample_rate):
+                        speech_frames += 1
+            
+            # Consider speech if >30% of frames contain speech
+            return total_frames > 0 and (speech_frames / total_frames) > 0.3
+            
+        except Exception as e:
+            logger.error(f"VAD error: {e}")
+            return True  # Continue processing if VAD fails
+
+    def _transcribe(self, audio_data: np.ndarray) -> str:
+        """Transcribe audio using faster-whisper (runs in thread)."""
+        try:
+            segments, info = self.model.transcribe(
+                audio_data,
+                language=settings.stt_language,
+                beam_size=1,  # Faster processing
+                word_timestamps=False,
+                vad_filter=False,  # We handle VAD ourselves
+                temperature=0.0,
+                compression_ratio_threshold=2.4,
+                log_prob_threshold=-1.0,
+                no_speech_threshold=0.3
+            )
+            
+            # Combine segments
+            full_text = ""
+            for segment in segments:
+                text = segment.text.strip()
+                if text:
+                    full_text += text + " "
+            
+            return full_text.strip()
+            
+        except Exception as e:
+            logger.error(f"Transcription error: {e}")
+            return ""
 
     async def transcribe_audio_file(self, audio_file_path: str) -> str:
-        """
-        Transcribe an audio file (for testing purposes).
-        
-        Args:
-            audio_file_path: Path to the audio file
-            
-        Returns:
-            Transcribed text
-        """
+        """Transcribe an audio file (for testing)."""
         await self.initialize()
         
-        if not self.recorder:
+        if not self.model:
             raise RuntimeError("STT service not initialized")
         
         try:
-            # Use RealtimeSTT to transcribe the file
-            with open(audio_file_path, 'rb') as f:
-                audio_data = f.read()
-            
-            # Convert to numpy array and normalize
-            audio_array = np.frombuffer(audio_data, dtype=np.int16)
-            audio_float = audio_array.astype(np.float32) / 32768.0
-            
-            # Feed audio in chunks
-            chunk_size = 16000  # 1 second at 16kHz
-            for i in range(0, len(audio_float), chunk_size):
-                chunk = audio_float[i:i+chunk_size]
-                self.recorder.feed_audio(chunk)
-            
-            # Get final transcription
-            text = self.recorder.text()
-            return text.strip() if text else ""
-            
+            text = await asyncio.to_thread(self._transcribe_file, audio_file_path)
+            return text
         except Exception as e:
             logger.error(f"Error transcribing audio file: {e}")
             raise
+    
+    def _transcribe_file(self, audio_file_path: str) -> str:
+        """Transcribe file in thread."""
+        segments, info = self.model.transcribe(
+            audio_file_path,
+            language=settings.stt_language,
+            beam_size=1,
+            word_timestamps=False,
+            vad_filter=False,
+            temperature=0.0
+        )
+        
+        full_text = ""
+        for segment in segments:
+            text = segment.text.strip()
+            if text:
+                full_text += text + " "
+        
+        return full_text.strip()
 
 # Global instance
 stt_service = STTService()
