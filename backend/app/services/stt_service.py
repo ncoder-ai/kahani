@@ -54,20 +54,25 @@ class STTService:
             
             logger.info("STTService initialized (models will be loaded on first use)")
 
-    async def initialize(self):
+    async def initialize(self, model: str = None):
         """
         Initialize the STT model and VAD.
         Runs in background thread to avoid blocking event loop.
+        
+        Args:
+            model: Whisper model to use (base, small, medium). If None, uses global config.
         """
         async with self._initialization_lock:
             if self.is_initialized:
                 return
 
-            logger.info(f"Initializing STT service with model: {settings.stt_model}")
+            # Use provided model or fall back to global config
+            model_to_use = model or settings.stt_model
+            logger.info(f"Initializing STT service with model: {model_to_use}")
             
             try:
                 # Run initialization in thread pool
-                await asyncio.to_thread(self._initialize_models)
+                await asyncio.to_thread(self._initialize_models, model_to_use)
                 
                 logger.info(f"STT service initialized successfully")
                 self.is_initialized = True
@@ -78,14 +83,17 @@ class STTService:
                 self.vad = None
                 raise
     
-    def _initialize_models(self):
+    def _initialize_models(self, model: str = None):
         """Blocking initialization runs in separate thread."""
         # Get device configuration
         device, compute_type = self._get_device_config()
         
+        # Use provided model or fall back to global config
+        model_to_use = model or settings.stt_model
+        
         # Initialize faster-whisper model
         self.model = WhisperModel(
-            settings.stt_model,
+            model_to_use,
             device=device,
             compute_type=compute_type,
             download_root=os.path.join(settings.data_dir, "whisper_models")
@@ -96,7 +104,7 @@ class STTService:
             self.vad = webrtcvad.Vad(settings.stt_vad_sensitivity)
             logger.info(f"WebRTC VAD enabled with sensitivity {settings.stt_vad_sensitivity}")
         
-        logger.info(f"Faster-Whisper model '{settings.stt_model}' loaded on {device} with {compute_type}")
+        logger.info(f"Faster-Whisper model '{model_to_use}' loaded on {device} with {compute_type}")
 
     def _get_device_config(self):
         """Get device and compute type configuration."""
@@ -137,10 +145,11 @@ class STTService:
         on_vad_stop: Optional[Callable[[], None]] = None,
         on_processing_start: Optional[Callable[[], None]] = None,
         on_processing_stop: Optional[Callable[[], None]] = None,
-        on_error: Optional[Callable[[Exception], None]] = None
+        on_error: Optional[Callable[[Exception], None]] = None,
+        model: str = None
     ):
         """Start real-time transcription with callbacks."""
-        await self.initialize()
+        await self.initialize(model)
         
         if not self.model:
             raise RuntimeError("STT service not initialized")
