@@ -27,8 +27,7 @@ router = APIRouter(prefix="/ws", tags=["stt-websocket"])
 @router.websocket("/stt/{session_id}")
 async def websocket_stt_stream(
     websocket: WebSocket,
-    session_id: str,
-    db: Session = Depends(get_db)
+    session_id: str
 ):
     """
     WebSocket endpoint for real-time STT audio streaming.
@@ -249,7 +248,6 @@ async def convert_audio_to_pcm(audio_data: bytes) -> bytes:
 
 @router.post("/stt/create-session")
 async def create_stt_session(
-    current_user: User = Depends(get_current_user_websocket),
     db: Session = Depends(get_db)
 ):
     """
@@ -259,10 +257,10 @@ async def create_stt_session(
         Session ID and WebSocket URL for connection
     """
     try:
-        # Create STT session
-        session_id = stt_session_manager.create_session(current_user.id)
+        # Create STT session (using user_id 1 for testing)
+        session_id = stt_session_manager.create_session(1)
         
-        logger.info(f"Created STT session: {session_id} for user {current_user.id}")
+        logger.info(f"Created STT session: {session_id} for user 1")
         
         return {
             "session_id": session_id,

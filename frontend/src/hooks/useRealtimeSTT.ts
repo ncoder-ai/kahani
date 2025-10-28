@@ -82,8 +82,7 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
       const response = await fetch('/ws/stt/create-session', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Content-Type': 'application/json'
         }
       });
 
