@@ -495,6 +495,24 @@ class ApiClient {
     return this.request<{ new_character_detected: boolean }>(`/api/character-assistant/${storyId}/character-importance-check${params}`);
   }
 
+  async getCharacterSuggestions(storyId: number, chapterId?: number) {
+    const params = chapterId ? `?chapter_id=${chapterId}` : '';
+    return this.request<{
+      suggestions: Array<{
+        name: string;
+        mention_count: number;
+        importance_score: number;
+        first_appearance_scene: number;
+        last_appearance_scene: number;
+        is_in_library: boolean;
+        preview: string;
+        scenes: number[];
+      }>;
+      chapter_analyzed: number | null;
+      total_scenes_analyzed: number;
+    }>(`/api/character-assistant/${storyId}/character-suggestions${params}`);
+  }
+
   // Draft Stories
   async getDraftStory() {
     return this.request<{ id: number; title: string; scenario: string; characters: Array<{ id: number; name: string; description: string; }>; plot_points: string[]; created_at: string; updated_at: string; }>(`/api/stories/draft`);
