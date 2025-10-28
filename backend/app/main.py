@@ -54,10 +54,14 @@ logger = logging.getLogger(__name__)
 # This prevents conflicts between SQLAlchemy's create_all() and Alembic migrations.
 
 # Create FastAPI app
+# Disable API documentation in production (when debug=False)
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    debug=settings.debug
+    debug=settings.debug,
+    docs_url="/docs" if settings.debug else None,
+    redoc_url="/redoc" if settings.debug else None,
+    openapi_url="/openapi.json" if settings.debug else None
 )
 
 # Initialize semantic memory service on startup

@@ -2,6 +2,8 @@
 
 This guide covers deploying Kahani on baremetal servers for production use.
 
+**🔒 Security First:** Before deploying, review the [Security Setup Guide](docs/SECURITY_SETUP.md) and [Security Checklist](docs/SECURITY_CHECKLIST.md).
+
 ## Quick Start
 
 ### 1. Initial Setup
@@ -68,22 +70,44 @@ Production build script:
 ## Configuration
 
 ### Environment Variables
-Create `.env` file with production settings:
+
+**⚠️ Important:** Generate strong secrets before deploying!
+
 ```bash
+# 1. Copy template
+cp .env.example .env
+
+# 2. Generate strong secrets (see docs/SECURITY_SETUP.md for details)
+python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_urlsafe(32))"
+python3 -c "import secrets; print('JWT_SECRET_KEY=' + secrets.token_urlsafe(32))"
+
+# 3. Edit .env and add your generated secrets
+nano .env
+```
+
+**Minimum required configuration:**
+```bash
+# Security - REQUIRED (no defaults!)
+SECRET_KEY=<your-generated-secret-here>
+JWT_SECRET_KEY=<your-generated-jwt-secret-here>
+
 # Database
 DATABASE_URL=sqlite:///opt/kahani/backend/data/kahani.db
 
-# Security
-SECRET_KEY=your-super-secret-key-here
-JWT_SECRET_KEY=your-jwt-secret-key-here
+# CORS - Set to your actual domain/IP
+CORS_ORIGINS=["https://kahani.yourdomain.com"]
 
-# API URLs
-NEXT_PUBLIC_API_URL=http://your-server-ip:9876
+# Production mode
+DEBUG=false
 
 # Optional: External LLM service
-LLM_API_URL=http://your-llm-server:1234
+LLM_BASE_URL=http://your-llm-server:1234
 LLM_API_KEY=your-api-key
 ```
+
+**📖 For detailed configuration guide, see:**
+- [Security Setup Guide](docs/SECURITY_SETUP.md) - Generate secrets, configure CORS
+- [Configuration Guide](CONFIGURATION_GUIDE.md) - All available options
 
 ### Port Configuration
 Default ports (configurable in `config.yaml`):

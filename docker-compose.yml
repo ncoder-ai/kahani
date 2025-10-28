@@ -15,12 +15,12 @@ services:
     user: "root"
     environment:
       - DATABASE_URL=sqlite:///./data/kahani.db
-      - SECRET_KEY=${SECRET_KEY:-change-this-secret-key}
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-this-jwt-key}
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY environment variable is required - see docs/SECURITY_SETUP.md}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT_SECRET_KEY environment variable is required - see docs/SECURITY_SETUP.md}
       - LLM_BASE_URL=${LLM_BASE_URL:-http://host.docker.internal:1234/v1}
       - LLM_API_KEY=${LLM_API_KEY:-not-needed}
       - LLM_MODEL=${LLM_MODEL:-local-model}
-      - CORS_ORIGINS=*
+      - CORS_ORIGINS=${CORS_ORIGINS:-["http://localhost:6789"]}
       - PORT=9876
     extra_hosts:
       - "host.docker.internal:host-gateway"
