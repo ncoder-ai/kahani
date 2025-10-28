@@ -301,21 +301,13 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
   }, [disconnect, cleanupRecorder]);
 
   /**
-   * Auto-connect if enabled
-   */
-  useEffect(() => {
-    if (options.autoConnect) {
-      connect();
-    }
-  }, [options.autoConnect, connect]);
-
-  /**
-   * Auto-connect on mount for testing
+   * Auto-connect on mount for testing (only once)
    */
   useEffect(() => {
     // Auto-connect for testing purposes
     connect();
-  }, [connect]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty dependency array - only run once on mount
 
   return {
     // State
