@@ -120,6 +120,7 @@ setup_python_env() {
     pip install -r backend/requirements.txt
     
     log_success "Python environment setup complete"
+    # Note: Virtual environment remains activated for the rest of the script
 }
 
 # Setup Node.js dependencies
@@ -182,20 +183,14 @@ setup_database() {
     # Initialize or update database using pure Alembic approach
     if [[ -f backend/data/kahani.db ]]; then
         log_info "Existing database found - running migrations..."
-        source .venv/bin/activate
         cd backend && alembic upgrade head && cd ..
-        deactivate
     else
         log_info "Creating new database via Alembic..."
-        source .venv/bin/activate
         cd backend && alembic upgrade head && cd ..
-        deactivate
         
         # Optionally seed default data
         log_info "Seeding default data..."
-        source .venv/bin/activate
         cd backend && python init_database_data.py && cd ..
-        deactivate
     fi
     
     log_success "Database setup complete"
@@ -286,14 +281,12 @@ verify_installation() {
     fi
     
     # Check Python packages
-    source .venv/bin/activate
     if ! python -c "import fastapi" 2>/dev/null; then
         log_error "Python dependencies incomplete"
         ((errors++))
     else
         log_success "Backend dependencies: OK"
     fi
-    deactivate
     
     # Check Node modules
     if [[ ! -d "frontend/node_modules" ]]; then
@@ -355,3 +348,6 @@ main() {
 }
 
 main "$@"
+
+# Deactivate virtual environment at the end
+deactivate
