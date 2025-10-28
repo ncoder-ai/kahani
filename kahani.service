@@ -1,0 +1,32 @@
+[Unit]
+Description=Kahani Story Generation Platform
+After=network.target
+
+[Service]
+Type=simple
+User=kahani
+Group=kahani
+WorkingDirectory=/opt/kahani
+ExecStart=/opt/kahani/start-prod.sh
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=kahani
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/kahani/backend/data
+ReadWritePaths=/opt/kahani/backend/logs
+ReadWritePaths=/opt/kahani/backend/exports
+ReadWritePaths=/home/kahani/.cache
+
+# Resource limits
+LimitNOFILE=65536
+MemoryMax=2G
+
+[Install]
+WantedBy=multi-user.target
