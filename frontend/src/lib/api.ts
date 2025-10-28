@@ -489,6 +489,12 @@ class ApiClient {
     return this.request<{ id: number; name: string; description: string; personality_traits: string[]; background: string; goals: string; fears: string; appearance: string; is_template: boolean; is_public: boolean; creator_id: number; created_at: string; updated_at: string | null; }>(`/api/characters/`, { method: 'POST', body: JSON.stringify(data) });
   }
 
+  // Character Assistant API
+  async checkCharacterImportance(storyId: number, chapterId?: number) {
+    const params = chapterId ? `?chapter_id=${chapterId}` : '';
+    return this.request<{ new_character_detected: boolean }>(`/api/character-assistant/${storyId}/character-importance-check${params}`);
+  }
+
   // Draft Stories
   async getDraftStory() {
     return this.request<{ id: number; title: string; scenario: string; characters: Array<{ id: number; name: string; description: string; }>; plot_points: string[]; created_at: string; updated_at: string; }>(`/api/stories/draft`);
