@@ -53,6 +53,7 @@ export default function CreateStoryPage() {
   const [draftStoryId, setDraftStoryId] = useState<number | null>(null);
   const [isLoadingDraft, setIsLoadingDraft] = useState(true);
   const [userSettings, setUserSettings] = useState<any>(null);
+  const [isClient, setIsClient] = useState(false);
   const [storyData, setStoryData] = useState<StoryData>({
     story_mode: 'dynamic', // Default to dynamic mode
     title: '',
@@ -65,8 +66,13 @@ export default function CreateStoryPage() {
     scenario: '',
   });
 
-  // Apply UI settings (theme, font size, etc.)
-  useUISettings(userSettings?.ui_preferences || null);
+  // Ensure we're on the client side before applying UI settings
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  // Apply UI settings (theme, font size, etc.) only on client side
+  useUISettings(isClient ? userSettings?.ui_preferences || null : null);
 
   // Load user settings
   useEffect(() => {
@@ -283,12 +289,15 @@ export default function CreateStoryPage() {
     return null;
   }
 
-  if (isLoadingDraft) {
+  // Show loading state until we're on the client side
+  if (!isClient || isLoadingDraft) {
     return (
       <div className="min-h-screen theme-bg-primary flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-white/80">Loading your story draft...</p>
+          <p className="text-white/80">
+            {!isClient ? 'Loading...' : 'Loading your story draft...'}
+          </p>
         </div>
       </div>
     );
