@@ -311,7 +311,8 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
       disconnect();
       cleanupRecorder();
     };
-  }, [disconnect, cleanupRecorder]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only cleanup on unmount, not when functions change
 
   /**
    * Auto-connect on mount for testing (only once)
