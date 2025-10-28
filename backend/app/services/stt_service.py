@@ -55,6 +55,7 @@ class STTService:
         """
         Initialize the STT model and RealtimeSTT recorder.
         This is called lazily on first use to avoid startup delays.
+        Runs in background thread to avoid blocking FastAPI event loop.
         """
         async with self._initialization_lock:
             if self.is_initialized:
@@ -63,38 +64,53 @@ class STTService:
             logger.info(f"Initializing STT service with model: {settings.stt_model}")
             
             try:
-                # Get device configuration
-                device, compute_type = self._get_device_config()
+                # Run blocking initialization in thread pool to avoid blocking event loop
+                await asyncio.to_thread(self._initialize_recorder)
                 
-                # Configure RealtimeSTT with correct parameters
-                self.recorder = AudioToTextRecorder(
-                    model=settings.stt_model,
-                    language=settings.stt_language,
-                    use_microphone=False,  # We'll feed audio manually
-                    device=device,
-                    compute_type=compute_type,
-                    enable_realtime_transcription=True,
-                    webrtc_sensitivity=settings.stt_vad_sensitivity,
-                    post_speech_silence_duration=1.0,  # 1 second of silence to finalize
-                    min_length_of_recording=0.5,  # 500ms minimum recording
-                    pre_recording_buffer_duration=0.2,  # 200ms pre-roll buffer
-                    spinner=False,  # Disable spinner for server use
-                    level=logging.WARNING,  # Reduce log verbosity
-                    realtime_processing_pause=0.1,  # 100ms processing pause
-                    beam_size=1,  # Faster processing
-                    beam_size_realtime=1,  # Faster real-time processing
-                    print_transcription_time=False,  # Disable timing logs
-                    no_log_file=True,  # Disable log files
-                    debug_mode=False  # Disable debug mode
-                )
-                
-                logger.info(f"RealtimeSTT initialized with model '{settings.stt_model}' on {device} with {compute_type} compute type")
+                logger.info(f"RealtimeSTT initialized successfully")
                 self.is_initialized = True
                 
             except Exception as e:
                 logger.error(f"Failed to initialize STT service: {e}")
                 self.recorder = None
                 raise
+    
+    def _initialize_recorder(self):
+        """
+        Blocking initialization that runs in a separate thread.
+        This prevents blocking the FastAPI event loop during model downloads.
+        """
+        # Get device configuration
+        device, compute_type = self._get_device_config()
+        
+        # Configure RealtimeSTT with correct parameters
+        # Disable wake words and use faster VAD to speed up initialization
+        self.recorder = AudioToTextRecorder(
+            model=settings.stt_model,
+            language=settings.stt_language,
+            use_microphone=False,  # We'll feed audio manually
+            device=device,
+            compute_type=compute_type,
+            enable_realtime_transcription=True,
+            webrtc_sensitivity=settings.stt_vad_sensitivity,
+            post_speech_silence_duration=1.0,  # 1 second of silence to finalize
+            min_length_of_recording=0.5,  # 500ms minimum recording
+            pre_recording_buffer_duration=0.2,  # 200ms pre-roll buffer
+            spinner=False,  # Disable spinner for server use
+            level=logging.WARNING,  # Reduce log verbosity
+            realtime_processing_pause=0.1,  # 100ms processing pause
+            beam_size=1,  # Faster processing
+            beam_size_realtime=1,  # Faster real-time processing
+            print_transcription_time=False,  # Disable timing logs
+            no_log_file=True,  # Disable log files
+            debug_mode=False,  # Disable debug mode
+            wake_words="",  # Disable wake word detection (not needed)
+            silero_use_onnx=True,  # Use faster ONNX VAD model
+            on_recording_start=None,  # Disable callbacks we don't need
+            on_recording_stop=None
+        )
+        
+        logger.info(f"RealtimeSTT recorder created with model '{settings.stt_model}' on {device} with {compute_type} compute type")
 
     def _get_device_config(self):
         """Get device and compute type configuration."""
