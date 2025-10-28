@@ -19,6 +19,7 @@ export const useUISettings = (settings: UIPreferences | null) => {
     // Store preferences for other components to use
     window.kahaniUISettings = {
       showContextInfo: settings.show_context_info,
+      show_token_info: settings.show_token_info,
       notifications: settings.notifications,
     };
 
@@ -37,6 +38,7 @@ declare global {
   interface Window {
     kahaniUISettings?: {
       showContextInfo: boolean;
+      show_token_info: boolean;
       notifications: boolean;
     };
   }
