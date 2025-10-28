@@ -75,6 +75,10 @@ class EngineSettingsUpdate(BaseModel):
     engine_settings: Optional[Dict[str, Any]] = None
     current_engine: Optional[str] = None
 
+class STTSettingsUpdate(BaseModel):
+    enabled: Optional[bool] = None
+    model: Optional[str] = Field(default=None, pattern="^(base|small|medium)$")
+
 class UserSettingsUpdate(BaseModel):
     llm_settings: LLMSettingsUpdate = None
     context_settings: ContextSettingsUpdate = None
@@ -82,6 +86,7 @@ class UserSettingsUpdate(BaseModel):
     ui_preferences: UIPreferencesUpdate = None
     engine_settings: EngineSettingsUpdate = None
     export_settings: ExportSettingsUpdate = None
+    stt_settings: STTSettingsUpdate = None
     advanced: AdvancedSettingsUpdate = None
 
 @router.get("/")
@@ -235,6 +240,14 @@ async def update_user_settings(
             user_settings.engine_settings = json.dumps(eng.engine_settings)
         if eng.current_engine is not None:
             user_settings.current_engine = eng.current_engine
+    
+    # Update STT settings
+    if settings_update.stt_settings:
+        stt = settings_update.stt_settings
+        if stt.enabled is not None:
+            user_settings.stt_enabled = stt.enabled
+        if stt.model is not None:
+            user_settings.stt_model = stt.model
     
     try:
         db.commit()
