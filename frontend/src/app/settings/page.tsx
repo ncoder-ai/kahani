@@ -155,6 +155,9 @@ export default function SettingsPage() {
   };
 
   const loadPresets = async () => {
+    // Skip API calls during build time
+    if (typeof window === 'undefined') return;
+    
     try {
       const response = await fetch(`${getApiBaseUrl()}/api/settings/presets`);
       if (response.ok) {

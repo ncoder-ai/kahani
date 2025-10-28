@@ -6,7 +6,7 @@ import { UIPreferences } from '@/types/settings';
 export const useUISettings = (settings: UIPreferences | null) => {
   useEffect(() => {
     console.log('useUISettings called with:', settings);
-    if (!settings) return;
+    if (!settings || typeof window === 'undefined') return;
 
     // Apply color theme
     applyTheme(settings.color_theme);
