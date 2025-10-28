@@ -73,6 +73,10 @@ class UserSettings(Base):
     character_importance_threshold = Column(Integer, default=70)  # 0-100, threshold for auto-suggestions
     character_mention_threshold = Column(Integer, default=5)  # Minimum mentions to trigger suggestion
     
+    # STT Settings
+    stt_enabled = Column(Boolean, default=True)  # User can enable/disable STT
+    stt_model = Column(String(20), default="small")  # base, small, medium
+    
     # Advanced Settings
     custom_system_prompt = Column(Text, default="")
     enable_experimental_features = Column(Boolean, default=False)
@@ -142,6 +146,10 @@ class UserSettings(Base):
                 "enable_suggestions": self.enable_character_suggestions,
                 "importance_threshold": self.character_importance_threshold,
                 "mention_threshold": self.character_mention_threshold
+            },
+            "stt_settings": {
+                "enabled": self.stt_enabled,
+                "model": self.stt_model
             },
             "advanced": {
                 "custom_system_prompt": self.custom_system_prompt,
