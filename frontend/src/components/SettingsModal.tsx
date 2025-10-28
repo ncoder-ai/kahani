@@ -93,7 +93,7 @@ interface SettingsModalProps {
 
 export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { user, token } = useAuthStore();
-  const [activeTab, setActiveTab] = useState<'interface' | 'writing' | 'llm' | 'context' | 'tts'>('interface');
+  const [activeTab, setActiveTab] = useState<'interface' | 'writing' | 'llm' | 'context' | 'voice'>('interface');
   
   // UI Settings
   const [uiSettings, setUiSettings] = useState<UIPreferences>({
@@ -177,6 +177,10 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     stream_audio: true,
     auto_play_last_scene: false,
   });
+  
+  // STT Settings
+  const [sttEnabled, setSttEnabled] = useState(true);
+  const [sttModel, setSttModel] = useState('small');
   const [ttsProviderConfigs, setTtsProviderConfigs] = useState<Record<string, TTSSettings>>({});
   const [isLoadingTTSProviders, setIsLoadingTTSProviders] = useState(false);
   const [isLoadingTTSVoices, setIsLoadingTTSVoices] = useState(false);
@@ -202,10 +206,11 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       if (activeTab === 'writing') {
         loadWritingPrompts();
       }
-      if (activeTab === 'tts') {
-        console.log('Loading TTS data for tab');
+      if (activeTab === 'voice') {
+        console.log('Loading Voice data for tab');
         loadTTSProviders();
         loadCurrentTTSSettings();
+        loadSTTSettings();
       }
     }
   }, [isOpen, activeTab]);
@@ -1124,6 +1129,55 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     }
   };
 
+  // STT Functions
+  const loadSTTSettings = async () => {
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/api/settings/`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const sttSettings = data.settings?.stt_settings;
+        if (sttSettings) {
+          setSttEnabled(sttSettings.enabled);
+          setSttModel(sttSettings.model);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading STT settings:', error);
+    }
+  };
+
+  const handleSTTSave = async () => {
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/api/settings/`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          stt_settings: {
+            enabled: sttEnabled,
+            model: sttModel,
+          },
+        }),
+      });
+
+      if (response.ok) {
+        showMessage('STT settings saved!', 'success');
+      } else {
+        showMessage('Error saving STT settings', 'error');
+      }
+    } catch (error) {
+      console.error('Error saving STT settings:', error);
+      showMessage('Error saving STT settings', 'error');
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -1150,7 +1204,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             { id: 'writing', name: 'Writing Styles' },
             { id: 'llm', name: 'LLM Settings' },
             { id: 'context', name: 'Generation & Context' },
-            { id: 'tts', name: 'Text-to-Speech' },
+            { id: 'voice', name: 'Voice Settings' },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -2060,8 +2114,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             </div>
           )}
 
-          {/* TTS Settings Tab */}
-          {activeTab === 'tts' && (
+          {/* Voice Settings Tab */}
+          {activeTab === 'voice' && (
             <div className="space-y-6">
               {/* Debug info */}
               {process.env.NODE_ENV === 'development' && (
@@ -2426,6 +2480,57 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     <span>Save TTS Settings</span>
                   )}
                 </button>
+              </div>
+              
+              {/* STT Settings Section */}
+              <div className="border-t border-gray-700 pt-6 mt-6">
+                <h3 className="text-lg font-semibold text-white mb-4">
+                  Speech-to-Text (STT) Settings
+                </h3>
+                
+                <div className="space-y-4">
+                  {/* Enable/Disable Toggle */}
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={sttEnabled}
+                        onChange={(e) => setSttEnabled(e.target.checked)}
+                        className="w-4 h-4 rounded"
+                      />
+                      <span className="text-sm text-white">Enable STT</span>
+                    </label>
+                  </div>
+                  
+                  {/* Model Selection Dropdown */}
+                  <div>
+                    <label className="block text-sm font-medium text-white mb-2">
+                      STT Model Quality
+                    </label>
+                    <select
+                      value={sttModel}
+                      onChange={(e) => setSttModel(e.target.value)}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    >
+                      <option value="base">Base (Fast, Good Quality)</option>
+                      <option value="small">Small (Balanced, Better Quality) - Recommended</option>
+                      <option value="medium">Medium (Slower, Best Quality)</option>
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Higher quality models provide better accuracy but are slower
+                    </p>
+                  </div>
+                  
+                  {/* Save Button */}
+                  <div className="flex justify-end">
+                    <button
+                      onClick={handleSTTSave}
+                      className="flex items-center gap-2 px-6 py-2 theme-btn-primary rounded-lg font-semibold"
+                    >
+                      <span>Save STT Settings</span>
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           )}
