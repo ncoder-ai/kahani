@@ -13,6 +13,8 @@ Kahani (meaning "story" in Hindi) is a modern interactive storytelling platform 
 
 > **🚀 New here?** Check out the [5-Minute Quick Start Guide](QUICK_START.md) to get up and running fast!
 
+> **🔒 Production Deployment?** Review the [Security Setup Guide](docs/SECURITY_SETUP.md) and [Security Checklist](docs/SECURITY_CHECKLIST.md) before deploying.
+
 > **⚙️ Configuration Issues?** See the [Configuration Guide](CONFIGURATION_GUIDE.md) for setup and troubleshooting.
 
 ## ✨ Features
@@ -44,9 +46,12 @@ Kahani (meaning "story" in Hindi) is a modern interactive storytelling platform 
 - **Auto-Resume**: Automatically opens your last worked-on story
 
 ### 🔐 **Security & Authentication**
-- **JWT Authentication**: Secure token-based authentication
+- **JWT Authentication**: Secure token-based authentication with configurable expiration
 - **User Management**: Registration, login, and user settings
-- **Admin Panel**: User management and system configuration
+- **Admin Panel**: User management, permissions, and system configuration
+- **CORS Protection**: Configurable cross-origin resource sharing
+- **Production Ready**: Security best practices and deployment guides
+- **📖 See [Security Setup Guide](docs/SECURITY_SETUP.md) for production deployment**
 
 ### 🐳 **Deployment**
 - **Docker Ready**: Easy deployment with Docker and Docker Compose
@@ -259,8 +264,12 @@ KAHANI_ENV=production docker-compose -f docker-compose.network.yml up -d
 | Guide | Description |
 |-------|-------------|
 | [QUICK_START.md](QUICK_START.md) | 5-minute setup guide |
+| [PRODUCTION_DEPLOYMENT.md](PRODUCTION_DEPLOYMENT.md) | Production deployment guide |
+| [docs/SECURITY_SETUP.md](docs/SECURITY_SETUP.md) | 🔒 Security configuration and secrets |
+| [docs/SECURITY_CHECKLIST.md](docs/SECURITY_CHECKLIST.md) | 🔒 Pre/post-deployment security checklist |
 | [CONFIGURATION_GUIDE.md](CONFIGURATION_GUIDE.md) | Complete configuration guide |
 | [NETWORK_CONFIGURATION.md](NETWORK_CONFIGURATION.md) | Network setup and troubleshooting |
+| [docs/REVERSE_PROXY_GUIDE.md](docs/REVERSE_PROXY_GUIDE.md) | Nginx, Caddy, and NPM configuration |
 | [docs/database-migration-troubleshooting.md](docs/database-migration-troubleshooting.md) | Database migration issues and fixes |
 | [docs/](docs/) | Detailed feature documentation |
 
