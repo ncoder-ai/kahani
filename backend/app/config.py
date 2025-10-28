@@ -88,7 +88,7 @@ class Settings(BaseSettings):
     log_file: str = "./logs/kahani.log"
     
     # STT Configuration
-    stt_model: str = "small"  # Options: tiny, base, small, medium, large-v2
+    stt_model: str = "base"  # Options: tiny, base, small, medium, large-v2
     # Model comparison (CPU):
     # - base: Fast, okay quality (current baseline)
     # - small: Good quality, still fast enough for real-time (recommended)
