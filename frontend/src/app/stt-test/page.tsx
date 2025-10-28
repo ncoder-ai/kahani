@@ -211,6 +211,20 @@ export default function STTTestPage() {
                   {isTranscribing ? 'Yes' : 'No'}
                 </span>
               </div>
+              
+              {deviceInfo && (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-400">Model:</span>
+                    <span className="text-blue-400 font-semibold">{deviceInfo.model}</span>
+                  </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-400">Device:</span>
+                    <span className="text-blue-400">{deviceInfo.device} ({deviceInfo.computeType})</span>
+                  </div>
+                </>
+              )}
             </div>
 
             {error && (
@@ -336,11 +350,12 @@ export default function STTTestPage() {
         <div className="mt-6 bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
           <h3 className="font-semibold text-blue-400 mb-2">Test Instructions</h3>
           <ul className="text-sm text-gray-300 space-y-1">
-            <li>• Click "Start Test" and speak clearly into your microphone</li>
-            <li>• Watch for real-time transcription updates (gray text = partial, white = final)</li>
-            <li>• Monitor latency metrics - target is &lt;500ms for real-time feel</li>
-            <li>• Test with different speaking speeds, accents, and background noise</li>
-            <li>• Use "Copy Text" to save results for analysis</li>
+            <li>• Click "Start Test" and speak continuously without pauses</li>
+            <li>• Transcription updates every 2 seconds with real-time accumulation</li>
+            <li>• Current model: <span className="text-blue-400 font-semibold">{deviceInfo?.model || 'loading...'}</span> (check Status panel)</li>
+            <li>• To switch models: Stop test → Edit <code className="bg-gray-800 px-1">backend/app/config.py</code> → Change <code className="bg-gray-800 px-1">stt_model</code> to "base", "small", or "medium" → Backend auto-reloads</li>
+            <li>• Compare quality: "base" (fast) vs "small" (better) vs "medium" (best)</li>
+            <li>• Use "Copy Text" to save results for comparison</li>
           </ul>
         </div>
       </div>
