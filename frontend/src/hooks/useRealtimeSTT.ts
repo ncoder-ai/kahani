@@ -59,6 +59,24 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
     optionsRef.current = options;
   }, [options]);
 
+  /**
+   * Check if STT is enabled for the current user
+   */
+  const checkSTTEnabled = useCallback(async (): Promise<boolean> => {
+    try {
+      const response = await fetch('/api/settings/');
+      if (response.ok) {
+        const data = await response.json();
+        const sttSettings = data.settings?.stt_settings;
+        return sttSettings?.enabled ?? true; // Default to enabled if not set
+      }
+      return true; // Default to enabled if API fails
+    } catch (error) {
+      console.error('Error checking STT settings:', error);
+      return true; // Default to enabled if check fails
+    }
+  }, []);
+
   // Audio recorder
   const { recorder, startRecording, stopRecording, cleanup: cleanupRecorder } = useAudioRecorder({
     chunkDuration: 100, // 100ms chunks for real-time processing
@@ -283,6 +301,15 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
    */
   const startTranscription = useCallback(async () => {
     try {
+      // Check if STT is enabled
+      const isEnabled = await checkSTTEnabled();
+      if (!isEnabled) {
+        const errorMsg = 'STT is disabled in Settings. Please enable it to use voice input.';
+        setState(prev => ({ ...prev, error: errorMsg }));
+        optionsRef.current.onError?.(errorMsg);
+        return;
+      }
+
       if (!state.isConnected) {
         await connect();
       }
@@ -292,9 +319,9 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
     } catch (error) {
       const err = error as Error;
       setState(prev => ({ ...prev, error: err.message }));
-      options.onError?.(err.message);
+      optionsRef.current.onError?.(err.message);
     }
-  }, [state.isConnected, connect, startRecording, options]);
+  }, [state.isConnected, connect, startRecording, checkSTTEnabled]);
 
   /**
    * Stop recording and transcription
