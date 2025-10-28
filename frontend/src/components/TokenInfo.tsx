@@ -15,7 +15,7 @@ export const TokenInfo: React.FC<TokenInfoProps> = ({ className = '' }) => {
   useEffect(() => {
     // Check if token info should be shown
     const checkSettings = () => {
-      setShowTokenInfo(window.kahaniUISettings?.showTokenInfo || false);
+      setShowTokenInfo(window.kahaniUISettings?.show_token_info || false);
     };
 
     checkSettings();
