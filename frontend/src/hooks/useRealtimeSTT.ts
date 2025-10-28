@@ -108,9 +108,12 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
       return;
     }
 
+    console.log('[STT] Starting connection process...');
     try {
       // Create session
+      console.log('[STT] Creating session...');
       const sessionId = await createSession();
+      console.log('[STT] Session created:', sessionId);
       sessionIdRef.current = sessionId;
 
       // Get WebSocket URL
@@ -306,6 +309,14 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
       connect();
     }
   }, [options.autoConnect, connect]);
+
+  /**
+   * Auto-connect on mount for testing
+   */
+  useEffect(() => {
+    // Auto-connect for testing purposes
+    connect();
+  }, [connect]);
 
   return {
     // State
