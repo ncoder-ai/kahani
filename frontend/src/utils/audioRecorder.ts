@@ -84,41 +84,68 @@ export class AudioRecorder {
         }
       });
 
-      // Create MediaRecorder with WebM/Opus for best compression and quality
-      const mimeType = this.getSupportedMimeType();
-      this.mediaRecorder = new MediaRecorder(this.mediaStream, {
-        mimeType,
-        audioBitsPerSecond: 128000 // 128kbps for good quality/size balance
+      // Use AudioContext to get raw PCM data instead of MediaRecorder
+      // This avoids the need for WebM decoding on the backend
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({
+        sampleRate: this.options.sampleRate
       });
-
-      // Set up event handlers
-      this.mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0 && this.options.onDataAvailable) {
-          this.options.onDataAvailable(event.data);
+      
+      const source = audioContext.createMediaStreamSource(this.mediaStream);
+      const processor = audioContext.createScriptProcessor(4096, this.options.channels, this.options.channels);
+      
+      processor.onaudioprocess = (e) => {
+        if (!this.state.isRecording) return;
+        
+        // Get raw PCM data (Float32Array)
+        const inputData = e.inputBuffer.getChannelData(0);
+        
+        // Convert Float32 (-1 to 1) to Int16 PCM (-32768 to 32767)
+        const pcm16 = new Int16Array(inputData.length);
+        for (let i = 0; i < inputData.length; i++) {
+          const s = Math.max(-1, Math.min(1, inputData[i]));
+          pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        }
+        
+        // Send as Blob for compatibility with existing code
+        const blob = new Blob([pcm16.buffer], { type: 'audio/pcm' });
+        if (this.options.onDataAvailable) {
+          this.options.onDataAvailable(blob);
         }
       };
+      
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+      
+      // Store references for cleanup
+      (this as any).audioContext = audioContext;
+      (this as any).processor = processor;
+      (this as any).source = source;
+      
+      // Create a dummy MediaRecorder for compatibility
+      this.mediaRecorder = {
+        start: () => {
+          this.state.isRecording = true;
+          this.state.error = null;
+          this.options.onStart?.();
+          console.log('[AudioRecorder] Recording started (PCM mode)');
+        },
+        stop: () => {
+          this.state.isRecording = false;
+          processor.disconnect();
+          source.disconnect();
+          audioContext.close();
+          this.options.onStop?.();
+          console.log('[AudioRecorder] Recording stopped (PCM mode)');
+        },
+        state: 'inactive',
+        ondataavailable: null,
+        onerror: null,
+        onstart: null,
+        onstop: null
+      } as any;
 
-      this.mediaRecorder.onerror = (event) => {
-        const error = new Error(`MediaRecorder error: ${event}`);
-        this.state.error = error.message;
-        this.options.onError?.(error);
-      };
-
-      this.mediaRecorder.onstart = () => {
-        this.state.isRecording = true;
-        this.state.error = null;
-        this.options.onStart?.();
-        console.log('[AudioRecorder] Recording started');
-      };
-
-      this.mediaRecorder.onstop = () => {
-        this.state.isRecording = false;
-        this.options.onStop?.();
-        console.log('[AudioRecorder] Recording stopped');
-      };
-
-      // Start recording with time slices for real-time processing
-      this.mediaRecorder.start(this.options.chunkDuration);
+      // Start recording (triggers the start callback)
+      this.mediaRecorder.start();
       
     } catch (error) {
       const err = error as Error;
