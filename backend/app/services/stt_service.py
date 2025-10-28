@@ -37,9 +37,10 @@ class STTService:
             
             # Audio buffering for real-time processing
             self.audio_buffer = np.array([], dtype=np.float32)
-            self.buffer_duration = 2.0  # Buffer 2 seconds before processing
+            self.buffer_duration = 3.0  # Buffer 3 seconds before processing
             self.sample_rate = 16000
             self.last_processing_time = 0
+            self.silence_threshold = 2.0  # Wait 2 seconds of silence before processing
             
             # Callbacks
             self._on_final_callback: Optional[Callable[[str], None]] = None
@@ -190,8 +191,8 @@ class STTService:
             buffer_duration = len(self.audio_buffer) / sample_rate
             current_time = time.time()
             
-            # Process if we have enough audio OR if it's been a while since last processing
-            if buffer_duration >= self.buffer_duration or (current_time - self.last_processing_time) > 1.5:
+            # Process only if we have enough audio AND enough time has passed
+            if buffer_duration >= self.buffer_duration and (current_time - self.last_processing_time) > self.silence_threshold:
                 if len(self.audio_buffer) > 0:
                     # Process in background thread
                     asyncio.create_task(self._process_buffer())
@@ -258,8 +259,8 @@ class STTService:
                     if self.vad.is_speech(frame.tobytes(), self.sample_rate):
                         speech_frames += 1
             
-            # Consider speech if >30% of frames contain speech
-            return total_frames > 0 and (speech_frames / total_frames) > 0.3
+            # Consider speech if >50% of frames contain speech (stricter)
+            return total_frames > 0 and (speech_frames / total_frames) > 0.5
             
         except Exception as e:
             logger.error(f"VAD error: {e}")
@@ -271,13 +272,13 @@ class STTService:
             segments, info = self.model.transcribe(
                 audio_data,
                 language=settings.stt_language,
-                beam_size=5,  # Better quality (was 1)
+                beam_size=5,  # Better quality
                 word_timestamps=False,
                 vad_filter=False,  # We handle VAD ourselves
                 temperature=0.0,
                 compression_ratio_threshold=2.4,
-                log_prob_threshold=-0.5,  # More permissive (was -1.0)
-                no_speech_threshold=0.95  # Much more permissive (was 0.3)
+                log_prob_threshold=None,  # Disable - was rejecting valid speech
+                no_speech_threshold=0.95  # Very permissive
             )
             
             # Combine segments
@@ -316,7 +317,7 @@ class STTService:
             word_timestamps=False,
             vad_filter=False,
             temperature=0.0,
-            log_prob_threshold=-0.5,
+            log_prob_threshold=None,
             no_speech_threshold=0.95
         )
         
