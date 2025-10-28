@@ -19,6 +19,9 @@ export default function WritingPresetsManager() {
   }, []);
 
   const loadPresets = async () => {
+    // Skip API calls during build time
+    if (typeof window === 'undefined') return;
+    
     try {
       setLoading(true);
       setError(null);
