@@ -49,12 +49,19 @@ class STTSessionManager:
         self.sessions: Dict[str, STTSession] = {}
         self.session_timeout = timedelta(minutes=session_timeout_minutes)
         self._cleanup_task: Optional[asyncio.Task] = None
-        self._start_cleanup_task()
+        self._cleanup_started = False
     
     def _start_cleanup_task(self):
         """Start background task to clean up expired sessions."""
-        if self._cleanup_task is None or self._cleanup_task.done():
-            self._cleanup_task = asyncio.create_task(self._cleanup_expired_sessions())
+        if not self._cleanup_started:
+            try:
+                loop = asyncio.get_running_loop()
+                if self._cleanup_task is None or self._cleanup_task.done():
+                    self._cleanup_task = loop.create_task(self._cleanup_expired_sessions())
+                    self._cleanup_started = True
+            except RuntimeError:
+                # No event loop running, will start later
+                pass
     
     async def _cleanup_expired_sessions(self):
         """Background task to clean up expired sessions."""
@@ -85,6 +92,9 @@ class STTSessionManager:
         Returns:
             Session ID
         """
+        # Start cleanup task if not already started
+        self._start_cleanup_task()
+        
         session_id = str(uuid.uuid4())
         
         session = STTSession(

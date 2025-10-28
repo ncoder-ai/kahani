@@ -1,5 +1,5 @@
 """
-STT Service - Real-time Speech-to-Text using RealtimeSTT
+STT Service - Real-time Speech-to-Text using faster-whisper
 
 Handles:
 - Real-time audio transcription
@@ -18,7 +18,6 @@ from typing import Optional, Callable, Dict, Any
 from pathlib import Path
 
 import numpy as np
-from RealtimeSTT import AudioToTextRecorder
 from faster_whisper import WhisperModel
 from app.config import settings
 
@@ -27,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 class STTService:
     """
-    Real-time Speech-to-Text service using RealtimeSTT and faster-whisper.
+    Real-time Speech-to-Text service using faster-whisper.
     """
     
     def __init__(self):
@@ -35,13 +34,21 @@ class STTService:
         Initialize STT service with model configuration.
         """
         self.model = None
-        self.recorder = None
         self.is_initialized = False
         self._initialization_lock = asyncio.Lock()
         
+        # Callbacks
+        self._on_final_callback: Optional[Callable[[str], None]] = None
+        self._on_partial_callback: Optional[Callable[[str], None]] = None
+        self._on_vad_start_callback: Optional[Callable[[], None]] = None
+        self._on_vad_stop_callback: Optional[Callable[[], None]] = None
+        self._on_processing_start_callback: Optional[Callable[[], None]] = None
+        self._on_processing_stop_callback: Optional[Callable[[], None]] = None
+        self._on_error_callback: Optional[Callable[[Exception], None]] = None
+        
     async def initialize(self):
         """
-        Initialize the STT model and recorder.
+        Initialize the STT model.
         This is called lazily on first use to avoid startup delays.
         """
         if self.is_initialized:
@@ -65,27 +72,7 @@ class STTService:
                 )
                 
                 logger.info(f"STT model loaded: {settings.stt_model} on {device} with {compute_type}")
-                
-                # Initialize RealtimeSTT recorder
-                self.recorder = AudioToTextRecorder(
-                    model=settings.stt_model,
-                    language=settings.stt_language,
-                    use_microphone=False,  # We'll feed audio manually
-                    enable_realtime_transcription=True,
-                    level=settings.stt_vad_sensitivity,
-                    spinner=False,
-                    use_microphone_device_index=None,
-                    on_realtime_transcription_stabilized=self._on_transcription_stabilized,
-                    on_realtime_transcription_update=self._on_transcription_update,
-                    on_vad_detect_start=self._on_vad_start,
-                    on_vad_detect_stop=self._on_vad_stop,
-                    on_processing_started=self._on_processing_started,
-                    on_processing_stopped=self._on_processing_stopped,
-                    on_processing_error=self._on_processing_error,
-                )
-                
                 self.is_initialized = True
-                logger.info("STT service initialized successfully")
                 
             except Exception as e:
                 logger.error(f"Failed to initialize STT service: {e}")
@@ -120,48 +107,6 @@ class STTService:
             
         return device, compute_type
     
-    def _on_transcription_stabilized(self, text: str):
-        """Called when a transcription is finalized."""
-        logger.debug(f"STT Final: {text}")
-        if hasattr(self, '_on_final_callback') and self._on_final_callback:
-            self._on_final_callback(text)
-    
-    def _on_transcription_update(self, text: str):
-        """Called during live transcription updates."""
-        logger.debug(f"STT Partial: {text}")
-        if hasattr(self, '_on_partial_callback') and self._on_partial_callback:
-            self._on_partial_callback(text)
-    
-    def _on_vad_start(self):
-        """Called when voice activity is detected."""
-        logger.debug("STT VAD: Speech started")
-        if hasattr(self, '_on_vad_start_callback') and self._on_vad_start_callback:
-            self._on_vad_start_callback()
-    
-    def _on_vad_stop(self):
-        """Called when voice activity stops."""
-        logger.debug("STT VAD: Speech stopped")
-        if hasattr(self, '_on_vad_stop_callback') and self._on_vad_stop_callback:
-            self._on_vad_stop_callback()
-    
-    def _on_processing_started(self):
-        """Called when processing starts."""
-        logger.debug("STT: Processing started")
-        if hasattr(self, '_on_processing_start_callback') and self._on_processing_start_callback:
-            self._on_processing_start_callback()
-    
-    def _on_processing_stopped(self):
-        """Called when processing stops."""
-        logger.debug("STT: Processing stopped")
-        if hasattr(self, '_on_processing_stop_callback') and self._on_processing_stop_callback:
-            self._on_processing_stop_callback()
-    
-    def _on_processing_error(self, error: Exception):
-        """Called when processing encounters an error."""
-        logger.error(f"STT Processing error: {error}")
-        if hasattr(self, '_on_error_callback') and self._on_error_callback:
-            self._on_error_callback(error)
-    
     async def start_transcription(
         self,
         on_final: Optional[Callable[[str], None]] = None,
@@ -195,16 +140,11 @@ class STTService:
         self._on_processing_stop_callback = on_processing_stop
         self._on_error_callback = on_error
         
-        # Start the recorder
-        if self.recorder:
-            self.recorder.start()
-            logger.info("STT transcription started")
+        logger.info("STT transcription started")
     
     async def stop_transcription(self):
         """Stop real-time transcription."""
-        if self.recorder:
-            self.recorder.stop()
-            logger.info("STT transcription stopped")
+        logger.info("STT transcription stopped")
     
     async def feed_audio_data(self, audio_data: bytes, sample_rate: int = 16000):
         """
@@ -214,8 +154,8 @@ class STTService:
             audio_data: Raw audio data (PCM format)
             sample_rate: Sample rate of the audio (default 16000)
         """
-        if not self.recorder:
-            logger.warning("STT recorder not initialized")
+        if not self.model:
+            logger.warning("STT model not initialized")
             return
             
         try:
@@ -225,12 +165,58 @@ class STTService:
             # Normalize to float32 range [-1, 1]
             audio_float = audio_array.astype(np.float32) / 32768.0
             
-            # Feed to recorder
-            self.recorder.feed_audio(audio_float)
+            # For now, we'll process the entire audio chunk at once
+            # In a real implementation, you'd want to buffer and process in chunks
+            await self._process_audio_chunk(audio_float, sample_rate)
             
         except Exception as e:
             logger.error(f"Error feeding audio data: {e}")
-            if hasattr(self, '_on_error_callback') and self._on_error_callback:
+            if self._on_error_callback:
+                self._on_error_callback(e)
+    
+    async def _process_audio_chunk(self, audio_data: np.ndarray, sample_rate: int):
+        """
+        Process a chunk of audio data.
+        
+        Args:
+            audio_data: Audio data as numpy array
+            sample_rate: Sample rate of the audio
+        """
+        try:
+            if self._on_processing_start_callback:
+                self._on_processing_start_callback()
+            
+            # Use faster-whisper to transcribe the audio
+            segments, info = self.model.transcribe(
+                audio_data,
+                language=settings.stt_language,
+                beam_size=5,
+                word_timestamps=True,
+                vad_filter=settings.stt_vad_enabled,
+                vad_parameters=dict(min_silence_duration_ms=500)
+            )
+            
+            # Process segments
+            full_text = ""
+            for segment in segments:
+                text = segment.text.strip()
+                if text:
+                    full_text += text + " "
+                    
+                    # Send partial updates
+                    if self._on_partial_callback:
+                        self._on_partial_callback(text)
+            
+            # Send final result
+            if full_text.strip() and self._on_final_callback:
+                self._on_final_callback(full_text.strip())
+            
+            if self._on_processing_stop_callback:
+                self._on_processing_stop_callback()
+                
+        except Exception as e:
+            logger.error(f"Error processing audio chunk: {e}")
+            if self._on_error_callback:
                 self._on_error_callback(e)
     
     async def transcribe_audio_file(self, audio_file_path: str) -> str:
@@ -267,13 +253,6 @@ class STTService:
     
     def cleanup(self):
         """Clean up resources."""
-        if self.recorder:
-            try:
-                self.recorder.stop()
-            except:
-                pass
-            self.recorder = None
-        
         self.model = None
         self.is_initialized = False
         logger.info("STT service cleaned up")
