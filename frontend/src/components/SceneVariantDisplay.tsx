@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { ArrowLeftIcon, ArrowRightIcon, PlayIcon, ArrowPathIcon, PlusCircleIcon, StopIcon, SparklesIcon } from '@heroicons/react/24/outline';
 import SceneDisplay from './SceneDisplay';
 import { SceneTTSButton } from './SceneTTSButton';
+import MicrophoneButton from './MicrophoneButton';
 import apiClient from '@/lib/api';
 
 interface SceneVariant {
@@ -615,6 +616,12 @@ export default function SceneVariantDisplay({
                     }
                   }}
                   disabled={!showChoicesDuringGeneration || isGenerating || isStreaming || isRegenerating || isStreamingContinuation}
+                />
+                <MicrophoneButton
+                  onTranscriptComplete={(text) => onCustomPromptChange?.(customPrompt + (customPrompt ? ' ' : '') + text)}
+                  disabled={!showChoicesDuringGeneration || isGenerating || isStreaming || isRegenerating || isStreamingContinuation}
+                  className="ml-2"
+                  showPreview={true}
                 />
                 <button
                   onClick={() => onGenerateScene?.(customPrompt)}
