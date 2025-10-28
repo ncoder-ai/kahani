@@ -198,18 +198,12 @@ async def process_audio_data(session_id: str, audio_data: bytes):
     
     Args:
         session_id: Session ID
-        audio_data: Raw audio data (WebM/Opus format)
+        audio_data: Raw audio data (PCM format from frontend)
     """
     try:
-        # For now, we'll assume the audio data is already in the correct format
-        # In a real implementation, you might need to convert WebM/Opus to PCM
-        
-        # Convert WebM/Opus to PCM (simplified - in production use proper audio conversion)
-        pcm_data = await convert_audio_to_pcm(audio_data)
-        
-        if pcm_data:
-            # Feed to STT service
-            await stt_service.feed_audio_data(pcm_data, sample_rate=16000)
+        # Frontend is now sending raw PCM audio directly
+        # No conversion needed - feed directly to STT service
+        await stt_service.feed_audio_data(audio_data, sample_rate=16000)
         
     except Exception as e:
         logger.error(f"Error processing audio data for session {session_id}: {e}")
