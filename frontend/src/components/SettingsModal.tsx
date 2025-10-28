@@ -6,18 +6,7 @@ import VoiceBrowserModal from './VoiceBrowserModal';
 import apiClient, { getApiBaseUrl } from '@/lib/api';
 import { getThemeList, applyTheme } from '@/lib/themes';
 import { useAuthStore } from '@/store';
-
-interface UIPreferences {
-  color_theme: string;
-  font_size: string;
-  show_token_info: boolean;
-  show_context_info: boolean;
-  notifications: boolean;
-  scene_display_format: string;
-  show_scene_titles: boolean;
-  auto_open_last_story: boolean;
-  last_accessed_story_id?: number;
-}
+import { UIPreferences, GenerationPreferences } from '@/types/settings';
 
 interface WritingPreset {
   id?: number;
