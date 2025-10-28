@@ -44,14 +44,6 @@ interface ContextSettings {
   extraction_confidence_threshold?: number;
 }
 
-interface GenerationPreferences {
-  default_genre: string;
-  default_tone: string;
-  scene_length: string;
-  auto_choices: boolean;
-  choices_count: number;
-}
-
 interface TTSProvider {
   type: string;
   name: string;
