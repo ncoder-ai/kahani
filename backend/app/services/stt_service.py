@@ -176,8 +176,9 @@ class STTService:
 
     async def stop_transcription(self):
         """Stop real-time transcription."""
-        # Clear buffer
+        # Clear buffer and accumulated transcript
         self.audio_buffer = np.array([], dtype=np.float32)
+        self._accumulated_transcript = ""
         logger.info("STT transcription stopped")
 
     async def feed_audio_data(self, audio_data: bytes, sample_rate: int = 16000):
