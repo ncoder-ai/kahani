@@ -222,22 +222,18 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
     switch (message.type) {
       case 'partial':
         if (message.text) {
-          // Backend now sends only new text, so we need to append it
-          const previousTranscript = fullTranscriptRef.current;
-          fullTranscriptRef.current = fullTranscriptRef.current 
-            ? fullTranscriptRef.current + ' ' + message.text 
-            : message.text;
+          // Backend sends the full accumulated sentence
+          fullTranscriptRef.current = message.text;
           
-          console.log('[STT] Appending partial:', {
-            previous: previousTranscript.substring(0, 50),
-            new: message.text.substring(0, 50),
-            full: fullTranscriptRef.current.substring(0, 100)
+          console.log('[STT] Partial transcript (full accumulated):', {
+            text: message.text.substring(0, 100),
+            length: message.text.length
           });
           
           setState(prev => ({ 
             ...prev, 
             transcript: fullTranscriptRef.current,
-            partialTranscript: message.text // Show current chunk as "partial" for highlighting
+            partialTranscript: message.text
           }));
           optionsRef.current.onTranscript?.(fullTranscriptRef.current, true);
           
