@@ -1933,11 +1933,11 @@ export default function StoryPage() {
                     <div className="flex gap-2">
                       <MicrophoneButton
                         onTranscriptUpdate={(text) => {
-                          // Real-time update while recording
+                          // Real-time update while recording - replace with STT text
                           setCustomPrompt(text);
                         }}
                         onTranscriptComplete={(text) => {
-                          // Final transcript when stopped
+                          // Final transcript when stopped - replace with STT text
                           setCustomPrompt(text);
                         }}
                         disabled={isGenerating || isStreaming}

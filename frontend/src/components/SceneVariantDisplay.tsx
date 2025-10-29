@@ -619,11 +619,12 @@ export default function SceneVariantDisplay({
                 />
                 <MicrophoneButton
                   onTranscriptUpdate={(text) => {
-                    // Real-time update while recording
+                    // Real-time update while recording - replace with STT text only
+                    // The backend sends the full accumulated sentence
                     onCustomPromptChange?.(text);
                   }}
                   onTranscriptComplete={(text) => {
-                    // Final transcript when stopped
+                    // Final transcript when stopped - replace with STT text only
                     onCustomPromptChange?.(text);
                   }}
                   disabled={!showChoicesDuringGeneration || isGenerating || isStreaming || isRegenerating || isStreamingContinuation}
