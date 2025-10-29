@@ -188,12 +188,10 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
 
       ws.onclose = (event) => {
         console.log('[STT] WebSocket closed:', event.code, event.reason);
-        setState(prev => ({ ...prev, isConnected: false }));
+        setState(prev => ({ ...prev, isConnected: false, isRecording: false, isTranscribing: false }));
         
-        // Auto-reconnect if not intentionally closed
-        if (event.code !== 1000) {
-          scheduleReconnect();
-        }
+        // Don't auto-reconnect - let user click mic button to reconnect
+        isConnectingRef.current = false;
       };
 
       ws.onerror = (error) => {
@@ -206,7 +204,7 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
       const err = error as Error;
       console.error('[STT] Connection failed:', err);
       isConnectingRef.current = false;
-      setState(prev => ({ ...prev, error: err.message }));
+      setState(prev => ({ ...prev, error: err.message, isConnected: false }));
     }
   }, [createSession]);
 
@@ -293,19 +291,7 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
     }
   }, []); // No dependencies - use refs for everything
 
-  /**
-   * Schedule reconnection
-   */
-  const scheduleReconnect = useCallback(() => {
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-    }
-
-    reconnectTimeoutRef.current = setTimeout(() => {
-      console.log('[STT] Attempting to reconnect...');
-      connect();
-    }, 3000);
-  }, [connect]);
+  // Removed scheduleReconnect - no auto-reconnect, user clicks mic to connect
 
   /**
    * Start recording and transcription
@@ -390,13 +376,8 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
   }, []); // Only cleanup on unmount, not when functions change
 
   /**
-   * Auto-connect on mount for testing (only once)
+   * No auto-connect - WebSocket connects only when user clicks microphone
    */
-  useEffect(() => {
-    // Auto-connect for testing purposes
-    connect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Empty dependency array - only run once on mount
 
   return {
     // State
