@@ -101,8 +101,8 @@ class Settings(BaseSettings):
     stt_use_silero_vad: bool = True  # Use Silero VAD (better than webrtcvad)
     stt_vad_threshold: float = 0.5  # Silero VAD threshold (0.0-1.0, higher = more aggressive)
     stt_min_speech_duration_ms: int = 250  # Minimum speech duration to process
-    stt_min_silence_duration_ms: int = 500  # Silence duration to mark end of sentence
-    stt_max_speech_duration_s: int = 30  # Maximum continuous speech before forced processing
+    stt_min_silence_duration_ms: int = 1000  # 1 second silence to mark end of sentence (prevents fragmentation)
+    stt_max_speech_duration_s: int = 60  # 60 seconds to allow longer speeches without cuts
     stt_speech_pad_ms: int = 300  # Padding around detected speech
     
     class Config:

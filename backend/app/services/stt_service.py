@@ -57,6 +57,9 @@ class ProfessionalSTTService:
             self.accumulated_sentence = ""
             self.last_transcription_time = 0
             
+            # Audio position tracking (for deduplication)
+            self.total_audio_processed = 0
+            
             # Processing state
             self.is_processing = False
             self.processing_lock = asyncio.Lock()
@@ -161,6 +164,7 @@ class ProfessionalSTTService:
         self.speech_start_time = None
         self.last_speech_time = None
         self.speech_timestamps = []
+        self.total_audio_processed = 0
         
         logger.info("Professional STT transcription started")
 
@@ -179,6 +183,7 @@ class ProfessionalSTTService:
         self.last_window_audio = np.array([], dtype=np.float32)
         self.accumulated_sentence = ""
         self.is_speaking = False
+        self.total_audio_processed = 0
         
         logger.info("STT transcription stopped")
 
@@ -274,6 +279,26 @@ class ProfessionalSTTService:
             energy = np.sqrt(np.mean(audio_chunk ** 2))
             return energy > 0.01
 
+    def _is_duplicate_text(self, new_text: str, existing_text: str) -> bool:
+        """Check if new_text is already in existing_text (with fuzzy matching)."""
+        if not existing_text:
+            return False
+        
+        # Check if new text is substring of existing (allowing for minor variations)
+        new_words = new_text.lower().split()
+        existing_words = existing_text.lower().split()
+        
+        # If first 5 words of new text match last 5-10 words of existing, it's duplicate
+        if len(new_words) >= 5 and len(existing_words) >= 5:
+            new_start = ' '.join(new_words[:5])
+            existing_end = ' '.join(existing_words[-10:])
+            
+            if new_start in existing_end:
+                logger.debug(f"Detected duplicate: '{new_start}' found in '{existing_end}'")
+                return True
+        
+        return False
+
     async def _process_buffer_with_context(self):
         """Process buffer with sliding window for context continuity."""
         if self.is_processing or len(self.audio_buffer) == 0:
@@ -286,8 +311,14 @@ class ProfessionalSTTService:
                 # No overlap - process sequential chunks for reliability
                 audio_to_process = self.audio_buffer.copy()
                 
+                # Track audio position to prevent re-processing
+                audio_start_pos = self.total_audio_processed
+                self.total_audio_processed += len(audio_to_process)
+                
                 # Clear buffer for new audio
                 self.audio_buffer = np.array([], dtype=np.float32)
+                
+                logger.debug(f"Processing audio from {audio_start_pos} to {self.total_audio_processed}")
                 
                 # Transcribe with optimized parameters
                 text = await asyncio.to_thread(self._transcribe_with_quality, audio_to_process)
@@ -296,18 +327,23 @@ class ProfessionalSTTService:
                     # Post-process for natural output
                     processed_text = self._post_process_text(text.strip())
                     
-                    # ALWAYS append during recording session - NEVER reset
-                    if self.accumulated_sentence:
-                        # Add space between chunks
-                        self.accumulated_sentence += " " + processed_text
+                    # Check for duplicate before appending
+                    if not self._is_duplicate_text(processed_text, self.accumulated_sentence):
+                        # ALWAYS append during recording session - NEVER reset
+                        if self.accumulated_sentence:
+                            # Add space between chunks
+                            self.accumulated_sentence += " " + processed_text
+                        else:
+                            self.accumulated_sentence = processed_text
+                        
+                        # Send the FULL accumulated sentence as partial
+                        if self._on_partial_callback:
+                            await self._on_partial_callback(self.accumulated_sentence)
+                        
+                        logger.info(f"[STT] New chunk: '{processed_text[:50]}...'")
+                        logger.info(f"[STT] Accumulated: '{self.accumulated_sentence[:100]}...' (length: {len(self.accumulated_sentence)})")
                     else:
-                        self.accumulated_sentence = processed_text
-                    
-                    # Send the FULL accumulated sentence as partial
-                    if self._on_partial_callback:
-                        await self._on_partial_callback(self.accumulated_sentence)
-                    
-                    logger.debug(f"Transcribed: {processed_text[:50]}... (Full: {self.accumulated_sentence[:100]}...)")
+                        logger.info(f"[STT] Skipped duplicate: '{processed_text[:50]}...'")
                     
             except Exception as e:
                 logger.error(f"Error processing buffer: {e}", exc_info=True)
