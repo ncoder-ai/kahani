@@ -43,18 +43,18 @@ class STTService:
             self.min_speech_duration = 0.5  # Minimum 0.5s of speech to transcribe
             self.is_processing = False  # Prevent concurrent processing
             
-                    # Callbacks
-                    self._on_final_callback: Optional[Callable[[str], None]] = None
-                    self._on_partial_callback: Optional[Callable[[str], None]] = None
-                    self._on_vad_start_callback: Optional[Callable[[], None]] = None
-                    self._on_vad_stop_callback: Optional[Callable[[], None]] = None
-                    self._on_processing_start_callback: Optional[Callable[[], None]] = None
-                    self._on_processing_stop_callback: Optional[Callable[[], None]] = None
-                    self._on_error_callback: Optional[Callable[[Exception], None]] = None
-                    
-                    # Deduplication tracking
-                    self._last_sent_text: str = ""
-                    self._last_sent_length: int = 0
+            # Callbacks
+            self._on_final_callback: Optional[Callable[[str], None]] = None
+            self._on_partial_callback: Optional[Callable[[str], None]] = None
+            self._on_vad_start_callback: Optional[Callable[[], None]] = None
+            self._on_vad_stop_callback: Optional[Callable[[], None]] = None
+            self._on_processing_start_callback: Optional[Callable[[], None]] = None
+            self._on_processing_stop_callback: Optional[Callable[[], None]] = None
+            self._on_error_callback: Optional[Callable[[Exception], None]] = None
+            
+            # Deduplication tracking
+            self._last_sent_text: str = ""
+            self._last_sent_length: int = 0
             
             logger.info("STTService initialized (models will be loaded on first use)")
 
