@@ -43,16 +43,53 @@ class STTService:
             self.min_speech_duration = 0.5  # Minimum 0.5s of speech to transcribe
             self.is_processing = False  # Prevent concurrent processing
             
-            # Callbacks
-            self._on_final_callback: Optional[Callable[[str], None]] = None
-            self._on_partial_callback: Optional[Callable[[str], None]] = None
-            self._on_vad_start_callback: Optional[Callable[[], None]] = None
-            self._on_vad_stop_callback: Optional[Callable[[], None]] = None
-            self._on_processing_start_callback: Optional[Callable[[], None]] = None
-            self._on_processing_stop_callback: Optional[Callable[[], None]] = None
-            self._on_error_callback: Optional[Callable[[Exception], None]] = None
+                    # Callbacks
+                    self._on_final_callback: Optional[Callable[[str], None]] = None
+                    self._on_partial_callback: Optional[Callable[[str], None]] = None
+                    self._on_vad_start_callback: Optional[Callable[[], None]] = None
+                    self._on_vad_stop_callback: Optional[Callable[[], None]] = None
+                    self._on_processing_start_callback: Optional[Callable[[], None]] = None
+                    self._on_processing_stop_callback: Optional[Callable[[], None]] = None
+                    self._on_error_callback: Optional[Callable[[Exception], None]] = None
+                    
+                    # Deduplication tracking
+                    self._last_sent_text: str = ""
+                    self._last_sent_length: int = 0
             
             logger.info("STTService initialized (models will be loaded on first use)")
+
+    def _extract_new_text(self, current_text: str) -> str:
+        """
+        Extract only the new text from overlapping transcriptions.
+        
+        Args:
+            current_text: The current transcription result
+            
+        Returns:
+            Only the new text that hasn't been sent before
+        """
+        if not current_text or not current_text.strip():
+            return ""
+        
+        current_text = current_text.strip()
+        
+        # If this is the first text or completely different, return it all
+        if not self._last_sent_text:
+            return current_text
+        
+        # If current text is shorter than what we sent, it's likely a partial
+        # that got cut off, so return the current text
+        if len(current_text) <= len(self._last_sent_text):
+            return current_text
+        
+        # Check if current text starts with what we already sent
+        if current_text.startswith(self._last_sent_text):
+            # Extract only the new part
+            new_text = current_text[len(self._last_sent_text):].strip()
+            return new_text
+        
+        # If no overlap, return the current text
+        return current_text
 
     async def initialize(self, model: str = None):
         """
@@ -163,9 +200,11 @@ class STTService:
         self._on_processing_stop_callback = on_processing_stop
         self._on_error_callback = on_error
         
-        # Reset buffer
+        # Reset buffer and tracking
         self.audio_buffer = np.array([], dtype=np.float32)
         self.last_processing_time = time.time()
+        self._last_sent_text = ""
+        self._last_sent_length = 0
         
         logger.info("STT transcription started")
 
@@ -250,9 +289,17 @@ class STTService:
             text = await asyncio.to_thread(self._transcribe, audio_to_process)
             
             if text and text.strip():
-                # Send as PARTIAL for continuous updates (not final)
-                if self._on_partial_callback:
-                    await self._on_partial_callback(text.strip())
+                # Extract only new text to avoid duplication from overlapping chunks
+                new_text = self._extract_new_text(text.strip())
+                
+                if new_text:
+                    # Update tracking
+                    self._last_sent_text = text.strip()
+                    self._last_sent_length = len(self._last_sent_text)
+                    
+                    # Send only the new text as PARTIAL
+                    if self._on_partial_callback:
+                        await self._on_partial_callback(new_text)
             
             if self._on_processing_stop_callback:
                 await self._on_processing_stop_callback()

@@ -222,11 +222,13 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
     switch (message.type) {
       case 'partial':
         if (message.text) {
-          // Replace transcript with latest partial (Whisper partials are cumulative, not incremental)
+          // Backend now sends only new text, so we need to append it
           const previousTranscript = fullTranscriptRef.current;
-          fullTranscriptRef.current = message.text;
+          fullTranscriptRef.current = fullTranscriptRef.current 
+            ? fullTranscriptRef.current + ' ' + message.text 
+            : message.text;
           
-          console.log('[STT] Updating partial:', {
+          console.log('[STT] Appending partial:', {
             previous: previousTranscript.substring(0, 50),
             new: message.text.substring(0, 50),
             full: fullTranscriptRef.current.substring(0, 100)
