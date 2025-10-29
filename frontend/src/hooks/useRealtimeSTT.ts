@@ -222,13 +222,11 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
     switch (message.type) {
       case 'partial':
         if (message.text) {
-          // Accumulate partials into full transcript for continuous real-time updates
+          // Replace transcript with latest partial (Whisper partials are cumulative, not incremental)
           const previousTranscript = fullTranscriptRef.current;
-          fullTranscriptRef.current = fullTranscriptRef.current 
-            ? fullTranscriptRef.current + ' ' + message.text 
-            : message.text;
+          fullTranscriptRef.current = message.text;
           
-          console.log('[STT] Accumulating partial:', {
+          console.log('[STT] Updating partial:', {
             previous: previousTranscript.substring(0, 50),
             new: message.text.substring(0, 50),
             full: fullTranscriptRef.current.substring(0, 100)
@@ -251,10 +249,8 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
 
       case 'final':
         if (message.text) {
-          // Final is only sent when user stops speaking (for now, treat like partial)
-          fullTranscriptRef.current = fullTranscriptRef.current 
-            ? fullTranscriptRef.current + ' ' + message.text 
-            : message.text;
+          // Final transcript replaces the current transcript
+          fullTranscriptRef.current = message.text;
           
           setState(prev => ({
             ...prev,
