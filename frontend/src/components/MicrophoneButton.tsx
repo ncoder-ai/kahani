@@ -21,13 +21,13 @@ export default function MicrophoneButton({
   showPreview = true,
   placeholder = 'Click to start recording...'
 }: MicrophoneButtonProps) {
-  const [isRecording, setIsRecording] = useState(false);
   const [previewText, setPreviewText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSTTEnabled, setIsSTTEnabled] = useState(true);
   
   const {
     isConnected,
+    isRecording,
     isTranscribing,
     transcript,
     partialTranscript,
@@ -49,11 +49,9 @@ export default function MicrophoneButton({
     },
     onError: (error) => {
       setError(error);
-      setIsRecording(false);
     },
     onStatusChange: (recording, transcribing) => {
       console.log('[MicrophoneButton] Status change:', { recording, transcribing, currentIsRecording: isRecording });
-      setIsRecording(recording);
       
       // When recording stops, append the current transcript to the parent
       if (!recording && transcript && transcript.trim()) {
