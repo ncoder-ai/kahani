@@ -88,16 +88,22 @@ class Settings(BaseSettings):
     log_file: str = "./logs/kahani.log"
     
     # STT Configuration
-    stt_model: str = "base"  # Options: tiny, base, small, medium, large-v2
-    # Model comparison (CPU):
-    # - base: Fast, okay quality (current baseline)
-    # - small: Good quality, still fast enough for real-time (recommended)
-    # - medium: Very good quality, slower but usable
+    stt_model: str = "small"  # Options: tiny, base, small, medium, large-v2
+    # Model comparison:
+    # - small: Good quality, fast, recommended (iPhone-quality)
+    # - medium: Very good quality, slower
+    # - large-v2: Best quality, slowest
     stt_device: str = "auto"  # auto (try GPU, fallback CPU), cuda, or cpu
     stt_compute_type: str = "int8"  # int8, int8_float16, float16 for GPU; int8 for CPU
     stt_language: str = "en"  # Language code
-    stt_vad_enabled: bool = True  # Voice activity detection
-    stt_vad_sensitivity: int = 3  # 0 (aggressive) to 3 (permissive)
+    
+    # Advanced STT Settings
+    stt_use_silero_vad: bool = True  # Use Silero VAD (better than webrtcvad)
+    stt_vad_threshold: float = 0.5  # Silero VAD threshold (0.0-1.0, higher = more aggressive)
+    stt_min_speech_duration_ms: int = 250  # Minimum speech duration to process
+    stt_min_silence_duration_ms: int = 500  # Silence duration to mark end of sentence
+    stt_max_speech_duration_s: int = 30  # Maximum continuous speech before forced processing
+    stt_speech_pad_ms: int = 300  # Padding around detected speech
     
     class Config:
         env_file = "../.env"
