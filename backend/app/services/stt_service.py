@@ -73,7 +73,7 @@ class STTService:
         
         current_text = current_text.strip()
         
-        # If this is the first text or completely different, return it all
+        # If this is the first text, return it all
         if not self._last_sent_text:
             return current_text
         
@@ -82,13 +82,36 @@ class STTService:
         if len(current_text) <= len(self._last_sent_text):
             return current_text
         
-        # Check if current text starts with what we already sent
-        if current_text.startswith(self._last_sent_text):
-            # Extract only the new part
-            new_text = current_text[len(self._last_sent_text):].strip()
-            return new_text
+        # Find the best overlap by checking for common endings
+        last_words = self._last_sent_text.split()
+        current_words = current_text.split()
         
-        # If no overlap, return the current text
+        # Find the longest common suffix between last sent and current
+        max_overlap = 0
+        for i in range(1, min(len(last_words), len(current_words)) + 1):
+            if last_words[-i:] == current_words[:i]:
+                max_overlap = i
+        
+        if max_overlap > 0:
+            # Extract only the new words
+            new_words = current_words[max_overlap:]
+            return ' '.join(new_words)
+        
+        # If no word-level overlap found, check for character-level overlap
+        # Look for common ending in last sent text
+        last_text = self._last_sent_text.lower()
+        current_text_lower = current_text.lower()
+        
+        # Find the longest common suffix
+        max_char_overlap = 0
+        for i in range(1, min(len(last_text), len(current_text_lower)) + 1):
+            if last_text[-i:] == current_text_lower[:i]:
+                max_char_overlap = i
+        
+        if max_char_overlap > 3:  # Only if overlap is significant (more than 3 chars)
+            return current_text[max_char_overlap:].strip()
+        
+        # If no significant overlap, return the current text
         return current_text
 
     async def initialize(self, model: str = None):
