@@ -618,9 +618,13 @@ export default function SceneVariantDisplay({
                   disabled={!showChoicesDuringGeneration || isGenerating || isStreaming || isRegenerating || isStreamingContinuation}
                 />
                 <MicrophoneButton
+                  onTranscriptUpdate={(text) => {
+                    // Real-time update while recording
+                    onCustomPromptChange?.(text);
+                  }}
                   onTranscriptComplete={(text) => {
-                    const newText = customPrompt + (customPrompt ? ' ' : '') + text;
-                    onCustomPromptChange?.(newText);
+                    // Final transcript when stopped
+                    onCustomPromptChange?.(text);
                   }}
                   disabled={!showChoicesDuringGeneration || isGenerating || isStreaming || isRegenerating || isStreamingContinuation}
                   className="ml-2"

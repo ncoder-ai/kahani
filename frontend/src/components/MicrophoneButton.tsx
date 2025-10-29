@@ -6,6 +6,7 @@ import { Mic, MicOff, Loader2 } from 'lucide-react';
 
 export interface MicrophoneButtonProps {
   onTranscriptComplete: (text: string) => void;
+  onTranscriptUpdate?: (text: string) => void; // Real-time updates
   disabled?: boolean;
   className?: string;
   position?: 'inline' | 'absolute';
@@ -15,6 +16,7 @@ export interface MicrophoneButtonProps {
 
 export default function MicrophoneButton({
   onTranscriptComplete,
+  onTranscriptUpdate,
   disabled = false,
   className = '',
   position = 'inline',
@@ -38,10 +40,16 @@ export default function MicrophoneButton({
     isReady
   } = useRealtimeSTT({
     onTranscript: (text, isPartial) => {
+      console.log('[MicrophoneButton] Transcript received:', { text: text.substring(0, 50), isPartial });
+      
       if (isPartial) {
+        // Partial transcript - update parent in real-time
         setPreviewText(text);
+        if (onTranscriptUpdate) {
+          onTranscriptUpdate(text);
+        }
       } else {
-        // Final transcript - append to parent
+        // Final transcript - complete
         onTranscriptComplete(text);
         setPreviewText('');
         clearTranscript();
@@ -53,9 +61,9 @@ export default function MicrophoneButton({
     onStatusChange: (recording, transcribing) => {
       console.log('[MicrophoneButton] Status change:', { recording, transcribing, currentIsRecording: isRecording });
       
-      // When recording stops, append the current transcript to the parent
+      // When recording stops, send the final transcript
       if (!recording && transcript && transcript.trim()) {
-        console.log('[MicrophoneButton] Recording stopped, appending transcript:', transcript);
+        console.log('[MicrophoneButton] Recording stopped, sending final transcript:', transcript.substring(0, 50));
         onTranscriptComplete(transcript);
         setPreviewText('');
         clearTranscript();
