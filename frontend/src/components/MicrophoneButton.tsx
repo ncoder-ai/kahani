@@ -63,15 +63,26 @@ export default function MicrophoneButton({
         // Get auth token from localStorage or auth store
         const token = localStorage.getItem('auth_token') || '';
         
+        console.log('[MicrophoneButton] Checking STT settings with token:', token ? 'present' : 'missing');
+        
         const response = await fetch('/api/settings/', {
           headers: {
             'Authorization': `Bearer ${token}`
           }
         });
+        
+        console.log('[MicrophoneButton] STT settings response:', response.status);
+        
         if (response.ok) {
           const data = await response.json();
+          console.log('[MicrophoneButton] STT settings data:', data);
           const sttSettings = data.settings?.stt_settings;
-          setIsSTTEnabled(sttSettings?.enabled ?? true);
+          const enabled = sttSettings?.enabled ?? true;
+          console.log('[MicrophoneButton] STT enabled:', enabled);
+          setIsSTTEnabled(enabled);
+        } else {
+          console.warn('[MicrophoneButton] Failed to fetch STT settings, defaulting to enabled');
+          setIsSTTEnabled(true); // Default to enabled if API fails
         }
       } catch (error) {
         console.error('Error checking STT settings:', error);
@@ -148,10 +159,7 @@ export default function MicrophoneButton({
     return 'Click to start recording';
   };
 
-  // Don't render if STT is disabled
-  if (!isSTTEnabled) {
-    return null;
-  }
+  // Always render the button, but show as disabled if STT is not enabled
 
   return (
     <div className={`relative ${position === 'absolute' ? 'absolute' : ''} ${className}`}>

@@ -391,6 +391,6 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
     clearTranscript,
     
     // Utils
-    isReady: state.isConnected && !state.error
+    isReady: !state.error // Ready to connect even if not currently connected
   };
 }
