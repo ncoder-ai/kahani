@@ -52,10 +52,12 @@ export default function MicrophoneButton({
       setIsRecording(false);
     },
     onStatusChange: (recording, transcribing) => {
+      console.log('[MicrophoneButton] Status change:', { recording, transcribing, currentIsRecording: isRecording });
       setIsRecording(recording);
       
       // When recording stops, append the current transcript to the parent
       if (!recording && transcript && transcript.trim()) {
+        console.log('[MicrophoneButton] Recording stopped, appending transcript:', transcript);
         onTranscriptComplete(transcript);
         setPreviewText('');
         clearTranscript();
@@ -103,10 +105,14 @@ export default function MicrophoneButton({
   const handleToggleRecording = useCallback(async () => {
     if (disabled || !isSTTEnabled) return;
     
+    console.log('[MicrophoneButton] Toggle recording - current state:', { isRecording, isConnected });
+    
     if (isRecording) {
+      console.log('[MicrophoneButton] Stopping recording...');
       stopTranscription();
       setPreviewText('');
     } else {
+      console.log('[MicrophoneButton] Starting recording...');
       setError(null);
       clearTranscript();
       await startTranscription();
