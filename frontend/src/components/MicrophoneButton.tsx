@@ -53,6 +53,13 @@ export default function MicrophoneButton({
     },
     onStatusChange: (recording, transcribing) => {
       setIsRecording(recording);
+      
+      // When recording stops, append the current transcript to the parent
+      if (!recording && transcript && transcript.trim()) {
+        onTranscriptComplete(transcript);
+        setPreviewText('');
+        clearTranscript();
+      }
     }
   });
 
