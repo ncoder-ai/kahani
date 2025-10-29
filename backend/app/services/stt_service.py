@@ -170,7 +170,11 @@ class ProfessionalSTTService:
         if len(self.audio_buffer) > 0:
             await self._process_final_buffer()
         
-        # Reset state
+        # Send final transcript
+        if self.accumulated_sentence and self._on_final_callback:
+            await self._on_final_callback(self.accumulated_sentence)
+        
+        # NOW reset
         self.audio_buffer = np.array([], dtype=np.float32)
         self.last_window_audio = np.array([], dtype=np.float32)
         self.accumulated_sentence = ""
@@ -244,17 +248,25 @@ class ProfessionalSTTService:
             return energy > 0.01
         
         try:
-            # Silero VAD expects 16kHz audio
-            audio_tensor = torch.from_numpy(audio_chunk).float()
+            # Silero VAD needs exactly 512 samples for 16kHz
+            required_samples = 512
             
-            # Get VAD probability
-            speech_prob = await asyncio.to_thread(
-                self.silero_vad_model,
-                audio_tensor,
-                self.sample_rate
-            )
+            # Process audio in 512-sample chunks
+            is_speech = False
+            for i in range(0, len(audio_chunk), required_samples):
+                chunk = audio_chunk[i:i+required_samples]
+                if len(chunk) == required_samples:
+                    audio_tensor = torch.from_numpy(chunk).float()
+                    speech_prob = await asyncio.to_thread(
+                        self.silero_vad_model,
+                        audio_tensor,
+                        self.sample_rate
+                    )
+                    if float(speech_prob) > settings.stt_vad_threshold:
+                        is_speech = True
+                        break
             
-            return float(speech_prob) > settings.stt_vad_threshold
+            return is_speech
             
         except Exception as e:
             logger.warning(f"VAD error: {e}")
@@ -271,20 +283,8 @@ class ProfessionalSTTService:
             self.is_processing = True
             
             try:
-                # Get audio to process (current buffer + overlap from previous)
-                window_samples = int(self.window_size_ms * self.sample_rate / 1000)
-                
-                if len(self.last_window_audio) > 0:
-                    # Include overlap from previous window for context
-                    audio_to_process = np.concatenate([
-                        self.last_window_audio[-window_samples:],
-                        self.audio_buffer
-                    ])
-                else:
-                    audio_to_process = self.audio_buffer.copy()
-                
-                # Save last window for next iteration
-                self.last_window_audio = self.audio_buffer.copy()
+                # No overlap - process sequential chunks for reliability
+                audio_to_process = self.audio_buffer.copy()
                 
                 # Clear buffer for new audio
                 self.audio_buffer = np.array([], dtype=np.float32)
@@ -296,24 +296,18 @@ class ProfessionalSTTService:
                     # Post-process for natural output
                     processed_text = self._post_process_text(text.strip())
                     
-                    # Update accumulated sentence
+                    # ALWAYS append during recording session - NEVER reset
                     if self.accumulated_sentence:
-                        # Check if new text is continuation or new sentence
-                        if processed_text[0].islower() or processed_text[0] in ',;':
-                            self.accumulated_sentence += " " + processed_text
-                        else:
-                            # New sentence - send previous as final
-                            if self._on_final_callback:
-                                await self._on_final_callback(self.accumulated_sentence)
-                            self.accumulated_sentence = processed_text
+                        # Add space between chunks
+                        self.accumulated_sentence += " " + processed_text
                     else:
                         self.accumulated_sentence = processed_text
                     
-                    # Send as partial
+                    # Send the FULL accumulated sentence as partial
                     if self._on_partial_callback:
                         await self._on_partial_callback(self.accumulated_sentence)
                     
-                    logger.debug(f"Transcribed: {processed_text[:50]}...")
+                    logger.debug(f"Transcribed: {processed_text[:50]}... (Full: {self.accumulated_sentence[:100]}...)")
                     
             except Exception as e:
                 logger.error(f"Error processing buffer: {e}", exc_info=True)
@@ -330,14 +324,13 @@ class ProfessionalSTTService:
                 if text and text.strip():
                     processed_text = self._post_process_text(text.strip())
                     
+                    # Append to accumulated sentence (same logic as main processing)
                     if self.accumulated_sentence:
                         self.accumulated_sentence += " " + processed_text
                     else:
                         self.accumulated_sentence = processed_text
                     
-                    # Send final transcription
-                    if self._on_final_callback:
-                        await self._on_final_callback(self.accumulated_sentence)
+                    logger.debug(f"Final buffer processed: {processed_text[:50]}... (Full: {self.accumulated_sentence[:100]}...)")
                     
             except Exception as e:
                 logger.error(f"Error processing final buffer: {e}", exc_info=True)
