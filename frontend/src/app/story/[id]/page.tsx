@@ -1932,7 +1932,14 @@ export default function StoryPage() {
                     <span className="text-xs text-gray-500">Be specific about actions, dialogue, and scene details</span>
                     <div className="flex gap-2">
                       <MicrophoneButton
-                        onTranscriptComplete={(text) => setCustomPrompt(customPrompt + (customPrompt ? ' ' : '') + text)}
+                        onTranscriptUpdate={(text) => {
+                          // Real-time update while recording
+                          setCustomPrompt(text);
+                        }}
+                        onTranscriptComplete={(text) => {
+                          // Final transcript when stopped
+                          setCustomPrompt(text);
+                        }}
                         disabled={isGenerating || isStreaming}
                         showPreview={true}
                       />
