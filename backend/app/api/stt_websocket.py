@@ -110,42 +110,6 @@ async def websocket_stt_stream(
                 "timestamp": asyncio.get_event_loop().time()
             })
         
-        async def on_vad_start():
-            """Called when voice activity is detected."""
-            stt_session_manager.set_recording(session_id, True)
-            await stt_session_manager.send_message(session_id, {
-                "type": "status",
-                "recording": True,
-                "transcribing": False
-            })
-        
-        async def on_vad_stop():
-            """Called when voice activity stops."""
-            stt_session_manager.set_recording(session_id, False)
-            await stt_session_manager.send_message(session_id, {
-                "type": "status",
-                "recording": False,
-                "transcribing": True
-            })
-        
-        async def on_processing_start():
-            """Called when processing starts."""
-            stt_session_manager.set_transcribing(session_id, True)
-            await stt_session_manager.send_message(session_id, {
-                "type": "status",
-                "recording": False,
-                "transcribing": True
-            })
-        
-        async def on_processing_stop():
-            """Called when processing stops."""
-            stt_session_manager.set_transcribing(session_id, False)
-            await stt_session_manager.send_message(session_id, {
-                "type": "status",
-                "recording": False,
-                "transcribing": False
-            })
-        
         async def on_error(error: Exception):
             """Called on processing errors."""
             error_msg = str(error)
@@ -155,14 +119,10 @@ async def websocket_stt_stream(
                 "message": error_msg
             })
         
-        # Start STT transcription with user's model preference
+        # Start professional STT transcription with user's model preference
         await stt_service.start_transcription(
-            on_final=on_final,
             on_partial=on_partial,
-            on_vad_start=on_vad_start,
-            on_vad_stop=on_vad_stop,
-            on_processing_start=on_processing_start,
-            on_processing_stop=on_processing_stop,
+            on_final=on_final,
             on_error=on_error,
             model=session.user_model
         )
@@ -319,8 +279,10 @@ async def get_device_info():
             "compute_type": compute_type,
             "model": settings.stt_model,
             "language": settings.stt_language,
-            "vad_enabled": settings.stt_vad_enabled,
-            "vad_sensitivity": settings.stt_vad_sensitivity
+            "use_silero_vad": settings.stt_use_silero_vad,
+            "vad_threshold": settings.stt_vad_threshold,
+            "min_silence_duration_ms": settings.stt_min_silence_duration_ms,
+            "max_speech_duration_s": settings.stt_max_speech_duration_s
         }
         
     except Exception as e:

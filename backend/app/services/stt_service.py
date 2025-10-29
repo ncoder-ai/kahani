@@ -3,23 +3,27 @@ import asyncio
 import logging
 import time
 from typing import Optional, Callable
-import numpy as np
+from collections import deque
 
+import numpy as np
+import torch
 from faster_whisper import WhisperModel
-import webrtcvad
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-class STTService:
+
+class ProfessionalSTTService:
     """
-    Real-time Speech-to-Text service using faster-whisper with VAD.
-    
-    This service provides real-time transcription with Voice Activity Detection
-    using faster-whisper for fast inference and webrtcvad for speech detection.
+    Professional-grade Speech-to-Text service with:
+    - Dynamic buffering with silence detection
+    - Silero VAD for accurate voice activity detection
+    - Sentence boundary detection
+    - Sliding window with overlap for context continuity
+    - Post-processing for natural output
     """
     
-    _instance: Optional["STTService"] = None
+    _instance: Optional["ProfessionalSTTService"] = None
     _lock = asyncio.Lock()
 
     def __new__(cls, *args, **kwargs):
@@ -28,327 +32,425 @@ class STTService:
         return cls._instance
 
     def __init__(self):
-        """Initialize STT service with model configuration."""
         if not hasattr(self, '_initialized'):
-            self.model: Optional[WhisperModel] = None
-            self.vad: Optional[webrtcvad.Vad] = None
+            # Core models
+            self.whisper_model: Optional[WhisperModel] = None
+            self.silero_vad_model = None
             self.is_initialized = False
             self._initialization_lock = asyncio.Lock()
             
-            # Audio buffering for real-time processing
+            # Dynamic buffering for sentence-aware transcription
             self.audio_buffer = np.array([], dtype=np.float32)
-            self.buffer_duration = 2.0  # Process every 2 seconds for continuous transcription
             self.sample_rate = 16000
-            self.last_processing_time = 0
-            self.min_speech_duration = 0.5  # Minimum 0.5s of speech to transcribe
-            self.is_processing = False  # Prevent concurrent processing
+            
+            # Silence detection state
+            self.speech_timestamps = []  # List of (start, end) speech segments
+            self.is_speaking = False
+            self.speech_start_time = None
+            self.last_speech_time = None
+            
+            # Sliding window for context continuity
+            self.window_size_ms = 1500  # 1.5 second overlap
+            self.last_window_audio = np.array([], dtype=np.float32)
+            
+            # Sentence accumulation
+            self.accumulated_sentence = ""
+            self.last_transcription_time = 0
+            
+            # Processing state
+            self.is_processing = False
+            self.processing_lock = asyncio.Lock()
             
             # Callbacks
-            self._on_final_callback: Optional[Callable[[str], None]] = None
             self._on_partial_callback: Optional[Callable[[str], None]] = None
-            self._on_vad_start_callback: Optional[Callable[[], None]] = None
-            self._on_vad_stop_callback: Optional[Callable[[], None]] = None
-            self._on_processing_start_callback: Optional[Callable[[], None]] = None
-            self._on_processing_stop_callback: Optional[Callable[[], None]] = None
+            self._on_final_callback: Optional[Callable[[str], None]] = None
             self._on_error_callback: Optional[Callable[[Exception], None]] = None
             
-            logger.info("STTService initialized (models will be loaded on first use)")
-
+            logger.info("Professional STT Service initialized")
 
     async def initialize(self, model: str = None):
-        """
-        Initialize the STT model and VAD.
-        Runs in background thread to avoid blocking event loop.
-        
-        Args:
-            model: Whisper model to use (base, small, medium). If None, uses global config.
-        """
+        """Initialize Whisper and Silero VAD models."""
         async with self._initialization_lock:
             if self.is_initialized:
                 return
 
-            # Use provided model or fall back to global config
             model_to_use = model or settings.stt_model
-            logger.info(f"Initializing STT service with model: {model_to_use}")
+            logger.info(f"Initializing STT with Whisper model: {model_to_use}")
             
             try:
-                # Run initialization in thread pool
                 await asyncio.to_thread(self._initialize_models, model_to_use)
-                
-                logger.info(f"STT service initialized successfully")
                 self.is_initialized = True
+                logger.info("STT initialization complete")
                 
             except Exception as e:
-                logger.error(f"Failed to initialize STT service: {e}")
-                self.model = None
-                self.vad = None
+                logger.error(f"Failed to initialize STT: {e}", exc_info=True)
                 raise
     
-    def _initialize_models(self, model: str = None):
-        """Blocking initialization runs in separate thread."""
-        # Get device configuration
+    def _initialize_models(self, model: str):
+        """Load models in background thread."""
+        # Initialize Whisper
         device, compute_type = self._get_device_config()
-        
-        # Use provided model or fall back to global config
-        model_to_use = model or settings.stt_model
-        
-        # Initialize faster-whisper model
-        self.model = WhisperModel(
-            model_to_use,
+        self.whisper_model = WhisperModel(
+            model,
             device=device,
             compute_type=compute_type,
             download_root=os.path.join(settings.data_dir, "whisper_models")
         )
+        logger.info(f"Whisper '{model}' loaded on {device} with {compute_type}")
         
-        # Initialize VAD if enabled
-        if settings.stt_vad_enabled:
-            self.vad = webrtcvad.Vad(settings.stt_vad_sensitivity)
-            logger.info(f"WebRTC VAD enabled with sensitivity {settings.stt_vad_sensitivity}")
-        
-        logger.info(f"Faster-Whisper model '{model_to_use}' loaded on {device} with {compute_type}")
+        # Initialize Silero VAD
+        if settings.stt_use_silero_vad:
+            try:
+                self.silero_vad_model, utils = torch.hub.load(
+                    repo_or_dir='snakers4/silero-vad',
+                    model='silero_vad',
+                    force_reload=False,
+                    onnx=False
+                )
+                logger.info("Silero VAD model loaded successfully")
+            except Exception as e:
+                logger.warning(f"Failed to load Silero VAD, will use simpler detection: {e}")
+                self.silero_vad_model = None
 
     def _get_device_config(self):
-        """Get device and compute type configuration."""
+        """Determine optimal device and compute type."""
         device = settings.stt_device
         compute_type = settings.stt_compute_type
 
         if device == "auto":
             try:
-                import torch
                 if torch.cuda.is_available():
                     device = "cuda"
                     if compute_type not in ["float16", "int8_float16", "int8"]:
                         compute_type = "float16"
-                    logger.info(f"Auto-detected CUDA GPU. Using device='cuda', compute_type='{compute_type}'")
+                    logger.info(f"Using CUDA GPU with {compute_type}")
                 else:
                     device = "cpu"
-                    if compute_type not in ["int8"]:
-                        compute_type = "int8"
-                    logger.info(f"No CUDA GPU detected. Falling back to device='cpu', compute_type='int8'")
-            except ImportError:
+                    compute_type = "int8"
+                    logger.info(f"Using CPU with {compute_type}")
+            except Exception:
                 device = "cpu"
                 compute_type = "int8"
-                logger.info(f"PyTorch not available. Using device='cpu', compute_type='int8'")
-        elif device == "cuda":
-            if compute_type not in ["float16", "int8_float16", "int8"]:
-                compute_type = "float16"
-        elif device == "cpu":
-            if compute_type not in ["int8"]:
-                compute_type = "int8"
+                logger.info(f"Fallback to CPU with {compute_type}")
         
         return device, compute_type
 
     async def start_transcription(
         self,
-        on_final: Optional[Callable[[str], None]] = None,
         on_partial: Optional[Callable[[str], None]] = None,
-        on_vad_start: Optional[Callable[[], None]] = None,
-        on_vad_stop: Optional[Callable[[], None]] = None,
-        on_processing_start: Optional[Callable[[], None]] = None,
-        on_processing_stop: Optional[Callable[[], None]] = None,
+        on_final: Optional[Callable[[str], None]] = None,
         on_error: Optional[Callable[[Exception], None]] = None,
         model: str = None
     ):
-        """Start real-time transcription with callbacks."""
+        """Start real-time transcription with professional quality."""
         await self.initialize(model)
         
-        if not self.model:
-            raise RuntimeError("STT service not initialized")
+        if not self.whisper_model:
+            raise RuntimeError("Whisper model not initialized")
         
-        # Set up callbacks
-        self._on_final_callback = on_final
+        # Set callbacks
         self._on_partial_callback = on_partial
-        self._on_vad_start_callback = on_vad_start
-        self._on_vad_stop_callback = on_vad_stop
-        self._on_processing_start_callback = on_processing_start
-        self._on_processing_stop_callback = on_processing_stop
+        self._on_final_callback = on_final
         self._on_error_callback = on_error
         
-        # Reset buffer
+        # Reset state
         self.audio_buffer = np.array([], dtype=np.float32)
-        self.last_processing_time = time.time()
+        self.last_window_audio = np.array([], dtype=np.float32)
+        self.accumulated_sentence = ""
+        self.is_speaking = False
+        self.speech_start_time = None
+        self.last_speech_time = None
+        self.speech_timestamps = []
         
-        logger.info("STT transcription started")
+        logger.info("Professional STT transcription started")
 
     async def stop_transcription(self):
-        """Stop real-time transcription."""
-        # Clear buffer
+        """Stop transcription and process any remaining audio."""
+        # Process any remaining audio in buffer
+        if len(self.audio_buffer) > 0:
+            await self._process_final_buffer()
+        
+        # Reset state
         self.audio_buffer = np.array([], dtype=np.float32)
+        self.last_window_audio = np.array([], dtype=np.float32)
+        self.accumulated_sentence = ""
+        self.is_speaking = False
+        
         logger.info("STT transcription stopped")
 
     async def feed_audio_data(self, audio_data: bytes, sample_rate: int = 16000):
         """
-        Feed audio data to the STT processor with buffering.
-        
-        Args:
-            audio_data: Raw audio data (PCM format)
-            sample_rate: Sample rate of the audio (default 16000)
+        Feed audio data with intelligent buffering and silence detection.
         """
-        if not self.is_initialized or not self.model:
-            logger.warning("STT service not initialized")
+        if not self.whisper_model:
+            logger.warning("Whisper model not initialized")
             return
-            
+        
         try:
-            # Convert bytes to numpy array
+            # Convert bytes to float32
             audio_array = np.frombuffer(audio_data, dtype=np.int16)
-            
-            # Normalize to float32 range [-1, 1]
             audio_float = audio_array.astype(np.float32) / 32768.0
             
             # Add to buffer
             self.audio_buffer = np.concatenate([self.audio_buffer, audio_float])
             
-            # Check if we have enough audio to process
-            buffer_duration = len(self.audio_buffer) / sample_rate
+            # Detect speech/silence using Silero VAD
+            is_speech = await self._detect_speech(audio_float)
             current_time = time.time()
             
-            # Process every 2 seconds for continuous real-time transcription
-            # OR if we have a lot of audio buffered (>5s means user is speaking continuously)
-            should_process = (
-                buffer_duration >= self.buffer_duration or 
-                buffer_duration >= 5.0
-            ) and not self.is_processing
+            # Update speech state
+            if is_speech:
+                if not self.is_speaking:
+                    # Speech started
+                    self.is_speaking = True
+                    self.speech_start_time = current_time
+                    logger.debug("Speech detected - started buffering")
+                
+                self.last_speech_time = current_time
             
-            if should_process and len(self.audio_buffer) > 0:
-                # Process in background thread
-                asyncio.create_task(self._process_buffer())
+            # Check if we should process the buffer
+            should_process = False
+            reason = ""
             
-        except Exception as e:
-            logger.error(f"Error feeding audio data: {e}")
-            if self._on_error_callback:
-                await self._on_error_callback(e)
-
-    async def _process_buffer(self):
-        """Process accumulated audio buffer for continuous transcription."""
-        if len(self.audio_buffer) == 0 or self.is_processing:
-            return
-        
-        self.is_processing = True
-        
-        try:
-            # Process current buffer and clear it completely
-            audio_to_process = self.audio_buffer.copy()
-            self.audio_buffer = np.array([], dtype=np.float32)
+            if self.is_speaking:
+                buffer_duration = len(self.audio_buffer) / self.sample_rate
+                
+                # Silence detected after speech
+                if self.last_speech_time and (current_time - self.last_speech_time) > (settings.stt_min_silence_duration_ms / 1000.0):
+                    should_process = True
+                    reason = "silence after speech (sentence boundary)"
+                    self.is_speaking = False
+                
+                # Maximum speech duration reached
+                elif buffer_duration >= settings.stt_max_speech_duration_s:
+                    should_process = True
+                    reason = "maximum duration reached"
             
-            self.last_processing_time = time.time()
-            
-            if self._on_processing_start_callback:
-                await self._on_processing_start_callback()
-            
-            # Check VAD if enabled (permissive for continuous speech)
-            if self.vad and not await self._check_vad(audio_to_process):
-                if self._on_processing_stop_callback:
-                    await self._on_processing_stop_callback()
-                return
-            
-            # Transcribe in background thread
-            text = await asyncio.to_thread(self._transcribe, audio_to_process)
-            
-            if text and text.strip():
-                # Send transcribed text directly (no deduplication needed)
-                if self._on_partial_callback:
-                    await self._on_partial_callback(text.strip())
-            
-            if self._on_processing_stop_callback:
-                await self._on_processing_stop_callback()
+            # Process buffer if conditions met
+            if should_process and len(self.audio_buffer) > 0 and not self.is_processing:
+                logger.debug(f"Processing buffer: {reason}")
+                asyncio.create_task(self._process_buffer_with_context())
                 
         except Exception as e:
-            logger.error(f"Error processing buffer: {e}")
+            logger.error(f"Error feeding audio: {e}", exc_info=True)
             if self._on_error_callback:
                 await self._on_error_callback(e)
-        finally:
-            self.is_processing = False
 
-    async def _check_vad(self, audio_data: np.ndarray) -> bool:
-        """Check if audio contains speech using VAD."""
-        if not self.vad:
-            return True
-            
+    async def _detect_speech(self, audio_chunk: np.ndarray) -> bool:
+        """Detect speech in audio chunk using Silero VAD."""
+        if not self.silero_vad_model:
+            # Fallback: simple energy-based detection
+            energy = np.sqrt(np.mean(audio_chunk ** 2))
+            return energy > 0.01
+        
         try:
-            # Convert to 16-bit PCM
-            audio_int16 = (audio_data * 32767).astype(np.int16)
+            # Silero VAD expects 16kHz audio
+            audio_tensor = torch.from_numpy(audio_chunk).float()
             
-            # Check 30ms frames
-            frame_length = int(self.sample_rate * 0.03)
-            speech_frames = 0
-            total_frames = 0
-            
-            for i in range(0, len(audio_int16), frame_length):
-                frame = audio_int16[i:i+frame_length]
-                if len(frame) == frame_length:
-                    total_frames += 1
-                    if self.vad.is_speech(frame.tobytes(), self.sample_rate):
-                        speech_frames += 1
-            
-            # Consider speech if >30% of frames contain speech (permissive for continuous speech)
-            return total_frames > 0 and (speech_frames / total_frames) > 0.3
-            
-        except Exception as e:
-            logger.error(f"VAD error: {e}")
-            return True  # Continue processing if VAD fails
-
-    def _transcribe(self, audio_data: np.ndarray) -> str:
-        """Transcribe audio using faster-whisper (runs in thread)."""
-        try:
-            segments, info = self.model.transcribe(
-                audio_data,
-                language=settings.stt_language,
-                beam_size=5,  # Better quality
-                word_timestamps=False,
-                vad_filter=False,  # We handle VAD ourselves
-                temperature=0.0,
-                compression_ratio_threshold=2.4,
-                log_prob_threshold=None,  # Disable - was rejecting valid speech
-                no_speech_threshold=0.95  # Very permissive
+            # Get VAD probability
+            speech_prob = await asyncio.to_thread(
+                self.silero_vad_model,
+                audio_tensor,
+                self.sample_rate
             )
             
-            # Combine segments
+            return float(speech_prob) > settings.stt_vad_threshold
+            
+        except Exception as e:
+            logger.warning(f"VAD error: {e}")
+            # Fallback to energy detection
+            energy = np.sqrt(np.mean(audio_chunk ** 2))
+            return energy > 0.01
+
+    async def _process_buffer_with_context(self):
+        """Process buffer with sliding window for context continuity."""
+        if self.is_processing or len(self.audio_buffer) == 0:
+            return
+        
+        async with self.processing_lock:
+            self.is_processing = True
+            
+            try:
+                # Get audio to process (current buffer + overlap from previous)
+                window_samples = int(self.window_size_ms * self.sample_rate / 1000)
+                
+                if len(self.last_window_audio) > 0:
+                    # Include overlap from previous window for context
+                    audio_to_process = np.concatenate([
+                        self.last_window_audio[-window_samples:],
+                        self.audio_buffer
+                    ])
+                else:
+                    audio_to_process = self.audio_buffer.copy()
+                
+                # Save last window for next iteration
+                self.last_window_audio = self.audio_buffer.copy()
+                
+                # Clear buffer for new audio
+                self.audio_buffer = np.array([], dtype=np.float32)
+                
+                # Transcribe with optimized parameters
+                text = await asyncio.to_thread(self._transcribe_with_quality, audio_to_process)
+                
+                if text and text.strip():
+                    # Post-process for natural output
+                    processed_text = self._post_process_text(text.strip())
+                    
+                    # Update accumulated sentence
+                    if self.accumulated_sentence:
+                        # Check if new text is continuation or new sentence
+                        if processed_text[0].islower() or processed_text[0] in ',;':
+                            self.accumulated_sentence += " " + processed_text
+                        else:
+                            # New sentence - send previous as final
+                            if self._on_final_callback:
+                                await self._on_final_callback(self.accumulated_sentence)
+                            self.accumulated_sentence = processed_text
+                    else:
+                        self.accumulated_sentence = processed_text
+                    
+                    # Send as partial
+                    if self._on_partial_callback:
+                        await self._on_partial_callback(self.accumulated_sentence)
+                    
+                    logger.debug(f"Transcribed: {processed_text[:50]}...")
+                    
+            except Exception as e:
+                logger.error(f"Error processing buffer: {e}", exc_info=True)
+                if self._on_error_callback:
+                    await self._on_error_callback(e)
+            finally:
+                self.is_processing = False
+
+    async def _process_final_buffer(self):
+        """Process remaining buffer when stopping."""
+        if len(self.audio_buffer) > 0:
+            try:
+                text = await asyncio.to_thread(self._transcribe_with_quality, self.audio_buffer)
+                if text and text.strip():
+                    processed_text = self._post_process_text(text.strip())
+                    
+                    if self.accumulated_sentence:
+                        self.accumulated_sentence += " " + processed_text
+                    else:
+                        self.accumulated_sentence = processed_text
+                    
+                    # Send final transcription
+                    if self._on_final_callback:
+                        await self._on_final_callback(self.accumulated_sentence)
+                    
+            except Exception as e:
+                logger.error(f"Error processing final buffer: {e}", exc_info=True)
+
+    def _transcribe_with_quality(self, audio_data: np.ndarray) -> str:
+        """
+        Transcribe audio with optimized parameters for quality.
+        """
+        try:
+            # Optimized Whisper parameters for quality and speed
+            segments, info = self.whisper_model.transcribe(
+                audio_data,
+                language=settings.stt_language,
+                
+                # Quality settings
+                beam_size=5,  # Beam search for better accuracy
+                best_of=5,  # Consider multiple hypotheses
+                temperature=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],  # Temperature fallback for difficult audio
+                
+                # Context and flow
+                condition_on_previous_text=True,  # Use context from previous segments
+                initial_prompt="Transcribe the following conversational speech naturally with proper punctuation and capitalization.",
+                
+                # Efficiency
+                word_timestamps=False,
+                vad_filter=False,  # We handle VAD ourselves
+                
+                # Thresholds
+                compression_ratio_threshold=2.4,
+                log_prob_threshold=-1.0,  # More permissive
+                no_speech_threshold=0.6,  # Standard threshold
+                
+                # Prevent hallucinations
+                repetition_penalty=1.2,
+                no_repeat_ngram_size=3
+            )
+            
+            # Combine segments with natural spacing
             full_text = ""
             for segment in segments:
                 text = segment.text.strip()
                 if text:
-                    full_text += text + " "
+                    if full_text and not full_text.endswith(('.', '!', '?', ',')):
+                        full_text += " "
+                    full_text += text
             
             return full_text.strip()
             
         except Exception as e:
-            logger.error(f"Transcription error: {e}")
-            return ""
+            logger.error(f"Transcription error: {e}", exc_info=True)
+            raise
+
+    def _post_process_text(self, text: str) -> str:
+        """
+        Post-process transcription for natural output:
+        - Fix capitalization
+        - Clean up spacing
+        - Fix common transcription errors
+        """
+        if not text:
+            return text
+        
+        # Ensure first letter is capitalized
+        text = text[0].upper() + text[1:] if len(text) > 1 else text.upper()
+        
+        # Fix spacing around punctuation
+        text = text.replace(" ,", ",")
+        text = text.replace(" .", ".")
+        text = text.replace(" !", "!")
+        text = text.replace(" ?", "?")
+        text = text.replace(" '", "'")
+        
+        # Fix common transcription artifacts
+        text = text.replace("  ", " ")
+        text = text.strip()
+        
+        # Capitalize after sentence endings
+        for punct in ['. ', '! ', '? ']:
+            parts = text.split(punct)
+            text = punct.join(p[0].upper() + p[1:] if len(p) > 0 else p for p in parts)
+        
+        return text
 
     async def transcribe_audio_file(self, audio_file_path: str) -> str:
-        """Transcribe an audio file (for testing)."""
+        """Transcribe a complete audio file."""
         await self.initialize()
+        if not self.whisper_model:
+            raise RuntimeError("Whisper model not initialized")
         
-        if not self.model:
-            raise RuntimeError("STT service not initialized")
-        
-        try:
-            text = await asyncio.to_thread(self._transcribe_file, audio_file_path)
-            return text
-        except Exception as e:
-            logger.error(f"Error transcribing audio file: {e}")
-            raise
+        text = await asyncio.to_thread(self._transcribe_file, audio_file_path)
+        return text
     
     def _transcribe_file(self, audio_file_path: str) -> str:
-        """Transcribe file in thread."""
-        segments, info = self.model.transcribe(
+        """Transcribe file in background thread."""
+        segments, info = self.whisper_model.transcribe(
             audio_file_path,
             language=settings.stt_language,
             beam_size=5,
-            word_timestamps=False,
-            vad_filter=False,
-            temperature=0.0,
-            log_prob_threshold=None,
-            no_speech_threshold=0.95
+            best_of=5,
+            temperature=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+            condition_on_previous_text=True
         )
         
         full_text = ""
         for segment in segments:
             text = segment.text.strip()
             if text:
-                full_text += text + " "
+                if full_text and not full_text.endswith(('.', '!', '?', ',')):
+                    full_text += " "
+                full_text += text
         
-        return full_text.strip()
+        return self._post_process_text(full_text.strip())
 
-# Global instance
-stt_service = STTService()
+
+# Singleton instance
+stt_service = ProfessionalSTTService()
