@@ -14,7 +14,7 @@ import wave
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.dependencies import get_current_user_websocket
+from app.dependencies import get_current_user
 from app.services.stt_session_manager import stt_session_manager
 from app.services.stt_service import stt_service
 from app.models.user import User
@@ -244,7 +244,7 @@ async def convert_audio_to_pcm(audio_data: bytes) -> bytes:
 
 @router.post("/stt/create-session")
 async def create_stt_session(
-    current_user: User = Depends(get_current_user_websocket),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
