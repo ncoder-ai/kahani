@@ -102,6 +102,7 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
       optionsRef.current.onStatusChange?.(true, false);
     },
     onStop: () => {
+      console.log('[useRealtimeSTT] Audio recorder stopped, updating state...');
       setState(prev => ({ ...prev, isRecording: false }));
       optionsRef.current.onStatusChange?.(false, false);
     }
@@ -324,6 +325,7 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
    * Stop recording and transcription
    */
   const stopTranscription = useCallback(() => {
+    console.log('[useRealtimeSTT] Stopping transcription...');
     stopRecording();
     startTimeRef.current = null;
   }, [stopRecording]);
