@@ -60,7 +60,14 @@ export default function MicrophoneButton({
   useEffect(() => {
     const checkSTTEnabled = async () => {
       try {
-        const response = await fetch('/api/settings/');
+        // Get auth token from localStorage or auth store
+        const token = localStorage.getItem('auth_token') || '';
+        
+        const response = await fetch('/api/settings/', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
         if (response.ok) {
           const data = await response.json();
           const sttSettings = data.settings?.stt_settings;

@@ -64,7 +64,14 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
    */
   const checkSTTEnabled = useCallback(async (): Promise<boolean> => {
     try {
-      const response = await fetch('/api/settings/');
+      // Get auth token from localStorage or auth store
+      const token = localStorage.getItem('auth_token') || '';
+      
+      const response = await fetch('/api/settings/', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
       if (response.ok) {
         const data = await response.json();
         const sttSettings = data.settings?.stt_settings;
@@ -105,10 +112,14 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
    */
   const createSession = useCallback(async (): Promise<string> => {
     try {
+      // Get auth token from localStorage or auth store
+      const token = localStorage.getItem('auth_token') || '';
+      
       const response = await fetch('http://localhost:9876/ws/stt/create-session', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
         }
       });
 
