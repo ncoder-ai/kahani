@@ -53,6 +53,7 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
   const isConnectingRef = useRef<boolean>(false);
   const fullTranscriptRef = useRef<string>(''); // Accumulate all partials here
   const optionsRef = useRef(options); // Keep stable reference to options
+  const audioRecorderControllingState = useRef<boolean>(false); // Track when audio recorder controls isRecording
   
   // Update options ref when they change
   useEffect(() => {
@@ -98,11 +99,14 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
       optionsRef.current.onError?.(error.message);
     },
     onStart: () => {
+      console.log('[useRealtimeSTT] Audio recorder started, setting isRecording=true');
+      audioRecorderControllingState.current = true;
       setState(prev => ({ ...prev, isRecording: true, error: null }));
       optionsRef.current.onStatusChange?.(true, false);
     },
     onStop: () => {
-      console.log('[useRealtimeSTT] Audio recorder stopped, updating state...');
+      console.log('[useRealtimeSTT] Audio recorder stopped, setting isRecording=false');
+      audioRecorderControllingState.current = false;
       setState(prev => ({ ...prev, isRecording: false }));
       optionsRef.current.onStatusChange?.(false, false);
     }
@@ -271,7 +275,8 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
         if (message.recording !== undefined || message.transcribing !== undefined) {
           setState(prev => ({
             ...prev,
-            isRecording: message.recording ?? prev.isRecording,
+            // Only update isRecording if audio recorder is not controlling it
+            isRecording: audioRecorderControllingState.current ? prev.isRecording : (message.recording ?? prev.isRecording),
             isTranscribing: message.transcribing ?? prev.isTranscribing
           }));
           optionsRef.current.onStatusChange?.(
@@ -326,6 +331,7 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
    */
   const stopTranscription = useCallback(() => {
     console.log('[useRealtimeSTT] Stopping transcription...');
+    audioRecorderControllingState.current = false;
     stopRecording();
     startTimeRef.current = null;
   }, [stopRecording]);
