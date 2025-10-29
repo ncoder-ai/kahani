@@ -52,6 +52,8 @@ class STTService:
             self._on_processing_stop_callback: Optional[Callable[[], None]] = None
             self._on_error_callback: Optional[Callable[[Exception], None]] = None
             
+            # Context for Whisper prompt
+            self._accumulated_transcript: str = ""
             
             logger.info("STTService initialized (models will be loaded on first use)")
 
@@ -165,9 +167,10 @@ class STTService:
         self._on_processing_stop_callback = on_processing_stop
         self._on_error_callback = on_error
         
-        # Reset buffer
+        # Reset buffer and accumulated transcript
         self.audio_buffer = np.array([], dtype=np.float32)
         self.last_processing_time = time.time()
+        self._accumulated_transcript = ""
         
         logger.info("STT transcription started")
 
@@ -249,6 +252,13 @@ class STTService:
                 # Send transcribed text directly (no deduplication needed)
                 if self._on_partial_callback:
                     await self._on_partial_callback(text.strip())
+                
+                # Update accumulated transcript for next chunk's context
+                # Keep last ~200 chars to avoid prompt getting too long
+                if self._accumulated_transcript:
+                    self._accumulated_transcript = (self._accumulated_transcript + " " + text.strip())[-200:]
+                else:
+                    self._accumulated_transcript = text.strip()
             
             if self._on_processing_stop_callback:
                 await self._on_processing_stop_callback()
@@ -300,7 +310,8 @@ class STTService:
                 temperature=0.0,
                 compression_ratio_threshold=2.4,
                 log_prob_threshold=None,  # Disable - was rejecting valid speech
-                no_speech_threshold=0.95  # Very permissive
+                no_speech_threshold=0.95,  # Very permissive
+                initial_prompt=self._accumulated_transcript if self._accumulated_transcript else None
             )
             
             # Combine segments
