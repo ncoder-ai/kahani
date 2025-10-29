@@ -52,67 +52,9 @@ class STTService:
             self._on_processing_stop_callback: Optional[Callable[[], None]] = None
             self._on_error_callback: Optional[Callable[[Exception], None]] = None
             
-            # Deduplication tracking
-            self._last_sent_text: str = ""
-            self._last_sent_length: int = 0
             
             logger.info("STTService initialized (models will be loaded on first use)")
 
-    def _extract_new_text(self, current_text: str) -> str:
-        """
-        Extract only the new text from overlapping transcriptions.
-        
-        Args:
-            current_text: The current transcription result
-            
-        Returns:
-            Only the new text that hasn't been sent before
-        """
-        if not current_text or not current_text.strip():
-            return ""
-        
-        current_text = current_text.strip()
-        
-        # If this is the first text, return it all
-        if not self._last_sent_text:
-            return current_text
-        
-        # If current text is shorter than what we sent, it's likely a partial
-        # that got cut off, so return the current text
-        if len(current_text) <= len(self._last_sent_text):
-            return current_text
-        
-        # Find the best overlap by checking for common endings
-        last_words = self._last_sent_text.split()
-        current_words = current_text.split()
-        
-        # Find the longest common suffix between last sent and current
-        max_overlap = 0
-        for i in range(1, min(len(last_words), len(current_words)) + 1):
-            if last_words[-i:] == current_words[:i]:
-                max_overlap = i
-        
-        if max_overlap > 0:
-            # Extract only the new words
-            new_words = current_words[max_overlap:]
-            return ' '.join(new_words)
-        
-        # If no word-level overlap found, check for character-level overlap
-        # Look for common ending in last sent text
-        last_text = self._last_sent_text.lower()
-        current_text_lower = current_text.lower()
-        
-        # Find the longest common suffix
-        max_char_overlap = 0
-        for i in range(1, min(len(last_text), len(current_text_lower)) + 1):
-            if last_text[-i:] == current_text_lower[:i]:
-                max_char_overlap = i
-        
-        if max_char_overlap > 3:  # Only if overlap is significant (more than 3 chars)
-            return current_text[max_char_overlap:].strip()
-        
-        # If no significant overlap, return the current text
-        return current_text
 
     async def initialize(self, model: str = None):
         """
@@ -223,11 +165,9 @@ class STTService:
         self._on_processing_stop_callback = on_processing_stop
         self._on_error_callback = on_error
         
-        # Reset buffer and tracking
+        # Reset buffer
         self.audio_buffer = np.array([], dtype=np.float32)
         self.last_processing_time = time.time()
-        self._last_sent_text = ""
-        self._last_sent_length = 0
         
         logger.info("STT transcription started")
 
@@ -287,15 +227,9 @@ class STTService:
         self.is_processing = True
         
         try:
-            # Process current buffer but keep last 0.5s for context continuity
-            overlap_samples = int(0.5 * self.sample_rate)
+            # Process current buffer and clear it completely
             audio_to_process = self.audio_buffer.copy()
-            
-            # Keep last 0.5s in buffer for overlap (helps with word boundaries)
-            if len(self.audio_buffer) > overlap_samples:
-                self.audio_buffer = self.audio_buffer[-overlap_samples:]
-            else:
-                self.audio_buffer = np.array([], dtype=np.float32)
+            self.audio_buffer = np.array([], dtype=np.float32)
             
             self.last_processing_time = time.time()
             
@@ -312,17 +246,9 @@ class STTService:
             text = await asyncio.to_thread(self._transcribe, audio_to_process)
             
             if text and text.strip():
-                # Extract only new text to avoid duplication from overlapping chunks
-                new_text = self._extract_new_text(text.strip())
-                
-                if new_text:
-                    # Update tracking
-                    self._last_sent_text = text.strip()
-                    self._last_sent_length = len(self._last_sent_text)
-                    
-                    # Send only the new text as PARTIAL
-                    if self._on_partial_callback:
-                        await self._on_partial_callback(new_text)
+                # Send transcribed text directly (no deduplication needed)
+                if self._on_partial_callback:
+                    await self._on_partial_callback(text.strip())
             
             if self._on_processing_stop_callback:
                 await self._on_processing_stop_callback()
