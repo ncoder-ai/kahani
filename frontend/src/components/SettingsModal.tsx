@@ -182,6 +182,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [sttEnabled, setSttEnabled] = useState(true);
   const [sttModel, setSttModel] = useState('small');
   const [sttModelDownloaded, setSttModelDownloaded] = useState<boolean | null>(null);
+  const [vadModelDownloaded, setVadModelDownloaded] = useState<boolean | null>(null);
   const [isDownloadingSTTModel, setIsDownloadingSTTModel] = useState(false);
   const [sttDownloadError, setSttDownloadError] = useState<string | null>(null);
   const [ttsProviderConfigs, setTtsProviderConfigs] = useState<Record<string, TTSSettings>>({});
@@ -1239,9 +1240,14 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
       if (response.ok) {
         const data = await response.json();
-        // Only update if we got a definitive answer
-        if (data.downloaded !== undefined) {
+        // Handle new response format with whisper and vad objects
+        if (data.whisper && data.vad) {
+          setSttModelDownloaded(data.whisper.downloaded);
+          setVadModelDownloaded(data.vad.downloaded);
+        } else if (data.downloaded !== undefined) {
+          // Fallback for old format
           setSttModelDownloaded(data.downloaded);
+          setVadModelDownloaded(null);
         }
       }
     } catch (error) {
@@ -1268,21 +1274,23 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
       if (response.ok) {
         const data = await response.json();
-        showMessage(data.message || 'STT model downloaded successfully!', 'success');
+        showMessage(data.message || 'STT models downloaded successfully!', 'success');
         // Wait a bit before checking status to ensure download completes
         setTimeout(async () => {
           await checkSTTModelStatus();
-          setSttModelDownloaded(true);
+          // Optimistically set both to true on success
+          if (data.whisper?.success) setSttModelDownloaded(true);
+          if (data.vad?.success) setVadModelDownloaded(true);
         }, 3000);
       } else {
-        const errorData = await response.json().catch(() => ({ detail: 'Failed to download STT model' }));
-        setSttDownloadError(errorData.detail || 'Failed to download STT model');
-        showMessage(`Error downloading STT model: ${errorData.detail || 'Unknown error'}`, 'error');
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to download STT models' }));
+        setSttDownloadError(errorData.detail || 'Failed to download STT models');
+        showMessage(`Error downloading STT models: ${errorData.detail || 'Unknown error'}`, 'error');
       }
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Failed to download STT model';
+      const errorMsg = error instanceof Error ? error.message : 'Failed to download STT models';
       setSttDownloadError(errorMsg);
-      showMessage('Error downloading STT model', 'error');
+      showMessage('Error downloading STT models', 'error');
     } finally {
       setIsDownloadingSTTModel(false);
     }
@@ -1308,14 +1316,6 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         showMessage('STT settings saved!', 'success');
         // Reload settings to ensure consistency
         loadSTTSettings();
-        
-        // If STT is enabled but model is not downloaded, trigger download
-        if (sttEnabled && sttModelDownloaded === false) {
-          // Auto-trigger download after a short delay
-          setTimeout(() => {
-            downloadSTTModel();
-          }, 1000);
-        }
       } else {
         const errorData = await response.json().catch(() => ({ detail: 'Failed to save STT settings' }));
         showMessage(`Error saving STT settings: ${errorData.detail || 'Unknown error'}`, 'error');
@@ -2673,26 +2673,62 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   {/* Model Download Status */}
                   {sttEnabled && (
                     <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center justify-between mb-3">
                         <span className="text-sm font-medium text-white">
-                          Model Download Status
+                          STT Model Status
                         </span>
-                        {sttModelDownloaded === true && (
+                        {sttModelDownloaded === true && vadModelDownloaded === true && (
                           <span className="text-xs text-green-400 flex items-center gap-1">
                             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                             </svg>
-                            Downloaded
+                            All Models Ready
                           </span>
                         )}
-                        {sttModelDownloaded === false && (
-                          <span className="text-xs text-yellow-400 flex items-center gap-1">
-                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                            </svg>
-                            Not Downloaded
-                          </span>
-                        )}
+                      </div>
+                      
+                      {/* Whisper Status */}
+                      <div className="mb-3 pb-3 border-b border-gray-700">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs text-gray-400">Whisper Model ({sttModel})</span>
+                          {sttModelDownloaded === true ? (
+                            <span className="text-xs text-green-400 flex items-center gap-1">
+                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                              </svg>
+                              Downloaded
+                            </span>
+                          ) : (
+                            <span className="text-xs text-yellow-400 flex items-center gap-1">
+                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                              </svg>
+                              Not Downloaded
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      
+                      {/* VAD Status */}
+                      <div className="mb-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs text-gray-400">Silero VAD Model</span>
+                          {vadModelDownloaded === true ? (
+                            <span className="text-xs text-green-400 flex items-center gap-1">
+                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                              </svg>
+                              Downloaded
+                            </span>
+                          ) : (
+                            <span className="text-xs text-yellow-400 flex items-center gap-1">
+                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                              </svg>
+                              Not Downloaded
+                            </span>
+                          )}
+                        </div>
                       </div>
                       
                       {isDownloadingSTTModel && (
@@ -2702,21 +2738,25 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                             </svg>
-                            Downloading model ({sttModel})... This may take a few minutes.
+                            Downloading STT models (Whisper + VAD)... This may take a few minutes.
                           </div>
                           <div className="w-full bg-gray-700 rounded-full h-2">
                             <div className="bg-blue-500 h-2 rounded-full animate-pulse" style={{ width: '100%' }}></div>
                           </div>
                           <p className="text-xs text-gray-400">
-                            Model sizes: Base (~150MB), Small (~500MB), Medium (~1.5GB)
+                            Model sizes: Whisper varies by model (~150MB-1.5GB), VAD (~1.8MB)
                           </p>
                         </div>
                       )}
                       
-                      {!isDownloadingSTTModel && sttModelDownloaded === false && (
+                      {!isDownloadingSTTModel && (sttModelDownloaded === false || vadModelDownloaded === false) && (
                         <div className="space-y-2">
                           <p className="text-sm text-gray-400">
-                            The STT model ({sttModel}) needs to be downloaded before use.
+                            {sttModelDownloaded === false && vadModelDownloaded === false 
+                              ? `Both STT models need to be downloaded before use.`
+                              : sttModelDownloaded === false
+                              ? `Whisper model needs to be downloaded.`
+                              : `VAD model needs to be downloaded.`}
                           </p>
                           {sttDownloadError && (
                             <p className="text-xs text-red-400">{sttDownloadError}</p>
@@ -2725,14 +2765,14 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                             onClick={downloadSTTModel}
                             className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
                           >
-                            Download Model Now
+                            Download STT Models
                           </button>
                         </div>
                       )}
                       
-                      {!isDownloadingSTTModel && sttModelDownloaded === true && (
+                      {!isDownloadingSTTModel && sttModelDownloaded === true && vadModelDownloaded === true && (
                         <p className="text-xs text-gray-400">
-                          Model is ready to use. STT features are available.
+                          All models are ready to use. STT features are available.
                         </p>
                       )}
                     </div>
