@@ -622,33 +622,124 @@ async def get_stt_model_status(
     
     model_name = user_settings.stt_model or settings.stt_model
     download_root = os.path.join(settings.data_dir, "whisper_models")
-    model_path = os.path.join(download_root, model_name)
+    
+    # Resolve to absolute path to avoid relative path issues
+    download_root = os.path.abspath(download_root)
+    model_path = os.path.abspath(os.path.join(download_root, model_name))
     
     # Check Whisper model status
     whisper_downloaded = False
     whisper_size = 0
     whisper_path = model_path
+    debug_info = {
+        "checked_path": model_path,
+        "exists": False,
+        "is_dir": False,
+        "file_count": 0,
+        "size_bytes": 0,
+        "items": []
+    }
     
     try:
+        debug_info["exists"] = os.path.exists(model_path)
+        debug_info["is_dir"] = os.path.isdir(model_path) if os.path.exists(model_path) else False
+        
         if os.path.exists(model_path) and os.path.isdir(model_path):
             try:
+                # Get all files recursively
+                all_files = []
+                for root, dirs, files in os.walk(model_path):
+                    for file in files:
+                        all_files.append(os.path.join(root, file))
+                
+                debug_info["file_count"] = len(all_files)
+                debug_info["items"] = [os.path.relpath(f, model_path) for f in all_files[:10]]  # First 10 files for debugging
+                
+                # Calculate total size
                 whisper_size = sum(
                     os.path.getsize(os.path.join(dirpath, filename))
                     for dirpath, dirnames, filenames in os.walk(model_path)
                     for filename in filenames
                 )
+                debug_info["size_bytes"] = whisper_size
+                
+                # Check if directory has substantial content
+                # Models are substantial - even tiny model is > 75MB
+                # Use a conservative threshold of 1MB to account for partial downloads
                 if whisper_size > 1024 * 1024:  # 1MB threshold
                     whisper_downloaded = True
+                elif len(all_files) > 0:
+                    # If we have files but size is small, check for common model files
+                    # faster-whisper uses CTranslate2 format with specific files
+                    model_indicators = [
+                        'config.json', 'tokenizer.json', 'model.bin',
+                        'vocabulary.txt', '.bin', '.onnx'
+                    ]
+                    has_model_files = any(
+                        any(indicator in f.lower() for indicator in model_indicators)
+                        for f in all_files
+                    )
+                    if has_model_files:
+                        whisper_downloaded = True
+                        logger.info(f"Found Whisper model files in {model_path} (size: {whisper_size} bytes)")
             except (OSError, PermissionError) as e:
                 logger.debug(f"Error calculating Whisper directory size: {e}")
+                debug_info["error"] = str(e)
+                # Fallback: check if directory has content
                 try:
                     items = os.listdir(model_path)
-                    whisper_downloaded = len(items) > 0
-                except Exception:
+                    debug_info["items"] = items[:10]
+                    debug_info["file_count"] = len(items)
+                    has_content = len(items) > 0
+                    if has_content:
+                        whisper_downloaded = True
+                        logger.info(f"Found Whisper model directory with {len(items)} items")
+                except Exception as e2:
+                    logger.debug(f"Error listing directory: {e2}")
+                    debug_info["list_error"] = str(e2)
                     whisper_downloaded = False
     except Exception as e:
-        logger.debug(f"Error checking Whisper model path: {e}")
+        logger.error(f"Error checking Whisper model path: {e}", exc_info=True)
+        debug_info["error"] = str(e)
         whisper_downloaded = False
+    
+    # Also check if download_root exists (in case model is in a different location)
+    if not whisper_downloaded and os.path.exists(download_root):
+        try:
+            # Check if model might be stored differently by faster-whisper
+            # faster-whisper might store models with compute type suffix or in subdirectories
+            root_items = os.listdir(download_root)
+            logger.debug(f"Contents of download_root {download_root}: {root_items}")
+            
+            # Look for model name variations
+            model_variants = [
+                model_name,
+                f"{model_name}-int8",
+                f"{model_name}-float16",
+                f"{model_name}-float32",
+            ]
+            
+            for variant in model_variants:
+                variant_path = os.path.join(download_root, variant)
+                if os.path.exists(variant_path) and os.path.isdir(variant_path):
+                    logger.info(f"Found Whisper model at variant path: {variant_path}")
+                    # Check size
+                    try:
+                        variant_size = sum(
+                            os.path.getsize(os.path.join(dirpath, filename))
+                            for dirpath, dirnames, filenames in os.walk(variant_path)
+                            for filename in filenames
+                        )
+                        if variant_size > 1024 * 1024:
+                            whisper_downloaded = True
+                            whisper_path = variant_path
+                            whisper_size = variant_size
+                            debug_info["found_variant"] = variant
+                            break
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.debug(f"Error checking download_root variants: {e}")
     
     # Check Silero VAD model status
     vad_downloaded = False
@@ -746,7 +837,8 @@ async def get_stt_model_status(
             "model": model_name,
             "downloaded": whisper_downloaded,
             "path": whisper_path,
-            "size_mb": round(whisper_size / (1024 * 1024), 2) if whisper_size > 0 else 0
+            "size_mb": round(whisper_size / (1024 * 1024), 2) if whisper_size > 0 else 0,
+            "debug": debug_info  # Include debug info for troubleshooting
         },
         "vad": {
             "downloaded": vad_downloaded,
