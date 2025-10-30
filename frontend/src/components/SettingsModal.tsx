@@ -181,6 +181,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   // STT Settings
   const [sttEnabled, setSttEnabled] = useState(true);
   const [sttModel, setSttModel] = useState('small');
+  const [sttModelDownloaded, setSttModelDownloaded] = useState<boolean | null>(null);
+  const [isDownloadingSTTModel, setIsDownloadingSTTModel] = useState(false);
+  const [sttDownloadError, setSttDownloadError] = useState<string | null>(null);
   const [ttsProviderConfigs, setTtsProviderConfigs] = useState<Record<string, TTSSettings>>({});
   const [isLoadingTTSProviders, setIsLoadingTTSProviders] = useState(false);
   const [isLoadingTTSVoices, setIsLoadingTTSVoices] = useState(false);
@@ -1218,8 +1221,66 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           setSttModel(sttSettings.model);
         }
       }
+      
+      // Check model download status
+      await checkSTTModelStatus();
     } catch (error) {
       console.error('Error loading STT settings:', error);
+    }
+  };
+
+  const checkSTTModelStatus = async () => {
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/api/settings/stt-model-status`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setSttModelDownloaded(data.downloaded);
+      }
+    } catch (error) {
+      console.error('Error checking STT model status:', error);
+    }
+  };
+
+  const downloadSTTModel = async () => {
+    setIsDownloadingSTTModel(true);
+    setSttDownloadError(null);
+    
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/api/settings/download-stt-model`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          model_name: sttModel,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        showMessage(data.message || 'STT model downloaded successfully!', 'success');
+        setSttModelDownloaded(true);
+      } else {
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to download STT model' }));
+        setSttDownloadError(errorData.detail || 'Failed to download STT model');
+        showMessage(`Error downloading STT model: ${errorData.detail || 'Unknown error'}`, 'error');
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Failed to download STT model';
+      setSttDownloadError(errorMsg);
+      showMessage('Error downloading STT model', 'error');
+    } finally {
+      setIsDownloadingSTTModel(false);
+      // Recheck status after a short delay
+      setTimeout(() => {
+        checkSTTModelStatus();
+      }, 2000);
     }
   };
 
@@ -1243,6 +1304,14 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         showMessage('STT settings saved!', 'success');
         // Reload settings to ensure consistency
         loadSTTSettings();
+        
+        // If STT is enabled but model is not downloaded, trigger download
+        if (sttEnabled && sttModelDownloaded === false) {
+          // Auto-trigger download after a short delay
+          setTimeout(() => {
+            downloadSTTModel();
+          }, 1000);
+        }
       } else {
         const errorData = await response.json().catch(() => ({ detail: 'Failed to save STT settings' }));
         showMessage(`Error saving STT settings: ${errorData.detail || 'Unknown error'}`, 'error');
@@ -2585,7 +2654,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     <select
                       value={sttModel}
                       onChange={(e) => setSttModel(e.target.value)}
-                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      disabled={isDownloadingSTTModel}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <option value="base">Base (Fast, Good Quality)</option>
                       <option value="small">Small (Balanced, Better Quality) - Recommended</option>
@@ -2595,6 +2665,74 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       Higher quality models provide better accuracy but are slower
                     </p>
                   </div>
+                  
+                  {/* Model Download Status */}
+                  {sttEnabled && (
+                    <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium text-white">
+                          Model Download Status
+                        </span>
+                        {sttModelDownloaded === true && (
+                          <span className="text-xs text-green-400 flex items-center gap-1">
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                            </svg>
+                            Downloaded
+                          </span>
+                        )}
+                        {sttModelDownloaded === false && (
+                          <span className="text-xs text-yellow-400 flex items-center gap-1">
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                            </svg>
+                            Not Downloaded
+                          </span>
+                        )}
+                      </div>
+                      
+                      {isDownloadingSTTModel && (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 text-sm text-blue-400">
+                            <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Downloading model ({sttModel})... This may take a few minutes.
+                          </div>
+                          <div className="w-full bg-gray-700 rounded-full h-2">
+                            <div className="bg-blue-500 h-2 rounded-full animate-pulse" style={{ width: '100%' }}></div>
+                          </div>
+                          <p className="text-xs text-gray-400">
+                            Model sizes: Base (~150MB), Small (~500MB), Medium (~1.5GB)
+                          </p>
+                        </div>
+                      )}
+                      
+                      {!isDownloadingSTTModel && sttModelDownloaded === false && (
+                        <div className="space-y-2">
+                          <p className="text-sm text-gray-400">
+                            The STT model ({sttModel}) needs to be downloaded before use.
+                          </p>
+                          {sttDownloadError && (
+                            <p className="text-xs text-red-400">{sttDownloadError}</p>
+                          )}
+                          <button
+                            onClick={downloadSTTModel}
+                            className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+                          >
+                            Download Model Now
+                          </button>
+                        </div>
+                      )}
+                      
+                      {!isDownloadingSTTModel && sttModelDownloaded === true && (
+                        <p className="text-xs text-gray-400">
+                          Model is ready to use. STT features are available.
+                        </p>
+                      )}
+                    </div>
+                  )}
                   
                   {/* Save Button */}
                   <div className="flex justify-end">

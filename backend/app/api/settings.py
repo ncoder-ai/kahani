@@ -416,6 +416,9 @@ class TestConnectionRequest(BaseModel):
     api_type: Optional[str] = None
     model_name: Optional[str] = None
 
+class DownloadSTTModelRequest(BaseModel):
+    model_name: Optional[str] = None
+
 @router.post("/test-api-connection")
 async def test_api_connection(
     request: TestConnectionRequest,
@@ -592,6 +595,134 @@ async def get_available_models(
             "models": [],
             "message": f"Failed to fetch models: {str(e)}"
         }
+
+@router.get("/stt-model-status")
+async def get_stt_model_status(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Check if STT model is downloaded and available"""
+    import os
+    from pathlib import Path
+    from ..config import settings
+    
+    # Get user's STT settings
+    user_settings = db.query(UserSettings).filter(
+        UserSettings.user_id == current_user.id
+    ).first()
+    
+    if not user_settings or not user_settings.stt_enabled:
+        return {
+            "enabled": False,
+            "model": None,
+            "downloaded": False,
+            "download_path": None,
+            "message": "STT is not enabled"
+        }
+    
+    model_name = user_settings.stt_model or settings.stt_model
+    download_root = os.path.join(settings.data_dir, "whisper_models")
+    model_path = os.path.join(download_root, model_name)
+    
+    # Check if model exists
+    downloaded = os.path.exists(model_path) and os.path.isdir(model_path)
+    
+    # Check if model files are present (basic check)
+    has_files = False
+    if downloaded:
+        # Check for common model files
+        model_files = [
+            "config.json",
+            "tokenizer.json",
+            "model.bin"
+        ]
+        has_files = any(os.path.exists(os.path.join(model_path, f)) for f in model_files)
+        if not has_files:
+            # Also check for ONNX format files
+            onnx_files = [
+                "encoder_model.onnx",
+                "decoder_model.onnx"
+            ]
+            has_files = any(os.path.exists(os.path.join(model_path, f)) for f in onnx_files)
+        # Also check if directory has any files (sometimes files have different names)
+        if not has_files:
+            has_files = len([f for f in os.listdir(model_path) if os.path.isfile(os.path.join(model_path, f))]) > 0
+    
+    return {
+        "enabled": True,
+        "model": model_name,
+        "downloaded": downloaded and has_files,
+        "download_path": model_path,
+        "message": f"STT model '{model_name}' is {'downloaded' if (downloaded and has_files) else 'not downloaded'}"
+    }
+
+
+@router.post("/download-stt-model")
+async def download_stt_model_endpoint(
+    request: Optional[DownloadSTTModelRequest] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Trigger STT model download in the background"""
+    import asyncio
+    from ..config import settings
+    
+    # Get user's STT settings
+    user_settings = db.query(UserSettings).filter(
+        UserSettings.user_id == current_user.id
+    ).first()
+    
+    if not user_settings or not user_settings.stt_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="STT is not enabled. Please enable STT first."
+        )
+    
+    model_to_download = (request.model_name if request else None) or user_settings.stt_model or settings.stt_model
+    
+    # Import download function
+    import sys
+    import os
+    backend_path = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    sys.path.insert(0, backend_path)
+    
+    try:
+        from download_models import download_stt_model
+        
+        download_root = os.path.join(settings.data_dir, "whisper_models")
+        
+        # Run download in background thread
+        def download():
+            return download_stt_model(model_to_download, download_root)
+        
+        # Start download in background
+        loop = asyncio.get_event_loop()
+        success = await loop.run_in_executor(None, download)
+        
+        if success:
+            return {
+                "success": True,
+                "message": f"STT model '{model_to_download}' downloaded successfully",
+                "model": model_to_download
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to download STT model '{model_to_download}'"
+            )
+    except ImportError as e:
+        logger.error(f"Failed to import download_models: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Download functionality not available"
+        )
+    except Exception as e:
+        logger.error(f"Failed to download STT model: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to download STT model: {str(e)}"
+        )
+
 
 @router.get("/last-story")
 async def get_last_accessed_story(

@@ -59,9 +59,9 @@ COPY . .
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
 
-# Download AI models (embedding + reranker) during build
+# Download AI models (embedding + reranker + STT) during build
 # This ensures models are cached in the image
-RUN echo "📦 Downloading AI models for semantic memory..." && \
+RUN echo "📦 Downloading AI models for semantic memory and STT..." && \
     python download_models.py || echo "⚠️  Model download failed, will retry at runtime"
 
 # Set ownership of application files and model cache

@@ -137,7 +137,7 @@ setup_nodejs_env() {
 
 # Download AI models
 download_ai_models() {
-    log_info "Downloading AI models for semantic memory..."
+    log_info "Downloading AI models for semantic memory and STT..."
     log_info "This may take several minutes..."
     
     cd backend
