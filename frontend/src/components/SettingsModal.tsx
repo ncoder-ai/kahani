@@ -244,17 +244,22 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         // Load engine-specific LLM settings
         if (settings?.llm_settings) {
           // If we have engine-specific settings, load them
-          if (settings.engine_settings) {
+          if (settings.engine_settings && Object.keys(settings.engine_settings).length > 0) {
             setEngineSettings(settings.engine_settings);
             // Set current engine if available
-            if (settings.current_engine) {
+            if (settings.current_engine && settings.current_engine.trim() !== '') {
               setCurrentEngine(settings.current_engine);
               const engineSettings = settings.engine_settings[settings.current_engine];
               if (engineSettings) {
                 setLlmSettings(engineSettings);
               } else {
+                // Fallback to llm_settings if engine-specific settings don't exist
                 setLlmSettings(settings.llm_settings);
               }
+            } else if (settings.llm_settings.api_type && settings.llm_settings.api_type.trim() !== '') {
+              // If no current_engine but api_type exists, use api_type as engine
+              setCurrentEngine(settings.llm_settings.api_type);
+              setLlmSettings(settings.llm_settings);
             } else {
               setLlmSettings(settings.llm_settings);
             }
@@ -271,7 +276,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               api_type: settings.llm_settings.api_type || '',
               model_name: settings.llm_settings.model_name || '',
             });
-            if (settings.llm_settings.api_type) {
+            // Set current engine if api_type exists
+            if (settings.llm_settings.api_type && settings.llm_settings.api_type.trim() !== '') {
               setCurrentEngine(settings.llm_settings.api_type);
             }
           }
@@ -306,6 +312,16 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             auto_choices: settings.generation_preferences.auto_choices !== false,
             choices_count: settings.generation_preferences.choices_count ?? 4,
           });
+        }
+
+        // Load STT settings
+        if (settings?.stt_settings) {
+          setSttEnabled(settings.stt_settings.enabled ?? true);
+          setSttModel(settings.stt_settings.model || 'small');
+        } else {
+          // Set defaults if not present
+          setSttEnabled(true);
+          setSttModel('small');
         }
       }
     } catch (error) {
@@ -706,8 +722,13 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       // Update engine settings with current values
       const updatedEngineSettings = {
         ...engineSettings,
-        [currentEngine]: { ...llmSettings }
       };
+      
+      // Only save current engine settings if an engine is selected
+      if (currentEngine && currentEngine.trim() !== '') {
+        updatedEngineSettings[currentEngine] = { ...llmSettings };
+      }
+      
       setEngineSettings(updatedEngineSettings);
 
       // Save to backend
@@ -718,16 +739,25 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
-          engine_settings: updatedEngineSettings,
-          current_engine: currentEngine,
-          llm_settings: llmSettings // Also save as current LLM settings for backward compatibility
+          engine_settings: {
+            engine_settings: updatedEngineSettings,
+            current_engine: currentEngine || '',
+          },
+          llm_settings: {
+            ...llmSettings,
+            api_url: llmSettings.api_url || '',
+            api_key: llmSettings.api_key || '',
+            api_type: llmSettings.api_type || '',
+            model_name: llmSettings.model_name || '',
+          }, // Also save as current LLM settings for backward compatibility
         }),
       });
 
       if (response.ok) {
         showMessage('Engine settings saved!', 'success');
       } else {
-        showMessage('Failed to save engine settings', 'error');
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to save settings' }));
+        showMessage(`Failed to save engine settings: ${errorData.detail || 'Unknown error'}`, 'error');
       }
     } catch (error) {
       showMessage('Error saving engine settings', 'error');
@@ -813,14 +843,16 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           });
           setTtsProviderConfigs(configMap);
           
-          // Find the current provider or default to first available
-          const currentProvider = globalData.current_provider || 'openai-compatible';
+          // Find the current provider from global settings or default to first available
+          const currentProvider = globalData.provider_type || configMap[Object.keys(configMap)[0]]?.provider_type || 'openai-compatible';
           const currentConfig = configMap[currentProvider];
           
           if (currentConfig) {
             // Merge global settings with provider-specific settings
             const mergedSettings: TTSSettings = {
               ...currentConfig,
+              // Ensure provider_type is set correctly
+              provider_type: currentProvider,
               // Override with global settings
               tts_enabled: globalData.tts_enabled !== undefined ? globalData.tts_enabled : currentConfig.tts_enabled,
               progressive_narration: globalData.progressive_narration !== undefined ? globalData.progressive_narration : currentConfig.progressive_narration,
@@ -842,6 +874,44 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             if (mergedSettings.api_url) {
               loadTTSVoices();
             }
+          } else {
+            // Provider config doesn't exist for current provider, use global settings
+            if (globalData.provider_type) {
+              const fallbackSettings: TTSSettings = {
+                provider_type: globalData.provider_type,
+                api_url: globalData.api_url || '',
+                api_key: globalData.api_key || '',
+                voice_id: globalData.voice_id || 'default',
+                speed: globalData.speed || 1.0,
+                timeout: globalData.timeout || 30,
+                extra_params: globalData.extra_params || {},
+                tts_enabled: globalData.tts_enabled !== undefined ? globalData.tts_enabled : true,
+                progressive_narration: globalData.progressive_narration !== undefined ? globalData.progressive_narration : false,
+                chunk_size: globalData.chunk_size !== undefined ? globalData.chunk_size : 280,
+                stream_audio: globalData.stream_audio !== undefined ? globalData.stream_audio : true,
+                auto_play_last_scene: globalData.auto_play_last_scene !== undefined ? globalData.auto_play_last_scene : false,
+              };
+              setTtsSettings(fallbackSettings);
+            }
+          }
+        } else {
+          // If no provider configs exist but global settings has provider_type, use it
+          if (globalData.provider_type) {
+            const fallbackSettings: TTSSettings = {
+              provider_type: globalData.provider_type,
+              api_url: globalData.api_url || '',
+              api_key: globalData.api_key || '',
+              voice_id: globalData.voice_id || 'default',
+              speed: globalData.speed || 1.0,
+              timeout: globalData.timeout || 30,
+              extra_params: globalData.extra_params || {},
+              tts_enabled: globalData.tts_enabled !== undefined ? globalData.tts_enabled : true,
+              progressive_narration: globalData.progressive_narration !== undefined ? globalData.progressive_narration : false,
+              chunk_size: globalData.chunk_size !== undefined ? globalData.chunk_size : 280,
+              stream_audio: globalData.stream_audio !== undefined ? globalData.stream_audio : true,
+              auto_play_last_scene: globalData.auto_play_last_scene !== undefined ? globalData.auto_play_last_scene : false,
+            };
+            setTtsSettings(fallbackSettings);
           }
         }
       }
@@ -1011,6 +1081,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       }));
 
       showMessage('TTS settings saved!', 'success');
+      // Reload settings to ensure consistency
+      await loadCurrentTTSSettings();
     } catch (error) {
       console.error('Error saving TTS settings:', error);
       showMessage('Error saving TTS settings', 'error');
@@ -1162,15 +1234,18 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         body: JSON.stringify({
           stt_settings: {
             enabled: sttEnabled,
-            model: sttModel,
+            model: sttModel || 'small',
           },
         }),
       });
 
       if (response.ok) {
         showMessage('STT settings saved!', 'success');
+        // Reload settings to ensure consistency
+        loadSTTSettings();
       } else {
-        showMessage('Error saving STT settings', 'error');
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to save STT settings' }));
+        showMessage(`Error saving STT settings: ${errorData.detail || 'Unknown error'}`, 'error');
       }
     } catch (error) {
       console.error('Error saving STT settings:', error);
