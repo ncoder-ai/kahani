@@ -97,11 +97,14 @@ def download_cross_encoder_model(model_name: str = "cross-encoder/ms-marco-MiniL
         return False
 
 
-def download_silero_vad_model():
+def download_silero_vad_model(data_dir: str = None):
     """
     Pre-download Silero VAD model.
     
-    Silero VAD is downloaded via torch.hub and cached in ~/.cache/torch/hub/
+    Silero VAD is downloaded via torch.hub and saved to data directory (consistent with Whisper models).
+    
+    Args:
+        data_dir: Directory to save models to (defaults to ./data or /app/data in Docker)
     """
     try:
         logger.info(f"🔽 Downloading Silero VAD model...")
@@ -109,20 +112,53 @@ def download_silero_vad_model():
         
         import torch
         
-        # Check if model already exists
-        # torch.hub stores models in ~/.cache/torch/hub/checkpoints/
-        cache_dir = os.path.expanduser('~/.cache/torch/hub')
-        model_cache_path = os.path.join(cache_dir, 'snakers4_silero-vad_master')
+        # Determine data directory (same logic as Whisper models)
+        if data_dir is None:
+            if os.path.exists('/app'):
+                data_dir = '/app/data'
+            else:
+                data_dir = './data'
         
-        if os.path.exists(model_cache_path):
+        # VAD models go in data/vad_models (consistent with whisper_models)
+        vad_dir = os.path.join(data_dir, 'vad_models')
+        os.makedirs(vad_dir, exist_ok=True)
+        
+        # Set TORCH_HOME to point to vad_models directory so torch.hub uses it
+        # torch.hub stores models in TORCH_HOME/hub/checkpoints/
+        os.environ['TORCH_HOME'] = vad_dir
+        
+        # Check if model already exists
+        # torch.hub stores models in TORCH_HOME/hub/checkpoints/ or TORCH_HOME/hub/snakers4_silero-vad_master/
+        hub_dir = os.path.join(vad_dir, 'hub')
+        checkpoint_dir = os.path.join(hub_dir, 'checkpoints')
+        model_cache_path = os.path.join(hub_dir, 'snakers4_silero-vad_master')
+        
+        # Check multiple possible locations
+        model_exists = False
+        if os.path.exists(checkpoint_dir):
+            # Check for model files in checkpoints
+            try:
+                items = os.listdir(checkpoint_dir)
+                if any('silero' in item.lower() or 'vad' in item.lower() for item in items):
+                    model_exists = True
+            except Exception:
+                pass
+        
+        if not model_exists and os.path.exists(model_cache_path):
             # Check if model files are present
-            model_file = os.path.join(model_cache_path, 'silero_vad')
-            if os.path.exists(model_file) or any(f.startswith('silero_vad') for f in os.listdir(model_cache_path) if os.path.isfile(os.path.join(model_cache_path, f))):
-                logger.info(f"✅ Silero VAD model already exists at {model_cache_path}")
-                return True
+            try:
+                items = os.listdir(model_cache_path)
+                if any('silero' in item.lower() or 'vad' in item.lower() for item in items):
+                    model_exists = True
+            except Exception:
+                pass
+        
+        if model_exists:
+            logger.info(f"✅ Silero VAD model already exists at {vad_dir}")
+            return True
         
         # Download model using torch.hub (same way the service does it)
-        logger.info("Downloading model via torch.hub...")
+        logger.info(f"Downloading model via torch.hub to {vad_dir}...")
         model, utils = torch.hub.load(
             repo_or_dir='snakers4/silero-vad',
             model='silero_vad',
@@ -135,7 +171,7 @@ def download_silero_vad_model():
         logger.info("Model loaded successfully")
         
         logger.info(f"✅ Silero VAD model downloaded successfully!")
-        logger.info(f"   - Cache location: {cache_dir}")
+        logger.info(f"   - Cache location: {vad_dir}")
         
         return True
         
@@ -299,7 +335,12 @@ def download_all_models(include_stt: bool = True, stt_model: str = "small", incl
     vad_success = True
     if include_vad:
         logger.info("Step 4/4: Downloading Silero VAD model...")
-        vad_success = download_silero_vad_model()
+        # Determine data directory for VAD (same as Whisper)
+        if os.path.exists('/app'):
+            vad_data_dir = '/app/data'
+        else:
+            vad_data_dir = './data'
+        vad_success = download_silero_vad_model(vad_data_dir)
         results['vad'] = vad_success
     else:
         logger.info("Step 4/4: Skipping Silero VAD model download")

@@ -657,18 +657,29 @@ async def get_stt_model_status(
     
     try:
         import torch
-        # torch.hub stores models in ~/.cache/torch/hub/
-        cache_dir = os.path.expanduser('~/.cache/torch/hub')
-        vad_cache_path = os.path.join(cache_dir, 'snakers4_silero-vad_master')
+        # VAD models are now stored in data/vad_models (consistent with Whisper)
+        vad_dir = os.path.join(settings.data_dir, "vad_models")
+        hub_dir = os.path.join(vad_dir, 'hub')
+        checkpoint_dir = os.path.join(hub_dir, 'checkpoints')
+        model_cache_path = os.path.join(hub_dir, 'snakers4_silero-vad_master')
         
-        # Also check for alternative path formats
-        alternative_paths = [
-            vad_cache_path,
-            os.path.join(cache_dir, 'snakers4_silero-vad'),
+        # Check new location first (data directory)
+        vad_path_candidates = [
+            checkpoint_dir,
+            model_cache_path,
+            vad_dir,
         ]
         
+        # Also check old cache location for backward compatibility
+        cache_dir = os.path.expanduser('~/.cache/torch/hub')
+        old_cache_paths = [
+            os.path.join(cache_dir, 'snakers4_silero-vad_master'),
+            os.path.join(cache_dir, 'snakers4_silero-vad'),
+        ]
+        vad_path_candidates.extend(old_cache_paths)
+        
         # Check all possible paths
-        for vad_path_candidate in alternative_paths:
+        for vad_path_candidate in vad_path_candidates:
             if os.path.exists(vad_path_candidate):
                 if os.path.isdir(vad_path_candidate):
                     try:
@@ -700,25 +711,25 @@ async def get_stt_model_status(
         # If not found in standard locations, try to check via torch.hub
         if not vad_downloaded:
             try:
-                # Try to load model info without actually loading it
-                # torch.hub.list will list available models
+                # Try to list available models
                 hub_models = torch.hub.list('snakers4/silero-vad')
                 if hub_models:
-                    # Model repo is accessible, check if cached
-                    # The model might be cached with a different structure
-                    for item in os.listdir(cache_dir):
-                        if 'silero' in item.lower() or 'vad' in item.lower():
-                            item_path = os.path.join(cache_dir, item)
-                            if os.path.isdir(item_path):
-                                vad_size = sum(
-                                    os.path.getsize(os.path.join(dirpath, filename))
-                                    for dirpath, dirnames, filenames in os.walk(item_path)
-                                    for filename in filenames
-                                )
-                                if vad_size > 0:
-                                    vad_downloaded = True
-                                    vad_path = item_path
-                                    break
+                    # Model repo is accessible, check if cached in data directory
+                    if os.path.exists(vad_dir):
+                        for root, dirs, files in os.walk(vad_dir):
+                            for file in files:
+                                if 'silero' in file.lower() or 'vad' in file.lower():
+                                    vad_size = sum(
+                                        os.path.getsize(os.path.join(dirpath, filename))
+                                        for dirpath, dirnames, filenames in os.walk(vad_dir)
+                                        for filename in filenames
+                                    )
+                                    if vad_size > 0:
+                                        vad_downloaded = True
+                                        vad_path = vad_dir
+                                        break
+                            if vad_downloaded:
+                                break
             except Exception:
                 pass
     except ImportError:
@@ -788,8 +799,9 @@ async def download_stt_model_endpoint(
             # Download Whisper model
             results['whisper'] = download_stt_model(model_to_download, download_root)
             
-            # Download VAD model
-            results['vad'] = download_silero_vad_model()
+            # Download VAD model (use same data_dir as Whisper)
+            data_dir = os.path.dirname(download_root)  # Get parent directory (data_dir)
+            results['vad'] = download_silero_vad_model(data_dir)
             
             return results
         
