@@ -50,7 +50,7 @@ export class AudioRecorder {
   private checkSupport(): void {
     this.state.isSupported = !!(
       navigator.mediaDevices &&
-      navigator.mediaDevices.getUserMedia &&
+      'getUserMedia' in navigator.mediaDevices &&
       window.MediaRecorder
     );
     
@@ -145,7 +145,7 @@ export class AudioRecorder {
       } as any;
 
       // Start recording (triggers the start callback)
-      this.mediaRecorder.start();
+      this.mediaRecorder!.start();
       
     } catch (error) {
       const err = error as Error;
