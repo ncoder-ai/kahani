@@ -270,3 +270,6 @@ backend/data/audio/
 test_*.py
 test_*.html
 debug_*.py
+
+# Whisper and Silero-VAD models
+backend/data/whisper_models/
