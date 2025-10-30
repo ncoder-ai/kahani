@@ -624,36 +624,48 @@ async def get_stt_model_status(
     download_root = os.path.join(settings.data_dir, "whisper_models")
     model_path = os.path.join(download_root, model_name)
     
-    # Check if model exists
-    downloaded = os.path.exists(model_path) and os.path.isdir(model_path)
-    
-    # Check if model files are present (basic check)
+    # More reliable check: Use directory size as primary indicator
+    # faster-whisper models are substantial (> 5MB minimum, usually much larger)
+    downloaded = False
     has_files = False
-    if downloaded:
-        # Check for common model files
-        model_files = [
-            "config.json",
-            "tokenizer.json",
-            "model.bin"
-        ]
-        has_files = any(os.path.exists(os.path.join(model_path, f)) for f in model_files)
-        if not has_files:
-            # Also check for ONNX format files
-            onnx_files = [
-                "encoder_model.onnx",
-                "decoder_model.onnx"
-            ]
-            has_files = any(os.path.exists(os.path.join(model_path, f)) for f in onnx_files)
-        # Also check if directory has any files (sometimes files have different names)
-        if not has_files:
-            has_files = len([f for f in os.listdir(model_path) if os.path.isfile(os.path.join(model_path, f))]) > 0
+    directory_size = 0
+    
+    try:
+        if os.path.exists(model_path) and os.path.isdir(model_path):
+            # Check directory size - most reliable indicator
+            try:
+                directory_size = sum(
+                    os.path.getsize(os.path.join(dirpath, filename))
+                    for dirpath, dirnames, filenames in os.walk(model_path)
+                    for filename in filenames
+                )
+                # Models are substantial - even tiny model is > 75MB
+                # Use a conservative threshold of 1MB to account for partial downloads
+                if directory_size > 1024 * 1024:  # 1MB threshold
+                    downloaded = True
+                    has_files = True
+            except (OSError, PermissionError) as e:
+                logger.debug(f"Error calculating directory size: {e}")
+                # Fallback: check if directory has content
+                try:
+                    items = os.listdir(model_path)
+                    has_files = len(items) > 0
+                    downloaded = has_files
+                except Exception:
+                    downloaded = False
+    except Exception as e:
+        logger.debug(f"Error checking model path: {e}")
+        downloaded = False
     
     return {
         "enabled": True,
         "model": model_name,
-        "downloaded": downloaded and has_files,
+        "downloaded": downloaded,
         "download_path": model_path,
-        "message": f"STT model '{model_name}' is {'downloaded' if (downloaded and has_files) else 'not downloaded'}"
+        "exists": os.path.exists(model_path),
+        "has_files": has_files,
+        "directory_size_mb": round(directory_size / (1024 * 1024), 2) if directory_size > 0 else 0,
+        "message": f"STT model '{model_name}' is {'downloaded' if downloaded else 'not downloaded'}"
     }
 
 
