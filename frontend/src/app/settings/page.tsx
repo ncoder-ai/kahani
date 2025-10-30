@@ -59,11 +59,37 @@ interface UIPreferences {
   auto_open_last_story: boolean;
 }
 
+interface ExportSettings {
+  format: string;
+  include_metadata: boolean;
+  include_choices: boolean;
+}
+
+interface CharacterAssistantSettings {
+  enable_suggestions: boolean;
+  importance_threshold: number;
+  mention_threshold: number;
+}
+
+interface AdvancedSettings {
+  custom_system_prompt: string;
+  experimental_features: boolean;
+}
+
 interface UserSettings {
   llm_settings: LLMSettings;
   context_settings: ContextSettings;
   generation_preferences: GenerationPreferences;
   ui_preferences: UIPreferences;
+  export_settings?: ExportSettings;
+  character_assistant_settings?: CharacterAssistantSettings;
+  advanced?: AdvancedSettings;
+  engine_settings?: Record<string, any>;
+  current_engine?: string;
+  stt_settings?: {
+    enabled: boolean;
+    model: string;
+  };
 }
 
 interface SettingsPreset {
@@ -129,7 +155,57 @@ export default function SettingsPage() {
       if (response.ok) {
         const data = await response.json();
         console.log('Settings data:', data);
-        setSettings(data.settings);
+        // Ensure all settings categories are present with defaults if missing
+        const loadedSettings = data.settings;
+        if (loadedSettings) {
+          // Ensure all categories exist with defaults
+          const settingsWithDefaults: UserSettings = {
+            llm_settings: loadedSettings.llm_settings || {
+              temperature: 0.7,
+              top_p: 0.9,
+              top_k: 40,
+              repetition_penalty: 1.1,
+              max_tokens: 2048,
+              api_url: '',
+              api_key: '',
+              api_type: '',
+              model_name: '',
+            },
+            context_settings: loadedSettings.context_settings || {
+              max_tokens: 4000,
+              keep_recent_scenes: 3,
+              summary_threshold: 5,
+              summary_threshold_tokens: 8000,
+              enable_summarization: true,
+            },
+            generation_preferences: loadedSettings.generation_preferences || {
+              default_genre: '',
+              default_tone: '',
+              scene_length: 'medium',
+              auto_choices: true,
+              choices_count: 4,
+            },
+            ui_preferences: loadedSettings.ui_preferences || {
+              color_theme: 'pure-dark',
+              font_size: 'medium',
+              show_token_info: false,
+              show_context_info: false,
+              notifications: true,
+              scene_display_format: 'default',
+              show_scene_titles: true,
+              auto_open_last_story: false,
+            },
+            export_settings: loadedSettings.export_settings,
+            character_assistant_settings: loadedSettings.character_assistant_settings,
+            advanced: loadedSettings.advanced,
+            engine_settings: loadedSettings.engine_settings,
+            current_engine: loadedSettings.current_engine,
+            stt_settings: loadedSettings.stt_settings,
+          };
+          setSettings(settingsWithDefaults);
+        } else {
+          setSettings(null);
+        }
       } else {
         console.error('Failed to load settings, status:', response.status);
         const errorData = await response.text();
@@ -221,17 +297,17 @@ export default function SettingsPage() {
     setSaving(true);
     try {
       // Transform the settings to match the backend's expected format
-      const settingsPayload = {
+      const settingsPayload: any = {
         llm_settings: {
           temperature: settings.llm_settings.temperature,
           top_p: settings.llm_settings.top_p,
           top_k: settings.llm_settings.top_k,
           repetition_penalty: settings.llm_settings.repetition_penalty,
           max_tokens: settings.llm_settings.max_tokens,
-          api_url: settings.llm_settings.api_url,
-          api_key: settings.llm_settings.api_key,
-          api_type: settings.llm_settings.api_type,
-          model_name: settings.llm_settings.model_name,
+          api_url: settings.llm_settings.api_url || '',
+          api_key: settings.llm_settings.api_key || '',
+          api_type: settings.llm_settings.api_type || '',
+          model_name: settings.llm_settings.model_name || '',
         },
         context_settings: {
           max_tokens: settings.context_settings.max_tokens,
@@ -268,6 +344,54 @@ export default function SettingsPage() {
           auto_open_last_story: settings.ui_preferences.auto_open_last_story,
         },
       };
+
+      // Add export settings if available
+      if (settings.export_settings) {
+        settingsPayload.export_settings = {
+          format: settings.export_settings.format || 'markdown',
+          include_metadata: settings.export_settings.include_metadata ?? true,
+          include_choices: settings.export_settings.include_choices ?? true,
+        };
+      }
+
+      // Add character assistant settings if available
+      if (settings.character_assistant_settings) {
+        settingsPayload.character_assistant_settings = {
+          enable_suggestions: settings.character_assistant_settings.enable_suggestions ?? true,
+          importance_threshold: settings.character_assistant_settings.importance_threshold ?? 70,
+          mention_threshold: settings.character_assistant_settings.mention_threshold ?? 5,
+        };
+      }
+
+      // Add advanced settings if available
+      if (settings.advanced) {
+        settingsPayload.advanced = {
+          custom_system_prompt: settings.advanced.custom_system_prompt || '',
+          experimental_features: settings.advanced.experimental_features ?? false,
+        };
+      }
+
+      // Add STT settings if available
+      if (settings.stt_settings) {
+        settingsPayload.stt_settings = {
+          enabled: settings.stt_settings.enabled ?? true,
+          model: settings.stt_settings.model || 'small',
+        };
+      }
+
+      // Preserve engine_settings and current_engine if they exist
+      if (settings.engine_settings) {
+        settingsPayload.engine_settings = {
+          engine_settings: settings.engine_settings,
+          current_engine: settings.current_engine || '',
+        };
+      }
+      if (settings.current_engine && !settingsPayload.engine_settings) {
+        settingsPayload.engine_settings = {
+          engine_settings: settings.engine_settings || {},
+          current_engine: settings.current_engine,
+        };
+      }
 
       const response = await fetch(`${getApiBaseUrl()}/api/settings/`, {
         method: 'PUT',

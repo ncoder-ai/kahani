@@ -97,10 +97,10 @@ class UserSettings(Base):
                 "top_k": self.llm_top_k,
                 "repetition_penalty": self.llm_repetition_penalty,
                 "max_tokens": self.llm_max_tokens,
-                "api_url": self.llm_api_url,
-                "api_key": self.llm_api_key,
-                "api_type": self.llm_api_type,
-                "model_name": self.llm_model_name
+                "api_url": self.llm_api_url or "",
+                "api_key": self.llm_api_key or "",
+                "api_type": self.llm_api_type or "",
+                "model_name": self.llm_model_name or ""
             },
             "context_settings": {
                 "max_tokens": self.context_max_tokens,
@@ -120,8 +120,8 @@ class UserSettings(Base):
                 "extraction_confidence_threshold": self.extraction_confidence_threshold
             },
             "generation_preferences": {
-                "default_genre": self.default_genre,
-                "default_tone": self.default_tone,
+                "default_genre": self.default_genre or "",
+                "default_tone": self.default_tone or "",
                 "scene_length": self.preferred_scene_length,
                 "auto_choices": self.enable_auto_choices,
                 "choices_count": self.choices_count
@@ -156,7 +156,7 @@ class UserSettings(Base):
                 "experimental_features": self.enable_experimental_features
             },
             "engine_settings": self._parse_engine_settings(),
-            "current_engine": self.current_engine
+            "current_engine": self.current_engine or ""
         }
     
     def _parse_engine_settings(self):

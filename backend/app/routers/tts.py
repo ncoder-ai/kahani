@@ -1079,15 +1079,30 @@ async def generate_and_stream_chunks(
                 force_regenerate=True
             )
             
-            if not scene_audio or not scene_audio.file_path:
+            if not scene_audio or not scene_audio.audio_url:
                 await tts_session_manager.send_message(session_id, {
                     "type": "error",
                     "message": "Failed to generate audio"
                 })
                 return
             
+            # Resolve audio file path (handle both absolute and relative paths)
+            from pathlib import Path
+            import os
+            file_path = Path(scene_audio.audio_url)
+            if not file_path.is_absolute():
+                cwd = Path(os.getcwd())
+                file_path = cwd / file_path
+            
+            if not file_path.exists():
+                await tts_session_manager.send_message(session_id, {
+                    "type": "error",
+                    "message": "Audio file not found"
+                })
+                return
+            
             # Read audio file and send as single chunk
-            with open(scene_audio.file_path, 'rb') as f:
+            with open(file_path, 'rb') as f:
                 audio_data = f.read()
             
             audio_base64 = base64.b64encode(audio_data).decode('utf-8')

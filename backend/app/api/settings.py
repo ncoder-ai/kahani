@@ -71,6 +71,11 @@ class AdvancedSettingsUpdate(BaseModel):
     custom_system_prompt: str = Field(max_length=2000, default="")
     experimental_features: bool = False
 
+class CharacterAssistantSettingsUpdate(BaseModel):
+    enable_suggestions: Optional[bool] = None
+    importance_threshold: Optional[int] = Field(default=None, ge=0, le=100)
+    mention_threshold: Optional[int] = Field(default=None, ge=1, le=100)
+
 class EngineSettingsUpdate(BaseModel):
     engine_settings: Optional[Dict[str, Any]] = None
     current_engine: Optional[str] = None
@@ -88,6 +93,7 @@ class UserSettingsUpdate(BaseModel):
     export_settings: ExportSettingsUpdate = None
     stt_settings: STTSettingsUpdate = None
     advanced: AdvancedSettingsUpdate = None
+    character_assistant_settings: CharacterAssistantSettingsUpdate = None
 
 @router.get("/")
 async def get_user_settings(
@@ -157,14 +163,15 @@ async def update_user_settings(
         user_settings.llm_max_tokens = llm.max_tokens
         
         # Update API configuration fields (only if permitted)
+        # Handle empty strings as valid values (to clear fields)
         if llm.api_url is not None:
-            user_settings.llm_api_url = llm.api_url
+            user_settings.llm_api_url = llm.api_url if llm.api_url else None
         if llm.api_key is not None:
-            user_settings.llm_api_key = llm.api_key
+            user_settings.llm_api_key = llm.api_key if llm.api_key else ""
         if llm.api_type is not None:
-            user_settings.llm_api_type = llm.api_type
+            user_settings.llm_api_type = llm.api_type if llm.api_type else ""
         if llm.model_name is not None:
-            user_settings.llm_model_name = llm.model_name
+            user_settings.llm_model_name = llm.model_name if llm.model_name else ""
     
     # Update context settings
     if settings_update.context_settings:
@@ -231,6 +238,16 @@ async def update_user_settings(
         adv = settings_update.advanced
         user_settings.custom_system_prompt = adv.custom_system_prompt
         user_settings.enable_experimental_features = adv.experimental_features
+    
+    # Update character assistant settings
+    if settings_update.character_assistant_settings:
+        char_assist = settings_update.character_assistant_settings
+        if char_assist.enable_suggestions is not None:
+            user_settings.enable_character_suggestions = char_assist.enable_suggestions
+        if char_assist.importance_threshold is not None:
+            user_settings.character_importance_threshold = char_assist.importance_threshold
+        if char_assist.mention_threshold is not None:
+            user_settings.character_mention_threshold = char_assist.mention_threshold
     
     # Update engine settings
     if settings_update.engine_settings:
