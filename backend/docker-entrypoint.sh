@@ -52,10 +52,6 @@ if [ "$(id -u)" = "0" ]; then
     # Set permissions after ownership change
     chmod -R 755 /app/data 2>/dev/null && echo "✅ Set data directory permissions" || echo "⚠️  Could not set data directory permissions"
     chmod -R 755 /app/logs 2>/dev/null && echo "✅ Set logs directory permissions" || echo "⚠️  Could not set logs directory permissions"
-    
-    # Switch to user 1000:1000 for the application
-    echo "🔧 Switching to user 1000:1000 for application..."
-    exec gosu 1000:1000 "$@"
 else
     # If not running as root, try to fix ownership with current user
     echo "🔧 Not running as root - attempting to fix ownership with current user..."
@@ -164,5 +160,11 @@ fi
 
 echo "🚀 Starting Kahani application..."
 
-# Execute the main command
-exec "$@"
+# Switch to user 1000:1000 for the application (AFTER all setup is complete)
+if [ "$(id -u)" = "0" ]; then
+    echo "🔧 Switching to user 1000:1000 for application..."
+    exec gosu 1000:1000 "$@"
+else
+    # If not running as root, execute directly
+    exec "$@"
+fi
