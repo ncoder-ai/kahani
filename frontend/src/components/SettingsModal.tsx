@@ -1239,10 +1239,14 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
       if (response.ok) {
         const data = await response.json();
-        setSttModelDownloaded(data.downloaded);
+        // Only update if we got a definitive answer
+        if (data.downloaded !== undefined) {
+          setSttModelDownloaded(data.downloaded);
+        }
       }
     } catch (error) {
       console.error('Error checking STT model status:', error);
+      // Don't update state on error to prevent flickering
     }
   };
 
@@ -1265,7 +1269,11 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       if (response.ok) {
         const data = await response.json();
         showMessage(data.message || 'STT model downloaded successfully!', 'success');
-        setSttModelDownloaded(true);
+        // Wait a bit before checking status to ensure download completes
+        setTimeout(async () => {
+          await checkSTTModelStatus();
+          setSttModelDownloaded(true);
+        }, 3000);
       } else {
         const errorData = await response.json().catch(() => ({ detail: 'Failed to download STT model' }));
         setSttDownloadError(errorData.detail || 'Failed to download STT model');
@@ -1277,10 +1285,6 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       showMessage('Error downloading STT model', 'error');
     } finally {
       setIsDownloadingSTTModel(false);
-      // Recheck status after a short delay
-      setTimeout(() => {
-        checkSTTModelStatus();
-      }, 2000);
     }
   };
 
