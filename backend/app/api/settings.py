@@ -601,7 +601,7 @@ async def get_stt_model_status(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Check if STT model is downloaded and available"""
+    """Check if STT models (Whisper and VAD) are downloaded and available"""
     import os
     from pathlib import Path
     from ..config import settings
@@ -614,9 +614,9 @@ async def get_stt_model_status(
     if not user_settings or not user_settings.stt_enabled:
         return {
             "enabled": False,
-            "model": None,
-            "downloaded": False,
-            "download_path": None,
+            "whisper": None,
+            "vad": None,
+            "all_ready": False,
             "message": "STT is not enabled"
         }
     
@@ -624,48 +624,126 @@ async def get_stt_model_status(
     download_root = os.path.join(settings.data_dir, "whisper_models")
     model_path = os.path.join(download_root, model_name)
     
-    # More reliable check: Use directory size as primary indicator
-    # faster-whisper models are substantial (> 5MB minimum, usually much larger)
-    downloaded = False
-    has_files = False
-    directory_size = 0
+    # Check Whisper model status
+    whisper_downloaded = False
+    whisper_size = 0
+    whisper_path = model_path
     
     try:
         if os.path.exists(model_path) and os.path.isdir(model_path):
-            # Check directory size - most reliable indicator
             try:
-                directory_size = sum(
+                whisper_size = sum(
                     os.path.getsize(os.path.join(dirpath, filename))
                     for dirpath, dirnames, filenames in os.walk(model_path)
                     for filename in filenames
                 )
-                # Models are substantial - even tiny model is > 75MB
-                # Use a conservative threshold of 1MB to account for partial downloads
-                if directory_size > 1024 * 1024:  # 1MB threshold
-                    downloaded = True
-                    has_files = True
+                if whisper_size > 1024 * 1024:  # 1MB threshold
+                    whisper_downloaded = True
             except (OSError, PermissionError) as e:
-                logger.debug(f"Error calculating directory size: {e}")
-                # Fallback: check if directory has content
+                logger.debug(f"Error calculating Whisper directory size: {e}")
                 try:
                     items = os.listdir(model_path)
-                    has_files = len(items) > 0
-                    downloaded = has_files
+                    whisper_downloaded = len(items) > 0
                 except Exception:
-                    downloaded = False
+                    whisper_downloaded = False
     except Exception as e:
-        logger.debug(f"Error checking model path: {e}")
-        downloaded = False
+        logger.debug(f"Error checking Whisper model path: {e}")
+        whisper_downloaded = False
+    
+    # Check Silero VAD model status
+    vad_downloaded = False
+    vad_size = 0
+    vad_path = None
+    
+    try:
+        import torch
+        # torch.hub stores models in ~/.cache/torch/hub/
+        cache_dir = os.path.expanduser('~/.cache/torch/hub')
+        vad_cache_path = os.path.join(cache_dir, 'snakers4_silero-vad_master')
+        
+        # Also check for alternative path formats
+        alternative_paths = [
+            vad_cache_path,
+            os.path.join(cache_dir, 'snakers4_silero-vad'),
+        ]
+        
+        # Check all possible paths
+        for vad_path_candidate in alternative_paths:
+            if os.path.exists(vad_path_candidate):
+                if os.path.isdir(vad_path_candidate):
+                    try:
+                        vad_size = sum(
+                            os.path.getsize(os.path.join(dirpath, filename))
+                            for dirpath, dirnames, filenames in os.walk(vad_path_candidate)
+                            for filename in filenames
+                        )
+                        if vad_size > 0:
+                            vad_downloaded = True
+                            vad_path = vad_path_candidate
+                            break
+                    except Exception:
+                        # Check if directory has files
+                        try:
+                            items = os.listdir(vad_path_candidate)
+                            if len(items) > 0:
+                                vad_downloaded = True
+                                vad_path = vad_path_candidate
+                                break
+                        except Exception:
+                            pass
+                elif os.path.isfile(vad_path_candidate):
+                    vad_downloaded = True
+                    vad_path = vad_path_candidate
+                    vad_size = os.path.getsize(vad_path_candidate)
+                    break
+        
+        # If not found in standard locations, try to check via torch.hub
+        if not vad_downloaded:
+            try:
+                # Try to load model info without actually loading it
+                # torch.hub.list will list available models
+                hub_models = torch.hub.list('snakers4/silero-vad')
+                if hub_models:
+                    # Model repo is accessible, check if cached
+                    # The model might be cached with a different structure
+                    for item in os.listdir(cache_dir):
+                        if 'silero' in item.lower() or 'vad' in item.lower():
+                            item_path = os.path.join(cache_dir, item)
+                            if os.path.isdir(item_path):
+                                vad_size = sum(
+                                    os.path.getsize(os.path.join(dirpath, filename))
+                                    for dirpath, dirnames, filenames in os.walk(item_path)
+                                    for filename in filenames
+                                )
+                                if vad_size > 0:
+                                    vad_downloaded = True
+                                    vad_path = item_path
+                                    break
+            except Exception:
+                pass
+    except ImportError:
+        # torch not available
+        logger.debug("torch not available for VAD check")
+    except Exception as e:
+        logger.debug(f"Error checking VAD model: {e}")
+    
+    all_ready = whisper_downloaded and vad_downloaded
     
     return {
         "enabled": True,
-        "model": model_name,
-        "downloaded": downloaded,
-        "download_path": model_path,
-        "exists": os.path.exists(model_path),
-        "has_files": has_files,
-        "directory_size_mb": round(directory_size / (1024 * 1024), 2) if directory_size > 0 else 0,
-        "message": f"STT model '{model_name}' is {'downloaded' if downloaded else 'not downloaded'}"
+        "whisper": {
+            "model": model_name,
+            "downloaded": whisper_downloaded,
+            "path": whisper_path,
+            "size_mb": round(whisper_size / (1024 * 1024), 2) if whisper_size > 0 else 0
+        },
+        "vad": {
+            "downloaded": vad_downloaded,
+            "path": vad_path,
+            "size_mb": round(vad_size / (1024 * 1024), 2) if vad_size > 0 else 0
+        },
+        "all_ready": all_ready,
+        "message": f"STT models: Whisper {'ready' if whisper_downloaded else 'not downloaded'}, VAD {'ready' if vad_downloaded else 'not downloaded'}"
     }
 
 
@@ -675,7 +753,7 @@ async def download_stt_model_endpoint(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Trigger STT model download in the background"""
+    """Trigger STT model download (Whisper + VAD) in the background"""
     import asyncio
     from ..config import settings
     
@@ -692,35 +770,63 @@ async def download_stt_model_endpoint(
     
     model_to_download = (request.model_name if request else None) or user_settings.stt_model or settings.stt_model
     
-    # Import download function
+    # Import download functions
     import sys
     import os
     backend_path = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
     sys.path.insert(0, backend_path)
     
     try:
-        from download_models import download_stt_model
+        from download_models import download_stt_model, download_silero_vad_model
         
         download_root = os.path.join(settings.data_dir, "whisper_models")
         
-        # Run download in background thread
-        def download():
-            return download_stt_model(model_to_download, download_root)
+        # Download both models sequentially
+        def download_all():
+            results = {}
+            
+            # Download Whisper model
+            results['whisper'] = download_stt_model(model_to_download, download_root)
+            
+            # Download VAD model
+            results['vad'] = download_silero_vad_model()
+            
+            return results
         
         # Start download in background
         loop = asyncio.get_event_loop()
-        success = await loop.run_in_executor(None, download)
+        results = await loop.run_in_executor(None, download_all)
         
-        if success:
+        whisper_success = results.get('whisper', False)
+        vad_success = results.get('vad', False)
+        
+        if whisper_success and vad_success:
             return {
                 "success": True,
-                "message": f"STT model '{model_to_download}' downloaded successfully",
-                "model": model_to_download
+                "message": f"STT models downloaded successfully (Whisper: {model_to_download}, VAD: ready)",
+                "whisper": {"success": True, "model": model_to_download},
+                "vad": {"success": True}
             }
+        elif whisper_success or vad_success:
+            # Partial success
+            error_msg = "Partially downloaded: "
+            if whisper_success:
+                error_msg += "Whisper ✓, "
+            else:
+                error_msg += "Whisper ✗, "
+            if vad_success:
+                error_msg += "VAD ✓"
+            else:
+                error_msg += "VAD ✗"
+            
+            raise HTTPException(
+                status_code=status.HTTP_207_MULTI_STATUS,
+                detail=error_msg
+            )
         else:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to download STT model '{model_to_download}'"
+                detail=f"Failed to download STT models (Whisper: {model_to_download}, VAD)"
             )
     except ImportError as e:
         logger.error(f"Failed to import download_models: {e}")
@@ -728,11 +834,13 @@ async def download_stt_model_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Download functionality not available"
         )
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Failed to download STT model: {e}", exc_info=True)
+        logger.error(f"Failed to download STT models: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to download STT model: {str(e)}"
+            detail=f"Failed to download STT models: {str(e)}"
         )
 
 
