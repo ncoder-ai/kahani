@@ -233,7 +233,7 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
           setState(prev => ({ 
             ...prev, 
             transcript: fullTranscriptRef.current,
-            partialTranscript: message.text
+            partialTranscript: message.text || ''
           }));
           optionsRef.current.onTranscript?.(fullTranscriptRef.current, true);
           
