@@ -48,6 +48,13 @@ export class AudioRecorder {
    * Check if MediaRecorder is supported
    */
   private checkSupport(): void {
+    // Check if we're in a browser environment (not SSR)
+    if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+      this.state.isSupported = false;
+      this.state.error = 'MediaRecorder API not available in server environment';
+      return;
+    }
+
     this.state.isSupported = !!(
       navigator.mediaDevices &&
       'getUserMedia' in navigator.mediaDevices &&
