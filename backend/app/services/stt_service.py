@@ -1,6 +1,7 @@
 import os
 import asyncio
 import logging
+import re
 import time
 from typing import Optional, Callable
 from collections import deque
@@ -425,9 +426,28 @@ class ProfessionalSTTService:
         - Fix capitalization
         - Clean up spacing
         - Fix common transcription errors
+        - Remove Whisper hallucination patterns (attribution text)
         """
         if not text:
             return text
+        
+        # Remove Whisper hallucination patterns (attribution text)
+        # Patterns like "Transcribed by ESO, translated by –" or "Transcribed by..." etc.
+        hallucination_patterns = [
+            r'\s*\.\s*[Tt]ranscribed\s+by\s+[^\.]+',
+            r'\s*\.\s*[Tt]ranslated\s+by\s+[^\.]+',
+            r'\s*\.\s*[Tt]ranscribed\s+by\s+[^\.]+,\s*[Tt]ranslated\s+by\s+[^\.]+',
+            r'\s*\.\s*[Tt]ranslated\s+by\s+[^\.]+,\s*[Tt]ranscribed\s+by\s+[^\.]+',
+            r'\s*\.\s*[Tt]ranscribed\s+and\s+[Tt]ranslated\s+by\s+[^\.]+',
+            r'\s*–\s*$',  # Trailing em-dash or hyphen
+            r'\s*—\s*$',  # Trailing em-dash (Unicode)
+        ]
+        
+        for pattern in hallucination_patterns:
+            text = re.sub(pattern, '', text, flags=re.IGNORECASE)
+        
+        # Remove any trailing periods that might be left after removing hallucinations
+        text = re.sub(r'\.+$', '', text)
         
         # Ensure first letter is capitalized
         text = text[0].upper() + text[1:] if len(text) > 1 else text.upper()
