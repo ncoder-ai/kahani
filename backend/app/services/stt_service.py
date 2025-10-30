@@ -105,6 +105,11 @@ class ProfessionalSTTService:
         # Initialize Silero VAD
         if settings.stt_use_silero_vad:
             try:
+                # Set TORCH_HOME to use data directory (consistent with download location)
+                vad_dir = os.path.join(settings.data_dir, "vad_models")
+                os.makedirs(vad_dir, exist_ok=True)
+                os.environ['TORCH_HOME'] = vad_dir
+                
                 self.silero_vad_model, utils = torch.hub.load(
                     repo_or_dir='snakers4/silero-vad',
                     model='silero_vad',
