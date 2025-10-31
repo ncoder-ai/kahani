@@ -52,7 +52,6 @@ Kahani (meaning "story" in Hindi) is a modern interactive storytelling platform 
 - **WebSocket Support**: Real-time audio streaming with retry logic
 - **Auto-Narration**: Automatically narrate newly generated scenes
 - **Smart Text Chunking**: Intelligent paragraph-aware chunking for natural narration
-- **Audio Caching**: Efficient storage and playback of generated audio
 
 ### 🎤 **Speech-to-Text Integration**
 - **Real-time Transcription**: Whisper-based STT with faster-whisper engine
