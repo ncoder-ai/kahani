@@ -101,12 +101,14 @@ The script will NOT delete:
 
 2. **Rate Limiting**: The script includes a 0.3 second delay between deletions to avoid GitHub API rate limits. For repositories with many workflow runs, this may take some time. GitHub's rate limit typically allows 5000 API requests per hour for authenticated users.
 
-3. **Permissions**: You need appropriate permissions on the repository to delete workflow runs. Typically, this means you need to be:
+3. **Pagination**: The script automatically handles pagination for repositories with large numbers of workflow runs (using GitHub CLI's `--paginate` flag), so all runs will be fetched regardless of quantity.
+
+4. **Permissions**: You need appropriate permissions on the repository to delete workflow runs. Typically, this means you need to be:
    - A repository owner
    - A repository admin
    - A user with write access to the repository
 
-4. **Future Runs**: This script only deletes past workflow runs. New workflows will continue to run normally according to your workflow configuration.
+5. **Future Runs**: This script only deletes past workflow runs. New workflows will continue to run normally according to your workflow configuration.
 
 ## Troubleshooting
 
@@ -144,11 +146,28 @@ git remote -v
 - Check your GitHub permissions
 - Verify your network connection
 
+### "Failed to fetch workflow runs from GitHub API"
+
+**Problem**: The script couldn't retrieve workflow runs from GitHub.
+
+**Possible causes**:
+- Network connectivity issues
+- GitHub API is temporarily unavailable
+- Rate limiting on API requests
+- Insufficient repository permissions
+
+**Solution**:
+1. Check your internet connection
+2. Verify you have appropriate permissions on the repository
+3. Check GitHub's status page: https://www.githubstatus.com/
+4. Wait a few minutes and try again
+5. If the problem persists, try authenticating again: `gh auth login`
+
 ### Rate Limiting Issues
 
 If you encounter rate limiting errors:
 
-1. The script includes a small delay between deletions, but for very large numbers of runs, you might still hit limits.
+1. The script includes a 0.3 second delay between deletions, but for very large numbers of runs, you might still hit limits.
 
 2. Wait 5-10 minutes and run the script again - it will continue with any remaining runs.
 

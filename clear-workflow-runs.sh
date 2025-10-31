@@ -60,8 +60,20 @@ fi
 echo ""
 echo "Fetching workflow runs..."
 
-# Get all workflow runs
-RUNS=$(gh api "/repos/$REPO/actions/runs" --paginate -q '.workflow_runs[].id' 2>/dev/null)
+# Get all workflow runs (with pagination support)
+# Note: gh cli automatically handles pagination with --paginate flag
+if ! RUNS=$(gh api "/repos/$REPO/actions/runs" --paginate -q '.workflow_runs[].id' 2>&1); then
+    echo -e "${RED}Error: Failed to fetch workflow runs from GitHub API.${NC}"
+    echo "Details: $RUNS"
+    echo ""
+    echo "This could be due to:"
+    echo "  - Network issues"
+    echo "  - GitHub API rate limiting"
+    echo "  - Insufficient permissions"
+    echo ""
+    echo "Please try again later or check your GitHub permissions."
+    exit 1
+fi
 
 if [ -z "$RUNS" ]; then
     echo -e "${GREEN}No workflow runs found. Nothing to delete.${NC}"
