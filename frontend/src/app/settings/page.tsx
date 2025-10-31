@@ -173,6 +173,9 @@ export default function SettingsPage() {
               api_key: '',
               api_type: '',
               model_name: '',
+              completion_mode: 'chat',
+              text_completion_template: '',
+              text_completion_preset: 'llama3',
             },
             context_settings: loadedSettings.context_settings || {
               max_tokens: 4000,

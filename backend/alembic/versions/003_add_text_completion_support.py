@@ -1,7 +1,7 @@
 """add text completion support
 
-Revision ID: 003_text_completion
-Revises: 002_add_stt_user_settings
+Revision ID: 003
+Revises: 002
 Create Date: 2025-10-31
 
 """
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '003_text_completion'
-down_revision = '002_add_stt_user_settings'
+revision = '003'
+down_revision = '002'
 branch_labels = None
 depends_on = None
 
