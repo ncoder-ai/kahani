@@ -966,7 +966,8 @@ class UnifiedLLMService:
         content: str,
         title: str = None,
         custom_prompt: str = None,
-        choices: List[Dict[str, Any]] = None
+        choices: List[Dict[str, Any]] = None,
+        generation_method: str = "auto"
     ) -> Tuple[Any, Any]:
         """Create a new scene with its first variant"""
         from ...models import Scene, SceneVariant, SceneChoice, StoryFlow
@@ -1002,7 +1003,7 @@ class UnifiedLLMService:
             title=title,
             original_content=content,
             generation_prompt=custom_prompt,
-            generation_method="auto"
+            generation_method=generation_method
         )
         db.add(variant)
         db.flush()  # Get the variant ID

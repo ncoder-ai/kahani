@@ -125,6 +125,11 @@ export default function StoryPage() {
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [userSettings, setUserSettings] = useState<any>(null);
   
+  // First scene input mode states
+  const [firstSceneMode, setFirstSceneMode] = useState<'ai' | 'write'>('ai');
+  const [userSceneContent, setUserSceneContent] = useState('');
+  const [writeMode, setWriteMode] = useState<'scene' | 'prompt'>('prompt');
+  
   // New variant system states - now managed by SceneVariantDisplay
   // const [selectedSceneVariants, setSelectedSceneVariants] = useState<{[sceneId: number]: SceneVariant[]}>({});
   // const [currentVariantIds, setCurrentVariantIds] = useState<{[sceneId: number]: number}>({});
@@ -549,7 +554,26 @@ export default function StoryPage() {
     setShowMoreOptions(false);
 
     try {
-      const response = await apiClient.generateScene(story.id, prompt || customPrompt);
+      // Determine content mode and user content based on first scene mode
+      let userContent: string | undefined;
+      let contentMode: 'ai_generate' | 'user_scene' | 'user_prompt' = 'ai_generate';
+      
+      if (firstSceneMode === 'write' && userSceneContent.trim()) {
+        if (writeMode === 'scene') {
+          contentMode = 'user_scene';
+          userContent = userSceneContent.trim();
+        } else {
+          contentMode = 'user_prompt';
+          userContent = userSceneContent.trim();
+        }
+      }
+      
+      const response = await apiClient.generateScene(
+        story.id, 
+        prompt || customPrompt,
+        userContent,
+        contentMode
+      );
       console.log('generateNewScene response', response);
       
       // End timing
@@ -567,6 +591,8 @@ export default function StoryPage() {
       // Reload the story to get the new scene and its choices
       await loadStory(false, true); // Scroll to new scene after generation
       setCustomPrompt('');
+      setUserSceneContent(''); // Clear user content after successful generation
+      setFirstSceneMode('ai'); // Reset to AI mode after first scene
 
       // Reset choice selection state
       setSelectedChoice(null);
@@ -613,9 +639,25 @@ export default function StoryPage() {
     let accumulatedContent = '';
     
     try {
+      // Determine content mode and user content based on first scene mode
+      let userContent: string | undefined;
+      let contentMode: 'ai_generate' | 'user_scene' | 'user_prompt' = 'ai_generate';
+      
+      if (firstSceneMode === 'write' && userSceneContent.trim()) {
+        if (writeMode === 'prompt') {
+          contentMode = 'user_prompt';
+          userContent = userSceneContent.trim();
+        } else {
+          contentMode = 'user_scene';
+          userContent = userSceneContent.trim();
+        }
+      }
+      
       await apiClient.generateSceneStreaming(
         story.id,
         prompt || customPrompt,
+        userContent,
+        contentMode,
         // onChunk
         (chunk: string) => {
           accumulatedContent += chunk;
@@ -674,6 +716,8 @@ export default function StoryPage() {
           }
           
           setCustomPrompt('');
+          setUserSceneContent(''); // Clear user content after successful generation
+          setFirstSceneMode('ai'); // Reset to AI mode after first scene
           
           // Refresh chapter sidebar to update context counter
           setChapterSidebarRefreshKey(prev => prev + 1);
@@ -1837,8 +1881,77 @@ export default function StoryPage() {
                           )}
                         </div>
 
-                        {/* Director Mode Input for First Scene */}
-                        {directorMode && (
+                        {/* Mode Selector */}
+                        <div className="flex gap-2 mb-6">
+                          <button
+                            onClick={() => setFirstSceneMode('ai')}
+                            className={`flex-1 px-4 py-2 rounded-lg font-medium transition-all ${
+                              firstSceneMode === 'ai'
+                                ? 'bg-purple-600 text-white'
+                                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                            }`}
+                          >
+                            AI Generate
+                          </button>
+                          <button
+                            onClick={() => setFirstSceneMode('write')}
+                            className={`flex-1 px-4 py-2 rounded-lg font-medium transition-all ${
+                              firstSceneMode === 'write'
+                                ? 'bg-purple-600 text-white'
+                                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                            }`}
+                          >
+                            Write Your Own
+                          </button>
+                        </div>
+
+                        {/* Write Your Own Mode */}
+                        {firstSceneMode === 'write' && (
+                          <div className="mb-6 space-y-4">
+                            <textarea
+                              value={userSceneContent}
+                              onChange={(e) => setUserSceneContent(e.target.value)}
+                              placeholder="Write your opening scene here... You can write a complete scene or describe what you want the AI to generate."
+                              className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 resize-none"
+                              rows={8}
+                            />
+                            
+                            {/* Radio buttons for write mode */}
+                            <div className="space-y-2">
+                              <label className="flex items-center space-x-2 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name="writeMode"
+                                  value="prompt"
+                                  checked={writeMode === 'prompt'}
+                                  onChange={() => setWriteMode('prompt')}
+                                  className="w-4 h-4 text-purple-600 bg-gray-700 border-gray-600 focus:ring-purple-500"
+                                />
+                                <span className="text-gray-300">Use as prompt for AI</span>
+                              </label>
+                              <label className="flex items-center space-x-2 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name="writeMode"
+                                  value="scene"
+                                  checked={writeMode === 'scene'}
+                                  onChange={() => setWriteMode('scene')}
+                                  className="w-4 h-4 text-purple-600 bg-gray-700 border-gray-600 focus:ring-purple-500"
+                                />
+                                <span className="text-gray-300">Use as my first scene</span>
+                              </label>
+                            </div>
+                            
+                            <p className="text-gray-500 text-xs">
+                              {writeMode === 'prompt' 
+                                ? 'The AI will generate a scene based on your description'
+                                : 'Your text will be saved as the first scene, and AI will generate continuation choices'}
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Director Mode Input for First Scene (only in AI mode) */}
+                        {firstSceneMode === 'ai' && directorMode && (
                           <div className="mb-6">
                             <label className="block text-sm font-medium text-gray-400 mb-2">
                               Direct the opening scene:
@@ -1855,25 +1968,37 @@ export default function StoryPage() {
 
                         {/* Generation Button */}
                         <button
-                          onClick={() => useStreaming ? generateNewSceneStreaming() : generateNewScene()}
-                          disabled={isGenerating || isStreaming}
+                          onClick={() => {
+                            if (firstSceneMode === 'write' && !userSceneContent.trim()) {
+                              setError('Please enter your scene content or prompt');
+                              return;
+                            }
+                            useStreaming ? generateNewSceneStreaming() : generateNewScene();
+                          }}
+                          disabled={isGenerating || isStreaming || (firstSceneMode === 'write' && !userSceneContent.trim())}
                           className="w-full sm:w-auto bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-700 hover:to-purple-700 text-white px-8 py-4 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl"
                         >
                           {isGenerating || isStreaming ? (
                             <span className="flex items-center justify-center gap-2">
                               <span className="animate-spin">⚙️</span>
-                              Creating first scene...
+                              {firstSceneMode === 'write' && writeMode === 'scene' ? 'Saving scene...' : 'Creating first scene...'}
                             </span>
                           ) : (
                             <span className="flex items-center justify-center gap-2">
                               <Sparkles className="w-5 h-5" />
-                              {currentChapterInfo ? 'Begin Chapter' : 'Begin Your Story'}
+                              {firstSceneMode === 'write' && writeMode === 'scene' 
+                                ? 'Save & Continue'
+                                : firstSceneMode === 'write' && writeMode === 'prompt'
+                                ? 'Generate Scene'
+                                : currentChapterInfo 
+                                ? 'Begin Chapter' 
+                                : 'Begin Your Story'}
                             </span>
                           )}
                         </button>
 
                         {/* Director Mode Toggle Hint */}
-                        {!directorMode && (
+                        {firstSceneMode === 'ai' && !directorMode && (
                           <p className="text-gray-500 text-xs">
                             💡 Tip: Enable Director Mode from the menu to guide the opening scene
                           </p>
