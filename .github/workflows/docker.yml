@@ -92,6 +92,23 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
+    - name: Check disk space
+      run: |
+        df -h
+        docker system df || true
+
+    - name: Clean up Docker resources
+      run: |
+        # Remove unused containers, networks, images, and build cache
+        docker system prune -af --volumes || true
+        # Remove dangling images
+        docker image prune -af || true
+        # Clear build cache
+        docker builder prune -af || true
+        echo "Disk space after cleanup:"
+        df -h
+        docker system df || true
+
     - name: Set up GitHub CLI
       run: |
         curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg || exit 1
@@ -131,7 +148,7 @@ jobs:
         tags: ${{ steps.meta-backend.outputs.tags }}
         labels: ${{ steps.meta-backend.outputs.labels }}
         cache-from: type=gha
-        cache-to: type=gha,mode=max
+        cache-to: type=gha,mode=min
         platforms: linux/amd64
 
     - name: Build and push frontend Docker image
@@ -142,7 +159,7 @@ jobs:
         tags: ${{ steps.meta-frontend.outputs.tags }}
         labels: ${{ steps.meta-frontend.outputs.labels }}
         cache-from: type=gha
-        cache-to: type=gha,mode=max
+        cache-to: type=gha,mode=min
         platforms: linux/amd64
 
     - name: Make images public
@@ -163,6 +180,16 @@ jobs:
         echo "Images should now be public and accessible"
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Clean up Docker resources after build
+      if: always()
+      run: |
+        # Remove intermediate build images and cache to free up space
+        docker system prune -af || true
+        docker builder prune -af || true
+        echo "Final disk space:"
+        df -h
+        docker system df || true
 
   security-scan:
     runs-on: ubuntu-latest
