@@ -21,7 +21,7 @@ import TTSSettingsModal from '@/components/TTSSettingsModal';
 import { GlobalTTSWidget } from '@/components/GlobalTTSWidget';
 import { TTSDebugPanel } from '@/components/TTSDebugPanel';
 import MicrophoneButton from '@/components/MicrophoneButton';
-import { BookOpen, ChevronRight, X, AlertCircle, Sparkles, Volume2 } from 'lucide-react';
+import { BookOpen, ChevronRight, X, AlertCircle, Sparkles, Volume2, Trash2 } from 'lucide-react';
 import { 
   BookOpenIcon, 
   FilmIcon,
@@ -35,7 +35,8 @@ import {
   MagnifyingGlassIcon,
   PlusIcon,
   PlayIcon,
-  DocumentTextIcon
+  DocumentTextIcon,
+  TrashIcon
 } from '@heroicons/react/24/outline';
 
 interface Scene {
@@ -137,6 +138,7 @@ export default function StoryPage() {
   const [isDeletingScenes, setIsDeletingScenes] = useState(false);
   const [selectedScenesForDeletion, setSelectedScenesForDeletion] = useState<number[]>([]);
   const [isInDeleteMode, setIsInDeleteMode] = useState(false);
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   
   // Streaming states
   const [isStreaming, setIsStreaming] = useState(false);
@@ -1106,6 +1108,7 @@ export default function StoryPage() {
   const toggleDeleteMode = () => {
     setIsInDeleteMode(!isInDeleteMode);
     setSelectedScenesForDeletion([]);
+    setShowDeleteConfirmation(false);
   };
 
   const toggleSceneForDeletion = (sequenceNumber: number) => {
@@ -1116,29 +1119,11 @@ export default function StoryPage() {
     }
   };
 
-  const deleteScenesFromSelected = async () => {
+  const deleteScenesFromSelected = () => {
     if (!story || selectedScenesForDeletion.length === 0) return;
     
-    // Find the earliest selected sequence number
-    const earliestSequence = Math.min(...selectedScenesForDeletion);
-    
-    try {
-      setIsDeletingScenes(true);
-      await apiClient.deleteScenesFromSequence(story.id, earliestSequence);
-      
-      // Exit delete mode
-      setIsInDeleteMode(false);
-      setSelectedScenesForDeletion([]);
-      
-      // Reload the story
-      await loadStory();
-      
-    } catch (error) {
-      console.error('Failed to delete scenes:', error);
-      setError(error instanceof Error ? error.message : 'Failed to delete scenes');
-    } finally {
-      setIsDeletingScenes(false);
-    }
+    // Show confirmation dialog
+    setShowDeleteConfirmation(true);
   };
 
   // Keyboard navigation
@@ -1485,12 +1470,22 @@ export default function StoryPage() {
                 onClick={() => {
                   setShowMainMenu(false);
                   if (isInDeleteMode) {
-                    deleteScenesFromSelected();
+                    if (selectedScenesForDeletion.length === 0) {
+                      // If no scenes selected, just exit delete mode
+                      toggleDeleteMode();
+                    } else {
+                      deleteScenesFromSelected();
+                    }
                   } else {
                     toggleDeleteMode();
                   }
                 }}
-                className="w-full flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors text-left group"
+                disabled={isInDeleteMode && selectedScenesForDeletion.length === 0}
+                className={`w-full flex items-center gap-3 p-3 rounded-lg transition-colors text-left group ${
+                  isInDeleteMode && selectedScenesForDeletion.length === 0
+                    ? 'opacity-50 cursor-not-allowed'
+                    : 'hover:bg-slate-800'
+                }`}
               >
                 <div className={`p-2 rounded-lg transition-colors ${
                   isInDeleteMode 
@@ -1504,10 +1499,14 @@ export default function StoryPage() {
                     {isInDeleteMode ? 'Delete Selected' : 'Delete Mode'}
                   </div>
                   <div className={`text-xs ${isInDeleteMode ? 'text-red-400' : 'text-gray-400'}`}>
-                    {isInDeleteMode ? 'Confirm deletion' : 'Select scenes to delete'}
+                    {isInDeleteMode 
+                      ? selectedScenesForDeletion.length === 0 
+                        ? 'Select scenes to delete' 
+                        : 'Confirm deletion'
+                      : 'Select scenes to delete'}
                   </div>
                 </div>
-                {isInDeleteMode && (
+                {isInDeleteMode && selectedScenesForDeletion.length > 0 && (
                   <div className="px-2 py-1 rounded text-xs font-medium bg-red-600/20 text-red-400">
                     {selectedScenesForDeletion.length} selected
                   </div>
@@ -2357,6 +2356,113 @@ export default function StoryPage() {
                   </div>
                 </div>
               ) : null}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Delete Button - Appears when scenes are selected */}
+      {isInDeleteMode && selectedScenesForDeletion.length > 0 && (
+        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50">
+          <button
+            onClick={() => deleteScenesFromSelected()}
+            disabled={isDeletingScenes}
+            className="flex items-center gap-3 px-6 py-4 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-lg font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed border-2 border-red-500"
+          >
+            {isDeletingScenes ? (
+              <>
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                <span>Deleting...</span>
+              </>
+            ) : (
+              <>
+                <Trash2 className="w-5 h-5" />
+                <span>Delete {selectedScenesForDeletion.length} Scene{selectedScenesForDeletion.length !== 1 ? 's' : ''}</span>
+              </>
+            )}
+          </button>
+        </div>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {showDeleteConfirmation && story && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 rounded-lg max-w-md w-full p-6 border border-gray-700">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-red-600/20 rounded-lg">
+                <AlertCircle className="w-6 h-6 text-red-400" />
+              </div>
+              <h3 className="text-xl font-bold text-white">Confirm Deletion</h3>
+            </div>
+            
+            <p className="text-gray-300 mb-2">
+              Are you sure you want to delete scenes from scene {Math.min(...selectedScenesForDeletion)} onwards?
+            </p>
+            
+            {(() => {
+              const earliestSequence = Math.min(...selectedScenesForDeletion);
+              const scenesToDelete = story.scenes.filter(scene => scene.sequence_number >= earliestSequence);
+              return (
+                <div className="mb-6">
+                  <p className="text-red-400 font-semibold mb-2">
+                    This will permanently delete {scenesToDelete.length} scene{scenesToDelete.length !== 1 ? 's' : ''}:
+                  </p>
+                  <div className="bg-gray-900/50 rounded p-3 max-h-32 overflow-y-auto">
+                    <ul className="text-sm text-gray-400 space-y-1">
+                      {scenesToDelete.map((scene, idx) => (
+                        <li key={scene.id}>
+                          • Scene {scene.sequence_number}: {scene.title || 'Untitled'}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    All variants, choices, and related data will also be deleted. This action cannot be undone.
+                  </p>
+                </div>
+              );
+            })()}
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowDeleteConfirmation(false);
+                }}
+                className="flex-1 px-4 py-2 border border-gray-600 rounded-lg text-gray-300 hover:bg-gray-700 font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  if (!story || selectedScenesForDeletion.length === 0) return;
+                  
+                  const earliestSequence = Math.min(...selectedScenesForDeletion);
+                  
+                  try {
+                    setIsDeletingScenes(true);
+                    await apiClient.deleteScenesFromSequence(story.id, earliestSequence);
+                    
+                    // Exit delete mode and close confirmation
+                    setIsInDeleteMode(false);
+                    setSelectedScenesForDeletion([]);
+                    setShowDeleteConfirmation(false);
+                    
+                    // Reload the story
+                    await loadStory();
+                    
+                  } catch (error) {
+                    console.error('Failed to delete scenes:', error);
+                    setError(error instanceof Error ? error.message : 'Failed to delete scenes');
+                    setShowDeleteConfirmation(false);
+                  } finally {
+                    setIsDeletingScenes(false);
+                  }
+                }}
+                disabled={isDeletingScenes}
+                className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isDeletingScenes ? 'Deleting...' : 'Delete Scenes'}
+              </button>
             </div>
           </div>
         </div>
