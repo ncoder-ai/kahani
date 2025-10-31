@@ -106,11 +106,10 @@ Quick reference checklist for secure Kahani deployment.
   # Disable after creating accounts if desired
   ```
 
-- [ ] **LLM provider configured** (if using external)
-  ```bash
-  LLM_BASE_URL=http://your-llm-server:1234/v1
-  LLM_API_KEY=your-api-key
-  ```
+- [ ] **LLM provider configured** through application Settings
+  - Go to **Settings** → **LLM Settings**
+  - Configure your LLM API URL, API type, model name, and API key
+  - Settings are stored per-user in the database
 
 ---
 
