@@ -99,7 +99,7 @@ The script will NOT delete:
 
 1. **This action is irreversible**: Once workflow runs are deleted, they cannot be recovered.
 
-2. **Rate Limiting**: The script includes a small delay between deletions to avoid GitHub API rate limits. For repositories with many workflow runs, this may take some time.
+2. **Rate Limiting**: The script includes a 0.3 second delay between deletions to avoid GitHub API rate limits. For repositories with many workflow runs, this may take some time. GitHub's rate limit typically allows 5000 API requests per hour for authenticated users.
 
 3. **Permissions**: You need appropriate permissions on the repository to delete workflow runs. Typically, this means you need to be:
    - A repository owner

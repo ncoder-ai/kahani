@@ -69,7 +69,7 @@ if [ -z "$RUNS" ]; then
 fi
 
 # Count total runs
-TOTAL=$(echo "$RUNS" | wc -l | tr -d ' ')
+TOTAL=$(echo "$RUNS" | wc -l)
 echo "Found $TOTAL workflow runs to delete."
 echo ""
 
@@ -77,7 +77,8 @@ echo ""
 COUNTER=0
 FAILED=0
 
-for RUN_ID in $RUNS; do
+# Save IFS and use while read with process substitution to avoid subshell
+while IFS= read -r RUN_ID; do
     COUNTER=$((COUNTER + 1))
     echo -ne "Deleting run $COUNTER/$TOTAL (ID: $RUN_ID)..."
     
@@ -88,9 +89,9 @@ for RUN_ID in $RUNS; do
         FAILED=$((FAILED + 1))
     fi
     
-    # Add a small delay to avoid rate limiting
-    sleep 0.1
-done
+    # Add a delay to avoid rate limiting (increased for better rate limit handling)
+    sleep 0.3
+done < <(echo "$RUNS")
 
 echo ""
 echo "=================================================="
