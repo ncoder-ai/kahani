@@ -4,7 +4,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/store';
 import { 
   X, Settings, LogOut, User, Home, PlusCircle, BookOpen, 
-  ChevronRight, Film, Trash2, Shield, FileText
+  ChevronRight, Film, Trash2, Shield, FileText, Edit
 } from 'lucide-react';
 
 interface StoryActions {
@@ -15,6 +15,7 @@ interface StoryActions {
   onLorebook?: () => void;
   onDeleteMode?: () => void;
   onExportStory?: () => void;
+  onEditStorySettings?: () => void;
   directorModeActive?: boolean;
   lorebookActive?: boolean;
   deleteModeActive?: boolean;
@@ -122,6 +123,26 @@ export default function UnifiedMenu({
                   <div className="flex-1">
                     <div className="font-medium text-white">Chapters</div>
                     <div className="text-xs text-gray-400">View chapter info</div>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-gray-500" />
+                </button>
+              )}
+
+              {/* Edit Story Settings */}
+              {storyActions.onEditStorySettings && (
+                <button
+                  onClick={() => {
+                    onClose();
+                    storyActions.onEditStorySettings?.();
+                  }}
+                  className="w-full flex items-center gap-3 p-3 hover:bg-white/10 rounded-lg transition-colors text-left group"
+                >
+                  <div className="p-2 bg-white/10 rounded-lg group-hover:bg-white/20 transition-colors">
+                    <Edit className="w-5 h-5 theme-accent-primary" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="font-medium text-white">Edit Story Settings</div>
+                    <div className="text-xs text-gray-400">Title, genre, scenario, etc.</div>
                   </div>
                   <ChevronRight className="w-5 h-5 text-gray-500" />
                 </button>

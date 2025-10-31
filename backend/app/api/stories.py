@@ -242,6 +242,15 @@ class StoryCreate(BaseModel):
     initial_premise: Optional[str] = ""
     story_mode: Optional[str] = "dynamic"  # dynamic or structured
 
+class StoryUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    genre: Optional[str] = None
+    tone: Optional[str] = None
+    world_setting: Optional[str] = None
+    initial_premise: Optional[str] = None
+    scenario: Optional[str] = None
+
 class ScenarioGenerateRequest(BaseModel):
     genre: Optional[str] = ""
     tone: Optional[str] = ""
@@ -411,6 +420,91 @@ async def get_story(
             "choices": flow_item['choices']
         })
     
+    # Check draft_data as fallback for fields that might not be in columns
+    draft_data = story.draft_data or {}
+    
+    return {
+        "id": story.id,
+        "title": story.title,
+        "description": story.description or draft_data.get('description', '') or "",
+        "genre": story.genre or draft_data.get('genre', '') or "",
+        "tone": story.tone or draft_data.get('tone', '') or "",
+        "world_setting": story.world_setting or draft_data.get('world_setting', '') or "",
+        "initial_premise": story.initial_premise or draft_data.get('initial_premise', '') or "",
+        "scenario": story.scenario or draft_data.get('scenario', '') or "",
+        "status": story.status,
+        "scenes": scenes,
+        "flow_info": {
+            "total_scenes": len(scenes),
+            "has_variants": any(scene['has_multiple_variants'] for scene in scenes)
+        }
+    }
+
+@router.put("/{story_id}")
+async def update_story(
+    story_id: int,
+    story_data: StoryUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update story settings with NSFW content validation"""
+    from ..utils.content_filter import validate_story_content, validate_genre
+    
+    # Verify story ownership
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found"
+        )
+    
+    # Validate genre if it's being updated
+    if story_data.genre is not None:
+        is_valid_genre, genre_error = validate_genre(story_data.genre, current_user.allow_nsfw)
+        if not is_valid_genre:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=genre_error
+            )
+    
+    # Validate story content for NSFW keywords if title or description is being updated
+    title_to_validate = story_data.title if story_data.title is not None else story.title
+    description_to_validate = story_data.description if story_data.description is not None else (story.description or "")
+    
+    is_valid_content, content_error = validate_story_content(
+        title_to_validate,
+        description_to_validate,
+        current_user.allow_nsfw
+    )
+    if not is_valid_content:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=content_error
+        )
+    
+    # Update fields that are provided
+    if story_data.title is not None:
+        story.title = story_data.title
+    if story_data.description is not None:
+        story.description = story_data.description
+    if story_data.genre is not None:
+        story.genre = story_data.genre
+    if story_data.tone is not None:
+        story.tone = story_data.tone
+    if story_data.world_setting is not None:
+        story.world_setting = story_data.world_setting
+    if story_data.initial_premise is not None:
+        story.initial_premise = story_data.initial_premise
+    if story_data.scenario is not None:
+        story.scenario = story_data.scenario
+    
+    db.commit()
+    db.refresh(story)
+    
     return {
         "id": story.id,
         "title": story.title,
@@ -418,12 +512,9 @@ async def get_story(
         "genre": story.genre,
         "tone": story.tone,
         "world_setting": story.world_setting,
-        "status": story.status,
-        "scenes": scenes,
-        "flow_info": {
-            "total_scenes": len(scenes),
-            "has_variants": any(scene['has_multiple_variants'] for scene in scenes)
-        }
+        "initial_premise": story.initial_premise,
+        "scenario": story.scenario,
+        "message": "Story updated successfully"
     }
 
 @router.post("/{story_id}/scenes")
@@ -2249,18 +2340,18 @@ async def create_draft_story(
         # Update story fields as they become available
         if 'title' in story_data and story_data['title']:
             story.title = story_data['title']
-        if 'description' in story_data and story_data['description']:
-            story.description = story_data['description']
+        if 'description' in story_data:
+            story.description = story_data.get('description') or ''
         if 'genre' in story_data and story_data['genre']:
             story.genre = story_data['genre']
         if 'tone' in story_data and story_data['tone']:
             story.tone = story_data['tone']
-        if 'world_setting' in story_data and story_data['world_setting']:
-            story.world_setting = story_data['world_setting']
-        if 'initial_premise' in story_data and story_data['initial_premise']:
-            story.initial_premise = story_data['initial_premise']
-        if 'scenario' in story_data and story_data['scenario']:
-            story.scenario = story_data['scenario']
+        if 'world_setting' in story_data:
+            story.world_setting = story_data.get('world_setting') or ''
+        if 'initial_premise' in story_data:
+            story.initial_premise = story_data.get('initial_premise') or ''
+        if 'scenario' in story_data:
+            story.scenario = story_data.get('scenario') or ''
             
         story.updated_at = func.now()
         
@@ -2382,8 +2473,15 @@ async def finalize_draft_story(
     # Extract data from draft_data JSON
     draft_data = story.draft_data or {}
     
-    # Transfer scenario from draft_data to scenario column
-    if 'scenario' in draft_data and draft_data['scenario']:
+    # Transfer all story fields from draft_data to story columns
+    # (Only update if not already set or if draft_data has a value)
+    if 'description' in draft_data and draft_data.get('description'):
+        story.description = draft_data['description']
+    if 'world_setting' in draft_data and draft_data.get('world_setting'):
+        story.world_setting = draft_data['world_setting']
+    if 'initial_premise' in draft_data and draft_data.get('initial_premise'):
+        story.initial_premise = draft_data['initial_premise']
+    if 'scenario' in draft_data and draft_data.get('scenario'):
         story.scenario = draft_data['scenario']
         logger.info(f"[FINALIZE] Transferred scenario to story {story_id}")
     
