@@ -123,7 +123,7 @@ export default function TitleInput({ storyData, onUpdate, onNext, onBack }: Titl
             value={title}
             onChange={(e) => handleTitleChange(e.target.value)}
             placeholder="Enter your story title..."
-            className="w-full p-6 text-2xl font-bold bg-white/10 border border-white/30 rounded-2xl text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-center"
+            className="w-full p-6 text-2xl font-bold bg-white/10 border border-white/30 rounded-2xl text-white placeholder-white/50 focus:outline-none theme-focus-ring focus:border-transparent text-center"
           />
           {title && (
             <div className="absolute top-2 right-2">
@@ -141,7 +141,7 @@ export default function TitleInput({ storyData, onUpdate, onNext, onBack }: Titl
           <button
             onClick={generateLLMTitles}
             disabled={isGenerating}
-            className="px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl hover:from-purple-600 hover:to-pink-600 transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-6 py-3 theme-btn-primary rounded-xl transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isGenerating ? (
               <>
@@ -185,7 +185,7 @@ export default function TitleInput({ storyData, onUpdate, onNext, onBack }: Titl
       <div className="bg-white/5 rounded-xl p-6 text-center">
         <p className="text-white/80 mb-2">Your story will be:</p>
         <div className="flex justify-center space-x-4">
-          <span className="bg-gradient-to-r from-purple-500 to-pink-500 text-white px-4 py-2 rounded-lg font-semibold">
+          <span className="theme-btn-primary px-4 py-2 rounded-lg font-semibold">
             {storyData.genre?.charAt(0).toUpperCase() + storyData.genre?.slice(1)}
           </span>
           <span className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white px-4 py-2 rounded-lg font-semibold">
@@ -202,7 +202,7 @@ export default function TitleInput({ storyData, onUpdate, onNext, onBack }: Titl
           onChange={(e) => handleDescriptionChange(e.target.value)}
           placeholder="Write a brief description of your story..."
           rows={3}
-          className="w-full p-4 bg-white/10 border border-white/30 rounded-xl text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+          className="w-full p-4 bg-white/10 border border-white/30 rounded-xl text-white placeholder-white/50 focus:outline-none theme-focus-ring focus:border-transparent"
         />
       </div>
 
@@ -219,7 +219,7 @@ export default function TitleInput({ storyData, onUpdate, onNext, onBack }: Titl
           disabled={!canProceed}
           className={`px-8 py-3 rounded-xl font-semibold transition-all duration-200 ${
             canProceed
-              ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:from-purple-600 hover:to-pink-600'
+              ? 'theme-btn-primary'
               : 'bg-white/20 text-white/50 cursor-not-allowed'
           }`}
         >

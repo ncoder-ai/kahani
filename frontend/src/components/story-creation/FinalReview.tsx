@@ -128,7 +128,7 @@ export default function FinalReview({ storyData, onFinish, onBack, isLoading }: 
             className={`px-8 py-3 rounded-xl font-semibold transition-all duration-200 ${
               isLoading
                 ? 'bg-white/20 text-white/50 cursor-not-allowed'
-                : 'bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:from-purple-600 hover:to-pink-600 transform hover:scale-105'
+                : 'theme-btn-primary transform hover:scale-105'
             }`}
           >
             {isLoading ? (

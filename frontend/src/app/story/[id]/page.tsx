@@ -1975,7 +1975,7 @@ export default function StoryPage() {
                             useStreaming ? generateNewSceneStreaming() : generateNewScene();
                           }}
                           disabled={isGenerating || isStreaming || (firstSceneMode === 'write' && !userSceneContent.trim())}
-                          className="w-full sm:w-auto bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-700 hover:to-purple-700 text-white px-8 py-4 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl"
+                          className="w-full sm:w-auto theme-btn-primary px-8 py-4 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl"
                         >
                           {isGenerating || isStreaming ? (
                             <span className="flex items-center justify-center gap-2">

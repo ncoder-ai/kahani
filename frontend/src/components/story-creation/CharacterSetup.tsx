@@ -211,7 +211,7 @@ export default function CharacterSetup({ storyData, onUpdate, onNext, onBack }: 
               value={currentCharacter.name || ''}
               onChange={(e) => setCurrentCharacter({ ...currentCharacter, name: e.target.value })}
               placeholder="Enter character name..."
-              className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
             />
           </div>
 
@@ -242,7 +242,7 @@ export default function CharacterSetup({ storyData, onUpdate, onNext, onBack }: 
               onChange={(e) => setCurrentCharacter({ ...currentCharacter, description: e.target.value })}
               placeholder="Describe this character..."
               rows={3}
-              className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
             />
           </div>
 
@@ -252,7 +252,7 @@ export default function CharacterSetup({ storyData, onUpdate, onNext, onBack }: 
               disabled={!currentCharacter.name || !currentCharacter.role}
               className={`px-6 py-2 rounded-lg font-semibold transition-colors ${
                 currentCharacter.name && currentCharacter.role
-                  ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white'
+                  ? 'theme-btn-primary'
                   : 'bg-white/20 text-white/50 cursor-not-allowed'
               }`}
             >
@@ -276,13 +276,13 @@ export default function CharacterSetup({ storyData, onUpdate, onNext, onBack }: 
             <div className="flex justify-center gap-4">
               <button
                 onClick={() => setShowLibrary(true)}
-                className="px-6 py-3 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-xl hover:from-blue-600 hover:to-cyan-600 transition-colors font-semibold"
+                className="px-6 py-3 theme-btn-secondary rounded-xl transition-colors font-semibold"
               >
                 📚 Choose from Library
               </button>
               <button
                 onClick={() => setIsAdding(true)}
-                className="px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl hover:from-purple-600 hover:to-pink-600 transition-colors font-semibold"
+                className="px-6 py-3 theme-btn-primary rounded-xl transition-colors font-semibold"
               >
                 ✏️ Create New
               </button>
@@ -294,7 +294,7 @@ export default function CharacterSetup({ storyData, onUpdate, onNext, onBack }: 
       {/* Character Library Modal */}
       {showLibrary && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-900 rounded-xl max-w-4xl w-full max-h-[80vh] overflow-hidden">
+          <div className="theme-bg-secondary rounded-xl max-w-4xl w-full max-h-[80vh] overflow-hidden border theme-border-accent">
             <div className="p-6 border-b border-white/20">
               <div className="flex justify-between items-center">
                 <h3 className="text-2xl font-bold text-white">Choose Character from Library</h3>
@@ -321,7 +321,7 @@ export default function CharacterSetup({ storyData, onUpdate, onNext, onBack }: 
                       setShowLibrary(false);
                       setShowCreateForm(true);
                     }}
-                    className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600"
+                    className="px-4 py-2 theme-btn-primary rounded-lg"
                   >
                     Create Your First Character
                   </button>
@@ -337,7 +337,8 @@ export default function CharacterSetup({ storyData, onUpdate, onNext, onBack }: 
                         <div className="mb-3">
                           <div className="flex flex-wrap gap-1">
                             {char.personality_traits.slice(0, 3).map((trait, index) => (
-                              <span key={index} className="px-2 py-1 bg-purple-500/20 text-purple-300 text-xs rounded">
+                              <span key={index} className="px-2 py-1 text-xs rounded"
+                                    style={{ backgroundColor: 'var(--color-accentPrimary)', opacity: 0.2, color: 'var(--color-accentPrimary)' } as React.CSSProperties}>
                                 {trait}
                               </span>
                             ))}
@@ -371,7 +372,7 @@ export default function CharacterSetup({ storyData, onUpdate, onNext, onBack }: 
                   setShowLibrary(false);
                   setShowCreateForm(true);
                 }}
-                className="w-full px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:from-purple-600 hover:to-pink-600 transition-colors"
+                className="w-full px-4 py-2 theme-btn-primary rounded-lg transition-colors"
               >
                 + Create New Character Instead
               </button>
@@ -383,7 +384,7 @@ export default function CharacterSetup({ storyData, onUpdate, onNext, onBack }: 
       {/* Create Character Modal */}
       {showCreateForm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-900 rounded-xl max-w-2xl w-full max-h-[90vh] overflow-hidden">
+          <div className="theme-bg-secondary rounded-xl max-w-2xl w-full max-h-[90vh] overflow-hidden border theme-border-accent">
             <div className="p-6 border-b border-white/20">
               <h3 className="text-2xl font-bold text-white">Create New Character</h3>
               <p className="text-white/80 mt-2">This character will be saved to your library for reuse</p>
@@ -414,7 +415,7 @@ export default function CharacterSetup({ storyData, onUpdate, onNext, onBack }: 
           disabled={!canProceed}
           className={`px-8 py-3 rounded-xl font-semibold transition-all duration-200 ${
             canProceed
-              ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:from-purple-600 hover:to-pink-600'
+              ? 'theme-btn-primary'
               : 'bg-white/20 text-white/50 cursor-not-allowed'
           }`}
         >

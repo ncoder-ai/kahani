@@ -235,6 +235,10 @@ export const themes: Record<string, ThemeColors> = {
 };
 
 export function applyTheme(themeName: string) {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return; // Don't run during SSR
+  }
+  
   const theme = themes[themeName] || themes['pure-dark'];
   const root = document.documentElement;
   
@@ -255,7 +259,7 @@ export function getThemeList() {
   }));
 }
 
-// Apply default theme immediately on module load
-if (typeof window !== 'undefined') {
+// Apply default theme immediately on module load (only on client)
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   applyTheme('pure-dark'); // Will be overridden by user settings
 }

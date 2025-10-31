@@ -70,7 +70,7 @@ export default function RouteProtection({
   // Don't render anything if requirements not met
   if (requireAuth && (!hasHydrated || !isAuthenticated || !user)) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
+      <div className="min-h-screen theme-bg-primary flex items-center justify-center">
         <div className="text-white">
           <div className="w-12 h-12 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4"></div>
           <p>Loading...</p>
@@ -92,7 +92,7 @@ export default function RouteProtection({
           <p className="text-white/70 mb-6">You don't have permission to access this page.</p>
           <button
             onClick={() => router.push('/dashboard')}
-            className="w-full py-3 px-4 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-semibold hover:from-purple-600 hover:to-pink-600 transition-all"
+            className="w-full py-3 px-4 theme-btn-primary rounded-lg font-semibold transition-all"
           >
             Go to Dashboard
           </button>

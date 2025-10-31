@@ -128,7 +128,7 @@ export default function CharacterForm({ characterId, onSave, mode = 'create' }: 
   }
 
   return (
-    <div className={mode === 'inline' ? 'space-y-6' : 'min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 p-6'}>
+    <div className={mode === 'inline' ? 'space-y-6' : 'min-h-screen theme-bg-primary p-6'}>
       <div className={mode === 'inline' ? '' : 'max-w-2xl mx-auto'}>
         {mode !== 'inline' && (
           <div className="text-center mb-8">
@@ -170,7 +170,7 @@ export default function CharacterForm({ characterId, onSave, mode = 'create' }: 
                 value={formData.name}
                 onChange={(e) => handleInputChange('name', e.target.value)}
                 placeholder="Enter character name..."
-                className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
                 required
               />
             </div>
@@ -184,7 +184,7 @@ export default function CharacterForm({ characterId, onSave, mode = 'create' }: 
                 onChange={(e) => handleInputChange('description', e.target.value)}
                 placeholder="Brief description of your character..."
                 rows={3}
-                className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
               />
             </div>
           </div>
@@ -203,13 +203,13 @@ export default function CharacterForm({ characterId, onSave, mode = 'create' }: 
                   value={newTrait}
                   onChange={(e) => setNewTrait(e.target.value)}
                   placeholder="Add a personality trait..."
-                  className="flex-1 p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="flex-1 p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
                   onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addPersonalityTrait())}
                 />
                 <button
                   type="button"
                   onClick={addPersonalityTrait}
-                  className="px-4 py-3 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors"
+                  className="px-4 py-3 theme-btn-primary rounded-lg transition-colors"
                 >
                   Add
                 </button>
@@ -220,13 +220,15 @@ export default function CharacterForm({ characterId, onSave, mode = 'create' }: 
                   {formData.personality_traits.map((trait, index) => (
                     <span
                       key={index}
-                      className="inline-flex items-center gap-1 px-3 py-1 bg-purple-500/20 text-purple-300 rounded-full text-sm"
+                      className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm"
+                      style={{ backgroundColor: 'var(--color-accentPrimary)', opacity: 0.2, color: 'var(--color-accentPrimary)' } as React.CSSProperties}
                     >
                       {trait}
                       <button
                         type="button"
                         onClick={() => removePersonalityTrait(index)}
-                        className="ml-1 text-purple-300 hover:text-white"
+                        className="ml-1 hover:text-white"
+                        style={{ color: 'var(--color-accentPrimary)' } as React.CSSProperties}
                       >
                         ×
                       </button>
@@ -250,7 +252,7 @@ export default function CharacterForm({ characterId, onSave, mode = 'create' }: 
                 onChange={(e) => handleInputChange('background', e.target.value)}
                 placeholder="Character's history and background..."
                 rows={3}
-                className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
               />
             </div>
 
@@ -263,7 +265,7 @@ export default function CharacterForm({ characterId, onSave, mode = 'create' }: 
                 onChange={(e) => handleInputChange('goals', e.target.value)}
                 placeholder="What does this character want to achieve?"
                 rows={2}
-                className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
               />
             </div>
 
@@ -276,7 +278,7 @@ export default function CharacterForm({ characterId, onSave, mode = 'create' }: 
                 onChange={(e) => handleInputChange('fears', e.target.value)}
                 placeholder="What does this character fear or struggle with?"
                 rows={2}
-                className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
               />
             </div>
 
@@ -289,7 +291,7 @@ export default function CharacterForm({ characterId, onSave, mode = 'create' }: 
                 onChange={(e) => handleInputChange('appearance', e.target.value)}
                 placeholder="Describe how this character looks..."
                 rows={2}
-                className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
               />
             </div>
           </div>
@@ -337,7 +339,7 @@ export default function CharacterForm({ characterId, onSave, mode = 'create' }: 
             <button
               type="submit"
               disabled={saving}
-              className="px-8 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl hover:from-purple-600 hover:to-pink-600 transition-colors font-semibold disabled:opacity-50"
+              className="px-8 py-3 theme-btn-primary rounded-xl transition-colors font-semibold disabled:opacity-50"
             >
               {saving ? 'Saving...' : (mode === 'edit' ? 'Update Character' : 'Create Character')}
             </button>
