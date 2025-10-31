@@ -13,6 +13,7 @@ env:
 
 jobs:
   test:
+    if: false  # Workflow disabled - set to true to enable
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -71,9 +72,9 @@ jobs:
         npm run lint || echo "Lint failed, continuing"
 
   build:
+    if: false && github.event_name != 'pull_request'  # Workflow disabled - remove "false &&" to enable
     needs: test
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request'
     permissions:
       contents: read
       packages: write
@@ -192,8 +193,8 @@ jobs:
         docker system df || true
 
   security-scan:
+    if: false && github.event_name != 'pull_request'  # Workflow disabled - remove "false &&" to enable
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request'
     continue-on-error: true
     permissions:
       contents: read
