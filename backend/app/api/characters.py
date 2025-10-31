@@ -1,10 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from ..database import get_db
-from ..models import Character, StoryCharacter, User
+from ..models import Character, StoryCharacter, User, UserSettings
 from ..dependencies import get_current_user
+from ..services.character_generation_service import CharacterGenerationService
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -44,9 +48,19 @@ class CharacterResponse(BaseModel):
     creator_id: int
     created_at: str
     updated_at: Optional[str]
+    # Structured data for AI-generated characters (optional)
+    background_structured: Optional[Dict[str, Any]] = None
+    goals_structured: Optional[Dict[str, Any]] = None
+    fears_structured: Optional[Dict[str, Any]] = None
+    appearance_structured: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True
+
+class CharacterGenerationRequest(BaseModel):
+    prompt: str
+    story_context: Optional[Dict[str, Any]] = None
+    previous_generation: Optional[Dict[str, Any]] = None
 
 @router.get("/", response_model=List[CharacterResponse])
 async def get_characters(
@@ -238,3 +252,74 @@ async def delete_character(
     db.commit()
     
     return {"message": "Character deleted successfully"}
+
+@router.post("/generate-with-ai", response_model=CharacterResponse)
+async def generate_character_with_ai(
+    request: CharacterGenerationRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Generate a character using AI from freeform text description"""
+    
+    if not request.prompt or not request.prompt.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Prompt cannot be empty"
+        )
+    
+    try:
+        # Get user settings
+        user_settings = db.query(UserSettings).filter(
+            UserSettings.user_id == current_user.id
+        ).first()
+        
+        if not user_settings:
+            # Use default settings
+            user_settings_dict = UserSettings.get_defaults()
+        else:
+            user_settings_dict = user_settings.to_dict()
+        
+        # Create service instance
+        service = CharacterGenerationService(current_user.id, user_settings_dict)
+        
+        # Generate character
+        character_data = await service.generate_character_from_prompt(
+            user_prompt=request.prompt,
+            story_context=request.story_context,
+            previous_generation=request.previous_generation
+        )
+        
+        # Return the generated character data (not saved to DB yet)
+        # The frontend will handle saving after user accepts/edits
+        return CharacterResponse(
+            id=0,  # Temporary ID, will be set when saved
+            name=character_data['name'],
+            description=character_data.get('description', ''),
+            personality_traits=character_data.get('personality_traits', []),
+            background=character_data.get('background', ''),
+            goals=character_data.get('goals', ''),
+            fears=character_data.get('fears', ''),
+            appearance=character_data.get('appearance', ''),
+            is_template=True,  # Default to template
+            is_public=False,  # Default to private
+            creator_id=current_user.id,
+            created_at="",  # Will be set when saved
+            updated_at=None,
+            background_structured=character_data.get('background_structured'),
+            goals_structured=character_data.get('goals_structured'),
+            fears_structured=character_data.get('fears_structured'),
+            appearance_structured=character_data.get('appearance_structured')
+        )
+        
+    except ValueError as e:
+        logger.error(f"Character generation failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate character: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error during character generation: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred while generating the character"
+        )

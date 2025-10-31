@@ -418,3 +418,71 @@ character_assistant:
       }}
       
       Return ONLY the JSON object, no other text or markdown formatting.
+
+  generation:
+    system: |
+      You are a creative character creation assistant. Generate complete, well-rounded character profiles
+      from freeform text descriptions. Create compelling characters with rich personalities, backgrounds,
+      and motivations that feel authentic and engaging. Match the tone and style of any provided story context.
+      Return ONLY valid JSON, no other text.
+    
+    user: |
+      Create a complete character profile based on this description:
+      
+      {user_prompt}
+      {story_context}
+      {regeneration_instruction}
+      
+      Generate a comprehensive character with the following details:
+      - Name: A compelling, appropriate name for this character
+      - Description: A 2-3 sentence overview of who this character is
+      - Personality Traits: A list of 3-5 key personality traits (MUST be an array of strings, e.g. ["brave", "curious", "loyal"])
+      - Background: Structured as an object with categorized details (birthplace, family, education, major events, etc.)
+      - Goals: Structured as an object with categorized motivations (short_term, long_term, personal, professional, etc.)
+      - Fears: Structured as an object with categorized fears/weaknesses (deepest_fear, phobias, weaknesses, vulnerabilities, etc.)
+      - Appearance: Structured as an object with categorized physical attributes (height, weight, skin_color, hair_color, hair_style, eye_color, build, dress_style, distinctive_features, etc.)
+      
+      The character should feel authentic, well-developed, and interesting. If story context is provided,
+      match the genre and tone appropriately. Be creative but consistent.
+      
+      IMPORTANT: personality_traits MUST be an array of strings. Other fields should be objects with categorized key-value pairs.
+      
+      Return valid JSON with this exact structure:
+      {{
+        "name": "Character Name",
+        "description": "Overall 2-3 sentence description",
+        "personality_traits": ["trait1", "trait2", "trait3"],
+        "background": {{
+          "birthplace": "value",
+          "family": "value",
+          "education": "value",
+          "major_events": "value",
+          "upbringing": "value"
+        }},
+        "goals": {{
+          "short_term": "value",
+          "long_term": "value",
+          "personal": "value",
+          "professional": "value"
+        }},
+        "fears": {{
+          "deepest_fear": "value",
+          "phobias": "value",
+          "weaknesses": "value",
+          "vulnerabilities": "value"
+        }},
+        "appearance": {{
+          "height": "value",
+          "weight": "value",
+          "skin_color": "value",
+          "hair_color": "value",
+          "hair_style": "value",
+          "eye_color": "value",
+          "build": "value",
+          "dress_style": "value",
+          "distinctive_features": "value",
+          "body_measurements": "value"
+        }}
+      }}
+      
+      Return ONLY the JSON object, no other text or markdown formatting.
