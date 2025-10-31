@@ -485,13 +485,13 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
                         <label className="block text-sm font-medium text-white/60 mb-2">Background</label>
                         {generatedCharacter.background_structured ? (
                           <ul className="space-y-1">
-                            {Object.entries(generatedCharacter.background_structured).map(([key, value]) => (
-                              value && (
+                            {Object.entries(generatedCharacter.background_structured)
+                              .filter(([, value]) => value)
+                              .map(([key, value]) => (
                                 <li key={key} className="text-white text-sm">
                                   <span className="font-medium capitalize">{key.replace(/_/g, ' ')}:</span> {String(value)}
                                 </li>
-                              )
-                            ))}
+                              ))}
                           </ul>
                         ) : (
                           <p className="text-white text-sm whitespace-pre-wrap">{generatedCharacter.background}</p>
@@ -504,13 +504,13 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
                         <label className="block text-sm font-medium text-white/60 mb-2">Goals & Motivations</label>
                         {generatedCharacter.goals_structured ? (
                           <ul className="space-y-1">
-                            {Object.entries(generatedCharacter.goals_structured).map(([key, value]) => (
-                              value && (
+                            {Object.entries(generatedCharacter.goals_structured)
+                              .filter(([, value]) => value)
+                              .map(([key, value]) => (
                                 <li key={key} className="text-white text-sm">
                                   <span className="font-medium capitalize">{key.replace(/_/g, ' ')}:</span> {String(value)}
                                 </li>
-                              )
-                            ))}
+                              ))}
                           </ul>
                         ) : (
                           <p className="text-white text-sm whitespace-pre-wrap">{generatedCharacter.goals}</p>
@@ -523,13 +523,13 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
                         <label className="block text-sm font-medium text-white/60 mb-2">Fears & Weaknesses</label>
                         {generatedCharacter.fears_structured ? (
                           <ul className="space-y-1">
-                            {Object.entries(generatedCharacter.fears_structured).map(([key, value]) => (
-                              value && (
+                            {Object.entries(generatedCharacter.fears_structured)
+                              .filter(([, value]) => value)
+                              .map(([key, value]) => (
                                 <li key={key} className="text-white text-sm">
                                   <span className="font-medium capitalize">{key.replace(/_/g, ' ')}:</span> {String(value)}
                                 </li>
-                              )
-                            ))}
+                              ))}
                           </ul>
                         ) : (
                           <p className="text-white text-sm whitespace-pre-wrap">{generatedCharacter.fears}</p>
@@ -542,13 +542,13 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
                         <label className="block text-sm font-medium text-white/60 mb-2">Appearance</label>
                         {generatedCharacter.appearance_structured ? (
                           <ul className="space-y-1">
-                            {Object.entries(generatedCharacter.appearance_structured).map(([key, value]) => (
-                              value && (
+                            {Object.entries(generatedCharacter.appearance_structured)
+                              .filter(([, value]) => value)
+                              .map(([key, value]) => (
                                 <li key={key} className="text-white text-sm">
                                   <span className="font-medium capitalize">{key.replace(/_/g, ' ')}:</span> {String(value)}
                                 </li>
-                              )
-                            ))}
+                              ))}
                           </ul>
                         ) : (
                           <p className="text-white text-sm whitespace-pre-wrap">{generatedCharacter.appearance}</p>
@@ -614,7 +614,7 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
                   <button
                     type="button"
                     onClick={handleAcceptGenerated}
-                    disabled={saving || (storyId && !selectedRole && !storyCharacterRole)}
+                    disabled={saving || !!(storyId && !selectedRole && !storyCharacterRole)}
                     className="flex-1 px-6 py-3 theme-btn-primary rounded-xl transition-colors font-semibold disabled:opacity-50"
                   >
                     {saving ? 'Saving...' : 'Accept & Save'}
