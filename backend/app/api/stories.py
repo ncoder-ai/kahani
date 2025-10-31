@@ -90,8 +90,8 @@ class SceneVariantServiceAdapter:
     def get_scene_variants(self, scene_id: int):
         return llm_service.get_scene_variants(self.db, scene_id)
     
-    def create_scene_with_variant(self, story_id: int, sequence_number: int, content: str, title: str = None, custom_prompt: str = None, choices: List[Dict[str, Any]] = None):
-        return llm_service.create_scene_with_variant(self.db, story_id, sequence_number, content, title, custom_prompt, choices)
+    def create_scene_with_variant(self, story_id: int, sequence_number: int, content: str, title: str = None, custom_prompt: str = None, choices: List[Dict[str, Any]] = None, generation_method: str = "auto"):
+        return llm_service.create_scene_with_variant(self.db, story_id, sequence_number, content, title, custom_prompt, choices, generation_method)
     
     async def regenerate_scene_variant(self, scene_id: int, custom_prompt: str = None, user_settings: dict = None, user_id: int = None):
         # Use provided user_id or fall back to default
@@ -430,11 +430,19 @@ async def get_story(
 async def generate_scene(
     story_id: int,
     custom_prompt: str = Form(""),
+    user_content: str = Form(""),
+    content_mode: str = Form("ai_generate"),
     background_tasks: BackgroundTasks = BackgroundTasks(),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Generate a new scene for the story with smart context management"""
+    """Generate a new scene for the story with smart context management
+    
+    content_mode options:
+    - "ai_generate": AI generates scene from scratch (default)
+    - "user_prompt": Use user_content as prompt for AI generation
+    - "user_scene": Use user_content directly as scene content, AI generates choices
+    """
     
     story = db.query(Story).filter(
         Story.id == story_id,
@@ -452,30 +460,88 @@ async def generate_scene(
     # Add user permissions to settings for NSFW filtering
     user_settings['allow_nsfw'] = current_user.allow_nsfw
     
-    # Create context manager with user settings (semantic or linear)
-    context_manager = get_context_manager_for_user(user_settings, current_user.id)
+    # Handle different content modes
+    scene_content = ""
+    effective_custom_prompt = custom_prompt
+    generation_method = "auto"
     
-    # Use context manager to build optimized context
-    try:
-        context = await context_manager.build_scene_generation_context(
-            story_id, db, custom_prompt
-        )
-    except Exception as e:
-        logger.error(f"Failed to build context for story {story_id}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to prepare story context: {str(e)}"
-        )
-    
-    # Generate scene content using enhanced method
-    try:
-        scene_content = await llm_service.generate_scene(context, current_user.id, user_settings)
-    except Exception as e:
-        logger.error(f"Failed to generate scene for story {story_id}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate scene: {str(e)}"
-        )
+    if content_mode == "user_scene":
+        # User provided their own scene content
+        if not user_content or not user_content.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="user_content is required when content_mode is 'user_scene'"
+            )
+        scene_content = user_content.strip()
+        generation_method = "user_written"
+        # Still need context for choice generation
+        context_manager = get_context_manager_for_user(user_settings, current_user.id)
+        try:
+            context = await context_manager.build_scene_generation_context(
+                story_id, db, ""
+            )
+        except Exception as e:
+            logger.error(f"Failed to build context for story {story_id}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to prepare story context: {str(e)}"
+            )
+    elif content_mode == "user_prompt":
+        # User provided a prompt for AI generation
+        if not user_content or not user_content.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="user_content is required when content_mode is 'user_prompt'"
+            )
+        effective_custom_prompt = user_content.strip()
+        # Continue with normal AI generation flow
+        context_manager = get_context_manager_for_user(user_settings, current_user.id)
+        try:
+            context = await context_manager.build_scene_generation_context(
+                story_id, db, effective_custom_prompt
+            )
+        except Exception as e:
+            logger.error(f"Failed to build context for story {story_id}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to prepare story context: {str(e)}"
+            )
+        
+        # Generate scene content using enhanced method
+        try:
+            scene_content = await llm_service.generate_scene(context, current_user.id, user_settings)
+        except Exception as e:
+            logger.error(f"Failed to generate scene for story {story_id}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to generate scene: {str(e)}"
+            )
+    else:
+        # Default: ai_generate mode
+        # Create context manager with user settings (semantic or linear)
+        context_manager = get_context_manager_for_user(user_settings, current_user.id)
+        
+        # Use context manager to build optimized context
+        try:
+            context = await context_manager.build_scene_generation_context(
+                story_id, db, custom_prompt
+            )
+        except Exception as e:
+            logger.error(f"Failed to build context for story {story_id}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to prepare story context: {str(e)}"
+            )
+        
+        # Generate scene content using enhanced method
+        try:
+            scene_content = await llm_service.generate_scene(context, current_user.id, user_settings)
+        except Exception as e:
+            logger.error(f"Failed to generate scene for story {story_id}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to generate scene: {str(e)}"
+            )
     
     # Create scene with variant system
     current_scene_count = db.query(Scene).filter(Scene.story_id == story_id).count()
@@ -507,8 +573,9 @@ async def generate_scene(
             sequence_number=next_sequence,
             content=scene_content,
             title=f"Scene {next_sequence}",
-            custom_prompt=custom_prompt if custom_prompt else None,
-            choices=choices_data
+            custom_prompt=effective_custom_prompt if effective_custom_prompt else None,
+            choices=choices_data,
+            generation_method=generation_method
         )
         
         # Format choices for response (already in correct format)
@@ -598,10 +665,18 @@ async def generate_scene(
 async def generate_scene_streaming_endpoint(
     story_id: int,
     custom_prompt: str = Form(""),
+    user_content: str = Form(""),
+    content_mode: str = Form("ai_generate"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Generate a new scene for the story with streaming response"""
+    """Generate a new scene for the story with streaming response
+    
+    content_mode options:
+    - "ai_generate": AI generates scene from scratch (default, streams tokens)
+    - "user_prompt": Use user_content as prompt for AI generation (streams tokens)
+    - "user_scene": Use user_content directly as scene content, AI generates choices (sends content immediately, then streams choices)
+    """
     
     story = db.query(Story).filter(
         Story.id == story_id,
@@ -621,13 +696,49 @@ async def generate_scene_streaming_endpoint(
     
     user_settings = user_settings_db.to_dict() if user_settings_db else None
     
+    # Handle different content modes
+    effective_custom_prompt = custom_prompt
+    generation_method = "auto"
+    user_provided_content = None
+    
+    if content_mode == "user_scene":
+        # User provided their own scene content
+        if not user_content or not user_content.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="user_content is required when content_mode is 'user_scene'"
+            )
+        user_provided_content = user_content.strip()
+        generation_method = "user_written"
+        # Still need context for choice generation
+        context_manager = get_context_manager_for_user(user_settings, current_user.id)
+        try:
+            context = await context_manager.build_scene_generation_context(
+                story_id, db, ""
+            )
+        except Exception as e:
+            logger.error(f"Failed to build context for story {story_id}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to prepare story context: {str(e)}"
+            )
+    elif content_mode == "user_prompt":
+        # User provided a prompt for AI generation
+        if not user_content or not user_content.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="user_content is required when content_mode is 'user_prompt'"
+            )
+        effective_custom_prompt = user_content.strip()
+    # else: ai_generate mode (default)
+    
     # Create context manager with user settings (semantic or linear)
     context_manager = get_context_manager_for_user(user_settings, current_user.id)
     
     # Use context manager to build optimized context
     try:
         context = await context_manager.build_scene_generation_context(
-            story_id, db, custom_prompt
+            story_id, db, effective_custom_prompt
         )
     except Exception as e:
         logger.error(f"Failed to build context for story {story_id}: {e}")
@@ -647,19 +758,25 @@ async def generate_scene_streaming_endpoint(
             # Send initial metadata
             yield f"data: {json.dumps({'type': 'start', 'sequence': next_sequence})}\n\n"
             
-            # Stream scene generation using the context manager's output
-            # Add custom prompt to context if provided
-            scene_context = context.copy() if isinstance(context, dict) else {"story_context": context}
-            if custom_prompt and custom_prompt.strip():
-                scene_context["custom_prompt"] = custom_prompt.strip()
+            # Handle user-provided content vs AI generation
+            if user_provided_content:
+                # User wrote their own scene - send it immediately as a single chunk
+                full_content = user_provided_content
+                yield f"data: {json.dumps({'type': 'content', 'chunk': user_provided_content})}\n\n"
+            else:
+                # Stream scene generation using the context manager's output
+                # Add custom prompt to context if provided
+                scene_context = context.copy() if isinstance(context, dict) else {"story_context": context}
+                if effective_custom_prompt and effective_custom_prompt.strip():
+                    scene_context["custom_prompt"] = effective_custom_prompt.strip()
 
-            async for chunk in generate_scene_streaming(
-                scene_context,
-                current_user.id,
-                user_settings
-            ):
-                full_content += chunk
-                yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                async for chunk in generate_scene_streaming(
+                    scene_context,
+                    current_user.id,
+                    user_settings
+                ):
+                    full_content += chunk
+                    yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
             
             # Save the scene to database FIRST (before choices)
             variant_service = SceneVariantService(db)
@@ -669,8 +786,9 @@ async def generate_scene_streaming_endpoint(
                     sequence_number=next_sequence,
                     content=full_content.strip(),
                     title=f"Scene {next_sequence}",
-                    custom_prompt=custom_prompt if custom_prompt else None,
-                    choices=[]  # We'll add choices later
+                    custom_prompt=effective_custom_prompt if effective_custom_prompt else None,
+                    choices=[],  # We'll add choices later
+                    generation_method=generation_method
                 )
                 logger.info(f"Created scene {scene.id} with variant {variant.id} for story {story_id}")
             except Exception as e:
