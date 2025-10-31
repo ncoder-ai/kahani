@@ -1,0 +1,154 @@
+"""
+Thinking Tag Parser
+
+Automatically detects and strips reasoning/thinking tags from LLM responses.
+Supports various formats used by different models (DeepSeek, Qwen, etc.).
+"""
+
+import re
+import logging
+from typing import List, Tuple
+
+logger = logging.getLogger(__name__)
+
+
+class ThinkingTagParser:
+    """
+    Parser for detecting and removing thinking/reasoning tags from LLM outputs.
+    
+    Many instruction-tuned models output their reasoning process in special tags
+    before providing the final answer. This parser automatically detects and
+    removes these tags to present clean output to users.
+    """
+    
+    # Thinking tag patterns (tag_name, opening_pattern, closing_pattern)
+    # Ordered by specificity (more specific patterns first)
+    THINKING_PATTERNS = [
+        # DeepSeek style
+        ("DeepSeek think", r"<think>", r"</think>"),
+        ("DeepSeek thinking", r"<thinking>", r"</thinking>"),
+        
+        # Qwen QwQ style
+        ("Qwen reasoning", r"<reasoning>", r"</reasoning>"),
+        
+        # Generic XML-style tags
+        ("Generic think", r"<think>", r"</think>"),
+        ("Generic thinking", r"<thinking>", r"</thinking>"),
+        ("Generic reasoning", r"<reasoning>", r"</reasoning>"),
+        ("Generic reflection", r"<reflection>", r"</reflection>"),
+        
+        # Bracket style
+        ("Bracket thinking", r"\[THINKING\]", r"\[/THINKING\]"),
+        ("Bracket reasoning", r"\[REASONING\]", r"\[/REASONING\]"),
+        ("Bracket no_think", r"\[no_think\]", r"\[/no_think\]"),
+        
+        # Special token style (used by some models)
+        ("Token reasoning", r"<\|reasoning_start\|>", r"<\|reasoning_end\|>"),
+        ("Token thinking", r"<\|thinking_start\|>", r"<\|thinking_end\|>"),
+        ("Token reflection", r"<\|reflection_start\|>", r"<\|reflection_end\|>"),
+        
+        # Markdown-style code blocks sometimes used for thinking
+        ("Markdown thinking", r"```thinking", r"```"),
+        ("Markdown reasoning", r"```reasoning", r"```"),
+    ]
+    
+    @classmethod
+    def strip_thinking_tags(cls, text: str) -> str:
+        """
+        Remove all thinking/reasoning tags and their content from text.
+        
+        Args:
+            text: Input text that may contain thinking tags
+            
+        Returns:
+            Text with all thinking content removed
+        """
+        if not text or not isinstance(text, str):
+            return text
+        
+        original_length = len(text)
+        cleaned_text = text
+        removed_count = 0
+        
+        # Try each pattern
+        for pattern_name, opening, closing in cls.THINKING_PATTERNS:
+            # Build regex pattern that matches opening tag, content, and closing tag
+            # Use DOTALL flag to match across newlines
+            # Use non-greedy matching to handle multiple occurrences
+            pattern = f"{opening}.*?{closing}"
+            
+            # Find all matches first (for logging)
+            matches = re.findall(pattern, cleaned_text, re.DOTALL | re.IGNORECASE)
+            if matches:
+                logger.debug(f"Found {len(matches)} '{pattern_name}' tag(s)")
+                removed_count += len(matches)
+            
+            # Remove all occurrences
+            cleaned_text = re.sub(pattern, "", cleaned_text, flags=re.DOTALL | re.IGNORECASE)
+        
+        # Clean up excessive whitespace that may result from tag removal
+        # Replace multiple newlines with max 2 newlines
+        cleaned_text = re.sub(r'\n{3,}', '\n\n', cleaned_text)
+        
+        # Remove leading/trailing whitespace
+        cleaned_text = cleaned_text.strip()
+        
+        if removed_count > 0:
+            removed_chars = original_length - len(cleaned_text)
+            logger.info(f"Stripped {removed_count} thinking tag(s), removed {removed_chars} characters")
+        
+        return cleaned_text
+    
+    @classmethod
+    def detect_thinking_tags(cls, text: str) -> List[Tuple[str, str]]:
+        """
+        Detect which thinking tags are present in the text without removing them.
+        
+        Args:
+            text: Input text to analyze
+            
+        Returns:
+            List of tuples (pattern_name, matched_content)
+        """
+        if not text or not isinstance(text, str):
+            return []
+        
+        detected = []
+        
+        for pattern_name, opening, closing in cls.THINKING_PATTERNS:
+            pattern = f"{opening}(.*?){closing}"
+            matches = re.finditer(pattern, text, re.DOTALL | re.IGNORECASE)
+            
+            for match in matches:
+                content = match.group(1).strip()
+                detected.append((pattern_name, content))
+        
+        return detected
+    
+    @classmethod
+    def has_thinking_tags(cls, text: str) -> bool:
+        """
+        Check if text contains any thinking tags.
+        
+        Args:
+            text: Input text to check
+            
+        Returns:
+            True if thinking tags are present, False otherwise
+        """
+        return len(cls.detect_thinking_tags(text)) > 0
+
+
+# Convenience function
+def strip_thinking_tags(text: str) -> str:
+    """
+    Convenience function to strip thinking tags from text.
+    
+    Args:
+        text: Input text
+        
+    Returns:
+        Text with thinking tags removed
+    """
+    return ThinkingTagParser.strip_thinking_tags(text)
+

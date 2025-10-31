@@ -26,6 +26,11 @@ class UserSettings(Base):
     llm_api_type = Column(String(50), default="openai-compatible")  # openai, openai-compatible, koboldcpp, ollama
     llm_model_name = Column(String(200), default="")
     
+    # Text Completion Settings
+    completion_mode = Column(String(20), default="chat")  # "chat" or "text"
+    text_completion_template = Column(Text, default=None)  # JSON string storing template configuration
+    text_completion_preset = Column(String(50), default="llama3")  # Template preset name
+    
     # Context Management Settings
     context_max_tokens = Column(Integer, default=4000)  # 1000 - 1M
     context_keep_recent_scenes = Column(Integer, default=3)  # 1 - 10
@@ -100,7 +105,10 @@ class UserSettings(Base):
                 "api_url": self.llm_api_url or "",
                 "api_key": self.llm_api_key or "",
                 "api_type": self.llm_api_type or "",
-                "model_name": self.llm_model_name or ""
+                "model_name": self.llm_model_name or "",
+                "completion_mode": self.completion_mode or "chat",
+                "text_completion_template": self.text_completion_template or "",
+                "text_completion_preset": self.text_completion_preset or "llama3"
             },
             "context_settings": {
                 "max_tokens": self.context_max_tokens,
