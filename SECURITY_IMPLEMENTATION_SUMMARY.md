@@ -60,9 +60,6 @@ Template environment file with:
 - ✅ CORS defaults to localhost instead of wildcard `*`
 - ✅ Clear error messages point users to documentation
 
-#### `docker-compose.prebuilt.yml`
-Same security improvements as above for prebuilt images.
-
 ---
 
 ### 3. ✅ Application Security Enhancements
@@ -306,7 +303,6 @@ CORS_ORIGINS=["https://kahani.mydomain.com"]
 - ✅ `README.md` - Added security references
 - ✅ `PRODUCTION_DEPLOYMENT.md` - Added security section
 - ✅ `docker-compose.yml` - Security fixes
-- ✅ `docker-compose.prebuilt.yml` - Security fixes
 - ✅ `backend/app/main.py` - API docs protection
 
 ---

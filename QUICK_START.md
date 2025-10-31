@@ -2,53 +2,50 @@
 
 Get Kahani running in **under 5 minutes** with Docker!
 
-## 🚀 Fastest Start - Pre-built Docker Images
-
-No build time, no dependencies - just download and run!
-
-### Step 1: Get the Compose File
-```bash
-curl -O https://raw.githubusercontent.com/ncoder-ai/kahani/main/docker-compose.prebuilt.yml
-```
-
-### Step 2: Start Kahani
-```bash
-docker-compose -f docker-compose.prebuilt.yml up -d
-```
-
-### Step 3: Access the Application
-- **Frontend**: http://localhost:6789
-- **Backend API**: http://localhost:9876
-
-**That's it!** No building required. 🎉
-
----
-
-## Alternative: Build from Source
-
 ## 🐳 Docker Installation (Recommended)
 
 ### Prerequisites
 - Docker and Docker Compose installed
 - Git installed
 
-### Step 1: Clone and Start
+### Step 1: Clone Repository
 ```bash
 # Clone the repository
 git clone https://github.com/ncoder-ai/kahani.git
 cd kahani
+```
 
-# Start with Docker
+### Step 2: Create .env File with Secrets
+```bash
+# Generate secrets
+python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_urlsafe(32))"
+python3 -c "import secrets; print('JWT_SECRET_KEY=' + secrets.token_urlsafe(32))"
+
+# Create .env file with the generated secrets
+# If .env.example exists, copy it first:
+# cp .env.example .env
+# Then edit .env and add the generated secrets above
+# Or manually create .env:
+cat > .env << EOF
+SECRET_KEY=your-generated-secret-key-here
+JWT_SECRET_KEY=your-generated-jwt-secret-key-here
+EOF
+```
+
+**Important:** Replace `your-generated-secret-key-here` with the actual generated secrets above.
+
+### Step 3: Start with Docker
+```bash
 docker-compose up -d
 ```
 
-### Step 2: Check Status
+### Step 4: Check Status
 ```bash
 # Check status
 docker-compose ps
 ```
 
-### Step 3: Access the Application
+### Step 5: Access the Application
 - **Frontend**: http://localhost:6789
 - **Backend API**: http://localhost:9876
 - **API Documentation**: http://localhost:9876/docs
