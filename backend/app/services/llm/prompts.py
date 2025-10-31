@@ -173,7 +173,8 @@ class PromptManager:
             "scene_variants": ("summary_generation", "scene_variants"),
             "story_chapters": ("summary_generation", "story_chapters"),
             "character_assistant.extraction": ("character_assistant", "extraction"),
-            "character_assistant.detection": ("character_assistant", "detection")
+            "character_assistant.detection": ("character_assistant", "detection"),
+            "character_assistant.generation": ("character_assistant", "generation")
         }
         
         if template_key not in yaml_mapping:

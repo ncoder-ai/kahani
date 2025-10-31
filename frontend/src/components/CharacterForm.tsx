@@ -8,12 +8,18 @@ interface CharacterFormProps {
   characterId?: number;
   onSave?: (character: any) => void;
   mode?: 'create' | 'edit' | 'inline';
+  storyContext?: { genre?: string; tone?: string; world_setting?: string };
 }
 
-export default function CharacterForm({ characterId, onSave, mode = 'create' }: CharacterFormProps) {
+export default function CharacterForm({ characterId, onSave, mode = 'create', storyContext }: CharacterFormProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [creationMode, setCreationMode] = useState<'manual' | 'ai-assisted'>('manual');
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [generatedCharacter, setGeneratedCharacter] = useState<any>(null);
+  const [previousGeneration, setPreviousGeneration] = useState<any>(null);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -78,6 +84,95 @@ export default function CharacterForm({ characterId, onSave, mode = 'create' }: 
       ...prev,
       personality_traits: prev.personality_traits.filter((_, i) => i !== index)
     }));
+  };
+
+  const handleGenerateWithAI = async () => {
+    if (!aiPrompt.trim()) {
+      alert('Please enter a character description');
+      return;
+    }
+
+    try {
+      setGenerating(true);
+      const character = await apiClient.generateCharacterWithAI(aiPrompt, storyContext);
+      console.log('Generated character:', character);
+      console.log('Personality traits:', character.personality_traits);
+      console.log('Personality traits type:', typeof character.personality_traits);
+      console.log('Is array?:', Array.isArray(character.personality_traits));
+      setPreviousGeneration(generatedCharacter);
+      setGeneratedCharacter(character);
+    } catch (error) {
+      console.error('Failed to generate character:', error);
+      alert('Failed to generate character. Please try again.');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleRegenerate = async () => {
+    if (!aiPrompt.trim()) {
+      return;
+    }
+
+    try {
+      setGenerating(true);
+      const character = await apiClient.generateCharacterWithAI(aiPrompt, storyContext, generatedCharacter);
+      setPreviousGeneration(generatedCharacter);
+      setGeneratedCharacter(character);
+    } catch (error) {
+      console.error('Failed to regenerate character:', error);
+      alert('Failed to regenerate character. Please try again.');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleAcceptGenerated = async () => {
+    // Accept and save directly
+    try {
+      setSaving(true);
+      const character = await apiClient.createCharacter({
+        name: generatedCharacter.name,
+        description: generatedCharacter.description,
+        personality_traits: generatedCharacter.personality_traits,
+        background: generatedCharacter.background,
+        goals: generatedCharacter.goals,
+        fears: generatedCharacter.fears,
+        appearance: generatedCharacter.appearance,
+        is_template: generatedCharacter.is_template,
+        is_public: generatedCharacter.is_public
+      });
+
+      if (onSave) {
+        onSave(character);
+      } else {
+        router.push('/characters');
+      }
+    } catch (error) {
+      console.error('Failed to save character:', error);
+      alert('Failed to save character');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleEditManually = () => {
+    // Populate form with generated data and switch to manual mode
+    if (generatedCharacter) {
+      setFormData({
+        name: generatedCharacter.name,
+        description: generatedCharacter.description,
+        personality_traits: generatedCharacter.personality_traits || [],
+        background: generatedCharacter.background,
+        goals: generatedCharacter.goals,
+        fears: generatedCharacter.fears,
+        appearance: generatedCharacter.appearance,
+        is_template: generatedCharacter.is_template ?? true,
+        is_public: generatedCharacter.is_public ?? false
+      });
+    }
+    setCreationMode('manual');
+    setGeneratedCharacter(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -156,195 +251,447 @@ export default function CharacterForm({ characterId, onSave, mode = 'create' }: 
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="bg-white/10 rounded-xl p-8 space-y-6">
-          {/* Basic Info */}
-          <div className="space-y-4">
-            <h3 className="text-xl font-semibold text-white">Basic Information</h3>
-            
-            <div>
-              <label className="block text-sm font-medium text-white mb-2">
-                Character Name *
-              </label>
-              <input
-                type="text"
-                value={formData.name}
-                onChange={(e) => handleInputChange('name', e.target.value)}
-                placeholder="Enter character name..."
-                className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-white mb-2">
-                Description
-              </label>
-              <textarea
-                value={formData.description}
-                onChange={(e) => handleInputChange('description', e.target.value)}
-                placeholder="Brief description of your character..."
-                rows={3}
-                className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
-              />
-            </div>
-          </div>
-
-          {/* Personality Traits */}
-          <div className="space-y-4">
-            <h3 className="text-xl font-semibold text-white">Personality</h3>
-            
-            <div>
-              <label className="block text-sm font-medium text-white mb-2">
-                Personality Traits
-              </label>
-              <div className="flex gap-2 mb-2">
-                <input
-                  type="text"
-                  value={newTrait}
-                  onChange={(e) => setNewTrait(e.target.value)}
-                  placeholder="Add a personality trait..."
-                  className="flex-1 p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
-                  onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addPersonalityTrait())}
-                />
+        {/* Mode Toggle - Only show in create mode */}
+        {mode === 'create' && (
+          <div className="mb-6">
+            <div className="bg-white/10 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-white">Creation Mode</label>
                 <button
                   type="button"
-                  onClick={addPersonalityTrait}
-                  className="px-4 py-3 theme-btn-primary rounded-lg transition-colors"
+                  onClick={() => {
+                    setCreationMode(creationMode === 'manual' ? 'ai-assisted' : 'manual');
+                    setGeneratedCharacter(null);
+                    setAiPrompt('');
+                  }}
+                  className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white"
+                  style={{
+                    backgroundColor: creationMode === 'ai-assisted' ? 'var(--color-accentPrimary)' : 'rgba(255, 255, 255, 0.2)'
+                  }}
                 >
-                  Add
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      creationMode === 'ai-assisted' ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
                 </button>
               </div>
-              
-              {formData.personality_traits.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {formData.personality_traits.map((trait, index) => (
-                    <span
-                      key={index}
-                      className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm"
-                      style={{ backgroundColor: 'var(--color-accentPrimary)', opacity: 0.2, color: 'var(--color-accentPrimary)' } as React.CSSProperties}
-                    >
-                      {trait}
-                      <button
-                        type="button"
-                        onClick={() => removePersonalityTrait(index)}
-                        className="ml-1 hover:text-white"
-                        style={{ color: 'var(--color-accentPrimary)' } as React.CSSProperties}
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
+              <p className="text-xs text-white/60">
+                {creationMode === 'manual' ? 'Manual creation' : 'AI-assisted generation'}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* AI-Assisted Mode */}
+        {mode === 'create' && creationMode === 'ai-assisted' && (
+          <div className="bg-white/10 rounded-xl p-8 space-y-6 mb-6">
+            {!generatedCharacter ? (
+              <>
+                <div>
+                  <h3 className="text-xl font-semibold text-white mb-4">Describe Your Character</h3>
+                  <p className="text-white/80 text-sm mb-4">
+                    Describe your character in natural language. Include details about their role, personality, appearance, or any other aspects you want.
+                  </p>
+                  <textarea
+                    value={aiPrompt}
+                    onChange={(e) => setAiPrompt(e.target.value)}
+                    placeholder="e.g., A mysterious detective in their 40s, haunted by a past case. They're methodical but have a dark sense of humor..."
+                    rows={6}
+                    className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
+                  />
                 </div>
-              )}
-            </div>
+                <button
+                  type="button"
+                  onClick={handleGenerateWithAI}
+                  disabled={generating || !aiPrompt.trim()}
+                  className="w-full px-6 py-3 theme-btn-primary rounded-xl transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {generating ? 'Generating...' : 'Generate Character'}
+                </button>
+              </>
+            ) : (
+              <>
+                {/* Generated Character Preview - Matches Manual Form Structure */}
+                <div className="bg-white/5 rounded-lg p-6 space-y-6">
+                  <h3 className="text-xl font-semibold text-white mb-4">Generated Character Preview</h3>
+                  
+                  {/* Basic Info */}
+                  <div className="space-y-4">
+                    <h4 className="text-lg font-semibold text-white">Basic Information</h4>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-white/60 mb-1">Character Name *</label>
+                      <p className="text-white">{generatedCharacter.name}</p>
+                    </div>
+                    
+                    {generatedCharacter.description && (
+                      <div>
+                        <label className="block text-sm font-medium text-white/60 mb-1">Description</label>
+                        <p className="text-white">{generatedCharacter.description}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Personality Traits - Always show if traits exist */}
+                  {(() => {
+                    const traits = generatedCharacter.personality_traits;
+                    const hasTraits = traits && Array.isArray(traits) && traits.length > 0;
+                    console.log('Rendering personality traits:', { traits, hasTraits, type: typeof traits, isArray: Array.isArray(traits) });
+                    return hasTraits ? (
+                      <div className="space-y-4">
+                        <h4 className="text-lg font-semibold text-white">Personality</h4>
+                        <div>
+                          <label className="block text-sm font-medium text-white/60 mb-2">Personality Traits</label>
+                          <div className="flex flex-wrap gap-2">
+                            {traits.map((trait: string, index: number) => {
+                              if (!trait || !trait.trim()) return null;
+                              return (
+                                <span
+                                  key={index}
+                                  className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm bg-white/20 text-white"
+                                >
+                                  {trait}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      // Debug: Show when traits are missing
+                      traits && (
+                        <div className="space-y-4">
+                          <h4 className="text-lg font-semibold text-white">Personality</h4>
+                          <div>
+                            <label className="block text-sm font-medium text-white/60 mb-2">Personality Traits</label>
+                            <p className="text-white text-xs">Debug: traits = {JSON.stringify(traits)}</p>
+                          </div>
+                        </div>
+                      )
+                    );
+                  })()}
+
+                  {/* Character Details */}
+                  <div className="space-y-4">
+                    <h4 className="text-lg font-semibold text-white">Character Details</h4>
+                    
+                    {(generatedCharacter.background_structured || generatedCharacter.background) && (
+                      <div>
+                        <label className="block text-sm font-medium text-white/60 mb-2">Background</label>
+                        {generatedCharacter.background_structured ? (
+                          <ul className="space-y-1">
+                            {Object.entries(generatedCharacter.background_structured).map(([key, value]) => (
+                              value && (
+                                <li key={key} className="text-white text-sm">
+                                  <span className="font-medium capitalize">{key.replace(/_/g, ' ')}:</span> {String(value)}
+                                </li>
+                              )
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-white text-sm whitespace-pre-wrap">{generatedCharacter.background}</p>
+                        )}
+                      </div>
+                    )}
+
+                    {(generatedCharacter.goals_structured || generatedCharacter.goals) && (
+                      <div>
+                        <label className="block text-sm font-medium text-white/60 mb-2">Goals & Motivations</label>
+                        {generatedCharacter.goals_structured ? (
+                          <ul className="space-y-1">
+                            {Object.entries(generatedCharacter.goals_structured).map(([key, value]) => (
+                              value && (
+                                <li key={key} className="text-white text-sm">
+                                  <span className="font-medium capitalize">{key.replace(/_/g, ' ')}:</span> {String(value)}
+                                </li>
+                              )
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-white text-sm whitespace-pre-wrap">{generatedCharacter.goals}</p>
+                        )}
+                      </div>
+                    )}
+
+                    {(generatedCharacter.fears_structured || generatedCharacter.fears) && (
+                      <div>
+                        <label className="block text-sm font-medium text-white/60 mb-2">Fears & Weaknesses</label>
+                        {generatedCharacter.fears_structured ? (
+                          <ul className="space-y-1">
+                            {Object.entries(generatedCharacter.fears_structured).map(([key, value]) => (
+                              value && (
+                                <li key={key} className="text-white text-sm">
+                                  <span className="font-medium capitalize">{key.replace(/_/g, ' ')}:</span> {String(value)}
+                                </li>
+                              )
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-white text-sm whitespace-pre-wrap">{generatedCharacter.fears}</p>
+                        )}
+                      </div>
+                    )}
+
+                    {(generatedCharacter.appearance_structured || generatedCharacter.appearance) && (
+                      <div>
+                        <label className="block text-sm font-medium text-white/60 mb-2">Appearance</label>
+                        {generatedCharacter.appearance_structured ? (
+                          <ul className="space-y-1">
+                            {Object.entries(generatedCharacter.appearance_structured).map(([key, value]) => (
+                              value && (
+                                <li key={key} className="text-white text-sm">
+                                  <span className="font-medium capitalize">{key.replace(/_/g, ' ')}:</span> {String(value)}
+                                </li>
+                              )
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-white text-sm whitespace-pre-wrap">{generatedCharacter.appearance}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Character Settings */}
+                  <div className="space-y-4">
+                    <h4 className="text-lg font-semibold text-white">Character Settings</h4>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-sm ${generatedCharacter.is_template ? 'text-white' : 'text-white/60'}`}>
+                          ✓ Template character (can be reused in multiple stories)
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-sm ${generatedCharacter.is_public ? 'text-white' : 'text-white/60'}`}>
+                          {generatedCharacter.is_public ? '✓' : '○'} Public character (other users can use it)
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <button
+                    type="button"
+                    onClick={handleAcceptGenerated}
+                    disabled={saving}
+                    className="flex-1 px-6 py-3 theme-btn-primary rounded-xl transition-colors font-semibold disabled:opacity-50"
+                  >
+                    {saving ? 'Saving...' : 'Accept & Save'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRegenerate}
+                    disabled={generating}
+                    className="flex-1 px-6 py-3 bg-white/20 text-white rounded-xl hover:bg-white/30 transition-colors font-semibold disabled:opacity-50"
+                  >
+                    {generating ? 'Regenerating...' : 'Regenerate'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleEditManually}
+                    className="flex-1 px-6 py-3 bg-white/20 text-white rounded-xl hover:bg-white/30 transition-colors font-semibold"
+                  >
+                    Edit Manually
+                  </button>
+                </div>
+              </>
+            )}
           </div>
+        )}
 
-          {/* Detailed Character Info */}
-          <div className="space-y-4">
-            <h3 className="text-xl font-semibold text-white">Character Details</h3>
-            
-            <div>
-              <label className="block text-sm font-medium text-white mb-2">
-                Background
-              </label>
-              <textarea
-                value={formData.background}
-                onChange={(e) => handleInputChange('background', e.target.value)}
-                placeholder="Character's history and background..."
-                rows={3}
-                className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-white mb-2">
-                Goals & Motivations
-              </label>
-              <textarea
-                value={formData.goals}
-                onChange={(e) => handleInputChange('goals', e.target.value)}
-                placeholder="What does this character want to achieve?"
-                rows={2}
-                className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-white mb-2">
-                Fears & Weaknesses
-              </label>
-              <textarea
-                value={formData.fears}
-                onChange={(e) => handleInputChange('fears', e.target.value)}
-                placeholder="What does this character fear or struggle with?"
-                rows={2}
-                className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-white mb-2">
-                Appearance
-              </label>
-              <textarea
-                value={formData.appearance}
-                onChange={(e) => handleInputChange('appearance', e.target.value)}
-                placeholder="Describe how this character looks..."
-                rows={2}
-                className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
-              />
-            </div>
-          </div>
-
-          {/* Settings */}
-          <div className="space-y-4">
-            <h3 className="text-xl font-semibold text-white">Character Settings</h3>
-            
-            <div className="space-y-3">
-              <label className="flex items-center gap-3">
+        {/* Manual Mode Form */}
+        {(mode === 'edit' || creationMode === 'manual') && (
+          <form onSubmit={handleSubmit} className="bg-white/10 rounded-xl p-8 space-y-6">
+            {/* Basic Info */}
+            <div className="space-y-4">
+              <h3 className="text-xl font-semibold text-white">Basic Information</h3>
+              
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
+                  Character Name *
+                </label>
                 <input
-                  type="checkbox"
-                  checked={formData.is_template}
-                  onChange={(e) => handleInputChange('is_template', e.target.checked)}
-                  className="rounded"
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => handleInputChange('name', e.target.value)}
+                  placeholder="Enter character name..."
+                  className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
+                  required
                 />
-                <span className="text-white">
-                  Make this a template character (can be reused in multiple stories)
-                </span>
-              </label>
+              </div>
 
-              <label className="flex items-center gap-3">
-                <input
-                  type="checkbox"
-                  checked={formData.is_public}
-                  onChange={(e) => handleInputChange('is_public', e.target.checked)}
-                  className="rounded"
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
+                  Description
+                </label>
+                <textarea
+                  value={formData.description}
+                  onChange={(e) => handleInputChange('description', e.target.value)}
+                  placeholder="Brief description of your character..."
+                  rows={3}
+                  className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
                 />
-                <span className="text-white">
-                  Make this character public (other users can use it)
-                </span>
-              </label>
+              </div>
             </div>
-          </div>
 
-          {/* Actions */}
-          <div className="flex justify-between pt-6">
-            <button
-              type="button"
-              onClick={handleCancel}
-              className="px-6 py-3 bg-white/20 text-white rounded-xl hover:bg-white/30 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="px-8 py-3 theme-btn-primary rounded-xl transition-colors font-semibold disabled:opacity-50"
-            >
-              {saving ? 'Saving...' : (mode === 'edit' ? 'Update Character' : 'Create Character')}
-            </button>
-          </div>
-        </form>
+            {/* Personality Traits */}
+            <div className="space-y-4">
+              <h3 className="text-xl font-semibold text-white">Personality</h3>
+              
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
+                  Personality Traits
+                </label>
+                <div className="flex gap-2 mb-2">
+                  <input
+                    type="text"
+                    value={newTrait}
+                    onChange={(e) => setNewTrait(e.target.value)}
+                    placeholder="Add a personality trait..."
+                    className="flex-1 p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
+                    onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addPersonalityTrait())}
+                  />
+                  <button
+                    type="button"
+                    onClick={addPersonalityTrait}
+                    className="px-4 py-3 theme-btn-primary rounded-lg transition-colors"
+                  >
+                    Add
+                  </button>
+                </div>
+                
+                {formData.personality_traits.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {formData.personality_traits.map((trait, index) => (
+                      <span
+                        key={index}
+                        className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm bg-white/20 text-white"
+                      >
+                        {trait}
+                        <button
+                          type="button"
+                          onClick={() => removePersonalityTrait(index)}
+                          className="ml-1 hover:text-white text-white/80"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Detailed Character Info */}
+            <div className="space-y-4">
+              <h3 className="text-xl font-semibold text-white">Character Details</h3>
+              
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
+                  Background
+                </label>
+                <textarea
+                  value={formData.background}
+                  onChange={(e) => handleInputChange('background', e.target.value)}
+                  placeholder="Character's history and background..."
+                  rows={3}
+                  className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
+                  Goals & Motivations
+                </label>
+                <textarea
+                  value={formData.goals}
+                  onChange={(e) => handleInputChange('goals', e.target.value)}
+                  placeholder="What does this character want to achieve?"
+                  rows={2}
+                  className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
+                  Fears & Weaknesses
+                </label>
+                <textarea
+                  value={formData.fears}
+                  onChange={(e) => handleInputChange('fears', e.target.value)}
+                  placeholder="What does this character fear or struggle with?"
+                  rows={2}
+                  className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
+                  Appearance
+                </label>
+                <textarea
+                  value={formData.appearance}
+                  onChange={(e) => handleInputChange('appearance', e.target.value)}
+                  placeholder="Describe how this character looks..."
+                  rows={2}
+                  className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
+                />
+              </div>
+            </div>
+
+            {/* Settings */}
+            <div className="space-y-4">
+              <h3 className="text-xl font-semibold text-white">Character Settings</h3>
+              
+              <div className="space-y-3">
+                <label className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={formData.is_template}
+                    onChange={(e) => handleInputChange('is_template', e.target.checked)}
+                    className="rounded"
+                  />
+                  <span className="text-white">
+                    Make this a template character (can be reused in multiple stories)
+                  </span>
+                </label>
+
+                <label className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={formData.is_public}
+                    onChange={(e) => handleInputChange('is_public', e.target.checked)}
+                    className="rounded"
+                  />
+                  <span className="text-white">
+                    Make this character public (other users can use it)
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex justify-between pt-6">
+              <button
+                type="button"
+                onClick={handleCancel}
+                className="px-6 py-3 bg-white/20 text-white rounded-xl hover:bg-white/30 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="px-8 py-3 theme-btn-primary rounded-xl transition-colors font-semibold disabled:opacity-50"
+              >
+                {saving ? 'Saving...' : (mode === 'edit' ? 'Update Character' : 'Create Character')}
+              </button>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   );
