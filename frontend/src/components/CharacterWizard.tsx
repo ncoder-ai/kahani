@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, ChevronLeft, ChevronRight, User, Sparkles, CheckCircle, AlertCircle } from 'lucide-react';
 import apiClient from '../lib/api';
+import CharacterForm from './CharacterForm';
 
 interface CharacterSuggestion {
   name: string;
@@ -52,6 +53,7 @@ export default function CharacterWizard({ storyId, chapterId, onCharacterCreated
   const [selectedRole, setSelectedRole] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showCharacterForm, setShowCharacterForm] = useState(false);
 
   // Step 1: Load character suggestions
   useEffect(() => {
@@ -81,7 +83,8 @@ export default function CharacterWizard({ storyId, chapterId, onCharacterCreated
       const details = await apiClient.analyzeCharacterDetails(storyId, character.name);
       setCharacterDetails(details);
       setSelectedRole(details.suggested_role);
-      setCurrentStep(3); // Skip to role selection
+      // Show CharacterForm with analyzed data
+      setShowCharacterForm(true);
     } catch (err) {
       setError('Failed to analyze character details');
       console.error('Error analyzing character:', err);
@@ -90,38 +93,10 @@ export default function CharacterWizard({ storyId, chapterId, onCharacterCreated
     }
   };
 
-  const createCharacter = async () => {
-    if (!selectedCharacter || !characterDetails || !selectedRole) return;
-
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const characterData = {
-        name: characterDetails.name,
-        description: characterDetails.description,
-        personality_traits: characterDetails.personality_traits,
-        background: characterDetails.background,
-        goals: characterDetails.goals,
-        fears: characterDetails.fears,
-        appearance: characterDetails.appearance,
-        role: selectedRole
-      };
-
-      const createdCharacter = await apiClient.createCharacterFromSuggestion(
-        storyId,
-        selectedCharacter.name,
-        characterData
-      );
-
-      onCharacterCreated(createdCharacter);
-      onClose();
-    } catch (err) {
-      setError('Failed to create character');
-      console.error('Error creating character:', err);
-    } finally {
-      setLoading(false);
-    }
+  const handleCharacterFormSave = async (character: any) => {
+    // Character is already created and linked via CharacterForm's createCharacterFromSuggestion
+    onCharacterCreated(character);
+    onClose();
   };
 
   const getRoleInfo = (roleId: string) => {
@@ -435,58 +410,78 @@ export default function CharacterWizard({ storyId, chapterId, onCharacterCreated
         </div>
 
         <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
-          {currentStep === 1 && renderStep1()}
+          {showCharacterForm && characterDetails ? (
+            <div>
+              <div className="mb-6">
+                <h2 className="text-2xl font-bold text-white mb-2">Create Character</h2>
+                <p className="text-white/70">Review and edit the discovered character details</p>
+              </div>
+              <CharacterForm
+                mode="inline"
+                initialData={{
+                  name: characterDetails.name,
+                  description: characterDetails.description,
+                  personality_traits: characterDetails.personality_traits,
+                  background: characterDetails.background,
+                  goals: characterDetails.goals,
+                  fears: characterDetails.fears,
+                  appearance: characterDetails.appearance,
+                  is_template: true,
+                  is_public: false
+                }}
+                storyId={storyId}
+                storyCharacterRole={selectedRole}
+                onSave={handleCharacterFormSave}
+              />
+            </div>
+          ) : currentStep === 1 && renderStep1()}
           {currentStep === 2 && renderStep2()}
-          {currentStep === 3 && renderStep3()}
-          {currentStep === 4 && renderStep4()}
         </div>
 
         <div className="flex items-center justify-between p-6 border-t border-white/10">
-          <button
-            onClick={() => setCurrentStep(Math.max(1, currentStep - 1))}
-            disabled={currentStep === 1}
-            className="flex items-center space-x-2 px-4 py-2 text-white/70 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <ChevronLeft className="h-4 w-4" />
-            <span>Back</span>
-          </button>
-
-          <div className="flex space-x-3">
-            {currentStep === 1 && (
+          {showCharacterForm ? (
+            <>
+              <button
+                onClick={() => {
+                  setShowCharacterForm(false);
+                  setCharacterDetails(null);
+                  setSelectedRole('');
+                }}
+                className="flex items-center space-x-2 px-4 py-2 text-white/70 hover:text-white"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                <span>Back</span>
+              </button>
               <button
                 onClick={onClose}
                 className="px-4 py-2 text-white/70 hover:text-white"
               >
                 Cancel
               </button>
-            )}
-            
-            {currentStep === 3 && (
+            </>
+          ) : (
+            <>
               <button
-                onClick={() => setCurrentStep(4)}
-                disabled={!selectedRole}
-                className="flex items-center space-x-2 px-6 py-2 theme-btn-primary rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={() => setCurrentStep(Math.max(1, currentStep - 1))}
+                disabled={currentStep === 1}
+                className="flex items-center space-x-2 px-4 py-2 text-white/70 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <span>Continue</span>
-                <ChevronRight className="h-4 w-4" />
+                <ChevronLeft className="h-4 w-4" />
+                <span>Back</span>
               </button>
-            )}
-            
-            {currentStep === 4 && (
-              <button
-                onClick={createCharacter}
-                disabled={loading || !characterDetails || !selectedRole}
-                className="flex items-center space-x-2 px-6 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading ? (
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                ) : (
-                  <CheckCircle className="h-4 w-4" />
+
+              <div className="flex space-x-3">
+                {currentStep === 1 && (
+                  <button
+                    onClick={onClose}
+                    className="px-4 py-2 text-white/70 hover:text-white"
+                  >
+                    Cancel
+                  </button>
                 )}
-                <span>Create Character</span>
-              </button>
-            )}
-          </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

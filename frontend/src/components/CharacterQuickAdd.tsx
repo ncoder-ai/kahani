@@ -48,10 +48,9 @@ const CHARACTER_ROLES = [
 ];
 
 export default function CharacterQuickAdd({ onCharacterAdd, onClose, existingCharacters, storyId, chapterId, onOpenCharacterWizard }: CharacterQuickAddProps) {
-  const [activeTab, setActiveTab] = useState<'library' | 'create' | 'quick' | 'discover'>('quick');
+  const [activeTab, setActiveTab] = useState<'library' | 'create' | 'discover'>('library');
   const [persistentCharacters, setPersistentCharacters] = useState<PersistentCharacter[]>([]);
   const [loadingLibrary, setLoadingLibrary] = useState(false);
-  const [quickCharacter, setQuickCharacter] = useState<Partial<Character>>({});
 
   useEffect(() => {
     if (activeTab === 'library' && persistentCharacters.length === 0) {
@@ -91,24 +90,12 @@ export default function CharacterQuickAdd({ onCharacterAdd, onClose, existingCha
       const newCharacter: Character = {
         id: character.id,
         name: character.name,
-        role: quickCharacter.role || 'other',
+        role: 'other', // Default role, user can change this later if needed
         description: character.description
       };
       onCharacterAdd(newCharacter);
     }
     onClose();
-  };
-
-  const handleQuickAdd = () => {
-    if (quickCharacter.name && quickCharacter.role) {
-      const newCharacter: Character = {
-        name: quickCharacter.name,
-        role: quickCharacter.role,
-        description: quickCharacter.description || ''
-      };
-      onCharacterAdd(newCharacter);
-      onClose();
-    }
   };
 
   const getRoleInfo = (roleId: string) => {
@@ -131,16 +118,6 @@ export default function CharacterQuickAdd({ onCharacterAdd, onClose, existingCha
           
           {/* Tabs */}
           <div className="flex space-x-4 mt-4">
-            <button
-              onClick={() => setActiveTab('quick')}
-              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                activeTab === 'quick'
-                  ? 'theme-btn-primary'
-                  : 'bg-white/10 text-white/70 hover:bg-white/20'
-              }`}
-            >
-              Quick Add
-            </button>
             <button
               onClick={() => setActiveTab('library')}
               className={`px-4 py-2 rounded-lg font-medium transition-colors ${
@@ -178,64 +155,6 @@ export default function CharacterQuickAdd({ onCharacterAdd, onClose, existingCha
         
         <div className="overflow-y-auto max-h-[70vh]">
           <div className="p-6">
-            {activeTab === 'quick' && (
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-white/80 mb-2">Character Name</label>
-                  <input
-                    type="text"
-                    value={quickCharacter.name || ''}
-                    onChange={(e) => setQuickCharacter({ ...quickCharacter, name: e.target.value })}
-                    placeholder="Enter character name..."
-                    className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-white/80 mb-2">Character Role</label>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    {CHARACTER_ROLES.map((role) => (
-                      <button
-                        key={role.id}
-                        onClick={() => setQuickCharacter({ ...quickCharacter, role: role.id })}
-                        className={`p-3 rounded-lg border transition-all duration-200 ${
-                          quickCharacter.role === role.id
-                            ? `bg-gradient-to-r ${role.color} text-white border-transparent`
-                            : 'bg-white/10 border-white/30 text-white hover:bg-white/20'
-                        }`}
-                      >
-                        <div className="text-lg mb-1">{role.icon}</div>
-                        <div className="text-xs font-medium">{role.name}</div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-white/80 mb-2">Description (Optional)</label>
-                  <textarea
-                    value={quickCharacter.description || ''}
-                    onChange={(e) => setQuickCharacter({ ...quickCharacter, description: e.target.value })}
-                    placeholder="Describe this character..."
-                    rows={3}
-                    className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
-                  />
-                </div>
-
-                <button
-                  onClick={handleQuickAdd}
-                  disabled={!quickCharacter.name || !quickCharacter.role}
-                  className={`w-full px-6 py-3 rounded-lg font-semibold transition-colors ${
-                    quickCharacter.name && quickCharacter.role
-                      ? 'theme-btn-primary'
-                      : 'bg-white/20 text-white/50 cursor-not-allowed'
-                  }`}
-                >
-                  Add Character
-                </button>
-              </div>
-            )}
-
             {activeTab === 'library' && (
               <div>
                 {loadingLibrary ? (
