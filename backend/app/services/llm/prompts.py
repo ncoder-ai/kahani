@@ -316,8 +316,37 @@ Generate 4 specific choices that advance the story in different ways."""
             "user": self.get_prompt(template_key, "user", user_id, db, **template_vars)
         }
     
-    def get_max_tokens(self, template_key: str) -> int:
-        """Get max_tokens setting for a template"""
+    def get_max_tokens(self, template_key: str, user_settings: Optional[Dict[str, Any]] = None) -> int:
+        """Get max_tokens setting for a template
+        
+        Priority:
+        1. User's llm_max_tokens setting (for scene generation types)
+        2. YAML file defaults
+        3. Hardcoded fallback (2048)
+        
+        Args:
+            template_key: Template identifier (e.g., 'scene_generation')
+            user_settings: Optional user settings dict with llm_settings.max_tokens
+        
+        Returns:
+            Max tokens value to use for generation
+        """
+        # Check user settings first for scene generation types
+        scene_generation_types = {
+            "scene_generation", "scene", "scene_continuation", 
+            "scene_variants", "scene_variants_streaming"
+        }
+        
+        if user_settings and template_key in scene_generation_types:
+            try:
+                user_max_tokens = user_settings.get("llm_settings", {}).get("max_tokens")
+                if user_max_tokens is not None and isinstance(user_max_tokens, int):
+                    logger.info(f"Using user max_tokens setting: {user_max_tokens} for {template_key}")
+                    return user_max_tokens
+            except (KeyError, TypeError, AttributeError):
+                pass
+        
+        # Fall back to YAML defaults
         if not self._prompts_cache:
             return 2048  # Default fallback
         
@@ -337,7 +366,9 @@ Generate 4 specific choices that advance the story in different ways."""
             }
             
             function_name = function_mapping.get(template_key, template_key)
-            return self._prompts_cache.get("settings", {}).get("max_tokens", {}).get(function_name, 2048)
+            yaml_max_tokens = self._prompts_cache.get("settings", {}).get("max_tokens", {}).get(function_name, 2048)
+            logger.debug(f"Using YAML max_tokens setting: {yaml_max_tokens} for {template_key}")
+            return yaml_max_tokens
         except (KeyError, TypeError):
             return 2048
     

@@ -428,7 +428,7 @@ class UnifiedLLMService:
         logger.info(f"USER PROMPT:\n{user_prompt}")
         logger.info("=" * 80)
         
-        max_tokens = prompt_manager.get_max_tokens("scene")
+        max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
         
         response = await self._generate(
             prompt=user_prompt,
@@ -457,7 +457,7 @@ class UnifiedLLMService:
         logger.info(f"USER PROMPT:\n{user_prompt}")
         logger.info("=" * 80)
         
-        max_tokens = prompt_manager.get_max_tokens("scene")
+        max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
         
         async for chunk in self._generate_stream(
             prompt=user_prompt,
@@ -479,7 +479,7 @@ class UnifiedLLMService:
             context=self._format_context_for_scene(context)
         )
         
-        max_tokens = prompt_manager.get_max_tokens("scene_variants")
+        max_tokens = prompt_manager.get_max_tokens("scene_variants", user_settings)
         
         response = await self._generate(
             prompt=user_prompt,
@@ -500,7 +500,7 @@ class UnifiedLLMService:
             context=self._format_context_for_scene(context)
         )
         
-        max_tokens = prompt_manager.get_max_tokens("scene_variants")
+        max_tokens = prompt_manager.get_max_tokens("scene_variants", user_settings)
         
         async for chunk in self._generate_stream(
             prompt=user_prompt,
@@ -516,12 +516,30 @@ class UnifiedLLMService:
     async def generate_scene_continuation(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> str:
         """Generate continuation content for an existing scene"""
         
+        # Detect POV from current scene content
+        current_content = context.get("current_content", "")
+        previous_scenes = context.get("previous_scenes", "")
+        
+        # Detect POV from current scene and previous scenes
+        pov = self._detect_pov(current_content)
+        if previous_scenes:
+            previous_pov = self._detect_pov(previous_scenes)
+            # Prefer POV from previous scenes if available (more context)
+            if previous_pov != 'third' or pov == 'third':
+                pov = previous_pov
+        
+        # Enhance system prompt with POV consistency requirement
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "story_generation", "scene_continuation",
             context=self._format_context_for_continuation(context)
         )
         
-        max_tokens = prompt_manager.get_max_tokens("scene_continuation")
+        if pov == 'first':
+            system_prompt += "\n\nIMPORTANT: Continue the story in first person perspective (using 'I', 'me', 'my'). Maintain consistency with the established first-person narrative style."
+        else:
+            system_prompt += "\n\nIMPORTANT: Continue the story in third person perspective (using 'he', 'she', 'they', character names). Maintain consistency with the established third-person narrative style."
+        
+        max_tokens = prompt_manager.get_max_tokens("scene_continuation", user_settings)
         
         response = await self._generate(
             prompt=user_prompt,
@@ -536,12 +554,30 @@ class UnifiedLLMService:
     async def generate_scene_continuation_streaming(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> AsyncGenerator[str, None]:
         """Generate continuation content for an existing scene with streaming"""
         
+        # Detect POV from current scene content
+        current_content = context.get("current_content", "") or context.get("current_scene_content", "")
+        previous_scenes = context.get("previous_scenes", "")
+        
+        # Detect POV from current scene and previous scenes
+        pov = self._detect_pov(current_content)
+        if previous_scenes:
+            previous_pov = self._detect_pov(previous_scenes)
+            # Prefer POV from previous scenes if available (more context)
+            if previous_pov != 'third' or pov == 'third':
+                pov = previous_pov
+        
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "story_generation", "scene_continuation",
             context=self._format_context_for_continuation(context)
         )
         
-        max_tokens = prompt_manager.get_max_tokens("scene_continuation")
+        # Enhance system prompt with POV consistency requirement
+        if pov == 'first':
+            system_prompt += "\n\nIMPORTANT: Continue the story in first person perspective (using 'I', 'me', 'my'). Maintain consistency with the established first-person narrative style."
+        else:
+            system_prompt += "\n\nIMPORTANT: Continue the story in third person perspective (using 'he', 'she', 'they', character names). Maintain consistency with the established third-person narrative style."
+        
+        max_tokens = prompt_manager.get_max_tokens("scene_continuation", user_settings)
         
         async for chunk in self._generate_stream(
             prompt=user_prompt,
@@ -554,14 +590,68 @@ class UnifiedLLMService:
             if cleaned_chunk:  # Only yield non-empty chunks
                 yield cleaned_chunk
     
+    def _detect_pov(self, text: str) -> str:
+        """
+        Detect point of view (1st person vs 3rd person) from text.
+        Returns 'first' or 'third'
+        """
+        if not text:
+            return 'third'  # Default to third person
+        
+        # Look for first person indicators
+        first_person_patterns = [
+            r'\bI\b', r'\bme\b', r'\bmy\b', r'\bmyself\b', r'\bmine\b',
+            r'\bwe\b', r'\bus\b', r'\bour\b', r'\bourselves\b'
+        ]
+        
+        # Look for third person indicators
+        third_person_patterns = [
+            r'\bhe\b', r'\bshe\b', r'\bthey\b', r'\bhim\b', r'\bher\b',
+            r'\bhis\b', r'\bhers\b', r'\btheirs\b', r'\bthem\b'
+        ]
+        
+        text_lower = text.lower()
+        
+        first_person_count = sum(len(re.findall(pattern, text_lower)) for pattern in first_person_patterns)
+        third_person_count = sum(len(re.findall(pattern, text_lower)) for pattern in third_person_patterns)
+        
+        # If first person indicators are significantly more common, return first
+        if first_person_count > third_person_count * 1.5:
+            return 'first'
+        
+        # Default to third person
+        return 'third'
+    
     async def generate_choices(self, scene_content: str, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> List[str]:
         """Generate 4 narrative choices for the given scene"""
+        
+        # Detect POV from scene content
+        pov = self._detect_pov(scene_content)
+        
+        # Also check previous scenes if available
+        previous_scenes = context.get("previous_scenes", "")
+        if previous_scenes:
+            previous_pov = self._detect_pov(previous_scenes)
+            # Use the POV from previous scenes if available (more context)
+            if previous_pov != 'third' or pov == 'third':
+                pov = previous_pov
+        
+        # Add POV instruction to context
+        pov_instruction = "third person" if pov == 'third' else "first person"
+        enhanced_context = context.copy()
+        enhanced_context["pov_instruction"] = pov_instruction
         
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "choice_generation", "choice_generation",
             scene_content=scene_content[-800:],  # Last 800 chars to avoid token limits
-            context=self._format_context_for_choices(context)
+            context=self._format_context_for_choices(enhanced_context)
         )
+        
+        # Enhance system prompt with POV consistency requirement
+        if pov == 'first':
+            system_prompt += "\n\nIMPORTANT: Write all choices in first person perspective (using 'I', 'me', 'my'). The choices should match the story's first-person narrative style."
+        else:
+            system_prompt += "\n\nIMPORTANT: Write all choices in third person perspective (using 'he', 'she', 'they', character names). The choices should match the story's third-person narrative style."
         
         max_tokens = prompt_manager.get_max_tokens("choices")
         
@@ -717,6 +807,10 @@ class UnifiedLLMService:
         """Format context for scene generation"""
         context_parts = []
         
+        # Check if this is the first scene with user prompt
+        is_first_scene = context.get("is_first_scene", False)
+        user_prompt_provided = context.get("user_prompt_provided", False)
+        
         if context.get("genre"):
             context_parts.append(f"Genre: {context['genre']}")
         
@@ -726,8 +820,18 @@ class UnifiedLLMService:
         if context.get("world_setting"):
             context_parts.append(f"Setting: {context['world_setting']}")
         
-        if context.get("scenario"):
-            context_parts.append(f"Story Scenario: {context['scenario']}")
+        # For first scene with user prompt, prioritize user prompt over scenario
+        if is_first_scene and user_prompt_provided and context.get("current_situation"):
+            # User prompt takes precedence for first scene
+            context_parts.append(f"User's Opening Prompt: {context['current_situation']}")
+            if context.get("scenario"):
+                context_parts.append(f"Story Scenario (for reference): {context['scenario']}")
+        else:
+            # Normal order: scenario first, then user prompt if provided
+            if context.get("scenario"):
+                context_parts.append(f"Story Scenario: {context['scenario']}")
+            if context.get("current_situation"):
+                context_parts.append(f"Current Situation: {context['current_situation']}")
         
         if context.get("initial_premise"):
             context_parts.append(f"Initial Premise: {context['initial_premise']}")
@@ -753,9 +857,6 @@ class UnifiedLLMService:
         
         if context.get("previous_scenes"):
             context_parts.append(f"Previous Events:\n{context['previous_scenes']}")
-        
-        if context.get("current_situation"):
-            context_parts.append(f"Current Situation: {context['current_situation']}")
         
         return "\n\n".join(context_parts)
     
