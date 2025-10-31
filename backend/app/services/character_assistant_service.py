@@ -290,6 +290,35 @@ class CharacterAssistantService:
             
             character_details = json.loads(response_clean)
             
+            # Normalize fields that should be strings (convert lists to strings if needed)
+            if isinstance(character_details.get('goals'), list):
+                character_details['goals'] = ', '.join(str(g) for g in character_details['goals'])
+            elif not isinstance(character_details.get('goals'), str):
+                character_details['goals'] = str(character_details.get('goals', ''))
+            
+            if isinstance(character_details.get('fears'), list):
+                character_details['fears'] = ', '.join(str(f) for f in character_details['fears'])
+            elif not isinstance(character_details.get('fears'), str):
+                character_details['fears'] = str(character_details.get('fears', ''))
+            
+            # Ensure other string fields are strings
+            for field in ['name', 'description', 'background', 'appearance', 'suggested_role']:
+                if field in character_details and not isinstance(character_details[field], str):
+                    character_details[field] = str(character_details[field])
+            
+            # Ensure personality_traits is a list
+            if 'personality_traits' in character_details:
+                if isinstance(character_details['personality_traits'], str):
+                    # Split comma-separated or newline-separated traits
+                    character_details['personality_traits'] = [
+                        t.strip() for t in re.split(r'[,;\n]', character_details['personality_traits']) 
+                        if t.strip()
+                    ]
+                elif not isinstance(character_details['personality_traits'], list):
+                    character_details['personality_traits'] = []
+            else:
+                character_details['personality_traits'] = []
+            
             # Add metadata
             character_details['confidence'] = 0.85  # Could be calculated based on scene count
             character_details['scenes_analyzed'] = [s['sequence'] for s in character_scenes]
@@ -299,17 +328,11 @@ class CharacterAssistantService:
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON from LLM response: {e}")
             logger.error(f"Raw response: {response_clean[:500]}")
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to parse character analysis response"
-            )
+            raise ValueError(f"Failed to parse character analysis response: {str(e)}")
         except Exception as e:
             logger.error(f"Failed to extract character details: {e}")
             logger.error(f"Raw response: {response_clean[:500]}")
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to extract character details"
-            )
+            raise Exception(f"Failed to extract character details: {str(e)}")
     
     async def check_character_importance(
         self,

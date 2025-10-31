@@ -9,9 +9,22 @@ interface CharacterFormProps {
   onSave?: (character: any) => void;
   mode?: 'create' | 'edit' | 'inline';
   storyContext?: { genre?: string; tone?: string; world_setting?: string };
+  initialData?: {
+    name?: string;
+    description?: string;
+    personality_traits?: string[];
+    background?: string;
+    goals?: string;
+    fears?: string;
+    appearance?: string;
+    is_template?: boolean;
+    is_public?: boolean;
+  };
+  storyCharacterRole?: string; // For linking to story after creation
+  storyId?: number; // For linking to story after creation
 }
 
-export default function CharacterForm({ characterId, onSave, mode = 'create', storyContext }: CharacterFormProps) {
+export default function CharacterForm({ characterId, onSave, mode = 'create', storyContext, initialData, storyCharacterRole, storyId }: CharacterFormProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -34,12 +47,58 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
   });
 
   const [newTrait, setNewTrait] = useState('');
+  const [selectedRole, setSelectedRole] = useState<string>('');
+
+  // Character roles for story linking
+  const CHARACTER_ROLES = [
+    { id: 'protagonist', name: 'Main Character', icon: '⭐', color: 'from-yellow-400 to-orange-500' },
+    { id: 'antagonist', name: 'Antagonist', icon: '⚔️', color: 'from-red-500 to-red-700' },
+    { id: 'ally', name: 'Ally/Friend', icon: '🤝', color: 'from-green-400 to-green-600' },
+    { id: 'mentor', name: 'Mentor', icon: '🎓', color: 'from-blue-400 to-blue-600' },
+    { id: 'love_interest', name: 'Love Interest', icon: '💕', color: 'from-pink-400 to-pink-600' },
+    { id: 'comic_relief', name: 'Comic Relief', icon: '😄', color: 'from-purple-400 to-purple-600' },
+    { id: 'mysterious', name: 'Mysterious Figure', icon: '🎭', color: 'from-gray-500 to-gray-700' },
+    { id: 'other', name: 'Other', icon: '👤', color: 'from-indigo-400 to-indigo-600' }
+  ];
 
   useEffect(() => {
     if (characterId && mode === 'edit') {
       loadCharacter();
+    } else if (initialData && mode !== 'edit') {
+      // Pre-fill form with initial data (e.g., from Discover from Story)
+      setFormData({
+        name: initialData.name || '',
+        description: initialData.description || '',
+        personality_traits: initialData.personality_traits || [],
+        background: initialData.background || '',
+        goals: initialData.goals || '',
+        fears: initialData.fears || '',
+        appearance: initialData.appearance || '',
+        is_template: initialData.is_template ?? true,
+        is_public: initialData.is_public ?? false
+      });
+      // Set as generated character so it shows in AI-assisted preview mode
+      setGeneratedCharacter({
+        name: initialData.name || '',
+        description: initialData.description || '',
+        personality_traits: initialData.personality_traits || [],
+        background: initialData.background || '',
+        goals: initialData.goals || '',
+        fears: initialData.fears || '',
+        appearance: initialData.appearance || '',
+        is_template: initialData.is_template ?? true,
+        is_public: initialData.is_public ?? false
+      });
+      setCreationMode('ai-assisted');
     }
-  }, [characterId, mode]);
+  }, [characterId, mode, initialData]);
+
+  // Set initial role from prop or initialData
+  useEffect(() => {
+    if (storyCharacterRole) {
+      setSelectedRole(storyCharacterRole);
+    }
+  }, [storyCharacterRole]);
 
   const loadCharacter = async () => {
     if (!characterId) return;
@@ -131,17 +190,39 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
     // Accept and save directly
     try {
       setSaving(true);
-      const character = await apiClient.createCharacter({
-        name: generatedCharacter.name,
-        description: generatedCharacter.description,
-        personality_traits: generatedCharacter.personality_traits,
-        background: generatedCharacter.background,
-        goals: generatedCharacter.goals,
-        fears: generatedCharacter.fears,
-        appearance: generatedCharacter.appearance,
-        is_template: generatedCharacter.is_template,
-        is_public: generatedCharacter.is_public
-      });
+      let character;
+      
+      // If storyId and role are provided, use createCharacterFromSuggestion to link to story
+      if (storyId && (selectedRole || storyCharacterRole) && generatedCharacter) {
+        const roleToUse = selectedRole || storyCharacterRole || 'other';
+        character = await apiClient.createCharacterFromSuggestion(
+          storyId,
+          generatedCharacter.name,
+          {
+            name: generatedCharacter.name,
+            description: generatedCharacter.description,
+            personality_traits: generatedCharacter.personality_traits,
+            background: generatedCharacter.background,
+            goals: generatedCharacter.goals,
+            fears: generatedCharacter.fears,
+            appearance: generatedCharacter.appearance,
+            role: roleToUse
+          }
+        );
+      } else {
+        // Regular character creation
+        character = await apiClient.createCharacter({
+          name: generatedCharacter.name,
+          description: generatedCharacter.description,
+          personality_traits: generatedCharacter.personality_traits,
+          background: generatedCharacter.background,
+          goals: generatedCharacter.goals,
+          fears: generatedCharacter.fears,
+          appearance: generatedCharacter.appearance,
+          is_template: generatedCharacter.is_template,
+          is_public: generatedCharacter.is_public
+        });
+      }
 
       if (onSave) {
         onSave(character);
@@ -183,11 +264,34 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
       return;
     }
 
+    // Validate role selection when linking to story
+    if (storyId && !selectedRole && !storyCharacterRole) {
+      alert('Please select a character role for this story');
+      return;
+    }
+
     try {
       setSaving(true);
       let character;
       
-      if (mode === 'edit' && characterId) {
+      // If storyId and role are provided, use createCharacterFromSuggestion to link to story
+      if (storyId && (selectedRole || storyCharacterRole) && mode !== 'edit') {
+        const roleToUse = selectedRole || storyCharacterRole || 'other';
+        character = await apiClient.createCharacterFromSuggestion(
+          storyId,
+          formData.name,
+          {
+            name: formData.name,
+            description: formData.description,
+            personality_traits: formData.personality_traits,
+            background: formData.background,
+            goals: formData.goals,
+            fears: formData.fears,
+            appearance: formData.appearance,
+            role: roleToUse
+          }
+        );
+      } else if (mode === 'edit' && characterId) {
         character = await apiClient.updateCharacter(characterId, formData);
       } else {
         character = await apiClient.createCharacter(formData);
@@ -251,8 +355,8 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
           </div>
         )}
 
-        {/* Mode Toggle - Only show in create mode */}
-        {mode === 'create' && (
+        {/* Mode Toggle - Show in create and inline modes */}
+        {(mode === 'create' || mode === 'inline') && (
           <div className="mb-6">
             <div className="bg-white/10 rounded-xl p-4">
               <div className="flex items-center justify-between mb-2">
@@ -284,7 +388,7 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
         )}
 
         {/* AI-Assisted Mode */}
-        {mode === 'create' && creationMode === 'ai-assisted' && (
+        {(mode === 'create' || mode === 'inline') && creationMode === 'ai-assisted' && (
           <div className="bg-white/10 rounded-xl p-8 space-y-6 mb-6">
             {!generatedCharacter ? (
               <>
@@ -469,6 +573,40 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
                       </div>
                     </div>
                   </div>
+
+                  {/* Story Character Role Selection */}
+                  {storyId && (
+                    <div className="space-y-4">
+                      <h4 className="text-lg font-semibold text-white">Character Role in Story</h4>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        {CHARACTER_ROLES.map((role) => {
+                          const isSelected = selectedRole === role.id;
+                          return (
+                            <button
+                              key={role.id}
+                              type="button"
+                              onClick={() => setSelectedRole(role.id)}
+                              className={`p-3 rounded-lg border-2 transition-all ${
+                                isSelected
+                                  ? 'border-2'
+                                  : 'border-white/20 hover:border-white/40'
+                              }`}
+                              style={isSelected ? {
+                                borderColor: 'var(--color-accentPrimary)',
+                                backgroundColor: 'var(--color-accentPrimary)',
+                                opacity: 0.2
+                              } as React.CSSProperties : {}}
+                            >
+                              <div className={`w-8 h-8 rounded-full bg-gradient-to-r ${role.color} flex items-center justify-center text-white text-lg mb-2 mx-auto`}>
+                                {role.icon}
+                              </div>
+                              <div className="text-white text-sm font-medium">{role.name}</div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Action Buttons */}
@@ -476,7 +614,7 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
                   <button
                     type="button"
                     onClick={handleAcceptGenerated}
-                    disabled={saving}
+                    disabled={saving || (storyId && !selectedRole && !storyCharacterRole)}
                     className="flex-1 px-6 py-3 theme-btn-primary rounded-xl transition-colors font-semibold disabled:opacity-50"
                   >
                     {saving ? 'Saving...' : 'Accept & Save'}
@@ -641,6 +779,40 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
                 />
               </div>
             </div>
+
+            {/* Story Character Role Selection */}
+            {storyId && (
+              <div className="space-y-4">
+                <h3 className="text-xl font-semibold text-white">Character Role in Story</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {CHARACTER_ROLES.map((role) => {
+                    const isSelected = selectedRole === role.id;
+                    return (
+                      <button
+                        key={role.id}
+                        type="button"
+                        onClick={() => setSelectedRole(role.id)}
+                        className={`p-3 rounded-lg border-2 transition-all ${
+                          isSelected
+                            ? 'border-2'
+                            : 'border-white/20 hover:border-white/40'
+                        }`}
+                        style={isSelected ? {
+                          borderColor: 'var(--color-accentPrimary)',
+                          backgroundColor: 'var(--color-accentPrimary)',
+                          opacity: 0.2
+                        } as React.CSSProperties : {}}
+                      >
+                        <div className={`w-8 h-8 rounded-full bg-gradient-to-r ${role.color} flex items-center justify-center text-white text-lg mb-2 mx-auto`}>
+                          {role.icon}
+                        </div>
+                        <div className="text-white text-sm font-medium">{role.name}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Settings */}
             <div className="space-y-4">

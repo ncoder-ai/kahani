@@ -191,16 +191,29 @@ async def analyze_character_details(
     # Create service instance
     service = CharacterAssistantService(current_user.id, user_settings_dict)
     
-    # Extract character details
-    character_details = await service.extract_character_details(db, story_id, character_name)
-    
-    if not character_details:
+    try:
+        # Extract character details
+        character_details = await service.extract_character_details(db, story_id, character_name)
+        
+        if not character_details:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Character not found or could not be analyzed"
+            )
+        
+        return CharacterDetails(**character_details)
+    except ValueError as e:
+        logger.error(f"Character extraction failed: {e}")
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Character not found or could not be analyzed"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to analyze character: {str(e)}"
         )
-    
-    return CharacterDetails(**character_details)
+    except Exception as e:
+        logger.error(f"Unexpected error during character extraction: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred while analyzing the character"
+        )
 
 @router.post("/{story_id}/character-suggestions/{character_name}/create", response_model=CharacterCreatedResponse)
 async def create_character_from_suggestion(
@@ -245,7 +258,7 @@ async def create_character_from_suggestion(
             fears=character_data.fears,
             appearance=character_data.appearance,
             creator_id=current_user.id,
-            is_template=False,
+            is_template=True,  # Characters discovered from story should be templates
             is_public=False
         )
         db.add(character)

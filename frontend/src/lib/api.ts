@@ -511,7 +511,7 @@ class ApiClient {
   // Character Assistant API
   async checkCharacterImportance(storyId: number, chapterId?: number) {
     const params = chapterId ? `?chapter_id=${chapterId}` : '';
-    return this.request<{ new_character_detected: boolean }>(`/api/character-assistant/${storyId}/character-importance-check${params}`);
+    return this.request<{ new_character_detected: boolean }>(`/api/stories/${storyId}/character-importance-check${params}`);
   }
 
   async getCharacterSuggestions(storyId: number, chapterId?: number) {
@@ -529,7 +529,7 @@ class ApiClient {
       }>;
       chapter_analyzed: number | null;
       total_scenes_analyzed: number;
-    }>(`/api/character-assistant/${storyId}/character-suggestions${params}`);
+    }>(`/api/stories/${storyId}/character-suggestions${params}`);
   }
 
   async analyzeCharacterDetails(storyId: number, characterName: string) {
@@ -544,7 +544,7 @@ class ApiClient {
       suggested_role: string;
       confidence: number;
       scenes_analyzed: number[];
-    }>(`/api/character-assistant/${storyId}/character-suggestions/${encodeURIComponent(characterName)}/analyze`, {
+    }>(`/api/stories/${storyId}/character-suggestions/${encodeURIComponent(characterName)}/analyze`, {
       method: 'POST'
     });
   }
@@ -569,7 +569,7 @@ class ApiClient {
       fears: string;
       appearance: string;
       role: string;
-    }>(`/api/character-assistant/${storyId}/character-suggestions/${encodeURIComponent(characterName)}/create`, {
+    }>(`/api/stories/${storyId}/character-suggestions/${encodeURIComponent(characterName)}/create`, {
       method: 'POST',
       body: JSON.stringify(characterData)
     });
