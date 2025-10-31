@@ -24,26 +24,62 @@ Kahani (meaning "story" in Hindi) is a modern interactive storytelling platform 
 - **Local AI Support**: Run completely offline with local models
 - **Smart Context Management**: Automatic context optimization and token management
 - **Semantic Memory**: AI-powered story memory and character tracking
+- **Hybrid Context Strategies**: Combine recent scenes with semantically relevant moments
+- **Character-Aware Context**: Intelligent retrieval based on character relationships
+- **Plot Thread Continuity**: Track and maintain consistency across multiple storylines
 
 ### 📝 **Advanced Story Management**
 - **Three-Tier Summary System**: Chapter summaries, story-so-far, and overall narrative summaries
 - **Character Management**: Create, edit, and track characters throughout your story
 - **Plot Thread Tracking**: Follow multiple storylines and plot developments
 - **Entity State Management**: Track character relationships and story world consistency
+- **Scene History**: Navigate back through scene versions with full history tracking
+- **Auto-Save**: Automatic story and scene persistence
+- **Auto-Resume**: Automatically opens your last worked-on story
+
+### 🎭 **Character Generation Wizard**
+- **AI Character Suggestions**: Automatically detect and suggest characters from your story
+- **Intelligent Character Analysis**: AI-powered character detail extraction with personality traits, background, goals, and fears
+- **Role-Based Organization**: Assign character roles (protagonist, antagonist, mentor, etc.) with visual indicators
+- **Character Wizard Interface**: Step-by-step guided character creation process
+- **Character Memory Service**: Track character development and relationships across scenes
+- **Character Importance Detection**: Automatically identify significant characters worth tracking
 
 ### 🎵 **Text-to-Speech Integration**
 - **Multiple TTS Providers**: OpenAI, Kokoro, Chatterbox, and custom providers
 - **Progressive Streaming**: Real-time audio generation and playback
 - **Voice Persistence**: Remember character voices across sessions
 - **WebSocket Support**: Real-time audio streaming with retry logic
+- **Auto-Narration**: Automatically narrate newly generated scenes
+- **Smart Text Chunking**: Intelligent paragraph-aware chunking for natural narration
+- **Audio Caching**: Efficient storage and playback of generated audio
+
+### 🎤 **Speech-to-Text Integration**
+- **Real-time Transcription**: Whisper-based STT with faster-whisper engine
+- **GPU/CPU Auto-Detection**: Automatic device selection with CPU fallback
+- **WebSocket Streaming**: Low-latency audio processing via WebSocket
+- **Voice Activity Detection**: Automatic speech detection with Silero VAD
+- **Performance Metrics**: Real-time latency, accuracy, and throughput tracking
+- **Dynamic Buffering**: Intelligent buffering with silence detection
+- **Sentence Boundary Detection**: Natural text segmentation for better transcription quality
+
+### 🧠 **Semantic Context & Memory**
+- **Semantic Search**: Find relevant scenes and moments using natural language queries
+- **Hybrid Context Assembly**: Combine recent scenes with semantically relevant moments
+- **Character Moment Extraction**: Automatically extract and track significant character moments
+- **Plot Event Tracking**: Identify and track important plot developments
+- **Context Strategy Options**: Choose between linear, hybrid, or semantic-only context strategies
+- **Token-Efficient Context**: Intelligent context selection to maximize relevant information
+- **Embedding-Based Retrieval**: Vector search for finding related story elements
 
 ### 🎨 **User Experience**
 - **Responsive Design**: Works seamlessly on desktop and mobile
 - **Keyboard Navigation**: Navigate scenes with arrow keys (← previous, → regenerate)
 - **Scene Regeneration**: Regenerate scenes you don't like with a single keypress
-- **Scene History**: Navigate back through scene versions with full history tracking
-- **Auto-Save**: Automatic story and scene persistence
-- **Auto-Resume**: Automatically opens your last worked-on story
+- **Theme Customization**: Dark/Light/Auto themes with customizable color schemes
+- **Customizable Settings**: LLM parameters, context management, generation preferences
+- **Writing Style Presets**: Pre-configured settings for different writing styles
+- **Comprehensive Settings Modal**: Single unified interface for all configuration options
 
 ### 🔐 **Security & Authentication**
 - **JWT Authentication**: Secure token-based authentication with configurable expiration
