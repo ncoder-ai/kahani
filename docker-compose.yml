@@ -19,6 +19,8 @@ services:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT_SECRET_KEY environment variable is required - see docs/SECURITY_SETUP.md}
       - CORS_ORIGINS=${CORS_ORIGINS:-["http://localhost:6789"]}
       - PORT=9876
+      - TRANSFORMERS_CACHE=/app/.cache/huggingface
+      - HF_HOME=/app/.cache/huggingface
     extra_hosts:
       - "host.docker.internal:host-gateway"
     
