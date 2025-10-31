@@ -7,6 +7,7 @@ import apiClient, { getApiBaseUrl } from '@/lib/api';
 import { getThemeList, applyTheme } from '@/lib/themes';
 import { useAuthStore } from '@/store';
 import { UIPreferences, GenerationPreferences } from '@/types/settings';
+import TextCompletionTemplateEditor from './TextCompletionTemplateEditor';
 
 interface WritingPreset {
   id?: number;
@@ -1798,6 +1799,59 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       </select>
                       <div className="text-xs text-gray-400 mt-1">
                         {availableModels.length} models available
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Completion Mode Toggle */}
+                  <div className="pt-4 border-t border-gray-700">
+                    <label className="block text-sm font-medium text-white mb-3">Completion API Mode</label>
+                    <div className="flex gap-4">
+                      <label className="flex items-center cursor-pointer">
+                        <input
+                          type="radio"
+                          value="chat"
+                          checked={llmSettings.completion_mode === 'chat'}
+                          onChange={(e) => setLlmSettings({ ...llmSettings, completion_mode: 'chat' })}
+                          className="mr-2"
+                        />
+                        <span className="text-white">Chat Completion API</span>
+                      </label>
+                      <label className="flex items-center cursor-pointer">
+                        <input
+                          type="radio"
+                          value="text"
+                          checked={llmSettings.completion_mode === 'text'}
+                          onChange={(e) => setLlmSettings({ ...llmSettings, completion_mode: 'text' })}
+                          className="mr-2"
+                        />
+                        <span className="text-white">Text Completion API</span>
+                      </label>
+                    </div>
+                    <p className="text-sm text-gray-400 mt-2">
+                      Chat uses message format. Text uses raw prompts with templates (for instruction-tuned models).
+                    </p>
+                  </div>
+
+                  {/* Text Completion Template Configuration */}
+                  {llmSettings.completion_mode === 'text' && (
+                    <div className="pt-4 pb-4 px-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                      <h4 className="text-sm font-medium text-white mb-3">Text Completion Template</h4>
+                      <TextCompletionTemplateEditor
+                        value={llmSettings.text_completion_template ? JSON.parse(llmSettings.text_completion_template) : null}
+                        preset={llmSettings.text_completion_preset || 'llama3'}
+                        onChange={(template, preset) => {
+                          setLlmSettings({
+                            ...llmSettings,
+                            text_completion_template: JSON.stringify(template),
+                            text_completion_preset: preset
+                          });
+                        }}
+                      />
+                      <div className="mt-4 p-3 bg-blue-900/20 border border-blue-700 rounded">
+                        <p className="text-sm text-gray-300">
+                          ℹ️ <strong>Thinking Tag Removal:</strong> Thinking/reasoning tags (like &lt;think&gt;, &lt;reasoning&gt;) are automatically detected and removed from responses.
+                        </p>
                       </div>
                     </div>
                   )}
