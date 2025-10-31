@@ -50,7 +50,7 @@ echo ""
 echo -e "${YELLOW}WARNING: This will delete ALL workflow runs from this repository.${NC}"
 echo "This action cannot be undone!"
 echo ""
-read -p "Are you sure you want to continue? (yes/no): " CONFIRM
+read -rp "Are you sure you want to continue? (yes/no): " CONFIRM
 
 if [ "$CONFIRM" != "yes" ]; then
     echo "Operation cancelled."
