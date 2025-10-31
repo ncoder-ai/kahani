@@ -59,10 +59,9 @@ COPY . .
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
 
-# Download AI models (embedding + reranker + STT) during build
-# This ensures models are cached in the image
-RUN echo "📦 Downloading AI models for semantic memory and STT..." && \
-    python download_models.py || echo "⚠️  Model download failed, will retry at runtime"
+# Note: Models are downloaded automatically on first use (lazy loading)
+# To pre-download models, use: python download_models.py
+# Or use the API endpoint: POST /api/settings/download-stt-model
 
 # Set ownership of application files and model cache
 RUN chown -R 1000:1000 /app
