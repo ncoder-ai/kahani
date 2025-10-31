@@ -40,7 +40,7 @@
    - Added `/api/settings/text-completion/template/{preset_name}` - Get preset template
    - Added `/api/settings/text-completion/test-render` - Test template rendering
 
-### Frontend (80% Complete)
+### Frontend (100% Complete)
 
 1. **Type Definitions** ✓
    - Updated LLMSettings interface in `SettingsModal.tsx`
@@ -60,92 +60,17 @@
    - Test template button
    - Help section with variable reference
 
+4. **Settings UI Integration** ✓
+   - Added completion mode toggle to `SettingsModal.tsx`
+   - Added completion mode toggle to `settings/page.tsx`
+   - Integrated TextCompletionTemplateEditor component in both interfaces
+   - Added conditional rendering for text mode
+   - Included thinking tag removal information
+   - Respects canChangeLLMProvider permission in Settings Page
+
 ## 🚧 Remaining Tasks
 
-### Frontend Integration (20% Remaining)
-
-**File**: `frontend/src/components/SettingsModal.tsx` (line ~1690)
-**File**: `frontend/src/app/settings/page.tsx` (similar location)
-
-Need to add after the Model Name field (around line 1780):
-
-```tsx
-{/* Completion Mode Toggle */}
-<div className="mb-4">
-  <label className="block text-sm font-medium mb-2">
-    Completion API Mode
-  </label>
-  <div className="flex gap-4">
-    <label className="flex items-center">
-      <input
-        type="radio"
-        value="chat"
-        checked={llmSettings.completion_mode === 'chat'}
-        onChange={(e) => setLlmSettings({ ...llmSettings, completion_mode: 'chat' })}
-        className="mr-2"
-      />
-      Chat Completion API
-    </label>
-    <label className="flex items-center">
-      <input
-        type="radio"
-        value="text"
-        checked={llmSettings.completion_mode === 'text'}
-        onChange={(e) => setLlmSettings({ ...llmSettings, completion_mode: 'text' })}
-        className="mr-2"
-      />
-      Text Completion API
-    </label>
-  </div>
-  <p className="text-sm text-gray-400 mt-1">
-    Chat uses message format. Text uses raw prompts with templates (for instruction-tuned models).
-  </p>
-</div>
-
-{/* Text Completion Template Configuration */}
-{llmSettings.completion_mode === 'text' && (
-  <div className="mb-4 p-4 bg-gray-800 rounded border border-gray-700">
-    <h4 className="text-sm font-medium mb-3">Text Completion Template</h4>
-    <TextCompletionTemplateEditor
-      value={llmSettings.text_completion_template ? JSON.parse(llmSettings.text_completion_template) : null}
-      preset={llmSettings.text_completion_preset || 'llama3'}
-      onChange={(template, preset) => {
-        setLlmSettings({
-          ...llmSettings,
-          text_completion_template: JSON.stringify(template),
-          text_completion_preset: preset
-        });
-      }}
-    />
-    <div className="mt-3 p-3 bg-blue-900/20 border border-blue-700 rounded">
-      <p className="text-sm text-gray-300">
-        ℹ️ <strong>Thinking Tag Removal:</strong> Thinking/reasoning tags (like &lt;think&gt;, &lt;reasoning&gt;) are automatically detected and removed from responses.
-      </p>
-    </div>
-  </div>
-)}
-```
-
-**Import Statement to Add** (at top of file):
-```tsx
-import TextCompletionTemplateEditor from '@/components/TextCompletionTemplateEditor';
-```
-
-**State Initialization** (around line 130-140):
-```tsx
-completion_mode: 'chat',
-text_completion_template: '',
-text_completion_preset: 'llama3',
-```
-
-**Settings Loading** (around line 280-290):
-```tsx
-completion_mode: settings.llm_settings.completion_mode || 'chat',
-text_completion_template: settings.llm_settings.text_completion_template || '',
-text_completion_preset: settings.llm_settings.text_completion_preset || 'llama3',
-```
-
-### Documentation (Not Started)
+### Documentation (In Progress)
 
 1. **Update CONFIGURATION_GUIDE.md**
    - Add section "Text Completion vs Chat Completion"
