@@ -254,6 +254,16 @@ cd backend && alembic upgrade head
 cd backend && python backup_database.py
 ```
 
+### **Workflow Maintenance**
+
+```bash
+# Clear all GitHub Actions workflow runs
+./clear-workflow-runs.sh
+```
+
+See [WORKFLOW_CLEANUP.md](docs/WORKFLOW_CLEANUP.md) for detailed instructions.
+
+
 ## 🐳 Docker Deployment
 
 ### **Why Docker?**
@@ -298,6 +308,7 @@ docker-compose ps
 | [QUICK_START.md](QUICK_START.md) | 5-minute setup guide |
 | [CONFIGURATION_GUIDE.md](CONFIGURATION_GUIDE.md) | Complete configuration guide |
 | [NETWORK_CONFIGURATION.md](NETWORK_CONFIGURATION.md) | Network setup and troubleshooting |
+| [docs/WORKFLOW_CLEANUP.md](docs/WORKFLOW_CLEANUP.md) | Clear GitHub Actions workflow runs |
 | [docs/](docs/) | Detailed feature documentation |
 
 ## 🤝 Contributing
