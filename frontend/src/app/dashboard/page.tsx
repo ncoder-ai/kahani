@@ -7,6 +7,7 @@ import { X } from 'lucide-react';
 import apiClient, { getApiBaseUrl } from '@/lib/api';
 import RouteProtection from '@/components/RouteProtection';
 import { useUISettings } from '@/hooks/useUISettings';
+import StorySettingsModal from '@/components/StorySettingsModal';
 
 function DashboardContent() {
   const router = useRouter();
@@ -19,6 +20,8 @@ function DashboardContent() {
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [generatingStorySummaryId, setGeneratingStorySummaryId] = useState<number | null>(null);
   const [userSettings, setUserSettings] = useState<any>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingStoryId, setEditingStoryId] = useState<number | null>(null);
 
   // Apply UI settings (theme, font size, etc.)
   useUISettings(userSettings?.ui_preferences || null);
@@ -406,6 +409,17 @@ function DashboardContent() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
+                          setEditingStoryId(story.id);
+                          setShowEditModal(true);
+                        }}
+                        className="bg-yellow-600/20 hover:bg-yellow-600/40 text-yellow-200 hover:text-white px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200"
+                        title="Edit story settings"
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
                           handleDeleteStory(story.id, story.title);
                         }}
                         className="bg-red-600/20 hover:bg-red-600/40 text-red-200 hover:text-white px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200"
@@ -569,6 +583,19 @@ function DashboardContent() {
           </div>
         </div>
       )}
+      
+      {/* Story Settings Edit Modal */}
+      <StorySettingsModal
+        isOpen={showEditModal}
+        onClose={() => {
+          setShowEditModal(false);
+          setEditingStoryId(null);
+        }}
+        storyId={editingStoryId || 0}
+        onSaved={() => {
+          loadStories(); // Reload stories after save
+        }}
+      />
     </div>
   );
 }

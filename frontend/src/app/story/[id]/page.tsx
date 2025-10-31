@@ -18,6 +18,7 @@ import SceneDisplay from '@/components/SceneDisplay';
 import SceneVariantDisplay from '@/components/SceneVariantDisplay';
 import ChapterSidebar from '@/components/ChapterSidebar';
 import TTSSettingsModal from '@/components/TTSSettingsModal';
+import StorySettingsModal from '@/components/StorySettingsModal';
 import { GlobalTTSWidget } from '@/components/GlobalTTSWidget';
 import { TTSDebugPanel } from '@/components/TTSDebugPanel';
 import MicrophoneButton from '@/components/MicrophoneButton';
@@ -180,6 +181,9 @@ export default function StoryPage() {
   // TTS Settings modal state
   const [showTTSSettings, setShowTTSSettings] = useState(false);
   
+  // Story Settings Edit modal state
+  const [showEditStoryModal, setShowEditStoryModal] = useState(false);
+  
   // Modern scene layout states
   const [sceneLayoutMode, setSceneLayoutMode] = useState<'stacked' | 'modern'>('modern');
   const [isNewSceneAdded, setIsNewSceneAdded] = useState(false);
@@ -240,6 +244,7 @@ export default function StoryPage() {
           // TODO: Implement export functionality
           console.log('Export story functionality not yet implemented');
         },
+        onEditStorySettings: () => setShowEditStoryModal(true),
         directorModeActive: directorMode,
         lorebookActive: showLorebook,
         deleteModeActive: isInDeleteMode,
@@ -2215,6 +2220,16 @@ export default function StoryPage() {
         onSaved={() => {
           // Optionally refresh story or show success message
           console.log('TTS settings saved');
+        }}
+      />
+      
+      {/* Story Settings Edit Modal */}
+      <StorySettingsModal
+        isOpen={showEditStoryModal}
+        onClose={() => setShowEditStoryModal(false)}
+        storyId={storyId}
+        onSaved={() => {
+          loadStory(); // Reload story after save
         }}
       />
       

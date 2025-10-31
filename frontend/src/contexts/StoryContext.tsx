@@ -10,6 +10,7 @@ export interface StoryActions {
   onLorebook?: () => void;
   onDeleteMode?: () => void;
   onExportStory?: () => void;
+  onEditStorySettings?: () => void;
   directorModeActive?: boolean;
   lorebookActive?: boolean;
   deleteModeActive?: boolean;

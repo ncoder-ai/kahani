@@ -567,9 +567,17 @@ Goals: {char.get('goals', '')}
         # Get full context
         full_context = await self.build_story_context(story_id, db)
         
+        # Check if this is the first scene (no previous scenes)
+        total_scenes = full_context.get("total_scenes", 0)
+        is_first_scene = total_scenes == 0
+        
         # Add custom prompt if provided
         if custom_prompt:
             full_context["current_situation"] = custom_prompt
+            # For first scene, mark that user prompt should take precedence
+            if is_first_scene:
+                full_context["is_first_scene"] = True
+                full_context["user_prompt_provided"] = True
         
         # Optimize for scene generation (focus on recent events and character state)
         # Use "previous_scenes" which contains full context (including semantic scenes for SemanticContextManager)
@@ -584,7 +592,9 @@ Goals: {char.get('goals', '')}
             "current_situation": full_context.get("current_situation", ""),
             "scene_summary": full_context.get("scene_summary", ""),
             "total_scenes": full_context.get("total_scenes", 0),
-            "context_type": full_context.get("context_type", "linear")  # Indicate which context manager was used
+            "context_type": full_context.get("context_type", "linear"),  # Indicate which context manager was used
+            "is_first_scene": is_first_scene,
+            "user_prompt_provided": bool(custom_prompt)
         }
         
         return scene_context
@@ -632,7 +642,9 @@ Goals: {char.get('goals', '')}
             "tone": story_context.get("tone", ""),
             "characters": story_context.get("characters", []),
             "world_setting": story_context.get("world_setting", ""),
+            "current_content": current_content,  # For POV detection
             "current_scene_content": current_content,
+            "previous_scenes": story_context.get("previous_scenes", ""),  # For POV detection
             "scene_title": scene.title if scene else "",
             "scene_number": scene.sequence_number if scene else 1,
             "continuation_prompt": custom_prompt,
