@@ -23,6 +23,7 @@ export interface StoryData {
   genre: string;
   tone: string;
   world_setting: string;
+  initial_premise?: string;
   characters: Array<{
     name: string;
     role: string;
@@ -61,6 +62,7 @@ export default function CreateStoryPage() {
     genre: '',
     tone: '',
     world_setting: '',
+    initial_premise: '',
     characters: [],
     plot_points: [],
     scenario: '',
@@ -106,23 +108,24 @@ export default function CreateStoryPage() {
           setDraftStoryId(draft.id);
           setCurrentStep(draft.creation_step || 0);
           
-          // Restore story data from draft
-          if (draft.draft_data) {
-            setStoryData(draft.draft_data);
-          } else {
-            // Fallback to individual fields
-            setStoryData({
-              story_mode: draft.story_mode || 'dynamic',
-              title: draft.title || '',
-              description: draft.description || '',
-              genre: draft.genre || '',
-              tone: draft.tone || '',
-              world_setting: draft.world_setting || '',
-              characters: [], // These would need to be loaded separately if needed
-              plot_points: [],
-              scenario: '',
-            });
-          }
+            // Restore story data from draft
+            if (draft.draft_data) {
+              setStoryData(draft.draft_data);
+            } else {
+              // Fallback to individual fields
+              setStoryData({
+                story_mode: draft.story_mode || 'dynamic',
+                title: draft.title || '',
+                description: draft.description || '',
+                genre: draft.genre || '',
+                tone: draft.tone || '',
+                world_setting: draft.world_setting || '',
+                initial_premise: draft.initial_premise || '',
+                characters: [], // These would need to be loaded separately if needed
+                plot_points: [],
+                scenario: draft.scenario || '',
+              });
+            }
         } else {
           // Load user's general draft
           const response = await apiClient.getDraftStory();
@@ -143,9 +146,10 @@ export default function CreateStoryPage() {
                 genre: draft.genre || '',
                 tone: draft.tone || '',
                 world_setting: draft.world_setting || '',
+                initial_premise: draft.initial_premise || '',
                 characters: [],
                 plot_points: [],
-                scenario: '',
+                scenario: draft.scenario || '',
               });
             }
           }
