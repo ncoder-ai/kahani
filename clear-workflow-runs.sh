@@ -36,12 +36,18 @@ if ! gh auth status &> /dev/null; then
 fi
 
 # Get the repository name
-REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)
-if [ -z "$REPO" ]; then
+REPO_OUTPUT=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>&1)
+REPO_STATUS=$?
+if [ $REPO_STATUS -ne 0 ] || [ -z "$REPO_OUTPUT" ]; then
     echo -e "${RED}Error: Could not determine repository name.${NC}"
     echo "Make sure you're in a git repository directory."
+    if [ $REPO_STATUS -ne 0 ]; then
+        echo ""
+        echo "Details: $REPO_OUTPUT"
+    fi
     exit 1
 fi
+REPO="$REPO_OUTPUT"
 
 echo -e "${GREEN}Repository: $REPO${NC}"
 echo ""
@@ -80,8 +86,8 @@ if [ -z "$RUNS" ]; then
     exit 0
 fi
 
-# Count total runs
-TOTAL=$(echo "$RUNS" | wc -l)
+# Count total runs (using grep to count non-empty lines)
+TOTAL=$(echo "$RUNS" | grep -c '^')
 echo "Found $TOTAL workflow runs to delete."
 echo ""
 

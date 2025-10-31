@@ -55,7 +55,7 @@ Follow the prompts to complete authentication.
 
 1. Navigate to your repository directory:
    ```bash
-   cd /path/to/kahani
+   cd /path/to/your-repository
    ```
 
 2. Run the cleanup script:
@@ -130,7 +130,7 @@ The script will NOT delete:
 
 **Solution**: Navigate to your repository directory and ensure it's a valid git repository with a GitHub remote:
 ```bash
-cd /path/to/kahani
+cd /path/to/your-repository
 git remote -v
 ```
 
