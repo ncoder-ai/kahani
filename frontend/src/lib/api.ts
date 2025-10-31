@@ -196,6 +196,10 @@ class ApiClient {
     return this.request<any>(`/api/stories/`, { method: 'POST', body: JSON.stringify(data) });
   }
 
+  async updateStory(id: number, data: { title?: string; description?: string; genre?: string; tone?: string; world_setting?: string; initial_premise?: string; scenario?: string; }) {
+    return this.request<any>(`/api/stories/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+  }
+
   async generateScene(storyId: number, customPrompt = '', userContent?: string, contentMode: 'ai_generate' | 'user_scene' | 'user_prompt' = 'ai_generate') {
     const formData = new FormData();
     formData.append('custom_prompt', customPrompt);
