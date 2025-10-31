@@ -369,9 +369,9 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
       {/* Modal - Left side to match menu */}
       <div className="fixed inset-y-4 left-4 right-4 md:right-auto md:w-96 bg-slate-900 border border-slate-700 rounded-lg z-50 flex flex-col overflow-hidden shadow-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-slate-700 bg-gradient-to-r from-purple-900/50 to-pink-900/50">
+        <div className="flex items-center justify-between p-4 border-b border-slate-700 theme-banner">
           <div className="flex items-center gap-2">
-            <BookOpen className="w-5 h-5 text-purple-400" />
+            <BookOpen className="w-5 h-5" style={{ color: 'var(--color-accentPrimary)' } as React.CSSProperties} />
             <h2 className="text-lg font-semibold">Chapters</h2>
           </div>
           <button
@@ -387,7 +387,9 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
       <div className="flex-1 overflow-y-auto">
         {loading ? (
           <div className="flex items-center justify-center h-32">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500"></div>
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2"
+                 style={{ borderColor: 'var(--color-accentPrimary)' } as React.CSSProperties}>
+            </div>
           </div>
         ) : error ? (
           <div className="p-4 text-red-400 text-sm">
@@ -462,7 +464,7 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
                         </div>
                         <button
                           onClick={handleCreateNewChapter}
-                          className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium transition-colors"
+                          className="w-full flex items-center justify-center gap-2 px-3 py-2 theme-btn-primary rounded-lg text-sm font-medium transition-colors"
                         >
                           <Plus className="w-4 h-4" />
                           Create New Chapter
@@ -613,11 +615,23 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
                     }}
                     className={`w-full text-left p-3 rounded-lg border transition-all ${
                       currentChapterId === chapter.id
-                        ? 'bg-purple-600/20 border-purple-500/50 ring-2 ring-purple-500/30'
+                        ? 'border-2 ring-2'
                         : chapter.id === activeChapter?.id
-                        ? 'bg-purple-500/10 border-purple-500/30'
+                        ? 'border-2'
                         : 'bg-slate-800/50 border-slate-700 hover:bg-slate-800 hover:border-slate-600'
                     }`}
+                    style={currentChapterId === chapter.id ? {
+                      backgroundColor: 'var(--color-accentPrimary)',
+                      opacity: 0.2,
+                      borderColor: 'var(--color-accentPrimary)',
+                      boxShadow: '0 0 0 2px var(--color-accentPrimary)',
+                      boxShadowOpacity: 0.3
+                    } as React.CSSProperties & { boxShadowOpacity?: number } : chapter.id === activeChapter?.id ? {
+                      backgroundColor: 'var(--color-accentPrimary)',
+                      opacity: 0.1,
+                      borderColor: 'var(--color-accentPrimary)',
+                      borderOpacity: 0.3
+                    } as React.CSSProperties & { borderOpacity?: number } : {}}
                   >
                     <div className="flex items-start justify-between mb-1">
                       <span className="font-medium text-sm">
@@ -625,7 +639,8 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
                       </span>
                       <div className="flex items-center gap-2">
                         {currentChapterId === chapter.id && (
-                          <span className="text-xs text-purple-400 font-semibold">VIEWING</span>
+                          <span className="text-xs font-semibold"
+                                style={{ color: 'var(--color-accentPrimary)' } as React.CSSProperties}>VIEWING</span>
                         )}
                         <span className={`px-1.5 py-0.5 text-xs rounded border ${getStatusBadgeColor(chapter.status)}`}>
                           {chapter.status}
@@ -681,7 +696,7 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
               <textarea
                 value={storySoFarDraft}
                 onChange={(e) => setStorySoFarDraft(e.target.value)}
-                className="w-full h-full min-h-[300px] bg-slate-900 border border-slate-600 rounded-lg p-3 text-gray-200 placeholder-gray-500 resize-none focus:outline-none focus:border-purple-500"
+                className="w-full h-full min-h-[300px] bg-slate-900 border border-slate-600 rounded-lg p-3 text-gray-200 placeholder-gray-500 resize-none focus:outline-none theme-focus-ring"
                 placeholder="Enter a summary of the story so far to provide context for future scenes..."
                 disabled={isSavingStorySoFar}
               />
@@ -708,7 +723,7 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
                 <button
                   onClick={handleSaveStorySoFar}
                   disabled={isSavingStorySoFar}
-                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+                  className="px-4 py-2 theme-btn-primary disabled:bg-gray-600 rounded-lg font-medium transition-colors flex items-center gap-2"
                 >
                   {isSavingStorySoFar ? (
                     <>
@@ -756,7 +771,7 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
               <textarea
                 value={chapterSummaryDraft}
                 onChange={(e) => setChapterSummaryDraft(e.target.value)}
-                className="w-full h-full min-h-[300px] bg-slate-900 border border-slate-600 rounded-lg p-3 text-gray-200 placeholder-gray-500 resize-none focus:outline-none focus:border-purple-500"
+                className="w-full h-full min-h-[300px] bg-slate-900 border border-slate-600 rounded-lg p-3 text-gray-200 placeholder-gray-500 resize-none focus:outline-none theme-focus-ring"
                 placeholder="Enter a summary of this chapter's content..."
                 disabled={isSavingChapterSummary}
               />
@@ -801,7 +816,7 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-slate-800 rounded-lg shadow-xl w-full max-w-lg">
             {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-slate-700 bg-gradient-to-r from-purple-600 to-pink-600">
+            <div className="flex items-center justify-between p-4 border-b border-slate-700 theme-banner">
               <h3 className="text-lg font-bold text-white flex items-center gap-2">
                 <Plus className="w-5 h-5" />
                 Create New Chapter
@@ -915,7 +930,7 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
                   value={newChapterTitle}
                   onChange={(e) => setNewChapterTitle(e.target.value)}
                   placeholder="Enter chapter title"
-                  className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-purple-500"
+                  className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-gray-500 focus:outline-none theme-focus-ring"
                   disabled={isSubmittingNewChapter}
                 />
               </div>
@@ -968,7 +983,7 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
               <button
                 onClick={handleSubmitNewChapter}
                 disabled={isSubmittingNewChapter || !newChapterTitle.trim()}
-                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+                className="px-4 py-2 theme-btn-primary disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-medium transition-colors flex items-center gap-2"
               >
                 {isSubmittingNewChapter ? (
                   <>

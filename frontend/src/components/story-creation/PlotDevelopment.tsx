@@ -180,7 +180,7 @@ export default function PlotDevelopment({ storyData, onUpdate, onNext, onBack }:
         <button
           onClick={generateCompletePlot}
           disabled={isGeneratingComplete || !storyData.scenario}
-          className="px-8 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl hover:from-purple-600 hover:to-pink-600 transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-8 py-3 theme-btn-primary rounded-xl transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isGeneratingComplete ? (
             <>
@@ -203,7 +203,8 @@ export default function PlotDevelopment({ storyData, onUpdate, onNext, onBack }:
         {PLOT_STRUCTURE.map((element, index) => (
           <div key={element.id} className="bg-white/10 border border-white/30 rounded-xl p-6">
             <div className="flex items-center mb-4">
-              <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center text-white text-xl mr-4">
+              <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-xl mr-4"
+                   style={{ background: 'linear-gradient(to right, var(--color-accentPrimary), var(--color-accentSecondary))' } as React.CSSProperties}>
                 {element.icon}
               </div>
               <div>
@@ -218,7 +219,7 @@ export default function PlotDevelopment({ storyData, onUpdate, onNext, onBack }:
                 onChange={(e) => handlePlotPointChange(index, e.target.value)}
                 placeholder={element.placeholder}
                 rows={3}
-                className="w-full p-4 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="w-full p-4 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
               />
               <div className="flex gap-2">
                 <button
@@ -270,7 +271,7 @@ export default function PlotDevelopment({ storyData, onUpdate, onNext, onBack }:
             <div
               key={index}
               className={`w-3 h-3 rounded-full ${
-                plotPoints[index]?.trim() ? 'bg-gradient-to-r from-purple-500 to-pink-500' : 'bg-white/30'
+                plotPoints[index]?.trim() ? 'theme-btn-primary' : 'bg-white/30'
               }`}
             />
           ))}
@@ -293,7 +294,7 @@ export default function PlotDevelopment({ storyData, onUpdate, onNext, onBack }:
           disabled={!canProceed}
           className={`px-8 py-3 rounded-xl font-semibold transition-all duration-200 ${
             canProceed
-              ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:from-purple-600 hover:to-pink-600'
+              ? 'theme-btn-primary'
               : 'bg-white/20 text-white/50 cursor-not-allowed'
           }`}
         >

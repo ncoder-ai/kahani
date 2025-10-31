@@ -224,7 +224,7 @@ export default function GenreSelection({ storyData, onUpdate, onNext, isFirstSte
           disabled={!canProceed}
           className={`px-8 py-3 rounded-xl font-semibold transition-all duration-200 ${
             canProceed
-              ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:from-purple-600 hover:to-pink-600'
+              ? 'theme-btn-primary'
               : 'bg-white/20 text-white/50 cursor-not-allowed'
           }`}
         >

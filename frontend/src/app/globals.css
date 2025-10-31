@@ -326,3 +326,14 @@ body {
   background: linear-gradient(to right, var(--color-sceneBubbleFrom), var(--color-sceneBubbleTo)) !important;
   border-color: var(--color-sceneBubbleBorder) !important;
 }
+
+/* Theme-aware focus ring */
+.theme-focus-ring:focus {
+  outline: none !important;
+  box-shadow: 0 0 0 2px var(--color-accentPrimary) !important;
+}
+
+.theme-focus-ring:focus-visible {
+  outline: 2px solid var(--color-accentPrimary) !important;
+  outline-offset: 2px !important;
+}

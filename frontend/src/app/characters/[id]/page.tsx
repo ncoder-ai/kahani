@@ -64,20 +64,20 @@ export default function CharacterDetailPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
-        <div className="text-white text-xl">Loading character...</div>
+      <div className="min-h-screen theme-bg-primary flex items-center justify-center">
+        <div className="theme-text-primary text-xl">Loading character...</div>
       </div>
     );
   }
 
   if (!character) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
+      <div className="min-h-screen theme-bg-primary flex items-center justify-center">
         <div className="text-center">
-          <div className="text-white text-xl mb-4">Character not found</div>
+          <div className="theme-text-primary text-xl mb-4">Character not found</div>
           <Link
             href="/characters"
-            className="px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl hover:from-purple-600 hover:to-pink-600 transition-colors"
+            className="px-6 py-3 theme-btn-primary rounded-xl transition-colors"
           >
             Back to Characters
           </Link>
@@ -87,7 +87,7 @@ export default function CharacterDetailPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 p-6">
+    <div className="min-h-screen theme-bg-primary p-6">
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="mb-8">
@@ -159,7 +159,8 @@ export default function CharacterDetailPage() {
                 {character.personality_traits.map((trait, index) => (
                   <span
                     key={index}
-                    className="px-4 py-2 bg-purple-500/20 text-purple-300 rounded-full font-medium"
+                    className="px-4 py-2 rounded-full font-medium"
+                    style={{ backgroundColor: 'var(--color-accentPrimary)', opacity: 0.2, color: 'var(--color-accentPrimary)' } as React.CSSProperties}
                   >
                     {trait}
                   </span>

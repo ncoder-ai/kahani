@@ -25,7 +25,7 @@ export default function PendingApprovalPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center p-4">
+    <div className="min-h-screen theme-bg-primary flex items-center justify-center p-4">
       <div className="max-w-md w-full">
         {/* Card */}
         <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl p-8 shadow-2xl">

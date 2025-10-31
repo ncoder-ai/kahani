@@ -49,7 +49,7 @@ export default function GlobalMenu({ isOpen, onClose, onOpenTTSSettings }: Globa
       {/* Menu Modal - Top Right */}
       <div className="fixed right-4 top-16 z-[70] w-80 max-w-[calc(100vw-2rem)] bg-slate-900 border border-slate-700 rounded-lg shadow-2xl overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-slate-700 bg-gradient-to-r from-purple-900/50 to-pink-900/50">
+        <div className="flex items-center justify-between p-4 border-b border-slate-700 theme-banner">
           <div>
             <h2 className="text-lg font-semibold text-white">Menu</h2>
             {user && <p className="text-xs text-white/60">{user.display_name}</p>}
@@ -119,8 +119,9 @@ export default function GlobalMenu({ isOpen, onClose, onOpenTTSSettings }: Globa
             onClick={handleSettings}
             className="w-full flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors text-left group"
           >
-            <div className="p-2 bg-purple-600/20 rounded-lg group-hover:bg-purple-600/30 transition-colors">
-              <Settings className="w-5 h-5 text-purple-400" />
+            <div className="p-2 rounded-lg group-hover:bg-opacity-30 transition-colors"
+                 style={{ backgroundColor: 'var(--color-accentPrimary)', opacity: 0.2 } as React.CSSProperties}>
+                <Settings className="w-5 h-5" style={{ color: 'var(--color-accentPrimary)' } as React.CSSProperties} />
             </div>
             <div className="flex-1">
               <div className="font-medium text-white">Settings</div>

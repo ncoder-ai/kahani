@@ -137,7 +137,9 @@ export default function CharacterWizard({ storyId, chapterId, onCharacterCreated
 
       {loading ? (
         <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500"></div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2"
+               style={{ borderColor: 'var(--color-accentPrimary)' } as React.CSSProperties}>
+          </div>
         </div>
       ) : error ? (
         <div className="text-center py-8">
@@ -145,7 +147,7 @@ export default function CharacterWizard({ storyId, chapterId, onCharacterCreated
           <p className="text-red-400 mb-4">{error}</p>
           <button
             onClick={loadSuggestions}
-            className="px-4 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-lg"
+            className="px-4 py-2 theme-btn-primary rounded-lg"
           >
             Try Again
           </button>
@@ -171,7 +173,8 @@ export default function CharacterWizard({ storyId, chapterId, onCharacterCreated
                   <div className="flex items-center space-x-3 mb-2">
                     <h3 className="text-lg font-semibold text-white">{suggestion.name}</h3>
                     <div className="flex items-center space-x-2">
-                      <span className="px-2 py-1 bg-purple-500/20 text-purple-300 text-xs rounded">
+                      <span className="px-2 py-1 text-xs rounded"
+                            style={{ backgroundColor: 'var(--color-accentPrimary)', opacity: 0.2, color: 'var(--color-accentPrimary)' } as React.CSSProperties}>
                         {suggestion.importance_score}% important
                       </span>
                       <span className="px-2 py-1 bg-blue-500/20 text-blue-300 text-xs rounded">
@@ -202,7 +205,9 @@ export default function CharacterWizard({ storyId, chapterId, onCharacterCreated
 
       {loading ? (
         <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500"></div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2"
+               style={{ borderColor: 'var(--color-accentPrimary)' } as React.CSSProperties}>
+          </div>
         </div>
       ) : error ? (
         <div className="text-center py-8">
@@ -210,7 +215,7 @@ export default function CharacterWizard({ storyId, chapterId, onCharacterCreated
           <p className="text-red-400 mb-4">{error}</p>
           <button
             onClick={() => setCurrentStep(1)}
-            className="px-4 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-lg"
+            className="px-4 py-2 theme-btn-primary rounded-lg"
           >
             Back to Characters
           </button>
@@ -243,8 +248,11 @@ export default function CharacterWizard({ storyId, chapterId, onCharacterCreated
               <div className="flex items-center space-x-2">
                 <div className="flex-1 bg-white/10 rounded-full h-2">
                   <div 
-                    className="bg-purple-500 h-2 rounded-full" 
-                    style={{ width: `${characterDetails.confidence * 100}%` }}
+                    className="h-2 rounded-full"
+                    style={{ 
+                      backgroundColor: 'var(--color-accentPrimary)',
+                      width: `${characterDetails.confidence * 100}%`
+                    } as React.CSSProperties}
                   ></div>
                 </div>
                 <span className="text-white/70 text-sm">{Math.round(characterDetails.confidence * 100)}%</span>
@@ -329,9 +337,14 @@ export default function CharacterWizard({ storyId, chapterId, onCharacterCreated
                     onClick={() => setSelectedRole(role.id)}
                     className={`p-3 rounded-lg border-2 transition-all ${
                       isSelected
-                        ? 'border-purple-500 bg-purple-500/20'
+                        ? 'border-2'
                         : 'border-white/20 hover:border-white/40'
                     }`}
+                    style={isSelected ? {
+                      borderColor: 'var(--color-accentPrimary)',
+                      backgroundColor: 'var(--color-accentPrimary)',
+                      opacity: 0.2
+                    } as React.CSSProperties : {}}
                   >
                     <div className={`w-8 h-8 rounded-full bg-gradient-to-r ${role.color} flex items-center justify-center text-white text-lg mb-2 mx-auto`}>
                       {role.icon}
@@ -398,9 +411,12 @@ export default function CharacterWizard({ storyId, chapterId, onCharacterCreated
                   key={step}
                   className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
                     step <= currentStep
-                      ? 'bg-purple-500 text-white'
+                      ? 'text-white'
                       : 'bg-white/10 text-white/50'
                   }`}
+                  style={step <= currentStep ? {
+                    backgroundColor: 'var(--color-accentPrimary)'
+                  } as React.CSSProperties : {}}
                 >
                   {step}
                 </div>
@@ -449,7 +465,7 @@ export default function CharacterWizard({ storyId, chapterId, onCharacterCreated
               <button
                 onClick={() => setCurrentStep(4)}
                 disabled={!selectedRole}
-                className="flex items-center space-x-2 px-6 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center space-x-2 px-6 py-2 theme-btn-primary rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <span>Continue</span>
                 <ChevronRight className="h-4 w-4" />

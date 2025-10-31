@@ -135,7 +135,7 @@ export default function CharacterQuickAdd({ onCharacterAdd, onClose, existingCha
               onClick={() => setActiveTab('quick')}
               className={`px-4 py-2 rounded-lg font-medium transition-colors ${
                 activeTab === 'quick'
-                  ? 'bg-purple-500 text-white'
+                  ? 'theme-btn-primary'
                   : 'bg-white/10 text-white/70 hover:bg-white/20'
               }`}
             >
@@ -145,7 +145,7 @@ export default function CharacterQuickAdd({ onCharacterAdd, onClose, existingCha
               onClick={() => setActiveTab('library')}
               className={`px-4 py-2 rounded-lg font-medium transition-colors ${
                 activeTab === 'library'
-                  ? 'bg-purple-500 text-white'
+                  ? 'theme-btn-primary'
                   : 'bg-white/10 text-white/70 hover:bg-white/20'
               }`}
             >
@@ -155,7 +155,7 @@ export default function CharacterQuickAdd({ onCharacterAdd, onClose, existingCha
               onClick={() => setActiveTab('create')}
               className={`px-4 py-2 rounded-lg font-medium transition-colors ${
                 activeTab === 'create'
-                  ? 'bg-purple-500 text-white'
+                  ? 'theme-btn-primary'
                   : 'bg-white/10 text-white/70 hover:bg-white/20'
               }`}
             >
@@ -187,7 +187,7 @@ export default function CharacterQuickAdd({ onCharacterAdd, onClose, existingCha
                     value={quickCharacter.name || ''}
                     onChange={(e) => setQuickCharacter({ ...quickCharacter, name: e.target.value })}
                     placeholder="Enter character name..."
-                    className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
                   />
                 </div>
 
@@ -218,7 +218,7 @@ export default function CharacterQuickAdd({ onCharacterAdd, onClose, existingCha
                     onChange={(e) => setQuickCharacter({ ...quickCharacter, description: e.target.value })}
                     placeholder="Describe this character..."
                     rows={3}
-                    className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
                   />
                 </div>
 
@@ -227,7 +227,7 @@ export default function CharacterQuickAdd({ onCharacterAdd, onClose, existingCha
                   disabled={!quickCharacter.name || !quickCharacter.role}
                   className={`w-full px-6 py-3 rounded-lg font-semibold transition-colors ${
                     quickCharacter.name && quickCharacter.role
-                      ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:from-purple-600 hover:to-pink-600'
+                      ? 'theme-btn-primary'
                       : 'bg-white/20 text-white/50 cursor-not-allowed'
                   }`}
                 >
@@ -247,7 +247,7 @@ export default function CharacterQuickAdd({ onCharacterAdd, onClose, existingCha
                     <div className="text-white/60 mb-4">No available characters in your library</div>
                     <button
                       onClick={() => setActiveTab('create')}
-                      className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600"
+                      className="px-4 py-2 theme-btn-primary rounded-lg hover:bg-opacity-80"
                     >
                       Create Your First Character
                     </button>
@@ -263,7 +263,8 @@ export default function CharacterQuickAdd({ onCharacterAdd, onClose, existingCha
                           <div className="mb-3">
                             <div className="flex flex-wrap gap-1">
                               {char.personality_traits.slice(0, 3).map((trait, index) => (
-                                <span key={index} className="px-2 py-1 bg-purple-500/20 text-purple-300 text-xs rounded">
+                                <span key={index} className="px-2 py-1 text-xs rounded"
+                                      style={{ backgroundColor: 'var(--color-accentPrimary)', opacity: 0.2, color: 'var(--color-accentPrimary)' } as React.CSSProperties}>
                                   {trait}
                                 </span>
                               ))}
@@ -303,7 +304,8 @@ export default function CharacterQuickAdd({ onCharacterAdd, onClose, existingCha
 
             {activeTab === 'discover' && (
               <div className="text-center py-12">
-                <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-blue-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6"
+                     style={{ background: 'linear-gradient(to right, var(--color-accentPrimary), var(--color-accentSecondary))' } as React.CSSProperties}>
                   <span className="text-2xl">🔍</span>
                 </div>
                 <h3 className="text-xl font-semibold text-white mb-4">Discover Characters from Your Story</h3>
@@ -315,7 +317,7 @@ export default function CharacterQuickAdd({ onCharacterAdd, onClose, existingCha
                     onClose();
                     onOpenCharacterWizard?.();
                   }}
-                  className="px-6 py-3 bg-gradient-to-r from-purple-500 to-blue-500 text-white rounded-lg hover:from-purple-600 hover:to-blue-600 transition-all font-semibold"
+                  className="px-6 py-3 theme-btn-primary rounded-lg transition-all font-semibold"
                 >
                   Analyze Current Chapter
                 </button>
