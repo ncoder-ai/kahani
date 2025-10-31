@@ -68,17 +68,19 @@ Kahani (meaning "story" in Hindi) is a modern interactive storytelling platform 
 git clone https://github.com/ncoder-ai/kahani.git
 cd kahani
 
-# Set up environment (automated)
-./setup-env.sh
+# Install dependencies and set up environment
+./install.sh
 
 # Start the development server
 ./start-dev.sh
 ```
 
 **That's it!** The setup script will:
-- ✅ Create environment configuration from template
-- ✅ Auto-detect network configuration
+- ✅ Create Python virtual environment
+- ✅ Install backend and frontend dependencies
+- ✅ Create environment configuration with secure secrets
 - ✅ Download AI models (one-time setup)
+- ✅ Set up database
 - ✅ Start both frontend and backend servers
 
 **Access the application**: http://localhost:6789
@@ -90,12 +92,22 @@ cd kahani
 git clone https://github.com/ncoder-ai/kahani.git
 cd kahani
 
-# Set up environment
-./setup-env.sh
+# Create .env file with secrets (required for Docker)
+# Generate secrets:
+python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_urlsafe(32))"
+python3 -c "import secrets; print('JWT_SECRET_KEY=' + secrets.token_urlsafe(32))"
+
+# Create .env file (if .env.example exists, copy it first)
+# Then add the generated secrets above to your .env file
+# Or manually create .env with:
+# SECRET_KEY=your-generated-secret-key-here
+# JWT_SECRET_KEY=your-generated-jwt-secret-key-here
 
 # Start with Docker
 docker-compose up -d
 ```
+
+**Note:** Docker Compose requires `SECRET_KEY` and `JWT_SECRET_KEY` environment variables. See [Security Setup Guide](docs/SECURITY_SETUP.md) for details.
 
 **Access the application**: http://localhost:6789
 
@@ -106,14 +118,26 @@ docker-compose up -d
 git clone https://github.com/ncoder-ai/kahani.git
 cd kahani
 
-# Set up environment
-./setup-env.sh
+# Create Python virtual environment
+python3.11 -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-# Install dependencies
-cd backend && pip install -r requirements.txt
-cd ../frontend && npm install
+# Install backend dependencies
+cd backend && pip install -r requirements.txt && cd ..
 
-# Start backend
+# Install frontend dependencies
+cd frontend && npm install && cd ..
+
+# Set up environment (creates .env from .env.example if it exists)
+# Or manually create .env with required variables
+# Generate secrets if needed:
+python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_urlsafe(32))"
+python3 -c "import secrets; print('JWT_SECRET_KEY=' + secrets.token_urlsafe(32))"
+
+# Initialize database
+cd backend && alembic upgrade head && cd ..
+
+# Start backend (keep virtual environment activated)
 cd backend && uvicorn app.main:app --reload --host 0.0.0.0 --port 9876
 
 # Start frontend (in another terminal)
@@ -127,11 +151,18 @@ cd frontend && npm run dev
 The application uses a template-based configuration system:
 
 ```bash
-# Set up environment (creates .env from .env.example)
-./setup-env.sh
+# For baremetal: install.sh creates .env automatically with secure secrets
+# For Docker: You need to create .env manually with secrets (see Docker section above)
 
 # Validate configuration
 ./validate-config.sh
+```
+
+**Note:** The `setup-env.sh` script creates a basic `.env` file from `.env.example` template, but doesn't generate secure secrets. For production use, always generate your own secrets using:
+
+```bash
+python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_urlsafe(32))"
+python3 -c "import secrets; print('JWT_SECRET_KEY=' + secrets.token_urlsafe(32))"
 ```
 
 ### **Network Configuration**
