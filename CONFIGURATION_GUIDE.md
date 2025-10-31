@@ -252,6 +252,126 @@ print(f'Frontend URL: {config[\"frontend_url\"]}')
    - Check for duplicate environment variables
    - Verify YAML/JSON syntax
 
+## 🤖 **LLM Configuration**
+
+### **Text Completion vs Chat Completion**
+
+Kahani supports two API modes for interacting with language models:
+
+#### **Chat Completion API** (Default)
+- Uses message-based format with roles (system, user, assistant)
+- Best for: OpenAI models, Claude, most modern LLMs
+- Format: `[{"role": "system", "content": "..."}, {"role": "user", "content": "..."}]`
+- Pros: Standardized, widely supported, handles multi-turn conversations naturally
+- Cons: Some local models don't support it well
+
+#### **Text Completion API** (New)
+- Uses raw prompt strings with custom templates
+- Best for: Instruction-tuned local models (Llama, Mistral, Qwen, GLM)
+- Format: Single string with model-specific formatting (BOS/EOS tokens, special tags)
+- Pros: Full control over prompt format, works with any text completion endpoint
+- Cons: Requires template configuration per model family
+
+### **When to Use Text Completion**
+
+Use Text Completion mode when:
+1. Your model doesn't support the Chat Completion API properly
+2. You're using instruction-tuned models that need specific formatting
+3. You want full control over prompt structure
+4. Chat mode produces poor results or errors
+5. Your backend only exposes `/v1/completions` endpoint
+
+### **Configuring Text Completion**
+
+1. **Navigate to Settings** → LLM Settings
+2. **Select "Text Completion API"** mode
+3. **Choose a preset template** or create custom:
+   - **Llama 3**: For Llama 3/3.1/3.2 Instruct models
+   - **Mistral**: For Mistral Instruct models
+   - **Qwen**: For Qwen2/2.5 Instruct models
+   - **GLM**: For ChatGLM models
+   - **Generic**: Basic template for other instruction models
+   - **Custom**: Define your own template
+
+4. **Template Components**:
+   - `bos_token`: Beginning of sequence token (e.g., `<|begin_of_text|>`)
+   - `eos_token`: End of sequence token (e.g., `<|eot_id|>`)
+   - `system_prefix`: Text before system prompt
+   - `system_suffix`: Text after system prompt
+   - `instruction_prefix`: Text before user instruction
+   - `instruction_suffix`: Text after user instruction
+   - `response_prefix`: Text before assistant response
+
+5. **Example: Llama 3 Template**
+```
+<|begin_of_text|><|start_header_id|>system<|end_header_id|>
+
+You are a creative storyteller...<|eot_id|><|start_header_id|>user<|end_header_id|>
+
+Write the next scene...<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+
+```
+
+### **Thinking Tag Removal**
+
+When using Text Completion mode, Kahani automatically detects and removes "thinking" or "reasoning" tags from model responses:
+
+- **DeepSeek**: `<think>...</think>`
+- **Qwen**: `<reasoning>...</reasoning>`
+- **Generic patterns**: `[THINKING]...[/THINKING]`, `[System]...[/System]`, etc.
+
+This ensures clean output without exposing the model's internal reasoning process.
+
+### **Template Variables**
+
+When customizing templates, you can use these variables:
+- `{{system}}`: System prompt content
+- `{{user_prompt}}`: User instruction content
+- `{{bos}}`: Beginning of sequence token
+- `{{eos}}`: End of sequence token
+
+### **Testing Templates**
+
+1. **Use the "Test Template" button** in the template editor
+2. **Enter sample prompts** to see the assembled prompt
+3. **Verify the format** matches your model's expected input
+4. **Test with actual generation** to ensure it works
+
+### **Troubleshooting Text Completion**
+
+**Problem**: Model generates gibberish or doesn't follow instructions
+- **Solution**: Verify your template matches the model's training format
+- Check the model's documentation for the correct prompt format
+- Try a different preset template
+
+**Problem**: Generation stops immediately or produces empty output
+- **Solution**: Check that `response_prefix` is correct
+- Some models are sensitive to exact formatting
+- Verify BOS/EOS tokens match the model's tokenizer
+
+**Problem**: Model includes thinking tags in output
+- **Solution**: Thinking tags should be auto-stripped
+- If not, check the pattern in `backend/app/services/llm/thinking_parser.py`
+- You can add custom patterns if needed
+
+**Problem**: "Connection failed" or "Invalid response"
+- **Solution**: Your backend may not support `/v1/completions`
+- Verify the endpoint exists: `curl http://your-api/v1/completions`
+- Try Chat Completion mode instead
+
+### **Model-Specific Recommendations**
+
+| Model Family | Recommended Mode | Preset |
+|--------------|------------------|--------|
+| GPT-3.5/4 | Chat Completion | N/A |
+| Claude | Chat Completion | N/A |
+| Llama 3.x Instruct | Text Completion | Llama 3 |
+| Mistral Instruct | Text Completion | Mistral |
+| Qwen2/2.5 Instruct | Text Completion | Qwen |
+| ChatGLM | Text Completion | GLM |
+| DeepSeek | Text Completion | Generic + thinking tags |
+| Ollama (any) | Chat Completion | N/A |
+
 ## 📋 **Best Practices**
 
 1. **Never commit .env files**: Use `env.template` instead
