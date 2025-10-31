@@ -183,6 +183,22 @@ class ApiClient {
     return this.request<{ auto_open_last_story: boolean; last_accessed_story_id?: number; }>(`/api/settings/last-story`);
   }
 
+  // Text Completion Templates
+  async getTextCompletionPresets() {
+    return this.request<{ presets: Array<{ key: string; name: string; description: string; compatible_models: string[] }> }>(`/api/settings/text-completion/presets`);
+  }
+
+  async getPresetTemplate(presetName: string) {
+    return this.request<{ template: any }>(`/api/settings/text-completion/template/${presetName}`);
+  }
+
+  async testTemplateRender(template: any, testSystem: string, testUser: string) {
+    return this.request<{ valid: boolean; error: string | null; rendered_prompt: string | null; prompt_length?: number }>(`/api/settings/text-completion/test-render`, {
+      method: 'POST',
+      body: JSON.stringify({ template, test_system: testSystem, test_user: testUser })
+    });
+  }
+
   // Stories
   async getStories(skip = 0, limit = 10) {
     return this.request<any[]>(`/api/stories/?skip=${skip}&limit=${limit}`);

@@ -20,6 +20,9 @@ interface LLMSettings {
   api_key: string;
   api_type: string;
   model_name: string;
+  completion_mode: 'chat' | 'text';
+  text_completion_template?: string;
+  text_completion_preset?: string;
 }
 
 interface ContextSettings {

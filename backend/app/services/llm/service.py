@@ -16,6 +16,8 @@ from sqlalchemy import and_, desc
 
 from .client import LLMClient
 from .prompts import prompt_manager
+from .templates import TextCompletionTemplateManager
+from .thinking_parser import ThinkingTagParser
 
 # Import for type hints (will be imported within functions to avoid circular imports)
 from typing import TYPE_CHECKING
@@ -118,6 +120,13 @@ class UnifiedLLMService:
         
         client = self.get_user_client(user_id, user_settings)
         
+        # Check completion mode and branch accordingly
+        completion_mode = client.completion_mode
+        if completion_mode == "text":
+            return await self._generate_text_completion(
+                prompt, user_id, user_settings, system_prompt, max_tokens, temperature
+            )
+        
         # Check if NSFW filter should be injected
         from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
         user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
@@ -179,6 +188,97 @@ class UnifiedLLMService:
                 else:
                     logger.error(f"LLM generation failed for user {user_id}: {error_msg}")
                     raise ValueError(f"LLM generation failed: {error_msg}")
+    
+    async def _generate_text_completion(
+        self,
+        prompt: str,
+        user_id: int,
+        user_settings: Dict[str, Any],
+        system_prompt: str = "",
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None
+    ) -> str:
+        """Internal method for text completion generation"""
+        
+        client = self.get_user_client(user_id, user_settings)
+        
+        # Check if NSFW filter should be injected
+        from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
+        user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
+        
+        # Inject NSFW filter into system prompt if needed
+        if system_prompt and system_prompt.strip():
+            if should_inject_nsfw_filter(user_allow_nsfw):
+                system_prompt = system_prompt.strip() + "\n\n" + get_nsfw_prevention_prompt()
+                logger.info(f"NSFW filter injected for user {user_id}")
+        elif should_inject_nsfw_filter(user_allow_nsfw):
+            # No system prompt provided, but we need to inject NSFW filter
+            system_prompt = get_nsfw_prevention_prompt()
+            logger.info(f"NSFW filter injected (no system prompt) for user {user_id}")
+        
+        # Ensure prompt is valid string
+        if not prompt or not isinstance(prompt, str) or not prompt.strip():
+            raise ValueError("Prompt must be a non-empty string")
+        
+        # Get template and render prompt
+        template = TextCompletionTemplateManager.get_template_for_user(
+            client.text_completion_template,
+            client.text_completion_preset
+        )
+        
+        rendered_prompt = TextCompletionTemplateManager.render_template(
+            template,
+            system_prompt=system_prompt or "",
+            user_prompt=prompt.strip()
+        )
+        
+        logger.debug(f"Rendered text completion prompt (length: {len(rendered_prompt)})")
+        
+        # Get generation parameters
+        gen_params = client.get_text_completion_params(max_tokens, temperature)
+        gen_params["prompt"] = rendered_prompt
+        
+        try:
+            logger.info(f"Text completion with {client.model_string} for user {user_id}")
+            
+            # Use litellm.atext_completion for text completion
+            from litellm import atext_completion
+            response = await atext_completion(**gen_params)
+            
+            content = response.choices[0].text if hasattr(response.choices[0], 'text') else response.choices[0].message.content
+            logger.info(f"Generated {len(content)} characters for user {user_id}")
+            
+            # Strip thinking tags from response
+            cleaned_content = ThinkingTagParser.strip_thinking_tags(content)
+            if len(cleaned_content) != len(content):
+                logger.info(f"Stripped thinking tags, reduced from {len(content)} to {len(cleaned_content)} characters")
+            
+            return cleaned_content
+            
+        except Exception as e:
+            error_msg = str(e)
+            logger.warning(f"LiteLLM text completion failed for user {user_id}: {error_msg}")
+            
+            # Provide helpful error messages for common connection issues
+            if "404" in error_msg or "Not Found" in error_msg:
+                if client.api_type == "openai_compatible":
+                    raise ValueError(f"API endpoint not found. For TabbyAPI and similar services, try adding '/v1' to your URL: {client.api_url}/v1")
+                else:
+                    raise ValueError(f"API endpoint not found at {client.api_url}. Please check your URL.")
+            elif "401" in error_msg or "Unauthorized" in error_msg:
+                raise ValueError(f"Authentication failed. Please check your API key.")
+            elif "403" in error_msg or "Forbidden" in error_msg:
+                raise ValueError(f"Access forbidden. Please check your API key and permissions.")
+            elif "Connection" in error_msg or "timeout" in error_msg.lower():
+                raise ValueError(f"Cannot connect to {client.api_url}. Please check if the service is running and accessible.")
+            else:
+                # Fallback to direct HTTP for LM Studio and TabbyAPI
+                if client.api_type in ["lm_studio", "openai_compatible"]:
+                    logger.info(f"Attempting direct HTTP text completion fallback for {client.api_type}")
+                    return await self._direct_http_text_completion_fallback(client, rendered_prompt, max_tokens, temperature, False)
+                else:
+                    logger.error(f"Text completion failed for user {user_id}: {error_msg}")
+                    raise ValueError(f"Text completion failed: {error_msg}")
     
     async def _direct_http_fallback(self, client, messages, max_tokens, temperature, stream):
         """Direct HTTP fallback for LM Studio when LiteLLM fails"""
@@ -246,6 +346,77 @@ class UnifiedLLMService:
             logger.error(f"Direct HTTP fallback failed: {e}", exc_info=True)
             raise ValueError(f"LLM generation failed: {str(e)}")
     
+    async def _direct_http_text_completion_fallback(self, client, prompt, max_tokens, temperature, stream):
+        """Direct HTTP fallback for text completion when LiteLLM fails"""
+        import httpx
+        
+        payload = {
+            "model": client.model_name,  # Use the actual model name, not the prefixed one
+            "prompt": prompt,
+            "max_tokens": max_tokens or client.max_tokens,
+            "temperature": temperature if temperature is not None else client.temperature,
+            "stream": stream
+        }
+        
+        headers = {
+            "Content-Type": "application/json"
+        }
+        
+        if client.api_key:
+            headers["Authorization"] = f"Bearer {client.api_key}"
+        
+        try:
+            # Determine the correct endpoint URL for text completion
+            if client.api_url.endswith("/v1"):
+                endpoint_url = f"{client.api_url}/completions"
+            else:
+                endpoint_url = f"{client.api_url}/v1/completions"
+            
+            async with httpx.AsyncClient() as http_client:
+                response = await http_client.post(
+                    endpoint_url,
+                    json=payload,
+                    headers=headers,
+                    timeout=60.0
+                )
+                response.raise_for_status()
+                
+                if stream:
+                    # Handle streaming response
+                    async def stream_generator():
+                        async for line in response.aiter_lines():
+                            if line.startswith("data: "):
+                                data = line[6:]  # Remove "data: " prefix
+                                if data.strip() == "[DONE]":
+                                    break
+                                try:
+                                    import json
+                                    chunk = json.loads(data)
+                                    if "choices" in chunk and len(chunk["choices"]) > 0:
+                                        # Text completion uses 'text' field, not 'delta'
+                                        text = chunk["choices"][0].get("text", "")
+                                        if text:
+                                            # Strip thinking tags from each chunk
+                                            cleaned_text = ThinkingTagParser.strip_thinking_tags(text)
+                                            if cleaned_text:
+                                                yield cleaned_text
+                                except json.JSONDecodeError:
+                                    continue
+                    return stream_generator()
+                else:
+                    # Handle non-streaming response
+                    data = response.json()
+                    if "choices" in data and len(data["choices"]) > 0:
+                        content = data["choices"][0]["text"]
+                        # Strip thinking tags from response
+                        return ThinkingTagParser.strip_thinking_tags(content)
+                    else:
+                        raise ValueError("Invalid response format from text completion endpoint")
+                        
+        except Exception as e:
+            logger.error(f"Direct HTTP text completion fallback failed: {e}", exc_info=True)
+            raise ValueError(f"Text completion failed: {str(e)}")
+    
     async def _generate_stream(
         self,
         prompt: str,
@@ -258,6 +429,15 @@ class UnifiedLLMService:
         """Internal method for streaming generation"""
         
         client = self.get_user_client(user_id, user_settings)
+        
+        # Check completion mode and branch accordingly
+        completion_mode = client.completion_mode
+        if completion_mode == "text":
+            async for chunk in self._generate_text_completion_stream(
+                prompt, user_id, user_settings, system_prompt, max_tokens, temperature
+            ):
+                yield chunk
+            return
         
         # Check if NSFW filter should be injected
         from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
@@ -298,6 +478,115 @@ class UnifiedLLMService:
         except Exception as e:
             logger.error(f"LLM streaming failed for user {user_id}: {e}")
             raise ValueError(f"LLM streaming failed: {str(e)}")
+    
+    async def _generate_text_completion_stream(
+        self,
+        prompt: str,
+        user_id: int,
+        user_settings: Dict[str, Any],
+        system_prompt: str = "",
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None
+    ) -> AsyncGenerator[str, None]:
+        """Internal method for streaming text completion generation"""
+        
+        client = self.get_user_client(user_id, user_settings)
+        
+        # Check if NSFW filter should be injected
+        from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
+        user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
+        
+        # Inject NSFW filter into system prompt if needed
+        if system_prompt and system_prompt.strip():
+            if should_inject_nsfw_filter(user_allow_nsfw):
+                system_prompt = system_prompt.strip() + "\n\n" + get_nsfw_prevention_prompt()
+                logger.info(f"NSFW filter injected for streaming user {user_id}")
+        elif should_inject_nsfw_filter(user_allow_nsfw):
+            # No system prompt provided, but we need to inject NSFW filter
+            system_prompt = get_nsfw_prevention_prompt()
+            logger.info(f"NSFW filter injected (no system prompt) for streaming user {user_id}")
+        
+        # Ensure prompt is valid string
+        if not prompt or not isinstance(prompt, str) or not prompt.strip():
+            raise ValueError("Prompt must be a non-empty string")
+        
+        # Get template and render prompt
+        template = TextCompletionTemplateManager.get_template_for_user(
+            client.text_completion_template,
+            client.text_completion_preset
+        )
+        
+        rendered_prompt = TextCompletionTemplateManager.render_template(
+            template,
+            system_prompt=system_prompt or "",
+            user_prompt=prompt.strip()
+        )
+        
+        logger.debug(f"Rendered streaming text completion prompt (length: {len(rendered_prompt)})")
+        
+        # Get streaming parameters
+        gen_params = client.get_text_completion_streaming_params(max_tokens, temperature)
+        gen_params["prompt"] = rendered_prompt
+        
+        try:
+            logger.info(f"Streaming text completion with {client.model_string} for user {user_id}")
+            
+            # Use litellm.atext_completion for text completion
+            from litellm import atext_completion
+            response = await atext_completion(**gen_params)
+            
+            # Buffer for accumulating chunks to detect thinking tags
+            buffer = ""
+            thinking_detected = False
+            
+            async for chunk in response:
+                # Get text from chunk (text completion uses 'text' field)
+                chunk_text = ""
+                if hasattr(chunk.choices[0], 'text'):
+                    chunk_text = chunk.choices[0].text
+                elif hasattr(chunk.choices[0], 'delta') and hasattr(chunk.choices[0].delta, 'content'):
+                    chunk_text = chunk.choices[0].delta.content or ""
+                
+                if chunk_text:
+                    buffer += chunk_text
+                    
+                    # Check if we've accumulated enough to detect thinking tags
+                    if len(buffer) > 50:  # Arbitrary threshold
+                        # Try to detect and strip thinking tags from buffer
+                        cleaned_buffer = ThinkingTagParser.strip_thinking_tags(buffer)
+                        
+                        if len(cleaned_buffer) < len(buffer):
+                            # Thinking tags detected and removed
+                            thinking_detected = True
+                            logger.debug(f"Thinking tags detected in stream, stripped {len(buffer) - len(cleaned_buffer)} chars")
+                            buffer = cleaned_buffer
+                        
+                        # Yield the cleaned buffer and reset
+                        if buffer:
+                            yield buffer
+                            buffer = ""
+                    else:
+                        # Buffer not large enough yet, keep accumulating
+                        pass
+            
+            # Yield any remaining buffer
+            if buffer:
+                cleaned_buffer = ThinkingTagParser.strip_thinking_tags(buffer)
+                if cleaned_buffer:
+                    yield cleaned_buffer
+                    
+        except Exception as e:
+            error_msg = str(e)
+            logger.warning(f"LiteLLM streaming text completion failed for user {user_id}: {error_msg}")
+            
+            # Fallback to direct HTTP for LM Studio and TabbyAPI
+            if client.api_type in ["lm_studio", "openai_compatible"]:
+                logger.info(f"Attempting direct HTTP streaming text completion fallback for {client.api_type}")
+                async for chunk in await self._direct_http_text_completion_fallback(client, rendered_prompt, max_tokens, temperature, True):
+                    yield chunk
+            else:
+                logger.error(f"Streaming text completion failed for user {user_id}: {error_msg}")
+                raise ValueError(f"Streaming text completion failed: {str(e)}")
     
     def _clean_scene_numbers(self, content: str) -> str:
         """Remove scene numbers and titles from the beginning of generated content"""
