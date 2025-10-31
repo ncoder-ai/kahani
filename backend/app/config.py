@@ -23,13 +23,6 @@ class Settings(BaseSettings):
     admin_email: str = "admin@localhost"
     admin_password: str = "changeme123"
     
-    # LLM Configuration
-    llm_base_url: str = "http://localhost:1234"
-    llm_api_key: str = "not-needed-for-local"
-    llm_model: str = "local-model"
-    llm_max_tokens: int = 2048
-    llm_temperature: float = 0.7
-    
     # Context Management Configuration
     context_max_tokens: int = 4000  # Maximum tokens to send to LLM
     context_keep_recent_scenes: int = 3  # Always keep this many recent scenes

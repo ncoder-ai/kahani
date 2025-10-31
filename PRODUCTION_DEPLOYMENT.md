@@ -99,11 +99,9 @@ CORS_ORIGINS=["https://kahani.yourdomain.com"]
 
 # Production mode
 DEBUG=false
-
-# Optional: External LLM service
-LLM_BASE_URL=http://your-llm-server:1234
-LLM_API_KEY=your-api-key
 ```
+
+**Note:** LLM configuration is done through the application Settings UI (Settings → LLM Settings), not via environment variables. Each user configures their own LLM settings.
 
 **📖 For detailed configuration guide, see:**
 - [Security Setup Guide](docs/SECURITY_SETUP.md) - Generate secrets, configure CORS

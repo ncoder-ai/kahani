@@ -210,18 +210,15 @@ Kahani automatically detects network configuration for different deployment scen
 
 ### **LLM Configuration**
 
-Configure your AI model in `.env`:
+Configure your AI model through the application Settings:
 
-```bash
-# Local LLM Server (Ollama, LM Studio, etc.)
-LLM_BASE_URL=http://localhost:1234/v1
-LLM_MODEL=local-model
+1. Go to **Settings** → **LLM Settings**
+2. Enter your LLM API URL (e.g., `http://localhost:1234/v1` for local models)
+3. Select your API type (OpenAI-compatible, Ollama, etc.)
+4. Enter your model name and API key (if required)
+5. Adjust generation parameters (temperature, top-p, etc.)
 
-# Or use cloud providers
-LLM_BASE_URL=https://api.openai.com/v1
-LLM_API_KEY=your-api-key
-LLM_MODEL=gpt-4
-```
+**Note:** LLM configuration is stored per-user in the database. Each user configures their own LLM settings through the web interface.
 
 ### **TTS Configuration**
 

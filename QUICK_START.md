@@ -86,18 +86,14 @@ cd kahani
 ## ⚙️ Configuration
 
 ### LLM Setup
-Edit `.env` file to configure your AI model:
+Configure your AI model through the application Settings:
 
-```bash
-# For LM Studio (local)
-LLM_BASE_URL=http://localhost:1234/v1
-LLM_MODEL=your-model-name
+1. Go to **Settings** → **LLM Settings**
+2. Enter your LLM API URL (e.g., `http://localhost:1234/v1` for local models like LM Studio or Ollama)
+3. Select your API type (OpenAI-compatible, Ollama, etc.)
+4. Enter your model name and API key (if required)
 
-# For OpenAI (cloud)
-LLM_BASE_URL=https://api.openai.com/v1
-LLM_API_KEY=your-api-key
-LLM_MODEL=gpt-4
-```
+**Note:** LLM configuration is stored per-user. Each user configures their own LLM settings through the web interface.
 
 ### TTS Setup
 Configure text-to-speech in the application:

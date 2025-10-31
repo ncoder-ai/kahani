@@ -71,10 +71,6 @@ JWT_SECRET_KEY=your-super-secret-jwt-key-change-this-in-production
 # Database
 DATABASE_URL=sqlite:///./data/kahani.db
 
-# LLM Configuration
-LLM_BASE_URL=http://localhost:1234/v1
-LLM_MODEL=local-model
-
 # Semantic Memory
 ENABLE_SEMANTIC_MEMORY=true
 SEMANTIC_DB_PATH=./data/chromadb

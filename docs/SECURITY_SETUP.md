@@ -223,11 +223,6 @@ DATABASE_URL=sqlite:///./data/kahani.db
 ### Optional Variables
 
 ```bash
-# LLM Configuration
-LLM_BASE_URL=http://localhost:1234/v1
-LLM_API_KEY=not-needed-for-local
-LLM_MODEL=local-model
-
 # Network Configuration
 CORS_ORIGINS=["http://localhost:6789"]
 PORT=9876
