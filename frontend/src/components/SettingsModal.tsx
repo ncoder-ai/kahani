@@ -133,6 +133,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     api_key: '',
     api_type: '',
     model_name: '',
+    completion_mode: 'chat',
+    text_completion_template: '',
+    text_completion_preset: 'llama3',
   });
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [testingConnection, setTestingConnection] = useState(false);
@@ -282,6 +285,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               api_key: settings.llm_settings.api_key || '',
               api_type: settings.llm_settings.api_type || '',
               model_name: settings.llm_settings.model_name || '',
+              completion_mode: settings.llm_settings.completion_mode || 'chat',
+              text_completion_template: settings.llm_settings.text_completion_template || '',
+              text_completion_preset: settings.llm_settings.text_completion_preset || 'llama3',
             });
             // Set current engine if api_type exists
             if (settings.llm_settings.api_type && settings.llm_settings.api_type.trim() !== '') {
@@ -717,6 +723,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         api_key: '',
         api_type: newEngine,
         model_name: '',
+        completion_mode: 'chat',
+        text_completion_template: '',
+        text_completion_preset: 'llama3',
       });
     }
 
