@@ -259,7 +259,6 @@ export function getThemeList() {
   }));
 }
 
-// Apply default theme immediately on module load (only on client)
-if (typeof window !== 'undefined' && typeof document !== 'undefined') {
-  applyTheme('pure-dark'); // Will be overridden by user settings
-}
+// Apply default theme only on client-side to prevent hydration mismatch
+// This is now handled in useUISettings hook instead of module load
+// Theme will be applied when user settings are loaded or on first render
