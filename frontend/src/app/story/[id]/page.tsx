@@ -185,6 +185,10 @@ export default function StoryPage() {
   const [aiSummary, setAiSummary] = useState<string | null>(null);
   const [scenesToShow, setScenesToShow] = useState(5); // Show last 5 scenes initially
   const [isLoadingEarlierScenes, setIsLoadingEarlierScenes] = useState(false);
+  const [isAutoLoadingScenes, setIsAutoLoadingScenes] = useState(false);
+  
+  // Ref for infinite scroll sentinel element
+  const sentinelRef = useRef<HTMLDivElement>(null);
   
   // Chapter sidebar state
   const [isChapterSidebarOpen, setIsChapterSidebarOpen] = useState(false); // Start closed
@@ -365,10 +369,40 @@ export default function StoryPage() {
     }
   };
 
-  // Load more recent scenes
-  const loadMoreRecentScenes = () => {
-    setScenesToShow(prev => Math.min(prev + 10, story?.scenes?.length || 0));
-  };
+  // Automatically load more scenes when scrolling to top (infinite scroll)
+  const loadMoreScenesAutomatically = useCallback(() => {
+    // Prevent duplicate loads
+    if (isAutoLoadingScenes) return;
+    
+    // Only load if in 'recent' mode and there are more scenes to load
+    if (displayMode !== 'recent' || !story?.scenes) return;
+    
+    const totalScenes = story.scenes.length;
+    if (scenesToShow >= totalScenes) return;
+    
+    setIsAutoLoadingScenes(true);
+    
+    // Save current scroll position before loading
+    const container = storyContentRef.current;
+    const scrollTop = container?.scrollTop || 0;
+    const scrollHeight = container?.scrollHeight || 0;
+    
+    // Load 10 more scenes
+    setScenesToShow(prev => Math.min(prev + 10, totalScenes));
+    
+    // Restore scroll position after DOM update
+    // Use double RAF to ensure React has rendered the new scenes
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (container) {
+          const newScrollHeight = container.scrollHeight;
+          const heightDifference = newScrollHeight - scrollHeight;
+          container.scrollTop = scrollTop + heightDifference;
+        }
+        setIsAutoLoadingScenes(false);
+      });
+    });
+  }, [displayMode, story?.scenes, scenesToShow, isAutoLoadingScenes]);
 
   // Targeted story refresh that doesn't cause scrolling
   const refreshStoryContent = async () => {
@@ -386,6 +420,37 @@ export default function StoryPage() {
       setPreviousSceneCount(story.scenes.length);
     }
   }, [story?.scenes?.length]);
+
+  // Infinite scroll: detect when user scrolls to top using IntersectionObserver
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    const scrollContainer = storyContentRef.current;
+    if (!sentinel || !scrollContainer) return;
+
+    // Only enable infinite scroll in 'recent' mode
+    if (displayMode !== 'recent') return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        // When sentinel becomes visible (user scrolled near top), load more scenes
+        if (entry.isIntersecting && !isAutoLoadingScenes) {
+          loadMoreScenesAutomatically();
+        }
+      },
+      {
+        root: scrollContainer, // Use scroll container as root (not viewport)
+        rootMargin: '100px', // Trigger 100px before sentinel becomes visible
+        threshold: 0.1,
+      }
+    );
+
+    observer.observe(sentinel);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [displayMode, loadMoreScenesAutomatically, isAutoLoadingScenes]);
 
   const loadStory = async (scrollToLastScene = true, scrollToNewScene = false) => {
     console.log('� Loading story - scrollToLastScene:', scrollToLastScene);
@@ -1775,19 +1840,9 @@ export default function StoryPage() {
             <div className="prose prose-invert prose-lg max-w-none mb-8">
               {getScenesToDisplay().length > 0 ? (
                 <div className="space-y-8">
-                  {/* Load Earlier Scenes - Thin Line Design */}
+                  {/* Infinite scroll sentinel - triggers loading when visible */}
                   {displayMode === 'recent' && story.scenes.length > scenesToShow && (
-                    <div className="flex items-center justify-center py-8">
-                      <div className="flex-1 h-px bg-gradient-to-r from-transparent via-gray-600 to-transparent"></div>
-                      <button
-                        onClick={loadMoreRecentScenes}
-                        disabled={isLoadingEarlierScenes}
-                        className="mx-4 text-gray-400 hover:text-gray-300 text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {isLoadingEarlierScenes ? 'Loading...' : 'load more messages'}
-                      </button>
-                      <div className="flex-1 h-px bg-gradient-to-r from-transparent via-gray-600 to-transparent"></div>
-                    </div>
+                    <div ref={sentinelRef} className="h-px" aria-hidden="true" />
                   )}
 
                   {getScenesToDisplay().map((scene, displayIndex) => {
