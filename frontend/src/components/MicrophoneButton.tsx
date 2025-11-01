@@ -3,6 +3,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useRealtimeSTT } from '../hooks/useRealtimeSTT';
 import { Mic, MicOff, Loader2 } from 'lucide-react';
+import { getApiBaseUrl } from '../lib/api';
 
 export interface MicrophoneButtonProps {
   onTranscriptComplete: (text: string) => void;
@@ -80,7 +81,7 @@ export default function MicrophoneButton({
         
         console.log('[MicrophoneButton] Checking STT settings with token:', token ? 'present' : 'missing');
         
-        const response = await fetch('/api/settings/', {
+        const response = await fetch(`${getApiBaseUrl()}/api/settings/`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }
