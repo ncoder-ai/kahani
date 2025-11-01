@@ -2,9 +2,12 @@
 
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/store';
+import { useGlobalTTS } from '@/contexts/GlobalTTSContext';
+import { audioContextManager } from '@/utils/audioContextManager';
+import { useState } from 'react';
 import { 
   X, Settings, LogOut, User, Home, PlusCircle, BookOpen, 
-  ChevronRight, Film, Trash2, Shield, FileText, Edit
+  ChevronRight, Film, Trash2, Shield, FileText, Edit, Bug
 } from 'lucide-react';
 
 interface StoryActions {
@@ -40,6 +43,11 @@ export default function UnifiedMenu({
   const router = useRouter();
   const pathname = usePathname();
   const { user, logout } = useAuthStore();
+  const { currentSceneId, isPlaying, isGenerating, error, debugLogs } = useGlobalTTS();
+  const [showDebug, setShowDebug] = useState(false);
+  
+  // Only show debug option on mobile
+  const isMobile = typeof window !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
   if (!isOpen) return null;
 
@@ -82,8 +90,8 @@ export default function UnifiedMenu({
         onClick={onClose}
       />
       
-      {/* Menu Modal - Bottom Left */}
-      <div className="fixed left-4 bottom-20 z-50 w-80 max-w-[calc(100vw-2rem)] theme-card border border-gray-700 rounded-lg shadow-2xl overflow-hidden">
+      {/* Menu Modal - Top Right */}
+      <div className="fixed right-4 top-16 z-50 w-80 max-w-[calc(100vw-2rem)] theme-card border border-gray-700 rounded-lg shadow-2xl overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-700 theme-banner">
           <div>
@@ -348,6 +356,109 @@ export default function UnifiedMenu({
           {/* Bottom Actions */}
           <div className="my-3 border-t border-gray-700"></div>
           <div className="space-y-1">
+            {/* TTS Debug - Mobile Only */}
+            {isMobile && (
+              <>
+                <button
+                  onClick={() => setShowDebug(!showDebug)}
+                  className="w-full flex items-center gap-3 p-3 hover:bg-white/10 rounded-lg transition-colors text-left group"
+                >
+                  <div className="p-2 bg-blue-600/20 rounded-lg group-hover:bg-blue-600/30 transition-colors">
+                    <Bug className="w-5 h-5 text-blue-400" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="font-medium text-white">Debug TTS</div>
+                    <div className="text-xs text-gray-400">Troubleshooting info</div>
+                  </div>
+                  <ChevronRight className={`w-5 h-5 text-gray-500 transition-transform ${showDebug ? 'rotate-90' : ''}`} />
+                </button>
+                
+                {/* Debug Panel - Collapsible */}
+                {showDebug && (
+                  <div className="ml-4 mr-2 mb-2 p-3 bg-black/50 border border-gray-700 rounded-lg text-xs">
+                    {/* Status Header */}
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="font-bold text-sm text-white">🔍 TTS Debug Info</div>
+                      <div className={`px-2 py-0.5 rounded text-[10px] ${
+                        error ? 'bg-red-500' : isGenerating ? 'bg-blue-500' : isPlaying ? 'bg-green-500' : 'bg-gray-600'
+                      }`}>
+                        {error ? 'ERROR' : isGenerating ? 'GENERATING' : isPlaying ? 'PLAYING' : 'IDLE'}
+                      </div>
+                    </div>
+                    
+                    {/* Status Info */}
+                    <div className="mb-3 space-y-1 text-[11px]">
+                      <div className="flex justify-between">
+                        <span className="text-gray-400">Scene:</span>
+                        <span className="font-mono text-white">{currentSceneId || 'None'}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-400">Online:</span>
+                        <span className={typeof navigator !== 'undefined' && navigator.onLine ? 'text-green-400' : 'text-red-400'}>
+                          {typeof navigator !== 'undefined' && navigator.onLine ? '✓ Yes' : '✗ No'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-400">Auth:</span>
+                        <span className={typeof window !== 'undefined' && localStorage.getItem('auth_token') ? 'text-green-400' : 'text-red-400'}>
+                          {typeof window !== 'undefined' && localStorage.getItem('auth_token') ? '✓ Present' : '✗ Missing'}
+                        </span>
+                      </div>
+                      {typeof window !== 'undefined' && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-400">AudioContext:</span>
+                          <span className="text-white font-mono">{audioContextManager.getState()}</span>
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Error Display */}
+                    {error && (
+                      <div className="mb-3 p-2 bg-red-500/20 border border-red-500/50 rounded text-[11px]">
+                        <div className="font-semibold text-red-400 mb-1">Error:</div>
+                        <div className="text-red-300">{error}</div>
+                      </div>
+                    )}
+                    
+                    {/* Debug Log */}
+                    <div className="border-t border-gray-700 pt-3">
+                      <div className="font-semibold mb-2 text-[11px] text-gray-300">Recent Activity:</div>
+                      <div className="space-y-1 max-h-40 overflow-y-auto">
+                        {debugLogs && debugLogs.length > 0 ? (
+                          debugLogs.map((log, i) => (
+                            <div key={i} className="text-[10px] font-mono text-gray-300 leading-relaxed">
+                              {log}
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-[10px] text-gray-500 italic">No activity yet...</div>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Device Info */}
+                    {typeof window !== 'undefined' && (
+                      <div className="mt-3 pt-3 border-t border-gray-700 text-[10px] text-gray-500">
+                        <div>Device: {/iPhone|iPad|iPod/i.test(navigator.userAgent) ? 'iOS' : 
+                                      /Android/i.test(navigator.userAgent) ? 'Android' : 'Desktop'}</div>
+                        <div>Screen: {window.innerWidth}×{window.innerHeight}</div>
+                      </div>
+                    )}
+                    
+                    {/* Test Audio Button */}
+                    <div className="mt-3 pt-3 border-t border-gray-700">
+                      <button
+                        onClick={() => audioContextManager.testAudio()}
+                        className="w-full bg-yellow-600 hover:bg-yellow-700 text-white text-xs py-2 px-3 rounded transition-colors"
+                      >
+                        🔊 Test Audio (Beep)
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
             {/* Admin Panel */}
             {user?.is_admin && (
               <button
