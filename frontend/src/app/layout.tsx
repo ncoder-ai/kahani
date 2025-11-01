@@ -3,9 +3,14 @@ import { Inter } from 'next/font/google'
 import PersistentBanner from '@/components/PersistentBanner'
 import { GlobalTTSProvider } from '@/contexts/GlobalTTSContext'
 import { StoryProvider } from '@/contexts/StoryContext'
-import { MobileDebugger } from '@/components/MobileDebugger'
 
-const inter = Inter({ subsets: ['latin'] })
+// Optimized font loading with display swap for better performance
+const inter = Inter({ 
+  subsets: ['latin'],
+  display: 'swap',
+  preload: true,
+  variable: '--font-inter'
+})
 
 export const metadata = {
   title: 'Kahani - Interactive Storytelling',
@@ -24,7 +29,6 @@ export default function RootLayout({
       <body className={inter.className}>
         <GlobalTTSProvider apiBaseUrl={getApiBaseUrl()}>
           <StoryProvider>
-            <MobileDebugger />
             <PersistentBanner />
             {children}
           </StoryProvider>

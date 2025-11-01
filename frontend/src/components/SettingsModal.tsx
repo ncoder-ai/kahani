@@ -1,13 +1,19 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import { X, Settings as SettingsIcon, Check, AlertCircle, Volume2, Loader2, Eye } from 'lucide-react';
-import VoiceBrowserModal from './VoiceBrowserModal';
 import apiClient, { getApiBaseUrl } from '@/lib/api';
 import { getThemeList, applyTheme } from '@/lib/themes';
 import { useAuthStore } from '@/store';
 import { UIPreferences, GenerationPreferences } from '@/types/settings';
 import TextCompletionTemplateEditor from './TextCompletionTemplateEditor';
+
+// Lazy load VoiceBrowserModal - only loads when voice browser is opened
+const VoiceBrowserModal = dynamic(() => import('./VoiceBrowserModal'), {
+  loading: () => null,
+  ssr: false
+});
 
 // Helper function to safely parse JSON template
 const safeParseJSON = (jsonString: string | undefined | null): any => {

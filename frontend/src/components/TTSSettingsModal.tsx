@@ -1,9 +1,15 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import { X, Volume2, Loader2, Check, AlertCircle, Eye } from 'lucide-react';
 import apiClient from '@/lib/api';
-import VoiceBrowserModal from './VoiceBrowserModal';
+
+// Lazy load VoiceBrowserModal - only loads when voice browser is opened
+const VoiceBrowserModal = dynamic(() => import('./VoiceBrowserModal'), {
+  loading: () => null,
+  ssr: false
+});
 
 interface TTSProvider {
   type: string;

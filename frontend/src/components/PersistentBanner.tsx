@@ -4,12 +4,26 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/store';
 import { HomeIcon, ArrowLeftIcon, Menu as MenuIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import UnifiedMenu from './UnifiedMenu';
-import SettingsModal from './SettingsModal';
-import TTSSettingsModal from './TTSSettingsModal';
+import dynamic from 'next/dynamic';
 import { useGlobalTTS } from '@/contexts/GlobalTTSContext';
 import { useStoryActions } from '@/contexts/StoryContext';
 import { audioContextManager } from '@/utils/audioContextManager';
+
+// Lazy load heavy modals - only load when opened
+const UnifiedMenu = dynamic(() => import('./UnifiedMenu'), {
+  loading: () => null, // No loading spinner - menu opens instantly
+  ssr: false
+});
+
+const SettingsModal = dynamic(() => import('./SettingsModal'), {
+  loading: () => null,
+  ssr: false
+});
+
+const TTSSettingsModal = dynamic(() => import('./TTSSettingsModal'), {
+  loading: () => null,
+  ssr: false
+});
 
 export default function PersistentBanner() {
   const router = useRouter();
