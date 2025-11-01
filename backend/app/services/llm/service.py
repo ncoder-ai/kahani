@@ -246,10 +246,13 @@ class UnifiedLLMService:
         
         try:
             logger.info(f"Text completion with {client.model_string} for user {user_id}")
+            logger.info(f"Calling text_completion with model={gen_params['model']}, prompt_length={len(gen_params['prompt'])}")
             
-            # Use litellm.atext_completion for text completion
-            from litellm import atext_completion
-            response = await atext_completion(**gen_params)
+            # Use litellm.text_completion for text completion (synchronous, run in thread)
+            from litellm import text_completion
+            import asyncio
+            
+            response = await asyncio.to_thread(text_completion, **gen_params)
             
             content = response.choices[0].text if hasattr(response.choices[0], 'text') else response.choices[0].message.content
             logger.info(f"Generated {len(content)} characters for user {user_id}")
@@ -540,10 +543,13 @@ class UnifiedLLMService:
         
         try:
             logger.info(f"Streaming text completion with {client.model_string} for user {user_id}")
+            logger.info(f"Calling text_completion (streaming) with model={gen_params['model']}, prompt_length={len(gen_params['prompt'])}")
             
-            # Use litellm.atext_completion for text completion
-            from litellm import atext_completion
-            response = await atext_completion(**gen_params)
+            # Use litellm.text_completion for text completion (synchronous, run in thread)
+            from litellm import text_completion
+            import asyncio
+            
+            response = await asyncio.to_thread(text_completion, **gen_params)
             
             # Buffer for accumulating chunks to detect thinking tags
             buffer = ""
