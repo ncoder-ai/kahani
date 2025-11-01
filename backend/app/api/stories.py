@@ -866,11 +866,6 @@ async def generate_scene_streaming_endpoint(
                     current_user.id,
                     user_settings
                 ):
-                    # Log chunk for debugging space issues
-                    logger.debug(f"Streaming chunk (first 100 chars): {repr(chunk[:100])}")
-                    logger.debug(f"Chunk contains spaces: {' ' in chunk}")
-                    logger.debug(f"Chunk length: {len(chunk)}")
-                    
                     full_content += chunk
                     yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
             
