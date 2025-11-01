@@ -281,7 +281,8 @@ class LLMClient:
             if extra_body:
                 params["extra_body"] = extra_body
         
-        logger.info(f"Final text completion params: {params}")
+        logger.info(f"Final text completion params: model={params.get('model')}, api_base={params.get('api_base')}, has_prompt={('prompt' in params)}")
+        logger.debug(f"Full text completion params: {params}")
         return params
     
     def get_text_completion_streaming_params(self, max_tokens: Optional[int] = None, temperature: Optional[float] = None) -> Dict[str, Any]:
