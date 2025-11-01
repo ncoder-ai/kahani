@@ -13,6 +13,11 @@ const nextConfig = {
       exclude: ['error', 'warn']
     } : false
   },
+  // Disable Next.js development indicators (the "N" button)
+  devIndicators: {
+    buildActivity: false,
+    buildActivityPosition: 'bottom-right',
+  },
   // Optimize images
   images: {
     formats: ['image/avif', 'image/webp'],
