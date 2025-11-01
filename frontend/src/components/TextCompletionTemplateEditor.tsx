@@ -54,6 +54,25 @@ export default function TextCompletionTemplateEditor({
     loadPresets();
   }, []);
 
+  // Sync with preset prop changes
+  useEffect(() => {
+    if (preset && preset !== selectedPreset && preset !== 'custom') {
+      loadPresetTemplate(preset);
+    } else if (preset === 'custom' && value) {
+      setTemplate(value);
+      setSelectedPreset('custom');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preset]);
+
+  // Sync with value prop changes when in custom mode
+  useEffect(() => {
+    if (value && selectedPreset === 'custom') {
+      setTemplate(value);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
   // Update preview when template changes
   useEffect(() => {
     updatePreview();

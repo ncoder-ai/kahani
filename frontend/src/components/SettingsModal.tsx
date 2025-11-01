@@ -9,6 +9,19 @@ import { useAuthStore } from '@/store';
 import { UIPreferences, GenerationPreferences } from '@/types/settings';
 import TextCompletionTemplateEditor from './TextCompletionTemplateEditor';
 
+// Helper function to safely parse JSON template
+const safeParseJSON = (jsonString: string | undefined | null): any => {
+  if (!jsonString || jsonString.trim() === '') {
+    return null;
+  }
+  try {
+    return JSON.parse(jsonString);
+  } catch (error) {
+    console.error('Failed to parse text_completion_template:', error);
+    return null;
+  }
+};
+
 interface WritingPreset {
   id?: number;
   name: string;
@@ -1838,7 +1851,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     <div className="pt-4 pb-4 px-4 bg-gray-800/50 rounded-lg border border-gray-700">
                       <h4 className="text-sm font-medium text-white mb-3">Text Completion Template</h4>
                       <TextCompletionTemplateEditor
-                        value={llmSettings.text_completion_template ? JSON.parse(llmSettings.text_completion_template) : null}
+                        value={safeParseJSON(llmSettings.text_completion_template)}
                         preset={llmSettings.text_completion_preset || 'llama3'}
                         onChange={(template, preset) => {
                           setLlmSettings({
