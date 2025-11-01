@@ -18,14 +18,14 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Copy requirements first to leverage Docker cache
-COPY requirements.txt .
+COPY requirements-prod.txt .
 
 # Install PyTorch CPU-only first (must be before sentence-transformers)
-# This satisfies the torch>=2.0.0 requirement in requirements.txt
+# This satisfies the torch>=2.0.0 requirement for STT dependencies
 RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.2.0+cpu torchaudio==2.2.0+cpu
 
 # Install Python dependencies (torch will be skipped since already installed)
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements-prod.txt
 
 # Install sentence-transformers after PyTorch
 RUN pip install --no-cache-dir sentence-transformers==2.3.0
