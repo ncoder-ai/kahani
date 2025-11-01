@@ -4,24 +4,42 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { flushSync } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { useParams } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import { useAuthStore, useStoryStore, useHasHydrated } from '@/store';
 import { useGlobalTTS } from '@/contexts/GlobalTTSContext';
 import { useStoryActions } from '@/contexts/StoryContext';
 import { useUISettings } from '@/hooks/useUISettings';
 import apiClient, { getApiBaseUrl } from '@/lib/api';
 import CharacterQuickAdd from '@/components/CharacterQuickAdd';
-import CharacterWizard from '@/components/CharacterWizard';
 import CharacterSuggestionBanner from '@/components/CharacterSuggestionBanner';
 import { ContextInfo } from '@/components/ContextInfo';
 import FormattedText from '@/components/FormattedText';
 import SceneDisplay from '@/components/SceneDisplay';
 import SceneVariantDisplay from '@/components/SceneVariantDisplay';
-import ChapterSidebar from '@/components/ChapterSidebar';
-import TTSSettingsModal from '@/components/TTSSettingsModal';
-import StorySettingsModal from '@/components/StorySettingsModal';
 import { GlobalTTSWidget } from '@/components/GlobalTTSWidget';
 import { TTSDebugPanel } from '@/components/TTSDebugPanel';
 import MicrophoneButton from '@/components/MicrophoneButton';
+
+// Lazy load heavy components - only load when needed
+const CharacterWizard = dynamic(() => import('@/components/CharacterWizard'), {
+  loading: () => null,
+  ssr: false
+});
+
+const ChapterSidebar = dynamic(() => import('@/components/ChapterSidebar'), {
+  loading: () => null,
+  ssr: false
+});
+
+const TTSSettingsModal = dynamic(() => import('@/components/TTSSettingsModal'), {
+  loading: () => null,
+  ssr: false
+});
+
+const StorySettingsModal = dynamic(() => import('@/components/StorySettingsModal'), {
+  loading: () => null,
+  ssr: false
+});
 import { BookOpen, ChevronRight, X, AlertCircle, Sparkles, Volume2, Trash2 } from 'lucide-react';
 import { 
   BookOpenIcon, 

@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+/* Font is now loaded via Next.js font optimization in layout.tsx for better performance */
 
 :root {
   --primary-50: #eff6ff;

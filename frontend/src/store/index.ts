@@ -78,28 +78,15 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'auth-storage',
-      onRehydrateStorage: () => async (state) => {
+      onRehydrateStorage: () => (state) => {
+        // Fast, synchronous hydration - no blocking API calls
         if (state?.token && state?.user) {
           apiClient.setToken(state.token);
           // Set isAuthenticated to true when rehydrating from storage
           state.isAuthenticated = true;
           
-          // If we have a refresh token, try to refresh the access token in the background
-          if (state.refreshToken) {
-            try {
-              console.log('[AuthStore] Rehydration: Attempting background token refresh...');
-              const response = await apiClient.refreshToken(state.refreshToken);
-              console.log('[AuthStore] Background token refresh successful');
-              
-              // Update the token in both the store and API client
-              apiClient.setToken(response.access_token);
-              state.token = response.access_token;
-            } catch (error) {
-              console.log('[AuthStore] Background token refresh failed, keeping existing token');
-              // Don't logout here - let the user try to use the app
-              // If the token is truly expired, the API client will handle it
-            }
-          }
+          // Token refresh is now handled on-demand by API client when 401 errors occur
+          // This eliminates 2-3 second delay on every page load
         }
       },
     }
