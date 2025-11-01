@@ -12,9 +12,9 @@ import sys
 API_URL = "http://localhost:1234"  # Change to your LM Studio URL
 MODEL_NAME = "qwen3-coder-30b-a3b-instruct-mlx"  # Change to your model name
 
-# Qwen template format
+# Qwen template format (fixed - no BOS token since each role already has <|im_start|>)
 QWEN_TEMPLATE = {
-    "bos_token": "<|im_start|>",
+    "bos_token": "",  # Qwen doesn't use separate BOS token
     "eos_token": "<|im_end|>",
     "system_prefix": "<|im_start|>system\n",
     "system_suffix": "<|im_end|>\n",

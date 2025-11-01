@@ -344,8 +344,10 @@ class UnifiedLLMService:
             raise ValueError(f"LLM generation failed: {str(e)}")
     
     async def _direct_http_text_completion_fallback(self, client, prompt, max_tokens, temperature, stream):
-        """Direct HTTP fallback for text completion when LiteLLM fails"""
+        """Direct HTTP call to /v1/completions endpoint for text completion"""
         import httpx
+        
+        logger.info(f"Direct HTTP text completion: stream={stream}, model={client.model_name}")
         
         payload = {
             "model": client.model_name,  # Use the actual model name, not the prefixed one
@@ -354,6 +356,24 @@ class UnifiedLLMService:
             "temperature": temperature if temperature is not None else client.temperature,
             "stream": stream
         }
+        
+        # Add stop sequences based on template
+        if client.text_completion_template:
+            # Parse template to get EOS token
+            import json
+            try:
+                template = json.loads(client.text_completion_template)
+                eos_token = template.get("eos_token")
+                if eos_token:
+                    payload["stop"] = [eos_token]
+            except:
+                pass
+        elif client.text_completion_preset:
+            # Get preset template EOS token
+            from .templates import TextCompletionTemplateManager
+            preset_template = TextCompletionTemplateManager.get_preset_template(client.text_completion_preset)
+            if preset_template and preset_template.get("eos_token"):
+                payload["stop"] = [preset_template["eos_token"]]
         
         headers = {
             "Content-Type": "application/json"
@@ -368,6 +388,9 @@ class UnifiedLLMService:
                 endpoint_url = f"{client.api_url}/completions"
             else:
                 endpoint_url = f"{client.api_url}/v1/completions"
+            
+            logger.info(f"Calling text completion endpoint: {endpoint_url}")
+            logger.debug(f"Payload: model={client.model_name}, prompt_length={len(prompt)}, stream={stream}, stop={payload.get('stop')}")
             
             async with httpx.AsyncClient() as http_client:
                 response = await http_client.post(
