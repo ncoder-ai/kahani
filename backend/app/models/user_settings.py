@@ -156,8 +156,8 @@ class UserSettings(Base):
                 "mention_threshold": self.character_mention_threshold
             },
             "stt_settings": {
-                "enabled": self.stt_enabled,
-                "model": self.stt_model
+                "enabled": self.stt_enabled if self.stt_enabled is not None else True,
+                "model": self.stt_model if self.stt_model is not None else "small"
             },
             "advanced": {
                 "custom_system_prompt": self.custom_system_prompt,

@@ -104,23 +104,29 @@ async def get_user_settings(
     db: Session = Depends(get_db)
 ):
     """Get user's current settings"""
-    
-    # Get or create user settings
-    user_settings = db.query(UserSettings).filter(
-        UserSettings.user_id == current_user.id
-    ).first()
-    
-    if not user_settings:
-        # Create default settings for new user
-        user_settings = UserSettings(user_id=current_user.id)
-        db.add(user_settings)
-        db.commit()
-        db.refresh(user_settings)
-    
-    return {
-        "settings": user_settings.to_dict(),
-        "message": "Settings retrieved successfully"
-    }
+    try:
+        # Get or create user settings
+        user_settings = db.query(UserSettings).filter(
+            UserSettings.user_id == current_user.id
+        ).first()
+        
+        if not user_settings:
+            # Create default settings for new user
+            user_settings = UserSettings(user_id=current_user.id)
+            db.add(user_settings)
+            db.commit()
+            db.refresh(user_settings)
+        
+        return {
+            "settings": user_settings.to_dict(),
+            "message": "Settings retrieved successfully"
+        }
+    except Exception as e:
+        logger.error(f"Error retrieving user settings for user {current_user.id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve settings: {str(e)}"
+        )
 
 @router.put("/")
 async def update_user_settings(
