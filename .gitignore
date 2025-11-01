@@ -273,3 +273,4 @@ debug_*.py
 
 # Whisper and Silero-VAD models
 backend/data/whisper_models/
+backend/data/vad_models/
