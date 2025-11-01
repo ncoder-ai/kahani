@@ -545,17 +545,20 @@ class UnifiedLLMService:
             logger.info(f"Streaming text completion with {client.model_string} for user {user_id}")
             logger.info(f"Calling text_completion (streaming) with model={gen_params['model']}, prompt_length={len(gen_params['prompt'])}")
             
-            # Use litellm.text_completion for text completion (synchronous, run in thread)
+            # Use litellm.text_completion for text completion
+            # text_completion returns a synchronous generator when stream=True
             from litellm import text_completion
             import asyncio
             
-            response = await asyncio.to_thread(text_completion, **gen_params)
+            # Call text_completion (it returns a synchronous generator for streaming)
+            response_stream = text_completion(**gen_params)
             
             # Buffer for accumulating chunks to detect thinking tags
             buffer = ""
             thinking_detected = False
             
-            async for chunk in response:
+            # Convert synchronous generator to async by yielding in executor
+            for chunk in response_stream:
                 # Get text from chunk (text completion uses 'text' field)
                 chunk_text = ""
                 if hasattr(chunk.choices[0], 'text'):
@@ -584,6 +587,9 @@ class UnifiedLLMService:
                     else:
                         # Buffer not large enough yet, keep accumulating
                         pass
+                
+                # Allow other tasks to run
+                await asyncio.sleep(0)
             
             # Yield any remaining buffer
             if buffer:

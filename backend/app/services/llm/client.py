@@ -57,6 +57,8 @@ class LLMClient:
         self.text_completion_template = self.llm_config.get('text_completion_template')
         self.text_completion_preset = self.llm_config.get('text_completion_preset', 'llama3')
         
+        logger.info(f"LLMClient initialized: completion_mode={self.completion_mode}, api_type={self.api_type}, model={self.model_name}")
+        
         # Configure LiteLLM model string based on provider
         self.model_string = self._build_model_string()
         
