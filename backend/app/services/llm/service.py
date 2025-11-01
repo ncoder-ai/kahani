@@ -416,6 +416,10 @@ class UnifiedLLMService:
                                         # Text completion uses 'text' field, not 'delta'
                                         text = chunk["choices"][0].get("text", "")
                                         if text:
+                                            # Log raw chunk for debugging
+                                            logger.debug(f"Streaming chunk (first 100 chars): {repr(text[:100])}")
+                                            logger.debug(f"Chunk contains spaces: {' ' in text}")
+                                            
                                             # Strip thinking tags from each chunk
                                             cleaned_text = ThinkingTagParser.strip_thinking_tags(text)
                                             if cleaned_text:
@@ -428,8 +432,20 @@ class UnifiedLLMService:
                     data = response.json()
                     if "choices" in data and len(data["choices"]) > 0:
                         content = data["choices"][0]["text"]
+                        
+                        # Log raw content for debugging
+                        logger.debug(f"Raw text completion response (first 200 chars): {repr(content[:200])}")
+                        logger.debug(f"Raw response contains spaces: {' ' in content}")
+                        logger.debug(f"Raw response length: {len(content)}")
+                        
                         # Strip thinking tags from response
-                        return ThinkingTagParser.strip_thinking_tags(content)
+                        cleaned_content = ThinkingTagParser.strip_thinking_tags(content)
+                        
+                        logger.debug(f"Cleaned response (first 200 chars): {repr(cleaned_content[:200])}")
+                        logger.debug(f"Cleaned response contains spaces: {' ' in cleaned_content}")
+                        logger.debug(f"Cleaned response length: {len(cleaned_content)}")
+                        
+                        return cleaned_content
                     else:
                         raise ValueError("Invalid response format from text completion endpoint")
                         
