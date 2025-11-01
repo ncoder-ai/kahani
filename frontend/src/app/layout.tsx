@@ -17,17 +17,19 @@ export const metadata = {
   description: 'Create and explore AI-powered interactive stories',
 }
 
-import { getApiBaseUrl } from '@/lib/api';
-
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
+  // Use environment variable or safe default for SSR
+  // GlobalTTSProvider will handle client-side URL detection to prevent hydration mismatches
+  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876';
+  
   return (
     <html lang="en">
       <body className={inter.className}>
-        <GlobalTTSProvider apiBaseUrl={getApiBaseUrl()}>
+        <GlobalTTSProvider apiBaseUrl={apiBaseUrl}>
           <StoryProvider>
             <PersistentBanner />
             {children}

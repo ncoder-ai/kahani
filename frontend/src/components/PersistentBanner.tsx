@@ -36,13 +36,20 @@ export default function PersistentBanner() {
   const [showSettings, setShowSettings] = useState(false);
   const [showTTSSettings, setShowTTSSettings] = useState(false);
   const [ttsPermissionEnabled, setTtsPermissionEnabled] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   
   // Sync with AudioContext state
   useEffect(() => {
+    // Only run on client side to prevent hydration mismatch
+    if (typeof window === 'undefined') return;
+    
     const checkAudioState = () => {
       const isUnlocked = audioContextManager.isAudioUnlocked();
       setTtsPermissionEnabled(isUnlocked);
     };
+    
+    // Check if mobile device (client-side only)
+    setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent));
     
     // Check immediately
     checkAudioState();
@@ -71,8 +78,10 @@ export default function PersistentBanner() {
   };
 
   useEffect(() => {
-    // Check if we can go back in history
-    setCanGoBack(window.history.length > 1);
+    // Check if we can go back in history (client-side only)
+    if (typeof window !== 'undefined') {
+      setCanGoBack(window.history.length > 1);
+    }
   }, []);
 
   const handleHome = () => {
@@ -119,7 +128,7 @@ export default function PersistentBanner() {
             {/* Right side - Action buttons */}
             <div className="flex items-center space-x-2">
               {/* TTS Permission Button - Mobile Only */}
-              {/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) && (
+              {isMobile && (
                 <button
                   onClick={handleEnableTTS}
                   className={`flex items-center space-x-1 px-3 py-2 rounded-lg transition-all duration-200 ${
