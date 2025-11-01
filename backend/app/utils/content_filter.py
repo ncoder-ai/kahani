@@ -197,5 +197,12 @@ def should_inject_nsfw_filter(user_allow_nsfw: bool) -> bool:
     Returns:
         True if filter should be injected, False otherwise
     """
-    return not user_allow_nsfw
+    # Handle None, string "True"/"False", and other types
+    if user_allow_nsfw is None:
+        return True  # Default to filtering if not set
+    if isinstance(user_allow_nsfw, str):
+        # Handle string booleans
+        return user_allow_nsfw.lower() not in ('true', '1', 'yes')
+    # For boolean or int (0/1), use truthiness
+    return not bool(user_allow_nsfw)
 
