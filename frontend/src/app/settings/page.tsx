@@ -10,6 +10,19 @@ import TextCompletionTemplateEditor from '@/components/TextCompletionTemplateEdi
 import { getApiBaseUrl } from '@/lib/api';
 import { getThemeList } from '@/lib/themes';
 
+// Helper function to safely parse JSON template
+const safeParseJSON = (jsonString: string | undefined | null): any => {
+  if (!jsonString || jsonString.trim() === '') {
+    return null;
+  }
+  try {
+    return JSON.parse(jsonString);
+  } catch (error) {
+    console.error('Failed to parse text_completion_template:', error);
+    return null;
+  }
+};
+
 interface LLMSettings {
   temperature: number;
   top_p: number;
@@ -915,7 +928,7 @@ export default function SettingsPage() {
                       <div className="pt-4 pb-4 px-4 bg-gray-700/50 rounded-lg border border-gray-600">
                         <h4 className="text-sm font-medium text-white mb-3">Text Completion Template</h4>
                         <TextCompletionTemplateEditor
-                          value={settings.llm_settings.text_completion_template ? JSON.parse(settings.llm_settings.text_completion_template) : null}
+                          value={safeParseJSON(settings.llm_settings.text_completion_template)}
                           preset={settings.llm_settings.text_completion_preset || 'llama3'}
                           onChange={(template, preset) => {
                             updateLLMSetting('text_completion_template', JSON.stringify(template));
