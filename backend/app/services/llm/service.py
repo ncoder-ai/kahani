@@ -43,16 +43,18 @@ class UnifiedLLMService:
     
     def get_user_client(self, user_id: int, user_settings: Dict[str, Any]) -> LLMClient:
         """Get or create LLM client configuration for user"""
-        if user_id not in self._client_cache:
-            try:
-                self._client_cache[user_id] = LLMClient(user_settings)
-                logger.info(f"Created LLM client for user {user_id} with provider {self._client_cache[user_id].api_type}")
-            except Exception as e:
-                logger.error(f"Failed to create LLM client for user {user_id}: {e}")
-                raise
+        # Always recreate client from user_settings to ensure we have latest settings
+        # This is important for completion_mode and other settings that affect API calls
+        try:
+            client = LLMClient(user_settings)
+            # Update cache with new client
+            self._client_cache[user_id] = client
+            logger.info(f"Created/updated LLM client for user {user_id} with provider {client.api_type}, completion_mode={client.completion_mode}")
+        except Exception as e:
+            logger.error(f"Failed to create LLM client for user {user_id}: {e}")
+            raise
         
         # Ensure the global LiteLLM configuration is set correctly for this user
-        client = self._client_cache[user_id]
         client._configure_litellm()
         
         return client
@@ -122,10 +124,14 @@ class UnifiedLLMService:
         
         # Check completion mode and branch accordingly
         completion_mode = client.completion_mode
+        logger.info(f"User {user_id} generation mode: {completion_mode} (from client.completion_mode={client.completion_mode})")
         if completion_mode == "text":
+            logger.info(f"Using text completion API for user {user_id}")
             return await self._generate_text_completion(
                 prompt, user_id, user_settings, system_prompt, max_tokens, temperature
             )
+        
+        logger.info(f"Using chat completion API for user {user_id}")
         
         # Check if NSFW filter should be injected
         from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
@@ -432,12 +438,16 @@ class UnifiedLLMService:
         
         # Check completion mode and branch accordingly
         completion_mode = client.completion_mode
+        logger.info(f"User {user_id} streaming generation mode: {completion_mode} (from client.completion_mode={client.completion_mode})")
         if completion_mode == "text":
+            logger.info(f"Using text completion streaming API for user {user_id}")
             async for chunk in self._generate_text_completion_stream(
                 prompt, user_id, user_settings, system_prompt, max_tokens, temperature
             ):
                 yield chunk
             return
+        
+        logger.info(f"Using chat completion streaming API for user {user_id}")
         
         # Check if NSFW filter should be injected
         from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
