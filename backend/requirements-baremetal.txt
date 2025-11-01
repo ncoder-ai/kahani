@@ -23,8 +23,9 @@ pytest-asyncio==0.21.1
 litellm==1.40.0
 
 # PyTorch CPU-only (must be installed before sentence-transformers)
---extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.2.0+cpu
+# Install with: pip install torch --index-url https://download.pytorch.org/whl/cpu
+# Or use: pip install torch (default PyPI version)
+torch>=2.0.0,<3.0.0
 
 # Semantic memory and embeddings
 chromadb==0.4.22
