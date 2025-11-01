@@ -31,5 +31,5 @@ chromadb==0.4.22
 sentence-transformers==2.3.0
 tiktoken==0.5.2
 numpy==1.26.4
-huggingface-hub==0.20.0
+huggingface-hub>=0.34.0,<1.0  # Required for sentence-transformers (0.20.0 was too old)
 
