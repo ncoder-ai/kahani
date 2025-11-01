@@ -3,6 +3,7 @@ import { Inter } from 'next/font/google'
 import PersistentBanner from '@/components/PersistentBanner'
 import { GlobalTTSProvider } from '@/contexts/GlobalTTSContext'
 import { StoryProvider } from '@/contexts/StoryContext'
+import { ServiceWorkerRegistration } from '@/components/ServiceWorkerRegistration'
 
 // Optimized font loading with display swap for better performance
 const inter = Inter({ 
@@ -29,6 +30,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
+        <ServiceWorkerRegistration />
         <GlobalTTSProvider apiBaseUrl={apiBaseUrl}>
           <StoryProvider>
             <PersistentBanner />
