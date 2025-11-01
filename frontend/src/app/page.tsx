@@ -15,8 +15,14 @@ export default function HomePage() {
     // Apply default theme for landing page
     applyTheme('pure-dark');
     
+    // Prefetch dashboard when authenticated for faster navigation
     if (hasHydrated && isAuthenticated) {
+      router.prefetch('/dashboard');
       router.push('/dashboard');
+    } else if (hasHydrated && !isAuthenticated) {
+      // Prefetch login/register pages for faster navigation
+      router.prefetch('/login');
+      router.prefetch('/register');
     }
   }, [router, hasHydrated, isAuthenticated]);
 
