@@ -244,6 +244,13 @@ class UnifiedLLMService:
         gen_params = client.get_text_completion_params(max_tokens, temperature)
         gen_params["prompt"] = rendered_prompt
         
+        # For OpenAI-compatible providers (LM Studio, TabbyAPI, KoboldCpp), skip LiteLLM
+        # and use direct HTTP to ensure correct /v1/completions endpoint is called
+        if client.api_type in ["lm_studio", "openai_compatible", "openai-compatible", "tabbyapi", "koboldcpp"]:
+            logger.info(f"Using direct HTTP for text completion with {client.api_type}")
+            return await self._direct_http_text_completion_fallback(client, rendered_prompt, max_tokens, temperature, False)
+        
+        # For other providers, try LiteLLM
         try:
             logger.info(f"Text completion with {client.model_string} for user {user_id}")
             logger.info(f"Calling text_completion with model={gen_params['model']}, prompt_length={len(gen_params['prompt'])}")
@@ -267,27 +274,8 @@ class UnifiedLLMService:
         except Exception as e:
             error_msg = str(e)
             logger.warning(f"LiteLLM text completion failed for user {user_id}: {error_msg}")
-            
-            # Provide helpful error messages for common connection issues
-            if "404" in error_msg or "Not Found" in error_msg:
-                if client.api_type == "openai_compatible":
-                    raise ValueError(f"API endpoint not found. For TabbyAPI and similar services, try adding '/v1' to your URL: {client.api_url}/v1")
-                else:
-                    raise ValueError(f"API endpoint not found at {client.api_url}. Please check your URL.")
-            elif "401" in error_msg or "Unauthorized" in error_msg:
-                raise ValueError(f"Authentication failed. Please check your API key.")
-            elif "403" in error_msg or "Forbidden" in error_msg:
-                raise ValueError(f"Access forbidden. Please check your API key and permissions.")
-            elif "Connection" in error_msg or "timeout" in error_msg.lower():
-                raise ValueError(f"Cannot connect to {client.api_url}. Please check if the service is running and accessible.")
-            else:
-                # Fallback to direct HTTP for LM Studio and TabbyAPI
-                if client.api_type in ["lm_studio", "openai_compatible"]:
-                    logger.info(f"Attempting direct HTTP text completion fallback for {client.api_type}")
-                    return await self._direct_http_text_completion_fallback(client, rendered_prompt, max_tokens, temperature, False)
-                else:
-                    logger.error(f"Text completion failed for user {user_id}: {error_msg}")
-                    raise ValueError(f"Text completion failed: {error_msg}")
+            logger.error(f"Text completion failed for user {user_id}: {error_msg}")
+            raise ValueError(f"Text completion failed: {error_msg}")
     
     async def _direct_http_fallback(self, client, messages, max_tokens, temperature, stream):
         """Direct HTTP fallback for LM Studio when LiteLLM fails"""
@@ -541,6 +529,15 @@ class UnifiedLLMService:
         gen_params = client.get_text_completion_streaming_params(max_tokens, temperature)
         gen_params["prompt"] = rendered_prompt
         
+        # For OpenAI-compatible providers (LM Studio, TabbyAPI, KoboldCpp), skip LiteLLM
+        # and use direct HTTP to ensure correct /v1/completions endpoint is called
+        if client.api_type in ["lm_studio", "openai_compatible", "openai-compatible", "tabbyapi", "koboldcpp"]:
+            logger.info(f"Using direct HTTP streaming for text completion with {client.api_type}")
+            async for chunk in await self._direct_http_text_completion_fallback(client, rendered_prompt, max_tokens, temperature, True):
+                yield chunk
+            return
+        
+        # For other providers, try LiteLLM
         try:
             logger.info(f"Streaming text completion with {client.model_string} for user {user_id}")
             logger.info(f"Calling text_completion (streaming) with model={gen_params['model']}, prompt_length={len(gen_params['prompt'])}")
@@ -600,6 +597,8 @@ class UnifiedLLMService:
         except Exception as e:
             error_msg = str(e)
             logger.warning(f"LiteLLM streaming text completion failed for user {user_id}: {error_msg}")
+            logger.error(f"Streaming text completion failed for user {user_id}: {error_msg}")
+            raise ValueError(f"Streaming text completion failed: {error_msg}")
             
             # Fallback to direct HTTP for LM Studio and TabbyAPI
             if client.api_type in ["lm_studio", "openai_compatible"]:
