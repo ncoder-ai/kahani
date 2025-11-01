@@ -50,7 +50,7 @@ class TextCompletionTemplateManager:
             "name": "Qwen",
             "description": "Template for Qwen / Qwen2 / QwQ models",
             "compatible_models": ["Qwen", "Qwen2", "Qwen2.5", "QwQ"],
-            "bos_token": "<|im_start|>",
+            "bos_token": "",  # Qwen doesn't use a separate BOS token - each role starts with <|im_start|>
             "eos_token": "<|im_end|>",
             "system_prefix": "<|im_start|>system\n",
             "system_suffix": "<|im_end|>\n",
