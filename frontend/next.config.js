@@ -6,7 +6,7 @@ const withBundleAnalyzer = require('@next/bundle-analyzer')({
 
 const nextConfig = {
   reactStrictMode: true,
-  swcMinify: true,
+  // swcMinify is enabled by default in Next.js 16, no need to specify
   // Remove console logs in production for better mobile performance
   compiler: {
     removeConsole: process.env.NODE_ENV === 'production' ? {
