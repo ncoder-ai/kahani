@@ -421,7 +421,8 @@ class UnifiedLLMService:
                                             logger.debug(f"Chunk contains spaces: {' ' in text}")
                                             
                                             # Strip thinking tags from each chunk
-                                            cleaned_text = ThinkingTagParser.strip_thinking_tags(text)
+                                            # Preserve whitespace for streaming chunks to maintain word boundaries
+                                            cleaned_text = ThinkingTagParser.strip_thinking_tags(text, preserve_whitespace=True)
                                             if cleaned_text:
                                                 yield cleaned_text
                                 except json.JSONDecodeError:
@@ -608,7 +609,8 @@ class UnifiedLLMService:
                     # Check if we've accumulated enough to detect thinking tags
                     if len(buffer) > 50:  # Arbitrary threshold
                         # Try to detect and strip thinking tags from buffer
-                        cleaned_buffer = ThinkingTagParser.strip_thinking_tags(buffer)
+                        # Preserve whitespace for streaming chunks to maintain word boundaries
+                        cleaned_buffer = ThinkingTagParser.strip_thinking_tags(buffer, preserve_whitespace=True)
                         
                         if len(cleaned_buffer) < len(buffer):
                             # Thinking tags detected and removed
@@ -629,7 +631,8 @@ class UnifiedLLMService:
             
             # Yield any remaining buffer
             if buffer:
-                cleaned_buffer = ThinkingTagParser.strip_thinking_tags(buffer)
+                # Preserve whitespace for streaming chunks to maintain word boundaries
+                cleaned_buffer = ThinkingTagParser.strip_thinking_tags(buffer, preserve_whitespace=True)
                 if cleaned_buffer:
                     yield cleaned_buffer
                     

@@ -53,12 +53,13 @@ class ThinkingTagParser:
     ]
     
     @classmethod
-    def strip_thinking_tags(cls, text: str) -> str:
+    def strip_thinking_tags(cls, text: str, preserve_whitespace: bool = False) -> str:
         """
         Remove all thinking/reasoning tags and their content from text.
         
         Args:
             text: Input text that may contain thinking tags
+            preserve_whitespace: If True, preserve leading/trailing whitespace (for streaming chunks)
             
         Returns:
             Text with all thinking content removed
@@ -90,8 +91,10 @@ class ThinkingTagParser:
         # Replace multiple newlines with max 2 newlines
         cleaned_text = re.sub(r'\n{3,}', '\n\n', cleaned_text)
         
-        # Remove leading/trailing whitespace
-        cleaned_text = cleaned_text.strip()
+        # Only strip leading/trailing whitespace if preserve_whitespace is False
+        # For streaming chunks, we need to preserve leading spaces to maintain word boundaries
+        if not preserve_whitespace:
+            cleaned_text = cleaned_text.strip()
         
         if removed_count > 0:
             removed_chars = original_length - len(cleaned_text)
@@ -140,15 +143,16 @@ class ThinkingTagParser:
 
 
 # Convenience function
-def strip_thinking_tags(text: str) -> str:
+def strip_thinking_tags(text: str, preserve_whitespace: bool = False) -> str:
     """
     Convenience function to strip thinking tags from text.
     
     Args:
         text: Input text
+        preserve_whitespace: If True, preserve leading/trailing whitespace (for streaming chunks)
         
     Returns:
         Text with thinking tags removed
     """
-    return ThinkingTagParser.strip_thinking_tags(text)
+    return ThinkingTagParser.strip_thinking_tags(text, preserve_whitespace=preserve_whitespace)
 
