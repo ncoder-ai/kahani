@@ -17,7 +17,6 @@ import FormattedText from '@/components/FormattedText';
 import SceneDisplay from '@/components/SceneDisplay';
 import SceneVariantDisplay from '@/components/SceneVariantDisplay';
 import { GlobalTTSWidget } from '@/components/GlobalTTSWidget';
-import { TTSDebugPanel } from '@/components/TTSDebugPanel';
 import MicrophoneButton from '@/components/MicrophoneButton';
 
 // Lazy load heavy components - only load when needed
@@ -2306,9 +2305,6 @@ export default function StoryPage() {
         }}
       />
       
-      {/* TTS Debug Panel - visible on mobile for troubleshooting */}
-      <TTSDebugPanel />
-
       {/* Story Summary Modal */}
       {showSummaryModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">

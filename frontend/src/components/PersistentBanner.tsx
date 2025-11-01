@@ -127,11 +127,20 @@ export default function PersistentBanner() {
 
             {/* Right side - Action buttons */}
             <div className="flex items-center space-x-2">
+              {/* Menu Button */}
+              <button
+                onClick={() => setShowUnifiedMenu(true)}
+                className="flex items-center justify-center w-10 h-10 rounded-lg transition-all hover:bg-white/10 theme-btn-primary hover:opacity-90"
+                aria-label="Open menu"
+              >
+                <MenuIcon className="w-5 h-5" />
+              </button>
+
               {/* TTS Permission Button - Mobile Only */}
               {isMobile && (
                 <button
                   onClick={handleEnableTTS}
-                  className={`flex items-center space-x-1 px-3 py-2 rounded-lg transition-all duration-200 ${
+                  className={`flex items-center justify-center p-2 rounded-lg transition-all duration-200 ${
                     needsPermission
                       ? 'bg-orange-600/20 text-orange-400 hover:bg-orange-600/30 animate-pulse'
                       : 'bg-green-600/20 text-green-400 hover:bg-green-600/30'
@@ -142,24 +151,12 @@ export default function PersistentBanner() {
                     <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
                     <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
                   </svg>
-                  <span className="text-xs font-medium">
-                    {needsPermission ? '⚠️ Enable TTS' : '✓ TTS Ready'}
-                  </span>
                 </button>
               )}
             </div>
           </div>
         </div>
       </div>
-
-      {/* Floating Menu Button (Bottom-Left) */}
-      <button
-        onClick={() => setShowUnifiedMenu(true)}
-        className="fixed left-4 bottom-4 z-50 p-4 rounded-full shadow-2xl transition-all hover:scale-110 theme-btn-primary hover:opacity-90"
-        aria-label="Open menu"
-      >
-        <MenuIcon className="w-6 h-6" />
-      </button>
 
       {/* Unified Menu */}
       <UnifiedMenu 
