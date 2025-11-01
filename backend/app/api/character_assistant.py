@@ -133,6 +133,9 @@ async def get_character_suggestions(
     else:
         user_settings_dict = user_settings.to_dict()
     
+    # Add user permissions to settings for NSFW filtering
+    user_settings_dict['allow_nsfw'] = current_user.allow_nsfw
+    
     # Create service instance
     service = CharacterAssistantService(current_user.id, user_settings_dict)
     
@@ -187,6 +190,9 @@ async def analyze_character_details(
         user_settings_dict = UserSettings.get_defaults()
     else:
         user_settings_dict = user_settings.to_dict()
+    
+    # Add user permissions to settings for NSFW filtering
+    user_settings_dict['allow_nsfw'] = current_user.allow_nsfw
     
     # Create service instance
     service = CharacterAssistantService(current_user.id, user_settings_dict)
@@ -329,6 +335,9 @@ async def check_character_importance(
         user_settings_dict = UserSettings.get_defaults()
     else:
         user_settings_dict = user_settings.to_dict()
+    
+    # Add user permissions to settings for NSFW filtering
+    user_settings_dict['allow_nsfw'] = current_user.allow_nsfw
     
     # Create service instance
     service = CharacterAssistantService(current_user.id, user_settings_dict)

@@ -279,6 +279,9 @@ async def generate_character_with_ai(
         else:
             user_settings_dict = user_settings.to_dict()
         
+        # Add user permissions to settings for NSFW filtering
+        user_settings_dict['allow_nsfw'] = current_user.allow_nsfw
+        
         # Create service instance
         service = CharacterGenerationService(current_user.id, user_settings_dict)
         

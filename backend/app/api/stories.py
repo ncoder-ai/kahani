@@ -216,14 +216,20 @@ async def trigger_auto_play_tts(scene_id: int, user_id: int):
 
 router = APIRouter()
 
-def get_or_create_user_settings(user_id: int, db: Session) -> dict:
-    """Get user settings or create defaults if none exist"""
+def get_or_create_user_settings(user_id: int, db: Session, current_user: User = None) -> dict:
+    """Get user settings or create defaults if none exist
+    
+    Args:
+        user_id: User ID
+        db: Database session
+        current_user: Optional User object - if provided, will add allow_nsfw to settings
+    """
     user_settings_db = db.query(UserSettings).filter(
         UserSettings.user_id == user_id
     ).first()
     
     if user_settings_db:
-        return user_settings_db.to_dict()
+        user_settings = user_settings_db.to_dict()
     else:
         # Create default UserSettings for this user if none exist
         user_settings_db = UserSettings(user_id=user_id)
@@ -231,7 +237,20 @@ def get_or_create_user_settings(user_id: int, db: Session) -> dict:
         db.commit()
         db.refresh(user_settings_db)
         logger.info(f"Created default UserSettings for user {user_id}")
-        return user_settings_db.to_dict()
+        user_settings = user_settings_db.to_dict()
+    
+    # Add user permissions to settings for NSFW filtering if current_user is provided
+    if current_user:
+        user_settings['allow_nsfw'] = current_user.allow_nsfw
+        logger.debug(f"Added allow_nsfw={current_user.allow_nsfw} to user_settings for user {user_id}")
+    else:
+        # If current_user not provided, try to get it from database
+        user = db.query(User).filter(User.id == user_id).first()
+        if user:
+            user_settings['allow_nsfw'] = user.allow_nsfw
+            logger.debug(f"Added allow_nsfw={user.allow_nsfw} to user_settings for user {user_id} (from DB)")
+    
+    return user_settings
 
 class StoryCreate(BaseModel):
     title: str
@@ -547,9 +566,7 @@ async def generate_scene(
         )
     
     # Get user settings and include permission flags
-    user_settings = get_or_create_user_settings(current_user.id, db)
-    # Add user permissions to settings for NSFW filtering
-    user_settings['allow_nsfw'] = current_user.allow_nsfw
+    user_settings = get_or_create_user_settings(current_user.id, db, current_user)
     
     # Handle different content modes
     scene_content = ""
@@ -781,11 +798,7 @@ async def generate_scene_streaming_endpoint(
         )
     
     # Get user settings
-    user_settings_db = db.query(UserSettings).filter(
-        UserSettings.user_id == current_user.id
-    ).first()
-    
-    user_settings = user_settings_db.to_dict() if user_settings_db else None
+    user_settings = get_or_create_user_settings(current_user.id, db, current_user)
     
     # Handle different content modes
     effective_custom_prompt = custom_prompt
@@ -1084,11 +1097,7 @@ async def get_story_context_info(
     
     try:
         # Get user settings
-        user_settings_db = db.query(UserSettings).filter(
-            UserSettings.user_id == current_user.id
-        ).first()
-        
-        user_settings = user_settings_db.to_dict() if user_settings_db else None
+        user_settings = get_or_create_user_settings(current_user.id, db, current_user)
         
         # Create context manager with user settings
         context_manager = ContextManager(user_settings=user_settings)
@@ -1204,11 +1213,7 @@ async def generate_more_choices(
         )
     
     # Get user settings
-    user_settings_db = db.query(UserSettings).filter(
-        UserSettings.user_id == current_user.id
-    ).first()
-    
-    user_settings = user_settings_db.to_dict() if user_settings_db else None
+    user_settings = get_or_create_user_settings(current_user.id, db, current_user)
     
     # Create context manager with user settings
     context_manager = ContextManager(user_settings=user_settings)
@@ -1278,11 +1283,7 @@ async def regenerate_last_scene(
     last_scene_id = last_flow_item['scene_id']
     
     # Get user settings
-    user_settings_db = db.query(UserSettings).filter(
-        UserSettings.user_id == current_user.id
-    ).first()
-    
-    user_settings = user_settings_db.to_dict() if user_settings_db else None
+    user_settings = get_or_create_user_settings(current_user.id, db, current_user)
     
     try:
         # Create a new variant for the last scene
@@ -1351,7 +1352,7 @@ async def generate_scenario_endpoint(
         }
         
         # Get user settings
-        user_settings = get_or_create_user_settings(current_user.id, db)
+        user_settings = get_or_create_user_settings(current_user.id, db, current_user)
         # Add user permissions to settings for NSFW filtering
         user_settings['allow_nsfw'] = current_user.allow_nsfw
         
@@ -1401,7 +1402,7 @@ async def generate_title(
         }
         
         # Get user settings
-        user_settings = get_or_create_user_settings(current_user.id, db)
+        user_settings = get_or_create_user_settings(current_user.id, db, current_user)
         # Add user permissions to settings for NSFW filtering
         user_settings['allow_nsfw'] = current_user.allow_nsfw
         
@@ -1448,7 +1449,7 @@ async def generate_plot_endpoint(
         }
         
         # Get user settings
-        user_settings = get_or_create_user_settings(current_user.id, db)
+        user_settings = get_or_create_user_settings(current_user.id, db, current_user)
         # Add user permissions to settings for NSFW filtering
         user_settings['allow_nsfw'] = current_user.allow_nsfw
         
@@ -1691,11 +1692,7 @@ async def create_scene_variant(
         )
     
     # Get user settings
-    user_settings_db = db.query(UserSettings).filter(
-        UserSettings.user_id == current_user.id
-    ).first()
-    
-    user_settings = user_settings_db.to_dict() if user_settings_db else None
+    user_settings = get_or_create_user_settings(current_user.id, db, current_user)
     
     try:
         # Get custom_prompt from the request model
@@ -1842,11 +1839,7 @@ async def create_scene_variant_streaming(
         )
     
     # Get user settings
-    user_settings_db = db.query(UserSettings).filter(
-        UserSettings.user_id == current_user.id
-    ).first()
-    
-    user_settings = user_settings_db.to_dict() if user_settings_db else None
+    user_settings = get_or_create_user_settings(current_user.id, db, current_user)
     
     async def generate_variant_stream():
         try:
@@ -2119,11 +2112,7 @@ async def continue_scene(
         )
     
     # Get user settings
-    user_settings_db = db.query(UserSettings).filter(
-        UserSettings.user_id == current_user.id
-    ).first()
-    
-    user_settings = user_settings_db.to_dict() if user_settings_db else None
+    user_settings = get_or_create_user_settings(current_user.id, db, current_user)
     
     try:
         # Get the current active variant content
@@ -2207,11 +2196,7 @@ async def continue_scene_streaming(
         )
     
     # Get user settings
-    user_settings_db = db.query(UserSettings).filter(
-        UserSettings.user_id == current_user.id
-    ).first()
-    
-    user_settings = user_settings_db.to_dict() if user_settings_db else None
+    user_settings = get_or_create_user_settings(current_user.id, db, current_user)
     
     async def generate_continuation_stream():
         try:
