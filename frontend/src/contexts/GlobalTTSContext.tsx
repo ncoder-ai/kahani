@@ -312,24 +312,64 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
     // Connect WebSocket
     const wsProtocol = actualApiUrl.startsWith('https') ? 'wss' : 'ws';
     const wsHost = actualApiUrl.replace(/^https?:\/\//, '');
+    
+    // Validate hostname before creating WebSocket URL
+    if (!wsHost || wsHost.trim() === '') {
+      const errorMsg = 'Invalid API hostname - cannot create WebSocket connection';
+      console.error('[Global TTS]', errorMsg);
+      console.error('[Global TTS] actualApiUrl:', actualApiUrl);
+      setError(errorMsg);
+      setIsGenerating(false);
+      return;
+    }
+    
+    if (!sessionId || sessionId.trim() === '') {
+      const errorMsg = 'Invalid session ID - cannot create WebSocket connection';
+      console.error('[Global TTS]', errorMsg);
+      setError(errorMsg);
+      setIsGenerating(false);
+      return;
+    }
+    
     const wsUrl = `${wsProtocol}://${wsHost}/ws/tts/${sessionId}`;
     console.log('[Global TTS] WebSocket URL:', wsUrl);
+    console.log('[Global TTS] Base API URL:', actualApiUrl);
+    console.log('[Global TTS] Session ID:', sessionId);
+    console.log('[Global TTS] WebSocket Host:', wsHost);
     
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+    // Validate WebSocket URL before connecting
+    if (!wsUrl || (!wsUrl.startsWith('ws://') && !wsUrl.startsWith('wss://'))) {
+      const errorMsg = `Invalid WebSocket URL: ${wsUrl}`;
+      console.error('[Global TTS]', errorMsg);
+      setError(errorMsg);
+      setIsGenerating(false);
+      return;
+    }
+    
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to create WebSocket';
+      console.error('[Global TTS] WebSocket creation failed:', errorMsg, err);
+      setError(`WebSocket creation failed: ${errorMsg}`);
+      setIsGenerating(false);
+      return;
+    }
     
     // Set a timeout for WebSocket connection
     const connectionTimeout = setTimeout(() => {
       if (ws.readyState === WebSocket.CONNECTING) {
-        console.error('[Global TTS] WebSocket connection timeout');
+        console.error('[Global TTS] WebSocket connection timeout after 10 seconds');
         ws.close();
-        setError('Connection timeout - please try again');
+        setError('Connection timeout - please check your network and try again');
         setIsGenerating(false);
       }
     }, 10000); // 10 second timeout
     
     ws.onopen = () => {
-      console.log('[Global TTS] WebSocket connected');
+      console.log('[Global TTS] WebSocket connected successfully');
       clearTimeout(connectionTimeout);
     };
     
@@ -339,13 +379,29 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
         handleWebSocketMessage(message);
       } catch (err) {
         console.error('[Global TTS] Failed to parse message:', err);
+        console.error('[Global TTS] Raw message data:', event.data);
       }
     };
     
     ws.onerror = (error) => {
-      console.error('[Global TTS] WebSocket error:', error);
-      setError('Connection failed - check your network');
+      // WebSocket error event doesn't provide detailed error info
+      // Log connection state and URL for debugging
+      console.error('[Global TTS] WebSocket error occurred');
+      console.error('[Global TTS] WebSocket state:', ws.readyState);
+      console.error('[Global TTS] WebSocket URL:', wsUrl);
+      console.error('[Global TTS] Error event:', error);
+      
+      // Provide more specific error message based on connection state
+      let errorMessage = 'Connection failed - check your network';
+      if (ws.readyState === WebSocket.CLOSED) {
+        errorMessage = 'Connection closed unexpectedly - please try again';
+      } else if (ws.readyState === WebSocket.CONNECTING) {
+        errorMessage = 'Connection failed - check your network or backend server';
+      }
+      
+      setError(errorMessage);
       setIsGenerating(false);
+      clearTimeout(connectionTimeout);
     };
     
     ws.onclose = (event) => {
