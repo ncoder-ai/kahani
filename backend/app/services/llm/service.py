@@ -394,40 +394,45 @@ class UnifiedLLMService:
             logger.info(f"Calling text completion endpoint: {endpoint_url}")
             logger.debug(f"Payload: model={client.model_name}, prompt_length={len(prompt)}, stream={stream}, stop={payload.get('stop')}")
             
-            async with httpx.AsyncClient() as http_client:
-                response = await http_client.post(
-                    endpoint_url,
-                    json=payload,
-                    headers=headers,
-                    timeout=60.0
-                )
-                response.raise_for_status()
-                
+            async with httpx.AsyncClient(timeout=60.0) as http_client:
                 if stream:
-                    # Handle streaming response
+                    # Handle streaming response - use stream() context manager for proper streaming
                     async def stream_generator():
-                        async for line in response.aiter_lines():
-                            if line.startswith("data: "):
-                                data = line[6:]  # Remove "data: " prefix
-                                if data.strip() == "[DONE]":
-                                    break
-                                try:
-                                    import json
-                                    chunk = json.loads(data)
-                                    if "choices" in chunk and len(chunk["choices"]) > 0:
-                                        # Text completion uses 'text' field, not 'delta'
-                                        text = chunk["choices"][0].get("text", "")
-                                        if text:
-                                            # Strip thinking tags from each chunk
-                                            # Preserve whitespace for streaming chunks to maintain word boundaries
-                                            cleaned_text = ThinkingTagParser.strip_thinking_tags(text, preserve_whitespace=True)
-                                            if cleaned_text:
-                                                yield cleaned_text
-                                except json.JSONDecodeError:
-                                    continue
+                        async with http_client.stream(
+                            "POST",
+                            endpoint_url,
+                            json=payload,
+                            headers=headers
+                        ) as response:
+                            response.raise_for_status()
+                            async for line in response.aiter_lines():
+                                if line.startswith("data: "):
+                                    data = line[6:]  # Remove "data: " prefix
+                                    if data.strip() == "[DONE]":
+                                        break
+                                    try:
+                                        import json
+                                        chunk = json.loads(data)
+                                        if "choices" in chunk and len(chunk["choices"]) > 0:
+                                            # Text completion uses 'text' field, not 'delta'
+                                            text = chunk["choices"][0].get("text", "")
+                                            if text:
+                                                # Strip thinking tags from each chunk
+                                                # Preserve whitespace for streaming chunks to maintain word boundaries
+                                                cleaned_text = ThinkingTagParser.strip_thinking_tags(text, preserve_whitespace=True)
+                                                if cleaned_text:
+                                                    yield cleaned_text
+                                    except json.JSONDecodeError:
+                                        continue
                     return stream_generator()
                 else:
                     # Handle non-streaming response
+                    response = await http_client.post(
+                        endpoint_url,
+                        json=payload,
+                        headers=headers
+                    )
+                    response.raise_for_status()
                     data = response.json()
                     if "choices" in data and len(data["choices"]) > 0:
                         content = data["choices"][0]["text"]
