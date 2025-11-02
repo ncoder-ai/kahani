@@ -348,6 +348,7 @@ class UnifiedLLMService:
     async def _direct_http_text_completion_fallback(self, client, prompt, max_tokens, temperature, stream):
         """Direct HTTP call to /v1/completions endpoint for text completion"""
         import httpx
+        import json
         
         logger.info(f"Direct HTTP text completion: stream={stream}, model={client.model_name}")
         
@@ -362,7 +363,6 @@ class UnifiedLLMService:
         # Add stop sequences based on template
         if client.text_completion_template:
             # Parse template to get EOS token
-            import json
             try:
                 template = json.loads(client.text_completion_template)
                 eos_token = template.get("eos_token")
@@ -394,10 +394,11 @@ class UnifiedLLMService:
             logger.info(f"Calling text completion endpoint: {endpoint_url}")
             logger.debug(f"Payload: model={client.model_name}, prompt_length={len(prompt)}, stream={stream}, stop={payload.get('stop')}")
             
-            async with httpx.AsyncClient(timeout=60.0) as http_client:
-                if stream:
-                    # Handle streaming response - use stream() context manager for proper streaming
-                    async def stream_generator():
+            if stream:
+                # Handle streaming response - generator that keeps client alive
+                async def stream_generator():
+                    # Create client that lives for the duration of streaming
+                    async with httpx.AsyncClient(timeout=60.0) as http_client:
                         async with http_client.stream(
                             "POST",
                             endpoint_url,
@@ -411,7 +412,6 @@ class UnifiedLLMService:
                                     if data.strip() == "[DONE]":
                                         break
                                     try:
-                                        import json
                                         chunk = json.loads(data)
                                         if "choices" in chunk and len(chunk["choices"]) > 0:
                                             # Text completion uses 'text' field, not 'delta'
@@ -424,9 +424,10 @@ class UnifiedLLMService:
                                                     yield cleaned_text
                                     except json.JSONDecodeError:
                                         continue
-                    return stream_generator()
-                else:
-                    # Handle non-streaming response
+                return stream_generator()
+            else:
+                # Handle non-streaming response
+                async with httpx.AsyncClient(timeout=60.0) as http_client:
                     response = await http_client.post(
                         endpoint_url,
                         json=payload,
