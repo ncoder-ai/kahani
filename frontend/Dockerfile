@@ -12,7 +12,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm ci --only=production && npm cache clean --force
+RUN npm ci --only=production --legacy-peer-deps && npm cache clean --force
 
 # Builder stage
 FROM node:18-alpine as builder
@@ -57,7 +57,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/package*.json ./
 RUN mkdir -p ./public
 
 # Install only production dependencies
-RUN npm ci --only=production && npm cache clean --force
+RUN npm ci --only=production --legacy-peer-deps && npm cache clean --force
 
 # Switch to non-root user
 USER nextjs
