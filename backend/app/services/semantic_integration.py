@@ -123,17 +123,34 @@ async def process_scene_embeddings(
             # Generate content hash for change detection
             content_hash = hashlib.sha256(scene_content.encode('utf-8')).hexdigest()
             
-            scene_embedding = SceneEmbedding(
-                story_id=story_id,
-                scene_id=scene_id,
-                variant_id=variant_id,
-                embedding_id=embedding_id,
-                content_hash=content_hash,
-                sequence_order=sequence_number,
-                chapter_id=chapter_id,
-                content_length=len(scene_content)
-            )
-            db.add(scene_embedding)
+            # Check if embedding already exists (upsert pattern)
+            existing_embedding = db.query(SceneEmbedding).filter(
+                SceneEmbedding.embedding_id == embedding_id
+            ).first()
+            
+            if existing_embedding:
+                # Update existing record
+                existing_embedding.content_hash = content_hash
+                existing_embedding.sequence_order = sequence_number
+                existing_embedding.chapter_id = chapter_id
+                existing_embedding.content_length = len(scene_content)
+                existing_embedding.updated_at = None  # Will trigger onupdate
+                logger.info(f"Updated existing scene embedding: {embedding_id}")
+            else:
+                # Create new record
+                scene_embedding = SceneEmbedding(
+                    story_id=story_id,
+                    scene_id=scene_id,
+                    variant_id=variant_id,
+                    embedding_id=embedding_id,
+                    content_hash=content_hash,
+                    sequence_order=sequence_number,
+                    chapter_id=chapter_id,
+                    content_length=len(scene_content)
+                )
+                db.add(scene_embedding)
+                logger.info(f"Created new scene embedding: {embedding_id}")
+            
             db.commit()
             
             results['scene_embedding'] = True

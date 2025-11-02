@@ -109,6 +109,11 @@ export default function MicrophoneButton({
     checkSTTEnabled();
   }, []);
 
+  // Hide microphone button entirely if STT is disabled
+  if (!isSTTEnabled) {
+    return null;
+  }
+
   const handleToggleRecording = useCallback(async () => {
     if (disabled || !isSTTEnabled) return;
     
