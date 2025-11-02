@@ -11,8 +11,8 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production --legacy-peer-deps && npm cache clean --force
+# Install all dependencies (including dev dependencies needed for build)
+RUN npm ci --legacy-peer-deps && npm cache clean --force
 
 # Builder stage
 FROM node:20-alpine as builder
