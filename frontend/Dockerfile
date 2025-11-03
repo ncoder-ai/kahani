@@ -53,6 +53,9 @@ WORKDIR /app
 COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
 COPY --from=builder --chown=nextjs:nodejs /app/package*.json ./
 
+# Copy custom start script with logging
+COPY --chown=nextjs:nodejs docker-start.sh ./
+
 # Create public directory if it doesn't exist (optional for Next.js)
 RUN mkdir -p ./public
 
@@ -77,5 +80,5 @@ ENV HOSTNAME="0.0.0.0"
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
 
-# Start the application (npm start respects PORT env var from package.json)
-CMD ["npm", "start"]
+# Start the application with custom script that includes logging
+CMD ["./docker-start.sh"]

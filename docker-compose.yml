@@ -34,3 +34,10 @@ services:
       # NEXT_PUBLIC_API_URL removed - frontend auto-detects at runtime
     depends_on:
       - backend
+    # Enable logging with timestamps
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "kahani-frontend"
