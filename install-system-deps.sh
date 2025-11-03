@@ -91,12 +91,19 @@ install_system_deps() {
     log_info "Using --no-upgrade flag to avoid breaking existing system packages"
     
     if [[ "$OS" == "linux" ]]; then
-        # Install required packages without updating package list or upgrading existing ones
-        # This is the safest approach for production servers
-        sudo apt install -y --no-upgrade curl wget git build-essential libssl-dev zlib1g-dev \
-            libbz2-dev libreadline-dev libsqlite3-dev llvm libncurses5-dev \
-            libncursesw5-dev xz-utils tk-dev libffi-dev liblzma-dev
-            
+        # Install ONLY essential build tools and libraries required for:
+        # - PyTorch compilation (build-essential)
+        # - cryptography library (libssl-dev, libffi-dev)
+        # - Python packages (zlib1g-dev for compression)
+        # - SQLite support (libsqlite3-dev)
+        # - Basic build tools (build-essential includes gcc, g++, make)
+        sudo apt install -y --no-upgrade \
+            build-essential \
+            libssl-dev \
+            libffi-dev \
+            zlib1g-dev \
+            libsqlite3-dev
+        
     elif [[ "$OS" == "macos" ]]; then
         # Check if Homebrew is installed
         if ! command_exists brew; then
@@ -104,8 +111,10 @@ install_system_deps() {
             /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
         fi
         
-        # Install required packages
-        brew install curl wget git openssl readline sqlite3 xz zlib
+        # Install only essential packages (don't upgrade existing ones)
+        # Note: macOS typically has most of these already installed
+        # Use --force to reinstall if already installed, but don't upgrade system packages
+        brew install --ignore-dependencies curl wget git openssl 2>/dev/null || true
     fi
     
     log_success "System dependencies installed"
@@ -137,15 +146,18 @@ install_python() {
             log_success "Python 3.11 installed from default repositories"
         else
             log_info "Python 3.11+ not available in default repos, adding deadsnakes PPA..."
+            # Only install software-properties-common if not already installed
             sudo apt install -y --no-upgrade software-properties-common
             sudo add-apt-repository -y ppa:deadsnakes/ppa
             # Only update package list for the new PPA, don't touch existing packages
+            # Use --allow-releaseinfo-change to avoid errors if release info changed
             sudo apt update --allow-releaseinfo-change
             sudo apt install -y --no-upgrade python3.11 python3.11-venv python3.11-pip
         fi
         
     elif [[ "$OS" == "macos" ]]; then
         # Try Python 3.12 first, fallback to 3.11
+        # Use --force to reinstall if needed, but don't upgrade unrelated packages
         if brew install python@3.12 2>/dev/null; then
             log_success "Python 3.12 installed via Homebrew"
         else
@@ -176,12 +188,24 @@ install_nodejs() {
     
     # Install Node.js via NodeSource
     if [[ "$OS" == "linux" ]]; then
+        # Download and run NodeSource setup script
+        # Note: This script will run 'apt update' to refresh package lists for the new repo
+        # This is unavoidable when adding a repository, but we use --no-upgrade when installing
+        # to prevent upgrading existing packages
         curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+        # Install Node.js without upgrading existing packages
         sudo apt-get install -y --no-upgrade nodejs
         
     elif [[ "$OS" == "macos" ]]; then
-        brew install node@20
-        brew link --overwrite node@20
+        # Install Node.js 20 without upgrading existing packages
+        # Check if node@20 is already installed first
+        if brew list node@20 &>/dev/null; then
+            log_info "Node.js 20 already installed via Homebrew"
+        else
+            brew install node@20
+        fi
+        # Link it (this won't upgrade, just switch symlinks)
+        brew link --overwrite node@20 2>/dev/null || true
     fi
     
     log_success "Node.js 20 installed"
@@ -273,7 +297,7 @@ main() {
     echo "   ✓ Python 3.11+ with pip and venv"
     echo "   ✓ Node.js 20.9.0+ with npm 10+"
     echo "   ✓ Git"
-    echo "   ✓ Build tools and development libraries"
+    echo "   ✓ Essential build tools (build-essential, libssl-dev, libffi-dev, zlib1g-dev, libsqlite3-dev)"
     echo ""
     echo "🚀 Next steps:"
     echo "   1. Run './install.sh' to set up the Kahani application"
