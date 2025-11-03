@@ -148,8 +148,8 @@ export default function CharacterWizard({ storyId, chapterId, onCharacterCreated
                   <div className="flex items-center space-x-3 mb-2">
                     <h3 className="text-lg font-semibold text-white">{suggestion.name}</h3>
                     <div className="flex items-center space-x-2">
-                      <span className="px-2 py-1 text-xs rounded"
-                            style={{ backgroundColor: 'var(--color-accentPrimary)', opacity: 0.2, color: 'var(--color-accentPrimary)' } as React.CSSProperties}>
+                      <span className="px-2 py-1 text-xs rounded font-medium"
+                            style={{ backgroundColor: 'rgba(168, 85, 247, 0.2)', color: '#c084fc' } as React.CSSProperties}>
                         {suggestion.importance_score}% important
                       </span>
                       <span className="px-2 py-1 bg-blue-500/20 text-blue-300 text-xs rounded">

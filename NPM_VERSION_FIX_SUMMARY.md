@@ -110,3 +110,4 @@ Users should:
 2. Run `npm install -g npm@latest` to ensure npm 10+
 3. Re-run `./install.sh` to verify compatibility
 
+
