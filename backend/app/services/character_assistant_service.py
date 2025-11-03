@@ -162,15 +162,18 @@ class CharacterAssistantService:
             
             # Second pass: LLM analysis for deeper character extraction
             scene_contents = []
+            scene_content_map = {}  # Map scene number to content for mention counting
             for scene in scenes:
                 active_variant = self._get_active_variant(db, scene.id)
                 if active_variant and active_variant.content:
-                    scene_contents.append(f"Scene {scene.sequence_number}: {active_variant.content}")
+                    scene_content = active_variant.content
+                    scene_contents.append(f"Scene {scene.sequence_number}: {scene_content}")
+                    scene_content_map[scene.sequence_number] = scene_content
             
             if scene_contents:
                 llm_characters = await self._extract_characters_with_llm(scene_contents)
                 
-                # Merge LLM results with existing mentions
+                # Merge LLM results with existing mentions and count actual appearances
                 for char_data in llm_characters:
                     char_name = char_data.get('name', '').strip()
                     if not char_name:
@@ -183,6 +186,21 @@ class CharacterAssistantService:
                             'scenes': [],
                             'context_snippets': []
                         }
+                    
+                    # Count actual mentions and track scene appearances
+                    # Search for character name in all scenes (case-insensitive)
+                    import re
+                    char_name_lower = char_name.lower()
+                    # Pattern to match the name as a whole word (case-insensitive)
+                    pattern = re.compile(r'\b' + re.escape(char_name) + r'\b', re.IGNORECASE)
+                    
+                    for scene_num, scene_content in scene_content_map.items():
+                        # Count mentions in this scene
+                        mentions_in_scene = len(pattern.findall(scene_content))
+                        if mentions_in_scene > 0:
+                            character_mentions[char_name]['mention_count'] += mentions_in_scene
+                            if scene_num not in character_mentions[char_name]['scenes']:
+                                character_mentions[char_name]['scenes'].append(scene_num)
                     
                     # Add context snippet from LLM
                     context = char_data.get('context', '')
