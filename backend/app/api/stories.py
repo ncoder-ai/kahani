@@ -1875,7 +1875,14 @@ async def create_scene_variant_streaming(
             # Get original variant content for variant generation
             variant_service = SceneVariantService(db)
             original_variant = variant_service.get_active_variant(scene_id)
-            original_scene_content = original_variant.content if original_variant else ""
+            
+            if not original_variant or not original_variant.content:
+                yield f"data: {json.dumps({'type': 'error', 'message': 'No active variant found or variant has no content'})}\n\n"
+                logger.error(f"No active variant content found for scene {scene_id}")
+                return
+            
+            original_scene_content = original_variant.content
+            logger.info(f"Original variant content length: {len(original_scene_content)} chars")
             
             # Send initial metadata
             yield f"data: {json.dumps({'type': 'start', 'scene_id': scene_id})}\n\n"
@@ -1895,6 +1902,7 @@ async def create_scene_variant_streaming(
             # Stream variant generation with combined choices
             variant_content = ""
             parsed_choices = None
+            logger.info(f"Starting variant generation with original scene length: {len(original_scene_content)}")
             async for chunk, scene_complete, choices in llm_service.generate_variant_with_choices_streaming(
                 original_scene_content,
                 context,
