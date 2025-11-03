@@ -13,6 +13,7 @@ from chromadb.config import Settings
 # SentenceTransformer is imported lazily in _ensure_model_loaded to avoid blocking startup
 from sqlalchemy.orm import Session
 import os
+import hashlib
 
 logger = logging.getLogger(__name__)
 
@@ -330,7 +331,9 @@ class SemanticMemoryService:
             Embedding ID
         """
         try:
-            embedding_id = f"char_{character_id}_scene_{scene_id}_{moment_type}"
+            # Generate content hash to ensure uniqueness for multiple moments of same type
+            content_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()[:8]
+            embedding_id = f"char_{character_id}_scene_{scene_id}_{moment_type}_{content_hash}"
             
             # Generate embedding
             embedding = self.generate_embedding(content)
