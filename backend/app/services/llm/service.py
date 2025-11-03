@@ -1114,11 +1114,23 @@ class UnifiedLLMService:
         """
         CHOICES_MARKER = "###CHOICES###"
         
+        # Log inputs for debugging
+        logger.info(f"Variant generation - original_scene length: {len(original_scene) if original_scene else 0}")
+        logger.info(f"Variant generation - context type: {type(context)}")
+        
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "summary_generation", "scene_variants_streaming",
             original_scene=original_scene,
             context=self._format_context_for_scene(context)
         )
+        
+        # Log prompts for debugging
+        logger.info(f"Variant generation - system_prompt length: {len(system_prompt) if system_prompt else 0}")
+        logger.info(f"Variant generation - user_prompt length: {len(user_prompt) if user_prompt else 0}")
+        
+        if not user_prompt or not user_prompt.strip():
+            logger.error(f"Empty user prompt generated for variant. Original scene: {original_scene[:100] if original_scene else 'None'}")
+            raise ValueError("Generated empty user prompt for variant generation")
         
         max_tokens = prompt_manager.get_max_tokens("scene_variants", user_settings)
         
