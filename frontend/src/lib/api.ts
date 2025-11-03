@@ -9,10 +9,21 @@ function getApiBaseUrl(): string {
   
   // In browser, auto-detect based on current host
   if (typeof window !== 'undefined') {
+    const protocol = window.location.protocol; // Use same protocol as frontend (http: or https:)
     const currentHost = window.location.hostname;
-    // If not localhost, use current host with backend port
+    const port = window.location.port;
+    
+    // Check if we're using a reverse proxy (no port in URL or standard ports)
+    const isReverseProxy = !port || port === '80' || port === '443';
+    
+    if (isReverseProxy) {
+      // For reverse proxy: use /api on the same domain
+      return `${protocol}//${currentHost}`;
+    }
+    
+    // If not localhost, use current host with backend port using same protocol
     if (currentHost !== 'localhost' && currentHost !== '127.0.0.1') {
-      return `http://${currentHost}:9876`;
+      return `${protocol}//${currentHost}:9876`;
     }
   }
   
