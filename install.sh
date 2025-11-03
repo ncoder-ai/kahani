@@ -90,16 +90,42 @@ check_requirements() {
     local best_major=0
     local best_minor=0
     
-    # Collect all possible Node.js locations
+    # Collect all possible Node.js locations (avoid duplicates)
     local node_paths=()
+    local seen_paths=()
     
     # Add PATH Node.js if it exists
     if command_exists node; then
-        node_paths+=("$(command -v node)")
+        local path_node=$(command -v node)
+        node_paths+=("$path_node")
+        seen_paths+=("$path_node")
     fi
     
-    # Add common installation locations
-    node_paths+=("/usr/local/bin/node" "/opt/homebrew/bin/node" "/usr/bin/node")
+    # Add common installation locations (avoid duplicates)
+    local common_paths=(
+        "/usr/local/bin/node"
+        "/opt/homebrew/bin/node"
+        "/usr/bin/node"
+        "$HOME/.local/bin/node"
+        "/opt/nodejs/bin/node"
+    )
+    
+    for path in "${common_paths[@]}"; do
+        if [[ -x "$path" ]] && [[ ! " ${seen_paths[@]} " =~ " ${path} " ]]; then
+            node_paths+=("$path")
+            seen_paths+=("$path")
+        fi
+    done
+    
+    # Check for nvm installations (handle multiple versions)
+    if [[ -d "$HOME/.nvm/versions/node" ]]; then
+        while IFS= read -r nvm_node; do
+            if [[ -x "$nvm_node" ]] && [[ ! " ${seen_paths[@]} " =~ " ${nvm_node} " ]]; then
+                node_paths+=("$nvm_node")
+                seen_paths+=("$nvm_node")
+            fi
+        done < <(find "$HOME/.nvm/versions/node" -name "node" -type f 2>/dev/null || true)
+    fi
     
     # Check all locations and find the best version (20.9.0+)
     for path in "${node_paths[@]}"; do
@@ -131,8 +157,18 @@ check_requirements() {
             fi
         done
         log_info ""
-        log_info "Please install Node.js 20.9.0+ from https://nodejs.org/ or use nvm: nvm install 20"
-        log_info "If you have multiple Node.js installations, ensure the correct one is in your PATH"
+        log_info "Please install Node.js 20.9.0+ using one of these methods:"
+        log_info "  1. Using nvm (recommended):"
+        log_info "     curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash"
+        log_info "     source ~/.bashrc  # or ~/.zshrc"
+        log_info "     nvm install 20"
+        log_info "     nvm use 20"
+        log_info ""
+        log_info "  2. Using NodeSource (Ubuntu/Debian):"
+        log_info "     curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -"
+        log_info "     sudo apt-get install -y nodejs"
+        log_info ""
+        log_info "  3. Or run: ./install-system-deps.sh (will install Node.js 20)"
         exit 1
     fi
     
