@@ -91,12 +91,20 @@ export PYTHONPATH="${SCRIPT_DIR}/backend"
 BACKEND_PORT="${BACKEND_PORT:-9876}"
 FRONTEND_PORT="${FRONTEND_PORT:-6789}"
 
-# Auto-detect network IP if NEXT_PUBLIC_API_URL is not set
-if [[ -z "$NEXT_PUBLIC_API_URL" ]]; then
-    # Try to detect network IP
-    NETWORK_IP=$(python3 -c "import socket; s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.connect(('8.8.8.8', 80)); print(s.getsockname()[0]); s.close()" 2>/dev/null || echo "localhost")
-    export NEXT_PUBLIC_API_URL="http://${NETWORK_IP}:${BACKEND_PORT}"
-    echo -e "${BLUE}🌐 Auto-detected API URL: ${NEXT_PUBLIC_API_URL}${NC}"
+# NEXT_PUBLIC_API_URL auto-detection removed in favor of runtime detection
+# The frontend now auto-detects the API URL at runtime based on window.location
+# This allows it to work correctly with reverse proxies and HTTPS
+# 
+# If you need to override auto-detection, set NEXT_PUBLIC_API_URL manually:
+#   export NEXT_PUBLIC_API_URL="https://yourdomain.com"
+#
+# Try to detect network IP for display purposes
+NETWORK_IP=$(python3 -c "import socket; s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.connect(('8.8.8.8', 80)); print(s.getsockname()[0]); s.close()" 2>/dev/null || echo "localhost")
+
+if [[ -n "$NEXT_PUBLIC_API_URL" ]]; then
+    echo -e "${BLUE}🌐 Using API URL: ${NEXT_PUBLIC_API_URL}${NC}"
+else
+    echo -e "${BLUE}🌐 API URL will be auto-detected at runtime${NC}"
 fi
 
 # Run Alembic migrations to upgrade schema before starting backend
