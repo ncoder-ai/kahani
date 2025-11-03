@@ -82,6 +82,9 @@ interface SceneVariantDisplayProps {
   isStreamingVariant?: boolean;
   // Global flag to prevent scroll-disrupting operations
   isSceneOperationInProgress?: boolean;
+  // Additional choices from "generate more choices"
+  dynamicChoices?: Array<{text: string, order: number}>;
+  showMoreOptions?: boolean;
 }
 
 export default function SceneVariantDisplay({
