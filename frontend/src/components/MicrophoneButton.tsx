@@ -109,11 +109,6 @@ export default function MicrophoneButton({
     checkSTTEnabled();
   }, []);
 
-  // Hide microphone button entirely if STT is disabled
-  if (!isSTTEnabled) {
-    return null;
-  }
-
   const handleToggleRecording = useCallback(async () => {
     if (disabled || !isSTTEnabled) return;
     
@@ -184,7 +179,11 @@ export default function MicrophoneButton({
     return 'Click to start recording';
   };
 
-  // Always render the button, but show as disabled if STT is not enabled
+  // Hide microphone button entirely if STT is disabled
+  // This check is done AFTER all hooks to comply with React's Rules of Hooks
+  if (!isSTTEnabled) {
+    return null;
+  }
 
   return (
     <div className={`relative ${position === 'absolute' ? 'absolute' : ''} ${className}`}>
