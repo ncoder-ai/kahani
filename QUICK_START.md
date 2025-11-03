@@ -58,7 +58,8 @@ docker-compose ps
 
 ### Prerequisites
 - Python 3.11+
-- Node.js 18+
+- Node.js 20.9.0+ (required for Next.js 16)
+- npm 10+ (comes with Node.js 20.9.0+)
 - Git
 
 ### Step 1: Clone and Install

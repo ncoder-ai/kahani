@@ -158,12 +158,21 @@ install_python() {
 
 # Install Node.js
 install_nodejs() {
-    if command_exists node && [[ $(node -v | cut -d'v' -f2 | cut -d'.' -f1) -ge 18 ]]; then
-        log_info "Node.js 18+ already installed"
-        return
+    # Check if Node.js 20.9.0+ is already installed
+    if command_exists node; then
+        node_version=$(node -v | cut -d'v' -f2)
+        node_major=$(echo "$node_version" | cut -d'.' -f1)
+        node_minor=$(echo "$node_version" | cut -d'.' -f2)
+        
+        if [[ $node_major -gt 20 ]] || [[ $node_major -eq 20 && $node_minor -ge 9 ]]; then
+            log_info "Node.js 20.9.0+ already installed (v$node_version)"
+            return
+        else
+            log_warning "Node.js $node_version found, but 20.9.0+ required"
+        fi
     fi
     
-    log_info "Installing Node.js..."
+    log_info "Installing Node.js 20..."
     
     # Install Node.js via NodeSource
     if [[ "$OS" == "linux" ]]; then
@@ -171,10 +180,11 @@ install_nodejs() {
         sudo apt-get install -y --no-upgrade nodejs
         
     elif [[ "$OS" == "macos" ]]; then
-        brew install node
+        brew install node@20
+        brew link --overwrite node@20
     fi
     
-    log_success "Node.js installed"
+    log_success "Node.js 20 installed"
 }
 
 # Verify system dependencies
@@ -233,7 +243,8 @@ main() {
     echo ""
     echo "This script installs only system-wide dependencies:"
     echo "  • Python 3.11+"
-    echo "  • Node.js 18+"
+    echo "  • Node.js 20.9.0+ (required for Next.js 16)"
+    echo "  • npm 10+ (comes with Node.js 20.9.0+)"
     echo "  • Git"
     echo "  • Build tools and libraries"
     echo ""
@@ -260,7 +271,7 @@ main() {
     echo ""
     echo "📋 What was installed:"
     echo "   ✓ Python 3.11+ with pip and venv"
-    echo "   ✓ Node.js 18+ with npm"
+    echo "   ✓ Node.js 20.9.0+ with npm 10+"
     echo "   ✓ Git"
     echo "   ✓ Build tools and development libraries"
     echo ""
