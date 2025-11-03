@@ -247,6 +247,7 @@ class ApiClient {
     onError?: (error: string) => void,
     onAutoPlayReady?: (sessionId: string, sceneId: number) => void
   ) {
+    let fullStreamedContent = '';  // Track all streamed content for verification
     const formData = new FormData();
     formData.append('custom_prompt', customPrompt);
     if (userContent) {
@@ -273,12 +274,23 @@ class ApiClient {
               if (data === '[DONE]') return;
               try {
                 const parsed = JSON.parse(data);
-                if (parsed.type === 'content' && onChunk) onChunk(parsed.chunk);
+                if (parsed.type === 'content' && onChunk) {
+                  fullStreamedContent += parsed.chunk;
+                  onChunk(parsed.chunk);
+                }
                 else if (parsed.type === 'auto_play_ready' && onAutoPlayReady) {
                   // Connect to TTS immediately when session is ready
                   onAutoPlayReady(parsed.auto_play_session_id, parsed.scene_id);
                 }
-                else if (parsed.type === 'complete' && onComplete) onComplete(parsed.scene_id, parsed.choices, parsed.auto_play);
+                else if (parsed.type === 'complete' && onComplete) {
+                  // Log verification info
+                  console.log('=== SCENE GENERATION COMPLETE ===');
+                  console.log('Full streamed content:', fullStreamedContent);
+                  console.log('Contains ###CHOICES###:', fullStreamedContent.includes('###CHOICES###'));
+                  console.log('Parsed choices:', parsed.choices);
+                  console.log('================================');
+                  onComplete(parsed.scene_id, parsed.choices, parsed.auto_play);
+                }
                 else if (parsed.type === 'error' && onError) onError(parsed.message);
               } catch {}
             }
