@@ -193,8 +193,17 @@ install_nodejs() {
         # This is unavoidable when adding a repository, but we use --no-upgrade when installing
         # to prevent upgrading existing packages
         curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-        # Install Node.js without upgrading existing packages
-        sudo apt-get install -y --no-upgrade nodejs
+        
+        # Check if Node.js is already installed
+        if dpkg -l | grep -q "^ii.*nodejs "; then
+            log_info "Node.js is already installed. Removing old version to install Node.js 20..."
+            # Remove old Node.js without removing dependencies
+            sudo apt-get remove -y nodejs 2>/dev/null || true
+        fi
+        
+        # Install Node.js 20 (allowing upgrade/replacement of nodejs package)
+        # We allow upgrading nodejs specifically, but not other packages
+        sudo apt-get install -y nodejs
         
     elif [[ "$OS" == "macos" ]]; then
         # Install Node.js 20 without upgrading existing packages
@@ -239,8 +248,18 @@ verify_system_deps() {
         log_error "Node.js not found"
         ((errors++))
     else
-        node_version=$(node -v)
-        log_success "Node.js $node_version: OK"
+        node_version=$(node -v | cut -d'v' -f2)
+        node_major=$(echo "$node_version" | cut -d'.' -f1)
+        node_minor=$(echo "$node_version" | cut -d'.' -f2)
+        
+        # Check if version is 20.9.0+
+        if [[ $node_major -lt 20 ]] || [[ $node_major -eq 20 && $node_minor -lt 9 ]]; then
+            log_error "Node.js $node_version found, but 20.9.0+ required"
+            log_info "Please manually upgrade Node.js or re-run install-system-deps.sh"
+            ((errors++))
+        else
+            log_success "Node.js $node_version: OK"
+        fi
     fi
     
     # Check Git installation
