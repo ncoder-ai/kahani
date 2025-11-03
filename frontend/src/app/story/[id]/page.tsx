@@ -2033,6 +2033,8 @@ export default function StoryPage() {
                           onStartEdit={startEditingScene}
                           onSaveEdit={(sceneId: number, content: string) => updateScene(sceneId, content)}
                           onCancelEdit={() => setEditingScene(null)}
+                          dynamicChoices={isLastSceneInStory ? dynamicChoices : []}
+                          showMoreOptions={isLastSceneInStory ? showMoreOptions : false}
                           onContentChange={setEditContent}
                           isRegenerating={isRegenerating}
                           isGenerating={isGenerating}
