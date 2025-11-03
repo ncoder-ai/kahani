@@ -236,7 +236,11 @@ setup_nodejs_env() {
     log_info "Setting up Node.js environment..."
     
     cd frontend
-    npm install
+    
+    # Use --legacy-peer-deps to handle React 19 compatibility issues
+    # Some packages like @headlessui/react haven't updated their peer deps yet
+    npm install --legacy-peer-deps
+    
     cd ..
     
     log_success "Node.js environment setup complete"
