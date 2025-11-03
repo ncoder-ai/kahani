@@ -171,6 +171,7 @@ class PromptManager:
             "complete_plot": ("plot_generation", "complete_plot"),
             "single_plot_point": ("plot_generation", "single_plot_point"),
             "scene_variants": ("summary_generation", "scene_variants"),
+            "scene_variants_streaming": ("summary_generation", "scene_variants_streaming"),
             "story_chapters": ("summary_generation", "story_chapters"),
             "character_assistant.extraction": ("character_assistant", "extraction"),
             "character_assistant.detection": ("character_assistant", "detection"),
