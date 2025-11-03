@@ -110,3 +110,4 @@ The issue appeared after upgrading to React 19.2.0 and Next.js 16.0.1. React 19 
 ## Status
 ✅ **FIXED** - The early return has been moved to after all hooks, ensuring compliance with React's Rules of Hooks.
 
+

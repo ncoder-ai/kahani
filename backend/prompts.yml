@@ -106,6 +106,18 @@ story_generation:
       
       IMPORTANT: Write ONLY the story content. Do not include any choices, options, or questions for the reader. 
       This should be pure narrative - just tell what happens next in the story.
+      
+      After completing the scene narrative, add EXACTLY this line:
+      ###CHOICES###
+      
+      Then provide exactly 4 compelling narrative choices as a JSON array. Each choice should:
+      1. Offer meaningfully different story directions
+      2. Be specific to the current scene and context
+      3. Give readers genuine agency in the narrative
+      4. Vary in risk/consequence level
+      5. Be concise but evocative (1-2 sentences each)
+      
+      Format: ["Choice 1 text here", "Choice 2 text here", "Choice 3 text here", "Choice 4 text here"]
 
   scene_continuation:
     system: |
@@ -133,6 +145,20 @@ story_generation:
       {context}
       
       Write a compelling continuation that follows from the established context and any reader choices. Focus on moving the story forward with engaging narrative and dialogue. Include specific details that make this scene memorable and unique. Do not repeat previous content. Do not include choices or prompts to the reader.
+      
+      IMPORTANT: Write ONLY the continuation content. Do not include any choices, options, or questions for the reader.
+      
+      After completing the continuation, add EXACTLY this line:
+      ###CHOICES###
+      
+      Then provide exactly 4 compelling narrative choices as a JSON array. Each choice should:
+      1. Offer meaningfully different story directions
+      2. Be specific to the current scene and context
+      3. Give readers genuine agency in the narrative
+      4. Vary in risk/consequence level
+      5. Be concise but evocative (1-2 sentences each)
+      
+      Format: ["Choice 1 text here", "Choice 2 text here", "Choice 3 text here", "Choice 4 text here"]
 
   choices:
     system: |
@@ -321,7 +347,19 @@ summary_generation:
       
       Generate an alternative version of this scene that explores a different narrative direction while maintaining story consistency. Focus on how different character choices or circumstances might lead to a different but equally engaging outcome.
       
-      Alternative Scene:
+      IMPORTANT: Write ONLY the scene content. Do not include any choices, options, or questions for the reader.
+      
+      After completing the scene narrative, add EXACTLY this line:
+      ###CHOICES###
+      
+      Then provide exactly 4 compelling narrative choices as a JSON array. Each choice should:
+      1. Offer meaningfully different story directions
+      2. Be specific to the current scene and context
+      3. Give readers genuine agency in the narrative
+      4. Vary in risk/consequence level
+      5. Be concise but evocative (1-2 sentences each)
+      
+      Format: ["Choice 1 text here", "Choice 2 text here", "Choice 3 text here", "Choice 4 text here"]
 
   story_chapters:
     system: |
