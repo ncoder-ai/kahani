@@ -1873,7 +1873,6 @@ async def create_scene_variant_streaming(
                 return
             
             # Get original variant content for variant generation
-            from ..services.scene_variant_service import SceneVariantService
             variant_service = SceneVariantService(db)
             original_variant = variant_service.get_active_variant(scene_id)
             original_scene_content = original_variant.content if original_variant else ""
