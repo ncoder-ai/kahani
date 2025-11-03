@@ -83,9 +83,12 @@ class AudioContextManager {
   
   /**
    * Check if audio is unlocked and ready to play
+   * Always checks actual AudioContext state (not cached flag) since iOS can suspend context at any time
    */
   isAudioUnlocked(): boolean {
-    return this.isUnlocked && this.context?.state === 'running';
+    // Always check actual state - don't rely on cached flag
+    // iOS can suspend AudioContext even after it's been unlocked
+    return this.context?.state === 'running';
   }
   
   /**
