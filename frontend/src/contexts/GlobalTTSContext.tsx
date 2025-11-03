@@ -245,11 +245,6 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
           playNextChunk(); // Play next chunk
         };
         
-        // Handle source errors
-        source.onerror = (err) => {
-          console.error('[Global TTS] Audio source error:', err);
-          addDebugLog(`❌ Source error on chunk ${chunk.chunk_number}`);
-        };
         
         // Start playback
         try {
