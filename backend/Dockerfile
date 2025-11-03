@@ -22,7 +22,7 @@ COPY requirements-prod.txt .
 
 # Install PyTorch CPU-only first (must be before sentence-transformers)
 # This satisfies the torch>=2.0.0 requirement for STT dependencies
-RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.2.0+cpu torchaudio==2.2.0+cpu
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.6.0+cpu torchaudio==2.6.0
 
 # Install Python dependencies (torch will be skipped since already installed)
 RUN pip install --no-cache-dir -r requirements-prod.txt
