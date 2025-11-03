@@ -106,6 +106,22 @@ story_generation:
       
       IMPORTANT: Write ONLY the story content. Do not include any choices, options, or questions for the reader. 
       This should be pure narrative - just tell what happens next in the story.
+      
+      After completing the scene narrative, add EXACTLY this line:
+      ###CHOICES###
+      
+      Then provide exactly 4 compelling narrative choices as a JSON array. Each choice should:
+      1. Offer meaningfully different story directions
+      2. Be specific to the current scene and context
+      3. Give readers genuine agency in the narrative
+      4. Vary in risk/consequence level
+      5. Be concise but evocative (1-2 sentences each)
+      6. Match the story's POV - use third person (he/she/they/character name) NOT first person (I/me/my) or second person (you/your)
+      
+      IMPORTANT: Write choices in THIRD PERSON perspective describing what the character does, NOT what "I do" or "you do".
+      Example: "Jack approaches the door cautiously" NOT "I approach the door cautiously" or "You approach the door cautiously"
+      
+      Format: ["Choice 1 text here", "Choice 2 text here", "Choice 3 text here", "Choice 4 text here"]
 
   scene_continuation:
     system: |
@@ -133,6 +149,24 @@ story_generation:
       {context}
       
       Write a compelling continuation that follows from the established context and any reader choices. Focus on moving the story forward with engaging narrative and dialogue. Include specific details that make this scene memorable and unique. Do not repeat previous content. Do not include choices or prompts to the reader.
+      
+      IMPORTANT: Write ONLY the continuation content. Do not include any choices, options, or questions for the reader.
+      
+      After completing the continuation, add EXACTLY this line:
+      ###CHOICES###
+      
+      Then provide exactly 4 compelling narrative choices as a JSON array. Each choice should:
+      1. Offer meaningfully different story directions
+      2. Be specific to the current scene and context
+      3. Give readers genuine agency in the narrative
+      4. Vary in risk/consequence level
+      5. Be concise but evocative (1-2 sentences each)
+      6. Match the story's POV - use third person (he/she/they/character name) NOT first person (I/me/my) or second person (you/your)
+      
+      IMPORTANT: Write choices in THIRD PERSON perspective describing what the character does, NOT what "I do" or "you do".
+      Example: "Jack approaches the door cautiously" NOT "I approach the door cautiously" or "You approach the door cautiously"
+      
+      Format: ["Choice 1 text here", "Choice 2 text here", "Choice 3 text here", "Choice 4 text here"]
 
   choices:
     system: |
@@ -321,7 +355,23 @@ summary_generation:
       
       Generate an alternative version of this scene that explores a different narrative direction while maintaining story consistency. Focus on how different character choices or circumstances might lead to a different but equally engaging outcome.
       
-      Alternative Scene:
+      IMPORTANT: Write ONLY the scene content. Do not include any choices, options, or questions for the reader.
+      
+      After completing the scene narrative, add EXACTLY this line:
+      ###CHOICES###
+      
+      Then provide exactly 4 compelling narrative choices as a JSON array. Each choice should:
+      1. Offer meaningfully different story directions
+      2. Be specific to the current scene and context
+      3. Give readers genuine agency in the narrative
+      4. Vary in risk/consequence level
+      5. Be concise but evocative (1-2 sentences each)
+      6. Match the story's POV - use third person (he/she/they/character name) NOT first person (I/me/my) or second person (you/your)
+      
+      IMPORTANT: Write choices in THIRD PERSON perspective describing what the character does, NOT what "I do" or "you do".
+      Example: "Jack approaches the door cautiously" NOT "I approach the door cautiously" or "You approach the door cautiously"
+      
+      Format: ["Choice 1 text here", "Choice 2 text here", "Choice 3 text here", "Choice 4 text here"]
 
   story_chapters:
     system: |
@@ -374,14 +424,41 @@ settings:
 character_assistant:
   detection:
     system: |
-      Extract character names from story text and return as JSON array.
+      You are a character and entity extraction assistant. Extract ALL named entities from story text, including:
+      - Human characters (people)
+      - Non-human characters (aliens, robots, animals, etc.)
+      - Entities, forces, spirits, and beings
+      - Organizations or groups with names
+      - Any named entity that plays a role in the story
+      
+      Include entities even if they are:
+      - Referenced indirectly (e.g., "the entity" that has a name)
+      - Referenced in possessive forms (e.g., "Sorren's presence" means extract "Sorren")
+      - Abstract concepts with names (e.g., "the Void", "the Entity")
+      - Forces or powers with names
+      
+      Return as JSON array with name and context/role.
     
     user: |
-      Extract all character names from this text:
+      Extract ALL named entities and characters from this story text. This includes:
+      - Human characters (people with names)
+      - Non-human characters (aliens, robots, creatures, etc.)
+      - Entities, forces, spirits, beings, or powers with names
+      - Organizations or groups with names
+      - Any named thing that acts or is referenced as an entity in the story
       
+      IMPORTANT: Extract entities even if they are:
+      - Referenced indirectly (e.g., if text mentions "the entity" but earlier calls it "Sorren", extract "Sorren")
+      - Only mentioned in possessive form (e.g., "Sorren's power" means extract "Sorren")
+      - Abstract concepts (e.g., "the Void", "the Entity", "the Force")
+      - Referenced with pronouns (e.g., "it" or "they" when referring to a named entity)
+      
+      Story text:
       {scene_content}
       
-      Return JSON: [{{"name":"Name1","context":"role"}},{{"name":"Name2","context":"role"}}]
+      Return JSON array: [{{"name":"Name1","context":"role or entity type"}},{{"name":"Name2","context":"role or entity type"}}]
+      
+      Be thorough - include all named entities, not just obvious human characters.
 
   extraction:
     system: |

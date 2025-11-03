@@ -82,6 +82,9 @@ interface SceneVariantDisplayProps {
   isStreamingVariant?: boolean;
   // Global flag to prevent scroll-disrupting operations
   isSceneOperationInProgress?: boolean;
+  // Additional choices from "generate more choices"
+  dynamicChoices?: Array<{text: string, order: number}>;
+  showMoreOptions?: boolean;
 }
 
 export default function SceneVariantDisplay({
@@ -118,7 +121,9 @@ export default function SceneVariantDisplay({
   isStreamingContinuation = false,
   streamingVariantContent = '',
   isStreamingVariant = false,
-  isSceneOperationInProgress = false
+  isSceneOperationInProgress = false,
+  dynamicChoices = [],
+  showMoreOptions = false
 }: SceneVariantDisplayProps) {
   const [variants, setVariants] = useState<SceneVariant[]>([]);
   const [currentVariantId, setCurrentVariantId] = useState<number | null>(null);
@@ -232,33 +237,40 @@ export default function SceneVariantDisplay({
 
   // Get available choices for the current variant
   const getAvailableChoices = (): string[] => {
+    const baseChoices: string[] = [];
+    
     // Find current variant
     const currentVariant = variants.find(v => v.id === currentVariantId);
     
     // Use choices from current variant if available
     if (currentVariant?.choices && currentVariant.choices.length > 0) {
-      return currentVariant.choices
+      baseChoices.push(...currentVariant.choices
         .sort((a, b) => a.order - b.order)
-        .map(choice => choice.text);
+        .map(choice => choice.text));
     }
-    
     // Use scene choices if no variant-specific choices
-    if (scene.choices && scene.choices.length > 0) {
-      return scene.choices
+    else if (scene.choices && scene.choices.length > 0) {
+      baseChoices.push(...scene.choices
         .sort((a, b) => a.order - b.order)
-        .map(choice => choice.text);
+        .map(choice => choice.text));
     }
-    
     // Fallback choices
-    if (!isGenerating && !isStreaming) {
-      return [
+    else if (!isGenerating && !isStreaming) {
+      baseChoices.push(
         "Continue this naturally",
         "Add dialogue between characters", 
         "Introduce a plot twist"
-      ];
+      );
     }
     
-    return [];
+    // Add dynamic choices if showMoreOptions is true
+    if (showMoreOptions && dynamicChoices && dynamicChoices.length > 0) {
+      baseChoices.push(...dynamicChoices
+        .sort((a, b) => a.order - b.order)
+        .map(choice => choice.text));
+    }
+    
+    return baseChoices;
   };
 
     // Load variants on mount if scene has multiple variants

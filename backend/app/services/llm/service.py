@@ -11,6 +11,7 @@ import litellm
 from litellm import acompletion
 import logging
 import re
+import json
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, desc
 
@@ -785,6 +786,41 @@ class UnifiedLLMService:
         
         return self._clean_scene_numbers(response)
     
+    async def generate_scene_with_choices(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> Tuple[str, Optional[List[str]]]:
+        """
+        Generate scene content and choices in a single non-streaming call.
+        Returns (scene_content, parsed_choices)
+        """
+        CHOICES_MARKER = "###CHOICES###"
+        
+        system_prompt, user_prompt = prompt_manager.get_prompt_pair(
+            "scene_generation", "scene_generation",
+            context=self._format_context_for_scene(context)
+        )
+        
+        max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
+        
+        response = await self._generate(
+            prompt=user_prompt,
+            user_id=user_id,
+            user_settings=user_settings,
+            system_prompt=system_prompt,
+            max_tokens=max_tokens
+        )
+        
+        cleaned_response = self._clean_scene_numbers(response)
+        
+        # Split scene and choices
+        if CHOICES_MARKER in cleaned_response:
+            parts = cleaned_response.split(CHOICES_MARKER, 1)
+            scene_content = parts[0].strip()
+            choices_text = parts[1].strip() if len(parts) > 1 else ""
+            parsed_choices = self._parse_choices_from_json(choices_text)
+            return (scene_content, parsed_choices)
+        else:
+            # No marker found, return scene without choices
+            return (cleaned_response, None)
+    
     async def generate_scene_streaming(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> AsyncGenerator[str, None]:
         """Generate a story scene with streaming"""
         
@@ -934,6 +970,334 @@ class UnifiedLLMService:
             cleaned_chunk = self._clean_scene_numbers_chunk(chunk)
             if cleaned_chunk:  # Only yield non-empty chunks
                 yield cleaned_chunk
+    
+    def _parse_choices_from_json(self, text: str) -> Optional[List[str]]:
+        """
+        Parse choices from JSON array string.
+        Handles various formats and extracts valid choices.
+        Returns None if parsing fails.
+        """
+        try:
+            # Clean the text - remove any markdown code blocks
+            text = text.strip()
+            if text.startswith('```'):
+                # Remove markdown code block markers
+                lines = text.split('\n')
+                text = '\n'.join([l for l in lines if not l.strip().startswith('```')])
+            
+            # Try to find JSON array - look for pattern like ["choice1", "choice2"]
+            # This handles cases where there might be extra text before/after
+            json_match = re.search(r'\[.*?\]', text, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+                choices = json.loads(json_str)
+                
+                # Validate we got a list of strings
+                if isinstance(choices, list) and len(choices) >= 2:
+                    # Clean and validate each choice
+                    cleaned_choices = []
+                    for choice in choices:
+                        if isinstance(choice, str) and len(choice.strip()) > 5:
+                            cleaned_choices.append(choice.strip())
+                    
+                    if len(cleaned_choices) >= 2:
+                        return cleaned_choices[:4]  # Return up to 4 choices
+            
+            return None
+        except (json.JSONDecodeError, ValueError, AttributeError) as e:
+            logger.warning(f"Failed to parse choices from JSON: {e}")
+            return None
+    
+    async def generate_scene_with_choices_streaming(
+        self, 
+        context: Dict[str, Any], 
+        user_id: int, 
+        user_settings: Dict[str, Any]
+    ) -> AsyncGenerator[Tuple[str, bool, Optional[List[str]]], None]:
+        """
+        Generate scene content and choices in a single streaming call.
+        
+        Yields tuples of (chunk, scene_complete, parsed_choices)
+        - chunk: Scene content chunk (only yielded before marker)
+        - scene_complete: True when scene content is done (marker found)
+        - parsed_choices: List of choices if successfully parsed, None otherwise
+        """
+        CHOICES_MARKER = "###CHOICES###"
+        
+        system_prompt, user_prompt = prompt_manager.get_prompt_pair(
+            "scene_generation", "scene_generation",
+            context=self._format_context_for_scene(context)
+        )
+        
+        max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
+        
+        scene_buffer = []
+        choices_buffer = []
+        found_marker = False
+        rolling_buffer = ""  # Buffer to detect marker across chunks
+        
+        async for chunk in self._generate_stream(
+            prompt=user_prompt,
+            user_id=user_id,
+            user_settings=user_settings,
+            system_prompt=system_prompt,
+            max_tokens=max_tokens
+        ):
+            cleaned_chunk = self._clean_scene_numbers_chunk(chunk)
+            if not cleaned_chunk:
+                continue
+            
+            if not found_marker:
+                # Add to rolling buffer
+                rolling_buffer += cleaned_chunk
+                
+                # Check if marker is in rolling buffer
+                if CHOICES_MARKER in rolling_buffer:
+                    # Split: before marker goes to scene, after to choices
+                    parts = rolling_buffer.split(CHOICES_MARKER, 1)
+                    scene_part = parts[0]
+                    choices_part = parts[1] if len(parts) > 1 else ""
+                    
+                    # Yield only the new scene content (subtract what we already yielded)
+                    already_yielded = ''.join(scene_buffer)
+                    new_scene_content = scene_part[len(already_yielded):]
+                    if new_scene_content.strip():
+                        yield (new_scene_content, False, None)
+                    
+                    scene_buffer.append(new_scene_content)
+                    
+                    # Buffer the choices part - DO NOT YIELD
+                    if choices_part:
+                        choices_buffer.append(choices_part)
+                    
+                    found_marker = True
+                    rolling_buffer = ""  # Clear rolling buffer
+                    # Continue reading to get all choice chunks
+                else:
+                    # Keep rolling buffer small (only last len(MARKER) chars needed)
+                    # to detect marker split across chunks
+                    if len(rolling_buffer) > len(CHOICES_MARKER) * 2:
+                        # Yield the excess (keeping last MARKER length in buffer)
+                        excess_length = len(rolling_buffer) - len(CHOICES_MARKER)
+                        excess = rolling_buffer[:excess_length]
+                        scene_buffer.append(excess)
+                        yield (excess, False, None)
+                        rolling_buffer = rolling_buffer[excess_length:]
+            else:
+                # After marker, buffer for choice parsing - DO NOT YIELD
+                choices_buffer.append(cleaned_chunk)
+        
+        # After stream ends, yield any remaining rolling buffer content
+        if not found_marker and rolling_buffer:
+            scene_buffer.append(rolling_buffer)
+            yield (rolling_buffer, False, None)
+        
+        # Parse choices from buffer
+        parsed_choices = None
+        if found_marker and choices_buffer:
+            choices_text = ''.join(choices_buffer).strip()
+            parsed_choices = self._parse_choices_from_json(choices_text)
+        
+        # Yield final completion with parsed choices
+        yield ("", True, parsed_choices)
+    
+    async def generate_variant_with_choices_streaming(
+        self,
+        original_scene: str,
+        context: Dict[str, Any],
+        user_id: int,
+        user_settings: Dict[str, Any]
+    ) -> AsyncGenerator[Tuple[str, bool, Optional[List[str]]], None]:
+        """
+        Generate scene variant and choices in a single streaming call.
+        Same pattern as generate_scene_with_choices_streaming.
+        """
+        CHOICES_MARKER = "###CHOICES###"
+        
+        # Log inputs for debugging
+        logger.info(f"Variant generation - original_scene length: {len(original_scene) if original_scene else 0}")
+        logger.info(f"Variant generation - context type: {type(context)}")
+        
+        system_prompt, user_prompt = prompt_manager.get_prompt_pair(
+            "summary_generation", "scene_variants_streaming",
+            original_scene=original_scene,
+            context=self._format_context_for_scene(context)
+        )
+        
+        # Log prompts for debugging
+        logger.info(f"Variant generation - system_prompt length: {len(system_prompt) if system_prompt else 0}")
+        logger.info(f"Variant generation - user_prompt length: {len(user_prompt) if user_prompt else 0}")
+        
+        if not user_prompt or not user_prompt.strip():
+            logger.error(f"Empty user prompt generated for variant. Original scene: {original_scene[:100] if original_scene else 'None'}")
+            raise ValueError("Generated empty user prompt for variant generation")
+        
+        max_tokens = prompt_manager.get_max_tokens("scene_variants", user_settings)
+        
+        scene_buffer = []
+        choices_buffer = []
+        found_marker = False
+        rolling_buffer = ""  # Buffer to detect marker across chunks
+        
+        async for chunk in self._generate_stream(
+            prompt=user_prompt,
+            user_id=user_id,
+            user_settings=user_settings,
+            system_prompt=system_prompt,
+            max_tokens=max_tokens
+        ):
+            cleaned_chunk = self._clean_scene_numbers_chunk(chunk)
+            if not cleaned_chunk:
+                continue
+            
+            if not found_marker:
+                # Add to rolling buffer
+                rolling_buffer += cleaned_chunk
+                
+                # Check if marker is in rolling buffer
+                if CHOICES_MARKER in rolling_buffer:
+                    # Split: before marker goes to scene, after to choices
+                    parts = rolling_buffer.split(CHOICES_MARKER, 1)
+                    scene_part = parts[0]
+                    choices_part = parts[1] if len(parts) > 1 else ""
+                    
+                    # Yield only the new scene content (subtract what we already yielded)
+                    already_yielded = ''.join(scene_buffer)
+                    new_scene_content = scene_part[len(already_yielded):]
+                    if new_scene_content.strip():
+                        yield (new_scene_content, False, None)
+                    
+                    scene_buffer.append(new_scene_content)
+                    
+                    # Buffer the choices part - DO NOT YIELD
+                    if choices_part:
+                        choices_buffer.append(choices_part)
+                    
+                    found_marker = True
+                    rolling_buffer = ""  # Clear rolling buffer
+                    # Continue reading to get all choice chunks
+                else:
+                    # Keep rolling buffer small (only last len(MARKER) chars needed)
+                    if len(rolling_buffer) > len(CHOICES_MARKER) * 2:
+                        excess_length = len(rolling_buffer) - len(CHOICES_MARKER)
+                        excess = rolling_buffer[:excess_length]
+                        scene_buffer.append(excess)
+                        yield (excess, False, None)
+                        rolling_buffer = rolling_buffer[excess_length:]
+            else:
+                # After marker, buffer for choice parsing - DO NOT YIELD
+                choices_buffer.append(cleaned_chunk)
+        
+        # After stream ends, yield any remaining rolling buffer content
+        if not found_marker and rolling_buffer:
+            scene_buffer.append(rolling_buffer)
+            yield (rolling_buffer, False, None)
+        
+        parsed_choices = None
+        if found_marker and choices_buffer:
+            choices_text = ''.join(choices_buffer).strip()
+            parsed_choices = self._parse_choices_from_json(choices_text)
+        
+        yield ("", True, parsed_choices)
+    
+    async def generate_continuation_with_choices_streaming(
+        self,
+        context: Dict[str, Any],
+        user_id: int,
+        user_settings: Dict[str, Any]
+    ) -> AsyncGenerator[Tuple[str, bool, Optional[List[str]]], None]:
+        """
+        Generate scene continuation and choices in a single streaming call.
+        Same pattern as generate_scene_with_choices_streaming.
+        """
+        CHOICES_MARKER = "###CHOICES###"
+        
+        # Detect POV
+        current_content = context.get("current_content", "") or context.get("current_scene_content", "")
+        previous_scenes = context.get("previous_scenes", "")
+        pov = self._detect_pov(current_content)
+        if previous_scenes:
+            previous_pov = self._detect_pov(previous_scenes)
+            if previous_pov != 'third' or pov == 'third':
+                pov = previous_pov
+        
+        system_prompt, user_prompt = prompt_manager.get_prompt_pair(
+            "story_generation", "scene_continuation",
+            context=self._format_context_for_continuation(context)
+        )
+        
+        if pov == 'first':
+            system_prompt += "\n\nIMPORTANT: Continue the story in first person perspective (using 'I', 'me', 'my'). Maintain consistency with the established first-person narrative style."
+        else:
+            system_prompt += "\n\nIMPORTANT: Continue the story in third person perspective (using 'he', 'she', 'they', character names). Maintain consistency with the established third-person narrative style."
+        
+        max_tokens = prompt_manager.get_max_tokens("scene_continuation", user_settings)
+        
+        scene_buffer = []
+        choices_buffer = []
+        found_marker = False
+        rolling_buffer = ""  # Buffer to detect marker across chunks
+        
+        async for chunk in self._generate_stream(
+            prompt=user_prompt,
+            user_id=user_id,
+            user_settings=user_settings,
+            system_prompt=system_prompt,
+            max_tokens=max_tokens
+        ):
+            cleaned_chunk = self._clean_scene_numbers_chunk(chunk)
+            if not cleaned_chunk:
+                continue
+            
+            if not found_marker:
+                # Add to rolling buffer
+                rolling_buffer += cleaned_chunk
+                
+                # Check if marker is in rolling buffer
+                if CHOICES_MARKER in rolling_buffer:
+                    # Split: before marker goes to scene, after to choices
+                    parts = rolling_buffer.split(CHOICES_MARKER, 1)
+                    scene_part = parts[0]
+                    choices_part = parts[1] if len(parts) > 1 else ""
+                    
+                    # Yield only the new scene content (subtract what we already yielded)
+                    already_yielded = ''.join(scene_buffer)
+                    new_scene_content = scene_part[len(already_yielded):]
+                    if new_scene_content.strip():
+                        yield (new_scene_content, False, None)
+                    
+                    scene_buffer.append(new_scene_content)
+                    
+                    # Buffer the choices part - DO NOT YIELD
+                    if choices_part:
+                        choices_buffer.append(choices_part)
+                    
+                    found_marker = True
+                    rolling_buffer = ""  # Clear rolling buffer
+                    # Continue reading to get all choice chunks
+                else:
+                    # Keep rolling buffer small (only last len(MARKER) chars needed)
+                    if len(rolling_buffer) > len(CHOICES_MARKER) * 2:
+                        excess_length = len(rolling_buffer) - len(CHOICES_MARKER)
+                        excess = rolling_buffer[:excess_length]
+                        scene_buffer.append(excess)
+                        yield (excess, False, None)
+                        rolling_buffer = rolling_buffer[excess_length:]
+            else:
+                # After marker, buffer for choice parsing - DO NOT YIELD
+                choices_buffer.append(cleaned_chunk)
+        
+        # After stream ends, yield any remaining rolling buffer content
+        if not found_marker and rolling_buffer:
+            scene_buffer.append(rolling_buffer)
+            yield (rolling_buffer, False, None)
+        
+        parsed_choices = None
+        if found_marker and choices_buffer:
+            choices_text = ''.join(choices_buffer).strip()
+            parsed_choices = self._parse_choices_from_json(choices_text)
+        
+        yield ("", True, parsed_choices)
     
     def _detect_pov(self, text: str) -> str:
         """
