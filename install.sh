@@ -84,16 +84,65 @@ check_requirements() {
     fi
     
     # Check Node version (20.9.0+)
-    node_version=$(node -v | cut -d'v' -f2)
-    node_major=$(echo "$node_version" | cut -d'.' -f1)
-    node_minor=$(echo "$node_version" | cut -d'.' -f2)
+    # Find the best Node.js installation (prefer 20.9.0+)
+    local node_binary=""
+    local best_version=""
+    local best_major=0
+    local best_minor=0
     
-    if [[ $node_major -lt 20 ]] || [[ $node_major -eq 20 && $node_minor -lt 9 ]]; then
-        log_error "Node.js 20.9.0+ required (for Next.js 16), found: v$node_version"
-        log_info "Please upgrade Node.js manually"
-        log_info "Visit: https://nodejs.org/ or use nvm: nvm install 20"
+    # Collect all possible Node.js locations
+    local node_paths=()
+    
+    # Add PATH Node.js if it exists
+    if command_exists node; then
+        node_paths+=("$(command -v node)")
+    fi
+    
+    # Add common installation locations
+    node_paths+=("/usr/local/bin/node" "/opt/homebrew/bin/node" "/usr/bin/node")
+    
+    # Check all locations and find the best version (20.9.0+)
+    for path in "${node_paths[@]}"; do
+        if [[ -x "$path" ]]; then
+            local check_version=$($path -v 2>/dev/null | cut -d'v' -f2)
+            local check_major=$(echo "$check_version" | cut -d'.' -f1)
+            local check_minor=$(echo "$check_version" | cut -d'.' -f2)
+            
+            # Only consider versions 20.9.0 or higher
+            if [[ $check_major -gt 20 ]] || [[ $check_major -eq 20 && $check_minor -ge 9 ]]; then
+                # Prefer highest version
+                if [[ $check_major -gt $best_major ]] || [[ $check_major -eq $best_major && $check_minor -gt $best_minor ]]; then
+                    node_binary="$path"
+                    best_version="$check_version"
+                    best_major=$check_major
+                    best_minor=$check_minor
+                fi
+            fi
+        fi
+    done
+    
+    if [[ -z "$node_binary" ]]; then
+        log_error "Node.js 20.9.0+ not found"
+        log_info "Searched locations:"
+        for path in "${node_paths[@]}"; do
+            if [[ -x "$path" ]]; then
+                local ver=$($path -v 2>/dev/null || echo "error")
+                log_info "  - $path: $ver"
+            fi
+        done
+        log_info ""
+        log_info "Please install Node.js 20.9.0+ from https://nodejs.org/ or use nvm: nvm install 20"
+        log_info "If you have multiple Node.js installations, ensure the correct one is in your PATH"
         exit 1
     fi
+    
+    # Use the found Node.js binary by updating PATH
+    export PATH="$(dirname "$node_binary"):$PATH"
+    node_version="$best_version"
+    node_major=$best_major
+    node_minor=$best_minor
+    
+    log_info "Using Node.js $node_version from $node_binary"
     
     # Check npm version (10+)
     npm_version=$(npm -v)
