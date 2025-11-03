@@ -47,6 +47,10 @@ check_requirements() {
         missing_deps+=("node")
     fi
     
+    if ! command_exists npm; then
+        missing_deps+=("npm")
+    fi
+    
     if ! command_exists git; then
         missing_deps+=("git")
     fi
@@ -55,7 +59,8 @@ check_requirements() {
         log_error "Missing required tools: ${missing_deps[*]}"
         log_info "Please install these manually:"
         log_info "  - Python 3.11+ (https://python.org/downloads/)"
-        log_info "  - Node.js 18+ (https://nodejs.org/)"
+        log_info "  - Node.js 20.9.0+ (https://nodejs.org/)"
+        log_info "  - npm 10+ (comes with Node.js 20.9.0+)"
         log_info "  - Git (https://git-scm.com/)"
         exit 1
     fi
@@ -78,12 +83,29 @@ check_requirements() {
         fi
     fi
     
-    # Check Node version
-    node_version=$(node -v | cut -d'v' -f2 | cut -d'.' -f1)
-    if [[ $node_version -lt 18 ]]; then
-        log_error "Node.js 18+ required, found: v$node_version"
+    # Check Node version (20.9.0+)
+    node_version=$(node -v | cut -d'v' -f2)
+    node_major=$(echo "$node_version" | cut -d'.' -f1)
+    node_minor=$(echo "$node_version" | cut -d'.' -f2)
+    
+    if [[ $node_major -lt 20 ]] || [[ $node_major -eq 20 && $node_minor -lt 9 ]]; then
+        log_error "Node.js 20.9.0+ required (for Next.js 16), found: v$node_version"
         log_info "Please upgrade Node.js manually"
+        log_info "Visit: https://nodejs.org/ or use nvm: nvm install 20"
         exit 1
+    fi
+    
+    # Check npm version (10+)
+    npm_version=$(npm -v)
+    npm_major=$(echo "$npm_version" | cut -d'.' -f1)
+    
+    if [[ $npm_major -lt 10 ]]; then
+        log_warning "npm 10+ recommended, found: v$npm_version"
+        log_info "Upgrading npm to latest version..."
+        npm install -g npm@latest || {
+            log_warning "Failed to upgrade npm, continuing with v$npm_version"
+            log_info "You may want to upgrade manually: npm install -g npm@latest"
+        }
     fi
     
     log_success "All requirements satisfied"
@@ -311,7 +333,8 @@ main() {
     echo ""
     echo "⚠️  This script assumes you already have:"
     echo "   • Python 3.11+ installed"
-    echo "   • Node.js 18+ installed"
+    echo "   • Node.js 20.9.0+ installed (required for Next.js 16)"
+    echo "   • npm 10+ installed (comes with Node.js 20.9.0+)"
     echo "   • Git installed"
     echo ""
     echo "💡 If you need to install system dependencies first, run:"

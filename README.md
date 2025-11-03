@@ -2,9 +2,9 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.11+-blue.svg" alt="Python Version">
-  <img src="https://img.shields.io/badge/Node.js-18+-green.svg" alt="Node.js Version">
+  <img src="https://img.shields.io/badge/Node.js-20.9+-green.svg" alt="Node.js Version">
   <img src="https://img.shields.io/badge/FastAPI-Latest-teal.svg" alt="FastAPI">
-  <img src="https://img.shields.io/badge/Next.js-14-black.svg" alt="Next.js">
+  <img src="https://img.shields.io/badge/Next.js-16-black.svg" alt="Next.js">
   <img src="https://img.shields.io/badge/Docker-Supported-blue.svg" alt="Docker">
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License">
 </p>
@@ -266,7 +266,8 @@ kahani/
 ### **Prerequisites**
 
 - **Python 3.11+**
-- **Node.js 18+**
+- **Node.js 20.9.0+** (required for Next.js 16)
+- **npm 10+** (comes with Node.js 20.9.0+)
 - **Git**
 - **LLM Server** (optional): [LM Studio](https://lmstudio.ai/) or [Ollama](https://ollama.ai/)
 
