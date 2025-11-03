@@ -163,7 +163,8 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
     
     // CRITICAL: Check AudioContext state dynamically and try to resume if suspended
     // This is especially important on iOS where context can be suspended at any time
-    if (context.state === 'suspended') {
+    const currentState = context.state;
+    if (currentState === 'suspended') {
       console.warn('[Global TTS] AudioContext suspended, attempting resume...');
       addDebugLog('⚠️ AudioContext suspended, resuming...');
       
@@ -193,7 +194,7 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
     // Double-check state is running before proceeding
     if (context.state !== 'running') {
       console.error('[Global TTS] AudioContext not running, state:', context.state);
-      addDebugLog(`❌ AudioContext state: ${context.state}`);
+      addDebugLog(`❌ AudioContext state: ${finalState}`);
       setError('🔊 Audio not ready - please tap "Enable TTS" button');
       setAudioPermissionBlocked(true);
       isPlayingRef.current = false;
