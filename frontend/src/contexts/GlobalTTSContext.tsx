@@ -194,7 +194,7 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
     // Double-check state is running before proceeding
     if (context.state !== 'running') {
       console.error('[Global TTS] AudioContext not running, state:', context.state);
-      addDebugLog(`❌ AudioContext state: ${finalState}`);
+      addDebugLog(`❌ AudioContext state: ${context.state}`);
       setError('🔊 Audio not ready - please tap "Enable TTS" button');
       setAudioPermissionBlocked(true);
       isPlayingRef.current = false;
