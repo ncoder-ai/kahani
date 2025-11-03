@@ -140,7 +140,7 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
   /**
    * Play next chunk in queue using AudioContext
    */
-  const playNextChunk = useCallback(() => {
+  const playNextChunk = useCallback(async () => {
     if (audioQueueRef.current.length === 0) {
       isPlayingRef.current = false;
       setIsPlaying(false);
@@ -152,20 +152,60 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
     
     const context = audioContextManager.getContext();
     
-    // Check if AudioContext is unlocked
-    if (!context || !audioContextManager.isAudioUnlocked()) {
-      console.error('[Global TTS] AudioContext not unlocked');
-      setError('🔊 Audio locked - click "Enable TTS" button in top banner first');
+    if (!context) {
+      console.error('[Global TTS] AudioContext not available');
+      setError('🔊 Audio system not available');
       setAudioPermissionBlocked(true);
-      setBrowserBlockedAutoplay(true);
       isPlayingRef.current = false;
       setIsPlaying(false);
+      return;
+    }
+    
+    // CRITICAL: Check AudioContext state dynamically and try to resume if suspended
+    // This is especially important on iOS where context can be suspended at any time
+    if (context.state === 'suspended') {
+      console.warn('[Global TTS] AudioContext suspended, attempting resume...');
+      addDebugLog('⚠️ AudioContext suspended, resuming...');
+      
+      try {
+        await context.resume();
+        
+        if (context.state !== 'running') {
+          throw new Error(`Failed to resume AudioContext, state: ${context.state}`);
+        }
+        
+        console.log('[Global TTS] ✅ AudioContext resumed successfully');
+        addDebugLog('✅ AudioContext resumed');
+      } catch (err) {
+        console.error('[Global TTS] ❌ Cannot resume AudioContext:', err);
+        addDebugLog(`❌ Resume failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        setError('🔊 Audio locked - please tap "Enable TTS" button in top banner');
+        setAudioPermissionBlocked(true);
+        setBrowserBlockedAutoplay(true);
+        isPlayingRef.current = false;
+        setIsPlaying(false);
+        // Put chunk back in queue so it can be retried later
+        audioQueueRef.current.unshift(chunk);
+        return;
+      }
+    }
+    
+    // Double-check state is running before proceeding
+    if (context.state !== 'running') {
+      console.error('[Global TTS] AudioContext not running, state:', context.state);
+      addDebugLog(`❌ AudioContext state: ${context.state}`);
+      setError('🔊 Audio not ready - please tap "Enable TTS" button');
+      setAudioPermissionBlocked(true);
+      isPlayingRef.current = false;
+      setIsPlaying(false);
+      audioQueueRef.current.unshift(chunk);
       return;
     }
     
     // Decode audio from blob and play through AudioContext
     chunk.audio_blob.arrayBuffer()
       .then(arrayBuffer => {
+        console.log('[Global TTS] Decoding audio buffer, size:', arrayBuffer.byteLength);
         return context.decodeAudioData(arrayBuffer);
       })
       .then(audioBuffer => {
@@ -175,6 +215,12 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
           numberOfChannels: audioBuffer.numberOfChannels,
           contextState: context.state
         });
+        addDebugLog(`✅ Chunk ${chunk.chunk_number} decoded (${audioBuffer.duration.toFixed(2)}s)`);
+        
+        // Verify context is still running before creating nodes
+        if (context.state !== 'running') {
+          throw new Error(`AudioContext suspended during decode, state: ${context.state}`);
+        }
         
         // Create gain node for volume control
         const gainNode = context.createGain();
@@ -192,28 +238,43 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
         // Handle end of playback
         source.onended = () => {
           console.log('[Global TTS] Chunk', chunk.chunk_number, 'ended');
+          addDebugLog(`✓ Chunk ${chunk.chunk_number} playback completed`);
           URL.revokeObjectURL(chunk.audio_url);
           currentAudioSourceRef.current = null;
           playNextChunk(); // Play next chunk
         };
         
+        // Handle source errors
+        source.onerror = (err) => {
+          console.error('[Global TTS] Audio source error:', err);
+          addDebugLog(`❌ Source error on chunk ${chunk.chunk_number}`);
+        };
+        
         // Start playback
-        source.start(0);
-        console.log('[Global TTS] Chunk', chunk.chunk_number, 'playing via AudioContext at full volume');
-        console.log('[Global TTS] AudioContext state:', context.state);
-        setIsPlaying(true);
-        isPlayingRef.current = true;
-        setBrowserBlockedAutoplay(false);
-        setAudioPermissionBlocked(false);
+        try {
+          source.start(0);
+          console.log('[Global TTS] Chunk', chunk.chunk_number, 'playing via AudioContext at full volume');
+          console.log('[Global TTS] AudioContext state:', context.state);
+          addDebugLog(`▶️ Playing chunk ${chunk.chunk_number}`);
+          setIsPlaying(true);
+          isPlayingRef.current = true;
+          setBrowserBlockedAutoplay(false);
+          setAudioPermissionBlocked(false);
+        } catch (err) {
+          console.error('[Global TTS] Failed to start playback:', err);
+          addDebugLog(`❌ Failed to start: ${err instanceof Error ? err.message : 'Unknown error'}`);
+          throw err;
+        }
       })
       .catch(err => {
         console.error('[Global TTS] Failed to play chunk:', err);
-        setError(`Playback failed: ${err.message}`);
+        addDebugLog(`❌ Playback failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        setError(`Playback failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
         isPlayingRef.current = false;
         setIsPlaying(false);
         URL.revokeObjectURL(chunk.audio_url);
       });
-  }, []);
+  }, [addDebugLog]);
   
   /**
    * Handle WebSocket messages
