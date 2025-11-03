@@ -641,9 +641,15 @@ async def generate_scene(
                 detail=f"Failed to prepare story context: {str(e)}"
             )
         
-        # Generate scene content using enhanced method
+        # Generate scene content using enhanced method with combined choices
         try:
-            scene_content = await llm_service.generate_scene(context, current_user.id, user_settings)
+            scene_content, parsed_choices = await llm_service.generate_scene_with_choices(context, current_user.id, user_settings)
+            
+            # If choices weren't parsed, fall back to separate generation
+            if not parsed_choices or len(parsed_choices) < 2:
+                logger.warning("Choice parsing failed, using fallback generation")
+                choice_context = await context_manager.build_choice_generation_context(story_id, db)
+                parsed_choices = await llm_service.generate_choices(scene_content, choice_context, current_user.id, user_settings)
         except Exception as e:
             logger.error(f"Failed to generate scene for story {story_id}: {e}")
             raise HTTPException(
@@ -655,23 +661,24 @@ async def generate_scene(
     current_scene_count = db.query(Scene).filter(Scene.story_id == story_id).count()
     next_sequence = current_scene_count + 1
     
-    # Generate choices first
+    # Format choices from parsed result or fallback
     choices_data = []
     try:
-        choice_context = await context_manager.build_choice_generation_context(story_id, db)
-        choices_result = await llm_service.generate_choices(scene_content, choice_context, current_user.id, user_settings)
-        # Convert string choices to dict format expected by create_scene_with_variant
-        choices_data = [
-            {
-                "text": choice_text,
-                "order": i + 1,
-                "description": None
-            }
-            for i, choice_text in enumerate(choices_result)
-        ]
+        if parsed_choices and len(parsed_choices) >= 2:
+            choices_data = [
+                {
+                    "text": choice_text,
+                    "order": i + 1,
+                    "description": None
+                }
+                for i, choice_text in enumerate(parsed_choices)
+            ]
+        else:
+            logger.warning("No valid choices generated, continuing without choices")
+            choices_data = []
     except Exception as e:
-        logger.warning(f"Failed to generate choices: {e}")
-        choices_data = []  # Continue without choices
+        logger.warning(f"Failed to format choices: {e}")
+        choices_data = []
 
     # Use the new variant service to create scene with variant
     try:
@@ -867,20 +874,27 @@ async def generate_scene_streaming_endpoint(
                 # User wrote their own scene - send it immediately as a single chunk
                 full_content = user_provided_content
                 yield f"data: {json.dumps({'type': 'content', 'chunk': user_provided_content})}\n\n"
+                parsed_choices = None  # User-provided scenes need separate choice generation
             else:
-                # Stream scene generation using the context manager's output
-                # Add custom prompt to context if provided
+                # Use combined scene + choices generation
                 scene_context = context.copy() if isinstance(context, dict) else {"story_context": context}
                 if effective_custom_prompt and effective_custom_prompt.strip():
                     scene_context["custom_prompt"] = effective_custom_prompt.strip()
-
-                async for chunk in generate_scene_streaming(
+                
+                parsed_choices = None
+                async for chunk, scene_complete, choices in llm_service.generate_scene_with_choices_streaming(
                     scene_context,
                     current_user.id,
                     user_settings
                 ):
-                    full_content += chunk
-                    yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                    if not scene_complete:
+                        # Still streaming scene content
+                        full_content += chunk
+                        yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                    else:
+                        # Scene complete, choices parsed
+                        parsed_choices = choices
+                        break
             
             # Save the scene to database FIRST (before choices)
             variant_service = SceneVariantService(db)
@@ -933,18 +947,23 @@ async def generate_scene_streaming_endpoint(
                 logger.error(f"[AUTO-PLAY] Failed to setup: {e}")
                 # Don't fail scene generation if auto-play fails
             
-            # PRIORITY 2: Generate choices IMMEDIATELY (runs in parallel with TTS)
-            # This is the most important UX - user shouldn't wait for background processes
+            # PRIORITY 2: Generate choices (may already be parsed from combined generation)
             choices_data = []
             try:
-                choice_context = {
-                    "genre": context.get("genre"),
-                    "tone": context.get("tone"),
-                    "characters": context.get("characters", []),
-                    "current_situation": f"Scene {next_sequence}: {full_content}"
-                }
-                
-                choices = await llm_service.generate_choices(full_content, choice_context, current_user.id, user_settings)
+                if parsed_choices and len(parsed_choices) >= 2:
+                    # Use parsed choices from combined generation
+                    logger.info(f"Using parsed choices from combined generation: {len(parsed_choices)} choices")
+                    choices = parsed_choices
+                else:
+                    # Fallback: separate choice generation
+                    logger.warning("Choice parsing failed or no choices found, using fallback generation")
+                    choice_context = {
+                        "genre": context.get("genre"),
+                        "tone": context.get("tone"),
+                        "characters": context.get("characters", []),
+                        "current_situation": f"Scene {next_sequence}: {full_content}"
+                    }
+                    choices = await llm_service.generate_choices(full_content, choice_context, current_user.id, user_settings)
                 
                 # Format and save choices
                 for i, choice_text in enumerate(choices):
@@ -966,6 +985,7 @@ async def generate_scene_streaming_endpoint(
             except Exception as e:
                 logger.warning(f"Failed to generate choices for scene: {e}")
                 choices_data = []
+                db.rollback()
 
             # Chapter integration (optional - won't break if it fails)
             try:
@@ -1846,11 +1866,17 @@ async def create_scene_variant_streaming(
             logger.info(f"Starting variant generation for scene {scene_id}")
             logger.info(f"Request type: {type(request)}, Request value: {request}")
             
-            # Get the current scene
+            # Get the current scene and original variant
             scene = db.query(Scene).filter(Scene.id == scene_id).first()
             if not scene:
                 yield f"data: {json.dumps({'type': 'error', 'message': 'Scene not found'})}\n\n"
                 return
+            
+            # Get original variant content for variant generation
+            from ..services.scene_variant_service import SceneVariantService
+            variant_service = SceneVariantService(db)
+            original_variant = variant_service.get_active_variant(scene_id)
+            original_scene_content = original_variant.content if original_variant else ""
             
             # Send initial metadata
             yield f"data: {json.dumps({'type': 'start', 'scene_id': scene_id})}\n\n"
@@ -1867,35 +1893,23 @@ async def create_scene_variant_streaming(
             )
             logger.info(f"Context built successfully: {type(context)}")
 
-            # Convert context dict to a readable prompt string for the LLM
-            context_parts = []
-            for key, value in context.items():
-                if value:
-                    context_parts.append(f"{key}: {value}")
-            prompt_str = "\n".join(context_parts)
-            if custom_prompt:
-                prompt_str = f"{custom_prompt}\n\n{prompt_str}"
-
-            # Stream variant generation - pass context dict, not prompt string
+            # Stream variant generation with combined choices
             variant_content = ""
-            async for chunk in generate_scene_streaming(context, current_user.id, user_settings):
-                variant_content += chunk
-                yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
-            
-            # Create the new variant using SceneVariantService
-            context_parts = []
-            for key, value in context.items():
-                if value:
-                    context_parts.append(f"{key}: {value}")
-            prompt_str = "\n".join(context_parts)
-            if custom_prompt:
-                prompt_str = f"{custom_prompt}\n\n{prompt_str}"
-
-            # Stream variant generation - pass context dict, not prompt string
-            variant_content = ""
-            async for chunk in generate_scene_streaming(context, current_user.id, user_settings):
-                variant_content += chunk
-                yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+            parsed_choices = None
+            async for chunk, scene_complete, choices in llm_service.generate_variant_with_choices_streaming(
+                original_scene_content,
+                context,
+                current_user.id,
+                user_settings
+            ):
+                if not scene_complete:
+                    # Still streaming variant content
+                    variant_content += chunk
+                    yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                else:
+                    # Variant complete, choices parsed
+                    parsed_choices = choices
+                    break
             
             # Create the new variant manually since we already have the content
             from ..models import SceneVariant
@@ -1971,15 +1985,22 @@ async def create_scene_variant_streaming(
                 logger.error(f"[AUTO-PLAY] Failed to setup: {e}")
                 # Don't fail variant generation if auto-play fails
             
-            # Generate choices for the new variant
+            # Generate choices for the new variant (may already be parsed from combined generation)
             try:
-                choice_context = await context_manager.build_choice_generation_context(story_id, db)
-                generated_choices = await llm_service.generate_choices(
-                    variant_content, 
-                    choice_context, 
-                    current_user.id, 
-                    user_settings
-                )
+                if parsed_choices and len(parsed_choices) >= 2:
+                    # Use parsed choices from combined generation
+                    logger.info(f"Using parsed choices from combined variant generation: {len(parsed_choices)} choices")
+                    generated_choices = parsed_choices
+                else:
+                    # Fallback: separate choice generation
+                    logger.warning("Choice parsing failed for variant, using fallback generation")
+                    choice_context = await context_manager.build_choice_generation_context(story_id, db)
+                    generated_choices = await llm_service.generate_choices(
+                        variant_content, 
+                        choice_context, 
+                        current_user.id, 
+                        user_settings
+                    )
                 
                 # Create choice records for the variant
                 for idx, choice_text in enumerate(generated_choices, 1):
@@ -1995,6 +2016,7 @@ async def create_scene_variant_streaming(
                 logger.info(f"Generated {len(generated_choices)} choices for variant {variant.id}")
             except Exception as e:
                 logger.warning(f"Failed to generate choices for variant {variant.id}: {e}")
+                db.rollback()
                 # Continue without choices - fallback will be used
             
             # Get choices for the new variant
@@ -2221,11 +2243,20 @@ async def continue_scene_streaming(
                 story_id, scene_id, current_variant.content, db, custom_prompt
             )
             
-            # Stream continuation generation
+            # Stream continuation generation with combined choices
             continuation_content = ""
-            async for chunk in generate_scene_continuation_streaming(context, current_user.id, user_settings):
-                continuation_content += chunk
-                yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+            parsed_choices = None
+            async for chunk, scene_complete, choices in llm_service.generate_continuation_with_choices_streaming(
+                context, current_user.id, user_settings
+            ):
+                if not scene_complete:
+                    # Still streaming continuation content
+                    continuation_content += chunk
+                    yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                else:
+                    # Continuation complete, choices parsed
+                    parsed_choices = choices
+                    break
             
             # Update the variant with the new content
             new_content = current_variant.content + "\n\n" + continuation_content
@@ -2233,8 +2264,31 @@ async def continue_scene_streaming(
             current_variant.updated_at = datetime.utcnow()
             db.commit()
             
+            # Generate choices for continuation if parsed, otherwise use fallback
+            choices_data = []
+            if parsed_choices and len(parsed_choices) >= 2:
+                try:
+                    # Save choices for the continuation
+                    for i, choice_text in enumerate(parsed_choices, 1):
+                        choice = SceneChoice(
+                            scene_id=scene_id,
+                            scene_variant_id=current_variant.id,
+                            choice_text=choice_text,
+                            choice_order=i
+                        )
+                        db.add(choice)
+                    db.commit()
+                    choices_data = [{"text": c, "order": i+1} for i, c in enumerate(parsed_choices)]
+                    logger.info(f"Saved {len(choices_data)} choices from continuation")
+                except Exception as e:
+                    logger.warning(f"Failed to save continuation choices: {e}")
+                    db.rollback()
+            else:
+                # Fallback: generate choices separately if needed
+                logger.info("No choices parsed from continuation, skipping choice generation")
+            
             # Send completion
-            yield f"data: {json.dumps({'type': 'complete', 'scene_id': scene_id, 'new_content': new_content})}\n\n"
+            yield f"data: {json.dumps({'type': 'complete', 'scene_id': scene_id, 'new_content': new_content, 'choices': choices_data})}\n\n"
             
         except Exception as e:
             logger.error(f"Error in continuation stream: {e}")
