@@ -742,6 +742,28 @@ export default function StoryPage() {
         }
       }
       
+      // Detect iOS Safari
+      const isIOS = typeof window !== 'undefined' && 
+        (/iPad|iPhone|iPod/.test(navigator.userAgent) || 
+         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+      
+      // For iOS, batch chunks to prevent too many synchronous renders
+      let iosChunkBuffer = '';
+      let iosFlushTimer: ReturnType<typeof setTimeout> | null = null;
+      
+      const flushIOSChunks = () => {
+        if (iosChunkBuffer) {
+          flushSync(() => {
+            setStreamingContent(prev => prev + iosChunkBuffer);
+          });
+          iosChunkBuffer = '';
+        }
+        if (iosFlushTimer) {
+          clearTimeout(iosFlushTimer);
+          iosFlushTimer = null;
+        }
+      };
+      
       await apiClient.generateSceneStreaming(
         story.id,
         prompt || customPrompt,
@@ -750,12 +772,32 @@ export default function StoryPage() {
         // onChunk
         (chunk: string) => {
           accumulatedContent += chunk;
-          setStreamingContent(prev => prev + chunk);
+          if (isIOS) {
+            // Buffer chunks and flush frequently on iOS (every 50ms max, or immediately if buffer gets large)
+            iosChunkBuffer += chunk;
+            
+            // Flush immediately if buffer is getting large (more than 200 chars)
+            if (iosChunkBuffer.length > 200) {
+              flushIOSChunks();
+            } else if (!iosFlushTimer) {
+              // Schedule flush every 50ms for responsive updates
+              iosFlushTimer = setTimeout(() => {
+                flushIOSChunks();
+              }, 50);
+            }
+          } else {
+            setStreamingContent(prev => prev + chunk);
+          }
         },
         // onComplete
         async (sceneId: number, choices: any[], autoPlay?: { enabled: boolean; session_id: string; scene_id: number }) => {
           console.log('Scene generation complete', { sceneId, choices, autoPlay });
           console.log('[SCENE COMPLETE] Accumulated content length:', accumulatedContent.length);
+          
+          // Flush any remaining buffered chunks on iOS
+          if (isIOS) {
+            flushIOSChunks();
+          }
           
           // End timing
           const endTime = Date.now();
@@ -842,10 +884,17 @@ export default function StoryPage() {
       checkCharacterImportance();
     } catch (err) {
       console.error('generateNewSceneStreaming error', err);
-      setError(err instanceof Error ? err.message : 'Failed to generate scene');
+      const errorMessage = err instanceof Error 
+        ? (err.message === 'Load failed' 
+           ? 'Network request failed. Please check your connection and try again.'
+           : err.message)
+        : 'Failed to generate scene';
+      setError(errorMessage);
       setStreamingContent('');
       setStreamingSceneNumber(null);
       setIsStreaming(false);
+      setGenerationStartTime(null);
+      setIsSceneOperationInProgress(false);
     }
   };
 
@@ -995,16 +1044,58 @@ export default function StoryPage() {
         // Track if we already received auto_play_ready event to avoid double-connection
         let autoPlayAlreadyTriggered = false;
         
+        // Detect iOS Safari for variant streaming
+        const isIOSVariant = typeof window !== 'undefined' && 
+          (/iPad|iPhone|iPod/.test(navigator.userAgent) || 
+           (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+        
+        // For iOS, batch chunks to prevent too many synchronous renders
+        let iosVariantChunkBuffer = '';
+        let iosVariantFlushTimer: ReturnType<typeof setTimeout> | null = null;
+        
+        const flushIOSVariantChunks = () => {
+          if (iosVariantChunkBuffer) {
+            flushSync(() => {
+              setStreamingVariantContent(prev => prev + iosVariantChunkBuffer);
+            });
+            iosVariantChunkBuffer = '';
+          }
+          if (iosVariantFlushTimer) {
+            clearTimeout(iosVariantFlushTimer);
+            iosVariantFlushTimer = null;
+          }
+        };
+        
         await apiClient.createSceneVariantStreaming(
           story.id,
           sceneId,
           customPrompt || '',
           // onChunk
           (chunk: string) => {
-            setStreamingVariantContent(prev => prev + chunk);
+            if (isIOSVariant) {
+              // Buffer chunks and flush frequently on iOS (every 50ms max, or immediately if buffer gets large)
+              iosVariantChunkBuffer += chunk;
+              
+              // Flush immediately if buffer is getting large (more than 200 chars)
+              if (iosVariantChunkBuffer.length > 200) {
+                flushIOSVariantChunks();
+              } else if (!iosVariantFlushTimer) {
+                // Schedule flush every 50ms for responsive updates
+                iosVariantFlushTimer = setTimeout(() => {
+                  flushIOSVariantChunks();
+                }, 50);
+              }
+            } else {
+              setStreamingVariantContent(prev => prev + chunk);
+            }
           },
           // onComplete
           async (response: any) => {
+            // Flush any remaining buffered chunks on iOS
+            if (isIOSVariant) {
+              flushIOSVariantChunks();
+            }
+            
             console.log('[VARIANT COMPLETE] Full response:', JSON.stringify(response, null, 2));
             console.log('[VARIANT COMPLETE] Has auto_play_session_id?', 'auto_play_session_id' in response);
             console.log('[VARIANT COMPLETE] auto_play_session_id value:', response.auto_play_session_id);
@@ -1109,16 +1200,58 @@ export default function StoryPage() {
         setStreamingContinuation('');
         setStreamingContinuationSceneId(sceneId);
         
+        // Detect iOS Safari for continuation streaming
+        const isIOSContinuation = typeof window !== 'undefined' && 
+          (/iPad|iPhone|iPod/.test(navigator.userAgent) || 
+           (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+        
+        // For iOS, batch chunks to prevent too many synchronous renders
+        let iosContinuationChunkBuffer = '';
+        let iosContinuationFlushTimer: ReturnType<typeof setTimeout> | null = null;
+        
+        const flushIOSContinuationChunks = () => {
+          if (iosContinuationChunkBuffer) {
+            flushSync(() => {
+              setStreamingContinuation(prev => prev + iosContinuationChunkBuffer);
+            });
+            iosContinuationChunkBuffer = '';
+          }
+          if (iosContinuationFlushTimer) {
+            clearTimeout(iosContinuationFlushTimer);
+            iosContinuationFlushTimer = null;
+          }
+        };
+        
         await apiClient.continueSceneStreaming(
           story.id,
           sceneId,
           customPrompt || "Continue this scene with more details and development, adding to the existing content.",
           // onChunk
           (chunk: string) => {
-            setStreamingContinuation(prev => prev + chunk);
+            if (isIOSContinuation) {
+              // Buffer chunks and flush frequently on iOS (every 50ms max, or immediately if buffer gets large)
+              iosContinuationChunkBuffer += chunk;
+              
+              // Flush immediately if buffer is getting large (more than 200 chars)
+              if (iosContinuationChunkBuffer.length > 200) {
+                flushIOSContinuationChunks();
+              } else if (!iosContinuationFlushTimer) {
+                // Schedule flush every 50ms for responsive updates
+                iosContinuationFlushTimer = setTimeout(() => {
+                  flushIOSContinuationChunks();
+                }, 50);
+              }
+            } else {
+              setStreamingContinuation(prev => prev + chunk);
+            }
           },
           // onComplete
           async (completedSceneId: number, newContent: string) => {
+            // Flush any remaining buffered chunks on iOS
+            if (isIOSContinuation) {
+              flushIOSContinuationChunks();
+            }
+            
             console.log('🎬 Scene continuation complete', { completedSceneId, newContent: newContent.substring(0, 50) + '...' });
             console.log('📍 Scroll position before loadStory:', window.pageYOffset);
             
@@ -1168,7 +1301,15 @@ export default function StoryPage() {
       
     } catch (error) {
       console.error('Failed to continue scene:', error);
-      setError(error instanceof Error ? error.message : 'Failed to continue scene');
+      const errorMessage = error instanceof Error 
+        ? (error.message === 'Load failed' 
+           ? 'Network request failed. Please check your connection and try again.'
+           : error.message)
+        : 'Failed to continue scene';
+      setError(errorMessage);
+      setIsStreamingContinuation(false);
+      setStreamingContinuation('');
+      setStreamingContinuationSceneId(null);
     } finally {
       setIsRegenerating(false);
     }
