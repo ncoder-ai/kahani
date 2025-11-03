@@ -60,15 +60,25 @@ interface GlobalTTSProviderProps {
 export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, apiBaseUrl }) => {
   // Fix localhost URL when running on mobile/network
   const actualApiUrl = useMemo(() => {
-    // If URL contains localhost, replace with actual hostname from browser
-    if (apiBaseUrl.includes('localhost') && typeof window !== 'undefined') {
-      const protocol = window.location.protocol;
+    // Use the same logic as getApiBaseUrl for consistency
+    if (typeof window !== 'undefined') {
       const hostname = window.location.hostname;
-      const port = apiBaseUrl.match(/:(\d+)/)?.[1] || '9876';
-      const fixedUrl = `${protocol}//${hostname}:${port}`;
-      console.log('[Global TTS] Fixed localhost URL:', apiBaseUrl, '→', fixedUrl);
-      return fixedUrl;
+      const protocol = window.location.protocol;
+      const port = window.location.port;
+      
+      // Check if we're using a reverse proxy (no port in URL or standard ports)
+      const isReverseProxy = !port || port === '80' || port === '443';
+      
+      if (isReverseProxy) {
+        // For reverse proxy: use same domain without port
+        return `${protocol}//${hostname}`;
+      }
+      
+      // For direct access with non-standard port: use explicit backend port
+      return `${protocol}//${hostname}:9876`;
     }
+    
+    // Server-side fallback
     return apiBaseUrl;
   }, [apiBaseUrl]);
   
