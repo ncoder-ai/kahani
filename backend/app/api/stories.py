@@ -902,7 +902,7 @@ async def generate_scene_streaming_endpoint(
                 scene, variant = variant_service.create_scene_with_variant(
                     story_id=story_id,
                     sequence_number=next_sequence,
-                    content=full_content.strip(),
+                    content=full_content.rstrip(),
                     title=f"Scene {next_sequence}",
                     custom_prompt=effective_custom_prompt if effective_custom_prompt else None,
                     choices=[],  # We'll add choices later
