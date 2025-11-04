@@ -1078,6 +1078,26 @@ class UnifiedLLMService:
             else:
                 # After marker, buffer for choice parsing - DO NOT YIELD
                 choices_buffer.append(cleaned_chunk)
+                
+                # Try to parse choices incrementally - yield as soon as we have valid choices
+                if choices_buffer:
+                    choices_text = ''.join(choices_buffer).strip()
+                    # Try parsing - if successful, yield immediately
+                    parsed_choices = self._parse_choices_from_json(choices_text)
+                    if parsed_choices and len(parsed_choices) >= 2:
+                        # Successfully parsed! Yield immediately with scene_complete=True
+                        # Log complete raw LLM response (scene + choices)
+                        logger.info("=" * 80)
+                        logger.info("COMPLETE RAW LLM RESPONSE (Scene + Choices)")
+                        logger.info("=" * 80)
+                        logger.info(full_raw_response)
+                        logger.info("=" * 80)
+                        logger.info(f"Marker found: {found_marker}, Parsed choices: {len(parsed_choices)}")
+                        logger.info("=" * 80)
+                        
+                        # Yield completion with parsed choices immediately
+                        yield ("", True, parsed_choices)
+                        return  # Exit early - we have what we need
         
         # After stream ends, yield any remaining rolling buffer content (if marker wasn't found)
         if not found_marker and rolling_buffer:
@@ -1088,7 +1108,7 @@ class UnifiedLLMService:
                 yield (remaining, False, None)
                 total_yielded += remaining
         
-        # Parse choices from buffer
+        # If we haven't parsed choices yet, try parsing from buffer now
         parsed_choices = None
         if found_marker and choices_buffer:
             choices_text = ''.join(choices_buffer).strip()
@@ -1103,7 +1123,7 @@ class UnifiedLLMService:
         logger.info(f"Marker found: {found_marker}, Parsed choices: {len(parsed_choices) if parsed_choices else 0}")
         logger.info("=" * 80)
         
-        # Yield final completion with parsed choices
+        # Yield final completion with parsed choices (if we haven't already)
         yield ("", True, parsed_choices)
     
     async def generate_variant_with_choices_streaming(
