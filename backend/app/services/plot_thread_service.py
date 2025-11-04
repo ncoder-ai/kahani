@@ -7,8 +7,9 @@ for maintaining narrative coherence across long stories.
 
 import logging
 import re
+import json
 import hashlib
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from sqlalchemy.orm import Session
 from datetime import datetime
 
@@ -18,6 +19,27 @@ from ..models import PlotEvent, Scene, EventType
 from ..config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def clean_llm_json(json_str: str) -> str:
+    """
+    Clean common JSON errors from LLM responses.
+    """
+    # Fix unquoted values in key-value pairs
+    json_str = re.sub(
+        r':\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*([,}\]])',
+        r': "\1"\2',
+        json_str
+    )
+    
+    # Remove trailing commas before closing brackets
+    json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
+    
+    # Remove comments
+    json_str = re.sub(r'//.*?$', '', json_str, flags=re.MULTILINE)
+    json_str = re.sub(r'/\*.*?\*/', '', json_str, flags=re.DOTALL)
+    
+    return json_str
 
 
 class PlotThreadService:
@@ -40,6 +62,344 @@ class PlotThreadService:
             self.semantic_memory = None
         
         self.llm_service = UnifiedLLMService()
+    
+    async def extract_plot_events_from_scenes_batch(
+        self,
+        scenes: List[Tuple[int, int, Optional[int], str]],  # List of (scene_id, sequence_number, chapter_id, scene_content)
+        story_id: int,
+        user_id: int,
+        user_settings: Dict[str, Any],
+        db: Session
+    ) -> Dict[int, List[PlotEvent]]:
+        """
+        Batch extract plot events from multiple scenes in a single LLM call.
+        
+        Args:
+            scenes: List of (scene_id, sequence_number, chapter_id, scene_content) tuples
+            story_id: Story ID
+            user_id: User ID for LLM calls
+            user_settings: User settings for LLM
+            db: Database session
+            
+        Returns:
+            Dictionary mapping scene_id to list of created PlotEvent objects
+        """
+        if not self.semantic_memory:
+            logger.warning("Semantic memory not available, skipping batch event extraction")
+            return {}
+        
+        if not scenes:
+            return {}
+        
+        try:
+            # Check if plot events already exist for any scene (avoid duplicates)
+            scene_ids = [scene_id for scene_id, _, _, _ in scenes]
+            existing_events = db.query(PlotEvent).filter(
+                PlotEvent.scene_id.in_(scene_ids)
+            ).all()
+            
+            if existing_events:
+                existing_scene_ids = set(e.scene_id for e in existing_events)
+                logger.info(f"Plot events already exist for {len(existing_scene_ids)} scenes, skipping extraction to avoid duplicates")
+                # Return existing events grouped by scene_id
+                scene_event_map = {}
+                for event in existing_events:
+                    if event.scene_id not in scene_event_map:
+                        scene_event_map[event.scene_id] = []
+                    scene_event_map[event.scene_id].append(event)
+                return scene_event_map
+            
+            # Concatenate scenes with clear markers
+            scenes_text = []
+            for scene_id, sequence_number, chapter_id, scene_content in scenes:
+                scenes_text.append(f"=== SCENE {sequence_number} (ID: {scene_id}) ===\n{scene_content}\n")
+            
+            batch_content = "\n".join(scenes_text)
+            
+            # Get context about existing threads
+            existing_threads = await self.get_unresolved_threads(story_id, db)
+            thread_context = ""
+            if existing_threads:
+                thread_list = [f"- {t['description']}" for t in existing_threads[:5]]
+                thread_context = f"\n\nActive plot threads to consider:\n{chr(10).join(thread_list)}"
+            
+            # Extract events from all scenes at once
+            events_data = await self._llm_extract_events_batch(
+                batch_content,
+                story_id,
+                user_id,
+                user_settings,
+                db
+            )
+            
+            if not events_data:
+                logger.warning(f"No plot events extracted from batch of {len(scenes)} scenes")
+                return {}
+            
+            # Post-process: Map events to scenes using text verification
+            from ..utils.scene_verification import map_events_to_scenes
+            scenes_for_verification = [(scene_id, scene_content) for scene_id, _, _, scene_content in scenes]
+            scene_event_map = map_events_to_scenes(events_data, scenes_for_verification)
+            
+            # Create PlotEvent entries for each scene
+            all_created_events = {}
+            
+            for scene_id, sequence_number, chapter_id, scene_content in scenes:
+                events_for_scene = scene_event_map.get(scene_id, [])
+                created_events = []
+                
+                for event_data in events_for_scene:
+                    event_type = event_data.get('event_type', 'complication')
+                    description = event_data.get('description', '')
+                    importance = event_data.get('importance', 50)
+                    confidence = event_data.get('confidence', 70)
+                    involved_chars = event_data.get('involved_characters', [])
+                    
+                    # Skip low-confidence or low-importance extractions
+                    if confidence < settings.extraction_confidence_threshold or importance < 30:
+                        logger.info(f"Skipping low-confidence/importance event (conf: {confidence}, imp: {importance})")
+                        continue
+                    
+                    # Generate thread ID based on event description
+                    thread_id = self._generate_thread_id(description, event_type)
+                    
+                    # Generate unique event ID
+                    event_id = f"{story_id}_{scene_id}_{thread_id}_{len(created_events)}"
+                    
+                    # Check if embedding_id already exists
+                    potential_embedding_id = f"plot_{event_id}"
+                    existing_embedding = db.query(PlotEvent).filter(
+                        PlotEvent.embedding_id == potential_embedding_id
+                    ).first()
+                    
+                    if existing_embedding:
+                        logger.debug(f"Plot event with embedding_id {potential_embedding_id} already exists, skipping")
+                        continue
+                    
+                    # Create embedding
+                    embedding_id = await self.semantic_memory.add_plot_event(
+                        event_id=event_id,
+                        story_id=story_id,
+                        scene_id=scene_id,
+                        event_type=event_type,
+                        description=description,
+                        metadata={
+                            'sequence': sequence_number,
+                            'is_resolved': False,
+                            'involved_characters': involved_chars,
+                            'timestamp': datetime.utcnow().isoformat()
+                        }
+                    )
+                    
+                    # Double-check embedding_id doesn't exist (race condition protection)
+                    final_check = db.query(PlotEvent).filter(
+                        PlotEvent.embedding_id == embedding_id
+                    ).first()
+                    
+                    if final_check:
+                        logger.debug(f"Plot event with embedding_id {embedding_id} was created concurrently, skipping")
+                        continue
+                    
+                    # Create database record
+                    plot_event = PlotEvent(
+                        story_id=story_id,
+                        scene_id=scene_id,
+                        event_type=EventType(event_type),
+                        description=description,
+                        embedding_id=embedding_id,
+                        thread_id=thread_id,
+                        is_resolved=False,
+                        sequence_order=sequence_number,
+                        chapter_id=chapter_id,
+                        involved_characters=involved_chars,
+                        extracted_automatically=True,
+                        confidence_score=confidence,
+                        importance_score=importance
+                    )
+                    
+                    db.add(plot_event)
+                    created_events.append(plot_event)
+                
+                if created_events:
+                    all_created_events[scene_id] = created_events
+            
+            try:
+                db.commit()
+                total_events = sum(len(events) for events in all_created_events.values())
+                logger.info(f"Batch extracted {total_events} plot events from {len(scenes)} scenes")
+            except Exception as commit_error:
+                from sqlalchemy.exc import IntegrityError
+                if isinstance(commit_error, IntegrityError) or "UNIQUE constraint failed: plot_events.embedding_id" in str(commit_error):
+                    logger.warning(f"Duplicate plot event detected during batch commit, rolling back")
+                    db.rollback()
+                    # Return empty - will be handled by per-scene fallback
+                    return {}
+                else:
+                    raise
+            
+            return all_created_events
+            
+        except Exception as e:
+            from sqlalchemy.exc import IntegrityError
+            if isinstance(e, IntegrityError) or "UNIQUE constraint failed: plot_events.embedding_id" in str(e):
+                logger.warning(f"Duplicate plot event detected in batch extraction, returning empty")
+                db.rollback()
+                return {}
+            else:
+                logger.error(f"Failed to batch extract plot events: {e}", exc_info=True)
+                db.rollback()
+                return {}
+    
+    async def _llm_extract_events_batch(
+        self,
+        batch_content: str,
+        story_id: int,
+        user_id: int,
+        user_settings: Dict[str, Any],
+        db: Session
+    ) -> List[Dict[str, Any]]:
+        """
+        Use LLM to extract plot events from multiple scenes in batch.
+        
+        Returns list of event dictionaries (not mapped to scenes).
+        """
+        try:
+            # Get context about existing threads
+            existing_threads = await self.get_unresolved_threads(story_id, db)
+            thread_context = ""
+            if existing_threads:
+                thread_list = [f"- {t['description']}" for t in existing_threads[:5]]
+                thread_context = f"\n\nActive plot threads to consider:\n{chr(10).join(thread_list)}"
+            
+            prompt = f"""Analyze the following scenes and extract significant plot events.{thread_context}
+
+{batch_content}
+
+For each significant plot event, identify:
+1. Event type: "introduction" (new element), "complication" (conflict/challenge), "revelation" (discovery/twist), or "resolution" (solving a thread)
+2. Description: Brief description of the event (1-2 sentences)
+3. Importance (0-100): How significant is this event for the overall plot?
+4. Confidence (0-100): How certain are you this is a significant plot event?
+5. Involved characters: Names of characters involved (array of strings, or empty array)
+
+Return ONLY valid JSON in this exact format:
+{{
+  "events": [
+    {{
+      "event_type": "complication",
+      "description": "Description of the event",
+      "importance": 85,
+      "confidence": 95,
+      "involved_characters": ["Character1", "Character2"]
+    }}
+  ]
+}}
+
+If no events found, return {{"events": []}}. Return ONLY the JSON, no other text."""
+            
+            system_prompt = "You are an expert story analyst skilled at identifying plot events, narrative threads, and story structure."
+            
+            response = await self.llm_service.generate(
+                prompt=prompt,
+                user_id=user_id,
+                user_settings=user_settings,
+                system_prompt=system_prompt,
+                max_tokens=1500  # More tokens for batch
+            )
+            
+            logger.warning(f"RAW LLM RESPONSE - PLOT EVENTS BATCH:\n{response}")
+            
+            # Parse JSON response
+            events = []
+            try:
+                # Clean response (remove markdown code blocks if present)
+                response_clean = response.strip()
+                if response_clean.startswith("```json"):
+                    response_clean = response_clean[7:]
+                if response_clean.startswith("```"):
+                    response_clean = response_clean[3:]
+                if response_clean.endswith("```"):
+                    response_clean = response_clean[:-3]
+                response_clean = response_clean.strip()
+                
+                # Clean common JSON errors from LLM
+                response_clean = clean_llm_json(response_clean)
+                
+                # Parse JSON
+                data = json.loads(response_clean)
+                
+                # Extract events array
+                events_list = data.get('events', [])
+                
+                # Validate and normalize events
+                for event in events_list:
+                    try:
+                        event_type = event.get('event_type', 'complication').strip().lower()
+                        description = event.get('description', '').strip()
+                        importance = event.get('importance', 50)
+                        confidence = event.get('confidence', 70)
+                        involved_chars = event.get('involved_characters', [])
+                        
+                        # Validate event_type
+                        if event_type not in ['introduction', 'complication', 'revelation', 'resolution']:
+                            logger.warning(f"Invalid event_type '{event_type}', defaulting to 'complication'")
+                            event_type = 'complication'
+                        
+                        # Validate importance and confidence
+                        try:
+                            importance = int(importance)
+                            importance = min(max(importance, 0), 100)
+                        except (ValueError, TypeError):
+                            importance = 50
+                        
+                        try:
+                            confidence = int(confidence)
+                            confidence = min(max(confidence, 0), 100)
+                        except (ValueError, TypeError):
+                            confidence = 70
+                        
+                        # Normalize involved_characters (handle string or array)
+                        if isinstance(involved_chars, str):
+                            if involved_chars.lower() == 'none' or not involved_chars.strip():
+                                involved_chars = []
+                            else:
+                                involved_chars = [c.strip() for c in involved_chars.split(',') if c.strip()]
+                        elif not isinstance(involved_chars, list):
+                            involved_chars = []
+                        else:
+                            involved_chars = [str(c).strip() for c in involved_chars if c and str(c).strip()]
+                        
+                        if description:
+                            events.append({
+                                'event_type': event_type,
+                                'description': description,
+                                'importance': importance,
+                                'confidence': confidence,
+                                'involved_characters': involved_chars
+                            })
+                        else:
+                            logger.warning(f"Skipping event with missing description: {event}")
+                            
+                    except Exception as e:
+                        logger.warning(f"Failed to validate event: {event}, error: {e}")
+                        continue
+                        
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse LLM response as JSON: {e}")
+                logger.debug(f"Original response was: {response}")
+                logger.debug(f"Cleaned response was: {response_clean}")
+                return []
+            except Exception as e:
+                logger.error(f"Failed to parse events response: {e}")
+                return []
+            
+            logger.warning(f"PARSING RESULT: Extracted {len(events)} plot events from JSON")
+            
+            return events
+            
+        except Exception as e:
+            logger.error(f"Failed to extract plot events with LLM (batch): {e}")
+            return []
     
     async def extract_plot_events(
         self,
@@ -73,6 +433,15 @@ class PlotThreadService:
             return []
         
         try:
+            # Check if plot events already exist for this scene (avoid duplicates in batch processing)
+            existing_events = db.query(PlotEvent).filter(
+                PlotEvent.scene_id == scene_id
+            ).all()
+            
+            if existing_events:
+                logger.info(f"Plot events already exist for scene {scene_id}, skipping extraction to avoid duplicates")
+                return existing_events
+            
             # Extract events using LLM
             events_data = await self._llm_extract_events(
                 scene_content,
@@ -102,6 +471,16 @@ class PlotThreadService:
                 # Generate unique event ID
                 event_id = f"{story_id}_{scene_id}_{thread_id}_{len(created_events)}"
                 
+                # Check if embedding_id already exists (additional safety check)
+                potential_embedding_id = f"plot_{event_id}"
+                existing_embedding = db.query(PlotEvent).filter(
+                    PlotEvent.embedding_id == potential_embedding_id
+                ).first()
+                
+                if existing_embedding:
+                    logger.debug(f"Plot event with embedding_id {potential_embedding_id} already exists, skipping")
+                    continue
+                
                 # Create embedding
                 embedding_id = await self.semantic_memory.add_plot_event(
                     event_id=event_id,
@@ -116,6 +495,15 @@ class PlotThreadService:
                         'timestamp': datetime.utcnow().isoformat()
                     }
                 )
+                
+                # Double-check embedding_id doesn't exist (race condition protection)
+                final_check = db.query(PlotEvent).filter(
+                    PlotEvent.embedding_id == embedding_id
+                ).first()
+                
+                if final_check:
+                    logger.debug(f"Plot event with embedding_id {embedding_id} was created concurrently, skipping")
+                    continue
                 
                 # Create database record
                 plot_event = PlotEvent(
@@ -137,15 +525,44 @@ class PlotThreadService:
                 db.add(plot_event)
                 created_events.append(plot_event)
             
-            db.commit()
-            logger.info(f"Extracted {len(created_events)} plot events from scene {scene_id}")
+            try:
+                db.commit()
+                logger.info(f"Extracted {len(created_events)} plot events from scene {scene_id}")
+            except Exception as commit_error:
+                # Handle race condition where embedding_id was inserted concurrently
+                from sqlalchemy.exc import IntegrityError
+                if isinstance(commit_error, IntegrityError) or "UNIQUE constraint failed: plot_events.embedding_id" in str(commit_error):
+                    logger.warning(f"Duplicate plot event detected during commit for scene {scene_id}, rolling back and returning existing events")
+                    db.rollback()
+                    # Return existing events instead
+                    existing_events = db.query(PlotEvent).filter(
+                        PlotEvent.scene_id == scene_id
+                    ).all()
+                    return existing_events
+                else:
+                    raise
             
             return created_events
             
         except Exception as e:
-            logger.error(f"Failed to extract plot events: {e}", exc_info=True)
-            db.rollback()
-            return []
+            # Check if it's a duplicate key error
+            from sqlalchemy.exc import IntegrityError
+            if isinstance(e, IntegrityError) or "UNIQUE constraint failed: plot_events.embedding_id" in str(e):
+                logger.warning(f"Duplicate plot event detected for scene {scene_id}, returning existing events")
+                db.rollback()
+                # Return existing events instead
+                try:
+                    existing_events = db.query(PlotEvent).filter(
+                        PlotEvent.scene_id == scene_id
+                    ).all()
+                    return existing_events
+                except Exception as query_error:
+                    logger.error(f"Failed to query existing events: {query_error}")
+                    return []
+            else:
+                logger.error(f"Failed to extract plot events: {e}", exc_info=True)
+                db.rollback()
+                return []
     
     async def _llm_extract_events(
         self,
@@ -186,13 +603,22 @@ For each significant plot event, identify:
 2. Description: Brief description of the event (1-2 sentences)
 3. Importance (0-100): How significant is this event for the overall plot?
 4. Confidence (0-100): How certain are you this is a significant plot event?
-5. Involved characters: Names of characters involved (comma-separated, or "none")
+5. Involved characters: Names of characters involved (array of strings, or empty array)
 
-Format your response as a list, one event per line:
-EVENT_TYPE | DESCRIPTION | IMPORTANCE | CONFIDENCE | INVOLVED_CHARACTERS
+Return ONLY valid JSON in this exact format:
+{{
+  "events": [
+    {{
+      "event_type": "complication",
+      "description": "Description of the event",
+      "importance": 85,
+      "confidence": 95,
+      "involved_characters": ["Character1", "Character2"]
+    }}
+  ]
+}}
 
-Only include events that significantly advance or impact the plot. Skip minor actions or conversations.
-"""
+If no events found, return {{"events": []}}. Return ONLY the JSON, no other text."""
             
             system_prompt = "You are an expert story analyst skilled at identifying plot events, narrative threads, and story structure."
             
@@ -204,45 +630,93 @@ Only include events that significantly advance or impact the plot. Skip minor ac
                 max_tokens=500
             )
             
-            # Parse response
-            events = []
-            lines = response.strip().split('\n')
+            logger.warning(f"RAW LLM RESPONSE - PLOT EVENTS:\n{response}")
             
-            for line in lines:
-                line = line.strip()
-                if not line or '|' not in line:
-                    continue
+            # Parse JSON response
+            events = []
+            try:
+                # Clean response (remove markdown code blocks if present)
+                response_clean = response.strip()
+                if response_clean.startswith("```json"):
+                    response_clean = response_clean[7:]
+                if response_clean.startswith("```"):
+                    response_clean = response_clean[3:]
+                if response_clean.endswith("```"):
+                    response_clean = response_clean[:-3]
+                response_clean = response_clean.strip()
                 
-                parts = [p.strip() for p in line.split('|')]
-                if len(parts) < 5:
-                    continue
+                # Clean common JSON errors from LLM
+                response_clean = clean_llm_json(response_clean)
                 
-                try:
-                    event_type = parts[0].lower()
-                    description = parts[1]
-                    importance = int(re.sub(r'[^\d]', '', parts[2]) or '50')
-                    confidence = int(re.sub(r'[^\d]', '', parts[3]) or '70')
-                    involved_chars_str = parts[4].lower()
-                    
-                    # Validate event_type
-                    if event_type not in ['introduction', 'complication', 'revelation', 'resolution']:
-                        event_type = 'complication'
-                    
-                    # Parse involved characters
-                    involved_chars = []
-                    if involved_chars_str and involved_chars_str != 'none':
-                        involved_chars = [c.strip() for c in involved_chars_str.split(',') if c.strip()]
-                    
-                    events.append({
-                        'event_type': event_type,
-                        'description': description,
-                        'importance': min(max(importance, 0), 100),
-                        'confidence': min(max(confidence, 0), 100),
-                        'involved_characters': involved_chars
-                    })
-                except (ValueError, IndexError) as e:
-                    logger.warning(f"Failed to parse event line: {line} - {e}")
-                    continue
+                # Parse JSON
+                data = json.loads(response_clean)
+                
+                # Extract events array
+                events_list = data.get('events', [])
+                
+                # Validate and normalize events
+                for event in events_list:
+                    try:
+                        event_type = event.get('event_type', 'complication').strip().lower()
+                        description = event.get('description', '').strip()
+                        importance = event.get('importance', 50)
+                        confidence = event.get('confidence', 70)
+                        involved_chars = event.get('involved_characters', [])
+                        
+                        # Validate event_type
+                        if event_type not in ['introduction', 'complication', 'revelation', 'resolution']:
+                            logger.warning(f"Invalid event_type '{event_type}', defaulting to 'complication'")
+                            event_type = 'complication'
+                        
+                        # Validate importance and confidence
+                        try:
+                            importance = int(importance)
+                            importance = min(max(importance, 0), 100)
+                        except (ValueError, TypeError):
+                            importance = 50
+                        
+                        try:
+                            confidence = int(confidence)
+                            confidence = min(max(confidence, 0), 100)
+                        except (ValueError, TypeError):
+                            confidence = 70
+                        
+                        # Normalize involved_characters (handle string or array)
+                        if isinstance(involved_chars, str):
+                            if involved_chars.lower() == 'none' or not involved_chars.strip():
+                                involved_chars = []
+                            else:
+                                involved_chars = [c.strip() for c in involved_chars.split(',') if c.strip()]
+                        elif not isinstance(involved_chars, list):
+                            involved_chars = []
+                        else:
+                            involved_chars = [str(c).strip() for c in involved_chars if c and str(c).strip()]
+                        
+                        if description:
+                            events.append({
+                                'event_type': event_type,
+                                'description': description,
+                                'importance': importance,
+                                'confidence': confidence,
+                                'involved_characters': involved_chars
+                            })
+                        else:
+                            logger.warning(f"Skipping event with missing description: {event}")
+                            
+                    except Exception as e:
+                        logger.warning(f"Failed to validate event: {event}, error: {e}")
+                        continue
+                        
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse LLM response as JSON: {e}")
+                logger.debug(f"Original response was: {response}")
+                logger.debug(f"Cleaned response was: {response_clean}")
+                return []
+            except Exception as e:
+                logger.error(f"Failed to parse events response: {e}")
+                return []
+            
+            logger.warning(f"PARSING RESULT: Extracted {len(events)} plot events from JSON")
             
             return events
             
@@ -446,12 +920,15 @@ Only include events that significantly advance or impact the plot. Skip minor ac
                 PlotEvent.scene_id == scene_id
             ).all()
             
-            # Delete from vector database (handled in semantic_memory service)
+            # Delete from vector database (ChromaDB)
             if self.semantic_memory:
                 for event in events:
                     try:
-                        # Note: Implement delete in semantic_memory if needed
-                        pass
+                        # Delete embedding from ChromaDB using embedding_id
+                        self.semantic_memory.plot_events_collection.delete(
+                            ids=[event.embedding_id]
+                        )
+                        logger.debug(f"Deleted plot event embedding {event.embedding_id} from ChromaDB")
                     except Exception as e:
                         logger.warning(f"Failed to delete embedding {event.embedding_id}: {e}")
             
@@ -461,7 +938,7 @@ Only include events that significantly advance or impact the plot. Skip minor ac
             ).delete()
             
             db.commit()
-            logger.info(f"Deleted plot events for scene {scene_id}")
+            logger.info(f"Deleted {len(events)} plot events for scene {scene_id}")
             
         except Exception as e:
             logger.error(f"Failed to delete plot events: {e}")

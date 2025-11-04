@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     context_summary_threshold: int = 5  # Summarize when story has more than this many scenes
     context_summary_threshold_tokens: int = 10000  # Summarize when total tokens exceed this threshold
     context_token_buffer: float = 0.9  # Use 90% of max tokens as safety margin
+    DEFAULT_CHARACTER_EXTRACTION_THRESHOLD: int = 5  # Default threshold for character/NPC extraction (scenes since last extraction)
     
     # Semantic Memory Configuration
     enable_semantic_memory: bool = True  # Enable semantic search and vector embeddings
@@ -46,6 +47,12 @@ class Settings(BaseSettings):
     auto_extract_character_moments: bool = True  # Automatically extract character moments
     auto_extract_plot_events: bool = True  # Automatically extract plot events
     extraction_confidence_threshold: int = 70  # Minimum confidence (0-100) for auto-extraction
+    
+    # NPC Tracking Configuration
+    npc_tracking_enabled: bool = True  # Enable automatic NPC tracking from scenes
+    npc_importance_threshold: float = 1.0  # Importance score threshold for including NPCs in context
+    npc_auto_extract_profile: bool = True  # Automatically extract full character profile when threshold crossed
+    npc_prompt_user: bool = False  # Prompt user to add NPCs as explicit characters (can enable later)
     
     # CORS - Will be auto-configured based on deployment environment
     cors_origins: str = "*"  # Default, will be overridden by network config

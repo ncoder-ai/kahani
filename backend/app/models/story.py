@@ -71,5 +71,9 @@ class Story(Base):
     location_states = relationship("LocationState", back_populates="story", cascade="all, delete-orphan")
     object_states = relationship("ObjectState", back_populates="story", cascade="all, delete-orphan")
     
+    # NPC Tracking Relationships
+    npc_mentions = relationship("NPCMention", back_populates="story", cascade="all, delete-orphan")
+    npc_tracking = relationship("NPCTracking", back_populates="story", cascade="all, delete-orphan")
+    
     def __repr__(self):
         return f"<Story(id={self.id}, title='{self.title}', owner_id={self.owner_id})>"
