@@ -1097,7 +1097,7 @@ class UnifiedLLMService:
                         
                         # Yield completion with parsed choices immediately
                         yield ("", True, parsed_choices)
-                        return  # Exit early - we have what we need
+                        return  # Exit async generator early - we have what we need
         
         # After stream ends, yield any remaining rolling buffer content (if marker wasn't found)
         if not found_marker and rolling_buffer:
