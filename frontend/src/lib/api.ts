@@ -245,7 +245,8 @@ class ApiClient {
     onChunk?: (chunk: string) => void,
     onComplete?: (sceneId: number, choices: any[], autoPlay?: { enabled: boolean; session_id: string; scene_id: number }) => void,
     onError?: (error: string) => void,
-    onAutoPlayReady?: (sessionId: string, sceneId: number) => void
+    onAutoPlayReady?: (sessionId: string, sceneId: number) => void,
+    onExtractionStatus?: (status: 'extracting' | 'complete' | 'error', message: string) => void
   ) {
     let fullStreamedContent = '';  // Track all streamed content for verification
     const formData = new FormData();
@@ -292,6 +293,9 @@ class ApiClient {
                   onComplete(parsed.scene_id, parsed.choices, parsed.auto_play);
                 }
                 else if (parsed.type === 'error' && onError) onError(parsed.message);
+                else if (parsed.type === 'extraction_status' && onExtractionStatus) {
+                  onExtractionStatus(parsed.status, parsed.message);
+                }
               } catch {}
             }
           }

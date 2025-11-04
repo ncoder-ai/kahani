@@ -975,7 +975,7 @@ class UnifiedLLMService:
         """Generate alternative versions of a scene with streaming"""
         
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-            "summary_generation", "scene_variants_streaming",
+            "scene_variants_streaming", "scene_variants_streaming",
             original_scene=original_scene,
             context=self._format_context_for_scene(context)
         )
@@ -1134,11 +1134,6 @@ class UnifiedLLMService:
         choices_buffer = []
         found_marker = False
         rolling_buffer = ""  # Buffer to detect marker across chunks
-        raw_response_buffer = []  # Buffer to accumulate raw LLM response
-        
-        print("\n" + "=" * 80)
-        print("RAW LLM RESPONSE - SCENE GENERATION STREAMING")
-        print("=" * 80)
         
         async for chunk in self._generate_stream(
             prompt=user_prompt,
@@ -1147,9 +1142,6 @@ class UnifiedLLMService:
             system_prompt=system_prompt,
             max_tokens=max_tokens
         ):
-            # Log raw chunk exactly as received from LLM (before any processing)
-            raw_response_buffer.append(chunk)
-            print(f"RAW CHUNK: {repr(chunk)}")
             
             cleaned_chunk = self._clean_scene_numbers_chunk(chunk)
             if not cleaned_chunk:
@@ -1205,16 +1197,6 @@ class UnifiedLLMService:
             choices_text = ''.join(choices_buffer).strip()
             parsed_choices = self._parse_choices_from_json(choices_text)
         
-        # Log complete raw response from LLM
-        complete_raw_response = ''.join(raw_response_buffer)
-        print("\n" + "-" * 80)
-        print("COMPLETE RAW LLM RESPONSE (BEFORE ANY PROCESSING):")
-        print("-" * 80)
-        print(complete_raw_response)
-        print("-" * 80)
-        print(f"TOTAL LENGTH: {len(complete_raw_response)} characters")
-        print("=" * 80 + "\n")
-        
         # Yield final completion with parsed choices
         yield ("", True, parsed_choices)
     
@@ -1236,7 +1218,7 @@ class UnifiedLLMService:
         logger.info(f"Variant generation - context type: {type(context)}")
         
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-            "summary_generation", "scene_variants_streaming",
+            "scene_variants_streaming", "scene_variants_streaming",
             original_scene=original_scene,
             context=self._format_context_for_scene(context)
         )
@@ -2150,7 +2132,7 @@ class UnifiedLLMService:
             )
             db.add(flow_entry)
 
-    def delete_scenes_from_sequence(self, db: Session, story_id: int, sequence_number: int) -> bool:
+    async def delete_scenes_from_sequence(self, db: Session, story_id: int, sequence_number: int) -> bool:
         """Delete all scenes from a given sequence number onwards"""
         try:
             from ...models import StoryFlow, Scene
@@ -2166,6 +2148,19 @@ class UnifiedLLMService:
                 Scene.story_id == story_id,
                 Scene.sequence_number >= sequence_number
             ).all()
+            
+            # Clean up semantic data for each scene before deleting
+            from ...services.semantic_integration import cleanup_scene_embeddings
+            logger.info(f"[DELETE] Cleaning up semantic data for {len(scenes_to_delete)} scenes (sequence {sequence_number} onwards)")
+            for scene in scenes_to_delete:
+                try:
+                    logger.info(f"[DELETE] Cleaning up semantic data for scene {scene.id} (sequence {scene.sequence_number})")
+                    await cleanup_scene_embeddings(scene.id, db)
+                    logger.info(f"[DELETE] Successfully cleaned up scene {scene.id}")
+                except Exception as e:
+                    logger.warning(f"[DELETE] Failed to cleanup semantic data for scene {scene.id}: {e}")
+                    # Continue with deletion even if cleanup fails
+            logger.info(f"[DELETE] Completed cleanup for all {len(scenes_to_delete)} scenes")
             
             # Delete each scene individually to trigger cascade relationships
             scenes_deleted = 0

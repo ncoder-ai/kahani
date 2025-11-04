@@ -16,6 +16,7 @@ from .writing_style_preset import WritingStylePreset
 from .tts_settings import TTSSettings, SceneAudio
 from .semantic_memory import CharacterMemory, PlotEvent, SceneEmbedding, MomentType, EventType
 from .entity_state import CharacterState, LocationState, ObjectState
+from .npc_tracking import NPCMention, NPCTracking
 
 __all__ = [
     "Base",
@@ -28,5 +29,6 @@ __all__ = [
     "WritingStylePreset",
     "TTSSettings", "SceneAudio",
     "CharacterMemory", "PlotEvent", "SceneEmbedding", "MomentType", "EventType",
-    "CharacterState", "LocationState", "ObjectState"
+    "CharacterState", "LocationState", "ObjectState",
+    "NPCMention", "NPCTracking"
 ]

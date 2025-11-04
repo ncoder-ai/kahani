@@ -19,6 +19,7 @@ try:
     from ..services.semantic_integration import (
         get_context_manager_for_user,
         process_scene_embeddings,
+        batch_process_scene_extractions,
         get_semantic_stats
     )
     SEMANTIC_MEMORY_AVAILABLE = True
@@ -33,6 +34,9 @@ except Exception as e:
     
     async def process_scene_embeddings(*args, **kwargs):
         return {"scene_embedding_added": False, "character_moments_extracted": 0, "plot_events_extracted": 0}
+    
+    async def batch_process_scene_extractions(*args, **kwargs):
+        return {"scenes_processed": 0, "character_moments": 0, "plot_events": 0, "entity_states": 0, "npc_tracking": 0, "scene_embeddings": 0}
     
     def get_semantic_stats(*args, **kwargs):
         return {}
@@ -101,8 +105,8 @@ class SceneVariantServiceAdapter:
     def switch_to_variant(self, story_id: int, scene_id: int, variant_id: int):
         return llm_service.switch_to_variant(self.db, story_id, scene_id, variant_id)
     
-    def delete_scenes_from_sequence(self, story_id: int, sequence_number: int) -> bool:
-        return llm_service.delete_scenes_from_sequence(self.db, story_id, sequence_number)
+    async def delete_scenes_from_sequence(self, story_id: int, sequence_number: int) -> bool:
+        return await llm_service.delete_scenes_from_sequence(self.db, story_id, sequence_number)
 
 # Temporary adapter functions for old LLM function calls
 async def generate_scene_streaming(context, user_id, user_settings):
@@ -1022,6 +1026,42 @@ async def generate_scene_streaming_endpoint(
                 db.commit()
                 logger.info(f"[CHAPTER] Linked scene {scene.id} to chapter {active_chapter.id} ({active_chapter.scenes_count} scenes, {active_chapter.context_tokens_used} tokens)")
                 
+                # Log scene generation status after chapter update
+                try:
+                    # Get thresholds from user settings
+                    summary_threshold = user_settings.get('context_settings', {}).get('summary_threshold', 5) if user_settings else 5
+                    extraction_threshold = user_settings.get('context_settings', {}).get('character_extraction_threshold', 5) if user_settings else 5
+                    
+                    # Calculate scenes since last summary and extraction
+                    last_summary_count = active_chapter.last_summary_scene_count or 0
+                    scenes_since_summary = active_chapter.scenes_count - last_summary_count
+                    
+                    last_extraction_count = active_chapter.last_extraction_scene_count or 0
+                    scenes_since_extraction = active_chapter.scenes_count - last_extraction_count
+                    
+                    logger.warning(f"[SCENE GENERATION] Chapter {active_chapter.id} status after scene {next_sequence}:")
+                    logger.warning(f"  - Total scenes: {active_chapter.scenes_count}")
+                    logger.warning(f"  - Scenes since last summary: {scenes_since_summary} (threshold: {summary_threshold})")
+                    logger.warning(f"  - Scenes since last extraction: {scenes_since_extraction} (threshold: {extraction_threshold}, last_extraction_count: {last_extraction_count})")
+                    
+                    # Check NPC tracking status
+                    try:
+                        from ..models import NPCTracking
+                        npc_count = db.query(NPCTracking).filter(
+                            NPCTracking.story_id == story_id,
+                            NPCTracking.converted_to_character == False
+                        ).count()
+                        npc_threshold_crossed = db.query(NPCTracking).filter(
+                            NPCTracking.story_id == story_id,
+                            NPCTracking.crossed_threshold == True,
+                            NPCTracking.converted_to_character == False
+                        ).count()
+                        logger.warning(f"  - NPC tracking: {npc_count} total NPCs, {npc_threshold_crossed} crossed threshold")
+                    except Exception as npc_error:
+                        logger.debug(f"Could not get NPC stats: {npc_error}")
+                except Exception as log_error:
+                    logger.warning(f"Failed to log scene generation status: {log_error}")
+                
                 # Note: Auto-summary check will happen AFTER choices are sent (see below)
             except Exception as e:
                 logger.warning(f"[CHAPTER] Chapter integration failed for scene {scene.id}, but scene was created successfully: {e}")
@@ -1029,6 +1069,7 @@ async def generate_scene_streaming_endpoint(
                 db.rollback()  # Rollback any chapter changes
                 db.commit()    # But keep the scene
                 active_chapter = None  # Set to None so we don't try summary generation
+                logger.info(f"[SCENE GENERATION] Scene {next_sequence} created (no active chapter)")
             
             # PRIORITY: Send completion data with choices IMMEDIATELY (before any background tasks)
             complete_data = {
@@ -1048,10 +1089,10 @@ async def generate_scene_streaming_endpoint(
             yield f"data: {json.dumps(complete_data)}\n\n"
             yield "data: [DONE]\n\n"
             
-            # PRIORITY 3: Background tasks - run AFTER choices are sent to frontend
+            # PRIORITY 3: Run extractions synchronously AFTER scene and choices are sent to frontend
+            # Background task: Auto-summary generation (if needed) - keep this in background
             import asyncio
             
-            # Background task: Auto-summary generation (if needed)
             if active_chapter:
                 try:
                     summary_threshold = user_settings.get('context_settings', {}).get('summary_threshold', 5) if user_settings else 5
@@ -1088,24 +1129,73 @@ async def generate_scene_streaming_endpoint(
                     logger.error(f"[AUTO-SUMMARY] Failed to start background summary generation: {e}")
                     # Don't fail scene generation if summary fails
             
-            # Background task: Process semantic embeddings (fully in background, after user has choices)
-            try:
-                # Fire and forget - this happens after everything else
-                asyncio.create_task(process_scene_embeddings(
-                    scene_id=scene.id,
-                    variant_id=variant.id,
-                    story_id=story_id,
-                    scene_content=full_content.strip(),
-                    sequence_number=next_sequence,
-                    chapter_id=chapter_id,
-                    user_id=current_user.id,
-                    user_settings=user_settings or {},
-                    db=db
-                ))
-                logger.info(f"[SEMANTIC] Started background processing for scene {scene.id} (after user has choices)")
-            except Exception as e:
-                logger.error(f"[SEMANTIC] Failed to start background processing: {e}")
-                # Don't fail scene generation if semantic processing fails
+            # Run extractions synchronously - no background tasks
+            if active_chapter:
+                try:
+                    # Get extraction threshold from user settings
+                    extraction_threshold = user_settings.get('context_settings', {}).get(
+                        'character_extraction_threshold', 
+                        5  # Default threshold
+                    ) if user_settings else 5
+                    
+                    # Calculate scenes since last extraction
+                    last_extraction_count = active_chapter.last_extraction_scene_count or 0
+                    scenes_since_extraction = active_chapter.scenes_count - last_extraction_count
+                    
+                    logger.warning(f"[EXTRACTION] Scenes since last extraction: {scenes_since_extraction}/{extraction_threshold} for chapter {active_chapter.id}")
+                    
+                    if scenes_since_extraction >= extraction_threshold:
+                        logger.warning(f"[EXTRACTION] Threshold reached ({scenes_since_extraction}/{extraction_threshold}), starting batch extraction for chapter {active_chapter.id}")
+                        
+                        # Send extraction status to frontend
+                        yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'extracting', 'message': 'Extracting character and plot events...'})}\n\n"
+                        
+                        # Create a new DB session for extraction
+                        from ..database import SessionLocal
+                        extraction_db = SessionLocal()
+                        try:
+                            # Reload chapter to get latest state
+                            extraction_chapter = extraction_db.query(Chapter).filter(Chapter.id == active_chapter.id).first()
+                            if extraction_chapter:
+                                from_sequence = extraction_chapter.last_extraction_scene_count or 0
+                                to_sequence = extraction_chapter.scenes_count
+                                
+                                # Run batch extraction synchronously
+                                batch_results = await batch_process_scene_extractions(
+                                    story_id=story_id,
+                                    chapter_id=extraction_chapter.id,
+                                    from_sequence=from_sequence,
+                                    to_sequence=to_sequence,
+                                    user_id=current_user.id,
+                                    user_settings=user_settings or {},
+                                    db=extraction_db
+                                )
+                                
+                                # Update last extraction scene count
+                                extraction_chapter.last_extraction_scene_count = extraction_chapter.scenes_count
+                                extraction_db.commit()
+                                logger.warning(f"[EXTRACTION] Batch extraction complete for chapter {extraction_chapter.id}:")
+                                logger.warning(f"  - Scenes processed: {batch_results.get('scenes_processed', 0)}")
+                                logger.warning(f"  - Character moments extracted: {batch_results.get('character_moments', 0)}")
+                                logger.warning(f"  - Plot events extracted: {batch_results.get('plot_events', 0)}")
+                                logger.warning(f"  - Entity states updated: {batch_results.get('entity_states', 0)}")
+                                logger.warning(f"  - NPC tracking completed: {batch_results.get('npc_tracking', 0)}")
+                                logger.warning(f"  - Scene embeddings created: {batch_results.get('scene_embeddings', 0)}")
+                                
+                                # Send extraction complete status to frontend
+                                yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'complete', 'message': 'Extraction complete'})}\n\n"
+                        finally:
+                            extraction_db.close()
+                    else:
+                        # Threshold not reached - skip extraction
+                        logger.warning(f"[EXTRACTION] Threshold not reached ({scenes_since_extraction}/{extraction_threshold}), skipping extraction")
+                except Exception as e:
+                    logger.error(f"[EXTRACTION] Failed to process extraction: {e}")
+                    import traceback
+                    logger.error(f"[EXTRACTION] Traceback: {traceback.format_exc()}")
+                    # Send error status to frontend
+                    yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'error', 'message': 'Extraction failed'})}\n\n"
+                    # Don't fail scene generation if extraction fails
             
         except Exception as e:
             logger.error(f"Streaming generation failed: {e}")
@@ -2358,7 +2448,7 @@ async def delete_scenes_from_sequence(
         )
     
     service = SceneVariantService(db)
-    success = service.delete_scenes_from_sequence(story_id, sequence_number)
+    success = await service.delete_scenes_from_sequence(story_id, sequence_number)
     
     if not success:
         raise HTTPException(
