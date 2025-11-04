@@ -77,7 +77,7 @@ class Settings(BaseSettings):
     enable_public_stories: bool = False
     
     # Logging
-    log_level: str = "DEBUG"  # Changed to DEBUG to see semantic operations
+    log_level: str = "WARNING"  # Set to WARNING to reduce logging noise (only warnings and errors)
     log_file: str = "./logs/kahani.log"
     
     # STT Configuration

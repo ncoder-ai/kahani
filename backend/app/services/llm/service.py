@@ -125,12 +125,14 @@ class UnifiedLLMService:
         
         # Check completion mode and branch accordingly
         completion_mode = client.completion_mode
+        logger.debug(f"User {user_id} generation mode: {completion_mode} (from client.completion_mode={client.completion_mode})")
         if completion_mode == "text":
+            logger.debug(f"Using text completion API for user {user_id}")
             return await self._generate_text_completion(
                 prompt, user_id, user_settings, system_prompt, max_tokens, temperature
             )
         
-        logger.info(f"Using chat completion API for user {user_id}")
+        logger.debug(f"Using chat completion API for user {user_id}")
         
         # Check if NSFW filter should be injected
         from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
@@ -142,11 +144,13 @@ class UnifiedLLMService:
             # Inject NSFW filter if user doesn't have NSFW permissions
             if should_inject_nsfw_filter(user_allow_nsfw):
                 system_prompt = system_prompt.strip() + "\n\n" + get_nsfw_prevention_prompt()
+                logger.debug(f"NSFW filter injected for user {user_id}")
             
             messages.append({"role": "system", "content": system_prompt.strip()})
         elif should_inject_nsfw_filter(user_allow_nsfw):
             # No system prompt provided, but we need to inject NSFW filter
             messages.append({"role": "system", "content": get_nsfw_prevention_prompt()})
+            logger.debug(f"NSFW filter injected (no system prompt) for user {user_id}")
         
         # Ensure prompt is valid string
         if not prompt or not isinstance(prompt, str) or not prompt.strip():
@@ -158,12 +162,26 @@ class UnifiedLLMService:
         gen_params = client.get_generation_params(max_tokens, temperature)
         gen_params["messages"] = messages
         
+        # Log complete prompt being sent to LLM
+        system_prompt_log = next((msg["content"] for msg in messages if msg.get("role") == "system"), "")
+        user_prompt_log = next((msg["content"] for msg in messages if msg.get("role") == "user"), "")
+        logger.info("=" * 80)
+        logger.info("COMPLETE PROMPT BEING SENT TO LLM")
+        logger.info("=" * 80)
+        logger.info(f"SYSTEM PROMPT:\n{system_prompt_log}")
+        logger.info("-" * 80)
+        logger.info(f"USER PROMPT:\n{user_prompt_log}")
+        logger.info("-" * 80)
+        logger.info(f"GENERATION PARAMETERS: max_tokens={gen_params.get('max_tokens')}, temperature={gen_params.get('temperature')}, model={client.model_string}")
+        logger.info("=" * 80)
+        
         try:
+            logger.debug(f"Generating with {client.model_string} for user {user_id}")
             
             response = await acompletion(**gen_params)
             
             content = response.choices[0].message.content
-            logger.info(f"Generated {len(content)} characters for user {user_id}")
+            logger.debug(f"Generated {len(content)} characters for user {user_id}")
             
             return content
             
@@ -214,9 +232,11 @@ class UnifiedLLMService:
         if system_prompt and system_prompt.strip():
             if should_inject_nsfw_filter(user_allow_nsfw):
                 system_prompt = system_prompt.strip() + "\n\n" + get_nsfw_prevention_prompt()
+                logger.debug(f"NSFW filter injected for user {user_id}")
         elif should_inject_nsfw_filter(user_allow_nsfw):
             # No system prompt provided, but we need to inject NSFW filter
             system_prompt = get_nsfw_prevention_prompt()
+            logger.debug(f"NSFW filter injected (no system prompt) for user {user_id}")
         
         # Ensure prompt is valid string
         if not prompt or not isinstance(prompt, str) or not prompt.strip():
@@ -234,10 +254,24 @@ class UnifiedLLMService:
             user_prompt=prompt.strip()
         )
         
+        logger.debug(f"Rendered text completion prompt (length: {len(rendered_prompt)})")
         
         # Get generation parameters
         gen_params = client.get_text_completion_params(max_tokens, temperature)
         gen_params["prompt"] = rendered_prompt
+        
+        # Log complete prompt being sent to LLM
+        logger.info("=" * 80)
+        logger.info("COMPLETE PROMPT BEING SENT TO LLM (TEXT COMPLETION)")
+        logger.info("=" * 80)
+        logger.info(f"SYSTEM PROMPT:\n{system_prompt or '(none)'}")
+        logger.info("-" * 80)
+        logger.info(f"USER PROMPT:\n{prompt.strip()}")
+        logger.info("-" * 80)
+        logger.info(f"RENDERED PROMPT (FULL):\n{rendered_prompt}")
+        logger.info("-" * 80)
+        logger.info(f"GENERATION PARAMETERS: max_tokens={gen_params.get('max_tokens')}, temperature={gen_params.get('temperature')}, model={client.model_string}")
+        logger.info("=" * 80)
         
         # For OpenAI-compatible providers (LM Studio, TabbyAPI, KoboldCpp), skip LiteLLM
         # and use direct HTTP to ensure correct /v1/completions endpoint is called
@@ -247,6 +281,8 @@ class UnifiedLLMService:
         
         # For other providers, try LiteLLM
         try:
+            logger.info(f"Text completion with {client.model_string} for user {user_id}")
+            logger.info(f"Calling text_completion with model={gen_params['model']}, prompt_length={len(gen_params['prompt'])}")
             
             # Use litellm.text_completion for text completion (synchronous, run in thread)
             from litellm import text_completion
@@ -452,14 +488,16 @@ class UnifiedLLMService:
         
         # Check completion mode and branch accordingly
         completion_mode = client.completion_mode
+        logger.debug(f"User {user_id} streaming generation mode: {completion_mode} (from client.completion_mode={client.completion_mode})")
         if completion_mode == "text":
+            logger.debug(f"Using text completion streaming API for user {user_id}")
             async for chunk in self._generate_text_completion_stream(
                 prompt, user_id, user_settings, system_prompt, max_tokens, temperature
             ):
                 yield chunk
             return
         
-        logger.info(f"Using chat completion streaming API for user {user_id}")
+        logger.debug(f"Using chat completion streaming API for user {user_id}")
         
         # Check if NSFW filter should be injected
         from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
@@ -470,12 +508,13 @@ class UnifiedLLMService:
             # Inject NSFW filter if user doesn't have NSFW permissions
             if should_inject_nsfw_filter(user_allow_nsfw):
                 system_prompt = system_prompt.strip() + "\n\n" + get_nsfw_prevention_prompt()
-                logger.info(f"NSFW filter injected for streaming user {user_id}")
+                logger.debug(f"NSFW filter injected for streaming user {user_id}")
             
             messages.append({"role": "system", "content": system_prompt.strip()})
         elif should_inject_nsfw_filter(user_allow_nsfw):
             # No system prompt provided, but we need to inject NSFW filter
             messages.append({"role": "system", "content": get_nsfw_prevention_prompt()})
+            logger.debug(f"NSFW filter injected (no system prompt) for streaming user {user_id}")
         
         # Ensure prompt is valid string
         if not prompt or not isinstance(prompt, str) or not prompt.strip():
@@ -487,7 +526,45 @@ class UnifiedLLMService:
         gen_params = client.get_streaming_params(max_tokens, temperature)
         gen_params["messages"] = messages
         
+        # Log complete prompt being sent to LLM
+        system_prompt_log = next((msg["content"] for msg in messages if msg.get("role") == "system"), "")
+        user_prompt_log = next((msg["content"] for msg in messages if msg.get("role") == "user"), "")
+        logger.info("=" * 80)
+        logger.info("COMPLETE PROMPT BEING SENT TO LLM (STREAMING)")
+        logger.info("=" * 80)
+        logger.info(f"SYSTEM PROMPT:\n{system_prompt_log}")
+        logger.info("-" * 80)
+        logger.info(f"USER PROMPT:\n{user_prompt_log}")
+        logger.info("-" * 80)
+        logger.info(f"GENERATION PARAMETERS: max_tokens={gen_params.get('max_tokens')}, temperature={gen_params.get('temperature')}, model={client.model_string}")
+        logger.info("=" * 80)
+        
+        # Write prompt to file for streaming generation (always write to ensure we capture scene generation)
         try:
+            import os
+            prompt_file_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "prompt_sent.txt")
+            with open(prompt_file_path, "w", encoding="utf-8") as f:
+                f.write("=" * 80 + "\n")
+                f.write("STREAMING SCENE GENERATION PROMPT (EXACTLY AS SENT TO LLM)\n")
+                f.write("=" * 80 + "\n")
+                f.write(f"SYSTEM PROMPT:\n{system_prompt_log}\n")
+                f.write("-" * 80 + "\n")
+                f.write(f"USER PROMPT:\n{user_prompt_log}\n")
+                f.write("-" * 80 + "\n")
+                f.write(f"GENERATION PARAMETERS:\n")
+                f.write(f"  max_tokens: {gen_params.get('max_tokens')}\n")
+                f.write(f"  temperature: {gen_params.get('temperature')}\n")
+                f.write(f"  model: {client.model_string}\n")
+                f.write("-" * 80 + "\n")
+                f.write("FULL MESSAGES ARRAY (JSON):\n")
+                f.write(json.dumps(gen_params["messages"], indent=2, ensure_ascii=False))
+                f.write("\n")
+                f.write("=" * 80 + "\n")
+        except Exception as e:
+            logger.debug(f"Failed to write prompt to file: {e}")
+        
+        try:
+            logger.debug(f"Streaming generation with {client.model_string} for user {user_id}")
             
             response = await acompletion(**gen_params)
             
@@ -521,10 +598,11 @@ class UnifiedLLMService:
         if system_prompt and system_prompt.strip():
             if should_inject_nsfw_filter(user_allow_nsfw):
                 system_prompt = system_prompt.strip() + "\n\n" + get_nsfw_prevention_prompt()
-                logger.info(f"NSFW filter injected for streaming user {user_id}")
+                logger.debug(f"NSFW filter injected for streaming user {user_id}")
         elif should_inject_nsfw_filter(user_allow_nsfw):
             # No system prompt provided, but we need to inject NSFW filter
             system_prompt = get_nsfw_prevention_prompt()
+            logger.debug(f"NSFW filter injected (no system prompt) for streaming user {user_id}")
         
         # Ensure prompt is valid string
         if not prompt or not isinstance(prompt, str) or not prompt.strip():
@@ -542,10 +620,47 @@ class UnifiedLLMService:
             user_prompt=prompt.strip()
         )
         
+        logger.debug(f"Rendered streaming text completion prompt (length: {len(rendered_prompt)})")
         
         # Get streaming parameters
         gen_params = client.get_text_completion_streaming_params(max_tokens, temperature)
         gen_params["prompt"] = rendered_prompt
+        
+        # Log complete prompt being sent to LLM
+        logger.info("=" * 80)
+        logger.info("COMPLETE PROMPT BEING SENT TO LLM (TEXT COMPLETION STREAMING)")
+        logger.info("=" * 80)
+        logger.info(f"SYSTEM PROMPT:\n{system_prompt or '(none)'}")
+        logger.info("-" * 80)
+        logger.info(f"USER PROMPT:\n{prompt.strip()}")
+        logger.info("-" * 80)
+        logger.info(f"RENDERED PROMPT (FULL):\n{rendered_prompt}")
+        logger.info("-" * 80)
+        logger.info(f"GENERATION PARAMETERS: max_tokens={gen_params.get('max_tokens')}, temperature={gen_params.get('temperature')}, model={client.model_string}")
+        logger.info("=" * 80)
+        
+        # Write prompt to file for text completion streaming generation
+        try:
+            import os
+            prompt_file_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "prompt_sent.txt")
+            with open(prompt_file_path, "w", encoding="utf-8") as f:
+                f.write("=" * 80 + "\n")
+                f.write("STREAMING SCENE GENERATION PROMPT (EXACTLY AS SENT TO LLM - TEXT COMPLETION)\n")
+                f.write("=" * 80 + "\n")
+                f.write(f"SYSTEM PROMPT:\n{system_prompt or '(none)'}\n")
+                f.write("-" * 80 + "\n")
+                f.write(f"USER PROMPT:\n{prompt.strip()}\n")
+                f.write("-" * 80 + "\n")
+                f.write(f"RENDERED PROMPT (FULL - EXACTLY AS SENT):\n{rendered_prompt}\n")
+                f.write("-" * 80 + "\n")
+                f.write(f"GENERATION PARAMETERS:\n")
+                f.write(f"  max_tokens: {gen_params.get('max_tokens')}\n")
+                f.write(f"  temperature: {gen_params.get('temperature')}\n")
+                f.write(f"  model: {client.model_string}\n")
+                f.write(f"  prompt (in gen_params): {gen_params.get('prompt', '')[:200]}...\n")
+                f.write("=" * 80 + "\n")
+        except Exception as e:
+            logger.debug(f"Failed to write prompt to file: {e}")
         
         # For OpenAI-compatible providers (LM Studio, TabbyAPI, KoboldCpp), skip LiteLLM
         # and use direct HTTP to ensure correct /v1/completions endpoint is called
@@ -557,6 +672,8 @@ class UnifiedLLMService:
         
         # For other providers, try LiteLLM
         try:
+            logger.info(f"Streaming text completion with {client.model_string} for user {user_id}")
+            logger.info(f"Calling text_completion (streaming) with model={gen_params['model']}, prompt_length={len(gen_params['prompt'])}")
             
             # Use litellm.text_completion for text completion
             # text_completion returns a synchronous generator when stream=True
@@ -832,7 +949,7 @@ class UnifiedLLMService:
             cleaned_chunk = self._clean_scene_numbers_chunk(chunk)
             if cleaned_chunk:  # Only yield non-empty chunks
                 yield cleaned_chunk
-        
+    
     async def generate_scene_variants(self, original_scene: str, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> str:
         """Generate alternative versions of a scene"""
         
@@ -1017,8 +1134,11 @@ class UnifiedLLMService:
         choices_buffer = []
         found_marker = False
         rolling_buffer = ""  # Buffer to detect marker across chunks
-        full_raw_response = ""  # Track complete raw response for logging
-        total_yielded = ""  # Track exactly what we've yielded to frontend
+        raw_response_buffer = []  # Buffer to accumulate raw LLM response
+        
+        print("\n" + "=" * 80)
+        print("RAW LLM RESPONSE - SCENE GENERATION STREAMING")
+        print("=" * 80)
         
         async for chunk in self._generate_stream(
             prompt=user_prompt,
@@ -1027,8 +1147,9 @@ class UnifiedLLMService:
             system_prompt=system_prompt,
             max_tokens=max_tokens
         ):
-            # Track raw chunks before cleaning
-            full_raw_response += chunk
+            # Log raw chunk exactly as received from LLM (before any processing)
+            raw_response_buffer.append(chunk)
+            print(f"RAW CHUNK: {repr(chunk)}")
             
             cleaned_chunk = self._clean_scene_numbers_chunk(chunk)
             if not cleaned_chunk:
@@ -1042,19 +1163,14 @@ class UnifiedLLMService:
                 if CHOICES_MARKER in rolling_buffer:
                     # Split: before marker goes to scene, after to choices
                     parts = rolling_buffer.split(CHOICES_MARKER, 1)
-                    scene_part = parts[0]  # Everything before marker in current buffer
+                    scene_part = parts[0]  # Everything before marker - guaranteed to be new content
                     choices_part = parts[1] if len(parts) > 1 else ""
                     
-                    # scene_part is guaranteed to be content we haven't yielded yet
-                    # because rolling_buffer only contains unyielded content
-                    # (when we yield excess, we remove it from rolling_buffer)
-                    # So we need to yield scene_part to complete the scene
-                    # Always yield scene_part even if empty (it might just be whitespace)
-                    # The frontend has already received all excess chunks, so this completes the scene
-                    yield (scene_part, False, None)
-                    total_yielded += scene_part
+                    # scene_part is guaranteed to be new content (rolling_buffer only has unyielded content)
+                    # Yield ALL of it to preserve complete scene text before marker
+                    if scene_part:
+                        yield (scene_part, False, None)
                     
-                    # Store the complete scene part (just for tracking)
                     scene_buffer.append(scene_part)
                     
                     # Buffer the choices part - DO NOT YIELD
@@ -1073,57 +1189,33 @@ class UnifiedLLMService:
                         excess = rolling_buffer[:excess_length]
                         scene_buffer.append(excess)
                         yield (excess, False, None)
-                        total_yielded += excess  # Track what we yielded
                         rolling_buffer = rolling_buffer[excess_length:]
             else:
                 # After marker, buffer for choice parsing - DO NOT YIELD
                 choices_buffer.append(cleaned_chunk)
-                
-                # Try to parse choices incrementally - yield as soon as we have valid choices
-                if choices_buffer:
-                    choices_text = ''.join(choices_buffer).strip()
-                    # Try parsing - if successful, yield immediately
-                    parsed_choices = self._parse_choices_from_json(choices_text)
-                    if parsed_choices and len(parsed_choices) >= 2:
-                        # Successfully parsed! Yield immediately with scene_complete=True
-                        # Log complete raw LLM response (scene + choices)
-                        logger.info("=" * 80)
-                        logger.info("COMPLETE RAW LLM RESPONSE (Scene + Choices)")
-                        logger.info("=" * 80)
-                        logger.info(full_raw_response)
-                        logger.info("=" * 80)
-                        logger.info(f"Marker found: {found_marker}, Parsed choices: {len(parsed_choices)}")
-                        logger.info("=" * 80)
-                        
-                        # Yield completion with parsed choices immediately
-                        yield ("", True, parsed_choices)
-                        return  # Exit async generator early - we have what we need
         
-        # After stream ends, yield any remaining rolling buffer content (if marker wasn't found)
+        # After stream ends, yield any remaining rolling buffer content
         if not found_marker and rolling_buffer:
-            # Yield everything we haven't yielded yet
-            if len(rolling_buffer) > len(total_yielded):
-                remaining = rolling_buffer[len(total_yielded):]
-                scene_buffer.append(remaining)
-                yield (remaining, False, None)
-                total_yielded += remaining
+            scene_buffer.append(rolling_buffer)
+            yield (rolling_buffer, False, None)
         
-        # If we haven't parsed choices yet, try parsing from buffer now
+        # Parse choices from buffer
         parsed_choices = None
         if found_marker and choices_buffer:
             choices_text = ''.join(choices_buffer).strip()
             parsed_choices = self._parse_choices_from_json(choices_text)
         
-        # Log complete raw LLM response (scene + choices)
-        logger.info("=" * 80)
-        logger.info("COMPLETE RAW LLM RESPONSE (Scene + Choices)")
-        logger.info("=" * 80)
-        logger.info(full_raw_response)
-        logger.info("=" * 80)
-        logger.info(f"Marker found: {found_marker}, Parsed choices: {len(parsed_choices) if parsed_choices else 0}")
-        logger.info("=" * 80)
+        # Log complete raw response from LLM
+        complete_raw_response = ''.join(raw_response_buffer)
+        print("\n" + "-" * 80)
+        print("COMPLETE RAW LLM RESPONSE (BEFORE ANY PROCESSING):")
+        print("-" * 80)
+        print(complete_raw_response)
+        print("-" * 80)
+        print(f"TOTAL LENGTH: {len(complete_raw_response)} characters")
+        print("=" * 80 + "\n")
         
-        # Yield final completion with parsed choices (if we haven't already)
+        # Yield final completion with parsed choices
         yield ("", True, parsed_choices)
     
     async def generate_variant_with_choices_streaming(
@@ -1139,11 +1231,19 @@ class UnifiedLLMService:
         """
         CHOICES_MARKER = "###CHOICES###"
         
+        # Log inputs for debugging
+        logger.info(f"Variant generation - original_scene length: {len(original_scene) if original_scene else 0}")
+        logger.info(f"Variant generation - context type: {type(context)}")
+        
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "summary_generation", "scene_variants_streaming",
             original_scene=original_scene,
             context=self._format_context_for_scene(context)
         )
+        
+        # Log prompts for debugging
+        logger.info(f"Variant generation - system_prompt length: {len(system_prompt) if system_prompt else 0}")
+        logger.info(f"Variant generation - user_prompt length: {len(user_prompt) if user_prompt else 0}")
         
         if not user_prompt or not user_prompt.strip():
             logger.error(f"Empty user prompt generated for variant. Original scene: {original_scene[:100] if original_scene else 'None'}")
@@ -1155,8 +1255,6 @@ class UnifiedLLMService:
         choices_buffer = []
         found_marker = False
         rolling_buffer = ""  # Buffer to detect marker across chunks
-        full_raw_response = ""  # Track complete raw response for logging
-        total_yielded = ""  # Track exactly what we've yielded to frontend
         
         async for chunk in self._generate_stream(
             prompt=user_prompt,
@@ -1165,9 +1263,6 @@ class UnifiedLLMService:
             system_prompt=system_prompt,
             max_tokens=max_tokens
         ):
-            # Track raw chunks before cleaning
-            full_raw_response += chunk
-            
             cleaned_chunk = self._clean_scene_numbers_chunk(chunk)
             if not cleaned_chunk:
                 continue
@@ -1180,19 +1275,14 @@ class UnifiedLLMService:
                 if CHOICES_MARKER in rolling_buffer:
                     # Split: before marker goes to scene, after to choices
                     parts = rolling_buffer.split(CHOICES_MARKER, 1)
-                    scene_part = parts[0]  # Everything before marker in current buffer
+                    scene_part = parts[0]  # Everything before marker - guaranteed to be new content
                     choices_part = parts[1] if len(parts) > 1 else ""
                     
-                    # scene_part is guaranteed to be content we haven't yielded yet
-                    # because rolling_buffer only contains unyielded content
-                    # (when we yield excess, we remove it from rolling_buffer)
-                    # So we need to yield scene_part to complete the scene
-                    # Always yield scene_part even if empty (it might just be whitespace)
-                    # The frontend has already received all excess chunks, so this completes the scene
-                    yield (scene_part, False, None)
-                    total_yielded += scene_part
+                    # scene_part is guaranteed to be new content (rolling_buffer only has unyielded content)
+                    # Yield ALL of it to preserve complete scene text before marker
+                    if scene_part:
+                        yield (scene_part, False, None)
                     
-                    # Store the complete scene part (just for tracking)
                     scene_buffer.append(scene_part)
                     
                     # Buffer the choices part - DO NOT YIELD
@@ -1209,20 +1299,15 @@ class UnifiedLLMService:
                         excess = rolling_buffer[:excess_length]
                         scene_buffer.append(excess)
                         yield (excess, False, None)
-                        total_yielded += excess  # Track what we yielded
                         rolling_buffer = rolling_buffer[excess_length:]
             else:
                 # After marker, buffer for choice parsing - DO NOT YIELD
                 choices_buffer.append(cleaned_chunk)
         
-        # After stream ends, yield any remaining rolling buffer content (if marker wasn't found)
+        # After stream ends, yield any remaining rolling buffer content
         if not found_marker and rolling_buffer:
-            # Yield everything we haven't yielded yet
-            if len(rolling_buffer) > len(total_yielded):
-                remaining = rolling_buffer[len(total_yielded):]
-                scene_buffer.append(remaining)
-                yield (remaining, False, None)
-                total_yielded += remaining
+            scene_buffer.append(rolling_buffer)
+            yield (rolling_buffer, False, None)
         
         parsed_choices = None
         if found_marker and choices_buffer:
@@ -1268,8 +1353,6 @@ class UnifiedLLMService:
         choices_buffer = []
         found_marker = False
         rolling_buffer = ""  # Buffer to detect marker across chunks
-        full_raw_response = ""  # Track complete raw response for logging
-        total_yielded = ""  # Track exactly what we've yielded to frontend
         
         async for chunk in self._generate_stream(
             prompt=user_prompt,
@@ -1278,9 +1361,6 @@ class UnifiedLLMService:
             system_prompt=system_prompt,
             max_tokens=max_tokens
         ):
-            # Track raw chunks before cleaning
-            full_raw_response += chunk
-            
             cleaned_chunk = self._clean_scene_numbers_chunk(chunk)
             if not cleaned_chunk:
                 continue
@@ -1293,19 +1373,14 @@ class UnifiedLLMService:
                 if CHOICES_MARKER in rolling_buffer:
                     # Split: before marker goes to scene, after to choices
                     parts = rolling_buffer.split(CHOICES_MARKER, 1)
-                    scene_part = parts[0]  # Everything before marker in current buffer
+                    scene_part = parts[0]  # Everything before marker - guaranteed to be new content
                     choices_part = parts[1] if len(parts) > 1 else ""
                     
-                    # scene_part is guaranteed to be content we haven't yielded yet
-                    # because rolling_buffer only contains unyielded content
-                    # (when we yield excess, we remove it from rolling_buffer)
-                    # So we need to yield scene_part to complete the scene
-                    # Always yield scene_part even if empty (it might just be whitespace)
-                    # The frontend has already received all excess chunks, so this completes the scene
-                    yield (scene_part, False, None)
-                    total_yielded += scene_part
+                    # scene_part is guaranteed to be new content (rolling_buffer only has unyielded content)
+                    # Yield ALL of it to preserve complete scene text before marker
+                    if scene_part:
+                        yield (scene_part, False, None)
                     
-                    # Store the complete scene part (just for tracking)
                     scene_buffer.append(scene_part)
                     
                     # Buffer the choices part - DO NOT YIELD
@@ -1322,34 +1397,20 @@ class UnifiedLLMService:
                         excess = rolling_buffer[:excess_length]
                         scene_buffer.append(excess)
                         yield (excess, False, None)
-                        total_yielded += excess  # Track what we yielded
                         rolling_buffer = rolling_buffer[excess_length:]
             else:
                 # After marker, buffer for choice parsing - DO NOT YIELD
                 choices_buffer.append(cleaned_chunk)
         
-        # After stream ends, yield any remaining rolling buffer content (if marker wasn't found)
+        # After stream ends, yield any remaining rolling buffer content
         if not found_marker and rolling_buffer:
-            # Yield everything we haven't yielded yet
-            if len(rolling_buffer) > len(total_yielded):
-                remaining = rolling_buffer[len(total_yielded):]
-                scene_buffer.append(remaining)
-                yield (remaining, False, None)
-                total_yielded += remaining
+            scene_buffer.append(rolling_buffer)
+            yield (rolling_buffer, False, None)
         
         parsed_choices = None
         if found_marker and choices_buffer:
             choices_text = ''.join(choices_buffer).strip()
             parsed_choices = self._parse_choices_from_json(choices_text)
-        
-        # Log complete raw LLM response (continuation + choices)
-        logger.info("=" * 80)
-        logger.info("COMPLETE RAW LLM RESPONSE (Continuation + Choices)")
-        logger.info("=" * 80)
-        logger.info(full_raw_response)
-        logger.info("=" * 80)
-        logger.info(f"Marker found: {found_marker}, Parsed choices: {len(parsed_choices) if parsed_choices else 0}")
-        logger.info("=" * 80)
         
         yield ("", True, parsed_choices)
     
@@ -1646,6 +1707,9 @@ class UnifiedLLMService:
         
         if context.get("current_situation"):
             context_parts.append(f"Current situation: {context['current_situation']}")
+        
+        if context.get("continuation_prompt"):
+            context_parts.append(f"Continuation instruction: {context['continuation_prompt']}")
         
         return "\n".join(context_parts)
     
