@@ -1042,18 +1042,20 @@ class UnifiedLLMService:
                 if CHOICES_MARKER in rolling_buffer:
                     # Split: before marker goes to scene, after to choices
                     parts = rolling_buffer.split(CHOICES_MARKER, 1)
-                    scene_part = parts[0]  # Everything before marker - this is new content we haven't yielded
+                    scene_part = parts[0]  # Everything before marker in current buffer
                     choices_part = parts[1] if len(parts) > 1 else ""
                     
-                    # Yield ALL of scene_part - it's guaranteed to be new content because
-                    # rolling_buffer only contains content we haven't yielded yet
-                    # When we yield excess, we remove it from rolling_buffer, so scene_part
-                    # contains only the tail portion that was kept in buffer + new chunks
-                    if scene_part:
-                        yield (scene_part, False, None)
-                        total_yielded += scene_part
+                    # scene_part is guaranteed to be content we haven't yielded yet
+                    # because rolling_buffer only contains unyielded content
+                    # (when we yield excess, we remove it from rolling_buffer)
+                    # So we need to yield scene_part to complete the scene
+                    # Always yield scene_part even if empty (it might just be whitespace)
+                    # The frontend has already received all excess chunks, so this completes the scene
+                    yield (scene_part, False, None)
+                    total_yielded += scene_part
                     
-                    scene_buffer.append(scene_part)  # Store complete scene part
+                    # Store the complete scene part (just for tracking)
+                    scene_buffer.append(scene_part)
                     
                     # Buffer the choices part - DO NOT YIELD
                     if choices_part:
@@ -1158,18 +1160,20 @@ class UnifiedLLMService:
                 if CHOICES_MARKER in rolling_buffer:
                     # Split: before marker goes to scene, after to choices
                     parts = rolling_buffer.split(CHOICES_MARKER, 1)
-                    scene_part = parts[0]  # Everything before marker - this is new content we haven't yielded
+                    scene_part = parts[0]  # Everything before marker in current buffer
                     choices_part = parts[1] if len(parts) > 1 else ""
                     
-                    # Yield ALL of scene_part - it's guaranteed to be new content because
-                    # rolling_buffer only contains content we haven't yielded yet
-                    # When we yield excess, we remove it from rolling_buffer, so scene_part
-                    # contains only the tail portion that was kept in buffer + new chunks
-                    if scene_part:
-                        yield (scene_part, False, None)
-                        total_yielded += scene_part
+                    # scene_part is guaranteed to be content we haven't yielded yet
+                    # because rolling_buffer only contains unyielded content
+                    # (when we yield excess, we remove it from rolling_buffer)
+                    # So we need to yield scene_part to complete the scene
+                    # Always yield scene_part even if empty (it might just be whitespace)
+                    # The frontend has already received all excess chunks, so this completes the scene
+                    yield (scene_part, False, None)
+                    total_yielded += scene_part
                     
-                    scene_buffer.append(scene_part)  # Store complete scene part
+                    # Store the complete scene part (just for tracking)
+                    scene_buffer.append(scene_part)
                     
                     # Buffer the choices part - DO NOT YIELD
                     if choices_part:
@@ -1269,18 +1273,20 @@ class UnifiedLLMService:
                 if CHOICES_MARKER in rolling_buffer:
                     # Split: before marker goes to scene, after to choices
                     parts = rolling_buffer.split(CHOICES_MARKER, 1)
-                    scene_part = parts[0]  # Everything before marker - this is new content we haven't yielded
+                    scene_part = parts[0]  # Everything before marker in current buffer
                     choices_part = parts[1] if len(parts) > 1 else ""
                     
-                    # Yield ALL of scene_part - it's guaranteed to be new content because
-                    # rolling_buffer only contains content we haven't yielded yet
-                    # When we yield excess, we remove it from rolling_buffer, so scene_part
-                    # contains only the tail portion that was kept in buffer + new chunks
-                    if scene_part:
-                        yield (scene_part, False, None)
-                        total_yielded += scene_part
+                    # scene_part is guaranteed to be content we haven't yielded yet
+                    # because rolling_buffer only contains unyielded content
+                    # (when we yield excess, we remove it from rolling_buffer)
+                    # So we need to yield scene_part to complete the scene
+                    # Always yield scene_part even if empty (it might just be whitespace)
+                    # The frontend has already received all excess chunks, so this completes the scene
+                    yield (scene_part, False, None)
+                    total_yielded += scene_part
                     
-                    scene_buffer.append(scene_part)  # Store complete scene part
+                    # Store the complete scene part (just for tracking)
+                    scene_buffer.append(scene_part)
                     
                     # Buffer the choices part - DO NOT YIELD
                     if choices_part:
