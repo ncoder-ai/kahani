@@ -1047,7 +1047,9 @@ class UnifiedLLMService:
                     # Yield only the new scene content (subtract what we already yielded)
                     already_yielded = ''.join(scene_buffer)
                     new_scene_content = scene_part[len(already_yielded):]
-                    if new_scene_content.strip():
+                    # Always yield new content, even if it's just punctuation (like quotes)
+                    # Don't use .strip() check - preserve all characters including trailing quotes
+                    if new_scene_content:
                         yield (new_scene_content, False, None)
                     
                     scene_buffer.append(new_scene_content)
@@ -1152,7 +1154,9 @@ class UnifiedLLMService:
                     # Yield only the new scene content (subtract what we already yielded)
                     already_yielded = ''.join(scene_buffer)
                     new_scene_content = scene_part[len(already_yielded):]
-                    if new_scene_content.strip():
+                    # Always yield new content, even if it's just punctuation (like quotes)
+                    # Don't use .strip() check - preserve all characters including trailing quotes
+                    if new_scene_content:
                         yield (new_scene_content, False, None)
                     
                     scene_buffer.append(new_scene_content)
@@ -1255,7 +1259,9 @@ class UnifiedLLMService:
                     # Yield only the new scene content (subtract what we already yielded)
                     already_yielded = ''.join(scene_buffer)
                     new_scene_content = scene_part[len(already_yielded):]
-                    if new_scene_content.strip():
+                    # Always yield new content, even if it's just punctuation (like quotes)
+                    # Don't use .strip() check - preserve all characters including trailing quotes
+                    if new_scene_content:
                         yield (new_scene_content, False, None)
                     
                     scene_buffer.append(new_scene_content)
