@@ -1042,16 +1042,16 @@ class UnifiedLLMService:
                 if CHOICES_MARKER in rolling_buffer:
                     # Split: before marker goes to scene, after to choices
                     parts = rolling_buffer.split(CHOICES_MARKER, 1)
-                    scene_part = parts[0]  # Everything before marker - this is the complete scene content
+                    scene_part = parts[0]  # Everything before marker - this is new content we haven't yielded
                     choices_part = parts[1] if len(parts) > 1 else ""
                     
-                    # Yield everything from scene_part that we haven't yielded yet
-                    # This preserves ALL content before the marker, including quotes and any other characters
-                    if len(scene_part) > len(total_yielded):
-                        new_scene_content = scene_part[len(total_yielded):]
-                        if new_scene_content:
-                            yield (new_scene_content, False, None)
-                            total_yielded += new_scene_content
+                    # Yield ALL of scene_part - it's guaranteed to be new content because
+                    # rolling_buffer only contains content we haven't yielded yet
+                    # When we yield excess, we remove it from rolling_buffer, so scene_part
+                    # contains only the tail portion that was kept in buffer + new chunks
+                    if scene_part:
+                        yield (scene_part, False, None)
+                        total_yielded += scene_part
                     
                     scene_buffer.append(scene_part)  # Store complete scene part
                     
@@ -1158,16 +1158,16 @@ class UnifiedLLMService:
                 if CHOICES_MARKER in rolling_buffer:
                     # Split: before marker goes to scene, after to choices
                     parts = rolling_buffer.split(CHOICES_MARKER, 1)
-                    scene_part = parts[0]  # Everything before marker - this is the complete scene content
+                    scene_part = parts[0]  # Everything before marker - this is new content we haven't yielded
                     choices_part = parts[1] if len(parts) > 1 else ""
                     
-                    # Yield everything from scene_part that we haven't yielded yet
-                    # This preserves ALL content before the marker, including quotes and any other characters
-                    if len(scene_part) > len(total_yielded):
-                        new_scene_content = scene_part[len(total_yielded):]
-                        if new_scene_content:
-                            yield (new_scene_content, False, None)
-                            total_yielded += new_scene_content
+                    # Yield ALL of scene_part - it's guaranteed to be new content because
+                    # rolling_buffer only contains content we haven't yielded yet
+                    # When we yield excess, we remove it from rolling_buffer, so scene_part
+                    # contains only the tail portion that was kept in buffer + new chunks
+                    if scene_part:
+                        yield (scene_part, False, None)
+                        total_yielded += scene_part
                     
                     scene_buffer.append(scene_part)  # Store complete scene part
                     
@@ -1269,16 +1269,16 @@ class UnifiedLLMService:
                 if CHOICES_MARKER in rolling_buffer:
                     # Split: before marker goes to scene, after to choices
                     parts = rolling_buffer.split(CHOICES_MARKER, 1)
-                    scene_part = parts[0]  # Everything before marker - this is the complete scene content
+                    scene_part = parts[0]  # Everything before marker - this is new content we haven't yielded
                     choices_part = parts[1] if len(parts) > 1 else ""
                     
-                    # Yield everything from scene_part that we haven't yielded yet
-                    # This preserves ALL content before the marker, including quotes and any other characters
-                    if len(scene_part) > len(total_yielded):
-                        new_scene_content = scene_part[len(total_yielded):]
-                        if new_scene_content:
-                            yield (new_scene_content, False, None)
-                            total_yielded += new_scene_content
+                    # Yield ALL of scene_part - it's guaranteed to be new content because
+                    # rolling_buffer only contains content we haven't yielded yet
+                    # When we yield excess, we remove it from rolling_buffer, so scene_part
+                    # contains only the tail portion that was kept in buffer + new chunks
+                    if scene_part:
+                        yield (scene_part, False, None)
+                        total_yielded += scene_part
                     
                     scene_buffer.append(scene_part)  # Store complete scene part
                     
