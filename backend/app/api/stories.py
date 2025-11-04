@@ -988,6 +988,7 @@ async def generate_scene_streaming_endpoint(
                 db.rollback()
 
             # Chapter integration (optional - won't break if it fails)
+            active_chapter = None  # Initialize outside try block for use in background tasks
             try:
                 # Get or create active chapter for this story
                 active_chapter = db.query(Chapter).filter(
@@ -1021,30 +1022,15 @@ async def generate_scene_streaming_endpoint(
                 db.commit()
                 logger.info(f"[CHAPTER] Linked scene {scene.id} to chapter {active_chapter.id} ({active_chapter.scenes_count} scenes, {active_chapter.context_tokens_used} tokens)")
                 
-                # Check if auto-summary is needed
-                summary_threshold = user_settings.get('context_settings', {}).get('summary_threshold', 5) if user_settings else 5
-                scenes_since_last_summary = active_chapter.scenes_count - active_chapter.last_summary_scene_count
-                logger.info(f"[CHAPTER] Auto-summary check: {scenes_since_last_summary} scenes since last summary (threshold: {summary_threshold})")
-                if scenes_since_last_summary >= summary_threshold:
-                    logger.info(f"[CHAPTER] Chapter {active_chapter.id} reached {summary_threshold} scenes since last summary, triggering auto-summary")
-                    try:
-                        from ..api.chapters import generate_chapter_summary, generate_story_so_far
-                        await generate_chapter_summary(active_chapter.id, db, current_user.id)
-                        await generate_story_so_far(active_chapter.id, db, current_user.id)
-                        
-                        active_chapter.last_summary_scene_count = active_chapter.scenes_count
-                        db.commit()
-                        logger.info(f"[CHAPTER] Auto-summary and story-so-far generated for chapter {active_chapter.id}")
-                    except Exception as e:
-                        logger.error(f"[AUTO-SUMMARY] Failed to auto-generate summaries: {e}")
-                        # Don't fail the scene creation if summary fails
+                # Note: Auto-summary check will happen AFTER choices are sent (see below)
             except Exception as e:
                 logger.warning(f"[CHAPTER] Chapter integration failed for scene {scene.id}, but scene was created successfully: {e}")
                 # Don't fail the scene generation if chapter integration fails
                 db.rollback()  # Rollback any chapter changes
                 db.commit()    # But keep the scene
+                active_chapter = None  # Set to None so we don't try summary generation
             
-            # Send completion data with choices (TTS was already setup earlier)
+            # PRIORITY: Send completion data with choices IMMEDIATELY (before any background tasks)
             complete_data = {
                 'type': 'complete',
                 'scene_id': scene.id,
@@ -1062,10 +1048,49 @@ async def generate_scene_streaming_endpoint(
             yield f"data: {json.dumps(complete_data)}\n\n"
             yield "data: [DONE]\n\n"
             
-            # PRIORITY 3: Process semantic embeddings LAST (fully in background, after user has choices)
+            # PRIORITY 3: Background tasks - run AFTER choices are sent to frontend
+            import asyncio
+            
+            # Background task: Auto-summary generation (if needed)
+            if active_chapter:
+                try:
+                    summary_threshold = user_settings.get('context_settings', {}).get('summary_threshold', 5) if user_settings else 5
+                    scenes_since_last_summary = active_chapter.scenes_count - active_chapter.last_summary_scene_count
+                    logger.info(f"[CHAPTER] Auto-summary check: {scenes_since_last_summary} scenes since last summary (threshold: {summary_threshold})")
+                    if scenes_since_last_summary >= summary_threshold:
+                        logger.info(f"[CHAPTER] Chapter {active_chapter.id} reached {summary_threshold} scenes since last summary, triggering auto-summary in background")
+                        from ..api.chapters import generate_chapter_summary, generate_story_so_far
+                        
+                        async def generate_summaries_background():
+                            try:
+                                # Create a new DB session for background task
+                                from ..database import SessionLocal
+                                bg_db = SessionLocal()
+                                try:
+                                    # Reload chapter to get latest state
+                                    bg_chapter = bg_db.query(Chapter).filter(Chapter.id == active_chapter.id).first()
+                                    if bg_chapter:
+                                        await generate_chapter_summary(bg_chapter.id, bg_db, current_user.id)
+                                        await generate_story_so_far(bg_chapter.id, bg_db, current_user.id)
+                                        
+                                        bg_chapter.last_summary_scene_count = bg_chapter.scenes_count
+                                        bg_db.commit()
+                                        logger.info(f"[CHAPTER] Auto-summary and story-so-far generated for chapter {bg_chapter.id}")
+                                finally:
+                                    bg_db.close()
+                            except Exception as e:
+                                logger.error(f"[AUTO-SUMMARY] Background task failed: {e}")
+                        
+                        # Run summary generation in background (fire and forget)
+                        asyncio.create_task(generate_summaries_background())
+                        logger.info(f"[CHAPTER] Started background summary generation for chapter {active_chapter.id}")
+                except Exception as e:
+                    logger.error(f"[AUTO-SUMMARY] Failed to start background summary generation: {e}")
+                    # Don't fail scene generation if summary fails
+            
+            # Background task: Process semantic embeddings (fully in background, after user has choices)
             try:
                 # Fire and forget - this happens after everything else
-                import asyncio
                 asyncio.create_task(process_scene_embeddings(
                     scene_id=scene.id,
                     variant_id=variant.id,
