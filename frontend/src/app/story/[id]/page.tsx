@@ -219,6 +219,7 @@ export default function StoryPage() {
   const [contextUsagePercent, setContextUsagePercent] = useState(0);
   const [lastGenerationTime, setLastGenerationTime] = useState<number | null>(null);
   const [generationStartTime, setGenerationStartTime] = useState<number | null>(null);
+  const [extractionStatus, setExtractionStatus] = useState<{ status: 'extracting' | 'complete' | 'error'; message: string } | null>(null);
   const [showContextWarning, setShowContextWarning] = useState(false);
   const [hasShownContextWarning, setHasShownContextWarning] = useState(false);
   
@@ -804,6 +805,8 @@ export default function StoryPage() {
           const generationTime = (endTime - startTime) / 1000; // Convert to seconds
           setLastGenerationTime(generationTime);
           setGenerationStartTime(null);
+          // Clear extraction status if still showing
+          setExtractionStatus(null);
           
           setStreamingContent('');
           setStreamingSceneNumber(null);
@@ -864,6 +867,7 @@ export default function StoryPage() {
           setStreamingSceneNumber(null);
           setIsStreaming(false);
           setGenerationStartTime(null);
+          setExtractionStatus(null);
 
           // Reset choice selection state on error
           setSelectedChoice(null);
@@ -877,6 +881,15 @@ export default function StoryPage() {
           console.log('[AUTO-PLAY-READY] Received session ID:', sessionId, 'for scene:', sceneId);
           console.log('[AUTO-PLAY-READY] Connecting to global TTS widget');
           globalTTS.connectToSession(sessionId, sceneId);
+        },
+        // onExtractionStatus - Handle extraction status updates
+        (status: 'extracting' | 'complete' | 'error', message: string) => {
+          console.log('[EXTRACTION] Status:', status, message);
+          setExtractionStatus({ status, message });
+          if (status === 'complete' || status === 'error') {
+            // Clear extraction status after a short delay
+            setTimeout(() => setExtractionStatus(null), 2000);
+          }
         }
       );
 
@@ -1462,14 +1475,18 @@ export default function StoryPage() {
         />
       </div>
       
-      {/* Generation Time Display - Fixed bottom right */}
-      {(lastGenerationTime !== null || generationStartTime !== null) && (
+      {/* Generation Time / Extraction Status Display - Fixed bottom right */}
+      {(lastGenerationTime !== null || generationStartTime !== null || extractionStatus) && (
         <div className="fixed bottom-4 right-4 z-40 px-3 py-2 bg-gray-800/95 backdrop-blur-md border border-gray-700 rounded-lg shadow-lg">
           <div className="flex items-center gap-2 text-xs">
             <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            {generationStartTime ? (
+            {extractionStatus ? (
+              <span className={`text-gray-300 ${extractionStatus.status === 'extracting' ? 'animate-pulse' : ''}`}>
+                {extractionStatus.message}
+              </span>
+            ) : generationStartTime ? (
               <span className="text-gray-300 animate-pulse">Generating...</span>
             ) : (
               <span className="text-gray-300">

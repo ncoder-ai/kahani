@@ -34,6 +34,7 @@ class ContextSettingsUpdate(BaseModel):
     summary_threshold: int = Field(ge=3, le=20, default=5)
     summary_threshold_tokens: int = Field(ge=1000, le=50000, default=8000)
     enable_summarization: bool = True
+    character_extraction_threshold: Optional[int] = Field(default=None, ge=3, le=20)
     # Semantic Memory Settings
     enable_semantic_memory: Optional[bool] = None
     context_strategy: Optional[str] = Field(default=None, pattern="^(linear|hybrid)$")
@@ -198,6 +199,8 @@ async def update_user_settings(
         user_settings.context_summary_threshold = ctx.summary_threshold
         user_settings.context_summary_threshold_tokens = ctx.summary_threshold_tokens
         user_settings.enable_context_summarization = ctx.enable_summarization
+        if ctx.character_extraction_threshold is not None:
+            user_settings.character_extraction_threshold = ctx.character_extraction_threshold
         
         # Update semantic memory settings (if provided)
         if ctx.enable_semantic_memory is not None:

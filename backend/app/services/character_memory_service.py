@@ -7,7 +7,8 @@ for maintaining character consistency across long narratives.
 
 import logging
 import re
-from typing import List, Dict, Any, Optional
+import json
+from typing import List, Dict, Any, Optional, Tuple
 from sqlalchemy.orm import Session
 from datetime import datetime
 
@@ -17,6 +18,27 @@ from ..models import CharacterMemory, Character, Scene, MomentType
 from ..config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def clean_llm_json(json_str: str) -> str:
+    """
+    Clean common JSON errors from LLM responses.
+    """
+    # Fix unquoted values in key-value pairs
+    json_str = re.sub(
+        r':\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*([,}\]])',
+        r': "\1"\2',
+        json_str
+    )
+    
+    # Remove trailing commas before closing brackets
+    json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
+    
+    # Remove comments
+    json_str = re.sub(r'//.*?$', '', json_str, flags=re.MULTILINE)
+    json_str = re.sub(r'/\*.*?\*/', '', json_str, flags=re.DOTALL)
+    
+    return json_str
 
 
 class CharacterMemoryService:
@@ -39,6 +61,173 @@ class CharacterMemoryService:
             self.semantic_memory = None
         
         self.llm_service = UnifiedLLMService()
+    
+    async def extract_character_moments_from_scenes_batch(
+        self,
+        scenes: List[Tuple[int, int, Optional[int], str]],  # List of (scene_id, sequence_number, chapter_id, scene_content)
+        story_id: int,
+        user_id: int,
+        user_settings: Dict[str, Any],
+        db: Session
+    ) -> Dict[int, List[CharacterMemory]]:
+        """
+        Batch extract character moments from multiple scenes in a single LLM call.
+        
+        Args:
+            scenes: List of (scene_id, sequence_number, chapter_id, scene_content) tuples
+            story_id: Story ID
+            user_id: User ID for LLM calls
+            user_settings: User settings for LLM
+            db: Database session
+            
+        Returns:
+            Dictionary mapping scene_id to list of created CharacterMemory objects
+        """
+        if not self.semantic_memory:
+            logger.warning("Semantic memory not available, skipping batch moment extraction")
+            return {}
+        
+        if not scenes:
+            return {}
+        
+        try:
+            # Get story characters
+            from ..models import StoryCharacter
+            story_characters = db.query(StoryCharacter).filter(
+                StoryCharacter.story_id == story_id
+            ).all()
+            
+            if not story_characters:
+                logger.info("No characters defined for story, skipping batch extraction")
+                return {}
+            
+            # Build character list for LLM
+            character_names = []
+            character_map = {}
+            for sc in story_characters:
+                char = db.query(Character).filter(Character.id == sc.character_id).first()
+                if char:
+                    character_names.append(char.name)
+                    character_map[char.name.lower()] = char
+            
+            if not character_names:
+                return {}
+            
+            # Concatenate scenes with clear markers
+            scenes_text = []
+            for scene_id, sequence_number, chapter_id, scene_content in scenes:
+                scenes_text.append(f"=== SCENE {sequence_number} (ID: {scene_id}) ===\n{scene_content}\n")
+            
+            batch_content = "\n".join(scenes_text)
+            
+            # Extract moments from all scenes at once
+            moments_data = await self._llm_extract_moments_batch(
+                batch_content,
+                character_names,
+                user_id,
+                user_settings
+            )
+            
+            logger.warning(f"RAW PARSED MOMENTS DATA: {moments_data}")
+            logger.warning(f"CHARACTER NAMES FROM DB: {character_names}")
+            
+            if not moments_data:
+                logger.warning(f"No character moments extracted from batch of {len(scenes)} scenes")
+                return {}
+            
+            # Post-process: Map moments to scenes using text verification
+            from ..utils.scene_verification import map_moments_to_scenes
+            scenes_for_verification = [(scene_id, scene_content) for scene_id, _, _, scene_content in scenes]
+            
+            # Group moments by character, then map each character's moments to scenes
+            all_created_moments = {}
+            
+            for char_name in character_names:
+                # Filter moments for this character
+                char_moments = [m for m in moments_data if m.get('character_name', '').strip().lower() == char_name.lower()]
+                
+                logger.warning(f"Character '{char_name}': Found {len(char_moments)} moments after filtering")
+                
+                if not char_moments:
+                    continue
+                
+                # Map this character's moments to scenes
+                scene_moment_map = map_moments_to_scenes(char_moments, scenes_for_verification, char_name)
+                
+                logger.warning(f"Character '{char_name}': Mapped to {sum(len(moments) for moments in scene_moment_map.values())} moments across scenes")
+                
+                # Create CharacterMemory entries for each scene
+                for scene_id, sequence_number, chapter_id, scene_content in scenes:
+                    moments_for_scene = scene_moment_map.get(scene_id, [])
+                    
+                    if scene_id not in all_created_moments:
+                        all_created_moments[scene_id] = []
+                    
+                    for moment_data in moments_for_scene:
+                        char_name_lower = char_name.lower()
+                        
+                        if char_name_lower not in character_map:
+                            continue
+                        
+                        character = character_map[char_name_lower]
+                        moment_type = moment_data.get('moment_type', 'action')
+                        content = moment_data.get('content', '')
+                        confidence = moment_data.get('confidence', 70)
+                        
+                        # Skip low-confidence extractions
+                        if confidence < settings.extraction_confidence_threshold:
+                            continue
+                        
+                        # Create embedding
+                        embedding_id = await self.semantic_memory.add_character_moment(
+                            character_id=character.id,
+                            character_name=character.name,
+                            scene_id=scene_id,
+                            story_id=story_id,
+                            moment_type=moment_type,
+                            content=content,
+                            metadata={
+                                'sequence': sequence_number,
+                                'timestamp': datetime.utcnow().isoformat()
+                            }
+                        )
+                        
+                        # Check if memory with this embedding_id already exists
+                        existing_memory = db.query(CharacterMemory).filter(
+                            CharacterMemory.embedding_id == embedding_id
+                        ).first()
+                        
+                        if existing_memory:
+                            logger.debug(f"Character moment with embedding_id {embedding_id} already exists, skipping")
+                            continue
+                        
+                        # Create database record
+                        memory = CharacterMemory(
+                            character_id=character.id,
+                            scene_id=scene_id,
+                            story_id=story_id,
+                            moment_type=MomentType(moment_type),
+                            content=content,
+                            embedding_id=embedding_id,
+                            sequence_order=sequence_number,
+                            chapter_id=chapter_id,
+                            extracted_automatically=True,
+                            confidence_score=confidence
+                        )
+                        
+                        db.add(memory)
+                        all_created_moments[scene_id].append(memory)
+            
+            db.commit()
+            total_moments = sum(len(moments) for moments in all_created_moments.values())
+            logger.info(f"Batch extracted {total_moments} character moments from {len(scenes)} scenes")
+            
+            return all_created_moments
+            
+        except Exception as e:
+            logger.error(f"Failed to batch extract character moments: {e}", exc_info=True)
+            db.rollback()
+            return {}
     
     async def extract_character_moments(
         self,
@@ -172,6 +361,68 @@ class CharacterMemoryService:
             db.rollback()
             return []
     
+    async def _llm_extract_moments_batch(
+        self,
+        batch_content: str,
+        character_names: List[str],
+        user_id: int,
+        user_settings: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """
+        Use LLM to extract character moments from multiple scenes in batch.
+        
+        Args:
+            batch_content: Multiple scenes concatenated with scene markers
+            character_names: List of character names in the story
+            user_id: User ID
+            user_settings: User settings
+            
+        Returns:
+            List of moment dictionaries (not mapped to scenes)
+        """
+        try:
+            prompt = f"""Analyze the following scenes and extract significant character moments for these characters: {', '.join(character_names)}
+
+{batch_content}
+
+For each significant character moment, identify:
+1. Character name
+2. Moment type: "action" (physical action), "dialogue" (important speech), "development" (character growth/change), or "relationship" (interaction with others)
+3. Brief description of the moment (1-2 sentences)
+4. Confidence (0-100): How significant is this moment for the character?
+
+Return ONLY valid JSON in this exact format:
+{{
+  "moments": [
+    {{
+      "character_name": "Character Name",
+      "moment_type": "action",
+      "content": "Description of the moment",
+      "confidence": 85
+    }}
+  ]
+}}
+
+If no moments found, return {{"moments": []}}. Return ONLY the JSON, no other text."""
+            
+            system_prompt = "You are an expert literary analyst skilled at identifying significant character moments and development in narratives."
+            
+            response = await self.llm_service.generate(
+                prompt=prompt,
+                user_id=user_id,
+                user_settings=user_settings,
+                system_prompt=system_prompt,
+                max_tokens=1500  # More tokens for batch
+            )
+            
+            logger.warning(f"RAW LLM RESPONSE - CHARACTER MOMENTS BATCH:\n{response}")
+            
+            return self._parse_moments_response(response)
+            
+        except Exception as e:
+            logger.error(f"Failed to extract character moments with LLM (batch): {e}")
+            return []
+    
     async def _llm_extract_moments(
         self,
         scene_content: str,
@@ -203,11 +454,19 @@ For each significant character moment, identify:
 3. Brief description of the moment (1-2 sentences)
 4. Confidence (0-100): How significant is this moment for the character?
 
-Format your response as a list, one moment per line:
-CHARACTER_NAME | MOMENT_TYPE | DESCRIPTION | CONFIDENCE
+Return ONLY valid JSON in this exact format:
+{{
+  "moments": [
+    {{
+      "character_name": "Character Name",
+      "moment_type": "action",
+      "content": "Description of the moment",
+      "confidence": 85
+    }}
+  ]
+}}
 
-Only include moments that are significant for character development or plot. Skip minor actions or dialogue.
-"""
+If no moments found, return {{"moments": []}}. Return ONLY the JSON, no other text."""
             
             system_prompt = "You are an expert literary analyst skilled at identifying significant character moments and development in narratives."
             
@@ -219,43 +478,90 @@ Only include moments that are significant for character development or plot. Ski
                 max_tokens=500
             )
             
-            # Parse response
-            moments = []
-            lines = response.strip().split('\n')
+            logger.warning(f"RAW LLM RESPONSE - CHARACTER MOMENTS:\n{response}")
             
-            for line in lines:
-                line = line.strip()
-                if not line or '|' not in line:
-                    continue
-                
-                parts = [p.strip() for p in line.split('|')]
-                if len(parts) < 4:
-                    continue
-                
+            return self._parse_moments_response(response)
+            
+        except Exception as e:
+            logger.error(f"Failed to extract character moments: {e}")
+            return []
+    
+    def _parse_moments_response(self, response: str) -> List[Dict[str, Any]]:
+        """
+        Parse LLM JSON response for character moments.
+        
+        Args:
+            response: LLM JSON response text
+            
+        Returns:
+            List of moment dictionaries
+        """
+        try:
+            # Clean response (remove markdown code blocks if present)
+            response_clean = response.strip()
+            if response_clean.startswith("```json"):
+                response_clean = response_clean[7:]
+            if response_clean.startswith("```"):
+                response_clean = response_clean[3:]
+            if response_clean.endswith("```"):
+                response_clean = response_clean[:-3]
+            response_clean = response_clean.strip()
+            
+            # Clean common JSON errors from LLM
+            response_clean = clean_llm_json(response_clean)
+            
+            # Parse JSON
+            data = json.loads(response_clean)
+            
+            # Extract moments array
+            moments_list = data.get('moments', [])
+            
+            # Validate and normalize moments
+            validated_moments = []
+            for moment in moments_list:
                 try:
-                    character_name = parts[0]
-                    moment_type = parts[1].lower()
-                    content = parts[2]
-                    confidence = int(re.sub(r'[^\d]', '', parts[3]) or '70')
+                    char_name = moment.get('character_name', '').strip()
+                    moment_type = moment.get('moment_type', 'action').strip().lower()
+                    content = moment.get('content', '').strip()
+                    confidence = moment.get('confidence', 70)
                     
                     # Validate moment_type
                     if moment_type not in ['action', 'dialogue', 'development', 'relationship']:
+                        logger.warning(f"Invalid moment_type '{moment_type}', defaulting to 'action'")
                         moment_type = 'action'
                     
-                    moments.append({
-                        'character_name': character_name,
-                        'moment_type': moment_type,
-                        'content': content,
-                        'confidence': min(max(confidence, 0), 100)
-                    })
-                except (ValueError, IndexError) as e:
-                    logger.warning(f"Failed to parse moment line: {line} - {e}")
+                    # Validate confidence
+                    try:
+                        confidence = int(confidence)
+                        confidence = min(max(confidence, 0), 100)
+                    except (ValueError, TypeError):
+                        confidence = 70
+                    
+                    if char_name and content:
+                        validated_moments.append({
+                            'character_name': char_name,
+                            'moment_type': moment_type,
+                            'content': content,
+                            'confidence': confidence
+                        })
+                    else:
+                        logger.warning(f"Skipping moment with missing character_name or content: {moment}")
+                        
+                except Exception as e:
+                    logger.warning(f"Failed to validate moment: {moment}, error: {e}")
                     continue
             
-            return moments
+            logger.warning(f"PARSING RESULT: Extracted {len(validated_moments)} character moments from JSON")
             
+            return validated_moments
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse LLM response as JSON: {e}")
+            logger.debug(f"Original response was: {response}")
+            logger.debug(f"Cleaned response was: {response_clean}")
+            return []
         except Exception as e:
-            logger.error(f"LLM moment extraction failed: {e}")
+            logger.error(f"Failed to parse moments response: {e}")
             return []
     
     async def get_character_arc(
@@ -408,12 +714,15 @@ Only include moments that are significant for character development or plot. Ski
                 CharacterMemory.scene_id == scene_id
             ).all()
             
-            # Delete from vector database
+            # Delete from vector database (ChromaDB)
             if self.semantic_memory:
                 for moment in moments:
                     try:
-                        # Note: ChromaDB delete is handled in semantic_memory service
-                        pass
+                        # Delete embedding from ChromaDB using embedding_id
+                        self.semantic_memory.character_moments_collection.delete(
+                            ids=[moment.embedding_id]
+                        )
+                        logger.debug(f"Deleted character moment embedding {moment.embedding_id} from ChromaDB")
                     except Exception as e:
                         logger.warning(f"Failed to delete embedding {moment.embedding_id}: {e}")
             

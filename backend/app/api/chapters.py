@@ -618,6 +618,16 @@ async def delete_chapter_content(
     scenes = db.query(Scene).filter(Scene.chapter_id == chapter_id).all()
     scene_count = len(scenes)
     
+    # Clean up semantic data for each scene before deleting
+    from ..services.semantic_integration import cleanup_scene_embeddings
+    for scene in scenes:
+        try:
+            await cleanup_scene_embeddings(scene.id, db)
+        except Exception as e:
+            logger.warning(f"Failed to cleanup semantic data for scene {scene.id}: {e}")
+            # Continue with deletion even if cleanup fails
+    
+    # Delete scenes (CASCADE will handle related database records)
     for scene in scenes:
         db.delete(scene)
     
@@ -626,6 +636,7 @@ async def delete_chapter_content(
     chapter.context_tokens_used = 0
     chapter.auto_summary = None
     chapter.last_summary_scene_count = 0
+    chapter.last_extraction_scene_count = 0  # Also reset extraction count
     chapter.status = ChapterStatus.ACTIVE
     
     db.commit()
