@@ -1134,6 +1134,7 @@ class UnifiedLLMService:
         found_marker = False
         rolling_buffer = ""  # Buffer to detect marker across chunks
         full_raw_response = ""  # Track complete raw response for logging
+        total_yielded = ""  # Track exactly what we've yielded to frontend
         
         async for chunk in self._generate_stream(
             prompt=user_prompt,
@@ -1142,6 +1143,9 @@ class UnifiedLLMService:
             system_prompt=system_prompt,
             max_tokens=max_tokens
         ):
+            # Track raw chunks before cleaning
+            full_raw_response += chunk
+            
             cleaned_chunk = self._clean_scene_numbers_chunk(chunk)
             if not cleaned_chunk:
                 continue
@@ -1154,18 +1158,18 @@ class UnifiedLLMService:
                 if CHOICES_MARKER in rolling_buffer:
                     # Split: before marker goes to scene, after to choices
                     parts = rolling_buffer.split(CHOICES_MARKER, 1)
-                    scene_part = parts[0]
+                    scene_part = parts[0]  # Everything before marker - this is the complete scene content
                     choices_part = parts[1] if len(parts) > 1 else ""
                     
-                    # Yield only the new scene content (subtract what we already yielded)
-                    already_yielded = ''.join(scene_buffer)
-                    new_scene_content = scene_part[len(already_yielded):]
-                    # Always yield new content, even if it's just punctuation (like quotes)
-                    # Don't use .strip() check - preserve all characters including trailing quotes
-                    if new_scene_content:
-                        yield (new_scene_content, False, None)
+                    # Yield everything from scene_part that we haven't yielded yet
+                    # This preserves ALL content before the marker, including quotes and any other characters
+                    if len(scene_part) > len(total_yielded):
+                        new_scene_content = scene_part[len(total_yielded):]
+                        if new_scene_content:
+                            yield (new_scene_content, False, None)
+                            total_yielded += new_scene_content
                     
-                    scene_buffer.append(new_scene_content)
+                    scene_buffer.append(scene_part)  # Store complete scene part
                     
                     # Buffer the choices part - DO NOT YIELD
                     if choices_part:
@@ -1181,15 +1185,20 @@ class UnifiedLLMService:
                         excess = rolling_buffer[:excess_length]
                         scene_buffer.append(excess)
                         yield (excess, False, None)
+                        total_yielded += excess  # Track what we yielded
                         rolling_buffer = rolling_buffer[excess_length:]
             else:
                 # After marker, buffer for choice parsing - DO NOT YIELD
                 choices_buffer.append(cleaned_chunk)
         
-        # After stream ends, yield any remaining rolling buffer content
+        # After stream ends, yield any remaining rolling buffer content (if marker wasn't found)
         if not found_marker and rolling_buffer:
-            scene_buffer.append(rolling_buffer)
-            yield (rolling_buffer, False, None)
+            # Yield everything we haven't yielded yet
+            if len(rolling_buffer) > len(total_yielded):
+                remaining = rolling_buffer[len(total_yielded):]
+                scene_buffer.append(remaining)
+                yield (remaining, False, None)
+                total_yielded += remaining
         
         parsed_choices = None
         if found_marker and choices_buffer:
