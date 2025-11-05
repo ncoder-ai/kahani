@@ -1616,6 +1616,9 @@ class UnifiedLLMService:
         is_first_scene = context.get("is_first_scene", False)
         user_prompt_provided = context.get("user_prompt_provided", False)
         
+        # Store current_situation separately to add at the end with emphasis
+        current_situation = None
+        
         if context.get("genre"):
             context_parts.append(f"Genre: {context['genre']}")
         
@@ -1628,15 +1631,16 @@ class UnifiedLLMService:
         # For first scene with user prompt, prioritize user prompt over scenario
         if is_first_scene and user_prompt_provided and context.get("current_situation"):
             # User prompt takes precedence for first scene
-            context_parts.append(f"User's Opening Prompt: {context['current_situation']}")
+            current_situation = context['current_situation']  # Store for later emphasis
             if context.get("scenario"):
                 context_parts.append(f"Story Scenario (for reference): {context['scenario']}")
         else:
-            # Normal order: scenario first, then user prompt if provided
+            # Normal order: scenario first
             if context.get("scenario"):
                 context_parts.append(f"Story Scenario: {context['scenario']}")
+            # Store current_situation for emphasis at the end (not first scene or not user prompt)
             if context.get("current_situation"):
-                context_parts.append(f"Current Situation: {context['current_situation']}")
+                current_situation = context['current_situation']
         
         if context.get("initial_premise"):
             context_parts.append(f"Initial Premise: {context['initial_premise']}")
@@ -1662,6 +1666,18 @@ class UnifiedLLMService:
         
         if context.get("previous_scenes"):
             context_parts.append(f"Previous Events:\n{context['previous_scenes']}")
+        
+        # Add current_situation at the END with maximum emphasis (Option C)
+        if current_situation:
+            context_parts.append(
+                f"\n{'='*50}\n"
+                f"IMMEDIATE SITUATION - FOCUS HERE\n"
+                f"{'='*50}\n"
+                f"{current_situation}\n\n"
+                f"→ The next scene MUST directly dramatize this situation.\n"
+                f"→ Show what is happening RIGHT NOW.\n"
+                f"→ Do not skip ahead or summarize."
+            )
         
         return "\n\n".join(context_parts)
     
