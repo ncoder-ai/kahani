@@ -1163,12 +1163,12 @@ async def generate_scene_streaming_endpoint(
                                 
                                 # Run batch extraction synchronously
                                 batch_results = await batch_process_scene_extractions(
-                                    story_id=story_id,
+                    story_id=story_id,
                                     chapter_id=extraction_chapter.id,
                                     from_sequence=from_sequence,
                                     to_sequence=to_sequence,
-                                    user_id=current_user.id,
-                                    user_settings=user_settings or {},
+                    user_id=current_user.id,
+                    user_settings=user_settings or {},
                                     db=extraction_db
                                 )
                                 

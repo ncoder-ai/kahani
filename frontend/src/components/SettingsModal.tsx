@@ -2308,6 +2308,22 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 <div className="space-y-4">
                   <h4 className="text-md font-semibold text-white mb-3">Generation Preferences</h4>
                   
+                  <div>
+                    <label className="block text-sm font-medium text-white mb-2">
+                      Preferred Scene Length
+                    </label>
+                    <select
+                      value={generationPrefs.scene_length}
+                      onChange={(e) => setGenerationPrefs({ ...generationPrefs, scene_length: e.target.value })}
+                      className="w-full px-3 py-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
+                    >
+                      <option value="short">Short (100-150 words)</option>
+                      <option value="medium">Medium (200-300 words)</option>
+                      <option value="long">Long (400-500 words)</option>
+                    </select>
+                    <p className="text-xs text-gray-400 mt-1">Target length for generated scenes</p>
+                  </div>
+                  
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
                       type="checkbox"
