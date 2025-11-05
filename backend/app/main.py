@@ -1,9 +1,13 @@
+# Disable ChromaDB telemetry globally before any imports
+import os
+os.environ["ANONYMIZED_TELEMETRY"] = "FALSE"
+os.environ["CHROMA_TELEMETRY_DISABLED"] = "TRUE"
+
 # Import LiteLLM logging configuration FIRST to suppress debug output
 from .utils.litellm_logging import configure_litellm_logging, suppress_httpcore_logging
 
 # Set logging level to ERROR immediately to suppress debug messages
 import logging
-import os
 
 # Suppress excessive logging from various libraries
 logging.getLogger('LiteLLM').setLevel(logging.ERROR)
@@ -13,7 +17,8 @@ logging.getLogger('urllib3').setLevel(logging.ERROR)
 logging.getLogger('urllib3.connectionpool').setLevel(logging.ERROR)
 logging.getLogger('chromadb').setLevel(logging.ERROR)
 logging.getLogger('chromadb.auth').setLevel(logging.ERROR)
-logging.getLogger('chromadb.telemetry').setLevel(logging.ERROR)
+logging.getLogger('chromadb.telemetry').setLevel(logging.CRITICAL)  # Changed to CRITICAL to suppress errors
+logging.getLogger('chromadb.telemetry.product.posthog').setLevel(logging.CRITICAL)  # Suppress PostHog telemetry errors
 logging.getLogger('chromadb.config').setLevel(logging.ERROR)
 logging.getLogger('chromadb.segment').setLevel(logging.ERROR)
 logging.getLogger('sentence_transformers').setLevel(logging.ERROR)

@@ -859,9 +859,17 @@ class UnifiedLLMService:
     async def generate_scene(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> str:
         """Generate a story scene"""
         
+        # Get scene length and choices count from user settings
+        generation_prefs = user_settings.get("generation_preferences", {})
+        scene_length = generation_prefs.get("scene_length", "medium")
+        choices_count = generation_prefs.get("choices_count", 4)
+        scene_length_description = self._get_scene_length_description(scene_length)
+        
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "scene_generation", "scene_generation",
-            context=self._format_context_for_scene(context)
+            context=self._format_context_for_scene(context),
+            scene_length_description=scene_length_description,
+            choices_count=choices_count
         )
         
         # Log the complete prompt for debugging
@@ -892,9 +900,17 @@ class UnifiedLLMService:
         """
         CHOICES_MARKER = "###CHOICES###"
         
+        # Get scene length and choices count from user settings
+        generation_prefs = user_settings.get("generation_preferences", {})
+        scene_length = generation_prefs.get("scene_length", "medium")
+        choices_count = generation_prefs.get("choices_count", 4)
+        scene_length_description = self._get_scene_length_description(scene_length)
+        
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "scene_generation", "scene_generation",
-            context=self._format_context_for_scene(context)
+            context=self._format_context_for_scene(context),
+            scene_length_description=scene_length_description,
+            choices_count=choices_count
         )
         
         max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
@@ -923,9 +939,17 @@ class UnifiedLLMService:
     async def generate_scene_streaming(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> AsyncGenerator[str, None]:
         """Generate a story scene with streaming"""
         
+        # Get scene length and choices count from user settings
+        generation_prefs = user_settings.get("generation_preferences", {})
+        scene_length = generation_prefs.get("scene_length", "medium")
+        choices_count = generation_prefs.get("choices_count", 4)
+        scene_length_description = self._get_scene_length_description(scene_length)
+        
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "scene_generation", "scene_generation",
-            context=self._format_context_for_scene(context)
+            context=self._format_context_for_scene(context),
+            scene_length_description=scene_length_description,
+            choices_count=choices_count
         )
         
         # Log the complete prompt for debugging
@@ -1008,10 +1032,15 @@ class UnifiedLLMService:
             if previous_pov != 'third' or pov == 'third':
                 pov = previous_pov
         
+        # Get choices count from user settings
+        generation_prefs = user_settings.get("generation_preferences", {})
+        choices_count = generation_prefs.get("choices_count", 4)
+        
         # Enhance system prompt with POV consistency requirement
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "story_generation", "scene_continuation",
-            context=self._format_context_for_continuation(context)
+            context=self._format_context_for_continuation(context),
+            choices_count=choices_count
         )
         
         if pov == 'first':
@@ -1046,9 +1075,14 @@ class UnifiedLLMService:
             if previous_pov != 'third' or pov == 'third':
                 pov = previous_pov
         
+        # Get choices count from user settings
+        generation_prefs = user_settings.get("generation_preferences", {})
+        choices_count = generation_prefs.get("choices_count", 4)
+        
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "story_generation", "scene_continuation",
-            context=self._format_context_for_continuation(context)
+            context=self._format_context_for_continuation(context),
+            choices_count=choices_count
         )
         
         # Enhance system prompt with POV consistency requirement
@@ -1100,7 +1134,7 @@ class UnifiedLLMService:
                             cleaned_choices.append(choice.strip())
                     
                     if len(cleaned_choices) >= 2:
-                        return cleaned_choices[:4]  # Return up to 4 choices
+                        return cleaned_choices  # Return all parsed choices
             
             return None
         except (json.JSONDecodeError, ValueError, AttributeError) as e:
@@ -1123,9 +1157,17 @@ class UnifiedLLMService:
         """
         CHOICES_MARKER = "###CHOICES###"
         
+        # Get scene length and choices count from user settings
+        generation_prefs = user_settings.get("generation_preferences", {})
+        scene_length = generation_prefs.get("scene_length", "medium")
+        choices_count = generation_prefs.get("choices_count", 4)
+        scene_length_description = self._get_scene_length_description(scene_length)
+        
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "scene_generation", "scene_generation",
-            context=self._format_context_for_scene(context)
+            context=self._format_context_for_scene(context),
+            scene_length_description=scene_length_description,
+            choices_count=choices_count
         )
         
         max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
@@ -1216,10 +1258,18 @@ class UnifiedLLMService:
         # Log inputs for debugging
         logger.info(f"Variant generation - context type: {type(context)}")
         
+        # Get scene length and choices count from user settings
+        generation_prefs = user_settings.get("generation_preferences", {})
+        scene_length = generation_prefs.get("scene_length", "medium")
+        choices_count = generation_prefs.get("choices_count", 4)
+        scene_length_description = self._get_scene_length_description(scene_length)
+        
         # Use the same prompt template as new scene generation - no variant-specific processing
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "scene_generation", "scene_generation",
-            context=self._format_context_for_scene(context)
+            context=self._format_context_for_scene(context),
+            scene_length_description=scene_length_description,
+            choices_count=choices_count
         )
         
         # Log prompts for debugging
@@ -1318,9 +1368,14 @@ class UnifiedLLMService:
             if previous_pov != 'third' or pov == 'third':
                 pov = previous_pov
         
+        # Get choices count from user settings
+        generation_prefs = user_settings.get("generation_preferences", {})
+        choices_count = generation_prefs.get("choices_count", 4)
+        
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "story_generation", "scene_continuation",
-            context=self._format_context_for_continuation(context)
+            context=self._format_context_for_continuation(context),
+            choices_count=choices_count
         )
         
         if pov == 'first':
@@ -1446,10 +1501,15 @@ class UnifiedLLMService:
         enhanced_context = context.copy()
         enhanced_context["pov_instruction"] = pov_instruction
         
+        # Get choices count from user settings
+        generation_prefs = user_settings.get("generation_preferences", {})
+        choices_count = generation_prefs.get("choices_count", 4)
+        
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "choice_generation", "choice_generation",
             scene_content=scene_content[-800:],  # Last 800 chars to avoid token limits
-            context=self._format_context_for_choices(enhanced_context)
+            context=self._format_context_for_choices(enhanced_context),
+            choices_count=choices_count
         )
         
         # Enhance system prompt with POV consistency requirement
@@ -1493,7 +1553,7 @@ class UnifiedLLMService:
                 "Make a bold decision"
             ]
         
-        return choices[:4]  # Return up to 4 choices
+        return choices  # Return all parsed choices
     
     async def generate_scenario(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> str:
         """Generate a creative scenario based on user selections and characters"""
@@ -1607,6 +1667,15 @@ class UnifiedLLMService:
                 context_parts.append(f"Story Elements:\n{chr(10).join(elements)}")
         
         return "\n".join(context_parts)
+    
+    def _get_scene_length_description(self, scene_length: str) -> str:
+        """Convert scene_length setting to word range description"""
+        length_map = {
+            "short": "approximately 100-150 words",
+            "medium": "approximately 200-300 words", 
+            "long": "approximately 400-500 words"
+        }
+        return length_map.get(scene_length, "approximately 200-300 words")
     
     def _format_context_for_scene(self, context: Dict[str, Any]) -> str:
         """Format context for scene generation"""

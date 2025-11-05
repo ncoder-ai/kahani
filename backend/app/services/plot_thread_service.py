@@ -526,8 +526,8 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
                 created_events.append(plot_event)
             
             try:
-            db.commit()
-            logger.info(f"Extracted {len(created_events)} plot events from scene {scene_id}")
+                db.commit()
+                logger.info(f"Extracted {len(created_events)} plot events from scene {scene_id}")
             except Exception as commit_error:
                 # Handle race condition where embedding_id was inserted concurrently
                 from sqlalchemy.exc import IntegrityError
@@ -560,9 +560,9 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
                     logger.error(f"Failed to query existing events: {query_error}")
                     return []
             else:
-            logger.error(f"Failed to extract plot events: {e}", exc_info=True)
-            db.rollback()
-            return []
+                logger.error(f"Failed to extract plot events: {e}", exc_info=True)
+                db.rollback()
+                return []
     
     async def _llm_extract_events(
         self,
@@ -656,17 +656,17 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
                 
                 # Validate and normalize events
                 for event in events_list:
-                try:
+                    try:
                         event_type = event.get('event_type', 'complication').strip().lower()
                         description = event.get('description', '').strip()
                         importance = event.get('importance', 50)
                         confidence = event.get('confidence', 70)
                         involved_chars = event.get('involved_characters', [])
                     
-                    # Validate event_type
-                    if event_type not in ['introduction', 'complication', 'revelation', 'resolution']:
+                        # Validate event_type
+                        if event_type not in ['introduction', 'complication', 'revelation', 'resolution']:
                             logger.warning(f"Invalid event_type '{event_type}', defaulting to 'complication'")
-                        event_type = 'complication'
+                            event_type = 'complication'
                     
                         # Validate importance and confidence
                         try:
@@ -688,18 +688,18 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
                             else:
                                 involved_chars = [c.strip() for c in involved_chars.split(',') if c.strip()]
                         elif not isinstance(involved_chars, list):
-                    involved_chars = []
+                            involved_chars = []
                         else:
                             involved_chars = [str(c).strip() for c in involved_chars if c and str(c).strip()]
                     
                         if description:
-                    events.append({
-                        'event_type': event_type,
-                        'description': description,
+                            events.append({
+                                'event_type': event_type,
+                                'description': description,
                                 'importance': importance,
                                 'confidence': confidence,
-                        'involved_characters': involved_chars
-                    })
+                                'involved_characters': involved_chars
+                            })
                         else:
                             logger.warning(f"Skipping event with missing description: {event}")
                             

@@ -254,31 +254,31 @@ async def process_scene_embeddings(
         
         # 5. Extract and track NPCs (if enabled)
         if not skip_npc_extraction:
-        npc_tracking_enabled = settings.npc_tracking_enabled
-        if user_settings and user_settings.get("context_settings"):
-            npc_tracking_enabled = user_settings["context_settings"].get(
-                "npc_tracking_enabled",
-                settings.npc_tracking_enabled
-            )
-        
-        if npc_tracking_enabled:
-            try:
-                from .npc_tracking_service import NPCTrackingService
-                npc_service = NPCTrackingService(user_id=user_id, user_settings=user_settings)
-                
-                npc_results = await npc_service.extract_npcs_from_scene(
-                    db=db,
-                    story_id=story_id,
-                    scene_id=scene_id,
-                    scene_sequence=sequence_number,
-                    scene_content=scene_content
+            npc_tracking_enabled = settings.npc_tracking_enabled
+            if user_settings and user_settings.get("context_settings"):
+                npc_tracking_enabled = user_settings["context_settings"].get(
+                    "npc_tracking_enabled",
+                    settings.npc_tracking_enabled
                 )
-                
-                results['npc_tracking'] = npc_results.get('extraction_successful', False)
-                logger.info(f"NPC tracking completed for scene {scene_id}: {npc_results}")
-                
-            except Exception as e:
-                logger.error(f"Failed to track NPCs: {e}")
+            
+            if npc_tracking_enabled:
+                try:
+                    from .npc_tracking_service import NPCTrackingService
+                    npc_service = NPCTrackingService(user_id=user_id, user_settings=user_settings)
+                    
+                    npc_results = await npc_service.extract_npcs_from_scene(
+                        db=db,
+                        story_id=story_id,
+                        scene_id=scene_id,
+                        scene_sequence=sequence_number,
+                        scene_content=scene_content
+                    )
+                    
+                    results['npc_tracking'] = npc_results.get('extraction_successful', False)
+                    logger.info(f"NPC tracking completed for scene {scene_id}: {npc_results}")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to track NPCs: {e}")
         
         return results
         
