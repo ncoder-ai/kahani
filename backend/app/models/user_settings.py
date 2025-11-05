@@ -38,6 +38,7 @@ class UserSettings(Base):
     context_summary_threshold_tokens = Column(Integer, default=8000)  # 1000 - 50000 tokens
     enable_context_summarization = Column(Boolean, default=True)
     auto_generate_summaries = Column(Boolean, default=True)  # Auto-generate summaries based on threshold
+    character_extraction_threshold = Column(Integer, default=5)  # 3 - 20 scenes (run character/NPC extraction every N scenes)
     
     # Semantic Memory Settings
     enable_semantic_memory = Column(Boolean, default=True)  # Per-user semantic memory toggle
@@ -116,6 +117,7 @@ class UserSettings(Base):
                 "summary_threshold": self.context_summary_threshold,
                 "summary_threshold_tokens": self.context_summary_threshold_tokens,
                 "enable_summarization": self.enable_context_summarization,
+                "character_extraction_threshold": self.character_extraction_threshold,
                 # Semantic Memory Settings
                 "enable_semantic_memory": self.enable_semantic_memory,
                 "context_strategy": self.context_strategy,
@@ -191,6 +193,7 @@ class UserSettings(Base):
                 "summary_threshold": 5,
                 "summary_threshold_tokens": 8000,
                 "enable_summarization": True,
+                "character_extraction_threshold": 5,
                 # Semantic Memory Settings
                 "enable_semantic_memory": True,
                 "context_strategy": "hybrid",

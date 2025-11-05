@@ -142,6 +142,22 @@ async def get_character_suggestions(
     # Analyze chapter for characters
     suggestions = await service.analyze_chapter_for_characters(db, story_id, chapter_id)
     
+    # Add NPCs that crossed importance threshold
+    try:
+        from ..services.npc_tracking_service import NPCTrackingService
+        npc_service = NPCTrackingService(current_user.id, user_settings_dict)
+        npc_suggestions = npc_service.get_npcs_as_suggestions(db, story_id)
+        
+        # Merge NPCs into suggestions (they'll be marked with is_npc=True)
+        suggestions.extend(npc_suggestions)
+        
+        # Re-sort by importance score
+        suggestions.sort(key=lambda x: x.get('importance_score', 0), reverse=True)
+        
+        logger.info(f"Added {len(npc_suggestions)} NPCs to character suggestions")
+    except Exception as e:
+        logger.warning(f"Failed to include NPCs in suggestions: {e}")
+    
     # Get chapter info
     chapter_info = None
     if chapter_id:
@@ -194,6 +210,35 @@ async def analyze_character_details(
     # Add user permissions to settings for NSFW filtering
     user_settings_dict['allow_nsfw'] = current_user.allow_nsfw
     
+    # Check if this is an NPC with extracted profile
+    try:
+        from ..models import NPCTracking
+        from ..services.npc_tracking_service import NPCTrackingService
+        npc_tracking = db.query(NPCTracking).filter(
+            NPCTracking.story_id == story_id,
+            NPCTracking.character_name == character_name,
+            NPCTracking.profile_extracted == True
+        ).first()
+        
+        if npc_tracking and npc_tracking.extracted_profile:
+            # Use extracted NPC profile
+            profile = npc_tracking.extracted_profile
+            character_details = {
+                "name": profile.get("name", character_name),
+                "description": profile.get("description", ""),
+                "personality_traits": profile.get("personality", []),
+                "background": profile.get("background", ""),
+                "goals": profile.get("goals", ""),
+                "fears": "",
+                "appearance": profile.get("appearance", ""),
+                "suggested_role": profile.get("role", ""),
+                "confidence": 85,  # High confidence for extracted profiles
+                "scenes_analyzed": []
+            }
+            return CharacterDetails(**character_details)
+    except Exception as e:
+        logger.debug(f"Not an NPC or NPC profile extraction failed: {e}")
+    
     # Create service instance
     service = CharacterAssistantService(current_user.id, user_settings_dict)
     
@@ -244,6 +289,19 @@ async def create_character_from_suggestion(
             detail="Story not found"
         )
     
+    # Get user settings
+    user_settings = db.query(UserSettings).filter(
+        UserSettings.user_id == current_user.id
+    ).first()
+    
+    if not user_settings:
+        user_settings_dict = UserSettings.get_defaults()
+    else:
+        user_settings_dict = user_settings.to_dict()
+    
+    # Add user permissions to settings for NSFW filtering
+    user_settings_dict['allow_nsfw'] = current_user.allow_nsfw
+    
     # Check if character already exists
     existing_character = db.query(Character).filter(
         Character.name == character_data.name,
@@ -287,6 +345,15 @@ async def create_character_from_suggestion(
         db.flush()  # Get the story character ID
     else:
         story_character = existing_story_char
+    
+    # Mark NPC as converted if it was tracked as an NPC
+    try:
+        from ..services.npc_tracking_service import NPCTrackingService
+        npc_service = NPCTrackingService(current_user.id, user_settings_dict)
+        npc_service.mark_npc_as_converted(db, story_id, character_data.name)
+    except Exception as e:
+        logger.warning(f"Failed to mark NPC as converted: {e}")
+        # Don't fail character creation if NPC marking fails
     
     db.commit()
     db.refresh(character)
