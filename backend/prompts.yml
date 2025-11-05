@@ -101,7 +101,7 @@ story_generation:
       Story Context:
       {context}
       
-      Generate the next scene in this story. Make it engaging and immersive, approximately 200-300 words.
+      Generate the next scene in this story. Make it engaging and immersive, {scene_length_description}.
       Ensure the scene flows naturally from the previous events.
       
       IMPORTANT: Write ONLY the story content. Do not include any choices, options, or questions for the reader. 
@@ -110,7 +110,7 @@ story_generation:
       After completing the scene narrative, add EXACTLY this line:
       ###CHOICES###
       
-      Then provide exactly 4 compelling narrative choices as a JSON array. Each choice should:
+      Then provide exactly {choices_count} compelling narrative choices as a JSON array. Each choice should:
       1. Offer meaningfully different story directions
       2. Be specific to the current scene and context
       3. Give readers genuine agency in the narrative
@@ -121,7 +121,7 @@ story_generation:
       IMPORTANT: Write choices in THIRD PERSON perspective describing what the character does, NOT what "I do" or "you do".
       Example: "Jack approaches the door cautiously" NOT "I approach the door cautiously" or "You approach the door cautiously"
       
-      Format: ["Choice 1 text here", "Choice 2 text here", "Choice 3 text here", "Choice 4 text here"]
+      Format: Provide exactly {choices_count} choices as a JSON array: ["Choice 1 text here", "Choice 2 text here", ...]
 
   scene_continuation:
     system: |
@@ -155,7 +155,7 @@ story_generation:
       After completing the continuation, add EXACTLY this line:
       ###CHOICES###
       
-      Then provide exactly 4 compelling narrative choices as a JSON array. Each choice should:
+      Then provide exactly {choices_count} compelling narrative choices as a JSON array. Each choice should:
       1. Offer meaningfully different story directions
       2. Be specific to the current scene and context
       3. Give readers genuine agency in the narrative
@@ -166,7 +166,7 @@ story_generation:
       IMPORTANT: Write choices in THIRD PERSON perspective describing what the character does, NOT what "I do" or "you do".
       Example: "Jack approaches the door cautiously" NOT "I approach the door cautiously" or "You approach the door cautiously"
       
-      Format: ["Choice 1 text here", "Choice 2 text here", "Choice 3 text here", "Choice 4 text here"]
+      Format: Provide exactly {choices_count} choices as a JSON array: ["Choice 1 text here", "Choice 2 text here", ...]
 
   choices:
     system: |
@@ -178,7 +178,7 @@ story_generation:
       5. Give players agency in how they want to proceed
       6. Are concise but descriptive (1-2 sentences each)
       
-      Generate exactly 4 choices. Each choice should feel distinct and meaningful.
+      Generate exactly {choices_count} choices. Each choice should feel distinct and meaningful.
     
     user: |
       Based on this scene:
@@ -408,7 +408,7 @@ summary_generation:
       After completing the scene narrative, add EXACTLY this line:
       ###CHOICES###
       
-      Then provide exactly 4 compelling narrative choices as a JSON array. Each choice should:
+      Then provide exactly {choices_count} compelling narrative choices as a JSON array. Each choice should:
       1. Offer meaningfully different story directions
       2. Be specific to the current scene and context
       3. Give readers genuine agency in the narrative
@@ -419,7 +419,7 @@ summary_generation:
       IMPORTANT: Write choices in THIRD PERSON perspective describing what the character does, NOT what "I do" or "you do".
       Example: "Jack approaches the door cautiously" NOT "I approach the door cautiously" or "You approach the door cautiously"
       
-      Format: ["Choice 1 text here", "Choice 2 text here", "Choice 3 text here", "Choice 4 text here"]
+      Format: Provide exactly {choices_count} choices as a JSON array: ["Choice 1 text here", "Choice 2 text here", ...]
 
   story_chapters:
     system: |
