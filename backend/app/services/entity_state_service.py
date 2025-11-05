@@ -213,6 +213,8 @@ If no changes for a category, use empty array. Return ONLY the JSON, no other te
                 max_tokens=1000
             )
             
+            logger.warning(f"RAW LLM RESPONSE - ENTITY STATES:\n{response}")
+            
             # Parse JSON response
             # Clean up response (remove markdown code blocks if present)
             response_clean = response.strip()

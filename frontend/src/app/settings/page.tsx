@@ -45,6 +45,7 @@ interface ContextSettings {
   summary_threshold: number;
   summary_threshold_tokens: number;
   enable_summarization: boolean;
+  character_extraction_threshold?: number;
   // Semantic Memory Settings
   enable_semantic_memory?: boolean;
   context_strategy?: string;
@@ -196,6 +197,7 @@ export default function SettingsPage() {
               keep_recent_scenes: 3,
               summary_threshold: 5,
               summary_threshold_tokens: 8000,
+              character_extraction_threshold: 5,
               enable_summarization: true,
             },
             generation_preferences: loadedSettings.generation_preferences || {
@@ -334,6 +336,7 @@ export default function SettingsPage() {
           keep_recent_scenes: settings.context_settings.keep_recent_scenes,
           summary_threshold: settings.context_settings.summary_threshold,
           summary_threshold_tokens: settings.context_settings.summary_threshold_tokens,
+          character_extraction_threshold: settings.context_settings.character_extraction_threshold || 5,
           enable_summarization: settings.context_settings.enable_summarization,
           // Semantic Memory Settings
           enable_semantic_memory: settings.context_settings.enable_semantic_memory,
@@ -1141,6 +1144,25 @@ export default function SettingsPage() {
                     />
                     <div className="text-xs text-gray-400 mt-1">
                       Start summarizing when story exceeds this many scenes (OR condition)
+                    </div>
+                  </div>
+
+                  {/* Character Extraction Threshold */}
+                  <div className="border border-blue-500 bg-blue-900/20 p-4 rounded-lg">
+                    <label className="block text-sm font-medium mb-2 text-white">
+                      Character Extraction Threshold: {settings.context_settings.character_extraction_threshold || 5} scenes
+                    </label>
+                    <input
+                      type="range"
+                      min="3"
+                      max="20"
+                      step="1"
+                      value={settings.context_settings.character_extraction_threshold || 5}
+                      onChange={(e) => updateContextSetting('character_extraction_threshold', parseInt(e.target.value))}
+                      className="w-full"
+                    />
+                    <div className="text-xs text-gray-300 mt-1">
+                      Run character/NPC extraction after this many scenes since last extraction. Batch processes all scenes since last extraction.
                     </div>
                   </div>
 

@@ -1,0 +1,181 @@
+================================================================================
+STREAMING SCENE GENERATION PROMPT (EXACTLY AS SENT TO LLM)
+================================================================================
+SYSTEM PROMPT:
+You are a skilled interactive fiction writer. Create engaging, immersive story scenes that:
+1. Advance the plot meaningfully using specific story context and established details
+2. Develop characters through action and dialogue, referencing their existing traits and relationships
+3. Maintain strict consistency with established story elements, characters, and world-building
+4. Create dramatic tension and forward momentum appropriate to the established genre and tone
+5. End at a natural stopping point that leaves the reader wanting more
+6. Use vivid, descriptive language that draws readers into the specific world of this story
+7. Keep appropriate pacing for the story moment and genre
+
+CRITICAL SPECIFICITY REQUIREMENTS:
+- Use SPECIFIC details from the story context (character names, places, events, relationships)
+- Reference previous scenes and established plot points directly
+- Maintain the established genre, tone, and writing style of the story
+- Build on existing character development and relationships
+- Advance specific plot threads that have been introduced
+- Use the story's unique world-building elements and setting details
+- AVOID generic scenarios - every detail should feel unique to THIS story
+
+FORMATTING REQUIREMENTS:
+- Use standard quotation marks for dialogue: "Hello," she said.
+- Wrap internal thoughts/monologue in asterisks: *I can't believe this is happening*
+- Use clear paragraph breaks between different speakers or actions
+- DO NOT include scene numbers or titles like "Scene 7:" at the beginning
+- DO NOT include choices, options, or "Do you:" prompts in the scene content
+- DO NOT ask questions to the reader like "What will you do?" or "What's your choice?"
+- DO NOT include phrases like "Choose your response:" or "The decision is yours"
+- Start directly with the narrative content
+- End with narrative action or dialogue, NOT with questions or prompts to the reader
+
+Write in third person ("He/She/They/Them") to maintain story like immersion. Focus ONLY on the story narrative and avoid any meta-commentary about choices.
+
+CRITICAL: This is pure narrative content. Do NOT include:
+- Any choices or options for the reader
+- Questions asking what the reader wants to do
+- "Do you:" followed by A/B/C/D options
+- "What do you do?" or similar prompts
+- "Choose your response:" or similar phrases
+- Any form of reader interaction or decision points
+
+Simply tell the story. End with action, dialogue, or description - never with reader prompts.
+--------------------------------------------------------------------------------
+USER PROMPT:
+Story Context:
+Genre: sci-fi
+
+Tone: dark
+
+Story Scenario: The quiet town of Cedar Falls had never seen anything like the massive armored vehicle that rolled into Main Street, its wheels crunching over the snow-packed roads. Rambo's calloused hands gripped the steering wheel as he watched his old friend Marcus emerge from the passenger seat, eyes hollow and face etched with exhaustion—a man who'd spent the last three months in hiding from his own government. Marcus had returned to warn him about a conspiracy that reached the highest levels of power, threatening to unleash a bioweapon on the town before dawn—unless they could stop it themselves. The weight of their shared past, the secrets Marcus had buried in that dark place, and Rambo's desperate need to protect the one person who might still believe he was worth saving all converged in a deadly race against time before the town's population vanished into darkness.
+
+This scenario establishes Rambo as both a protector and someone haunted by his past, creates immediate personal stakes between the two men through their shared history, and builds dramatic tension by placing them both at the center of a ticking time bomb conspiracy that threatens everyone they care about.
+
+Characters:
+- Rambo (protagonist): 6ft delta force specialist. Personality: funny
+- Marcus: 
+
+Story Summary: Hybrid context: 3 recent + semantic retrieval + entity states
+
+Previous Events:
+Story Summary:
+Chapter 1 (Chapter 1):  In Chapter 1, military veteran John Rambo reunites with his estranged friend Marcus in the frozen predawn hours outside Cedar Falls. Marcus reveals that a bioweapon has been deployed in the town, set to detonate via remote trigger during morning rush hour. Sheriff Kate Reynolds arrives, initially suspicious but becoming concerned when Marcus explains the threat. After a tense conversation, Rambo shows Reynolds their specialized weapons and equipment designed to combat enhanced threats. He learns that Project Ouroboros not only created bioweapons but also enhanced super-soldiers with specific vulnerabilities, and that conventional weapons are useless against them. As dawn approaches rapidly, they plan to split up to locate the device, with Rambo heading toward the warehouse district where an unexpected explosion suddenly occurs, forcing him to race toward the blast site alone while Marcus and Reynolds search the water treatment plant.
+
+CURRENT CHARACTER STATES:
+
+Rambo:
+  Location: null
+  Emotional State: desperate, determined, resigned
+  Physical Condition: null
+  Recent Knowledge: mission timeframe reduced; imminent threat to Cedar Falls; Breach at sector four
+  Key Relationships:
+
+
+CURRENT LOCATIONS:
+
+Main Street, Cedar Falls:
+  Condition: pre-dawn cold with snow
+  Atmosphere: tense confrontation
+  Present: Rambo, Marcus, Sheriff Reynolds
+
+Main Street:
+  Condition: snowy with long shadows
+  Atmosphere: tense with danger
+  Present: Rambo, Sheriff Reynolds, Marcus
+
+Cedar Falls:
+  Condition: unaware town beginning morning activities
+  Atmosphere: normal daily routine
+
+
+IMPORTANT OBJECTS:
+
+armed personnel carrier:
+  Location: Main Street, Cedar Falls
+  Condition: operational
+  Significance: represents unusual military presence
+
+airborne dispersal unit:
+  Location: unknown location in Cedar Falls
+  Condition: deployed
+  Significance: deadly weapon set to activate
+
+patrol car:
+  Location: Main Street, Cedar Falls
+  Condition: normal operation
+  Significance: represents local law enforcement
+
+Recent Scenes:
+Scene 17:  Rambo's hands flew across the wiring of the makeshift explosive, connecting the detonator with practiced precision despite the biting wind. Beside him, Marcus drifted in and out of consciousness, murmuring warnings about protocol shifts and failsafes that sounded increasingly delirious. Below, patrol cars converged near the warehouse, their flashing lights painting the snow in urgent blues and reds.
+
+"Thirty seconds till contact," Rambo muttered, mostly to himself, as the final connection sparked to life. He hauled Marcus upright, ignoring his friend's pained groan. "Hang on, buddy. We're almost there."
+
+The explosion rocked the structure, bending metal with a deafening roar. Rambo pushed Marcus through the newly created opening just as automatic fire erupted from below, bullets pinging off the water tower's steel frame. Once inside, Rambo sealed the hatch behind them, plunging them into darkness broken only by emergency lighting along the floor.
+
+Marcus sagged against the wall, his breathing ragged. "They changed the sequence, John. When we diverted power, they activated secondary defenses." His hand shook as he pointed deeper into the facility. "The control room—it's not where we thought."
+
+Footsteps echoed from the stairwell above them, heavy and deliberate. Someone was descending, blocking their only escape route upward. Rambo checked his ammunition—limited—and considered their options. Time, resources, and luck were running out simultaneously.
+
+Scene 18:  Rambo eased Marcus into the shadowed maintenance alcove, his friend barely conscious but breathing steadily. "Stay here. Don't move, don't make a sound," he whispered, receiving only a faint nod in response. As footsteps grew louder from the stairwell above, Rambo melted into the darkness, weapon raised, his training taking over completely. He positioned himself around a corner, listening as two guards approached, their equipment clanking softly in the enclosed space. When the first came into view, Rambo struck with surgical precision—a swift blow to the throat followed by a controlled fall that barely made a sound. The second guard turned at the subtle disturbance, but Rambo was already behind him, one arm wrapping around his neck while the other covered his mouth, cutting off any alarm. Forty-five seconds later, both lay unconscious and restrained with zip ties. Rambo moved silently back toward Marcus, knowing this was merely the first wave.
+
+Scene 19:  The air tasted of ozone and coolant, the emergency lights casting an eerie green glow along the corridor walls. Rambo moved with fluid precision, his boots making minimal sound on the grated flooring. Somewhere deeper within the facility, machinery hummed with increasing intensity—a vibration he felt in his bones rather than heard with his ears. Behind him, hidden in the maintenance alcove, Marcus remained mercifully silent.
+
+The path descended sharply, twisting into service tunnels marked with warning signs about radiation hazards. Rambo noted the rust and deterioration—evidence that whatever operation had once occupied these spaces was now abandoned, repurposed for something far more sinister. Up ahead, the tunnel opened into a larger chamber where catwalks traversed open space between massive tanks filled with murky liquid. Shadowy figures moved along the opposite walkway, their silhouettes distorted by the fluid reflections.
+
+"Secondary junction compromised," announced a metallic voice over a comm system, distant but audible. "Rerouting defensive assets."
+
+Rambo froze instinctively, watching as several figures broke away from the group and began moving purposefully in his direction. Time compressed as it always did in combat—each second elongating into crystal clarity. He counted five targets, all carrying submachine guns equipped with laser sights whose red beams cut through the gloom like knife slashes. Their movements were synchronized, professional—no doubt part of the same black ops team that had welded the hatch shut earlier.
+
+A sudden noise echoed down the tunnel—Marcus coughing violently in his hiding spot. Every head snapped toward the sound, followed by the unmistakable click of safeties being disengaged. The figures broke into a run, converging on the alcove where Marcus lay helpless. Rambo raised his weapon, calculated angles and trajectories in milliseconds, and took aim at the lead figure. But firing would reveal his position instantly, drawing all five combatants to him while leaving Marcus defenseless.
+
+
+==================================================
+IMMEDIATE SITUATION - FOCUS HERE
+==================================================
+Galactus appears and starts to devour earth causing mass panic and chaos.
+
+→ The next scene MUST directly dramatize this situation.
+→ Show what is happening RIGHT NOW.
+→ Do not skip ahead or summarize.
+
+Generate the next scene in this story. Make it engaging and immersive, approximately 400-500 words.
+Ensure the scene flows naturally from the previous events.
+
+IMPORTANT: Write ONLY the story content. Do not include any choices, options, or questions for the reader. 
+This should be pure narrative - just tell what happens next in the story.
+
+After completing the scene narrative, add EXACTLY this line:
+###CHOICES###
+
+Then provide exactly 4 compelling narrative choices as a JSON array. Each choice should:
+1. Offer meaningfully different story directions
+2. Be specific to the current scene and context
+3. Give readers genuine agency in the narrative
+4. Vary in risk/consequence level
+5. Be concise but evocative (1-2 sentences each)
+6. Match the story's POV - use third person (he/she/they/character name) NOT first person (I/me/my) or second person (you/your)
+
+IMPORTANT: Write choices in THIRD PERSON perspective describing what the character does, NOT what "I do" or "you do".
+Example: "Jack approaches the door cautiously" NOT "I approach the door cautiously" or "You approach the door cautiously"
+
+Format: Provide exactly 4 choices as a JSON array: ["Choice 1 text here", "Choice 2 text here", ...]
+--------------------------------------------------------------------------------
+GENERATION PARAMETERS:
+  max_tokens: 1000
+  temperature: 1.0
+  model: openai/behemothx
+--------------------------------------------------------------------------------
+FULL MESSAGES ARRAY (JSON):
+[
+  {
+    "role": "system",
+    "content": "You are a skilled interactive fiction writer. Create engaging, immersive story scenes that:\n1. Advance the plot meaningfully using specific story context and established details\n2. Develop characters through action and dialogue, referencing their existing traits and relationships\n3. Maintain strict consistency with established story elements, characters, and world-building\n4. Create dramatic tension and forward momentum appropriate to the established genre and tone\n5. End at a natural stopping point that leaves the reader wanting more\n6. Use vivid, descriptive language that draws readers into the specific world of this story\n7. Keep appropriate pacing for the story moment and genre\n\nCRITICAL SPECIFICITY REQUIREMENTS:\n- Use SPECIFIC details from the story context (character names, places, events, relationships)\n- Reference previous scenes and established plot points directly\n- Maintain the established genre, tone, and writing style of the story\n- Build on existing character development and relationships\n- Advance specific plot threads that have been introduced\n- Use the story's unique world-building elements and setting details\n- AVOID generic scenarios - every detail should feel unique to THIS story\n\nFORMATTING REQUIREMENTS:\n- Use standard quotation marks for dialogue: \"Hello,\" she said.\n- Wrap internal thoughts/monologue in asterisks: *I can't believe this is happening*\n- Use clear paragraph breaks between different speakers or actions\n- DO NOT include scene numbers or titles like \"Scene 7:\" at the beginning\n- DO NOT include choices, options, or \"Do you:\" prompts in the scene content\n- DO NOT ask questions to the reader like \"What will you do?\" or \"What's your choice?\"\n- DO NOT include phrases like \"Choose your response:\" or \"The decision is yours\"\n- Start directly with the narrative content\n- End with narrative action or dialogue, NOT with questions or prompts to the reader\n\nWrite in third person (\"He/She/They/Them\") to maintain story like immersion. Focus ONLY on the story narrative and avoid any meta-commentary about choices.\n\nCRITICAL: This is pure narrative content. Do NOT include:\n- Any choices or options for the reader\n- Questions asking what the reader wants to do\n- \"Do you:\" followed by A/B/C/D options\n- \"What do you do?\" or similar prompts\n- \"Choose your response:\" or similar phrases\n- Any form of reader interaction or decision points\n\nSimply tell the story. End with action, dialogue, or description - never with reader prompts."
+  },
+  {
+    "role": "user",
+    "content": "Story Context:\nGenre: sci-fi\n\nTone: dark\n\nStory Scenario: The quiet town of Cedar Falls had never seen anything like the massive armored vehicle that rolled into Main Street, its wheels crunching over the snow-packed roads. Rambo's calloused hands gripped the steering wheel as he watched his old friend Marcus emerge from the passenger seat, eyes hollow and face etched with exhaustion—a man who'd spent the last three months in hiding from his own government. Marcus had returned to warn him about a conspiracy that reached the highest levels of power, threatening to unleash a bioweapon on the town before dawn—unless they could stop it themselves. The weight of their shared past, the secrets Marcus had buried in that dark place, and Rambo's desperate need to protect the one person who might still believe he was worth saving all converged in a deadly race against time before the town's population vanished into darkness.\n\nThis scenario establishes Rambo as both a protector and someone haunted by his past, creates immediate personal stakes between the two men through their shared history, and builds dramatic tension by placing them both at the center of a ticking time bomb conspiracy that threatens everyone they care about.\n\nCharacters:\n- Rambo (protagonist): 6ft delta force specialist. Personality: funny\n- Marcus: \n\nStory Summary: Hybrid context: 3 recent + semantic retrieval + entity states\n\nPrevious Events:\nStory Summary:\nChapter 1 (Chapter 1):  In Chapter 1, military veteran John Rambo reunites with his estranged friend Marcus in the frozen predawn hours outside Cedar Falls. Marcus reveals that a bioweapon has been deployed in the town, set to detonate via remote trigger during morning rush hour. Sheriff Kate Reynolds arrives, initially suspicious but becoming concerned when Marcus explains the threat. After a tense conversation, Rambo shows Reynolds their specialized weapons and equipment designed to combat enhanced threats. He learns that Project Ouroboros not only created bioweapons but also enhanced super-soldiers with specific vulnerabilities, and that conventional weapons are useless against them. As dawn approaches rapidly, they plan to split up to locate the device, with Rambo heading toward the warehouse district where an unexpected explosion suddenly occurs, forcing him to race toward the blast site alone while Marcus and Reynolds search the water treatment plant.\n\nCURRENT CHARACTER STATES:\n\nRambo:\n  Location: null\n  Emotional State: desperate, determined, resigned\n  Physical Condition: null\n  Recent Knowledge: mission timeframe reduced; imminent threat to Cedar Falls; Breach at sector four\n  Key Relationships:\n\n\nCURRENT LOCATIONS:\n\nMain Street, Cedar Falls:\n  Condition: pre-dawn cold with snow\n  Atmosphere: tense confrontation\n  Present: Rambo, Marcus, Sheriff Reynolds\n\nMain Street:\n  Condition: snowy with long shadows\n  Atmosphere: tense with danger\n  Present: Rambo, Sheriff Reynolds, Marcus\n\nCedar Falls:\n  Condition: unaware town beginning morning activities\n  Atmosphere: normal daily routine\n\n\nIMPORTANT OBJECTS:\n\narmed personnel carrier:\n  Location: Main Street, Cedar Falls\n  Condition: operational\n  Significance: represents unusual military presence\n\nairborne dispersal unit:\n  Location: unknown location in Cedar Falls\n  Condition: deployed\n  Significance: deadly weapon set to activate\n\npatrol car:\n  Location: Main Street, Cedar Falls\n  Condition: normal operation\n  Significance: represents local law enforcement\n\nRecent Scenes:\nScene 17:  Rambo's hands flew across the wiring of the makeshift explosive, connecting the detonator with practiced precision despite the biting wind. Beside him, Marcus drifted in and out of consciousness, murmuring warnings about protocol shifts and failsafes that sounded increasingly delirious. Below, patrol cars converged near the warehouse, their flashing lights painting the snow in urgent blues and reds.\n\n\"Thirty seconds till contact,\" Rambo muttered, mostly to himself, as the final connection sparked to life. He hauled Marcus upright, ignoring his friend's pained groan. \"Hang on, buddy. We're almost there.\"\n\nThe explosion rocked the structure, bending metal with a deafening roar. Rambo pushed Marcus through the newly created opening just as automatic fire erupted from below, bullets pinging off the water tower's steel frame. Once inside, Rambo sealed the hatch behind them, plunging them into darkness broken only by emergency lighting along the floor.\n\nMarcus sagged against the wall, his breathing ragged. \"They changed the sequence, John. When we diverted power, they activated secondary defenses.\" His hand shook as he pointed deeper into the facility. \"The control room—it's not where we thought.\"\n\nFootsteps echoed from the stairwell above them, heavy and deliberate. Someone was descending, blocking their only escape route upward. Rambo checked his ammunition—limited—and considered their options. Time, resources, and luck were running out simultaneously.\n\nScene 18:  Rambo eased Marcus into the shadowed maintenance alcove, his friend barely conscious but breathing steadily. \"Stay here. Don't move, don't make a sound,\" he whispered, receiving only a faint nod in response. As footsteps grew louder from the stairwell above, Rambo melted into the darkness, weapon raised, his training taking over completely. He positioned himself around a corner, listening as two guards approached, their equipment clanking softly in the enclosed space. When the first came into view, Rambo struck with surgical precision—a swift blow to the throat followed by a controlled fall that barely made a sound. The second guard turned at the subtle disturbance, but Rambo was already behind him, one arm wrapping around his neck while the other covered his mouth, cutting off any alarm. Forty-five seconds later, both lay unconscious and restrained with zip ties. Rambo moved silently back toward Marcus, knowing this was merely the first wave.\n\nScene 19:  The air tasted of ozone and coolant, the emergency lights casting an eerie green glow along the corridor walls. Rambo moved with fluid precision, his boots making minimal sound on the grated flooring. Somewhere deeper within the facility, machinery hummed with increasing intensity—a vibration he felt in his bones rather than heard with his ears. Behind him, hidden in the maintenance alcove, Marcus remained mercifully silent.\n\nThe path descended sharply, twisting into service tunnels marked with warning signs about radiation hazards. Rambo noted the rust and deterioration—evidence that whatever operation had once occupied these spaces was now abandoned, repurposed for something far more sinister. Up ahead, the tunnel opened into a larger chamber where catwalks traversed open space between massive tanks filled with murky liquid. Shadowy figures moved along the opposite walkway, their silhouettes distorted by the fluid reflections.\n\n\"Secondary junction compromised,\" announced a metallic voice over a comm system, distant but audible. \"Rerouting defensive assets.\"\n\nRambo froze instinctively, watching as several figures broke away from the group and began moving purposefully in his direction. Time compressed as it always did in combat—each second elongating into crystal clarity. He counted five targets, all carrying submachine guns equipped with laser sights whose red beams cut through the gloom like knife slashes. Their movements were synchronized, professional—no doubt part of the same black ops team that had welded the hatch shut earlier.\n\nA sudden noise echoed down the tunnel—Marcus coughing violently in his hiding spot. Every head snapped toward the sound, followed by the unmistakable click of safeties being disengaged. The figures broke into a run, converging on the alcove where Marcus lay helpless. Rambo raised his weapon, calculated angles and trajectories in milliseconds, and took aim at the lead figure. But firing would reveal his position instantly, drawing all five combatants to him while leaving Marcus defenseless.\n\n\n==================================================\nIMMEDIATE SITUATION - FOCUS HERE\n==================================================\nGalactus appears and starts to devour earth causing mass panic and chaos.\n\n→ The next scene MUST directly dramatize this situation.\n→ Show what is happening RIGHT NOW.\n→ Do not skip ahead or summarize.\n\nGenerate the next scene in this story. Make it engaging and immersive, approximately 400-500 words.\nEnsure the scene flows naturally from the previous events.\n\nIMPORTANT: Write ONLY the story content. Do not include any choices, options, or questions for the reader. \nThis should be pure narrative - just tell what happens next in the story.\n\nAfter completing the scene narrative, add EXACTLY this line:\n###CHOICES###\n\nThen provide exactly 4 compelling narrative choices as a JSON array. Each choice should:\n1. Offer meaningfully different story directions\n2. Be specific to the current scene and context\n3. Give readers genuine agency in the narrative\n4. Vary in risk/consequence level\n5. Be concise but evocative (1-2 sentences each)\n6. Match the story's POV - use third person (he/she/they/character name) NOT first person (I/me/my) or second person (you/your)\n\nIMPORTANT: Write choices in THIRD PERSON perspective describing what the character does, NOT what \"I do\" or \"you do\".\nExample: \"Jack approaches the door cautiously\" NOT \"I approach the door cautiously\" or \"You approach the door cautiously\"\n\nFormat: Provide exactly 4 choices as a JSON array: [\"Choice 1 text here\", \"Choice 2 text here\", ...]"
+  }
+]
+================================================================================
