@@ -116,6 +116,18 @@ class ContextManager:
                     "relationships": ""  # Could extract from StoryCharacter relationships JSON if needed
                 })
         
+        # Add important NPCs that crossed threshold
+        try:
+            from .npc_tracking_service import NPCTrackingService
+            npc_service = NPCTrackingService(user_id=self.user_id, user_settings=self.user_settings)
+            npc_characters = npc_service.get_important_npcs_for_context(db, story_id)
+            characters.extend(npc_characters)
+            logger.warning(f"[CONTEXT BUILD] Added {len(npc_characters)} important NPCs to context (total characters now: {len(characters)})")
+            if npc_characters:
+                logger.warning(f"[CONTEXT BUILD] NPCs added: {[npc.get('name', 'Unknown') for npc in npc_characters]}")
+        except Exception as e:
+            logger.warning(f"Failed to include NPCs in context: {e}")
+        
         # Build base context
         base_context = {
             "story_id": story_id,

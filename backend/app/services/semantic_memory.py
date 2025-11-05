@@ -8,11 +8,15 @@ enabling intelligent context retrieval beyond simple recency-based selection.
 import logging
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
+import os
+
+# Disable ChromaDB telemetry before importing
+os.environ["ANONYMIZED_TELEMETRY"] = "FALSE"
+
 import chromadb
 from chromadb.config import Settings
 # SentenceTransformer is imported lazily in _ensure_model_loaded to avoid blocking startup
 from sqlalchemy.orm import Session
-import os
 import hashlib
 
 logger = logging.getLogger(__name__)
