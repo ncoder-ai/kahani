@@ -1214,12 +1214,11 @@ class UnifiedLLMService:
         CHOICES_MARKER = "###CHOICES###"
         
         # Log inputs for debugging
-        logger.info(f"Variant generation - original_scene length: {len(original_scene) if original_scene else 0}")
         logger.info(f"Variant generation - context type: {type(context)}")
         
+        # Use the same prompt template as new scene generation - no variant-specific processing
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-            "scene_variants_streaming", "scene_variants_streaming",
-            original_scene=original_scene,
+            "scene_generation", "scene_generation",
             context=self._format_context_for_scene(context)
         )
         
@@ -1228,10 +1227,10 @@ class UnifiedLLMService:
         logger.info(f"Variant generation - user_prompt length: {len(user_prompt) if user_prompt else 0}")
         
         if not user_prompt or not user_prompt.strip():
-            logger.error(f"Empty user prompt generated for variant. Original scene: {original_scene[:100] if original_scene else 'None'}")
+            logger.error("Empty user prompt generated for variant generation")
             raise ValueError("Generated empty user prompt for variant generation")
         
-        max_tokens = prompt_manager.get_max_tokens("scene_variants", user_settings)
+        max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
         
         scene_buffer = []
         choices_buffer = []
@@ -2043,6 +2042,31 @@ class UnifiedLLMService:
             .order_by(SceneVariant.variant_number)\
             .all()
 
+    def get_active_scene_count(self, db: Session, story_id: int, chapter_id: Optional[int] = None) -> int:
+        """
+        Get count of active scenes from StoryFlow.
+        
+        Args:
+            db: Database session
+            story_id: Story ID
+            chapter_id: Optional chapter ID to filter scenes by chapter
+            
+        Returns:
+            Count of active scenes in the story flow
+        """
+        from ...models import StoryFlow, Scene
+        
+        query = db.query(StoryFlow).filter(
+            StoryFlow.story_id == story_id,
+            StoryFlow.is_active == True
+        )
+        
+        if chapter_id:
+            # Join with Scene to filter by chapter
+            query = query.join(Scene).filter(Scene.chapter_id == chapter_id)
+        
+        return query.count()
+    
     def get_active_story_flow(self, db: Session, story_id: int) -> List[Dict[str, Any]]:
         """Get the active story flow with scene variants"""
         from ...models import StoryFlow, Scene, SceneVariant, SceneChoice
@@ -2162,11 +2186,25 @@ class UnifiedLLMService:
                     # Continue with deletion even if cleanup fails
             logger.info(f"[DELETE] Completed cleanup for all {len(scenes_to_delete)} scenes")
             
+            # Get affected chapter IDs before deleting scenes
+            affected_chapter_ids = set()
+            for scene in scenes_to_delete:
+                if scene.chapter_id:
+                    affected_chapter_ids.add(scene.chapter_id)
+            
             # Delete each scene individually to trigger cascade relationships
             scenes_deleted = 0
             for scene in scenes_to_delete:
                 db.delete(scene)
                 scenes_deleted += 1
+            
+            # Recalculate scenes_count for affected chapters
+            from ...models import Chapter
+            for chapter_id in affected_chapter_ids:
+                chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+                if chapter:
+                    chapter.scenes_count = self.get_active_scene_count(db, story_id, chapter_id)
+                    logger.info(f"[DELETE] Updated chapter {chapter_id} scenes_count to {chapter.scenes_count}")
             
             # Commit the transaction
             db.commit()

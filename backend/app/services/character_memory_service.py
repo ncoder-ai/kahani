@@ -540,10 +540,10 @@ If no moments found, return {{"moments": []}}. Return ONLY the JSON, no other te
                     if char_name and content:
                         validated_moments.append({
                             'character_name': char_name,
-                            'moment_type': moment_type,
-                            'content': content,
+                        'moment_type': moment_type,
+                        'content': content,
                             'confidence': confidence
-                        })
+                    })
                     else:
                         logger.warning(f"Skipping moment with missing character_name or content: {moment}")
                         

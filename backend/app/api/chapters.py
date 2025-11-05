@@ -339,6 +339,11 @@ async def get_chapter_context_status(
     
     # TODO: Add time-based detection in future
     
+    # Calculate scenes_count dynamically from active StoryFlow instead of using stored value
+    from ..services.llm.service import UnifiedLLMService
+    llm_service = UnifiedLLMService()
+    active_scenes_count = llm_service.get_active_scene_count(db, story_id, chapter_id)
+    
     return ChapterContextStatus(
         chapter_id=chapter_id,
         current_tokens=chapter.context_tokens_used,
@@ -346,7 +351,7 @@ async def get_chapter_context_status(
         percentage_used=round(percentage_used, 2),
         should_create_new_chapter=should_create_new,
         reason=reason,
-        scenes_count=chapter.scenes_count
+        scenes_count=active_scenes_count
     )
 
 
@@ -631,8 +636,10 @@ async def delete_chapter_content(
     for scene in scenes:
         db.delete(scene)
     
+    # Recalculate scenes_count from active StoryFlow (should be 0 after deletion)
+    chapter.scenes_count = llm_service.get_active_scene_count(db, story_id, chapter_id)
+    
     # Reset chapter metrics
-    chapter.scenes_count = 0
     chapter.context_tokens_used = 0
     chapter.auto_summary = None
     chapter.last_summary_scene_count = 0
