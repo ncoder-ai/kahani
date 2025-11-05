@@ -661,8 +661,8 @@ async def generate_scene(
                 detail=f"Failed to generate scene: {str(e)}"
             )
     
-    # Create scene with variant system
-    current_scene_count = db.query(Scene).filter(Scene.story_id == story_id).count()
+    # Create scene with variant system - use active scene count from StoryFlow
+    current_scene_count = llm_service.get_active_scene_count(db, story_id)
     next_sequence = current_scene_count + 1
     
     # Format choices from parsed result or fallback
@@ -862,8 +862,8 @@ async def generate_scene_streaming_endpoint(
             detail=f"Failed to prepare story context: {str(e)}"
         )
     
-    # Calculate next sequence number
-    current_scene_count = db.query(Scene).filter(Scene.story_id == story_id).count()
+    # Calculate next sequence number - use active scene count from StoryFlow
+    current_scene_count = llm_service.get_active_scene_count(db, story_id)
     next_sequence = current_scene_count + 1
     
     async def generate_stream():
@@ -1021,7 +1021,8 @@ async def generate_scene_streaming_endpoint(
                 # Update chapter token tracking
                 scene_tokens = context_manager.count_tokens(full_content.strip())
                 active_chapter.context_tokens_used += scene_tokens
-                active_chapter.scenes_count += 1
+                # Recalculate scenes_count from active StoryFlow instead of incrementing
+                active_chapter.scenes_count = llm_service.get_active_scene_count(db, story_id, active_chapter.id)
                 
                 db.commit()
                 logger.info(f"[CHAPTER] Linked scene {scene.id} to chapter {active_chapter.id} ({active_chapter.scenes_count} scenes, {active_chapter.context_tokens_used} tokens)")
@@ -2002,8 +2003,8 @@ async def create_scene_variant_streaming(
             # Send initial metadata
             yield f"data: {json.dumps({'type': 'start', 'scene_id': scene_id})}\n\n"
             
-            # Build context for variant generation
-            context_manager = ContextManager(user_settings=user_settings, user_id=current_user.id)
+            # Build context for variant generation - use same context manager as new scene generation
+            context_manager = get_context_manager_for_user(user_settings, current_user.id)
             
             # Get custom_prompt from proper request model
             custom_prompt = request.custom_prompt or ""
