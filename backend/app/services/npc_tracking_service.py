@@ -17,6 +17,7 @@ from ..models import (
     NPCMention, NPCTracking, StoryCharacter, Character, Scene, Story
 )
 from ..services.llm.service import UnifiedLLMService
+from ..services.llm.extraction_service import ExtractionLLMService
 from ..config import settings
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,7 @@ class NPCTrackingService:
         self.user_settings = user_settings
         self.llm_service = UnifiedLLMService()
         self.importance_threshold = user_settings.get("npc_importance_threshold", settings.npc_importance_threshold)
+        self.extraction_service = None  # Will be initialized conditionally
     
     async def extract_npcs_from_scenes_batch(
         self,
@@ -188,6 +190,38 @@ class NPCTrackingService:
                 "extraction_successful": False
             }
     
+    def _get_extraction_service(self) -> Optional[ExtractionLLMService]:
+        """
+        Get or create extraction service if enabled in user settings
+        
+        Returns:
+            ExtractionLLMService instance or None if not enabled
+        """
+        # Check if extraction model is enabled
+        extraction_settings = self.user_settings.get('extraction_model_settings', {})
+        if not extraction_settings.get('enabled', False):
+            return None
+        
+        try:
+            # Get extraction model configuration
+            url = extraction_settings.get('url', 'http://localhost:1234/v1')
+            model = extraction_settings.get('model_name', 'qwen2.5-3b-instruct')
+            api_key = extraction_settings.get('api_key', '')
+            temperature = extraction_settings.get('temperature', 0.3)
+            max_tokens = extraction_settings.get('max_tokens', 1000)
+            
+            # Create extraction service
+            return ExtractionLLMService(
+                url=url,
+                model=model,
+                api_key=api_key,
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+        except Exception as e:
+            logger.warning(f"Failed to initialize extraction service: {e}")
+            return None
+    
     async def _extract_npcs_with_llm_batch(
         self,
         batch_content: str,
@@ -195,10 +229,40 @@ class NPCTrackingService:
     ) -> Optional[Dict[str, Any]]:
         """
         Use LLM to extract NPCs from multiple scenes in batch.
+        Tries extraction model first, falls back to main LLM if enabled.
         
         Returns JSON with NPC information (not mapped to scenes).
         """
+        # Try extraction model first if enabled
+        extraction_service = self._get_extraction_service()
+        if extraction_service:
+            try:
+                logger.info(f"Using extraction model for batch NPC extraction (user {self.user_id})")
+                npc_data = await extraction_service.extract_npcs_batch(
+                    batch_content=batch_content,
+                    explicit_character_names=explicit_character_names
+                )
+                
+                # Validate NPCs
+                validated_npcs = self._validate_npcs(npc_data.get('npcs', []) if npc_data else [])
+                if validated_npcs:
+                    logger.info(f"Extraction model successfully extracted {len(validated_npcs)} NPCs from batch")
+                    return {'npcs': validated_npcs}
+                else:
+                    logger.warning("Extraction model returned no valid NPCs from batch, falling back to main LLM")
+            except Exception as e:
+                logger.warning(f"Extraction model batch extraction failed: {e}, falling back to main LLM")
+                # Continue to fallback
+        
+        # Fallback to main LLM
+        fallback_enabled = self.user_settings.get('extraction_model_settings', {}).get('fallback_to_main', True)
+        if not fallback_enabled and extraction_service:
+            logger.warning("Extraction model failed and fallback disabled, returning empty results")
+            return {'npcs': []}
+        
         try:
+            logger.info(f"Using main LLM for batch NPC extraction (user {self.user_id})")
+            
             explicit_names_str = ", ".join(explicit_character_names) if explicit_character_names else "None"
             
             prompt = f"""Analyze these story scenes and extract ALL named entities (characters, beings, entities) 
@@ -264,12 +328,11 @@ If no NPCs found, return {{"npcs": []}}. Return ONLY the JSON, no other text."""
                 response_clean = response_clean[:-3]
             response_clean = response_clean.strip()
             
-            import json
             npc_data = json.loads(response_clean)
             return npc_data
             
         except Exception as e:
-            logger.error(f"Failed to extract NPCs with LLM (batch): {e}")
+            logger.error(f"Main LLM batch NPC extraction failed: {e}")
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
             return None
@@ -380,10 +443,41 @@ If no NPCs found, return {{"npcs": []}}. Return ONLY the JSON, no other text."""
     ) -> Optional[Dict[str, Any]]:
         """
         Use LLM to extract NPCs from a scene.
+        Tries extraction model first, falls back to main LLM if enabled.
         
         Returns JSON with NPC information.
         """
+        # Try extraction model first if enabled
+        extraction_service = self._get_extraction_service()
+        if extraction_service:
+            try:
+                logger.info(f"Using extraction model for NPC extraction (user {self.user_id})")
+                npc_data = await extraction_service.extract_npcs(
+                    scene_content=scene_content,
+                    scene_sequence=scene_sequence,
+                    explicit_character_names=explicit_character_names
+                )
+                
+                # Validate NPCs
+                validated_npcs = self._validate_npcs(npc_data.get('npcs', []) if npc_data else [])
+                if validated_npcs:
+                    logger.info(f"Extraction model successfully extracted {len(validated_npcs)} NPCs")
+                    return {'npcs': validated_npcs}
+                else:
+                    logger.warning("Extraction model returned no valid NPCs, falling back to main LLM")
+            except Exception as e:
+                logger.warning(f"Extraction model failed: {e}, falling back to main LLM")
+                # Continue to fallback
+        
+        # Fallback to main LLM
+        fallback_enabled = self.user_settings.get('extraction_model_settings', {}).get('fallback_to_main', True)
+        if not fallback_enabled and extraction_service:
+            logger.warning("Extraction model failed and fallback disabled, returning empty results")
+            return {'npcs': []}
+        
         try:
+            logger.info(f"Using main LLM for NPC extraction (user {self.user_id})")
+            
             explicit_names_str = ", ".join(explicit_character_names) if explicit_character_names else "None"
             
             prompt = f"""Analyze this story scene and extract ALL named entities (characters, beings, entities) 
@@ -458,8 +552,62 @@ If no NPCs found, return {{"npcs": []}}. Return ONLY the JSON, no other text."""
             logger.debug(f"Cleaned response was: {response_clean}")
             return None
         except Exception as e:
-            logger.error(f"Failed to extract NPCs: {e}")
+            logger.error(f"Main LLM NPC extraction failed: {e}")
             return None
+    
+    def _validate_npcs(self, npcs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Validate and normalize NPC dictionaries
+        
+        Args:
+            npcs: List of raw NPC dictionaries
+            
+        Returns:
+            List of validated NPC dictionaries
+        """
+        validated = []
+        for npc in npcs:
+            try:
+                name = npc.get('name', '').strip()
+                if not name:
+                    logger.warning(f"Skipping NPC with missing name: {npc}")
+                    continue
+                
+                # Normalize fields
+                mention_count = npc.get('mention_count', 0)
+                try:
+                    mention_count = int(mention_count)
+                    mention_count = max(mention_count, 0)
+                except (ValueError, TypeError):
+                    mention_count = 1
+                
+                has_dialogue = bool(npc.get('has_dialogue', False))
+                has_actions = bool(npc.get('has_actions', False))
+                has_relationships = bool(npc.get('has_relationships', False))
+                
+                context_snippets = npc.get('context_snippets', [])
+                if not isinstance(context_snippets, list):
+                    context_snippets = []
+                
+                properties = npc.get('properties', {})
+                if not isinstance(properties, dict):
+                    properties = {}
+                
+                validated.append({
+                    'name': name,
+                    'mention_count': mention_count,
+                    'has_dialogue': has_dialogue,
+                    'has_actions': has_actions,
+                    'has_relationships': has_relationships,
+                    'context_snippets': context_snippets,
+                    'properties': properties
+                })
+                
+            except Exception as e:
+                logger.warning(f"Failed to validate NPC: {npc}, error: {e}")
+                continue
+        
+        return validated
     
     async def _update_npc_tracking(
         self,

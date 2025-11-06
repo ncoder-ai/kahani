@@ -68,6 +68,16 @@ interface ContextSettings {
   extraction_confidence_threshold?: number;
 }
 
+interface ExtractionModelSettings {
+  enabled: boolean;
+  url: string;
+  api_key: string;
+  model_name: string;
+  temperature: number;
+  max_tokens: number;
+  fallback_to_main: boolean;
+}
+
 interface TTSProvider {
   type: string;
   name: string;
@@ -181,6 +191,22 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     auto_extract_plot_events: false,
     extraction_confidence_threshold: 0.8,
   });
+  
+  // Extraction Model Settings
+  const [extractionModelSettings, setExtractionModelSettings] = useState<ExtractionModelSettings>({
+    enabled: false,
+    url: 'http://localhost:1234/v1',
+    api_key: '',
+    model_name: 'qwen2.5-3b-instruct',
+    temperature: 0.3,
+    max_tokens: 1000,
+    fallback_to_main: true,
+  });
+  const [extractionPresets, setExtractionPresets] = useState<Record<string, any>>({});
+  const [testingExtractionConnection, setTestingExtractionConnection] = useState(false);
+  const [connectionTestResult, setConnectionTestResult] = useState<{success: boolean; message: string} | null>(null);
+  const [availableExtractionModels, setAvailableExtractionModels] = useState<string[]>([]);
+  const [loadingExtractionModels, setLoadingExtractionModels] = useState(false);
   
   // Generation Preferences
   const [generationPrefs, setGenerationPrefs] = useState<GenerationPreferences>({
@@ -360,6 +386,34 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           // Set defaults if not present
           setSttEnabled(true);
           setSttModel('small');
+        }
+        
+        // Load Extraction Model settings
+        if (settings?.extraction_model_settings) {
+          setExtractionModelSettings({
+            enabled: settings.extraction_model_settings.enabled ?? false,
+            url: settings.extraction_model_settings.url || 'http://localhost:1234/v1',
+            api_key: settings.extraction_model_settings.api_key || '',
+            model_name: settings.extraction_model_settings.model_name || 'qwen2.5-3b-instruct',
+            temperature: settings.extraction_model_settings.temperature ?? 0.3,
+            max_tokens: settings.extraction_model_settings.max_tokens ?? 1000,
+            fallback_to_main: settings.extraction_model_settings.fallback_to_main !== false,
+          });
+        }
+        
+        // Load extraction model presets
+        try {
+          const presetsResponse = await fetch(`${getApiBaseUrl()}/api/settings/extraction-model/presets`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+          });
+          if (presetsResponse.ok) {
+            const presetsData = await presetsResponse.json();
+            setExtractionPresets(presetsData.presets || {});
+          }
+        } catch (error) {
+          console.error('Failed to load extraction model presets:', error);
         }
       }
     } catch (error) {
@@ -722,6 +776,45 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       showMessage(`Failed to fetch models: ${errorMessage}`, 'error');
     } finally {
       setLoadingModels(false);
+    }
+  };
+
+  const fetchExtractionModels = async () => {
+    if (!extractionModelSettings.url) {
+      showMessage('Please enter an API URL first', 'error');
+      return;
+    }
+
+    setLoadingExtractionModels(true);
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/api/settings/extraction-model/available-models`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          url: extractionModelSettings.url,
+          api_key: extractionModelSettings.api_key,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setAvailableExtractionModels(data.models);
+          showMessage(`Found ${data.models.length} available models`, 'success');
+        } else {
+          showMessage(data.message || 'Failed to fetch models', 'error');
+        }
+      } else {
+        throw new Error(`Request failed: ${response.status}`);
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      showMessage(`Failed to fetch models: ${errorMessage}`, 'error');
+    } finally {
+      setLoadingExtractionModels(false);
     }
   };
 
@@ -2349,6 +2442,239 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   </div>
                 </div>
 
+                {/* Local Extraction Model */}
+                <div className="space-y-4 pt-4 border-t border-gray-700">
+                  <h4 className="text-md font-semibold text-white mb-3">Local Extraction Model (Ollama/LM Studio)</h4>
+                  <div className="text-xs text-gray-400 mb-4">
+                    Use a small local model for plot event extraction to reduce costs. Works with any OpenAI-compatible endpoint.
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={extractionModelSettings.enabled}
+                        onChange={(e) => setExtractionModelSettings({ ...extractionModelSettings, enabled: e.target.checked })}
+                        className="w-4 h-4 rounded"
+                      />
+                      <span className="text-sm text-white">Enable local extraction model</span>
+                    </label>
+                    
+                    {extractionModelSettings.enabled && (
+                      <div className="space-y-4 pl-6 border-l-2 border-gray-700">
+                        {/* Preset Selector */}
+                        <div>
+                          <label className="block text-sm font-medium text-white mb-2">
+                            Preset
+                          </label>
+                          <select
+                            value=""
+                            onChange={(e) => {
+                              const preset = extractionPresets[e.target.value];
+                              if (preset) {
+                                setExtractionModelSettings({
+                                  ...extractionModelSettings,
+                                  url: preset.url,
+                                  api_key: preset.api_key || '',
+                                  model_name: preset.model_name,
+                                });
+                              }
+                            }}
+                            className="w-full px-3 py-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
+                          >
+                            <option value="">Select a preset...</option>
+                            {Object.entries(extractionPresets).map(([key, preset]: [string, any]) => (
+                              <option key={key} value={key}>{preset.name}</option>
+                            ))}
+                          </select>
+                          <div className="text-xs text-gray-400 mt-1">
+                            Quick configuration for popular inference servers
+                          </div>
+                        </div>
+                        
+                        {/* API URL */}
+                        <div>
+                          <label className="block text-sm font-medium text-white mb-2">
+                            API URL
+                          </label>
+                          <input
+                            type="text"
+                            value={extractionModelSettings.url}
+                            onChange={(e) => setExtractionModelSettings({ ...extractionModelSettings, url: e.target.value })}
+                            placeholder="http://localhost:1234/v1"
+                            className="w-full px-3 py-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
+                          />
+                          <div className="text-xs text-gray-400 mt-1">
+                            OpenAI-compatible endpoint URL (must end with /v1)
+                          </div>
+                        </div>
+                        
+                        {/* API Key */}
+                        <div>
+                          <label className="block text-sm font-medium text-white mb-2">
+                            API Key (optional)
+                          </label>
+                          <input
+                            type="password"
+                            value={extractionModelSettings.api_key}
+                            onChange={(e) => setExtractionModelSettings({ ...extractionModelSettings, api_key: e.target.value })}
+                            placeholder="Leave empty for local servers"
+                            className="w-full px-3 py-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
+                          />
+                          <div className="text-xs text-gray-400 mt-1">
+                            Only needed for secured endpoints
+                          </div>
+                        </div>
+                        
+                        {/* Model Name */}
+                        <div>
+                          <label className="block text-sm font-medium text-white mb-2">
+                            Model Name
+                          </label>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={extractionModelSettings.model_name}
+                              onChange={(e) => setExtractionModelSettings({ ...extractionModelSettings, model_name: e.target.value })}
+                              placeholder="qwen2.5-3b-instruct"
+                              className="flex-1 px-3 py-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
+                            />
+                            <button
+                              onClick={fetchExtractionModels}
+                              disabled={loadingExtractionModels || !extractionModelSettings.url}
+                              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded font-medium"
+                            >
+                              {loadingExtractionModels ? 'Loading...' : 'Fetch Models'}
+                            </button>
+                          </div>
+                          <div className="text-xs text-gray-400 mt-1">
+                            Model name as recognized by your inference server
+                          </div>
+                        </div>
+                        
+                        {/* Available Models Dropdown */}
+                        {availableExtractionModels.length > 0 && (
+                          <div>
+                            <label className="block text-sm font-medium text-white mb-2">Select Model</label>
+                            <select
+                              value={extractionModelSettings.model_name || ''}
+                              onChange={(e) => setExtractionModelSettings({ ...extractionModelSettings, model_name: e.target.value })}
+                              className="w-full px-3 py-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
+                            >
+                              <option value="">Select a model...</option>
+                              {availableExtractionModels.map((model) => (
+                                <option key={model} value={model}>
+                                  {model}
+                                </option>
+                              ))}
+                            </select>
+                            <div className="text-xs text-gray-400 mt-1">
+                              {availableExtractionModels.length} models available
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Temperature */}
+                        <div>
+                          <label className="block text-sm font-medium text-white mb-2">
+                            Temperature: {extractionModelSettings.temperature}
+                          </label>
+                          <input
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.1"
+                            value={extractionModelSettings.temperature}
+                            onChange={(e) => setExtractionModelSettings({ ...extractionModelSettings, temperature: parseFloat(e.target.value) })}
+                            className="w-full"
+                          />
+                          <div className="text-xs text-gray-400 mt-1">
+                            Lower = more deterministic JSON output (recommended: 0.3)
+                          </div>
+                        </div>
+                        
+                        {/* Max Tokens */}
+                        <div>
+                          <label className="block text-sm font-medium text-white mb-2">
+                            Max Tokens: {extractionModelSettings.max_tokens}
+                          </label>
+                          <input
+                            type="range"
+                            min="500"
+                            max="2000"
+                            step="100"
+                            value={extractionModelSettings.max_tokens}
+                            onChange={(e) => setExtractionModelSettings({ ...extractionModelSettings, max_tokens: parseInt(e.target.value) })}
+                            className="w-full"
+                          />
+                          <div className="text-xs text-gray-400 mt-1">
+                            Maximum tokens per extraction (1000 recommended)
+                          </div>
+                        </div>
+                        
+                        {/* Fallback Toggle */}
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={extractionModelSettings.fallback_to_main}
+                            onChange={(e) => setExtractionModelSettings({ ...extractionModelSettings, fallback_to_main: e.target.checked })}
+                            className="w-4 h-4 rounded"
+                          />
+                          <span className="text-sm text-white">Fallback to main LLM on failure</span>
+                        </label>
+                        <div className="text-xs text-gray-400 ml-6">
+                          If enabled, uses main LLM if extraction model fails
+                        </div>
+                        
+                        {/* Test Connection Button */}
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={async () => {
+                              setTestingExtractionConnection(true);
+                              setConnectionTestResult(null);
+                              try {
+                                const response = await fetch(`${getApiBaseUrl()}/api/settings/extraction-model/test`, {
+                                  method: 'POST',
+                                  headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Bearer ${token}`,
+                                  },
+                                  body: JSON.stringify({
+                                    url: extractionModelSettings.url,
+                                    api_key: extractionModelSettings.api_key,
+                                    model_name: extractionModelSettings.model_name,
+                                  }),
+                                });
+                                const result = await response.json();
+                                setConnectionTestResult({
+                                  success: result.success,
+                                  message: result.message,
+                                });
+                              } catch (error) {
+                                setConnectionTestResult({
+                                  success: false,
+                                  message: `Connection test failed: ${error}`,
+                                });
+                              } finally {
+                                setTestingExtractionConnection(false);
+                              }
+                            }}
+                            disabled={testingExtractionConnection}
+                            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded font-medium"
+                          >
+                            {testingExtractionConnection ? 'Testing...' : 'Test Connection'}
+                          </button>
+                          {connectionTestResult && (
+                            <span className={`text-sm ${connectionTestResult.success ? 'text-green-400' : 'text-red-400'}`}>
+                              {connectionTestResult.success ? '✓' : '✗'} {connectionTestResult.message}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
                 {/* Generation Preferences */}
                 <div className="space-y-4">
                   <h4 className="text-md font-semibold text-white mb-3">Generation Preferences</h4>
@@ -2410,6 +2736,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                           body: JSON.stringify({
                             context_settings: contextSettings,
                             generation_preferences: generationPrefs,
+                            extraction_model_settings: extractionModelSettings,
                           }),
                         });
                         if (response.ok) {

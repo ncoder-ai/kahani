@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     auto_extract_plot_events: bool = True  # Automatically extract plot events
     extraction_confidence_threshold: int = 70  # Minimum confidence (0-100) for auto-extraction
     
+    # Extraction Model Configuration
+    extraction_model_enabled: bool = False  # Enable local extraction model by default
+    extraction_model_url: str = "http://localhost:1234/v1"  # LM Studio default, works with any OpenAI-compatible endpoint
+    recommended_extraction_models: List[str] = ["qwen2.5-3b-instruct", "ministral-3b-instruct", "phi-3-mini"]  # Recommended small uncensored models
+    
     # NPC Tracking Configuration
     npc_tracking_enabled: bool = True  # Enable automatic NPC tracking from scenes
     npc_importance_threshold: float = 1.0  # Importance score threshold for including NPCs in context

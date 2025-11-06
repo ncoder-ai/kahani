@@ -84,6 +84,15 @@ class UserSettings(Base):
     stt_enabled = Column(Boolean, default=True)  # User can enable/disable STT
     stt_model = Column(String(20), default="small")  # base, small, medium
     
+    # Extraction Model Settings
+    extraction_model_enabled = Column(Boolean, default=False)  # Enable local extraction model
+    extraction_model_url = Column(String(500), default="http://localhost:1234/v1")  # OpenAI-compatible endpoint URL
+    extraction_model_api_key = Column(String(500), default="")  # API key if required
+    extraction_model_name = Column(String(200), default="qwen2.5-3b-instruct")  # Model name
+    extraction_model_temperature = Column(Float, default=0.3)  # Temperature for extraction
+    extraction_model_max_tokens = Column(Integer, default=1000)  # Max tokens for extraction
+    extraction_fallback_to_main = Column(Boolean, default=True)  # Fallback to main LLM on failure
+    
     # Advanced Settings
     custom_system_prompt = Column(Text, default="")
     enable_experimental_features = Column(Boolean, default=False)
@@ -163,6 +172,15 @@ class UserSettings(Base):
                 "enabled": self.stt_enabled if self.stt_enabled is not None else True,
                 "model": self.stt_model if self.stt_model is not None else "small"
             },
+            "extraction_model_settings": {
+                "enabled": self.extraction_model_enabled if self.extraction_model_enabled is not None else False,
+                "url": self.extraction_model_url or "http://localhost:1234/v1",
+                "api_key": self.extraction_model_api_key or "",
+                "model_name": self.extraction_model_name or "qwen2.5-3b-instruct",
+                "temperature": self.extraction_model_temperature if self.extraction_model_temperature is not None else 0.3,
+                "max_tokens": self.extraction_model_max_tokens if self.extraction_model_max_tokens is not None else 1000,
+                "fallback_to_main": self.extraction_fallback_to_main if self.extraction_fallback_to_main is not None else True
+            },
             "advanced": {
                 "custom_system_prompt": self.custom_system_prompt,
                 "experimental_features": self.enable_experimental_features
@@ -238,5 +256,14 @@ class UserSettings(Base):
             "advanced": {
                 "custom_system_prompt": "",
                 "experimental_features": False
+            },
+            "extraction_model_settings": {
+                "enabled": False,
+                "url": "http://localhost:1234/v1",
+                "api_key": "",
+                "model_name": "qwen2.5-3b-instruct",
+                "temperature": 0.3,
+                "max_tokens": 1000,
+                "fallback_to_main": True
             }
         }

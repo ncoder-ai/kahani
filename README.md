@@ -67,6 +67,7 @@ Kahani (meaning "story" in Hindi) is a modern interactive storytelling platform 
 - **Hybrid Context Assembly**: Combine recent scenes with semantically relevant moments
 - **Character Moment Extraction**: Automatically extract and track significant character moments
 - **Plot Event Tracking**: Identify and track important plot developments
+- **Local Extraction Models**: Use small local models (LM Studio, Ollama, etc.) for cost-effective extraction
 - **Context Strategy Options**: Choose between linear, hybrid, or semantic-only context strategies
 - **Token-Efficient Context**: Intelligent context selection to maximize relevant information
 - **Embedding-Based Retrieval**: Vector search for finding related story elements
@@ -333,6 +334,7 @@ KAHANI_ENV=production docker-compose -f docker-compose.network.yml up -d
 | [docs/SECURITY_CHECKLIST.md](docs/SECURITY_CHECKLIST.md) | 🔒 Pre/post-deployment security checklist |
 | [CONFIGURATION_GUIDE.md](CONFIGURATION_GUIDE.md) | Complete configuration guide |
 | [NETWORK_CONFIGURATION.md](NETWORK_CONFIGURATION.md) | Network setup and troubleshooting |
+| [docs/EXTRACTION_MODEL_SETUP.md](docs/EXTRACTION_MODEL_SETUP.md) | Local extraction model setup (LM Studio, Ollama, etc.) |
 | [docs/REVERSE_PROXY_GUIDE.md](docs/REVERSE_PROXY_GUIDE.md) | Nginx, Caddy, and NPM configuration |
 | [docs/database-migration-troubleshooting.md](docs/database-migration-troubleshooting.md) | Database migration issues and fixes |
 | [docs/](docs/) | Detailed feature documentation |
