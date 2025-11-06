@@ -163,6 +163,7 @@ class PromptManager:
         # Map template keys to YAML structure
         yaml_mapping = {
             "scene_generation": ("story_generation", "scene"),
+            "scene_guided_enhancement": ("story_generation", "scene_guided_enhancement"),
             "story_summary": ("summary_generation", "story_summary"),
             "choice_generation": ("choice_generation", ""),
             "title_generation": ("story_generation", "titles"),
@@ -237,6 +238,19 @@ Generate 4 specific choices that advance the story in different ways."""
             "scene_continuation": {
                 "system": """You are a skilled creative writer. Continue the narrative naturally from where it left off, maintaining consistency with established characters and plot while advancing the story meaningfully.""",
                 "user": """Continue this story naturally, following from the established context and any reader choices."""
+            },
+            "scene_guided_enhancement": {
+                "system": """You are a skilled interactive fiction writer. Enhance an existing scene by rewriting it while maintaining the same core events and outcomes, incorporating the specific enhancement requested.""",
+                "user": """Story Context:
+{context}
+
+Current Scene to Enhance:
+{original_scene}
+
+Enhancement Request:
+{enhancement_guidance}
+
+Rewrite the scene above incorporating the enhancement while maintaining the same core events and outcomes. Make it engaging and immersive, {scene_length_description}."""
             },
             "complete_plot": {
                 "system": """You are a master storyteller. Generate a complete 5-point plot structure that builds naturally from the scenario, creates character arcs, and delivers satisfying resolutions.""",

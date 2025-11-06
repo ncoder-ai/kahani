@@ -59,7 +59,7 @@ interface SceneVariantDisplayProps {
   isRegenerating: boolean;
   isGenerating: boolean;
   isStreaming: boolean;
-  onCreateVariant: (sceneId: number, prompt?: string) => void;
+  onCreateVariant: (sceneId: number, prompt?: string, variantId?: number) => void;
   onVariantChanged?: () => void; // Callback when variant is switched
   onContinueScene?: (sceneId: number, prompt?: string) => void;
   onStopGeneration?: () => void;
@@ -470,7 +470,7 @@ export default function SceneVariantDisplay({
           <div className="flex justify-center items-center space-x-2">
             {/* Regenerate Button */}
             <button
-              onClick={() => onCreateVariant(scene.id)}
+              onClick={() => onCreateVariant(scene.id, undefined, currentVariantId || undefined)}
               disabled={isGenerating || isStreaming || isRegenerating}
               className="flex items-center justify-center w-10 h-10 bg-pink-600 hover:bg-pink-700 disabled:bg-pink-800 disabled:opacity-50 rounded-lg transition-colors"
               title="Regenerate current scene"
@@ -487,7 +487,7 @@ export default function SceneVariantDisplay({
                 if (onContinueScene) {
                   onContinueScene(scene.id, "Continue this scene with more details and development, adding to the existing content.");
                 } else {
-                  onCreateVariant?.(scene.id, "Continue this scene with more details and development, adding to the existing content rather than replacing it.");
+                  onCreateVariant?.(scene.id, "Continue this scene with more details and development, adding to the existing content rather than replacing it.", currentVariantId || undefined);
                 }
               }}
               disabled={isGenerating || isStreaming || isRegenerating}
@@ -540,7 +540,7 @@ export default function SceneVariantDisplay({
                   key={index}
                   onClick={() => {
                     setShowGuidedOptions(false);
-                    onCreateVariant?.(scene.id, option.prompt);
+                    onCreateVariant?.(scene.id, option.prompt, currentVariantId || undefined);
                   }}
                   disabled={isGenerating || isStreaming || isRegenerating}
                   className={`w-full text-left p-2 text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-700/50 rounded ${

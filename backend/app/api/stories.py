@@ -289,6 +289,7 @@ class TitleGenerateRequest(BaseModel):
 
 class VariantGenerateRequest(BaseModel):
     custom_prompt: Optional[str] = ""
+    variant_id: Optional[int] = None  # Specific variant to enhance, if None uses active variant
 
 class ContinuationRequest(BaseModel):
     custom_prompt: Optional[str] = ""
@@ -540,6 +541,46 @@ async def update_story(
         "message": "Story updated successfully"
     }
 
+async def run_extractions_in_background(
+    story_id: int,
+    chapter_id: int,
+    from_sequence: int,
+    to_sequence: int,
+    user_id: int,
+    user_settings: dict
+):
+    """Run extractions in background, independent of streaming response"""
+    try:
+        from ..database import SessionLocal
+        extraction_db = SessionLocal()
+        try:
+            batch_results = await batch_process_scene_extractions(
+                story_id=story_id,
+                chapter_id=chapter_id,
+                from_sequence=from_sequence,
+                to_sequence=to_sequence,
+                user_id=user_id,
+                user_settings=user_settings,
+                db=extraction_db
+            )
+            
+            extraction_chapter = extraction_db.query(Chapter).filter(Chapter.id == chapter_id).first()
+            if extraction_chapter:
+                extraction_chapter.last_extraction_scene_count = to_sequence
+                extraction_db.commit()
+            
+            logger.warning(f"[EXTRACTION] Background extraction complete for chapter {chapter_id}")
+            logger.warning(f"  - Scenes processed: {batch_results.get('scenes_processed', 0)}")
+            logger.warning(f"  - Character moments: {batch_results.get('character_moments', 0)}")
+            logger.warning(f"  - Plot events: {batch_results.get('plot_events', 0)}")
+            logger.warning(f"  - Entity states: {batch_results.get('entity_states', 0)}")
+            logger.warning(f"  - NPC tracking: {batch_results.get('npc_tracking', 0)}")
+            logger.warning(f"  - Scene embeddings: {batch_results.get('scene_embeddings', 0)}")
+        finally:
+            extraction_db.close()
+    except Exception as e:
+        logger.error(f"[EXTRACTION] Background extraction failed: {e}")
+
 @router.post("/{story_id}/scenes")
 async def generate_scene(
     story_id: int,
@@ -786,6 +827,7 @@ async def generate_scene_streaming_endpoint(
     custom_prompt: str = Form(""),
     user_content: str = Form(""),
     content_mode: str = Form("ai_generate"),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -1088,7 +1130,6 @@ async def generate_scene_streaming_endpoint(
                 }
             
             yield f"data: {json.dumps(complete_data)}\n\n"
-            yield "data: [DONE]\n\n"
             
             # PRIORITY 3: Run extractions synchronously AFTER scene and choices are sent to frontend
             # Background task: Auto-summary generation (if needed) - keep this in background
@@ -1146,50 +1187,27 @@ async def generate_scene_streaming_endpoint(
                     logger.warning(f"[EXTRACTION] Scenes since last extraction: {scenes_since_extraction}/{extraction_threshold} for chapter {active_chapter.id}")
                     
                     if scenes_since_extraction >= extraction_threshold:
-                        logger.warning(f"[EXTRACTION] Threshold reached ({scenes_since_extraction}/{extraction_threshold}), starting batch extraction for chapter {active_chapter.id}")
+                        logger.warning(f"[EXTRACTION] ✓ SCHEDULED: Threshold reached ({scenes_since_extraction}/{extraction_threshold})")
                         
-                        # Send extraction status to frontend
-                        yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'extracting', 'message': 'Extracting character and plot events...'})}\n\n"
+                        # Schedule extraction to run after response completes
+                        background_tasks.add_task(
+                            run_extractions_in_background,
+                            story_id=story_id,
+                            chapter_id=active_chapter.id,
+                            from_sequence=active_chapter.last_extraction_scene_count or 0,
+                            to_sequence=active_chapter.scenes_count,
+                            user_id=current_user.id,
+                            user_settings=user_settings or {}
+                        )
                         
-                        # Create a new DB session for extraction
-                        from ..database import SessionLocal
-                        extraction_db = SessionLocal()
-                        try:
-                            # Reload chapter to get latest state
-                            extraction_chapter = extraction_db.query(Chapter).filter(Chapter.id == active_chapter.id).first()
-                            if extraction_chapter:
-                                from_sequence = extraction_chapter.last_extraction_scene_count or 0
-                                to_sequence = extraction_chapter.scenes_count
-                                
-                                # Run batch extraction synchronously
-                                batch_results = await batch_process_scene_extractions(
-                    story_id=story_id,
-                                    chapter_id=extraction_chapter.id,
-                                    from_sequence=from_sequence,
-                                    to_sequence=to_sequence,
-                    user_id=current_user.id,
-                    user_settings=user_settings or {},
-                                    db=extraction_db
-                                )
-                                
-                                # Update last extraction scene count
-                                extraction_chapter.last_extraction_scene_count = extraction_chapter.scenes_count
-                                extraction_db.commit()
-                                logger.warning(f"[EXTRACTION] Batch extraction complete for chapter {extraction_chapter.id}:")
-                                logger.warning(f"  - Scenes processed: {batch_results.get('scenes_processed', 0)}")
-                                logger.warning(f"  - Character moments extracted: {batch_results.get('character_moments', 0)}")
-                                logger.warning(f"  - Plot events extracted: {batch_results.get('plot_events', 0)}")
-                                logger.warning(f"  - Entity states updated: {batch_results.get('entity_states', 0)}")
-                                logger.warning(f"  - NPC tracking completed: {batch_results.get('npc_tracking', 0)}")
-                                logger.warning(f"  - Scene embeddings created: {batch_results.get('scene_embeddings', 0)}")
-                                
-                                # Send extraction complete status to frontend
-                                yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'complete', 'message': 'Extraction complete'})}\n\n"
-                        finally:
-                            extraction_db.close()
+                        # Send status event with clear message
+                        extraction_msg = f"Extraction scheduled: {scenes_since_extraction}/{extraction_threshold} scenes threshold reached"
+                        yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'scheduled', 'message': extraction_msg})}\n\n"
                     else:
-                        # Threshold not reached - skip extraction
-                        logger.warning(f"[EXTRACTION] Threshold not reached ({scenes_since_extraction}/{extraction_threshold}), skipping extraction")
+                        # Threshold not reached - skip extraction with clear reason
+                        skip_msg = f"Extraction skipped: Only {scenes_since_extraction}/{extraction_threshold} scenes since last extraction"
+                        logger.warning(f"[EXTRACTION] ✗ SKIPPED: {skip_msg}")
+                        yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'skipped', 'message': skip_msg})}\n\n"
                 except Exception as e:
                     logger.error(f"[EXTRACTION] Failed to process extraction: {e}")
                     import traceback
@@ -1197,6 +1215,9 @@ async def generate_scene_streaming_endpoint(
                     # Send error status to frontend
                     yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'error', 'message': 'Extraction failed'})}\n\n"
                     # Don't fail scene generation if extraction fails
+            
+            # Send [DONE] as the LAST event after all extraction status events
+            yield "data: [DONE]\n\n"
             
         except Exception as e:
             logger.error(f"Streaming generation failed: {e}")
@@ -1958,6 +1979,7 @@ async def create_scene_variant_streaming(
     story_id: int,
     scene_id: int,
     request: VariantGenerateRequest,
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -1990,11 +2012,26 @@ async def create_scene_variant_streaming(
             
             # Get original variant content for variant generation
             variant_service = SceneVariantService(db)
-            original_variant = variant_service.get_active_variant(scene_id)
+            
+            # Use specified variant_id if provided, otherwise use active variant
+            if request.variant_id:
+                from ..models import SceneVariant
+                original_variant = db.query(SceneVariant).filter(
+                    SceneVariant.id == request.variant_id,
+                    SceneVariant.scene_id == scene_id
+                ).first()
+                if not original_variant:
+                    yield f"data: {json.dumps({'type': 'error', 'message': f'Variant {request.variant_id} not found for scene {scene_id}'})}\n\n"
+                    logger.error(f"Variant {request.variant_id} not found for scene {scene_id}")
+                    return
+                logger.info(f"Using specified variant {request.variant_id} for guided enhancement")
+            else:
+                original_variant = variant_service.get_active_variant(scene_id)
+                logger.info(f"Using active variant for guided enhancement")
             
             if not original_variant or not original_variant.content:
-                yield f"data: {json.dumps({'type': 'error', 'message': 'No active variant found or variant has no content'})}\n\n"
-                logger.error(f"No active variant content found for scene {scene_id}")
+                yield f"data: {json.dumps({'type': 'error', 'message': 'No variant found or variant has no content'})}\n\n"
+                logger.error(f"No variant content found for scene {scene_id}")
                 return
             
             original_scene_content = original_variant.content
@@ -2008,31 +2045,55 @@ async def create_scene_variant_streaming(
             
             # Get custom_prompt from proper request model
             custom_prompt = request.custom_prompt or ""
-            logger.info(f"Custom prompt extracted: {custom_prompt}")
-                
-            context = await context_manager.build_scene_generation_context(
-                story_id, db, custom_prompt
-            )
-            logger.info(f"Context built successfully: {type(context)}")
+            logger.warning(f"[VARIANT] Custom prompt from request: '{custom_prompt}'")
 
             # Stream variant generation with combined choices
             variant_content = ""
             parsed_choices = None
-            logger.info(f"Starting variant generation with original scene length: {len(original_scene_content)}")
-            async for chunk, scene_complete, choices in llm_service.generate_variant_with_choices_streaming(
-                original_scene_content,
-                context,
-                current_user.id,
-                user_settings
-            ):
-                if not scene_complete:
-                    # Still streaming variant content
-                    variant_content += chunk
-                    yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
-                else:
-                    # Variant complete, choices parsed
-                    parsed_choices = choices
-                    break
+            
+            if custom_prompt:
+                # GUIDED ENHANCEMENT: Has custom prompt from user
+                logger.warning(f"[VARIANT] Mode: GUIDED ENHANCEMENT")
+                context = await context_manager.build_scene_generation_context(
+                    story_id, db, custom_prompt, is_variant_generation=True
+                )
+                
+                # Use guided enhancement function
+                async for chunk, scene_complete, choices in llm_service.generate_variant_with_choices_streaming(
+                    original_scene_content,
+                    context,
+                    current_user.id,
+                    user_settings
+                ):
+                    if not scene_complete:
+                        variant_content += chunk
+                        yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                    else:
+                        parsed_choices = choices
+                        break
+            else:
+                # SIMPLE VARIANT: No custom prompt - use original continue option
+                original_continue_option = original_variant.generation_prompt or ""
+                logger.warning(f"[VARIANT] Mode: SIMPLE REGENERATION")
+                logger.warning(f"[VARIANT] Using original continue option: '{original_continue_option}'")
+                
+                # Build context with original continue option (triggers IMMEDIATE SITUATION)
+                context = await context_manager.build_scene_generation_context(
+                    story_id, db, original_continue_option, is_variant_generation=False
+                )
+                
+                # Use the SAME function as new scene generation
+                async for chunk, scene_complete, choices in llm_service.generate_scene_with_choices_streaming(
+                    context,
+                    current_user.id,
+                    user_settings
+                ):
+                    if not scene_complete:
+                        variant_content += chunk
+                        yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                    else:
+                        parsed_choices = choices
+                        break
             
             # Create the new variant manually since we already have the content
             from ..models import SceneVariant
@@ -2046,10 +2107,20 @@ async def create_scene_variant_streaming(
             
             next_variant_number = (max_variant[0] if max_variant else 0) + 1
             
+            # Preserve the generation_prompt from the variant we're regenerating from
+            # (before it gets overwritten by the query below)
+            variant_to_regenerate_from = original_variant
+            
             # Get original variant for reference
             original_variant = db.query(SceneVariant)\
                 .filter(SceneVariant.scene_id == scene_id, SceneVariant.is_original == True)\
                 .first()
+            
+            # Determine what to save as generation_prompt
+            # For guided enhancement: save the custom_prompt (enhancement instructions)
+            # For simple variant: save the original_continue_option (the continue option that was used)
+            prompt_to_save = custom_prompt if custom_prompt else (variant_to_regenerate_from.generation_prompt or "")
+            logger.warning(f"[VARIANT] Saving generation_prompt: '{prompt_to_save}' (custom_prompt: '{custom_prompt}', from variant: '{variant_to_regenerate_from.generation_prompt}')")
             
             # Create the new variant
             variant = SceneVariant(
@@ -2059,7 +2130,7 @@ async def create_scene_variant_streaming(
                 content=variant_content,
                 title=scene.title,
                 original_content=original_variant.content if original_variant else variant_content,
-                generation_prompt=custom_prompt,
+                generation_prompt=prompt_to_save,
                 generation_method="regeneration"
             )
             
