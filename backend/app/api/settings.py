@@ -89,6 +89,15 @@ class STTSettingsUpdate(BaseModel):
     enabled: Optional[bool] = None
     model: Optional[str] = Field(default=None, pattern="^(base|small|medium)$")
 
+class ExtractionModelSettingsUpdate(BaseModel):
+    enabled: Optional[bool] = None
+    url: Optional[str] = None
+    api_key: Optional[str] = None
+    model_name: Optional[str] = None
+    temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
+    max_tokens: Optional[int] = Field(default=None, ge=100, le=5000)
+    fallback_to_main: Optional[bool] = None
+
 class UserSettingsUpdate(BaseModel):
     llm_settings: LLMSettingsUpdate = None
     context_settings: ContextSettingsUpdate = None
@@ -97,6 +106,7 @@ class UserSettingsUpdate(BaseModel):
     engine_settings: EngineSettingsUpdate = None
     export_settings: ExportSettingsUpdate = None
     stt_settings: STTSettingsUpdate = None
+    extraction_model_settings: ExtractionModelSettingsUpdate = None
     advanced: AdvancedSettingsUpdate = None
     character_assistant_settings: CharacterAssistantSettingsUpdate = None
 
@@ -288,6 +298,24 @@ async def update_user_settings(
             user_settings.stt_enabled = stt.enabled
         if stt.model is not None:
             user_settings.stt_model = stt.model
+    
+    # Update extraction model settings
+    if settings_update.extraction_model_settings:
+        ext = settings_update.extraction_model_settings
+        if ext.enabled is not None:
+            user_settings.extraction_model_enabled = ext.enabled
+        if ext.url is not None:
+            user_settings.extraction_model_url = ext.url if ext.url else "http://localhost:1234/v1"
+        if ext.api_key is not None:
+            user_settings.extraction_model_api_key = ext.api_key if ext.api_key else ""
+        if ext.model_name is not None:
+            user_settings.extraction_model_name = ext.model_name if ext.model_name else "qwen2.5-3b-instruct"
+        if ext.temperature is not None:
+            user_settings.extraction_model_temperature = ext.temperature
+        if ext.max_tokens is not None:
+            user_settings.extraction_model_max_tokens = ext.max_tokens
+        if ext.fallback_to_main is not None:
+            user_settings.extraction_fallback_to_main = ext.fallback_to_main
     
     try:
         db.commit()
@@ -1137,4 +1165,205 @@ async def test_template_render(
             "valid": False,
             "error": str(e),
             "rendered_prompt": None
+        }
+
+# Extraction Model Endpoints
+
+@router.get("/extraction-model/presets")
+async def get_extraction_model_presets():
+    """Get predefined extraction model configurations"""
+    from ..config import settings
+    
+    presets = {
+        "lm_studio": {
+            "name": "LM Studio",
+            "description": "GUI-based, easy setup (recommended for beginners)",
+            "url": "http://localhost:1234/v1",
+            "api_key": "",
+            "model_name": "qwen2.5-3b-instruct"
+        },
+        "ollama": {
+            "name": "Ollama",
+            "description": "CLI-based, lightweight, auto-installs models",
+            "url": "http://localhost:11434/v1",
+            "api_key": "",
+            "model_name": "qwen2.5:3b"
+        },
+        "llama_cpp": {
+            "name": "llama.cpp Server",
+            "description": "Minimal, direct model loading",
+            "url": "http://localhost:8080/v1",
+            "api_key": "",
+            "model_name": "qwen2.5-3b-instruct"
+        },
+        "custom": {
+            "name": "Custom",
+            "description": "User-specified endpoint",
+            "url": "",
+            "api_key": "",
+            "model_name": ""
+        }
+    }
+    
+    return {
+        "presets": presets,
+        "recommended_models": settings.recommended_extraction_models,
+        "message": "Available extraction model presets"
+    }
+
+class ExtractionModelTestRequest(BaseModel):
+    url: Optional[str] = None
+    api_key: Optional[str] = None
+    model_name: Optional[str] = None
+
+@router.post("/extraction-model/test")
+async def test_extraction_model_connection(
+    request: Optional[ExtractionModelTestRequest] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Test connection to extraction model endpoint"""
+    from ..services.llm.extraction_service import ExtractionLLMService
+    from ..config import settings
+    
+    # Use provided values or fall back to saved settings
+    if request:
+        url = request.url
+        api_key = request.api_key
+        model_name = request.model_name
+    else:
+        url = None
+        api_key = None
+        model_name = None
+    
+    if not url or not model_name:
+        user_settings = db.query(UserSettings).filter(
+            UserSettings.user_id == current_user.id
+        ).first()
+        
+        if not user_settings:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Extraction model not configured. Please configure settings first."
+            )
+        
+        url = url or user_settings.extraction_model_url or settings.extraction_model_url
+        api_key = api_key if api_key is not None else (user_settings.extraction_model_api_key or "")
+        model_name = model_name or user_settings.extraction_model_name or "qwen2.5-3b-instruct"
+    
+    try:
+        # Create extraction service
+        extraction_service = ExtractionLLMService(
+            url=url,
+            model=model_name,
+            api_key=api_key or "",
+            temperature=0.3,
+            max_tokens=1000
+        )
+        
+        # Test connection
+        success, message, response_time = await extraction_service.test_connection()
+        
+        return {
+            "success": success,
+            "message": message,
+            "response_time_ms": round(response_time * 1000, 2),
+            "url": url,
+            "model": model_name
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to test extraction model connection: {e}")
+        return {
+            "success": False,
+            "message": f"Connection test failed: {str(e)}",
+            "response_time_ms": 0,
+            "url": url,
+            "model": model_name
+        }
+
+@router.post("/extraction-model/available-models")
+async def get_extraction_available_models(
+    request: Optional[ExtractionModelTestRequest] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Fetch available models from extraction endpoint"""
+    import httpx
+    from ..config import settings
+    
+    # Use provided values or fall back to saved settings
+    if request:
+        url = request.url
+        api_key = request.api_key
+    else:
+        url = None
+        api_key = None
+    
+    if not url:
+        user_settings = db.query(UserSettings).filter(
+            UserSettings.user_id == current_user.id
+        ).first()
+        
+        if not user_settings:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Extraction model URL not configured. Please configure settings first."
+            )
+        
+        url = user_settings.extraction_model_url or settings.extraction_model_url
+        api_key = api_key if api_key is not None else (user_settings.extraction_model_api_key or "")
+    
+    try:
+        # Ensure URL ends with /v1 for OpenAI-compatible endpoints
+        base_url = url.rstrip('/')
+        if not base_url.endswith('/v1'):
+            base_url = f"{base_url}/v1"
+        
+        models_url = f"{base_url}/models"
+        
+        # Configure headers
+        headers = {
+            'Content-Type': 'application/json'
+        }
+        if api_key and api_key.strip():
+            headers['Authorization'] = f'Bearer {api_key}'
+        else:
+            # For local servers, use dummy key
+            headers['Authorization'] = 'Bearer not-needed'
+        
+        # Make the request with timeout
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(models_url, headers=headers)
+            
+        if response.status_code == 200:
+            data = response.json()
+            models = []
+            
+            # Parse OpenAI-compatible response format
+            # OpenAI format returns {"data": [{"id": "model_id", ...}, ...]}
+            if 'data' in data:
+                models = [model['id'] for model in data['data'] if 'id' in model]
+            elif isinstance(data, list):
+                # Some servers return array directly
+                models = [model.get('id', model) if isinstance(model, dict) else model for model in data]
+            
+            return {
+                "success": True,
+                "models": models,
+                "message": f"Found {len(models)} available models"
+            }
+        else:
+            return {
+                "success": False,
+                "models": [],
+                "message": f"Failed to fetch models: {response.status_code} {response.reason_phrase}"
+            }
+            
+    except Exception as e:
+        logger.error(f"Failed to fetch extraction models: {e}")
+        return {
+            "success": False,
+            "models": [],
+            "message": f"Failed to fetch models: {str(e)}"
         }
