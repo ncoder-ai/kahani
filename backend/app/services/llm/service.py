@@ -977,11 +977,32 @@ class UnifiedLLMService:
     async def generate_scene_variants(self, original_scene: str, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> str:
         """Generate alternative versions of a scene"""
         
-        system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-            "summary_generation", "scene_variants",
-            original_scene=original_scene,
-            context=self._format_context_for_scene(context)
-        )
+        # Check if this is guided enhancement (has enhancement_guidance) or simple variant
+        enhancement_guidance = context.get("enhancement_guidance", "")
+        
+        # Get scene length and choices count from user settings
+        generation_prefs = user_settings.get("generation_preferences", {})
+        scene_length = generation_prefs.get("scene_length", "medium")
+        scene_length_description = self._get_scene_length_description(scene_length)
+        
+        if enhancement_guidance:
+            # Guided enhancement: use scene_guided_enhancement template with original scene
+            # Exclude last scene from previous events to avoid duplication
+            system_prompt, user_prompt = prompt_manager.get_prompt_pair(
+                "scene_guided_enhancement", "scene_guided_enhancement",
+                context=self._format_context_for_scene(context, exclude_last_scene=True),
+                original_scene=original_scene,
+                enhancement_guidance=enhancement_guidance,
+                scene_length_description=scene_length_description,
+                choices_count=4  # Default for non-streaming
+            )
+        else:
+            # Simple variant: use the old scene_variants template
+            system_prompt, user_prompt = prompt_manager.get_prompt_pair(
+                "summary_generation", "scene_variants",
+                original_scene=original_scene,
+                context=self._format_context_for_scene(context, exclude_last_scene=False)
+            )
         
         max_tokens = prompt_manager.get_max_tokens("scene_variants", user_settings)
         
@@ -998,11 +1019,32 @@ class UnifiedLLMService:
     async def generate_scene_variants_streaming(self, original_scene: str, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> AsyncGenerator[str, None]:
         """Generate alternative versions of a scene with streaming"""
         
-        system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-            "scene_variants_streaming", "scene_variants_streaming",
-            original_scene=original_scene,
-            context=self._format_context_for_scene(context)
-        )
+        # Check if this is guided enhancement (has enhancement_guidance) or simple variant
+        enhancement_guidance = context.get("enhancement_guidance", "")
+        
+        # Get scene length from user settings
+        generation_prefs = user_settings.get("generation_preferences", {})
+        scene_length = generation_prefs.get("scene_length", "medium")
+        scene_length_description = self._get_scene_length_description(scene_length)
+        
+        if enhancement_guidance:
+            # Guided enhancement: use scene_guided_enhancement template with original scene
+            # Exclude last scene from previous events to avoid duplication
+            system_prompt, user_prompt = prompt_manager.get_prompt_pair(
+                "scene_guided_enhancement", "scene_guided_enhancement",
+                context=self._format_context_for_scene(context, exclude_last_scene=True),
+                original_scene=original_scene,
+                enhancement_guidance=enhancement_guidance,
+                scene_length_description=scene_length_description,
+                choices_count=4  # Default for non-streaming variants
+            )
+        else:
+            # Simple variant: use the old scene_variants_streaming template
+            system_prompt, user_prompt = prompt_manager.get_prompt_pair(
+                "scene_variants_streaming", "scene_variants_streaming",
+                original_scene=original_scene,
+                context=self._format_context_for_scene(context, exclude_last_scene=False)
+            )
         
         max_tokens = prompt_manager.get_max_tokens("scene_variants", user_settings)
         
@@ -1176,6 +1218,7 @@ class UnifiedLLMService:
         choices_buffer = []
         found_marker = False
         rolling_buffer = ""  # Buffer to detect marker across chunks
+        total_chunks = 0
         
         async for chunk in self._generate_stream(
             prompt=user_prompt,
@@ -1184,7 +1227,7 @@ class UnifiedLLMService:
             system_prompt=system_prompt,
             max_tokens=max_tokens
         ):
-            
+            total_chunks += 1
             cleaned_chunk = self._clean_scene_numbers_chunk(chunk)
             if not cleaned_chunk:
                 continue
@@ -1237,7 +1280,16 @@ class UnifiedLLMService:
         parsed_choices = None
         if found_marker and choices_buffer:
             choices_text = ''.join(choices_buffer).strip()
+            logger.warning(f"[GUIDED ENHANCEMENT] Choices buffer length: {len(choices_text)} chars")
+            logger.warning(f"[GUIDED ENHANCEMENT] Choices buffer preview: {choices_text[:200]}")
             parsed_choices = self._parse_choices_from_json(choices_text)
+            logger.warning(f"[GUIDED ENHANCEMENT] Parsed {len(parsed_choices) if parsed_choices else 0} choices")
+        else:
+            if not found_marker:
+                logger.warning(f"[GUIDED ENHANCEMENT] ERROR: ###CHOICES### marker not found after {total_chunks} chunks")
+                logger.warning(f"[GUIDED ENHANCEMENT] Scene buffer length: {len(''.join(scene_buffer))} chars")
+            else:
+                logger.warning(f"[GUIDED ENHANCEMENT] Marker found but choices_buffer is empty")
         
         # Yield final completion with parsed choices
         yield ("", True, parsed_choices)
@@ -1264,13 +1316,33 @@ class UnifiedLLMService:
         choices_count = generation_prefs.get("choices_count", 4)
         scene_length_description = self._get_scene_length_description(scene_length)
         
-        # Use the same prompt template as new scene generation - no variant-specific processing
-        system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-            "scene_generation", "scene_generation",
-            context=self._format_context_for_scene(context),
-            scene_length_description=scene_length_description,
-            choices_count=choices_count
-        )
+        # Check if this is guided enhancement (has enhancement_guidance) or simple variant
+        enhancement_guidance = context.get("enhancement_guidance", "")
+        
+        if enhancement_guidance:
+            # Guided enhancement: use scene_guided_enhancement template with original scene
+            # Exclude last scene from previous events to avoid duplication
+            formatted_context = self._format_context_for_scene(context, exclude_last_scene=True)
+            logger.warning(f"[GUIDED ENHANCEMENT] scene_length_description: {scene_length_description}")
+            logger.warning(f"[GUIDED ENHANCEMENT] choices_count: {choices_count}")
+            system_prompt, user_prompt = prompt_manager.get_prompt_pair(
+                "scene_guided_enhancement", "scene_guided_enhancement",
+                context=formatted_context,
+                original_scene=original_scene,
+                enhancement_guidance=enhancement_guidance,
+                scene_length_description=scene_length_description,
+                choices_count=choices_count
+            )
+            logger.warning(f"[GUIDED ENHANCEMENT] Prompt length: {len(user_prompt)} chars")
+            logger.warning(f"[GUIDED ENHANCEMENT] Prompt contains scene_length_description: {'scene_length_description' in user_prompt or scene_length_description in user_prompt}")
+        else:
+            # Simple variant: use the same prompt template as new scene generation
+            system_prompt, user_prompt = prompt_manager.get_prompt_pair(
+                "scene_generation", "scene_generation",
+                context=self._format_context_for_scene(context, exclude_last_scene=False),
+                scene_length_description=scene_length_description,
+                choices_count=choices_count
+            )
         
         # Log prompts for debugging
         logger.info(f"Variant generation - system_prompt length: {len(system_prompt) if system_prompt else 0}")
@@ -1286,6 +1358,7 @@ class UnifiedLLMService:
         choices_buffer = []
         found_marker = False
         rolling_buffer = ""  # Buffer to detect marker across chunks
+        total_chunks = 0
         
         async for chunk in self._generate_stream(
             prompt=user_prompt,
@@ -1294,6 +1367,7 @@ class UnifiedLLMService:
             system_prompt=system_prompt,
             max_tokens=max_tokens
         ):
+            total_chunks += 1
             cleaned_chunk = self._clean_scene_numbers_chunk(chunk)
             if not cleaned_chunk:
                 continue
@@ -1304,6 +1378,7 @@ class UnifiedLLMService:
                 
                 # Check if marker is in rolling buffer
                 if CHOICES_MARKER in rolling_buffer:
+                    logger.warning(f"[GUIDED ENHANCEMENT] Found ###CHOICES### marker at chunk {total_chunks}")
                     # Split: before marker goes to scene, after to choices
                     parts = rolling_buffer.split(CHOICES_MARKER, 1)
                     scene_part = parts[0]  # Everything before marker - guaranteed to be new content
@@ -1340,10 +1415,20 @@ class UnifiedLLMService:
             scene_buffer.append(rolling_buffer)
             yield (rolling_buffer, False, None)
         
+        # Parse choices from buffer
         parsed_choices = None
         if found_marker and choices_buffer:
             choices_text = ''.join(choices_buffer).strip()
+            logger.warning(f"[GUIDED ENHANCEMENT] Choices buffer length: {len(choices_text)} chars")
+            logger.warning(f"[GUIDED ENHANCEMENT] Choices buffer preview: {choices_text[:200]}")
             parsed_choices = self._parse_choices_from_json(choices_text)
+            logger.warning(f"[GUIDED ENHANCEMENT] Parsed {len(parsed_choices) if parsed_choices else 0} choices")
+        else:
+            if not found_marker:
+                logger.warning(f"[GUIDED ENHANCEMENT] ERROR: ###CHOICES### marker not found after {total_chunks} chunks")
+                logger.warning(f"[GUIDED ENHANCEMENT] Scene buffer length: {len(''.join(scene_buffer))} chars")
+            else:
+                logger.warning(f"[GUIDED ENHANCEMENT] Marker found but choices_buffer is empty")
         
         yield ("", True, parsed_choices)
     
@@ -1677,15 +1762,23 @@ class UnifiedLLMService:
         }
         return length_map.get(scene_length, "approximately 200-300 words")
     
-    def _format_context_for_scene(self, context: Dict[str, Any]) -> str:
-        """Format context for scene generation"""
+    def _format_context_for_scene(self, context: Dict[str, Any], exclude_last_scene: bool = False) -> str:
+        """Format context for scene generation
+        
+        Args:
+            context: Context dictionary
+            exclude_last_scene: If True, exclude the most recent scene from previous_scenes
+                              (used for guided enhancement to avoid duplication)
+        """
         context_parts = []
         
         # Check if this is the first scene with user prompt
         is_first_scene = context.get("is_first_scene", False)
         user_prompt_provided = context.get("user_prompt_provided", False)
+        enhancement_guidance = context.get("enhancement_guidance", "")
         
         # Store current_situation separately to add at the end with emphasis
+        # Skip if this is guided enhancement (enhancement_guidance present)
         current_situation = None
         
         if context.get("genre"):
@@ -1734,10 +1827,44 @@ class UnifiedLLMService:
             context_parts.append(f"Story Summary: {context['scene_summary']}")
         
         if context.get("previous_scenes"):
-            context_parts.append(f"Previous Events:\n{context['previous_scenes']}")
+            previous_scenes_text = context['previous_scenes']
+            
+            # Exclude last scene if requested (for guided enhancement)
+            if exclude_last_scene and previous_scenes_text:
+                import re
+                # Find all scene markers (Scene N: pattern)
+                # Match everything from "Scene N:" to either next "Scene M:" or end of string
+                scene_pattern = r'(Scene \d+:.*?)(?=\n\nScene \d+:|$)'
+                scenes = re.findall(scene_pattern, previous_scenes_text, re.DOTALL)
+                
+                if scenes:
+                    # Find the position of the last scene in the original text
+                    # Get all scene numbers to find the highest one
+                    scene_numbers = []
+                    for scene_text in scenes:
+                        match = re.search(r'Scene (\d+):', scene_text)
+                        if match:
+                            scene_numbers.append((int(match.group(1)), scene_text))
+                    
+                    if scene_numbers:
+                        # Sort by scene number and get the highest
+                        scene_numbers.sort(key=lambda x: x[0])
+                        last_scene_num, last_scene_text = scene_numbers[-1]
+                        
+                        # Remove the last scene from the text
+                        # Find the position of the last scene and remove it
+                        last_scene_start = previous_scenes_text.rfind(f"Scene {last_scene_num}:")
+                        if last_scene_start != -1:
+                            # Remove from the last scene marker to the end
+                            # But preserve any content before it (like summaries)
+                            previous_scenes_text = previous_scenes_text[:last_scene_start].rstrip()
+                            logger.info(f"Excluded Scene {last_scene_num} from previous events for guided enhancement")
+            
+            context_parts.append(f"Previous Events:\n{previous_scenes_text}")
         
         # Add current_situation at the END with maximum emphasis (Option C)
-        if current_situation:
+        # Skip this for guided enhancement - enhancement_guidance is handled in the prompt template
+        if current_situation and not enhancement_guidance:
             context_parts.append(
                 f"\n{'='*50}\n"
                 f"IMMEDIATE SITUATION - FOCUS HERE\n"

@@ -388,6 +388,7 @@ class ApiClient {
     storyId: number,
     sceneId: number,
     customPrompt = '',
+    variantId?: number,
     onChunk?: (chunk: string) => void,
     onComplete?: (variant: any) => void,
     onError?: (error: string) => void,
@@ -402,7 +403,10 @@ class ApiClient {
       const response = await fetch(`${this.baseURL}/api/stories/${storyId}/scenes/${sceneId}/variants/stream`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ custom_prompt: customPrompt })
+        body: JSON.stringify({ 
+          custom_prompt: customPrompt,
+          variant_id: variantId
+        })
       });
       
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
