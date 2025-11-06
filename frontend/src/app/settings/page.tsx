@@ -66,6 +66,8 @@ interface GenerationPreferences {
   choices_count: number;
 }
 
+// Note: UIPreferences type is defined in @/types/settings.ts
+// This local interface should match that definition or be removed
 interface UIPreferences {
   color_theme: string;
   font_size: string;
@@ -74,6 +76,7 @@ interface UIPreferences {
   notifications: boolean;
   scene_display_format: string; // 'default', 'bubble', 'card', 'minimal'
   show_scene_titles: boolean;
+  scene_edit_mode: string; // 'textarea', 'contenteditable'
   auto_open_last_story: boolean;
 }
 
