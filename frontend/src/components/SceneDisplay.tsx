@@ -1,5 +1,6 @@
 'use client';
 
+import { useRef, useEffect } from 'react';
 import FormattedText from './FormattedText';
 
 interface Scene {
@@ -26,6 +27,7 @@ interface SceneDisplayProps {
   streamingContinuation?: string;
   isStreamingContinuation?: boolean;
   isStreamingVariant?: boolean;
+  userSettings?: any; // User settings including scene_edit_mode
 }
 
 export default function SceneDisplay({ 
@@ -42,8 +44,40 @@ export default function SceneDisplay({
   onContentChange,
   streamingContinuation,
   isStreamingContinuation,
-  isStreamingVariant = false
+  isStreamingVariant = false,
+  userSettings
 }: SceneDisplayProps) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const contentEditableRef = useRef<HTMLDivElement>(null);
+  const editMode = userSettings?.scene_edit_mode || 'textarea';
+
+  // Auto-resize textarea based on content
+  useEffect(() => {
+    if (isEditing && editMode === 'textarea' && textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${Math.max(200, textareaRef.current.scrollHeight)}px`;
+    }
+  }, [isEditing, editContent, editMode]);
+
+  // Focus contenteditable when entering edit mode and set initial content
+  useEffect(() => {
+    if (isEditing && editMode === 'contenteditable' && contentEditableRef.current) {
+      // Only set content if it's different to avoid cursor jumping
+      if (contentEditableRef.current.textContent !== editContent) {
+        contentEditableRef.current.textContent = editContent;
+      }
+      contentEditableRef.current.focus();
+      // Place cursor at end
+      const range = document.createRange();
+      const selection = window.getSelection();
+      if (contentEditableRef.current.firstChild) {
+        range.selectNodeContents(contentEditableRef.current);
+        range.collapse(false);
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+      }
+    }
+  }, [isEditing, editMode]); // Don't include editContent to avoid cursor jumping
   const getSceneClassName = () => {
     const baseClasses = "relative transition-all duration-200";
     
@@ -102,12 +136,42 @@ export default function SceneDisplay({
       
       {isEditing ? (
         <div className="space-y-3">
-          <textarea
-            value={editContent}
-            onChange={(e) => onContentChange(e.target.value)}
-            className="w-full h-40 bg-gray-700 text-white rounded-md p-3 resize-none focus:ring-2 focus:ring-blue-500 focus:outline-none"
-            placeholder="Edit scene content..."
-          />
+          {editMode === 'textarea' ? (
+            // Mode A: Auto-expanding Textarea
+            <textarea
+              ref={textareaRef}
+              value={editContent}
+              onChange={(e) => {
+                onContentChange(e.target.value);
+                // Auto-resize
+                if (textareaRef.current) {
+                  textareaRef.current.style.height = 'auto';
+                  textareaRef.current.style.height = `${Math.max(200, textareaRef.current.scrollHeight)}px`;
+                }
+              }}
+              className="w-full min-h-[200px] bg-gray-700 text-white rounded-md p-3 resize-y focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all"
+              placeholder="Edit scene content..."
+              style={{ height: 'auto' }}
+            />
+          ) : (
+            // Mode B: ContentEditable WYSIWYG
+            <div
+              ref={contentEditableRef}
+              contentEditable
+              suppressContentEditableWarning
+              onInput={(e) => {
+                const text = e.currentTarget.textContent || '';
+                onContentChange(text);
+              }}
+              className={`${getContentClassName()} w-full min-h-[200px] bg-gray-700/50 text-white rounded-md p-3 focus:ring-2 focus:ring-blue-500 focus:outline-none border-2 border-blue-500/50 transition-all`}
+              style={{ 
+                whiteSpace: 'pre-wrap',
+                wordWrap: 'break-word'
+              }}
+            >
+              {editContent}
+            </div>
+          )}
           <div className="flex space-x-2">
             <button
               onClick={() => onSaveEdit(scene.id, editContent)}

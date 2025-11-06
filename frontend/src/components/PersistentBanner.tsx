@@ -2,7 +2,7 @@
 
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/store';
-import { HomeIcon, ArrowLeftIcon, Menu as MenuIcon } from 'lucide-react';
+import { HomeIcon, ArrowLeftIcon, Menu as MenuIcon, Users, Sparkles } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useGlobalTTS } from '@/contexts/GlobalTTSContext';
@@ -127,6 +127,19 @@ export default function PersistentBanner() {
 
             {/* Right side - Action buttons */}
             <div className="flex items-center space-x-2">
+              {/* Character Suggestion Button */}
+              {storyActions?.showCharacterBanner && storyActions?.onDiscoverCharacters && (
+                <button
+                  onClick={storyActions.onDiscoverCharacters}
+                  className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg transition-all hover:bg-white/10 theme-btn-primary hover:opacity-90 relative"
+                  title="New characters found - click to discover"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span className="hidden sm:inline text-sm">New Characters</span>
+                  <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+                </button>
+              )}
+
               {/* Menu Button */}
               <button
                 onClick={() => setShowUnifiedMenu(true)}

@@ -33,7 +33,7 @@ export const SceneTTSButton: React.FC<SceneTTSButtonProps> = ({ sceneId, classNa
   };
   
   return (
-    <div className={`absolute -top-2 -right-2 z-10 ${className}`}>
+    <div className={`${className || ''}`}>
       <button
         onClick={handleClick}
         className={`
