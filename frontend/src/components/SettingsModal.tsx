@@ -128,6 +128,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     notifications: true,
     scene_display_format: 'default',
     show_scene_titles: true,
+    scene_edit_mode: 'textarea',
     auto_open_last_story: false,
   });
 
@@ -269,6 +270,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             notifications: settings.ui_preferences.notifications !== false,
             scene_display_format: settings.ui_preferences.scene_display_format || 'default',
             show_scene_titles: settings.ui_preferences.show_scene_titles !== false,
+            scene_edit_mode: settings.ui_preferences.scene_edit_mode || 'textarea',
             auto_open_last_story: settings.ui_preferences.auto_open_last_story || false,
           });
         }
@@ -384,6 +386,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             notifications: data.settings.ui_preferences.notifications !== false,
             scene_display_format: data.settings.ui_preferences.scene_display_format || 'default',
             show_scene_titles: data.settings.ui_preferences.show_scene_titles !== false,
+            scene_edit_mode: data.settings.ui_preferences.scene_edit_mode || 'textarea',
             auto_open_last_story: data.settings.ui_preferences.auto_open_last_story || false,
           });
         }
@@ -1463,7 +1466,39 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     </select>
                   </div>
 
+                  {/* Scene Display Format */}
+                  <div>
+                    <label className="block text-sm font-medium text-white mb-2">Scene Display Format</label>
+                    <select
+                      value={uiSettings.scene_display_format}
+                      onChange={(e) => updateUIPreference('scene_display_format', e.target.value)}
+                      className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
+                    >
+                      <option value="default">Default</option>
+                      <option value="bubble">Bubble</option>
+                      <option value="card">Card</option>
+                      <option value="minimal">Minimal</option>
+                    </select>
+                    <p className="text-xs text-gray-400 mt-1">
+                      How scenes are visually displayed in the story
+                    </p>
+                  </div>
 
+                  {/* Scene Edit Mode */}
+                  <div>
+                    <label className="block text-sm font-medium text-white mb-2">Scene Edit Mode</label>
+                    <select
+                      value={uiSettings.scene_edit_mode}
+                      onChange={(e) => updateUIPreference('scene_edit_mode', e.target.value)}
+                      className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
+                    >
+                      <option value="textarea">Auto-expanding Textarea</option>
+                      <option value="contenteditable">ContentEditable (WYSIWYG)</option>
+                    </select>
+                    <p className="text-xs text-gray-400 mt-1">
+                      How scene editing works when you click to edit a scene. Textarea mode uses a resizable text box, ContentEditable mode preserves formatting.
+                    </p>
+                  </div>
 
                   {/* Checkboxes */}
                   <div className="space-y-3 pt-4 border-t border-gray-700">
@@ -1486,6 +1521,16 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         className="w-4 h-4 rounded"
                       />
                       <span className="text-sm text-white">Enable notifications</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={uiSettings.show_scene_titles}
+                        onChange={(e) => updateUIPreference('show_scene_titles', e.target.checked)}
+                        className="w-4 h-4 rounded"
+                      />
+                      <span className="text-sm text-white">Show scene titles</span>
                     </label>
 
                     <label className="flex items-center gap-2 cursor-pointer">
