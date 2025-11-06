@@ -66,6 +66,7 @@ class UserSettings(Base):
     enable_notifications = Column(Boolean, default=True)
     scene_display_format = Column(String(20), default="default")  # default, bubble, card, minimal
     show_scene_titles = Column(Boolean, default=True)
+    scene_edit_mode = Column(String(20), default="textarea")  # textarea, contenteditable
     auto_open_last_story = Column(Boolean, default=False)  # Auto-redirect to last story on login
     last_accessed_story_id = Column(Integer, default=None)  # Last story the user worked on
     
@@ -144,6 +145,7 @@ class UserSettings(Base):
                 "notifications": self.enable_notifications,
                 "scene_display_format": self.scene_display_format,
                 "show_scene_titles": self.show_scene_titles,
+                "scene_edit_mode": self.scene_edit_mode,
                 "auto_open_last_story": self.auto_open_last_story,
                 "last_accessed_story_id": self.last_accessed_story_id
             },
@@ -220,6 +222,7 @@ class UserSettings(Base):
                 "notifications": True,
                 "scene_display_format": "default",
                 "show_scene_titles": False,
+                "scene_edit_mode": "textarea",
                 "auto_open_last_story": False
             },
             "export_settings": {

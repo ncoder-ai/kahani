@@ -14,6 +14,9 @@ export interface StoryActions {
   directorModeActive?: boolean;
   lorebookActive?: boolean;
   deleteModeActive?: boolean;
+  // Character suggestion banner
+  showCharacterBanner?: boolean;
+  onDiscoverCharacters?: () => void;
 }
 
 interface StoryContextType {
