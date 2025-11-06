@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { ArrowLeftIcon, ArrowRightIcon, PlayIcon, ArrowPathIcon, PlusCircleIcon, StopIcon, SparklesIcon } from '@heroicons/react/24/outline';
+import { ArrowLeftIcon, ArrowRightIcon, PlayIcon, ArrowPathIcon, PlusCircleIcon, StopIcon, SparklesIcon, TrashIcon, ClipboardIcon } from '@heroicons/react/24/outline';
 import SceneDisplay from './SceneDisplay';
 import { SceneTTSButton } from './SceneTTSButton';
 import MicrophoneButton from './MicrophoneButton';
@@ -85,6 +85,14 @@ interface SceneVariantDisplayProps {
   // Additional choices from "generate more choices"
   dynamicChoices?: Array<{text: string, order: number}>;
   showMoreOptions?: boolean;
+  // Delete mode props
+  isInDeleteMode?: boolean;
+  isSceneSelectedForDeletion?: boolean;
+  onToggleSceneDeletion?: (sequenceNumber: number) => void;
+  onActivateDeleteMode?: (sequenceNumber: number) => void;
+  onDeactivateDeleteMode?: () => void;
+  // Copy functionality
+  onCopySceneText?: (content: string) => void;
 }
 
 export default function SceneVariantDisplay({
@@ -123,7 +131,13 @@ export default function SceneVariantDisplay({
   isStreamingVariant = false,
   isSceneOperationInProgress = false,
   dynamicChoices = [],
-  showMoreOptions = false
+  showMoreOptions = false,
+  isInDeleteMode = false,
+  isSceneSelectedForDeletion = false,
+  onToggleSceneDeletion,
+  onActivateDeleteMode,
+  onDeactivateDeleteMode,
+  onCopySceneText
 }: SceneVariantDisplayProps) {
   const [variants, setVariants] = useState<SceneVariant[]>([]);
   const [currentVariantId, setCurrentVariantId] = useState<number | null>(null);
@@ -131,6 +145,8 @@ export default function SceneVariantDisplay({
   const [showGuidedOptions, setShowGuidedOptions] = useState(false);
   const sceneContentRef = useRef<HTMLDivElement>(null);
   const hasLoadedVariantsRef = useRef<Set<number>>(new Set());
+  const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  const [copySuccess, setCopySuccess] = useState(false);
 
   // Load variants for this scene
   const loadVariants = async () => {
@@ -334,6 +350,107 @@ export default function SceneVariantDisplay({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isLastScene, variants, currentVariantId]);
 
+  // Swipe gesture handlers for mobile variant navigation
+  useEffect(() => {
+    if (!isLastScene || !sceneContentRef.current) return;
+
+    const container = sceneContentRef.current;
+    const SWIPE_THRESHOLD = 50; // Minimum distance in pixels
+    const SWIPE_VELOCITY_THRESHOLD = 0.3; // Minimum velocity
+
+    const handleTouchStart = (e: TouchEvent) => {
+      const touch = e.touches[0];
+      touchStartRef.current = { x: touch.clientX, y: touch.clientY, time: e.timeStamp };
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (!touchStartRef.current) return;
+
+      const touch = e.changedTouches[0];
+      const deltaX = touch.clientX - touchStartRef.current.x;
+      const deltaY = touch.clientY - touchStartRef.current.y;
+      const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+      const time = e.timeStamp - touchStartRef.current.time;
+      const velocity = time > 0 ? distance / time : 0;
+
+      // Only trigger swipe if horizontal movement is dominant and meets threshold
+      if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > SWIPE_THRESHOLD) {
+        // Prevent default to avoid scrolling
+        e.preventDefault();
+        
+        // Check navigation availability
+        const currentIndex = variants.findIndex(v => v.id === currentVariantId);
+        const canGoPrev = variants.length > 1 && currentIndex > 0;
+        const canGoNext = variants.length > 1 && currentIndex < variants.length - 1;
+        
+        if (deltaX > 0 && canGoPrev) {
+          // Swipe right = previous variant
+          const previousVariant = variants[currentIndex - 1];
+          switchToVariant(previousVariant.id);
+        } else if (deltaX < 0 && canGoNext) {
+          // Swipe left = next variant
+          const nextVariant = variants[currentIndex + 1];
+          switchToVariant(nextVariant.id);
+        }
+      }
+
+      touchStartRef.current = null;
+    };
+
+    container.addEventListener('touchstart', handleTouchStart, { passive: true });
+    container.addEventListener('touchend', handleTouchEnd, { passive: false });
+
+    return () => {
+      container.removeEventListener('touchstart', handleTouchStart);
+      container.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [isLastScene, variants, currentVariantId]);
+
+  // Handle copy scene text
+  const handleCopyScene = async () => {
+    const sceneToCopy = getDisplayScene();
+    const textToCopy = sceneToCopy.content;
+    
+    try {
+      if (onCopySceneText) {
+        onCopySceneText(textToCopy);
+      } else {
+        // Fallback: use clipboard API directly
+        await navigator.clipboard.writeText(textToCopy);
+      }
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+    } catch (error) {
+      console.error('Failed to copy text:', error);
+    }
+  };
+
+  // Handle delete button click
+  const handleDeleteClick = () => {
+    if (!isInDeleteMode) {
+      // Not in delete mode: activate it and select this scene + subsequent scenes
+      if (onActivateDeleteMode && scene.sequence_number) {
+        onActivateDeleteMode(scene.sequence_number);
+      }
+    } else {
+      // In delete mode: clicking adjusts the selection range
+      if (isSceneSelectedForDeletion) {
+        // If this scene is selected (and is the starting point), deactivate delete mode
+        // Check if this is the earliest selected scene (starting point)
+        // We'll deactivate if clicking the starting scene
+        if (onDeactivateDeleteMode) {
+          onDeactivateDeleteMode();
+        }
+      } else {
+        // If this scene is NOT selected, adjust selection to start from here
+        // This will deselect earlier scenes and select from here onwards
+        if (onActivateDeleteMode && scene.sequence_number) {
+          onActivateDeleteMode(scene.sequence_number);
+        }
+      }
+    }
+  };
+
   // Handle regeneration animation
   useEffect(() => {
     if (isRegenerating && layoutMode === 'modern') {
@@ -414,10 +531,62 @@ export default function SceneVariantDisplay({
         streamingContinuation={streamingContinuation}
         isStreamingContinuation={isStreamingContinuation}
         isStreamingVariant={isStreamingVariant}
+        userSettings={userSettings}
       />
       
-      {/* Audio Controls - Floating speaker button */}
-      <SceneTTSButton sceneId={scene.id} />
+      {/* Quick Action Buttons - Floating buttons in top-right */}
+      <div className="absolute -top-2 -right-2 z-10 flex items-center gap-1.5">
+        {/* Copy Button */}
+        <button
+          onClick={handleCopyScene}
+          className={`
+            w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200
+            backdrop-blur-sm border shadow-lg flex-shrink-0
+            ${copySuccess 
+              ? 'bg-green-500/90 text-white border-green-400/50' 
+              : 'bg-gray-700/90 hover:bg-gray-600/90 text-gray-200 border-gray-500/50'
+            }
+          `}
+          title={copySuccess ? 'Copied!' : 'Copy scene text'}
+        >
+          {copySuccess ? (
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+            </svg>
+          ) : (
+            <ClipboardIcon className="w-4 h-4" />
+          )}
+        </button>
+
+        {/* Delete Button - Always visible */}
+        <button
+          onClick={handleDeleteClick}
+          className={`
+            w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200
+            backdrop-blur-sm border shadow-lg flex-shrink-0
+            ${isInDeleteMode && isSceneSelectedForDeletion
+              ? 'bg-red-500/90 hover:bg-red-600/90 text-white border-red-400/50'
+              : isInDeleteMode
+              ? 'bg-gray-700/90 hover:bg-gray-600/90 text-gray-200 border-gray-500/50'
+              : 'bg-gray-700/90 hover:bg-red-600/90 text-gray-200 border-gray-500/50 hover:border-red-400/50'
+            }
+          `}
+          title={
+            isInDeleteMode 
+              ? (isSceneSelectedForDeletion 
+                  ? 'Cancel delete mode' 
+                  : 'Delete from this scene onwards instead')
+              : 'Delete from this scene onwards'
+          }
+        >
+          <TrashIcon className="w-4 h-4" />
+        </button>
+
+        {/* Audio Controls - Floating speaker button */}
+        <div className="flex-shrink-0">
+          <SceneTTSButton sceneId={scene.id} className="relative" />
+        </div>
+      </div>
       </div>
       
       {/* Scene Management - Only show for last scene */}
