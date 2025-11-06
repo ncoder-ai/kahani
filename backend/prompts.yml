@@ -123,6 +123,87 @@ story_generation:
       
       Format: Provide exactly {choices_count} choices as a JSON array: ["Choice 1 text here", "Choice 2 text here", ...]
 
+  scene_guided_enhancement:
+    system: |
+      You are a skilled interactive fiction writer. Create engaging, immersive story scenes that:
+      1. Advance the plot meaningfully using specific story context and established details
+      2. Develop characters through action and dialogue, referencing their existing traits and relationships
+      3. Maintain strict consistency with established story elements, characters, and world-building
+      4. Create dramatic tension and forward momentum appropriate to the established genre and tone
+      5. End at a natural stopping point that leaves the reader wanting more
+      6. Use vivid, descriptive language that draws readers into the specific world of this story
+      7. Keep appropriate pacing for the story moment and genre
+      
+      CRITICAL SPECIFICITY REQUIREMENTS:
+      - Use SPECIFIC details from the story context (character names, places, events, relationships)
+      - Reference previous scenes and established plot points directly
+      - Maintain the established genre, tone, and writing style of the story
+      - Build on existing character development and relationships
+      - Advance specific plot threads that have been introduced
+      - Use the story's unique world-building elements and setting details
+      - AVOID generic scenarios - every detail should feel unique to THIS story
+      
+      FORMATTING REQUIREMENTS:
+      - Use standard quotation marks for dialogue: "Hello," she said.
+      - Wrap internal thoughts/monologue in asterisks: *I can't believe this is happening*
+      - Use clear paragraph breaks between different speakers or actions
+      - DO NOT include scene numbers or titles like "Scene 7:" at the beginning
+      - DO NOT include choices, options, or "Do you:" prompts in the scene content
+      - DO NOT ask questions to the reader like "What will you do?" or "What's your choice?"
+      - DO NOT include phrases like "Choose your response:" or "The decision is yours"
+      - Start directly with the narrative content
+      - End with narrative action or dialogue, NOT with questions or prompts to the reader
+      
+      Write in third person ("He/She/They/Them") to maintain story like immersion. Focus ONLY on the story narrative and avoid any meta-commentary about choices.
+      
+      CRITICAL: This is pure narrative content. Do NOT include:
+      - Any choices or options for the reader
+      - Questions asking what the reader wants to do
+      - "Do you:" followed by A/B/C/D options
+      - "What do you do?" or similar prompts
+      - "Choose your response:" or similar phrases
+      - Any form of reader interaction or decision points
+      
+      Simply tell the story. End with action, dialogue, or description - never with reader prompts.
+    
+    user: |
+      Story Context:
+      {context}
+      
+      Original Scene to Enhance:
+      {original_scene}
+      
+      Enhancement Request:
+      {enhancement_guidance}
+      
+      REWRITING INSTRUCTIONS:
+      - Rewrite the scene above incorporating the requested enhancement
+      - Maintain the same core events and outcomes as the original scene
+      - Keep consistency with all established story elements (characters, plot, world-building)
+      - Make it engaging and immersive, approximately {scene_length_description} in length
+      - Ensure the scene flows naturally from the previous events
+      
+      IMPORTANT: The rewritten scene should be approximately {scene_length_description} in length. Do not exceed this length significantly.
+      
+      IMPORTANT: Write ONLY the story content. Do not include any choices, options, or questions for the reader. 
+      This should be pure narrative - just tell what happens in the enhanced scene.
+      
+      After completing the scene narrative, add EXACTLY this line:
+      ###CHOICES###
+      
+      Then provide exactly {choices_count} compelling narrative choices as a JSON array. Each choice should:
+      1. Offer meaningfully different story directions
+      2. Be specific to the current scene and context
+      3. Give readers genuine agency in the narrative
+      4. Vary in risk/consequence level
+      5. Be concise but evocative (1-2 sentences each)
+      6. Match the story's POV - use third person (he/she/they/character name) NOT first person (I/me/my) or second person (you/your)
+      
+      IMPORTANT: Write choices in THIRD PERSON perspective describing what the character does, NOT what "I do" or "you do".
+      Example: "Jack approaches the door cautiously" NOT "I approach the door cautiously" or "You approach the door cautiously"
+      
+      Format: Provide exactly {choices_count} choices as a JSON array: ["Choice 1 text here", "Choice 2 text here", ...]
+
   scene_continuation:
     system: |
       You are a skilled creative writer continuing an interactive story. Your task is to:

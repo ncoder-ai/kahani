@@ -856,6 +856,13 @@ export default function StoryPage() {
           // Refresh chapter sidebar to update context counter
           setChapterSidebarRefreshKey(prev => prev + 1);
           
+          // Reload story to get choices from backend (they're saved to DB)
+          // Use a small delay to ensure backend has committed the choices
+          setTimeout(async () => {
+            await loadStory(false, true); // Scroll to new scene after reload
+            console.log('[SCENE COMPLETE] Story reloaded with choices from backend');
+          }, 500);
+          
           // Clear operation flag with delay to let DOM settle
           setTimeout(() => setIsSceneOperationInProgress(false), 1500);
         },
@@ -1040,7 +1047,7 @@ export default function StoryPage() {
     }
   };
 
-  const createNewVariant = async (sceneId: number, customPrompt?: string) => {
+  const createNewVariant = async (sceneId: number, customPrompt?: string, variantId?: number) => {
     if (!story) return;
     
     console.log('createNewVariant called', { sceneId, customPrompt, useStreaming });
@@ -1083,6 +1090,7 @@ export default function StoryPage() {
           story.id,
           sceneId,
           customPrompt || '',
+          variantId,
           // onChunk
           (chunk: string) => {
             if (isIOSVariant) {
@@ -1112,6 +1120,17 @@ export default function StoryPage() {
             console.log('[VARIANT COMPLETE] Full response:', JSON.stringify(response, null, 2));
             console.log('[VARIANT COMPLETE] Has auto_play_session_id?', 'auto_play_session_id' in response);
             console.log('[VARIANT COMPLETE] auto_play_session_id value:', response.auto_play_session_id);
+            
+            // IMMEDIATELY update choices in state
+            if (response.variant && response.variant.choices && story) {
+              const updatedScenes = story.scenes.map(s => 
+                s.id === sceneId 
+                  ? { ...s, choices: response.variant.choices.map((c: any) => c.text || c.choice_text) }
+                  : s
+              );
+              setStory({ ...story, scenes: updatedScenes });
+              console.log('[VARIANT] Choices updated immediately in state');
+            }
             
             // Check if auto-play was triggered - but ONLY if we didn't already handle it via auto_play_ready
             if (response.auto_play_session_id && !autoPlayAlreadyTriggered) {
