@@ -571,9 +571,15 @@ Goals: {char.get('goals', '')}
         
         return "\n".join(text_parts)
     
-    async def build_scene_generation_context(self, story_id: int, db: Session, custom_prompt: str = "") -> Dict[str, Any]:
+    async def build_scene_generation_context(self, story_id: int, db: Session, custom_prompt: str = "", is_variant_generation: bool = False) -> Dict[str, Any]:
         """
         Build optimized context specifically for scene generation
+        
+        Args:
+            story_id: Story ID
+            db: Database session
+            custom_prompt: Custom prompt (continue option for new scenes, enhancement guidance for variants)
+            is_variant_generation: True if this is for variant generation, False for new scene generation
         """
         
         # Get full context
@@ -585,11 +591,17 @@ Goals: {char.get('goals', '')}
         
         # Add custom prompt if provided
         if custom_prompt:
-            full_context["current_situation"] = custom_prompt
-            # For first scene, mark that user prompt should take precedence
-            if is_first_scene:
-                full_context["is_first_scene"] = True
-                full_context["user_prompt_provided"] = True
+            if is_variant_generation:
+                # Variant generation with guided enhancement - only set enhancement_guidance
+                # Don't set current_situation to avoid "IMMEDIATE SITUATION" formatting
+                full_context["enhancement_guidance"] = custom_prompt
+            else:
+                # New scene generation with continue option - set current_situation
+                # This triggers "IMMEDIATE SITUATION" formatting
+                full_context["current_situation"] = custom_prompt
+                if is_first_scene:
+                    full_context["is_first_scene"] = True
+                    full_context["user_prompt_provided"] = True
         
         # Optimize for scene generation (focus on recent events and character state)
         # Use "previous_scenes" which contains full context (including semantic scenes for SemanticContextManager)
@@ -606,7 +618,8 @@ Goals: {char.get('goals', '')}
             "total_scenes": full_context.get("total_scenes", 0),
             "context_type": full_context.get("context_type", "linear"),  # Indicate which context manager was used
             "is_first_scene": is_first_scene,
-            "user_prompt_provided": bool(custom_prompt)
+            "user_prompt_provided": bool(custom_prompt),
+            "enhancement_guidance": full_context.get("enhancement_guidance", "")  # Signal for guided enhancement
         }
         
         return scene_context
