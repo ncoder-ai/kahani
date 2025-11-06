@@ -15,6 +15,7 @@ from ..models import (
     Character, StoryCharacter, Scene, SceneVariant, Chapter, Story
 )
 from ..services.llm.service import UnifiedLLMService
+from ..services.llm.extraction_service import ExtractionLLMService
 from ..services.llm.prompts import prompt_manager
 
 logger = logging.getLogger(__name__)
@@ -77,6 +78,7 @@ class CharacterAssistantService:
         self.user_id = user_id
         self.user_settings = user_settings
         self.llm_service = UnifiedLLMService()
+        self.extraction_service = None  # Will be initialized conditionally
         
         # Get user-configurable thresholds
         self.importance_threshold = user_settings.get('character_assistant_settings', {}).get('importance_threshold', 70)
@@ -242,6 +244,38 @@ class CharacterAssistantService:
             logger.error(f"Failed to analyze chapter for characters: {e}")
             return []
     
+    def _get_extraction_service(self) -> Optional[ExtractionLLMService]:
+        """
+        Get or create extraction service if enabled in user settings
+        
+        Returns:
+            ExtractionLLMService instance or None if not enabled
+        """
+        # Check if extraction model is enabled
+        extraction_settings = self.user_settings.get('extraction_model_settings', {})
+        if not extraction_settings.get('enabled', False):
+            return None
+        
+        try:
+            # Get extraction model configuration
+            url = extraction_settings.get('url', 'http://localhost:1234/v1')
+            model = extraction_settings.get('model_name', 'qwen2.5-3b-instruct')
+            api_key = extraction_settings.get('api_key', '')
+            temperature = extraction_settings.get('temperature', 0.3)
+            max_tokens = extraction_settings.get('max_tokens', 1000)
+            
+            # Create extraction service
+            return ExtractionLLMService(
+                url=url,
+                model=model,
+                api_key=api_key,
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+        except Exception as e:
+            logger.warning(f"Failed to initialize extraction service: {e}")
+            return None
+    
     async def extract_character_details(
         self,
         db: Session,
@@ -250,6 +284,7 @@ class CharacterAssistantService:
     ) -> Optional[Dict[str, Any]]:
         """
         Extract detailed character information using LLM analysis.
+        Tries extraction model first, falls back to main LLM if enabled.
         
         Args:
             db: Database session
@@ -273,6 +308,35 @@ class CharacterAssistantService:
                 scene_contexts.append(f"Scene {scene_data['sequence']}: {scene_data['content']}")
             
             character_scenes_text = "\n\n".join(scene_contexts)
+            
+            # Try extraction model first if enabled
+            extraction_service = self._get_extraction_service()
+            if extraction_service:
+                try:
+                    logger.info(f"Using extraction model for character detail extraction (user {self.user_id})")
+                    character_details = await extraction_service.extract_character_details(
+                        character_name=character_name,
+                        character_scenes_text=character_scenes_text
+                    )
+                    
+                    # Normalize and validate character details
+                    normalized = self._normalize_character_details(character_details, character_scenes)
+                    if normalized:
+                        logger.info(f"Extraction model successfully extracted character details for {character_name}")
+                        return normalized
+                    else:
+                        logger.warning("Extraction model returned invalid character details, falling back to main LLM")
+                except Exception as e:
+                    logger.warning(f"Extraction model failed: {e}, falling back to main LLM")
+                    # Continue to fallback
+            
+            # Fallback to main LLM
+            fallback_enabled = self.user_settings.get('extraction_model_settings', {}).get('fallback_to_main', True)
+            if not fallback_enabled and extraction_service:
+                logger.warning("Extraction model failed and fallback disabled, returning None")
+                return None
+            
+            logger.info(f"Using main LLM for character detail extraction (user {self.user_id})")
             
             # Get LLM prompts
             system_prompt = prompt_manager.get_prompt("character_assistant.extraction", "system")
@@ -308,49 +372,67 @@ class CharacterAssistantService:
             
             character_details = json.loads(response_clean)
             
-            # Normalize fields that should be strings (convert lists to strings if needed)
-            if isinstance(character_details.get('goals'), list):
-                character_details['goals'] = ', '.join(str(g) for g in character_details['goals'])
-            elif not isinstance(character_details.get('goals'), str):
-                character_details['goals'] = str(character_details.get('goals', ''))
-            
-            if isinstance(character_details.get('fears'), list):
-                character_details['fears'] = ', '.join(str(f) for f in character_details['fears'])
-            elif not isinstance(character_details.get('fears'), str):
-                character_details['fears'] = str(character_details.get('fears', ''))
-            
-            # Ensure other string fields are strings
-            for field in ['name', 'description', 'background', 'appearance', 'suggested_role']:
-                if field in character_details and not isinstance(character_details[field], str):
-                    character_details[field] = str(character_details[field])
-            
-            # Ensure personality_traits is a list
-            if 'personality_traits' in character_details:
-                if isinstance(character_details['personality_traits'], str):
-                    # Split comma-separated or newline-separated traits
-                    character_details['personality_traits'] = [
-                        t.strip() for t in re.split(r'[,;\n]', character_details['personality_traits']) 
-                        if t.strip()
-                    ]
-                elif not isinstance(character_details['personality_traits'], list):
-                    character_details['personality_traits'] = []
-            else:
-                character_details['personality_traits'] = []
-            
-            # Add metadata
-            character_details['confidence'] = 0.85  # Could be calculated based on scene count
-            character_details['scenes_analyzed'] = [s['sequence'] for s in character_scenes]
-            
-            return character_details
+            # Normalize and validate
+            normalized = self._normalize_character_details(character_details, character_scenes)
+            return normalized
             
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON from LLM response: {e}")
             logger.error(f"Raw response: {response_clean[:500]}")
             raise ValueError(f"Failed to parse character analysis response: {str(e)}")
         except Exception as e:
-            logger.error(f"Failed to extract character details: {e}")
+            logger.error(f"Main LLM character detail extraction failed: {e}")
             logger.error(f"Raw response: {response_clean[:500]}")
             raise Exception(f"Failed to extract character details: {str(e)}")
+    
+    def _normalize_character_details(self, character_details: Dict[str, Any], character_scenes: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """
+        Normalize and validate character details dictionary
+        
+        Args:
+            character_details: Raw character details dictionary
+            character_scenes: List of scenes where character appears
+            
+        Returns:
+            Normalized character details or None if invalid
+        """
+        if not isinstance(character_details, dict) or not character_details.get('name'):
+            return None
+        
+        # Normalize fields that should be strings (convert lists to strings if needed)
+        if isinstance(character_details.get('goals'), list):
+            character_details['goals'] = ', '.join(str(g) for g in character_details['goals'])
+        elif not isinstance(character_details.get('goals'), str):
+            character_details['goals'] = str(character_details.get('goals', ''))
+        
+        if isinstance(character_details.get('fears'), list):
+            character_details['fears'] = ', '.join(str(f) for f in character_details['fears'])
+        elif not isinstance(character_details.get('fears'), str):
+            character_details['fears'] = str(character_details.get('fears', ''))
+        
+        # Ensure other string fields are strings
+        for field in ['name', 'description', 'background', 'appearance', 'suggested_role']:
+            if field in character_details and not isinstance(character_details[field], str):
+                character_details[field] = str(character_details[field])
+        
+        # Ensure personality_traits is a list
+        if 'personality_traits' in character_details:
+            if isinstance(character_details['personality_traits'], str):
+                # Split comma-separated or newline-separated traits
+                character_details['personality_traits'] = [
+                    t.strip() for t in re.split(r'[,;\n]', character_details['personality_traits']) 
+                    if t.strip()
+                ]
+            elif not isinstance(character_details['personality_traits'], list):
+                character_details['personality_traits'] = []
+        else:
+            character_details['personality_traits'] = []
+        
+        # Add metadata
+        character_details['confidence'] = 0.85  # Could be calculated based on scene count
+        character_details['scenes_analyzed'] = [s['sequence'] for s in character_scenes]
+        
+        return character_details
     
     async def check_character_importance(
         self,
