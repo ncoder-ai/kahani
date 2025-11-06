@@ -13,6 +13,7 @@ export interface UIPreferences {
   notifications: boolean;
   scene_display_format: string; // 'default', 'bubble', 'card', 'minimal'
   show_scene_titles: boolean;
+  scene_edit_mode: string; // 'textarea', 'contenteditable'
   auto_open_last_story: boolean;
   last_accessed_story_id?: number;
 }
