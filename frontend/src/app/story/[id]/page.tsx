@@ -11,7 +11,6 @@ import { useStoryActions } from '@/contexts/StoryContext';
 import { useUISettings } from '@/hooks/useUISettings';
 import apiClient, { getApiBaseUrl } from '@/lib/api';
 import CharacterQuickAdd from '@/components/CharacterQuickAdd';
-import CharacterSuggestionBanner from '@/components/CharacterSuggestionBanner';
 import { ContextInfo } from '@/components/ContextInfo';
 import FormattedText from '@/components/FormattedText';
 import SceneDisplay from '@/components/SceneDisplay';
@@ -270,11 +269,13 @@ export default function StoryPage() {
         directorModeActive: directorMode,
         lorebookActive: showLorebook,
         deleteModeActive: isInDeleteMode,
+        showCharacterBanner: showCharacterBanner,
+        onDiscoverCharacters: () => setShowCharacterWizard(true),
       });
     } else {
       setStoryActions(undefined);
     }
-  }, [story, directorMode, showLorebook, isInDeleteMode, setStoryActions, router]);
+  }, [story, directorMode, showLorebook, isInDeleteMode, showCharacterBanner, setStoryActions, router]);
 
   // Auto-scroll to bottom when streaming starts
   useEffect(() => {
@@ -1379,6 +1380,31 @@ export default function StoryPage() {
     }
   };
 
+  // Activate delete mode and select this scene and all subsequent scenes
+  const activateDeleteModeFromScene = (sequenceNumber: number) => {
+    if (!story) return;
+    
+    // Activate delete mode
+    setIsInDeleteMode(true);
+    
+    // Select this scene and all subsequent scenes
+    const scenesToDelete: number[] = [];
+    story.scenes.forEach(scene => {
+      if (scene.sequence_number >= sequenceNumber) {
+        scenesToDelete.push(scene.sequence_number);
+      }
+    });
+    
+    setSelectedScenesForDeletion(scenesToDelete);
+  };
+
+  // Deactivate delete mode
+  const deactivateDeleteMode = () => {
+    setIsInDeleteMode(false);
+    setSelectedScenesForDeletion([]);
+    setShowDeleteConfirmation(false);
+  };
+
   const deleteScenesFromSelected = () => {
     if (!story || selectedScenesForDeletion.length === 0) return;
     
@@ -1921,15 +1947,6 @@ export default function StoryPage() {
       
       {/* Navigation Header - Simplified */}
       <div className="bg-gray-800/95 backdrop-blur-md border-b border-gray-700">
-        {/* Character Suggestion Banner */}
-        <CharacterSuggestionBanner
-          storyId={storyId}
-          chapterId={currentChapterId}
-          onDiscoverCharacters={() => setShowCharacterWizard(true)}
-          onDismiss={() => setShowCharacterBanner(false)}
-          isVisible={showCharacterBanner}
-        />
-
         <div className="max-w-4xl mx-auto px-4 md:px-6 py-3 md:py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2 md:space-x-4">
@@ -2043,18 +2060,21 @@ export default function StoryPage() {
                           </div>
                         )}
 
-                        {/* Delete Mode Checkbox - Show at top of scene */}
-                        {isInDeleteMode && (
+                        {/* Delete Mode Indicator - Show at top of scene (read-only) */}
+                        {isInDeleteMode && selectedScenesForDeletion.includes(scene.sequence_number) && (
                           <div className="mb-4 p-3 bg-red-900/20 rounded-lg border border-red-600/50">
-                            <label className="flex items-center space-x-2 text-sm text-red-300">
-                              <input
-                                type="checkbox"
-                                checked={selectedScenesForDeletion.includes(scene.sequence_number)}
-                                onChange={() => toggleSceneForDeletion(scene.sequence_number)}
-                                className="w-4 h-4 text-red-600 bg-gray-700 border-gray-600 rounded focus:ring-red-500"
-                              />
-                              <span>Delete from here onward</span>
-                            </label>
+                            <div className="flex items-center space-x-2 text-sm text-red-300">
+                              <div className="w-4 h-4 flex items-center justify-center">
+                                <svg className="w-4 h-4 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                </svg>
+                              </div>
+                              <span>
+                                {selectedScenesForDeletion.length > 0 && Math.min(...selectedScenesForDeletion) === scene.sequence_number
+                                  ? 'Delete from here onwards' 
+                                  : 'Will be deleted'}
+                              </span>
+                            </div>
                           </div>
                         )}
 
@@ -2095,6 +2115,18 @@ export default function StoryPage() {
                           isSceneOperationInProgress={isSceneOperationInProgress}
                           streamingVariantContent={streamingVariantSceneId === scene.id ? streamingVariantContent : ''}
                           isStreamingVariant={streamingVariantSceneId === scene.id}
+                          isInDeleteMode={isInDeleteMode}
+                          isSceneSelectedForDeletion={selectedScenesForDeletion.includes(scene.sequence_number)}
+                          onToggleSceneDeletion={toggleSceneForDeletion}
+                          onActivateDeleteMode={activateDeleteModeFromScene}
+                          onDeactivateDeleteMode={deactivateDeleteMode}
+                          onCopySceneText={async (text: string) => {
+                            try {
+                              await navigator.clipboard.writeText(text);
+                            } catch (error) {
+                              console.error('Failed to copy text:', error);
+                            }
+                          }}
                         />
                       </div>
                     );
