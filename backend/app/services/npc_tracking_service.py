@@ -265,20 +265,26 @@ class NPCTrackingService:
             
             explicit_names_str = ", ".join(explicit_character_names) if explicit_character_names else "None"
             
-            prompt = f"""Analyze these story scenes and extract ALL named entities (characters, beings, entities) 
+            prompt = f"""Analyze these story scenes and extract ONLY characters (sentient beings with agency) 
 that are NOT in the explicit character list.
 
 {batch_content}
 
 Explicit Characters (already tracked): {explicit_names_str}
 
-Extract ALL named entities that:
-- Are mentioned by name
-- Are NOT in the explicit character list above
-- Could be characters, NPCs, entities, beings, or important figures
-- Have dialogue, perform actions, or have relationships in any scene
+Extract ONLY:
+- Human characters (people with names)
+- Non-human characters with agency (aliens, robots, sentient animals, etc.)
+- Beings that speak, think, or act independently
 
-For each NPC, identify:
+DO NOT extract:
+- Locations or places
+- Objects or items
+- Organizations or groups (unless referring to a specific person)
+- Abstract concepts or forces
+- Non-sentient entities
+
+For each character, identify:
 - Name (exact name as mentioned)
 - Mention count (total mentions across all scenes)
 - Has dialogue (true/false - has dialogue in any scene)
@@ -480,7 +486,7 @@ If no NPCs found, return {{"npcs": []}}. Return ONLY the JSON, no other text."""
             
             explicit_names_str = ", ".join(explicit_character_names) if explicit_character_names else "None"
             
-            prompt = f"""Analyze this story scene and extract ALL named entities (characters, beings, entities) 
+            prompt = f"""Analyze this story scene and extract ONLY characters (sentient beings with agency) 
 that are NOT in the explicit character list.
 
 Scene (Sequence #{scene_sequence}):
@@ -488,13 +494,19 @@ Scene (Sequence #{scene_sequence}):
 
 Explicit Characters (already tracked): {explicit_names_str}
 
-Extract ALL named entities that:
-- Are mentioned by name
-- Are NOT in the explicit character list above
-- Could be characters, NPCs, entities, beings, or important figures
-- Have dialogue, perform actions, or have relationships in the scene
+Extract ONLY:
+- Human characters (people with names)
+- Non-human characters with agency (aliens, robots, sentient animals, etc.)
+- Beings that speak, think, or act independently
 
-For each NPC, identify:
+DO NOT extract:
+- Locations or places
+- Objects or items
+- Organizations or groups (unless referring to a specific person)
+- Abstract concepts or forces
+- Non-sentient entities
+
+For each character, identify:
 - Name (exact name as mentioned)
 - Mention count (how many times mentioned in this scene)
 - Has dialogue (true/false)
@@ -766,17 +778,32 @@ If no NPCs found, return {{"npcs": []}}. Return ONLY the JSON, no other text."""
             if not mentions:
                 return
             
-            # Get scene contents
+            # Get scene contents using active variants
             scenes_data = []
             for mention in mentions:
                 scene = db.query(Scene).filter(Scene.id == mention.scene_id).first()
                 if scene:
-                    scenes_data.append({
-                        "sequence": mention.sequence_number,
-                        "content": scene.content or ""
-                    })
+                    # Get active variant content (same pattern as CharacterAssistantService)
+                    from ..models import StoryFlow
+                    flow = db.query(StoryFlow).filter(
+                        StoryFlow.scene_id == scene.id,
+                        StoryFlow.is_active == True
+                    ).first()
+                    
+                    content = ""
+                    if flow and flow.scene_variant:
+                        content = flow.scene_variant.content or ""
+                    elif scene.content:  # Fallback to legacy content
+                        content = scene.content
+                    
+                    if content:  # Only include scenes with actual content
+                        scenes_data.append({
+                            "sequence": mention.sequence_number,
+                            "content": content
+                        })
             
             if not scenes_data:
+                logger.warning(f"No scene content found for NPC '{character_name}', cannot extract profile")
                 return
             
             # Build context for LLM
@@ -837,7 +864,20 @@ Return ONLY the JSON, no other text."""
             
             profile = json.loads(response_clean)
             
-            # Update tracking record
+            # Validate profile has meaningful content
+            has_content = (
+                profile.get("description") or 
+                profile.get("personality") or 
+                profile.get("background") or 
+                profile.get("goals") or
+                profile.get("appearance")
+            )
+            
+            if not has_content:
+                logger.warning(f"Profile extraction for '{character_name}' returned empty data, skipping storage")
+                return
+            
+            # Update tracking record only if profile has content
             tracking = db.query(NPCTracking).filter(
                 NPCTracking.story_id == story_id,
                 NPCTracking.character_name == character_name
@@ -847,7 +887,7 @@ Return ONLY the JSON, no other text."""
                 tracking.extracted_profile = profile
                 tracking.profile_extracted = True
                 db.commit()
-                logger.info(f"Extracted profile for NPC '{character_name}'")
+                logger.info(f"Extracted profile for NPC '{character_name}' with content")
             
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse NPC profile JSON: {e}")
@@ -892,20 +932,31 @@ Return ONLY the JSON, no other text."""
     def get_npcs_as_suggestions(
         self,
         db: Session,
-        story_id: int
+        story_id: int,
+        min_importance: float = 0.0
     ) -> List[Dict[str, Any]]:
         """
-        Get NPCs that crossed threshold formatted as character suggestions.
+        Get NPCs formatted as character suggestions for discovery.
         
         Returns format compatible with CharacterAssistantService suggestions.
         Excludes NPCs that have been converted to explicit characters.
+        
+        Args:
+            db: Database session
+            story_id: Story ID
+            min_importance: Minimum importance score to include (0.0 = all NPCs)
         """
         try:
-            npcs = db.query(NPCTracking).filter(
+            # Get all NPCs (not just threshold-crossed ones) for discovery
+            # Filter by minimum importance and exclude converted NPCs
+            query = db.query(NPCTracking).filter(
                 NPCTracking.story_id == story_id,
-                NPCTracking.crossed_threshold == True,
-                NPCTracking.converted_to_character == False  # Exclude converted NPCs
-            ).all()
+                NPCTracking.converted_to_character == False,  # Exclude converted NPCs
+                NPCTracking.importance_score >= min_importance
+            )
+            
+            # Order by importance score descending
+            npcs = query.order_by(NPCTracking.importance_score.desc()).all()
             
             suggestions = []
             for npc in npcs:
