@@ -14,6 +14,7 @@ from datetime import datetime
 
 from .semantic_memory import get_semantic_memory_service
 from .llm.service import UnifiedLLMService
+from .llm.extraction_service import ExtractionLLMService
 from ..models import CharacterMemory, Character, Scene, MomentType
 from ..config import settings
 
@@ -61,6 +62,7 @@ class CharacterMemoryService:
             self.semantic_memory = None
         
         self.llm_service = UnifiedLLMService()
+        self.extraction_service = None  # Will be initialized conditionally
     
     async def extract_character_moments_from_scenes_batch(
         self,
@@ -361,6 +363,41 @@ class CharacterMemoryService:
             db.rollback()
             return []
     
+    def _get_extraction_service(self, user_settings: Dict[str, Any]) -> Optional[ExtractionLLMService]:
+        """
+        Get or create extraction service if enabled in user settings
+        
+        Args:
+            user_settings: User settings dictionary
+            
+        Returns:
+            ExtractionLLMService instance or None if not enabled
+        """
+        # Check if extraction model is enabled
+        extraction_settings = user_settings.get('extraction_model_settings', {})
+        if not extraction_settings.get('enabled', False):
+            return None
+        
+        try:
+            # Get extraction model configuration
+            url = extraction_settings.get('url', 'http://localhost:1234/v1')
+            model = extraction_settings.get('model_name', 'qwen2.5-3b-instruct')
+            api_key = extraction_settings.get('api_key', '')
+            temperature = extraction_settings.get('temperature', 0.3)
+            max_tokens = extraction_settings.get('max_tokens', 1000)
+            
+            # Create extraction service
+            return ExtractionLLMService(
+                url=url,
+                model=model,
+                api_key=api_key,
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+        except Exception as e:
+            logger.warning(f"Failed to initialize extraction service: {e}")
+            return None
+    
     async def _llm_extract_moments_batch(
         self,
         batch_content: str,
@@ -370,6 +407,7 @@ class CharacterMemoryService:
     ) -> List[Dict[str, Any]]:
         """
         Use LLM to extract character moments from multiple scenes in batch.
+        Tries extraction model first, falls back to main LLM if enabled.
         
         Args:
             batch_content: Multiple scenes concatenated with scene markers
@@ -380,7 +418,36 @@ class CharacterMemoryService:
         Returns:
             List of moment dictionaries (not mapped to scenes)
         """
+        # Try extraction model first if enabled
+        extraction_service = self._get_extraction_service(user_settings)
+        if extraction_service:
+            try:
+                logger.info(f"Using extraction model for batch character moment extraction (user {user_id})")
+                moments = await extraction_service.extract_character_moments_batch(
+                    batch_content=batch_content,
+                    character_names=character_names
+                )
+                
+                # Validate and normalize moments
+                validated_moments = self._validate_moments(moments)
+                if validated_moments:
+                    logger.info(f"Extraction model successfully extracted {len(validated_moments)} moments from batch")
+                    return validated_moments
+                else:
+                    logger.warning("Extraction model returned no valid moments from batch, falling back to main LLM")
+            except Exception as e:
+                logger.warning(f"Extraction model batch extraction failed: {e}, falling back to main LLM")
+                # Continue to fallback
+        
+        # Fallback to main LLM
+        fallback_enabled = user_settings.get('extraction_model_settings', {}).get('fallback_to_main', True)
+        if not fallback_enabled and extraction_service:
+            logger.warning("Extraction model failed and fallback disabled, returning empty results")
+            return []
+        
         try:
+            logger.info(f"Using main LLM for batch character moment extraction (user {user_id})")
+            
             prompt = f"""Analyze the following scenes and extract significant character moments for these characters: {', '.join(character_names)}
 
 {batch_content}
@@ -420,7 +487,7 @@ If no moments found, return {{"moments": []}}. Return ONLY the JSON, no other te
             return self._parse_moments_response(response)
             
         except Exception as e:
-            logger.error(f"Failed to extract character moments with LLM (batch): {e}")
+            logger.error(f"Main LLM batch character moment extraction failed: {e}")
             return []
     
     async def _llm_extract_moments(
@@ -432,6 +499,7 @@ If no moments found, return {{"moments": []}}. Return ONLY the JSON, no other te
     ) -> List[Dict[str, Any]]:
         """
         Use LLM to extract character moments from scene
+        Tries extraction model first, falls back to main LLM if enabled.
         
         Args:
             scene_content: Scene text
@@ -442,7 +510,36 @@ If no moments found, return {{"moments": []}}. Return ONLY the JSON, no other te
         Returns:
             List of moment dictionaries
         """
+        # Try extraction model first if enabled
+        extraction_service = self._get_extraction_service(user_settings)
+        if extraction_service:
+            try:
+                logger.info(f"Using extraction model for character moment extraction (user {user_id})")
+                moments = await extraction_service.extract_character_moments(
+                    scene_content=scene_content,
+                    character_names=character_names
+                )
+                
+                # Validate and normalize moments
+                validated_moments = self._validate_moments(moments)
+                if validated_moments:
+                    logger.info(f"Extraction model successfully extracted {len(validated_moments)} moments")
+                    return validated_moments
+                else:
+                    logger.warning("Extraction model returned no valid moments, falling back to main LLM")
+            except Exception as e:
+                logger.warning(f"Extraction model failed: {e}, falling back to main LLM")
+                # Continue to fallback
+        
+        # Fallback to main LLM
+        fallback_enabled = user_settings.get('extraction_model_settings', {}).get('fallback_to_main', True)
+        if not fallback_enabled and extraction_service:
+            logger.warning("Extraction model failed and fallback disabled, returning empty results")
+            return []
+        
         try:
+            logger.info(f"Using main LLM for character moment extraction (user {user_id})")
+            
             prompt = f"""Analyze the following scene and extract significant character moments for these characters: {', '.join(character_names)}
 
 Scene:
@@ -483,8 +580,54 @@ If no moments found, return {{"moments": []}}. Return ONLY the JSON, no other te
             return self._parse_moments_response(response)
             
         except Exception as e:
-            logger.error(f"Failed to extract character moments: {e}")
+            logger.error(f"Main LLM character moment extraction failed: {e}")
             return []
+    
+    def _validate_moments(self, moments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Validate and normalize moment dictionaries
+        
+        Args:
+            moments: List of raw moment dictionaries
+            
+        Returns:
+            List of validated moment dictionaries
+        """
+        validated = []
+        for moment in moments:
+            try:
+                char_name = moment.get('character_name', '').strip()
+                moment_type = moment.get('moment_type', 'action').strip().lower()
+                content = moment.get('content', '').strip()
+                confidence = moment.get('confidence', 70)
+                
+                # Validate moment_type
+                if moment_type not in ['action', 'dialogue', 'development', 'relationship']:
+                    logger.warning(f"Invalid moment_type '{moment_type}', defaulting to 'action'")
+                    moment_type = 'action'
+                
+                # Validate confidence
+                try:
+                    confidence = int(confidence)
+                    confidence = min(max(confidence, 0), 100)
+                except (ValueError, TypeError):
+                    confidence = 70
+                
+                if char_name and content:
+                    validated.append({
+                        'character_name': char_name,
+                        'moment_type': moment_type,
+                        'content': content,
+                        'confidence': confidence
+                    })
+                else:
+                    logger.warning(f"Skipping moment with missing character_name or content: {moment}")
+                    
+            except Exception as e:
+                logger.warning(f"Failed to validate moment: {moment}, error: {e}")
+                continue
+        
+        return validated
     
     def _parse_moments_response(self, response: str) -> List[Dict[str, Any]]:
         """
@@ -517,39 +660,7 @@ If no moments found, return {{"moments": []}}. Return ONLY the JSON, no other te
             moments_list = data.get('moments', [])
             
             # Validate and normalize moments
-            validated_moments = []
-            for moment in moments_list:
-                try:
-                    char_name = moment.get('character_name', '').strip()
-                    moment_type = moment.get('moment_type', 'action').strip().lower()
-                    content = moment.get('content', '').strip()
-                    confidence = moment.get('confidence', 70)
-                    
-                    # Validate moment_type
-                    if moment_type not in ['action', 'dialogue', 'development', 'relationship']:
-                        logger.warning(f"Invalid moment_type '{moment_type}', defaulting to 'action'")
-                        moment_type = 'action'
-                    
-                    # Validate confidence
-                    try:
-                        confidence = int(confidence)
-                        confidence = min(max(confidence, 0), 100)
-                    except (ValueError, TypeError):
-                        confidence = 70
-                    
-                    if char_name and content:
-                        validated_moments.append({
-                            'character_name': char_name,
-                        'moment_type': moment_type,
-                        'content': content,
-                            'confidence': confidence
-                    })
-                    else:
-                        logger.warning(f"Skipping moment with missing character_name or content: {moment}")
-                        
-                except Exception as e:
-                    logger.warning(f"Failed to validate moment: {moment}, error: {e}")
-                    continue
+            validated_moments = self._validate_moments(moments_list)
             
             logger.warning(f"PARSING RESULT: Extracted {len(validated_moments)} character moments from JSON")
             
@@ -558,7 +669,6 @@ If no moments found, return {{"moments": []}}. Return ONLY the JSON, no other te
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse LLM response as JSON: {e}")
             logger.debug(f"Original response was: {response}")
-            logger.debug(f"Cleaned response was: {response_clean}")
             return []
         except Exception as e:
             logger.error(f"Failed to parse moments response: {e}")

@@ -96,6 +96,17 @@ Configure your AI model through the application Settings:
 
 **Note:** LLM configuration is stored per-user. Each user configures their own LLM settings through the web interface.
 
+### Local Extraction Model (Optional)
+Reduce costs by using a small local model for plot event extraction:
+
+1. Set up an OpenAI-compatible inference server (LM Studio, Ollama, etc.)
+2. Go to **Settings** → **Context Settings** → **Local Extraction Model**
+3. Select a preset (LM Studio, Ollama, etc.) or configure custom endpoint
+4. Test connection and enable extraction model
+5. Extraction will use local model, story generation uses your main LLM
+
+**See [Extraction Model Setup Guide](docs/EXTRACTION_MODEL_SETUP.md) for detailed instructions.**
+
 ### TTS Setup
 Configure text-to-speech in the application:
 1. Go to **Settings** → **TTS Settings**

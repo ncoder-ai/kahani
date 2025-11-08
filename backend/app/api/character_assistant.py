@@ -136,27 +136,21 @@ async def get_character_suggestions(
     # Add user permissions to settings for NSFW filtering
     user_settings_dict['allow_nsfw'] = current_user.allow_nsfw
     
-    # Create service instance
-    service = CharacterAssistantService(current_user.id, user_settings_dict)
-    
-    # Analyze chapter for characters
-    suggestions = await service.analyze_chapter_for_characters(db, story_id, chapter_id)
-    
-    # Add NPCs that crossed importance threshold
+    # Use NPC tracking data directly - no redundant LLM extraction
+    # NPCTrackingService already extracts and tracks all characters during scene generation
     try:
         from ..services.npc_tracking_service import NPCTrackingService
         npc_service = NPCTrackingService(current_user.id, user_settings_dict)
-        npc_suggestions = npc_service.get_npcs_as_suggestions(db, story_id)
+        suggestions = npc_service.get_npcs_as_suggestions(db, story_id)
         
-        # Merge NPCs into suggestions (they'll be marked with is_npc=True)
-        suggestions.extend(npc_suggestions)
-        
-        # Re-sort by importance score
+        # Sort by importance score
         suggestions.sort(key=lambda x: x.get('importance_score', 0), reverse=True)
         
-        logger.info(f"Added {len(npc_suggestions)} NPCs to character suggestions")
+        logger.info(f"Retrieved {len(suggestions)} character suggestions from NPC tracking (no LLM call needed)")
     except Exception as e:
-        logger.warning(f"Failed to include NPCs in suggestions: {e}")
+        logger.error(f"Failed to get NPC suggestions: {e}")
+        # Return empty list if NPC tracking fails
+        suggestions = []
     
     # Get chapter info
     chapter_info = None
@@ -210,10 +204,10 @@ async def analyze_character_details(
     # Add user permissions to settings for NSFW filtering
     user_settings_dict['allow_nsfw'] = current_user.allow_nsfw
     
-    # Check if this is an NPC with extracted profile
+    # First, check if NPC tracking has already extracted a profile
+    # This avoids redundant LLM calls and uses pre-computed data
     try:
         from ..models import NPCTracking
-        from ..services.npc_tracking_service import NPCTrackingService
         npc_tracking = db.query(NPCTracking).filter(
             NPCTracking.story_id == story_id,
             NPCTracking.character_name == character_name,
@@ -221,37 +215,55 @@ async def analyze_character_details(
         ).first()
         
         if npc_tracking and npc_tracking.extracted_profile:
-            # Use extracted NPC profile
             profile = npc_tracking.extracted_profile
-            character_details = {
-                "name": profile.get("name", character_name),
-                "description": profile.get("description", ""),
-                "personality_traits": profile.get("personality", []),
-                "background": profile.get("background", ""),
-                "goals": profile.get("goals", ""),
-                "fears": "",
-                "appearance": profile.get("appearance", ""),
-                "suggested_role": profile.get("role", ""),
-                "confidence": 85,  # High confidence for extracted profiles
-                "scenes_analyzed": []
-            }
-            return CharacterDetails(**character_details)
+            
+            # Check if profile has meaningful content
+            has_content = (
+                profile.get("description") or 
+                profile.get("personality") or 
+                profile.get("background") or 
+                profile.get("goals") or
+                profile.get("appearance")
+            )
+            
+            if has_content:
+                logger.info(f"Using pre-extracted NPC profile for {character_name} (no LLM call needed)")
+                # Use the already-extracted profile
+                character_details = {
+                    "name": profile.get("name", character_name),
+                    "description": profile.get("description", ""),
+                    "personality_traits": profile.get("personality", []),
+                    "background": profile.get("background", ""),
+                    "goals": profile.get("goals", ""),
+                    "fears": profile.get("fears", ""),  # Include fears if available
+                    "appearance": profile.get("appearance", ""),
+                    "suggested_role": profile.get("role", "other"),
+                    "confidence": 85,  # High confidence for extracted profiles
+                    "scenes_analyzed": []
+                }
+                return CharacterDetails(**character_details)
+            else:
+                logger.info(f"NPC profile for {character_name} exists but is empty, extracting fresh")
+                # Fall through to fresh extraction
     except Exception as e:
-        logger.debug(f"Not an NPC or NPC profile extraction failed: {e}")
+        logger.debug(f"NPC profile not found for {character_name}, will extract fresh: {e}")
     
     # Create service instance
     service = CharacterAssistantService(current_user.id, user_settings_dict)
     
     try:
         # Extract character details
+        logger.info(f"Extracting character details for '{character_name}' in story {story_id}")
         character_details = await service.extract_character_details(db, story_id, character_name)
         
         if not character_details:
+            logger.error(f"No character details returned for {character_name} in story {story_id}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Character not found or could not be analyzed"
             )
         
+        logger.info(f"Successfully extracted character details for {character_name}: {list(character_details.keys())}")
         return CharacterDetails(**character_details)
     except ValueError as e:
         logger.error(f"Character extraction failed: {e}")
@@ -378,7 +390,7 @@ async def check_character_importance(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Check if any new important characters are detected."""
+    """Check if any new important characters are detected using NPC tracking."""
     
     # Verify story ownership
     from ..models import Story
@@ -406,14 +418,96 @@ async def check_character_importance(
     # Add user permissions to settings for NSFW filtering
     user_settings_dict['allow_nsfw'] = current_user.allow_nsfw
     
-    # Create service instance
-    service = CharacterAssistantService(current_user.id, user_settings_dict)
-    
-    # Check for important characters
-    has_important_characters = await service.check_character_importance(db, story_id, chapter_id)
-    
-    return {
-        "new_character_detected": has_important_characters,
-        "importance_threshold": service.importance_threshold,
-        "mention_threshold": service.mention_threshold
-    }
+    # Check NPC tracking for characters that haven't been converted
+    try:
+        from ..services.npc_tracking_service import NPCTrackingService
+        from ..models import NPCTracking
+        
+        npc_service = NPCTrackingService(current_user.id, user_settings_dict)
+        
+        # Get all NPCs that haven't been converted to characters
+        npcs = db.query(NPCTracking).filter(
+            NPCTracking.story_id == story_id,
+            NPCTracking.converted_to_character == False
+        ).all()
+        
+        # Check if any NPCs exist (regardless of threshold for discovery purposes)
+        has_characters = len(npcs) > 0
+        
+        logger.info(f"Character importance check for story {story_id}: {len(npcs)} NPCs found, has_characters={has_characters}")
+        
+        return {
+            "new_character_detected": has_characters,
+            "importance_threshold": npc_service.importance_threshold,
+            "mention_threshold": 0  # Not applicable for NPC tracking
+        }
+    except Exception as e:
+        logger.error(f"Failed to check character importance: {e}")
+        return {
+            "new_character_detected": False,
+            "importance_threshold": 0,
+            "mention_threshold": 0
+        }
+
+@router.post("/{story_id}/npcs/recalculate-scores")
+async def recalculate_npc_scores(
+    story_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Recalculate importance scores for all NPCs in a story."""
+    try:
+        # Verify story ownership
+        from ..models import Story
+        story = db.query(Story).filter(
+            Story.id == story_id,
+            Story.owner_id == current_user.id
+        ).first()
+        
+        if not story:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Story not found"
+            )
+        
+        # Get user settings
+        user_settings = db.query(UserSettings).filter(
+            UserSettings.user_id == current_user.id
+        ).first()
+        
+        if not user_settings:
+            user_settings_dict = UserSettings.get_defaults()
+        else:
+            user_settings_dict = user_settings.to_dict()
+        
+        # Add user permissions to settings for NSFW filtering
+        user_settings_dict['allow_nsfw'] = current_user.allow_nsfw
+        
+        from ..services.npc_tracking_service import NPCTrackingService
+        
+        npc_service = NPCTrackingService(
+            user_id=current_user.id,
+            user_settings=user_settings_dict
+        )
+        
+        result = await npc_service.recalculate_all_scores(db, story_id)
+        
+        if result["success"]:
+            return {
+                "success": True,
+                "message": f"Recalculated {result['npcs_recalculated']} NPC scores"
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=result.get("error", "Unknown error")
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to recalculate NPC scores: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )

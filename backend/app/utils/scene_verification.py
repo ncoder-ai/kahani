@@ -250,6 +250,7 @@ def map_npcs_to_scenes(
                 # NPC appears in this scene
                 scene_npc = {
                     'name': npc_name,
+                    'entity_type': npc.get('entity_type', 'CHARACTER'),  # Preserve entity_type from LLM
                     'mention_count': npc_info['mentions'],
                     'has_dialogue': npc_info['has_dialogue'],
                     'has_actions': npc_info['has_actions'],
