@@ -15,6 +15,7 @@ from datetime import datetime
 
 from .semantic_memory import get_semantic_memory_service
 from .llm.service import UnifiedLLMService
+from .llm.extraction_service import ExtractionLLMService
 from ..models import PlotEvent, Scene, EventType
 from ..config import settings
 
@@ -62,6 +63,7 @@ class PlotThreadService:
             self.semantic_memory = None
         
         self.llm_service = UnifiedLLMService()
+        self.extraction_service = None  # Will be initialized conditionally
     
     async def extract_plot_events_from_scenes_batch(
         self,
@@ -260,16 +262,46 @@ class PlotThreadService:
     ) -> List[Dict[str, Any]]:
         """
         Use LLM to extract plot events from multiple scenes in batch.
+        Tries extraction model first, falls back to main LLM if enabled.
         
         Returns list of event dictionaries (not mapped to scenes).
         """
+        # Get context about existing threads
+        existing_threads = await self.get_unresolved_threads(story_id, db)
+        thread_context = ""
+        if existing_threads:
+            thread_list = [f"- {t['description']}" for t in existing_threads[:5]]
+            thread_context = f"\n\nActive plot threads to consider:\n{chr(10).join(thread_list)}"
+        
+        # Try extraction model first if enabled
+        extraction_service = self._get_extraction_service(user_settings)
+        if extraction_service:
+            try:
+                logger.info(f"Using extraction model for batch plot event extraction (user {user_id})")
+                events = await extraction_service.extract_plot_events_batch(
+                    scenes_content=batch_content,
+                    thread_context=thread_context
+                )
+                
+                # Validate and normalize events
+                validated_events = self._validate_events(events)
+                if validated_events:
+                    logger.info(f"Extraction model successfully extracted {len(validated_events)} events from batch")
+                    return validated_events
+                else:
+                    logger.warning("Extraction model returned no valid events from batch, falling back to main LLM")
+            except Exception as e:
+                logger.warning(f"Extraction model batch extraction failed: {e}, falling back to main LLM")
+                # Continue to fallback
+        
+        # Fallback to main LLM
+        fallback_enabled = user_settings.get('extraction_model_settings', {}).get('fallback_to_main', True)
+        if not fallback_enabled and extraction_service:
+            logger.warning("Extraction model failed and fallback disabled, returning empty results")
+            return []
+        
         try:
-            # Get context about existing threads
-            existing_threads = await self.get_unresolved_threads(story_id, db)
-            thread_context = ""
-            if existing_threads:
-                thread_list = [f"- {t['description']}" for t in existing_threads[:5]]
-                thread_context = f"\n\nActive plot threads to consider:\n{chr(10).join(thread_list)}"
+            logger.info(f"Using main LLM for batch plot event extraction (user {user_id})")
             
             prompt = f"""Analyze the following scenes and extract significant plot events.{thread_context}
 
@@ -398,7 +430,7 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
             return events
             
         except Exception as e:
-            logger.error(f"Failed to extract plot events with LLM (batch): {e}")
+            logger.error(f"Main LLM batch event extraction failed: {e}")
             return []
     
     async def extract_plot_events(
@@ -564,6 +596,41 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
                 db.rollback()
                 return []
     
+    def _get_extraction_service(self, user_settings: Dict[str, Any]) -> Optional[ExtractionLLMService]:
+        """
+        Get or create extraction service if enabled in user settings
+        
+        Args:
+            user_settings: User settings dictionary
+            
+        Returns:
+            ExtractionLLMService instance or None if not enabled
+        """
+        # Check if extraction model is enabled
+        extraction_settings = user_settings.get('extraction_model_settings', {})
+        if not extraction_settings.get('enabled', False):
+            return None
+        
+        try:
+            # Get extraction model configuration
+            url = extraction_settings.get('url', 'http://localhost:1234/v1')
+            model = extraction_settings.get('model_name', 'qwen2.5-3b-instruct')
+            api_key = extraction_settings.get('api_key', '')
+            temperature = extraction_settings.get('temperature', 0.3)
+            max_tokens = extraction_settings.get('max_tokens', 1000)
+            
+            # Create extraction service
+            return ExtractionLLMService(
+                url=url,
+                model=model,
+                api_key=api_key,
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+        except Exception as e:
+            logger.warning(f"Failed to initialize extraction service: {e}")
+            return None
+    
     async def _llm_extract_events(
         self,
         scene_content: str,
@@ -574,6 +641,7 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
     ) -> List[Dict[str, Any]]:
         """
         Use LLM to extract plot events from scene
+        Tries extraction model first, falls back to main LLM if enabled.
         
         Args:
             scene_content: Scene text
@@ -585,13 +653,42 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
         Returns:
             List of event dictionaries
         """
+        # Get context about existing threads
+        existing_threads = await self.get_unresolved_threads(story_id, db)
+        thread_context = ""
+        if existing_threads:
+            thread_list = [f"- {t['description']}" for t in existing_threads[:5]]
+            thread_context = f"\n\nActive plot threads to consider:\n{chr(10).join(thread_list)}"
+        
+        # Try extraction model first if enabled
+        extraction_service = self._get_extraction_service(user_settings)
+        if extraction_service:
+            try:
+                logger.info(f"Using extraction model for plot event extraction (user {user_id})")
+                events = await extraction_service.extract_plot_events(
+                    scene_content=scene_content,
+                    thread_context=thread_context
+                )
+                
+                # Validate and normalize events (same as main LLM path)
+                validated_events = self._validate_events(events)
+                if validated_events:
+                    logger.info(f"Extraction model successfully extracted {len(validated_events)} events")
+                    return validated_events
+                else:
+                    logger.warning("Extraction model returned no valid events, falling back to main LLM")
+            except Exception as e:
+                logger.warning(f"Extraction model failed: {e}, falling back to main LLM")
+                # Continue to fallback
+        
+        # Fallback to main LLM
+        fallback_enabled = user_settings.get('extraction_model_settings', {}).get('fallback_to_main', True)
+        if not fallback_enabled and extraction_service:
+            logger.warning("Extraction model failed and fallback disabled, returning empty results")
+            return []
+        
         try:
-            # Get context about existing threads
-            existing_threads = await self.get_unresolved_threads(story_id, db)
-            thread_context = ""
-            if existing_threads:
-                thread_list = [f"- {t['description']}" for t in existing_threads[:5]]
-                thread_context = f"\n\nActive plot threads to consider:\n{chr(10).join(thread_list)}"
+            logger.info(f"Using main LLM for plot event extraction (user {user_id})")
             
             prompt = f"""Analyze the following scene and extract significant plot events.{thread_context}
 
@@ -721,8 +818,73 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
             return events
             
         except Exception as e:
-            logger.error(f"LLM event extraction failed: {e}")
+            logger.error(f"Main LLM event extraction failed: {e}")
             return []
+    
+    def _validate_events(self, events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Validate and normalize event dictionaries
+        
+        Args:
+            events: List of raw event dictionaries
+            
+        Returns:
+            List of validated event dictionaries
+        """
+        validated = []
+        for event in events:
+            try:
+                event_type = event.get('event_type', 'complication').strip().lower()
+                description = event.get('description', '').strip()
+                importance = event.get('importance', 50)
+                confidence = event.get('confidence', 70)
+                involved_chars = event.get('involved_characters', [])
+                
+                # Validate event_type
+                if event_type not in ['introduction', 'complication', 'revelation', 'resolution']:
+                    logger.warning(f"Invalid event_type '{event_type}', defaulting to 'complication'")
+                    event_type = 'complication'
+                
+                # Validate importance and confidence
+                try:
+                    importance = int(importance)
+                    importance = min(max(importance, 0), 100)
+                except (ValueError, TypeError):
+                    importance = 50
+                
+                try:
+                    confidence = int(confidence)
+                    confidence = min(max(confidence, 0), 100)
+                except (ValueError, TypeError):
+                    confidence = 70
+                
+                # Normalize involved_characters (handle string or array)
+                if isinstance(involved_chars, str):
+                    if involved_chars.lower() == 'none' or not involved_chars.strip():
+                        involved_chars = []
+                    else:
+                        involved_chars = [c.strip() for c in involved_chars.split(',') if c.strip()]
+                elif not isinstance(involved_chars, list):
+                    involved_chars = []
+                else:
+                    involved_chars = [str(c).strip() for c in involved_chars if c and str(c).strip()]
+                
+                if description:
+                    validated.append({
+                        'event_type': event_type,
+                        'description': description,
+                        'importance': importance,
+                        'confidence': confidence,
+                        'involved_characters': involved_chars
+                    })
+                else:
+                    logger.warning(f"Skipping event with missing description: {event}")
+                    
+            except Exception as e:
+                logger.warning(f"Failed to validate event: {event}, error: {e}")
+                continue
+        
+        return validated
     
     def _generate_thread_id(self, description: str, event_type: str) -> str:
         """

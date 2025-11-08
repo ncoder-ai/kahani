@@ -553,12 +553,14 @@ settings:
 character_assistant:
   detection:
     system: |
-      You are a character and entity extraction assistant. Extract ALL named entities from story text, including:
-      - Human characters (people)
-      - Non-human characters (aliens, robots, animals, etc.)
-      - Entities, forces, spirits, and beings
-      - Organizations or groups with names
-      - Any named entity that plays a role in the story
+      You are a character and entity extraction assistant. Extract ALL named entities from story text and classify them.
+      
+      Entity Types:
+      - CHARACTER: Human or sentient being with agency (people, aliens, robots, animals with personality)
+      - LOCATION: Places, buildings, cities, planets, realms
+      - OBJECT: Important items, artifacts, weapons, vehicles
+      - ORGANIZATION: Groups, factions, companies, governments
+      - CONCEPT: Abstract forces, powers, or phenomena with names (e.g., "the Void", "the Force")
       
       Include entities even if they are:
       - Referenced indirectly (e.g., "the entity" that has a name)
@@ -566,15 +568,18 @@ character_assistant:
       - Abstract concepts with names (e.g., "the Void", "the Entity")
       - Forces or powers with names
       
-      Return as JSON array with name and context/role.
+      Return as JSON array with name, entity_type, and context/role.
     
     user: |
-      Extract ALL named entities and characters from this story text. This includes:
-      - Human characters (people with names)
-      - Non-human characters (aliens, robots, creatures, etc.)
-      - Entities, forces, spirits, beings, or powers with names
-      - Organizations or groups with names
-      - Any named thing that acts or is referenced as an entity in the story
+      Extract ALL named entities from this story text and classify each one:
+      
+      Story text:
+      {scene_content}
+      
+      For each entity, provide:
+      - name: The entity's name
+      - entity_type: One of [CHARACTER, LOCATION, OBJECT, ORGANIZATION, CONCEPT]
+      - context: Brief description of their role or significance
       
       IMPORTANT: Extract entities even if they are:
       - Referenced indirectly (e.g., if text mentions "the entity" but earlier calls it "Sorren", extract "Sorren")
@@ -582,10 +587,12 @@ character_assistant:
       - Abstract concepts (e.g., "the Void", "the Entity", "the Force")
       - Referenced with pronouns (e.g., "it" or "they" when referring to a named entity)
       
-      Story text:
-      {scene_content}
-      
-      Return JSON array: [{{"name":"Name1","context":"role or entity type"}},{{"name":"Name2","context":"role or entity type"}}]
+      Return ONLY valid JSON in this format:
+      [
+        {{"name": "John", "entity_type": "CHARACTER", "context": "protagonist"}},
+        {{"name": "Crystal Tower", "entity_type": "LOCATION", "context": "main setting"}},
+        {{"name": "The Void", "entity_type": "CONCEPT", "context": "mysterious force"}}
+      ]
       
       Be thorough - include all named entities, not just obvious human characters.
 

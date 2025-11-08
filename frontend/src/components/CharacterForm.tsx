@@ -64,7 +64,8 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
   useEffect(() => {
     if (characterId && mode === 'edit') {
       loadCharacter();
-    } else if (initialData && mode !== 'edit') {
+    } else if (initialData) {
+      console.log('Setting initial data in CharacterForm:', initialData);
       // Pre-fill form with initial data (e.g., from Discover from Story)
       setFormData({
         name: initialData.name || '',
