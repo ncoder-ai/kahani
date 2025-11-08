@@ -15,6 +15,7 @@ from ..models import (
     Story, Scene, StoryCharacter
 )
 from ..services.llm.service import UnifiedLLMService
+from ..services.llm.extraction_service import ExtractionLLMService
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,7 @@ class EntityStateService:
         self.user_id = user_id
         self.user_settings = user_settings
         self.llm_service = UnifiedLLMService()
+        self.extraction_service = None  # Will be initialized conditionally
     
     async def extract_and_update_states(
         self,
@@ -146,6 +148,38 @@ class EntityStateService:
         
         return results
     
+    def _get_extraction_service(self) -> Optional[ExtractionLLMService]:
+        """
+        Get or create extraction service if enabled in user settings
+        
+        Returns:
+            ExtractionLLMService instance or None if not enabled
+        """
+        # Check if extraction model is enabled
+        extraction_settings = self.user_settings.get('extraction_model_settings', {})
+        if not extraction_settings.get('enabled', False):
+            return None
+        
+        try:
+            # Get extraction model configuration
+            url = extraction_settings.get('url', 'http://localhost:1234/v1')
+            model = extraction_settings.get('model_name', 'qwen2.5-3b-instruct')
+            api_key = extraction_settings.get('api_key', '')
+            temperature = extraction_settings.get('temperature', 0.3)
+            max_tokens = extraction_settings.get('max_tokens', 1000)
+            
+            # Create extraction service
+            return ExtractionLLMService(
+                url=url,
+                model=model,
+                api_key=api_key,
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+        except Exception as e:
+            logger.warning(f"Failed to initialize extraction service: {e}")
+            return None
+    
     async def _extract_state_changes(
         self,
         scene_content: str,
@@ -154,10 +188,41 @@ class EntityStateService:
     ) -> Optional[Dict[str, Any]]:
         """
         Use LLM to extract state changes from a scene.
+        Tries extraction model first, falls back to main LLM if enabled.
         
         Returns JSON with character, location, and object updates.
         """
+        # Try extraction model first if enabled
+        extraction_service = self._get_extraction_service()
+        if extraction_service:
+            try:
+                logger.info(f"Using extraction model for entity state extraction (user {self.user_id})")
+                state_changes = await extraction_service.extract_entity_states(
+                    scene_content=scene_content,
+                    scene_sequence=scene_sequence,
+                    character_names=character_names
+                )
+                
+                # Validate state changes
+                validated = self._validate_state_changes(state_changes)
+                if validated:
+                    logger.info(f"Extraction model successfully extracted entity states")
+                    return validated
+                else:
+                    logger.warning("Extraction model returned no valid state changes, falling back to main LLM")
+            except Exception as e:
+                logger.warning(f"Extraction model failed: {e}, falling back to main LLM")
+                # Continue to fallback
+        
+        # Fallback to main LLM
+        fallback_enabled = self.user_settings.get('extraction_model_settings', {}).get('fallback_to_main', True)
+        if not fallback_enabled and extraction_service:
+            logger.warning("Extraction model failed and fallback disabled, returning empty results")
+            return {'characters': [], 'locations': [], 'objects': []}
+        
         try:
+            logger.info(f"Using main LLM for entity state extraction (user {self.user_id})")
+            
             prompt = f"""Analyze this story scene and extract entity state changes.
 
 Scene (Sequence #{scene_sequence}):
@@ -230,7 +295,7 @@ If no changes for a category, use empty array. Return ONLY the JSON, no other te
             response_clean = clean_llm_json(response_clean)
             
             state_changes = json.loads(response_clean)
-            return state_changes
+            return self._validate_state_changes(state_changes)
             
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse LLM response as JSON: {e}")
@@ -238,8 +303,50 @@ If no changes for a category, use empty array. Return ONLY the JSON, no other te
             logger.debug(f"Cleaned response was: {response_clean}")
             return None
         except Exception as e:
-            logger.error(f"Failed to extract state changes: {e}")
+            logger.error(f"Main LLM entity state extraction failed: {e}")
             return None
+    
+    def _validate_state_changes(self, state_changes: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Validate and normalize state changes dictionary
+        
+        Args:
+            state_changes: Raw state changes dictionary
+            
+        Returns:
+            Validated state changes dictionary
+        """
+        if not isinstance(state_changes, dict):
+            return {'characters': [], 'locations': [], 'objects': []}
+        
+        validated = {
+            'characters': [],
+            'locations': [],
+            'objects': []
+        }
+        
+        # Validate characters
+        characters = state_changes.get('characters', [])
+        if isinstance(characters, list):
+            for char in characters:
+                if isinstance(char, dict) and char.get('name'):
+                    validated['characters'].append(char)
+        
+        # Validate locations
+        locations = state_changes.get('locations', [])
+        if isinstance(locations, list):
+            for loc in locations:
+                if isinstance(loc, dict) and loc.get('name'):
+                    validated['locations'].append(loc)
+        
+        # Validate objects
+        objects = state_changes.get('objects', [])
+        if isinstance(objects, list):
+            for obj in objects:
+                if isinstance(obj, dict) and obj.get('name'):
+                    validated['objects'].append(obj)
+        
+        return validated
     
     async def _update_character_state(
         self,
