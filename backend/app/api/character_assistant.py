@@ -448,3 +448,66 @@ async def check_character_importance(
             "importance_threshold": 0,
             "mention_threshold": 0
         }
+
+@router.post("/{story_id}/npcs/recalculate-scores")
+async def recalculate_npc_scores(
+    story_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Recalculate importance scores for all NPCs in a story."""
+    try:
+        # Verify story ownership
+        from ..models import Story
+        story = db.query(Story).filter(
+            Story.id == story_id,
+            Story.owner_id == current_user.id
+        ).first()
+        
+        if not story:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Story not found"
+            )
+        
+        # Get user settings
+        user_settings = db.query(UserSettings).filter(
+            UserSettings.user_id == current_user.id
+        ).first()
+        
+        if not user_settings:
+            user_settings_dict = UserSettings.get_defaults()
+        else:
+            user_settings_dict = user_settings.to_dict()
+        
+        # Add user permissions to settings for NSFW filtering
+        user_settings_dict['allow_nsfw'] = current_user.allow_nsfw
+        
+        from ..services.npc_tracking_service import NPCTrackingService
+        
+        npc_service = NPCTrackingService(
+            user_id=current_user.id,
+            user_settings=user_settings_dict
+        )
+        
+        result = await npc_service.recalculate_all_scores(db, story_id)
+        
+        if result["success"]:
+            return {
+                "success": True,
+                "message": f"Recalculated {result['npcs_recalculated']} NPC scores"
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=result.get("error", "Unknown error")
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to recalculate NPC scores: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )

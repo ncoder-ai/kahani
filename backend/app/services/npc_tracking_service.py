@@ -128,7 +128,10 @@ class NPCTrackingService:
             scenes_for_verification = [(scene_id, scene_content) for scene_id, _, scene_content in scenes]
             extracted_npcs = npc_data.get("npcs", [])
             
-            scene_npc_map = map_npcs_to_scenes(extracted_npcs, scenes_for_verification)
+            # Validate NPCs before mapping (filters generic entities and includes entity_type)
+            validated_npcs = self._validate_npcs(extracted_npcs)
+            
+            scene_npc_map = map_npcs_to_scenes(validated_npcs, scenes_for_verification)
             
             # Store NPCs for each scene
             total_npcs_tracked = 0
@@ -208,7 +211,7 @@ class NPCTrackingService:
             model = extraction_settings.get('model_name', 'qwen2.5-3b-instruct')
             api_key = extraction_settings.get('api_key', '')
             temperature = extraction_settings.get('temperature', 0.3)
-            max_tokens = extraction_settings.get('max_tokens', 1000)
+            max_tokens = extraction_settings.get('max_tokens', 1500)  # Increased default for entity type and descriptions
             
             # Create extraction service
             return ExtractionLLMService(
@@ -265,39 +268,34 @@ class NPCTrackingService:
             
             explicit_names_str = ", ".join(explicit_character_names) if explicit_character_names else "None"
             
-            prompt = f"""Analyze these story scenes and extract ONLY characters (sentient beings with agency) 
-that are NOT in the explicit character list.
+            prompt = f"""Analyze these story scenes and extract ALL named entities that are NOT in the explicit character list.
 
 {batch_content}
 
 Explicit Characters (already tracked): {explicit_names_str}
 
-Extract ONLY:
-- Human characters (people with names)
-- Non-human characters with agency (aliens, robots, sentient animals, etc.)
-- Beings that speak, think, or act independently
+For each entity, classify as either:
+- CHARACTER: Sentient beings with agency (humans, aliens, robots, sentient animals, named individuals)
+- ENTITY: Non-character entities (locations, objects, organizations, projects, groups, forces, concepts)
 
-DO NOT extract:
-- Locations or places
-- Objects or items
-- Organizations or groups (unless referring to a specific person)
-- Abstract concepts or forces
-- Non-sentient entities
-
-For each character, identify:
+For each extracted entity, identify:
 - Name (exact name as mentioned)
+- Entity type (CHARACTER or ENTITY)
 - Mention count (total mentions across all scenes)
 - Has dialogue (true/false - has dialogue in any scene)
 - Has actions (true/false - performs actions in any scene)
 - Has relationships (true/false - interacts with other characters)
-- Context snippets (array of 2-3 short text snippets mentioning this NPC from any scene)
-- Properties (role, description, etc. if mentioned)
+- Context snippets (array of 2-3 short text snippets mentioning this entity from any scene)
+- Properties:
+  - role: Their role in the story
+  - description: A one-sentence description based on what's shown in the scenes
 
 Return ONLY valid JSON in this exact format:
 {{
   "npcs": [
     {{
-      "name": "NPC name",
+      "name": "Entity name",
+      "entity_type": "CHARACTER",
       "mention_count": 3,
       "has_dialogue": true,
       "has_actions": true,
@@ -305,20 +303,20 @@ Return ONLY valid JSON in this exact format:
       "context_snippets": ["snippet 1", "snippet 2"],
       "properties": {{
         "role": "role description",
-        "description": "brief description"
+        "description": "One-sentence description of the entity"
       }}
     }}
   ]
 }}
 
-If no NPCs found, return {{"npcs": []}}. Return ONLY the JSON, no other text."""
+If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text."""
             
             response = await self.llm_service.generate(
                 prompt=prompt,
                 user_id=self.user_id,
                 user_settings=self.user_settings,
-                system_prompt="You are an expert at analyzing narrative text and extracting named entities.",
-                max_tokens=2000
+                system_prompt="You are an expert at analyzing narrative text and extracting named entities. Classify each entity as CHARACTER or ENTITY and provide descriptions.",
+                max_tokens=3000  # Increased to prevent truncation
             )
             
             logger.warning(f"RAW LLM RESPONSE - NPC TRACKING BATCH:\n{response}")
@@ -486,40 +484,35 @@ If no NPCs found, return {{"npcs": []}}. Return ONLY the JSON, no other text."""
             
             explicit_names_str = ", ".join(explicit_character_names) if explicit_character_names else "None"
             
-            prompt = f"""Analyze this story scene and extract ONLY characters (sentient beings with agency) 
-that are NOT in the explicit character list.
+            prompt = f"""Analyze this story scene and extract ALL named entities that are NOT in the explicit character list.
 
 Scene (Sequence #{scene_sequence}):
 {scene_content}
 
 Explicit Characters (already tracked): {explicit_names_str}
 
-Extract ONLY:
-- Human characters (people with names)
-- Non-human characters with agency (aliens, robots, sentient animals, etc.)
-- Beings that speak, think, or act independently
+For each entity, classify as either:
+- CHARACTER: Sentient beings with agency (humans, aliens, robots, sentient animals, named individuals)
+- ENTITY: Non-character entities (locations, objects, organizations, projects, groups, forces, concepts)
 
-DO NOT extract:
-- Locations or places
-- Objects or items
-- Organizations or groups (unless referring to a specific person)
-- Abstract concepts or forces
-- Non-sentient entities
-
-For each character, identify:
+For each extracted entity, identify:
 - Name (exact name as mentioned)
+- Entity type (CHARACTER or ENTITY)
 - Mention count (how many times mentioned in this scene)
 - Has dialogue (true/false)
 - Has actions (true/false - performs actions in scene)
 - Has relationships (true/false - interacts with other characters)
-- Context snippets (array of 2-3 short text snippets mentioning this NPC)
-- Properties (role, description, etc. if mentioned)
+- Context snippets (array of 2-3 short text snippets mentioning this entity)
+- Properties:
+  - role: Their role in the story
+  - description: A one-sentence description based on what's shown in the scene
 
 Return ONLY valid JSON in this exact format:
 {{
   "npcs": [
     {{
-      "name": "NPC name",
+      "name": "Entity name",
+      "entity_type": "CHARACTER",
       "mention_count": 3,
       "has_dialogue": true,
       "has_actions": true,
@@ -527,20 +520,20 @@ Return ONLY valid JSON in this exact format:
       "context_snippets": ["snippet 1", "snippet 2"],
       "properties": {{
         "role": "role description",
-        "description": "brief description"
+        "description": "One-sentence description of the entity"
       }}
     }}
   ]
 }}
 
-If no NPCs found, return {{"npcs": []}}. Return ONLY the JSON, no other text."""
+If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text."""
             
             response = await self.llm_service.generate(
                 prompt=prompt,
                 user_id=self.user_id,
                 user_settings=self.user_settings,
-                system_prompt="You are a precise story analysis assistant. Extract NPCs and named entities from scenes. Return only valid JSON.",
-                max_tokens=1000
+                system_prompt="You are a precise story analysis assistant. Extract NPCs and named entities from scenes. Classify each as CHARACTER or ENTITY and provide descriptions. Return only valid JSON.",
+                max_tokens=2000  # Increased to prevent truncation
             )
             
             logger.warning(f"RAW LLM RESPONSE - NPC TRACKING:\n{response}")
@@ -577,6 +570,26 @@ If no NPCs found, return {{"npcs": []}}. Return ONLY the JSON, no other text."""
         Returns:
             List of validated NPC dictionaries
         """
+        import re
+        
+        # Patterns for generic/plural entities that should be excluded
+        GENERIC_PATTERNS = [
+            r'^(guards?|soldiers?|troops?|units?|forces?|creatures?|beings?|figures?|entities?|shadows?|lights?|voices?|sounds?|noises?|bolts?|projectiles?)$',  # Just "guards", "shadows", "bolts"
+            r'^(the|a|an)\s+(guard|soldier|troop|unit|force|creature|being|figure|entity|shadow|light|voice|sound|noise|bolt|projectile)s?$',  # "the creature", "a guard"
+            r'^[a-z]+\s+(guards?|soldiers?|troops?|units?|forces?|creatures?|beings?|figures?|entities?|shadows?|lights?|voices?|sounds?|noises?|bolts?)$',  # "alien creatures", "plasma bolts"
+            r'^(plasma|energy|laser|plasma)\s+(bolts?|projectiles?|beams?)$',  # "plasma bolts", "energy beams"
+            r'^(elongated|strange|alien|mysterious)\s+(figures?|creatures?|beings?|entities?)$',  # "elongated figures", "strange creatures"
+        ]
+        
+        # Specific generic terms to always exclude
+        GENERIC_TERMS = {
+            'guards', 'guard', 'soldiers', 'soldier', 'troops', 'troop', 'units', 'unit',
+            'forces', 'force', 'creatures', 'creature', 'beings', 'being', 'figures', 'figure',
+            'entities', 'entity', 'shadows', 'shadow', 'lights', 'light', 'voices', 'voice',
+            'sounds', 'sound', 'noises', 'noise', 'bolts', 'bolt', 'projectiles', 'projectile',
+            'plasma bolts', 'plasma bolt', 'elongated figures', 'elongated figure'
+        }
+        
         validated = []
         for npc in npcs:
             try:
@@ -584,6 +597,40 @@ If no NPCs found, return {{"npcs": []}}. Return ONLY the JSON, no other text."""
                 if not name:
                     logger.warning(f"Skipping NPC with missing name: {npc}")
                     continue
+                
+                # Get entity_type and validate it
+                entity_type = npc.get('entity_type', 'CHARACTER')
+                if entity_type and isinstance(entity_type, str):
+                    entity_type = entity_type.upper()
+                else:
+                    entity_type = 'CHARACTER'
+                
+                # Filter out generic/plural entities
+                name_lower = name.lower()
+                
+                # Check against generic terms
+                if name_lower in GENERIC_TERMS:
+                    logger.debug(f"Filtered out generic term: {name}")
+                    continue
+                
+                # Check against patterns
+                is_generic = False
+                for pattern in GENERIC_PATTERNS:
+                    if re.match(pattern, name_lower):
+                        logger.debug(f"Filtered out generic entity matching pattern '{pattern}': {name}")
+                        is_generic = True
+                        break
+                
+                if is_generic:
+                    continue
+                
+                # For CHARACTER type, ensure it's not a plural (characters should be singular)
+                if entity_type == 'CHARACTER':
+                    # Check if it's a plural noun (simple heuristic)
+                    if name_lower.endswith('s') and len(name_lower) > 3 and not name[0].isupper():
+                        # Lowercase plural - likely generic
+                        logger.debug(f"Filtered out likely plural character name: {name}")
+                        continue
                 
                 # Normalize fields
                 mention_count = npc.get('mention_count', 0)
@@ -607,6 +654,7 @@ If no NPCs found, return {{"npcs": []}}. Return ONLY the JSON, no other text."""
                 
                 validated.append({
                     'name': name,
+                    'entity_type': entity_type,  # Include entity_type in validated data
                     'mention_count': mention_count,
                     'has_dialogue': has_dialogue,
                     'has_actions': has_actions,
@@ -621,6 +669,61 @@ If no NPCs found, return {{"npcs": []}}. Return ONLY the JSON, no other text."""
         
         return validated
     
+    def _find_canonical_name(
+        self,
+        db: Session,
+        story_id: int,
+        character_name: str
+    ) -> Optional[str]:
+        """
+        Find canonical name for a character (handles duplicates like 'Reynolds' vs 'Sheriff Reynolds', 'Vortex' vs 'vortex')
+        
+        Returns the canonical name if a match is found, None otherwise.
+        """
+        from difflib import SequenceMatcher
+        
+        # Get all existing NPCs for this story
+        existing_npcs = db.query(NPCTracking).filter(
+            NPCTracking.story_id == story_id
+        ).all()
+        
+        name_lower = character_name.lower().strip()
+        
+        # First check for exact case-insensitive match (e.g., "Vortex" vs "vortex")
+        for npc in existing_npcs:
+            existing_lower = npc.character_name.lower().strip()
+            if name_lower == existing_lower and character_name != npc.character_name:
+                # Case-insensitive duplicate - use the one with more mentions, or the capitalized version
+                if npc.total_mentions > 0:
+                    return npc.character_name
+                elif character_name[0].isupper() and npc.character_name[0].islower():
+                    return character_name  # Prefer capitalized version
+                else:
+                    return npc.character_name
+        
+        # Check for exact substring matches
+        for npc in existing_npcs:
+            existing_lower = npc.character_name.lower().strip()
+            
+            # If one name is a substring of the other, use the longer one
+            if name_lower in existing_lower and name_lower != existing_lower:
+                return npc.character_name  # Use existing (longer) name
+            elif existing_lower in name_lower and name_lower != existing_lower:
+                return character_name  # Use longer new name
+        
+        # Check for high similarity (>0.8)
+        for npc in existing_npcs:
+            existing_lower = npc.character_name.lower().strip()
+            similarity = SequenceMatcher(None, name_lower, existing_lower).ratio()
+            if similarity > 0.8 and name_lower != existing_lower:
+                # Use the name with more mentions (more established)
+                if npc.total_mentions > 5:
+                    return npc.character_name
+                else:
+                    return character_name
+        
+        return None
+    
     async def _update_npc_tracking(
         self,
         db: Session,
@@ -629,8 +732,14 @@ If no NPCs found, return {{"npcs": []}}. Return ONLY the JSON, no other text."""
         scene_sequence: int,
         npc_data: Dict[str, Any]
     ):
-        """Update or create NPC tracking record"""
+        """Update or create NPC tracking record with deduplication and entity type"""
         try:
+            # Check for duplicates
+            canonical_name = self._find_canonical_name(db, story_id, character_name)
+            if canonical_name and canonical_name != character_name:
+                logger.info(f"Merging '{character_name}' → '{canonical_name}'")
+                character_name = canonical_name
+            
             # Get or create tracking record
             tracking = db.query(NPCTracking).filter(
                 NPCTracking.story_id == story_id,
@@ -638,9 +747,17 @@ If no NPCs found, return {{"npcs": []}}. Return ONLY the JSON, no other text."""
             ).first()
             
             if not tracking:
+                # Get entity_type from npc_data, default to CHARACTER
+                entity_type = npc_data.get("entity_type", "CHARACTER")
+                if entity_type and isinstance(entity_type, str):
+                    entity_type = entity_type.upper()
+                else:
+                    entity_type = "CHARACTER"
+                
                 tracking = NPCTracking(
                     story_id=story_id,
                     character_name=character_name,
+                    entity_type=entity_type,  # Store entity type
                     first_appearance_scene=scene_sequence,
                     last_appearance_scene=scene_sequence,
                     total_mentions=0,
@@ -649,6 +766,14 @@ If no NPCs found, return {{"npcs": []}}. Return ONLY the JSON, no other text."""
                     has_actions_count=0
                 )
                 db.add(tracking)
+            else:
+                # Update entity_type if it's different (shouldn't happen often, but handle it)
+                entity_type = npc_data.get("entity_type", "CHARACTER")
+                if entity_type and isinstance(entity_type, str):
+                    entity_type = entity_type.upper()
+                    if tracking.entity_type != entity_type:
+                        logger.info(f"Updating entity_type for '{character_name}': {tracking.entity_type} → {entity_type}")
+                        tracking.entity_type = entity_type
             
             # Initialize None values to 0 (safety check for existing records)
             if tracking.total_mentions is None:
@@ -704,16 +829,23 @@ If no NPCs found, return {{"npcs": []}}. Return ONLY the JSON, no other text."""
         tracking: NPCTracking
     ):
         """
-        Calculate importance score based on frequency and significance.
+        Calculate importance score (0-100 scale):
+        - More mentions = higher score
+        - More scenes = higher score
+        - Dialogue/actions boost score
         
-        Formula:
-        - Frequency score: (scene_count / total_scenes) * 0.4 + (total_mentions / avg_mentions) * 0.1
-        - Significance score: (has_dialogue_count / scene_count) * 0.3 + (has_actions_count / scene_count) * 0.2
-        - Combined: frequency_score + significance_score
+        Formula: 
+        - Base score (0-70): mention count + scene coverage
+        - Significance bonus (0-30): dialogue + actions
         """
         try:
-            # Get total scenes in story
-            total_scenes = db.query(Scene).filter(Scene.story_id == story_id).count()
+            import math
+            
+            # Get total scenes in story (excluding deleted)
+            total_scenes = db.query(Scene).filter(
+                Scene.story_id == story_id,
+                Scene.is_deleted == False
+            ).count()
             
             if total_scenes == 0:
                 tracking.importance_score = 0.0
@@ -721,43 +853,89 @@ If no NPCs found, return {{"npcs": []}}. Return ONLY the JSON, no other text."""
                 tracking.significance_score = 0.0
                 return
             
-            # Initialize None values to 0 (safety check)
-            if tracking.total_mentions is None:
-                tracking.total_mentions = 0
-            if tracking.has_dialogue_count is None:
-                tracking.has_dialogue_count = 0
-            if tracking.has_actions_count is None:
-                tracking.has_actions_count = 0
-            if tracking.scene_count is None:
-                tracking.scene_count = 0
+            # Safely handle None values
+            total_mentions = tracking.total_mentions or 0
+            scene_count = tracking.scene_count or 0
+            has_dialogue_count = tracking.has_dialogue_count or 0
+            has_actions_count = tracking.has_actions_count or 0
             
-            # Calculate frequency score
-            scene_ratio = tracking.scene_count / total_scenes if total_scenes > 0 else 0
-            # Average mentions per scene (rough estimate)
-            avg_mentions = tracking.total_mentions / max(tracking.scene_count, 1) if tracking.scene_count > 0 else 0
-            mention_ratio = 1.0 if avg_mentions == 0 else min(tracking.total_mentions / (avg_mentions * total_scenes), 1.0) if avg_mentions > 0 else 0
-            
-            frequency_score = (scene_ratio * 0.4) + (mention_ratio * 0.1)
-            
-            # Calculate significance score
-            dialogue_ratio = (tracking.has_dialogue_count / tracking.scene_count) if tracking.scene_count > 0 else 0
-            actions_ratio = (tracking.has_actions_count / tracking.scene_count) if tracking.scene_count > 0 else 0
-            
-            significance_score = (dialogue_ratio * 0.3) + (actions_ratio * 0.2)
-            
-            # Update scene count (count distinct scenes)
+            # Update scene count from mentions
             scene_count_query = db.query(NPCMention.scene_id).filter(
                 NPCMention.story_id == story_id,
                 NPCMention.character_name == tracking.character_name
             ).distinct().count()
-            
             tracking.scene_count = scene_count_query
+            scene_count = scene_count_query
+            
+            # FREQUENCY SCORE (0-70): Mentions + Scene Coverage
+            # - Mention score: logarithmic scale (1-10 mentions=10pts, 100 mentions=40pts, 300+=50pts)
+            # - Scene score: linear (percentage of scenes × 20)
+            if total_mentions > 0:
+                mention_score = min(10 + (math.log10(total_mentions) * 20), 50)
+            else:
+                mention_score = 0
+            
+            scene_percentage = scene_count / total_scenes
+            scene_score = scene_percentage * 20
+            
+            frequency_score = mention_score + scene_score  # Max 70
             tracking.frequency_score = frequency_score
+            
+            # SIGNIFICANCE SCORE (0-30): Dialogue + Actions
+            significance_score = 0.0
+            
+            # Has dialogue in scenes (0-15 points)
+            if has_dialogue_count > 0:
+                dialogue_score = min(has_dialogue_count * 3, 15)
+                significance_score += dialogue_score
+            
+            # Has actions in scenes (0-15 points)
+            if has_actions_count > 0:
+                action_score = min(has_actions_count * 3, 15)
+                significance_score += action_score
+            
             tracking.significance_score = significance_score
-            tracking.importance_score = frequency_score + significance_score
+            
+            # COMBINED SCORE (0-100)
+            tracking.importance_score = min(frequency_score + significance_score, 100.0)
             
         except Exception as e:
             logger.error(f"Failed to calculate importance score: {e}")
+            tracking.importance_score = 0.0
+            tracking.frequency_score = 0.0
+            tracking.significance_score = 0.0
+    
+    async def recalculate_all_scores(
+        self,
+        db: Session,
+        story_id: int
+    ) -> Dict[str, Any]:
+        """Recalculate importance scores for all NPCs in a story."""
+        try:
+            npcs = db.query(NPCTracking).filter(
+                NPCTracking.story_id == story_id
+            ).all()
+            
+            recalculated_count = 0
+            for npc in npcs:
+                await self._calculate_importance_score(db, story_id, npc)
+                recalculated_count += 1
+            
+            db.commit()
+            
+            logger.info(f"Recalculated {recalculated_count} NPC scores for story {story_id}")
+            
+            return {
+                "success": True,
+                "npcs_recalculated": recalculated_count
+            }
+        except Exception as e:
+            logger.error(f"Failed to recalculate scores: {e}")
+            db.rollback()
+            return {
+                "success": False,
+                "error": str(e)
+            }
     
     async def _extract_npc_profile(
         self,
@@ -933,7 +1111,8 @@ Return ONLY the JSON, no other text."""
         self,
         db: Session,
         story_id: int,
-        min_importance: float = 0.0
+        min_importance: float = 0.0,
+        entity_type: str = "CHARACTER"  # Filter by entity type
     ) -> List[Dict[str, Any]]:
         """
         Get NPCs formatted as character suggestions for discovery.
@@ -945,33 +1124,180 @@ Return ONLY the JSON, no other text."""
             db: Database session
             story_id: Story ID
             min_importance: Minimum importance score to include (0.0 = all NPCs)
+            entity_type: Filter by entity type ("CHARACTER" or "ENTITY"), defaults to "CHARACTER"
         """
         try:
-            # Get all NPCs (not just threshold-crossed ones) for discovery
-            # Filter by minimum importance and exclude converted NPCs
+            # Query with entity type filter (handle NULL values and missing column for backward compatibility)
+            from sqlalchemy import or_
+            
+            # Build base query
             query = db.query(NPCTracking).filter(
                 NPCTracking.story_id == story_id,
                 NPCTracking.converted_to_character == False,  # Exclude converted NPCs
                 NPCTracking.importance_score >= min_importance
             )
             
-            # Order by importance score descending
+            # Add entity_type filter if column exists in database
+            # Check if column exists by inspecting the table
+            try:
+                from sqlalchemy import inspect
+                inspector = inspect(db.bind)
+                columns = [col['name'] for col in inspector.get_columns('npc_tracking')]
+                
+                if 'entity_type' in columns:
+                    # Column exists, apply filter
+                    if entity_type == "CHARACTER":
+                        # Include CHARACTERs and NULL values (for backward compatibility)
+                        query = query.filter(
+                            or_(
+                                NPCTracking.entity_type == entity_type,
+                                NPCTracking.entity_type.is_(None)
+                            )
+                        )
+                    else:
+                        # For ENTITY type, only match exact type
+                        query = query.filter(NPCTracking.entity_type == entity_type)
+                else:
+                    # Column doesn't exist yet (migration not run), skip entity_type filter
+                    logger.debug("entity_type column not found in database, skipping filter (migration may not have run)")
+            except Exception as e:
+                # If inspection fails, skip entity_type filter (backward compatibility)
+                logger.debug(f"Could not check for entity_type column, skipping filter: {e}")
+                pass
+            
+            # Post-process to remove duplicates (case-insensitive and substring matches)
+            # This handles existing duplicates in the database
             npcs = query.order_by(NPCTracking.importance_score.desc()).all()
             
-            suggestions = []
+            # Deduplicate by case-insensitive name and substring matches
+            # e.g., "Reynolds" and "Sheriff Reynolds" should be merged
+            seen_names = {}  # Maps normalized name to NPC object
+            deduplicated_npcs = []
+            
             for npc in npcs:
+                name_lower = npc.character_name.lower().strip()
+                name_words = set(name_lower.split())  # Split into words for better matching
+                
+                # Check for exact match first
+                if name_lower in seen_names:
+                    existing = seen_names[name_lower]
+                    # Merge: keep the one with higher importance or more mentions
+                    if (npc.importance_score > existing.importance_score or 
+                        (npc.importance_score == existing.importance_score and npc.total_mentions > existing.total_mentions)):
+                        deduplicated_npcs.remove(existing)
+                        deduplicated_npcs.append(npc)
+                        seen_names[name_lower] = npc
+                    continue
+                
+                # Check for substring matches (e.g., "reynolds" in "sheriff reynolds")
+                merged = False
+                for existing_lower, existing_npc in list(seen_names.items()):
+                    existing_words = set(existing_lower.split())
+                    
+                    # If one name's words are a subset of the other, they're the same person
+                    # e.g., {"reynolds"} is subset of {"sheriff", "reynolds"}
+                    if name_words.issubset(existing_words) or existing_words.issubset(name_words):
+                        # Same person - prefer the one with higher importance score, then longer name
+                        if (npc.importance_score > existing_npc.importance_score or
+                            (npc.importance_score == existing_npc.importance_score and 
+                             len(npc.character_name) > len(existing_npc.character_name))):
+                            # New NPC is better, replace existing
+                            deduplicated_npcs.remove(existing_npc)
+                            deduplicated_npcs.append(npc)
+                            seen_names[existing_lower] = npc
+                            seen_names[name_lower] = npc
+                        else:
+                            # Existing NPC is better, keep it
+                            seen_names[name_lower] = existing_npc
+                        merged = True
+                        break
+                    
+                    # Also check if one name contains the other as a substring
+                    # (handles cases where words aren't split properly)
+                    if name_lower in existing_lower or existing_lower in name_lower:
+                        # Same person - prefer higher importance score, then longer name
+                        if (npc.importance_score > existing_npc.importance_score or
+                            (npc.importance_score == existing_npc.importance_score and 
+                             len(npc.character_name) > len(existing_npc.character_name))):
+                            deduplicated_npcs.remove(existing_npc)
+                            deduplicated_npcs.append(npc)
+                            seen_names[existing_lower] = npc
+                            seen_names[name_lower] = npc
+                        else:
+                            seen_names[name_lower] = existing_npc
+                        merged = True
+                        break
+                
+                if not merged:
+                    # New unique name
+                    seen_names[name_lower] = npc
+                    deduplicated_npcs.append(npc)
+            
+            # Sort deduplicated list by importance score
+            deduplicated_npcs.sort(key=lambda x: x.importance_score or 0.0, reverse=True)
+            
+            # Filter out generic entities (even if they exist in DB as CHARACTER)
+            # This provides immediate filtering without requiring database cleanup
+            GENERIC_ENTITY_NAMES = {
+                'guards', 'guard', 'soldiers', 'soldier', 'troops', 'troop',
+                'creatures', 'creature', 'beings', 'being', 'figures', 'figure',
+                'entities', 'entity', 'shadows', 'shadow', 'forces', 'force',
+                'bolts', 'bolt', 'plasma bolts', 'energy beams', 'elongated figures',
+                'plasma bolt', 'energy beam', 'elongated figure'
+            }
+            
+            filtered_npcs = [
+                npc for npc in deduplicated_npcs 
+                if npc.character_name.lower() not in GENERIC_ENTITY_NAMES
+            ]
+            
+            # Use filtered list
+            suggestions = []
+            for npc in filtered_npcs:
                 profile = npc.extracted_profile or {}
                 
+                # Get preview from extracted description
+                preview = profile.get("description", "")
+                
+                if not preview:
+                    # Try first mention's extracted properties
+                    first_mention = db.query(NPCMention).filter(
+                        NPCMention.story_id == story_id,
+                        NPCMention.character_name == npc.character_name
+                    ).order_by(NPCMention.sequence_number).first()
+                    
+                    if first_mention and first_mention.extracted_properties:
+                        preview = first_mention.extracted_properties.get("description", "")
+                
+                if not preview:
+                    # Last resort: use first context snippet
+                    first_mention = db.query(NPCMention).filter(
+                        NPCMention.story_id == story_id,
+                        NPCMention.character_name == npc.character_name
+                    ).order_by(NPCMention.sequence_number).first()
+                    
+                    if first_mention and first_mention.context_snippets:
+                        preview = first_mention.context_snippets[0][:100] + "..."
+                
+                if not preview:
+                    preview = "Character mentioned in story"
+                
                 # Format as character suggestion
+                # New formula produces 0-100 scale directly
+                raw_score = npc.importance_score or 0.0
+                
+                # Handle old scores (>100) by capping them, new scores are already 0-100
+                importance_percentage = int(min(raw_score, 100))
+                
                 suggestion = {
                     "name": npc.character_name,
                     "mention_count": npc.total_mentions or 0,
-                    "importance_score": int((npc.importance_score or 0.0) * 100),  # Scale to 0-100
+                    "importance_score": importance_percentage,
                     "first_appearance_scene": npc.first_appearance_scene or 0,
                     "last_appearance_scene": npc.last_appearance_scene or 0,
                     "is_in_library": False,  # NPCs are not in library yet
                     "is_npc": True,  # Flag to indicate this is an NPC
-                    "preview": profile.get("description", "NPC mentioned in story"),
+                    "preview": preview,  # Use extracted description
                     "scenes": []  # Will be populated if needed
                 }
                 
