@@ -12,10 +12,12 @@ export default function RegisterPage() {
     username: '',
     email: '',
     password: '',
+    confirmPassword: '',
     displayName: '',
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [passwordError, setPasswordError] = useState('');
   
   const router = useRouter();
   const { login } = useAuthStore();
@@ -30,12 +32,31 @@ export default function RegisterPage() {
       ...formData,
       [e.target.name]: e.target.value,
     });
+    
+    // Clear password error when user types in password fields
+    if (e.target.name === 'password' || e.target.name === 'confirmPassword') {
+      setPasswordError('');
+    }
+  };
+
+  const validatePasswords = () => {
+    if (formData.password !== formData.confirmPassword) {
+      setPasswordError('Passwords do not match');
+      return false;
+    }
+    return true;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
+    
+    // Validate passwords before submitting
+    if (!validatePasswords()) {
+      setIsLoading(false);
+      return;
+    }
 
     try {
       const response = await apiClient.register({
@@ -152,6 +173,27 @@ export default function RegisterPage() {
                 className="w-full px-4 py-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-transparent"
                 placeholder="Create a password"
               />
+            </div>
+
+            <div>
+              <label htmlFor="confirmPassword" className="block text-sm font-medium text-white/80 mb-2">
+                Confirm Password
+              </label>
+              <input
+                id="confirmPassword"
+                name="confirmPassword"
+                type="password"
+                required
+                value={formData.confirmPassword}
+                onChange={handleChange}
+                className={`w-full px-4 py-3 bg-white/10 border ${
+                  passwordError ? 'border-red-400/50' : 'border-white/30'
+                } rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-transparent`}
+                placeholder="Confirm your password"
+              />
+              {passwordError && (
+                <div className="mt-1 text-red-300 text-sm">{passwordError}</div>
+              )}
             </div>
 
             <div className="pt-4">
