@@ -46,6 +46,7 @@ import {
   ClockIcon,
   CheckIcon,
   ArrowDownIcon,
+  ArrowUpIcon,
   ArrowLeftIcon,
   ArrowRightIcon,
   DocumentDuplicateIcon,
@@ -350,10 +351,24 @@ export default function StoryPage() {
     }
     
     // For 'recent' mode, show only the last N scenes
-    const sortedScenes = filteredScenes.sort((a, b) => a.sequence_number - b.sequence_number);
+    const sortedScenes = [...filteredScenes].sort((a, b) => a.sequence_number - b.sequence_number);
     const totalScenes = sortedScenes.length;
     const startIndex = Math.max(0, totalScenes - scenesToShow);
-    return sortedScenes.slice(startIndex);
+    const displayedScenes = sortedScenes.slice(startIndex);
+    
+    // Debug log to verify only last N scenes are returned
+    if (displayedScenes.length !== scenesToShow && displayedScenes.length < totalScenes) {
+      console.log('[Scene Display] Showing only last N scenes:', {
+        totalScenes,
+        scenesToShow,
+        displayedCount: displayedScenes.length,
+        displayedSceneIds: displayedScenes.map(s => s.id),
+        firstDisplayedSequence: displayedScenes[0]?.sequence_number,
+        lastDisplayedSequence: displayedScenes[displayedScenes.length - 1]?.sequence_number
+      });
+    }
+    
+    return displayedScenes;
   };
 
   // Load all scenes (when user clicks "Load All Scenes")
@@ -373,37 +388,82 @@ export default function StoryPage() {
   // Automatically load more scenes when scrolling to top (infinite scroll)
   const loadMoreScenesAutomatically = useCallback(() => {
     // Prevent duplicate loads
-    if (isAutoLoadingScenes) return;
+    if (isAutoLoadingScenes) {
+      console.log('[Infinite Scroll] Skipping - already loading');
+      return;
+    }
     
     // Only load if in 'recent' mode and there are more scenes to load
-    if (displayMode !== 'recent' || !story?.scenes) return;
+    if (displayMode !== 'recent' || !story?.scenes) {
+      console.log('[Infinite Scroll] Skipping - not in recent mode or no scenes');
+      return;
+    }
     
-    const totalScenes = story.scenes.length;
-    if (scenesToShow >= totalScenes) return;
+    // Get filtered scenes count (accounting for chapter filtering)
+    let filteredScenes = story.scenes;
+    if (selectedChapterId !== null) {
+      filteredScenes = story.scenes.filter(scene => scene.chapter_id === selectedChapterId);
+    }
+    const totalScenes = filteredScenes.length;
     
+    if (scenesToShow >= totalScenes) {
+      console.log('[Infinite Scroll] All scenes already loaded', { scenesToShow, totalScenes });
+      return;
+    }
+    
+    console.log('[Infinite Scroll] Loading more scenes', { scenesToShow, totalScenes });
     setIsAutoLoadingScenes(true);
     
     // Save current scroll position before loading
     const container = storyContentRef.current;
-    const scrollTop = container?.scrollTop || 0;
-    const scrollHeight = container?.scrollHeight || 0;
+    if (!container) {
+      setIsAutoLoadingScenes(false);
+      return;
+    }
     
-    // Load 10 more scenes
-    setScenesToShow(prev => Math.min(prev + 10, totalScenes));
+    const scrollTop = container.scrollTop;
+    const scrollHeight = container.scrollHeight;
+    const firstVisibleElement = container.querySelector('[data-scene-id]') as HTMLElement;
+    const firstVisibleSceneId = firstVisibleElement?.getAttribute('data-scene-id');
+    
+    // Load 10 more scenes (or all remaining if less than 10)
+    const newScenesToShow = Math.min(scenesToShow + 10, totalScenes);
+    setScenesToShow(newScenesToShow);
     
     // Restore scroll position after DOM update
-    // Use double RAF to ensure React has rendered the new scenes
+    // Use multiple RAFs to ensure React has rendered the new scenes
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        if (container) {
-          const newScrollHeight = container.scrollHeight;
-          const heightDifference = newScrollHeight - scrollHeight;
-          container.scrollTop = scrollTop + heightDifference;
-        }
-        setIsAutoLoadingScenes(false);
+        requestAnimationFrame(() => {
+          if (container) {
+            // Try to restore position relative to the first visible scene
+            if (firstVisibleSceneId && firstVisibleElement) {
+              const newFirstVisibleElement = container.querySelector(`[data-scene-id="${firstVisibleSceneId}"]`) as HTMLElement;
+              if (newFirstVisibleElement) {
+                // Calculate offset from top of container
+                const containerRect = container.getBoundingClientRect();
+                const elementRect = newFirstVisibleElement.getBoundingClientRect();
+                const offsetFromTop = elementRect.top - containerRect.top + container.scrollTop;
+                container.scrollTop = offsetFromTop;
+              } else {
+                // Fallback: maintain scroll position by height difference
+                const newScrollHeight = container.scrollHeight;
+                const heightDifference = newScrollHeight - scrollHeight;
+                container.scrollTop = scrollTop + heightDifference;
+              }
+            } else {
+              // Fallback: maintain scroll position by height difference
+              const newScrollHeight = container.scrollHeight;
+              const heightDifference = newScrollHeight - scrollHeight;
+              container.scrollTop = scrollTop + heightDifference;
+            }
+          }
+          setIsAutoLoadingScenes(false);
+          console.log('[Infinite Scroll] Scenes loaded', { newScenesToShow, totalScenes });
+        });
       });
     });
-  }, [displayMode, story?.scenes, scenesToShow, isAutoLoadingScenes]);
+  }, [displayMode, story?.scenes, scenesToShow, isAutoLoadingScenes, selectedChapterId]);
 
   // Targeted story refresh that doesn't cause scrolling
   const refreshStoryContent = async () => {
@@ -422,36 +482,275 @@ export default function StoryPage() {
     }
   }, [story?.scenes?.length]);
 
-  // Infinite scroll: detect when user scrolls to top using IntersectionObserver
+  // Infinite scroll: detect when user scrolls to top using scroll listener
   useEffect(() => {
-    const sentinel = sentinelRef.current;
-    const scrollContainer = storyContentRef.current;
-    if (!sentinel || !scrollContainer) return;
+    console.log('[Infinite Scroll] Effect running', {
+      displayMode,
+      hasStory: !!story,
+      scenesCount: story?.scenes?.length,
+      scenesToShow,
+      selectedChapterId
+    });
 
-    // Only enable infinite scroll in 'recent' mode
-    if (displayMode !== 'recent') return;
+    let cleanupFunction: (() => void) | null = null;
+    let retryTimeout: NodeJS.Timeout;
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[0];
-        // When sentinel becomes visible (user scrolled near top), load more scenes
-        if (entry.isIntersecting && !isAutoLoadingScenes) {
-          loadMoreScenesAutomatically();
-        }
-      },
-      {
-        root: scrollContainer, // Use scroll container as root (not viewport)
-        rootMargin: '100px', // Trigger 100px before sentinel becomes visible
-        threshold: 0.1,
+    // Wait for container to be available (retry mechanism)
+    const setupScrollListener = () => {
+      const scrollContainer = storyContentRef.current;
+      if (!scrollContainer) {
+        console.log('[Infinite Scroll] Container not ready, will retry...');
+        // Retry after a short delay
+        retryTimeout = setTimeout(setupScrollListener, 100);
+        return;
       }
-    );
 
-    observer.observe(sentinel);
+      console.log('[Infinite Scroll] Container found!', {
+        scrollHeight: scrollContainer.scrollHeight,
+        clientHeight: scrollContainer.clientHeight
+      });
 
-    return () => {
-      observer.disconnect();
+      // Only enable infinite scroll in 'recent' mode
+      if (displayMode !== 'recent') {
+        console.log('[Infinite Scroll] Not in recent mode, skipping');
+        return;
+      }
+
+      // Get filtered scenes count to check if there are more to load
+      let filteredScenes = story?.scenes || [];
+      if (selectedChapterId !== null && story?.scenes) {
+        filteredScenes = story.scenes.filter(scene => scene.chapter_id === selectedChapterId);
+      }
+      const hasMoreScenes = filteredScenes.length > scenesToShow;
+
+      console.log('[Infinite Scroll] Scene check', {
+        filteredScenesCount: filteredScenes.length,
+        scenesToShow,
+        hasMoreScenes
+      });
+
+      if (!hasMoreScenes) {
+        console.log('[Infinite Scroll] No more scenes to load');
+        return;
+      }
+
+      console.log('[Infinite Scroll] ✅ Setting up scroll listener');
+      console.log('[Infinite Scroll] Container info', {
+        scrollTop: scrollContainer.scrollTop,
+        scrollHeight: scrollContainer.scrollHeight,
+        clientHeight: scrollContainer.clientHeight,
+        isScrollable: scrollContainer.scrollHeight > scrollContainer.clientHeight
+      });
+
+      let scrollTimeout: NodeJS.Timeout;
+      let lastScrollTop = scrollContainer.scrollTop;
+      let lastWindowScroll = typeof window !== 'undefined' ? window.pageYOffset : 0;
+      let hasTriggered = false; // Prevent multiple rapid triggers
+      let triggerCooldown: NodeJS.Timeout;
+      let observerSetupTimeout: NodeJS.Timeout;
+      let isInitialLoad = true; // Track if this is the initial page load
+      
+      // Mark initial load as complete after a delay to prevent immediate triggering
+      setTimeout(() => {
+        isInitialLoad = false;
+        console.log('[Infinite Scroll] Initial load period complete, infinite scroll enabled');
+      }, 2000); // 2 second grace period after page load
+
+    // Scroll event listener for container
+    const handleContainerScroll = () => {
+      console.log('[Infinite Scroll] 🔵 Container scroll event fired!');
+      // Clear previous timeout
+      clearTimeout(scrollTimeout);
+      
+      // Throttle scroll events
+      scrollTimeout = setTimeout(() => {
+        // Don't trigger on initial load - wait for user to actually scroll
+        if (isAutoLoadingScenes || hasTriggered || isInitialLoad) {
+          if (isInitialLoad) {
+            console.log('[Infinite Scroll] Ignoring scroll during initial load period');
+          }
+          return;
+        }
+
+        const currentScrollTop = scrollContainer.scrollTop;
+        const scrollHeight = scrollContainer.scrollHeight;
+        const clientHeight = scrollContainer.clientHeight;
+        const scrollDirection = currentScrollTop < lastScrollTop ? 'up' : 'down';
+        
+        // Mark that user has scrolled, so we can enable infinite scroll
+        if (Math.abs(currentScrollTop - lastScrollTop) > 10) {
+          isInitialLoad = false;
+        }
+        
+        lastScrollTop = currentScrollTop;
+
+        // Log every scroll for debugging
+        console.log('[Infinite Scroll] Container scroll', {
+          scrollTop: currentScrollTop,
+          scrollHeight,
+          clientHeight,
+          direction: scrollDirection,
+          isAutoLoading: isAutoLoadingScenes,
+          hasTriggered,
+          scenesToShow,
+          total: filteredScenes.length
+        });
+
+        // Only trigger on scroll up
+        if (scrollDirection === 'up') {
+          // Calculate distance from top
+          const distanceFromTop = currentScrollTop;
+          
+          // Calculate scroll percentage (0% = top, 100% = bottom)
+          const maxScroll = Math.max(1, scrollHeight - clientHeight);
+          const scrollPercentage = maxScroll > 0 ? (currentScrollTop / maxScroll) * 100 : 0;
+          
+          // More aggressive trigger: within 600px of top OR in top 20% OR scrollTop is very small
+          const shouldTrigger = 
+            distanceFromTop < 600 || 
+            scrollPercentage < 20 || 
+            currentScrollTop < 50;
+          
+          console.log('[Infinite Scroll] Checking trigger conditions', {
+            distanceFromTop,
+            scrollPercentage: scrollPercentage.toFixed(1),
+            shouldTrigger
+          });
+          
+          if (shouldTrigger) {
+            console.log('[Infinite Scroll] ✅ TRIGGERING LOAD', {
+              scrollTop: currentScrollTop,
+              distanceFromTop,
+              scrollPercentage: scrollPercentage.toFixed(1),
+              scenesToShow,
+              total: filteredScenes.length
+            });
+            
+            hasTriggered = true;
+            loadMoreScenesAutomatically();
+            
+            // Reset trigger flag after cooldown
+            clearTimeout(triggerCooldown);
+            triggerCooldown = setTimeout(() => {
+              hasTriggered = false;
+              console.log('[Infinite Scroll] Cooldown expired, ready for next trigger');
+            }, 2000);
+          }
+        }
+      }, 50); // Reduced throttle to 50ms for more responsive detection
     };
-  }, [displayMode, loadMoreScenesAutomatically, isAutoLoadingScenes]);
+
+    // Also listen to window scroll in case that's what's actually scrolling
+    const handleWindowScroll = () => {
+      console.log('[Infinite Scroll] 🟢 Window scroll event fired!');
+      if (isAutoLoadingScenes || hasTriggered) {
+        return;
+      }
+
+      const currentWindowScroll = typeof window !== 'undefined' ? window.pageYOffset : 0;
+      const scrollDirection = currentWindowScroll < lastWindowScroll ? 'up' : 'down';
+      lastWindowScroll = currentWindowScroll;
+
+      console.log('[Infinite Scroll] Window scroll', {
+        pageYOffset: currentWindowScroll,
+        direction: scrollDirection,
+        containerScrollTop: scrollContainer.scrollTop
+      });
+
+      // If window is scrolling up and we're near the top, trigger
+      if (scrollDirection === 'up' && currentWindowScroll < 400) {
+        console.log('[Infinite Scroll] ✅ TRIGGERING LOAD (window scroll)');
+        hasTriggered = true;
+        loadMoreScenesAutomatically();
+        clearTimeout(triggerCooldown);
+        triggerCooldown = setTimeout(() => {
+          hasTriggered = false;
+        }, 2000);
+      }
+    };
+
+    // Also set up IntersectionObserver as secondary method
+    let observer: IntersectionObserver | null = null;
+    
+    // Wait for sentinel to be rendered
+    const setupObserver = () => {
+      const sentinel = sentinelRef.current;
+      if (!sentinel || observer) return;
+
+      observer = new IntersectionObserver(
+        (entries) => {
+          const entry = entries[0];
+          // Don't trigger on initial load - wait for user to actually scroll
+          if (entry.isIntersecting && !isAutoLoadingScenes && !hasTriggered && !isInitialLoad) {
+            console.log('[Infinite Scroll] Sentinel visible via IntersectionObserver');
+            hasTriggered = true;
+            loadMoreScenesAutomatically();
+            clearTimeout(triggerCooldown);
+            triggerCooldown = setTimeout(() => {
+              hasTriggered = false;
+            }, 1500);
+          } else if (entry.isIntersecting && isInitialLoad) {
+            console.log('[Infinite Scroll] Sentinel visible but ignoring (initial load period)');
+          }
+        },
+        {
+          root: scrollContainer,
+          rootMargin: '400px 0px',
+          threshold: [0, 0.1, 0.5, 1.0],
+        }
+      );
+
+      observer.observe(sentinel);
+    };
+
+    // Try to set up observer immediately, then retry after a short delay
+    setupObserver();
+    observerSetupTimeout = setTimeout(setupObserver, 200);
+
+    // Add listeners to both container and window
+    scrollContainer.addEventListener('scroll', handleContainerScroll, { passive: true });
+    
+    // Also listen to window scroll as fallback
+    if (typeof window !== 'undefined') {
+      window.addEventListener('scroll', handleWindowScroll, { passive: true });
+    }
+
+    // Test if scroll events work at all
+    console.log('[Infinite Scroll] Testing scroll detection...');
+    setTimeout(() => {
+      console.log('[Infinite Scroll] Test: Container scrollable?', {
+        scrollHeight: scrollContainer.scrollHeight,
+        clientHeight: scrollContainer.clientHeight,
+        isScrollable: scrollContainer.scrollHeight > scrollContainer.clientHeight,
+        currentScrollTop: scrollContainer.scrollTop
+      });
+    }, 1000);
+
+      cleanupFunction = () => {
+        clearTimeout(scrollTimeout);
+        clearTimeout(triggerCooldown);
+        clearTimeout(observerSetupTimeout);
+        scrollContainer.removeEventListener('scroll', handleContainerScroll);
+        if (typeof window !== 'undefined') {
+          window.removeEventListener('scroll', handleWindowScroll);
+        }
+        if (observer) {
+          observer.disconnect();
+        }
+      };
+    };
+
+    // Start setup
+    setupScrollListener();
+
+    // Return cleanup function
+    return () => {
+      clearTimeout(retryTimeout);
+      if (cleanupFunction) {
+        cleanupFunction();
+      }
+    };
+  }, [displayMode, loadMoreScenesAutomatically, isAutoLoadingScenes, story?.scenes, scenesToShow, selectedChapterId]);
 
   const loadStory = async (scrollToLastScene = true, scrollToNewScene = false) => {
     console.log('� Loading story - scrollToLastScene:', scrollToLastScene);
@@ -473,37 +772,74 @@ export default function StoryPage() {
       // Load context status for progress bar
       await loadContextStatus();
 
+      // Helper function to scroll to a scene element within the container
+      const scrollToScene = (container: HTMLElement, element: HTMLElement) => {
+        console.log('🎯 Found scene element, scrolling within container');
+        // Calculate scroll position to bring element to top of container
+        const containerRect = container.getBoundingClientRect();
+        const elementRect = element.getBoundingClientRect();
+        const relativeTop = elementRect.top - containerRect.top;
+        const scrollTop = container.scrollTop + relativeTop;
+        
+        container.scrollTo({ top: scrollTop, behavior: 'smooth' });
+        console.log('🎯 Scrolled to position:', scrollTop);
+      };
+
       // Scroll to bottom only on initial page load OR when explicitly requested for new scenes
       if ((scrollToLastScene || scrollToNewScene) && storyData.scenes && storyData.scenes.length > 0) {
-        console.log('📍 Current scroll position before timeout:', window.pageYOffset);
-        setTimeout(() => {
-          console.log('📍 Current scroll position at timeout start:', window.pageYOffset);
-          
-          // Get the last scene for the current view (filtered by chapter if applicable)
-          let targetScene;
-          if (selectedChapterId !== null) {
-            // Find last scene in selected chapter
-            const chapterScenes = storyData.scenes.filter((s: Scene) => s.chapter_id === selectedChapterId);
-            targetScene = chapterScenes.length > 0 ? chapterScenes[chapterScenes.length - 1] : storyData.scenes[storyData.scenes.length - 1];
-          } else {
-            // Use overall last scene
-            targetScene = storyData.scenes[storyData.scenes.length - 1];
-          }
-          
-          console.log('🎯 Attempting to scroll to scene:', targetScene.id);
-          
-          const targetSceneElement = document.querySelector(`[data-scene-id="${targetScene.id}"]`);
-          console.log('🎯 Found scene element:', targetSceneElement);
-          
-          if (targetSceneElement) {
-            console.log('🎯 Scrolling to scene element');
-            targetSceneElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          } else {
-            console.log('🎯 Scene element not found, falling back to document bottom');
-            // Fallback to document bottom if scene element not found
-            window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-          }
-        }, 100); // Reduced timeout to minimize delay
+        // Wait for React to render the scenes, then scroll within the container
+        // Use multiple timeouts to ensure DOM is fully updated
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            setTimeout(() => {
+              const container = storyContentRef.current;
+              if (!container) {
+                console.log('🎯 Container not found for scrolling');
+                return;
+              }
+
+              // Get the last scene that will actually be displayed (based on getScenesToDisplay logic)
+              // This matches the logic in getScenesToDisplay()
+              let filteredScenes = storyData.scenes;
+              if (selectedChapterId !== null) {
+                filteredScenes = storyData.scenes.filter((s: Scene) => s.chapter_id === selectedChapterId);
+              }
+              
+              // In 'recent' mode, only the last N scenes are displayed
+              const sortedScenes = [...filteredScenes].sort((a, b) => a.sequence_number - b.sequence_number);
+              const totalScenes = sortedScenes.length;
+              const startIndex = Math.max(0, totalScenes - scenesToShow);
+              const displayedScenes = sortedScenes.slice(startIndex);
+              const targetScene = displayedScenes[displayedScenes.length - 1]; // Last scene in displayed list
+              
+              console.log('🎯 Attempting to scroll to last displayed scene:', {
+                targetSceneId: targetScene.id,
+                totalScenes,
+                displayedScenesCount: displayedScenes.length,
+                scenesToShow
+              });
+              
+              // Try to find the scene element - wait a bit more if not found
+              let targetSceneElement = container.querySelector(`[data-scene-id="${targetScene.id}"]`) as HTMLElement;
+              
+              if (!targetSceneElement) {
+                // Retry after a short delay
+                setTimeout(() => {
+                  targetSceneElement = container.querySelector(`[data-scene-id="${targetScene.id}"]`) as HTMLElement;
+                  if (targetSceneElement) {
+                    scrollToScene(container, targetSceneElement);
+                  } else {
+                    // Final fallback: scroll container to bottom
+                    console.log('🎯 Scene element not found after retry, scrolling container to bottom');
+                    container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+                  }
+                }, 200);
+              } else {
+                scrollToScene(container, targetSceneElement);
+              }
+            }, 200);
+          });
+        });
       }
 
     } catch (err) {
@@ -2033,15 +2369,73 @@ export default function StoryPage() {
             <div className="prose prose-invert prose-lg max-w-none mb-8">
               {getScenesToDisplay().length > 0 ? (
                 <div className="space-y-8">
-                  {/* Infinite scroll sentinel - triggers loading when visible */}
-                  {displayMode === 'recent' && story.scenes.length > scenesToShow && (
-                    <div ref={sentinelRef} className="h-px" aria-hidden="true" />
-                  )}
+                  {/* Infinite scroll sentinel and manual load button */}
+                  {displayMode === 'recent' && (() => {
+                    // Get filtered scenes count (accounting for chapter filtering)
+                    let filteredScenes = story.scenes;
+                    if (selectedChapterId !== null) {
+                      filteredScenes = story.scenes.filter(scene => scene.chapter_id === selectedChapterId);
+                    }
+                    const hasMoreScenes = filteredScenes.length > scenesToShow;
+                    
+                    if (!hasMoreScenes) return null;
+                    
+                    return (
+                      <div className="relative">
+                        {/* Sentinel for IntersectionObserver - made more visible for better detection */}
+                        <div 
+                          ref={sentinelRef} 
+                          className="h-1 w-full" 
+                          aria-hidden="true"
+                          style={{ minHeight: '1px' }}
+                        />
+                        
+                        {/* Manual load button as fallback */}
+                        <div className="flex justify-center my-4">
+                          <button
+                            onClick={() => {
+                              if (!isAutoLoadingScenes) {
+                                loadMoreScenesAutomatically();
+                              }
+                            }}
+                            disabled={isAutoLoadingScenes}
+                            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                          >
+                            {isAutoLoadingScenes ? (
+                              <>
+                                <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                <span>Loading...</span>
+                              </>
+                            ) : (
+                              <>
+                                <ArrowUpIcon className="h-4 w-4" />
+                                <span>Load Earlier Scenes ({filteredScenes.length - scenesToShow} more)</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
-                  {getScenesToDisplay().map((scene, displayIndex) => {
-                    // Calculate the actual scene number in the full story
-                    const actualSceneNumber = story.scenes.findIndex(s => s.id === scene.id) + 1;
-                    const isLastSceneInStory = scene.id === story.scenes[story.scenes.length - 1].id;
+                  {(() => {
+                    const scenesToRender = getScenesToDisplay();
+                    // Debug: Log what's being rendered
+                    if (scenesToRender.length > 0) {
+                      console.log('[Scene Rendering] Rendering scenes:', {
+                        count: scenesToRender.length,
+                        mode: displayMode,
+                        sceneIds: scenesToRender.map(s => s.id),
+                        totalScenesInStory: story.scenes.length
+                      });
+                    }
+                    return scenesToRender.map((scene, displayIndex) => {
+                      // Calculate the actual scene number in the full story
+                      const actualSceneNumber = story.scenes.findIndex(s => s.id === scene.id) + 1;
+                      const isLastSceneInStory = scene.id === story.scenes[story.scenes.length - 1].id;
 
                     return (
                       <div
@@ -2130,7 +2524,8 @@ export default function StoryPage() {
                         />
                       </div>
                     );
-                  })}
+                  });
+                  })()}
                   
                 </div>
               ) : (
