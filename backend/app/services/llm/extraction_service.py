@@ -818,13 +818,18 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             content: Raw response content
             
         Returns:
-            Dictionary with 'character_moments', 'npcs', 'plot_events' keys
-            Missing sections will be empty arrays
+            Dictionary with 'character_moments', 'npcs', 'plot_events', 'entity_states' keys
+            Missing sections will be empty arrays/objects
         """
         result = {
             'character_moments': [],
             'npcs': [],
-            'plot_events': []
+            'plot_events': [],
+            'entity_states': {
+                'characters': [],
+                'locations': [],
+                'objects': []
+            }
         }
         
         try:
@@ -862,8 +867,21 @@ Return ONLY the JSON object, no other text or markdown formatting."""
                     # Handle alternative key name
                     result['plot_events'] = data['events']
                 
+                # Parse entity_states
+                if 'entity_states' in data and isinstance(data['entity_states'], dict):
+                    entity_states = data['entity_states']
+                    if 'characters' in entity_states and isinstance(entity_states['characters'], list):
+                        result['entity_states']['characters'] = entity_states['characters']
+                    if 'locations' in entity_states and isinstance(entity_states['locations'], list):
+                        result['entity_states']['locations'] = entity_states['locations']
+                    if 'objects' in entity_states and isinstance(entity_states['objects'], list):
+                        result['entity_states']['objects'] = entity_states['objects']
+                
                 logger.info(f"Successfully parsed combined extraction: {len(result['character_moments'])} moments, "
-                          f"{len(result['npcs'])} NPCs, {len(result['plot_events'])} events")
+                          f"{len(result['npcs'])} NPCs, {len(result['plot_events'])} events, "
+                          f"{len(result['entity_states']['characters'])} character states, "
+                          f"{len(result['entity_states']['locations'])} location states, "
+                          f"{len(result['entity_states']['objects'])} object states")
                 return result
                 
             except json.JSONDecodeError:
@@ -899,9 +917,25 @@ Return ONLY the JSON object, no other text or markdown formatting."""
                     except:
                         pass
                 
-                if any(result.values()):
+                # Try to parse entity_states with regex (less reliable but attempt it)
+                entity_states_match = re.search(r'"entity_states"\s*:\s*\{(.*?)\}', response_clean, re.DOTALL)
+                if entity_states_match:
+                    try:
+                        entity_states_json = json.loads(f'{{{entity_states_match.group(1)}}}')
+                        if isinstance(entity_states_json, dict):
+                            if 'characters' in entity_states_json and isinstance(entity_states_json['characters'], list):
+                                result['entity_states']['characters'] = entity_states_json['characters']
+                            if 'locations' in entity_states_json and isinstance(entity_states_json['locations'], list):
+                                result['entity_states']['locations'] = entity_states_json['locations']
+                            if 'objects' in entity_states_json and isinstance(entity_states_json['objects'], list):
+                                result['entity_states']['objects'] = entity_states_json['objects']
+                    except:
+                        pass
+                
+                if any(result.values()) or any(result['entity_states'].values()):
                     logger.warning(f"Partially parsed combined extraction using regex: {len(result['character_moments'])} moments, "
-                                 f"{len(result['npcs'])} NPCs, {len(result['plot_events'])} events")
+                                 f"{len(result['npcs'])} NPCs, {len(result['plot_events'])} events, "
+                                 f"{len(result['entity_states']['characters'])} character states")
                     return result
                 else:
                     raise
@@ -923,18 +957,18 @@ Return ONLY the JSON object, no other text or markdown formatting."""
         num_scenes: int = 1
     ) -> Dict[str, Any]:
         """
-        Extract character moments, NPCs, and plot events from multiple scenes in a single LLM call.
-        This combines three separate extractions into one for efficiency.
+        Extract character moments, NPCs, plot events, and entity states from multiple scenes in a single LLM call.
+        This combines four separate extractions into one for efficiency.
         
         Args:
             batch_content: Multiple scenes text (with scene markers)
-            character_names: List of explicit character names (for character moments)
+            character_names: List of explicit character names (for character moments and entity states)
             explicit_character_names: List of characters already tracked (exclude from NPCs)
             thread_context: Context about existing plot threads
             num_scenes: Number of scenes in batch (for timeout/token calculation)
             
         Returns:
-            Dictionary with 'character_moments', 'npcs', 'plot_events' keys
+            Dictionary with 'character_moments', 'npcs', 'plot_events', 'entity_states' keys
         """
         try:
             from litellm import acompletion
@@ -950,11 +984,12 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             max_npcs_total = 10
             max_events_total = 8
             
-            prompt = f"""Analyze the following scenes and extract THREE types of information in a single response:
+            prompt = f"""Analyze the following scenes and extract FOUR types of information in a single response:
 
 1. CHARACTER MOMENTS (for explicit characters only: {character_names_str})
 2. NPCs and ENTITIES (NOT in the explicit character list: {explicit_names_str})
 3. PLOT EVENTS (significant story events){thread_section}
+4. ENTITY STATE CHANGES (characters, locations, objects)
 
 Scenes:
 {batch_content}
@@ -979,6 +1014,12 @@ For PLOT EVENTS:
 - Importance >= 60 AND confidence >= 70
 - Maximum {max_events_total} total events across all scenes
 - Event types: "introduction", "complication", "revelation", "resolution"
+
+For ENTITY STATE CHANGES:
+- Extract state changes for characters, locations, and objects
+- Focus on significant changes (location, emotional state, possessions, condition)
+- Maximum 15 total state changes across all scenes (prioritize most important)
+- Include only entities that have meaningful state changes
 
 Return ONLY valid JSON in this exact format:
 {{
@@ -1013,17 +1054,48 @@ Return ONLY valid JSON in this exact format:
       "confidence": 95,
       "involved_characters": ["Character1", "Character2"]
     }}
-  ]
+  ],
+  "entity_states": {{
+    "characters": [
+      {{
+        "name": "character name",
+        "location": "current location or null",
+        "emotional_state": "brief emotional state or null",
+        "physical_condition": "condition or null",
+        "possessions_gained": ["item1"],
+        "possessions_lost": [],
+        "knowledge_gained": ["fact1"],
+        "relationship_changes": {{"other_char": "relationship description"}}
+      }}
+    ],
+    "locations": [
+      {{
+        "name": "location name",
+        "condition": "condition description or null",
+        "atmosphere": "atmosphere description or null",
+        "occupants": ["character1"]
+      }}
+    ],
+    "objects": [
+      {{
+        "name": "object name",
+        "location": "where it is",
+        "owner": "who has it or null",
+        "condition": "its condition or null",
+        "significance": "why it matters or null"
+      }}
+    ]
+  }}
 }}
 
-If no items found for a category, return empty array []. Return ONLY the JSON, no other text or markdown."""
+If no items found for a category, return empty array [] or empty object {{}}. Return ONLY the JSON, no other text or markdown."""
             
             # Calculate dynamic timeout and max_tokens
             timeout_seconds = self._calculate_batch_timeout(num_scenes)
             max_tokens = self._calculate_batch_max_tokens(num_scenes)
             
-            system_prompt = """You are an expert story analysis assistant. Analyze scenes and extract character moments, NPCs, and plot events. 
-Return only valid JSON with all three sections: character_moments, npcs, and plot_events. Focus on the most important items only."""
+            system_prompt = """You are an expert story analysis assistant. Analyze scenes and extract character moments, NPCs, plot events, and entity state changes. 
+Return only valid JSON with all four sections: character_moments, npcs, plot_events, and entity_states. Focus on the most important items only."""
             
             params = self._get_generation_params(max_tokens=max_tokens)
             logger.info(f"Starting combined extraction: {num_scenes} scenes, timeout={timeout_seconds}s, max_tokens={max_tokens}")
