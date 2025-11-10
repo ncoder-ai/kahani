@@ -82,48 +82,6 @@ def init_database():
     tables = inspector.get_table_names()
     print(f"Created {len(tables)} tables: {', '.join(tables)}")
     
-    # Stamp the database with the current HEAD revision using Alembic's API
-    print("\nStamping Alembic version to mark base schema as applied...")
-    from sqlalchemy import text
-    from alembic.script import ScriptDirectory
-    from alembic.config import Config as AlembicConfig
-    
-    try:
-        # Load Alembic configuration
-        alembic_ini_path = backend_dir / "alembic.ini"
-        alembic_cfg = AlembicConfig(str(alembic_ini_path))
-        
-        # Get the script directory and find HEAD revision
-        script = ScriptDirectory.from_config(alembic_cfg)
-        head_revision = script.get_current_head()
-        
-        if head_revision:
-            print(f"  HEAD migration revision: {head_revision}")
-            
-            # Create alembic_version table and insert the version
-            with engine.connect() as conn:
-                # Create the table if it doesn't exist
-                conn.execute(text("""
-                    CREATE TABLE IF NOT EXISTS alembic_version (
-                        version_num VARCHAR(32) NOT NULL,
-                        CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)
-                    )
-                """))
-                
-                # Insert the current version
-                conn.execute(text("""
-                    INSERT OR REPLACE INTO alembic_version (version_num) VALUES (:version)
-                """), {"version": head_revision})
-                
-                conn.commit()
-            
-            print(f"✓ Alembic version stamped to: {head_revision}")
-        else:
-            print("⚠️  No HEAD revision found, skipping alembic stamp")
-    except Exception as e:
-        print(f"⚠️  Could not stamp Alembic version: {e}")
-        print("   You may need to run 'alembic stamp head' manually")
-    
     # Create system settings (singleton)
     print("\nCreating system settings...")
     from sqlalchemy.orm import Session
