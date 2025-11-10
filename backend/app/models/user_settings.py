@@ -179,7 +179,8 @@ class UserSettings(Base):
                 "model_name": self.extraction_model_name or "qwen2.5-3b-instruct",
                 "temperature": self.extraction_model_temperature if self.extraction_model_temperature is not None else 0.3,
                 "max_tokens": self.extraction_model_max_tokens if self.extraction_model_max_tokens is not None else 1000,
-                "fallback_to_main": self.extraction_fallback_to_main if self.extraction_fallback_to_main is not None else True
+                "fallback_to_main": self.extraction_fallback_to_main if self.extraction_fallback_to_main is not None else True,
+                "enable_combined_extraction": True  # Default: enabled, combines all extractions in one LLM call
             },
             "advanced": {
                 "custom_system_prompt": self.custom_system_prompt,

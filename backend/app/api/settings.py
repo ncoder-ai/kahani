@@ -97,6 +97,7 @@ class ExtractionModelSettingsUpdate(BaseModel):
     temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
     max_tokens: Optional[int] = Field(default=None, ge=100, le=5000)
     fallback_to_main: Optional[bool] = None
+    enable_combined_extraction: Optional[bool] = None  # Enable combined extraction (default: True)
 
 class UserSettingsUpdate(BaseModel):
     llm_settings: LLMSettingsUpdate = None

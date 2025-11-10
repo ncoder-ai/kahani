@@ -359,10 +359,15 @@ async def create_character_from_suggestion(
         story_character = existing_story_char
     
     # Mark NPC as converted if it was tracked as an NPC
+    # Try both the original character_name (from URL, the NPC name) and character_data.name (user may have changed it)
     try:
         from ..services.npc_tracking_service import NPCTrackingService
         npc_service = NPCTrackingService(current_user.id, user_settings_dict)
-        npc_service.mark_npc_as_converted(db, story_id, character_data.name)
+        # Try original NPC name first (from URL parameter)
+        marked = npc_service.mark_npc_as_converted(db, story_id, character_name)
+        # If not found, try the new character name (user may have changed it)
+        if not marked:
+            npc_service.mark_npc_as_converted(db, story_id, character_data.name)
     except Exception as e:
         logger.warning(f"Failed to mark NPC as converted: {e}")
         # Don't fail character creation if NPC marking fails
