@@ -62,7 +62,8 @@ async def process_scene_embeddings(
     db: Session,
     skip_npc_extraction: bool = False,
     skip_plot_extraction: bool = False,
-    skip_character_moments: bool = False
+    skip_character_moments: bool = False,
+    skip_entity_states: bool = False
 ) -> Dict[str, bool]:
     """
     Process semantic embeddings and extractions for a new scene
@@ -234,23 +235,24 @@ async def process_scene_embeddings(
                 logger.error(f"Failed to extract plot events: {e}")
         
         # 4. Extract and update entity states (characters, locations, objects)
-        try:
-            from .entity_state_service import EntityStateService
-            entity_service = EntityStateService(user_id=user_id, user_settings=user_settings)
-            
-            entity_results = await entity_service.extract_and_update_states(
-                db=db,
-                story_id=story_id,
-                scene_id=scene_id,
-                scene_sequence=sequence_number,
-                scene_content=scene_content
-            )
-            
-            results['entity_states'] = entity_results.get('extraction_successful', False)
-            logger.info(f"Entity states updated for scene {scene_id}: {entity_results}")
-            
-        except Exception as e:
-            logger.error(f"Failed to update entity states: {e}")
+        if not skip_entity_states:
+            try:
+                from .entity_state_service import EntityStateService
+                entity_service = EntityStateService(user_id=user_id, user_settings=user_settings)
+                
+                entity_results = await entity_service.extract_and_update_states(
+                    db=db,
+                    story_id=story_id,
+                    scene_id=scene_id,
+                    scene_sequence=sequence_number,
+                    scene_content=scene_content
+                )
+                
+                results['entity_states'] = entity_results.get('extraction_successful', False)
+                logger.info(f"Entity states updated for scene {scene_id}: {entity_results}")
+                
+            except Exception as e:
+                logger.error(f"Failed to update entity states: {e}")
         
         # 5. Extract and track NPCs (if enabled)
         if not skip_npc_extraction:
@@ -382,10 +384,17 @@ async def _try_combined_extraction(
         )
         
         # Validate results - need at least one non-empty section
+        entity_states = combined_results.get('entity_states', {})
+        has_entity_states = (
+            (entity_states.get('characters') and len(entity_states['characters']) > 0) or
+            (entity_states.get('locations') and len(entity_states['locations']) > 0) or
+            (entity_states.get('objects') and len(entity_states['objects']) > 0)
+        )
         has_results = (
             (combined_results.get('character_moments') and len(combined_results['character_moments']) > 0) or
             (combined_results.get('npcs') and len(combined_results['npcs']) > 0) or
-            (combined_results.get('plot_events') and len(combined_results['plot_events']) > 0)
+            (combined_results.get('plot_events') and len(combined_results['plot_events']) > 0) or
+            has_entity_states
         )
         
         if not has_results:
@@ -397,7 +406,7 @@ async def _try_combined_extraction(
             try:
                 from .character_memory_service import get_character_memory_service
                 from ..utils.scene_verification import map_moments_to_scenes
-                from ..models.character_memory import CharacterMemory, MomentType
+                from ..models.semantic_memory import CharacterMemory, MomentType
                 from datetime import datetime
                 
                 char_service = get_character_memory_service()
@@ -554,7 +563,7 @@ async def _try_combined_extraction(
         if combined_results.get('plot_events'):
             try:
                 from ..utils.scene_verification import map_events_to_scenes
-                from ..models.plot_thread import PlotEvent, EventType
+                from ..models.semantic_memory import PlotEvent, EventType
                 
                 events_data = combined_results['plot_events']
                 
@@ -610,6 +619,63 @@ async def _try_combined_extraction(
                 logger.warning(f"[EXTRACTION] Combined: extracted {total_events} plot events")
             except Exception as e:
                 logger.error(f"Failed to process combined plot events: {e}")
+                db.rollback()
+        
+        # Process entity states using existing service logic
+        if combined_results.get('entity_states'):
+            try:
+                from .entity_state_service import EntityStateService
+                from ..models import StoryCharacter, Character
+                
+                entity_service = EntityStateService(user_id=user_id, user_settings=user_settings)
+                entity_states_data = combined_results['entity_states']
+                
+                # Get the last scene sequence number (most recent scene in batch)
+                last_sequence = max([seq for _, seq, _, _ in scenes_data]) if scenes_data else 0
+                
+                total_entity_states = 0
+                
+                # Process character states (apply once per character, using last scene sequence)
+                if entity_states_data.get('characters'):
+                    for char_update in entity_states_data['characters']:
+                        try:
+                            await entity_service._update_character_state(
+                                db, story_id, last_sequence, char_update
+                            )
+                            total_entity_states += 1
+                        except Exception as e:
+                            logger.warning(f"Failed to update character state for {char_update.get('name', 'unknown')}: {e}")
+                            continue
+                
+                # Process location states
+                if entity_states_data.get('locations'):
+                    for loc_update in entity_states_data['locations']:
+                        try:
+                            await entity_service._update_location_state(
+                                db, story_id, last_sequence, loc_update
+                            )
+                            total_entity_states += 1
+                        except Exception as e:
+                            logger.warning(f"Failed to update location state for {loc_update.get('name', 'unknown')}: {e}")
+                            continue
+                
+                # Process object states
+                if entity_states_data.get('objects'):
+                    for obj_update in entity_states_data['objects']:
+                        try:
+                            await entity_service._update_object_state(
+                                db, story_id, last_sequence, obj_update
+                            )
+                            total_entity_states += 1
+                        except Exception as e:
+                            logger.warning(f"Failed to update object state for {obj_update.get('name', 'unknown')}: {e}")
+                            continue
+                
+                db.commit()
+                results['entity_states'] += total_entity_states
+                logger.warning(f"[EXTRACTION] Combined: extracted {total_entity_states} entity states")
+            except Exception as e:
+                logger.error(f"Failed to process combined entity states: {e}")
                 db.rollback()
         
         return True
@@ -795,7 +861,7 @@ async def batch_process_scene_extractions(
         for scene, variant, scene_content in scenes_for_embeddings:
             try:
                 # Process scene embeddings (still per-scene)
-                # Skip NPC/plot/character extraction since they're done in batch above
+                # Skip NPC/plot/character/entity extraction since they're done in batch above
                 scene_results = await process_scene_embeddings(
                     scene_id=scene.id,
                     variant_id=variant.id,
@@ -808,7 +874,8 @@ async def batch_process_scene_extractions(
                     db=db,
                     skip_npc_extraction=True,
                     skip_plot_extraction=True,
-                    skip_character_moments=True
+                    skip_character_moments=True,
+                    skip_entity_states=True
                 )
                 
                 # Aggregate results (NPCs, plot events, moments already counted above)
