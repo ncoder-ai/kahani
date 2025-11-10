@@ -2762,6 +2762,22 @@ async def finalize_draft_story(
                 )
                 db.add(story_character)
                 logger.info(f"[FINALIZE] Linked character {character.name} to story {story_id} with role: {char_data.get('role', 'N/A')}")
+                
+                # Mark NPC as converted if it was tracked as an NPC
+                try:
+                    from ..services.npc_tracking_service import NPCTrackingService
+                    from ..models import UserSettings
+                    user_settings = db.query(UserSettings).filter(
+                        UserSettings.user_id == current_user.id
+                    ).first()
+                    if user_settings:
+                        user_settings_dict = user_settings.to_dict()
+                        user_settings_dict['allow_nsfw'] = current_user.allow_nsfw
+                        npc_service = NPCTrackingService(current_user.id, user_settings_dict)
+                        npc_service.mark_npc_as_converted(db, story_id, character.name)
+                except Exception as e:
+                    logger.warning(f"Failed to mark NPC as converted during finalization: {e}")
+                    # Don't fail story finalization if NPC marking fails
     
     # Mark as active
     story.status = StoryStatus.ACTIVE

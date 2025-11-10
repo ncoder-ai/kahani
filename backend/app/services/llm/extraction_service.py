@@ -42,7 +42,8 @@ class ExtractionLLMService:
         self.max_tokens = max_tokens
         
         # Short timeouts optimized for small local models
-        self.timeout = ClientTimeout(total=30, connect=2)
+        # Base timeout for single extractions, will be increased for batch/combined calls
+        self.timeout = ClientTimeout(total=30, connect=5)  # Increased connect timeout for local LLMs
         
         # Configure LiteLLM for OpenAI-compatible endpoint
         self._configure_litellm()
@@ -772,5 +773,277 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             
         except Exception as e:
             logger.error(f"Failed to extract character details with extraction model: {e}")
+            raise
+    
+    def _calculate_batch_timeout(self, num_scenes: int) -> float:
+        """
+        Calculate timeout for batch extraction based on number of scenes.
+        Local LLMs process slower, so we use generous timeouts.
+        
+        Args:
+            num_scenes: Number of scenes in batch
+            
+        Returns:
+            Timeout in seconds
+        """
+        # Base timeout: 120 seconds (4x single extraction)
+        # Scale with batch size: +10 seconds per scene
+        # Max: 300 seconds (5 minutes)
+        timeout = 120 + (num_scenes * 10)
+        return min(timeout, 300)
+    
+    def _calculate_batch_max_tokens(self, num_scenes: int) -> int:
+        """
+        Calculate max_tokens for batch extraction based on number of scenes.
+        
+        Args:
+            num_scenes: Number of scenes in batch
+            
+        Returns:
+            Max tokens for response
+        """
+        # Base: 3000-4000 tokens (3x individual)
+        # Scale with batch size
+        base_tokens = 3500
+        scaled_tokens = int(base_tokens * (1 + num_scenes / 5))
+        # Max cap: 8000 tokens
+        return min(scaled_tokens, 8000)
+    
+    def _parse_combined_json_response(self, content: str) -> Dict[str, Any]:
+        """
+        Parse combined JSON response with robust error handling.
+        Handles malformed JSON, partial responses, and missing sections.
+        
+        Args:
+            content: Raw response content
+            
+        Returns:
+            Dictionary with 'character_moments', 'npcs', 'plot_events' keys
+            Missing sections will be empty arrays
+        """
+        result = {
+            'character_moments': [],
+            'npcs': [],
+            'plot_events': []
+        }
+        
+        try:
+            # Clean response (remove markdown code blocks if present)
+            response_clean = content.strip()
+            if response_clean.startswith("```json"):
+                response_clean = response_clean[7:]
+            elif response_clean.startswith("```"):
+                response_clean = response_clean[3:]
+            if response_clean.endswith("```"):
+                response_clean = response_clean[:-3]
+            response_clean = response_clean.strip()
+            
+            # Try to parse full JSON
+            try:
+                data = json.loads(response_clean)
+                
+                # Extract each section independently
+                if 'character_moments' in data and isinstance(data['character_moments'], list):
+                    result['character_moments'] = data['character_moments']
+                elif 'moments' in data and isinstance(data['moments'], list):
+                    # Handle alternative key name
+                    result['character_moments'] = data['moments']
+                
+                if 'npcs' in data:
+                    if isinstance(data['npcs'], list):
+                        result['npcs'] = data['npcs']
+                    elif isinstance(data['npcs'], dict) and 'npcs' in data['npcs']:
+                        # Handle nested structure
+                        result['npcs'] = data['npcs']['npcs'] if isinstance(data['npcs']['npcs'], list) else []
+                
+                if 'plot_events' in data and isinstance(data['plot_events'], list):
+                    result['plot_events'] = data['plot_events']
+                elif 'events' in data and isinstance(data['events'], list):
+                    # Handle alternative key name
+                    result['plot_events'] = data['events']
+                
+                logger.info(f"Successfully parsed combined extraction: {len(result['character_moments'])} moments, "
+                          f"{len(result['npcs'])} NPCs, {len(result['plot_events'])} events")
+                return result
+                
+            except json.JSONDecodeError:
+                # Try to extract partial JSON using regex
+                import re
+                
+                # Try to find JSON objects for each section
+                moments_match = re.search(r'"character_moments"\s*:\s*\[(.*?)\]', response_clean, re.DOTALL)
+                if not moments_match:
+                    moments_match = re.search(r'"moments"\s*:\s*\[(.*?)\]', response_clean, re.DOTALL)
+                if moments_match:
+                    try:
+                        moments_json = json.loads(f'[{moments_match.group(1)}]')
+                        result['character_moments'] = moments_json if isinstance(moments_json, list) else []
+                    except:
+                        pass
+                
+                npcs_match = re.search(r'"npcs"\s*:\s*\[(.*?)\]', response_clean, re.DOTALL)
+                if npcs_match:
+                    try:
+                        npcs_json = json.loads(f'[{npcs_match.group(1)}]')
+                        result['npcs'] = npcs_json if isinstance(npcs_json, list) else []
+                    except:
+                        pass
+                
+                events_match = re.search(r'"plot_events"\s*:\s*\[(.*?)\]', response_clean, re.DOTALL)
+                if not events_match:
+                    events_match = re.search(r'"events"\s*:\s*\[(.*?)\]', response_clean, re.DOTALL)
+                if events_match:
+                    try:
+                        events_json = json.loads(f'[{events_match.group(1)}]')
+                        result['plot_events'] = events_json if isinstance(events_json, list) else []
+                    except:
+                        pass
+                
+                if any(result.values()):
+                    logger.warning(f"Partially parsed combined extraction using regex: {len(result['character_moments'])} moments, "
+                                 f"{len(result['npcs'])} NPCs, {len(result['plot_events'])} events")
+                    return result
+                else:
+                    raise
+                    
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse combined JSON response: {e}\nContent preview: {content[:500]}")
+            # Return empty result instead of raising - caller can fallback
+            return result
+        except Exception as e:
+            logger.error(f"Unexpected error parsing combined response: {e}\nContent preview: {content[:500]}")
+            return result
+    
+    async def extract_all_batch(
+        self,
+        batch_content: str,
+        character_names: List[str],
+        explicit_character_names: List[str],
+        thread_context: str = "",
+        num_scenes: int = 1
+    ) -> Dict[str, Any]:
+        """
+        Extract character moments, NPCs, and plot events from multiple scenes in a single LLM call.
+        This combines three separate extractions into one for efficiency.
+        
+        Args:
+            batch_content: Multiple scenes text (with scene markers)
+            character_names: List of explicit character names (for character moments)
+            explicit_character_names: List of characters already tracked (exclude from NPCs)
+            thread_context: Context about existing plot threads
+            num_scenes: Number of scenes in batch (for timeout/token calculation)
+            
+        Returns:
+            Dictionary with 'character_moments', 'npcs', 'plot_events' keys
+        """
+        try:
+            from litellm import acompletion
+            
+            explicit_names_str = ", ".join(explicit_character_names) if explicit_character_names else "None"
+            character_names_str = ", ".join(character_names) if character_names else "None"
+            
+            # Build thread context section
+            thread_section = f"\n\nActive plot threads to consider:{thread_context}" if thread_context else ""
+            
+            # Calculate dynamic limits based on batch size
+            max_moments_per_char = 5
+            max_npcs_total = 10
+            max_events_total = 8
+            
+            prompt = f"""Analyze the following scenes and extract THREE types of information in a single response:
+
+1. CHARACTER MOMENTS (for explicit characters only: {character_names_str})
+2. NPCs and ENTITIES (NOT in the explicit character list: {explicit_names_str})
+3. PLOT EVENTS (significant story events){thread_section}
+
+Scenes:
+{batch_content}
+
+IMPORTANT: Extract only the MOST IMPORTANT/SIGNIFICANT items. Quality over quantity.
+
+For CHARACTER MOMENTS:
+- Focus on explicit characters: {character_names_str}
+- Extract only significant moments (confidence >= 70)
+- Maximum 5 moments per character per scene
+- Moment types: "action", "dialogue", "development", "relationship"
+
+For NPCs:
+- Extract named entities NOT in explicit character list: {character_names_str}
+- Classify each as "CHARACTER" (sentient beings) or "ENTITY" (locations, objects, organizations)
+- Focus on entities with dialogue, actions, or relationships
+- Maximum {max_npcs_total} total NPCs across all scenes
+- Prioritize: has_dialogue OR has_actions OR mention_count >= 2
+
+For PLOT EVENTS:
+- Extract significant plot events only
+- Importance >= 60 AND confidence >= 70
+- Maximum {max_events_total} total events across all scenes
+- Event types: "introduction", "complication", "revelation", "resolution"
+
+Return ONLY valid JSON in this exact format:
+{{
+  "character_moments": [
+    {{
+      "character_name": "Character Name",
+      "moment_type": "action",
+      "content": "Description of the moment",
+      "confidence": 85
+    }}
+  ],
+  "npcs": [
+    {{
+      "name": "NPC name",
+      "entity_type": "CHARACTER",
+      "mention_count": 3,
+      "has_dialogue": true,
+      "has_actions": true,
+      "has_relationships": true,
+      "context_snippets": ["snippet 1", "snippet 2"],
+      "properties": {{
+        "role": "role description",
+        "description": "brief description"
+      }}
+    }}
+  ],
+  "plot_events": [
+    {{
+      "event_type": "complication",
+      "description": "Description of the event",
+      "importance": 85,
+      "confidence": 95,
+      "involved_characters": ["Character1", "Character2"]
+    }}
+  ]
+}}
+
+If no items found for a category, return empty array []. Return ONLY the JSON, no other text or markdown."""
+            
+            # Calculate dynamic timeout and max_tokens
+            timeout_seconds = self._calculate_batch_timeout(num_scenes)
+            max_tokens = self._calculate_batch_max_tokens(num_scenes)
+            
+            system_prompt = """You are an expert story analysis assistant. Analyze scenes and extract character moments, NPCs, and plot events. 
+Return only valid JSON with all three sections: character_moments, npcs, and plot_events. Focus on the most important items only."""
+            
+            params = self._get_generation_params(max_tokens=max_tokens)
+            logger.info(f"Starting combined extraction: {num_scenes} scenes, timeout={timeout_seconds}s, max_tokens={max_tokens}")
+            
+            response = await acompletion(
+                **params,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                timeout=timeout_seconds
+            )
+            
+            content = response.choices[0].message.content.strip()
+            logger.debug(f"Combined extraction response length: {len(content)} characters")
+            
+            # Parse with robust error handling
+            return self._parse_combined_json_response(content)
+            
+        except Exception as e:
+            logger.error(f"Failed to extract all (combined batch) with extraction model: {e}")
             raise
 
