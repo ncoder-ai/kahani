@@ -6,7 +6,7 @@ during scene generation and story management.
 """
 
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Tuple
 from sqlalchemy.orm import Session
 
 from .semantic_context_manager import SemanticContextManager, create_semantic_context_manager
@@ -292,6 +292,333 @@ async def process_scene_embeddings(
         return results
 
 
+async def _try_combined_extraction(
+    scenes_data: List[Tuple[int, int, Optional[int], str]],
+    story_id: int,
+    user_id: int,
+    user_settings: Dict[str, Any],
+    db: Session,
+    results: Dict[str, Any]
+) -> bool:
+    """
+    Try to extract character moments, NPCs, and plot events in a single combined LLM call.
+    
+    Args:
+        scenes_data: List of (scene_id, sequence_number, chapter_id, scene_content) tuples
+        story_id: Story ID
+        user_id: User ID
+        user_settings: User settings
+        db: Database session
+        results: Results dictionary to update
+        
+    Returns:
+        True if combined extraction succeeded, False otherwise
+    """
+    try:
+        from .llm.extraction_service import ExtractionLLMService
+        from .npc_tracking_service import NPCTrackingService
+        from .character_memory_service import get_character_memory_service
+        from .plot_thread_service import get_plot_thread_service
+        from ..models import StoryCharacter, Character, PlotEvent
+        
+        # Check if extraction model is enabled
+        extraction_settings = user_settings.get('extraction_model_settings', {})
+        if not extraction_settings.get('enabled', False):
+            logger.info("[EXTRACTION] Extraction model not enabled, skipping combined extraction")
+            return False
+        
+        # Get extraction service
+        url = extraction_settings.get('url', 'http://localhost:1234/v1')
+        model = extraction_settings.get('model_name', 'qwen2.5-3b-instruct')
+        api_key = extraction_settings.get('api_key', '')
+        temperature = extraction_settings.get('temperature', 0.3)
+        max_tokens = extraction_settings.get('max_tokens', 1000)
+        
+        extraction_service = ExtractionLLMService(
+            url=url,
+            model=model,
+            api_key=api_key,
+            temperature=temperature,
+            max_tokens=max_tokens
+        )
+        
+        # Get character names for character moments
+        story_characters = db.query(StoryCharacter).filter(
+            StoryCharacter.story_id == story_id
+        ).all()
+        
+        character_names = []
+        explicit_character_names = []
+        character_map = {}
+        for sc in story_characters:
+            char = db.query(Character).filter(Character.id == sc.character_id).first()
+            if char:
+                character_names.append(char.name)
+                explicit_character_names.append(char.name)
+                character_map[char.name.lower()] = char
+        
+        # Build batch content with scene markers
+        scenes_text = []
+        for scene_id, sequence_number, chapter_id, scene_content in scenes_data:
+            scenes_text.append(f"=== SCENE {sequence_number} (ID: {scene_id}) ===\n{scene_content}\n")
+        batch_content = "\n".join(scenes_text)
+        
+        # Get thread context for plot events
+        plot_service = get_plot_thread_service()
+        existing_threads = await plot_service.get_unresolved_threads(story_id, db)
+        thread_context = ""
+        if existing_threads:
+            thread_list = [f"- {t['description']}" for t in existing_threads[:5]]
+            thread_context = f"\n{chr(10).join(thread_list)}"
+        
+        # Call combined extraction
+        num_scenes = len(scenes_data)
+        combined_results = await extraction_service.extract_all_batch(
+            batch_content=batch_content,
+            character_names=character_names,
+            explicit_character_names=explicit_character_names,
+            thread_context=thread_context,
+            num_scenes=num_scenes
+        )
+        
+        # Validate results - need at least one non-empty section
+        has_results = (
+            (combined_results.get('character_moments') and len(combined_results['character_moments']) > 0) or
+            (combined_results.get('npcs') and len(combined_results['npcs']) > 0) or
+            (combined_results.get('plot_events') and len(combined_results['plot_events']) > 0)
+        )
+        
+        if not has_results:
+            logger.warning("[EXTRACTION] Combined extraction returned empty results")
+            return False
+        
+        # Process character moments using existing service logic
+        if combined_results.get('character_moments'):
+            try:
+                from .character_memory_service import get_character_memory_service
+                from ..utils.scene_verification import map_moments_to_scenes
+                from ..models.character_memory import CharacterMemory, MomentType
+                from datetime import datetime
+                
+                char_service = get_character_memory_service()
+                moments_data = combined_results['character_moments']
+                
+                # Map moments to scenes
+                scenes_for_verification = [(scene_id, content) for scene_id, _, _, content in scenes_data]
+                
+                # Group by character and map to scenes
+                all_created_moments = {}
+                for char_name in character_names:
+                    char_moments = [m for m in moments_data if m.get('character_name', '').strip().lower() == char_name.lower()]
+                    if not char_moments:
+                        continue
+                    
+                    scene_moment_map = map_moments_to_scenes(char_moments, scenes_for_verification, char_name)
+                    
+                    # Create CharacterMemory entries
+                    for scene_id, sequence_number, chapter_id, scene_content in scenes_data:
+                        moments_for_scene = scene_moment_map.get(scene_id, [])
+                        if scene_id not in all_created_moments:
+                            all_created_moments[scene_id] = []
+                        
+                        for moment_data in moments_for_scene:
+                            if moment_data.get('confidence', 0) < settings.extraction_confidence_threshold:
+                                continue
+                            
+                            char_name_moment = moment_data.get('character_name', '').strip()
+                            if char_name_moment.lower() not in character_map:
+                                continue
+                            
+                            character = character_map[char_name_moment.lower()]
+                            moment_type = moment_data.get('moment_type', 'action')
+                            content = moment_data.get('content', '')
+                            confidence = moment_data.get('confidence', 70)
+                            
+                            # Create embedding
+                            embedding_id = await char_service.semantic_memory.add_character_moment(
+                                character_id=character.id,
+                                character_name=character.name,
+                                scene_id=scene_id,
+                                story_id=story_id,
+                                moment_type=moment_type,
+                                content=content,
+                                metadata={
+                                    'sequence': sequence_number,
+                                    'timestamp': datetime.utcnow().isoformat()
+                                }
+                            )
+                            
+                            # Check if already exists
+                            existing_memory = db.query(CharacterMemory).filter(
+                                CharacterMemory.embedding_id == embedding_id
+                            ).first()
+                            
+                            if existing_memory:
+                                continue
+                            
+                            # Create database record
+                            memory = CharacterMemory(
+                                character_id=character.id,
+                                scene_id=scene_id,
+                                story_id=story_id,
+                                moment_type=MomentType(moment_type),
+                                content=content,
+                                embedding_id=embedding_id,
+                                sequence_order=sequence_number,
+                                chapter_id=chapter_id,
+                                extracted_automatically=True,
+                                confidence_score=confidence
+                            )
+                            db.add(memory)
+                            all_created_moments[scene_id].append(memory)
+                
+                db.commit()
+                total_moments = sum(len(moments) for moments in all_created_moments.values())
+                results['character_moments'] += total_moments
+                logger.warning(f"[EXTRACTION] Combined: extracted {total_moments} character moments")
+            except Exception as e:
+                logger.error(f"Failed to process combined character moments: {e}")
+                db.rollback()
+        
+        # Process NPCs using existing service logic
+        if combined_results.get('npcs'):
+            try:
+                from .npc_tracking_service import NPCTrackingService
+                from ..utils.scene_verification import map_npcs_to_scenes
+                from ..models.npc_tracking import NPCMention
+                
+                npc_service = NPCTrackingService(user_id=user_id, user_settings=user_settings)
+                npcs_data = combined_results['npcs']
+                
+                # Validate NPCs
+                validated_npcs = npc_service._validate_npcs(npcs_data)
+                
+                # Map to scenes
+                npc_scenes_data = [(scene_id, seq_num, content) for scene_id, seq_num, _, content in scenes_data]
+                scenes_for_verification = [(scene_id, content) for scene_id, _, _, content in scenes_data]
+                scene_npc_map = map_npcs_to_scenes(validated_npcs, scenes_for_verification)
+                
+                # Store NPCs using existing logic
+                explicit_names_set = set(name.lower() for name in explicit_character_names)
+                total_npcs = 0
+                
+                def to_bool(value):
+                    if isinstance(value, bool):
+                        return value
+                    if isinstance(value, str):
+                        return value.lower() in ('true', '1', 'yes')
+                    return bool(value)
+                
+                for scene_id, sequence_number, chapter_id, scene_content in scenes_data:
+                    npcs_for_scene = scene_npc_map.get(scene_id, [])
+                    for npc_data_scene in npcs_for_scene:
+                        npc_name = npc_data_scene.get('name', '').strip()
+                        if not npc_name or npc_name.lower() in explicit_names_set:
+                            continue
+                        
+                        # Check importance filters
+                        mention_count = npc_data_scene.get('mention_count', 0)
+                        has_dialogue = to_bool(npc_data_scene.get('has_dialogue', False))
+                        has_actions = to_bool(npc_data_scene.get('has_actions', False))
+                        
+                        if mention_count >= 2 or has_dialogue or has_actions:
+                            # Store mention
+                            mention = NPCMention(
+                                story_id=story_id,
+                                scene_id=scene_id,
+                                character_name=npc_name,
+                                sequence_number=sequence_number,
+                                mention_count=mention_count,
+                                has_dialogue=has_dialogue,
+                                has_actions=has_actions,
+                                has_relationships=to_bool(npc_data_scene.get('has_relationships', False)),
+                                context_snippets=npc_data_scene.get('context_snippets', []),
+                                extracted_properties=npc_data_scene.get('properties', {})
+                            )
+                            db.add(mention)
+                            
+                            # Update tracking
+                            await npc_service._update_npc_tracking(
+                                db, story_id, npc_name, sequence_number, npc_data_scene
+                            )
+                            total_npcs += 1
+                
+                db.commit()
+                results['npc_tracking'] += total_npcs
+                logger.warning(f"[EXTRACTION] Combined: extracted {total_npcs} NPCs")
+            except Exception as e:
+                logger.error(f"Failed to process combined NPCs: {e}")
+                db.rollback()
+        
+        # Process plot events using existing service logic
+        if combined_results.get('plot_events'):
+            try:
+                from ..utils.scene_verification import map_events_to_scenes
+                from ..models.plot_thread import PlotEvent, EventType
+                
+                events_data = combined_results['plot_events']
+                
+                # Filter by importance and confidence
+                filtered_events = [
+                    e for e in events_data
+                    if e.get('importance', 0) >= 60 and e.get('confidence', 0) >= 70
+                ]
+                
+                # Map to scenes
+                scenes_for_verification = [(scene_id, content) for scene_id, _, _, content in scenes_data]
+                scene_event_map = map_events_to_scenes(filtered_events, scenes_for_verification)
+                
+                # Create PlotEvent entries
+                plot_service = get_plot_thread_service()
+                total_events = 0
+                
+                for scene_id, sequence_number, chapter_id, scene_content in scenes_data:
+                    events_for_scene = scene_event_map.get(scene_id, [])
+                    
+                    for event_data in events_for_scene:
+                        event_type = event_data.get('event_type', 'complication')
+                        description = event_data.get('description', '')
+                        importance = event_data.get('importance', 50)
+                        confidence = event_data.get('confidence', 70)
+                        involved_chars = event_data.get('involved_characters', [])
+                        
+                        if confidence < settings.extraction_confidence_threshold or importance < 30:
+                            continue
+                        
+                        # Generate thread ID
+                        thread_id = plot_service._generate_thread_id(description, event_type)
+                        
+                        # Create PlotEvent
+                        plot_event = PlotEvent(
+                            story_id=story_id,
+                            scene_id=scene_id,
+                            sequence_number=sequence_number,
+                            chapter_id=chapter_id,
+                            event_type=EventType(event_type),
+                            description=description,
+                            importance_score=importance,
+                            confidence_score=confidence,
+                            thread_id=thread_id,
+                            involved_characters=involved_chars,
+                            extracted_automatically=True
+                        )
+                        db.add(plot_event)
+                        total_events += 1
+                
+                db.commit()
+                results['plot_events'] += total_events
+                logger.warning(f"[EXTRACTION] Combined: extracted {total_events} plot events")
+            except Exception as e:
+                logger.error(f"Failed to process combined plot events: {e}")
+                db.rollback()
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Combined extraction failed: {e}", exc_info=True)
+        return False
+
+
 async def batch_process_scene_extractions(
     story_id: int,
     chapter_id: int,
@@ -391,54 +718,78 @@ async def batch_process_scene_extractions(
             logger.warning(f"No valid scenes to process in batch")
             return results
         
-        # BATCH EXTRACTION: Extract NPCs, plot events, and character moments in single LLM calls
-        try:
-            # 1. Batch extract NPCs
-            from .npc_tracking_service import NPCTrackingService
-            npc_service = NPCTrackingService(user_id=user_id, user_settings=user_settings)
-            npc_scenes_data = [(scene_id, seq_num, content) for scene_id, seq_num, _, content in scenes_data]
-            npc_results = await npc_service.extract_npcs_from_scenes_batch(
-                db=db,
-                story_id=story_id,
-                scenes=npc_scenes_data
-            )
-            if npc_results.get('extraction_successful'):
-                results['npc_tracking'] += npc_results.get('npcs_tracked', 0)
-                logger.warning(f"[EXTRACTION] Batch extracted {npc_results.get('npcs_tracked', 0)} NPCs")
-        except Exception as e:
-            logger.error(f"Failed to batch extract NPCs: {e}")
+        # Check if combined extraction is enabled (default: True)
+        enable_combined = user_settings.get('extraction_model_settings', {}).get('enable_combined_extraction', True)
         
-        try:
-            # 2. Batch extract plot events
-            plot_service = get_plot_thread_service()
-            plot_events_map = await plot_service.extract_plot_events_from_scenes_batch(
-                scenes=scenes_data,
-                story_id=story_id,
-                user_id=user_id,
-                user_settings=user_settings,
-                db=db
-            )
-            total_plot_events = sum(len(events) for events in plot_events_map.values())
-            results['plot_events'] += total_plot_events
-            logger.warning(f"[EXTRACTION] Batch extracted {total_plot_events} plot events")
-        except Exception as e:
-            logger.error(f"Failed to batch extract plot events: {e}")
+        # BATCH EXTRACTION: Try combined extraction first, fallback to separate calls
+        combined_success = False
+        if enable_combined:
+            try:
+                logger.warning(f"[EXTRACTION] Attempting combined extraction for {len(scenes_data)} scenes")
+                combined_success = await _try_combined_extraction(
+                    scenes_data=scenes_data,
+                    story_id=story_id,
+                    user_id=user_id,
+                    user_settings=user_settings,
+                    db=db,
+                    results=results
+                )
+                if combined_success:
+                    logger.warning(f"[EXTRACTION] Combined extraction successful!")
+            except Exception as e:
+                logger.warning(f"[EXTRACTION] Combined extraction failed: {e}, falling back to separate calls")
+                combined_success = False
         
-        try:
-            # 3. Batch extract character moments
-            char_service = get_character_memory_service()
-            moments_map = await char_service.extract_character_moments_from_scenes_batch(
-                scenes=scenes_data,
-                story_id=story_id,
-                user_id=user_id,
-                user_settings=user_settings,
-                db=db
-            )
-            total_moments = sum(len(moments) for moments in moments_map.values())
-            results['character_moments'] += total_moments
-            logger.warning(f"[EXTRACTION] Batch extracted {total_moments} character moments")
-        except Exception as e:
-            logger.error(f"Failed to batch extract character moments: {e}")
+        # Fallback to separate calls if combined extraction failed or disabled
+        if not combined_success:
+            logger.warning(f"[EXTRACTION] Using separate extraction calls")
+            try:
+                # 1. Batch extract NPCs
+                from .npc_tracking_service import NPCTrackingService
+                npc_service = NPCTrackingService(user_id=user_id, user_settings=user_settings)
+                npc_scenes_data = [(scene_id, seq_num, content) for scene_id, seq_num, _, content in scenes_data]
+                npc_results = await npc_service.extract_npcs_from_scenes_batch(
+                    db=db,
+                    story_id=story_id,
+                    scenes=npc_scenes_data
+                )
+                if npc_results.get('extraction_successful'):
+                    results['npc_tracking'] += npc_results.get('npcs_tracked', 0)
+                    logger.warning(f"[EXTRACTION] Batch extracted {npc_results.get('npcs_tracked', 0)} NPCs")
+            except Exception as e:
+                logger.error(f"Failed to batch extract NPCs: {e}")
+            
+            try:
+                # 2. Batch extract plot events
+                plot_service = get_plot_thread_service()
+                plot_events_map = await plot_service.extract_plot_events_from_scenes_batch(
+                    scenes=scenes_data,
+                    story_id=story_id,
+                    user_id=user_id,
+                    user_settings=user_settings,
+                    db=db
+                )
+                total_plot_events = sum(len(events) for events in plot_events_map.values())
+                results['plot_events'] += total_plot_events
+                logger.warning(f"[EXTRACTION] Batch extracted {total_plot_events} plot events")
+            except Exception as e:
+                logger.error(f"Failed to batch extract plot events: {e}")
+            
+            try:
+                # 3. Batch extract character moments
+                char_service = get_character_memory_service()
+                moments_map = await char_service.extract_character_moments_from_scenes_batch(
+                    scenes=scenes_data,
+                    story_id=story_id,
+                    user_id=user_id,
+                    user_settings=user_settings,
+                    db=db
+                )
+                total_moments = sum(len(moments) for moments in moments_map.values())
+                results['character_moments'] += total_moments
+                logger.warning(f"[EXTRACTION] Batch extracted {total_moments} character moments")
+            except Exception as e:
+                logger.error(f"Failed to batch extract character moments: {e}")
         
         # PER-SCENE PROCESSING: Scene embeddings and entity states (still per-scene)
         for scene, variant, scene_content in scenes_for_embeddings:
