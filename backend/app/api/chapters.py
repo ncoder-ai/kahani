@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
@@ -9,6 +10,7 @@ from ..dependencies import get_current_user
 from ..services.llm.service import UnifiedLLMService
 from datetime import datetime
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -21,6 +23,8 @@ class ChapterCreate(BaseModel):
     story_so_far: Optional[str] = None
     plot_point: Optional[str] = None
     story_character_ids: Optional[List[int]] = None  # IDs from story_characters table
+    character_ids: Optional[List[int]] = None  # Character IDs from library to add to story
+    character_roles: Optional[dict] = None  # Map of character_id to role for new characters
     location_name: Optional[str] = None
     time_period: Optional[str] = None
     scenario: Optional[str] = None
@@ -179,123 +183,226 @@ async def get_chapter(
     return build_chapter_response(chapter, db)
 
 
-@router.post("/{story_id}/chapters", response_model=ChapterResponse)
+@router.post("/{story_id}/chapters")
 async def create_chapter(
     story_id: int,
     chapter_data: ChapterCreate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Create a new chapter (Dynamic mode)"""
+    """Create a new chapter (Dynamic mode) with streaming status updates"""
     
-    logger.info(f"[CHAPTER] Creating new chapter for story {story_id}")
-    
-    # Verify story ownership
-    story = db.query(Story).filter(
-        Story.id == story_id,
-        Story.owner_id == current_user.id
-    ).first()
-    
-    if not story:
-        raise HTTPException(status_code=404, detail="Story not found")
-    
-    # Get the current active chapter to complete it
-    active_chapter = db.query(Chapter).filter(
-        Chapter.story_id == story_id,
-        Chapter.status == ChapterStatus.ACTIVE
-    ).first()
-    
-    # Get next chapter number
-    max_chapter = db.query(Chapter).filter(
-        Chapter.story_id == story_id
-    ).order_by(Chapter.chapter_number.desc()).first()
-    
-    next_chapter_number = (max_chapter.chapter_number + 1) if max_chapter else 1
-    
-    # Mark current chapter as completed if exists
-    if active_chapter:
-        active_chapter.status = ChapterStatus.COMPLETED
-        active_chapter.completed_at = datetime.utcnow()
-        logger.info(f"[CHAPTER] Marked chapter {active_chapter.id} as completed")
-        
-        # Generate summary for the completed chapter if it doesn't have one yet
-        if not active_chapter.auto_summary and active_chapter.scenes_count > 0:
-            logger.info(f"[CHAPTER] Generating summary for completed chapter {active_chapter.id}")
+    async def generate_stream():
+        try:
+            logger.info(f"[CHAPTER] Creating new chapter for story {story_id}")
+            
+            # Verify story ownership
+            story = db.query(Story).filter(
+                Story.id == story_id,
+                Story.owner_id == current_user.id
+            ).first()
+            
+            if not story:
+                yield f"data: {json.dumps({'type': 'error', 'message': 'Story not found'})}\n\n"
+                return
+            
+            # Get the current active chapter to complete it
+            active_chapter = db.query(Chapter).filter(
+                Chapter.story_id == story_id,
+                Chapter.status == ChapterStatus.ACTIVE
+            ).first()
+            
+            # Get next chapter number
+            max_chapter = db.query(Chapter).filter(
+                Chapter.story_id == story_id
+            ).order_by(Chapter.chapter_number.desc()).first()
+            
+            next_chapter_number = (max_chapter.chapter_number + 1) if max_chapter else 1
+            
+            # Mark current chapter as completed if exists
+            # This needs to be committed before creating new chapter (to free up ACTIVE status)
+            if active_chapter:
+                yield f"data: {json.dumps({'type': 'status', 'message': 'Completing previous chapter...', 'step': 'completing_previous'})}\n\n"
+                
+                active_chapter.status = ChapterStatus.COMPLETED
+                active_chapter.completed_at = datetime.utcnow()
+                logger.info(f"[CHAPTER] Marked chapter {active_chapter.id} as completed")
+                
+                # Generate summary for the completed chapter if it doesn't have one yet
+                if not active_chapter.auto_summary and active_chapter.scenes_count > 0:
+                    yield f"data: {json.dumps({'type': 'status', 'message': 'Generating chapter summary...', 'step': 'generating_chapter_summary'})}\n\n"
+                    logger.info(f"[CHAPTER] Generating summary for completed chapter {active_chapter.id}")
+                    try:
+                        # Generate the chapter's own summary
+                        await generate_chapter_summary(active_chapter.id, db, current_user.id)
+                        
+                        yield f"data: {json.dumps({'type': 'status', 'message': 'Generating story summary...', 'step': 'generating_story_summary'})}\n\n"
+                        # Also update its story_so_far (for reference)
+                        await generate_story_so_far(active_chapter.id, db, current_user.id)
+                        
+                        db.refresh(active_chapter)  # Refresh to get the auto_summary
+                        logger.info(f"[CHAPTER] Summary generated for completed chapter {active_chapter.id}")
+                    except Exception as e:
+                        logger.error(f"[CHAPTER] Failed to generate summary for completed chapter {active_chapter.id}: {e}")
+                        # Continue with chapter creation even if summary fails
+                
+                # Commit completed chapter changes before creating new chapter
+                db.commit()
+            
+            yield f"data: {json.dumps({'type': 'status', 'message': 'Creating new chapter...', 'step': 'creating_chapter'})}\n\n"
+            
+            # Create new chapter (but don't commit yet - wait for summaries)
+            # Set initial story_so_far based on whether it's the first chapter
+            initial_story_so_far = "The story begins..." if next_chapter_number == 1 else "Generating story summary..."
+            
+            new_chapter = Chapter(
+                story_id=story_id,
+                chapter_number=next_chapter_number,
+                title=chapter_data.title or f"Chapter {next_chapter_number}",
+                description=chapter_data.description,
+                story_so_far=initial_story_so_far,
+                plot_point=chapter_data.plot_point,
+                location_name=chapter_data.location_name,
+                time_period=chapter_data.time_period,
+                scenario=chapter_data.scenario,
+                continues_from_previous=chapter_data.continues_from_previous if chapter_data.continues_from_previous is not None else True,
+                status=ChapterStatus.ACTIVE,
+                context_tokens_used=0,
+                scenes_count=0
+            )
+            
+            db.add(new_chapter)
+            db.flush()  # Flush to get the chapter ID (but don't commit yet)
+            
+            # Collect all story_character_ids to associate with the chapter
+            all_story_character_ids = set()
+            
+            # Handle new characters from library (character_ids)
+            if chapter_data.character_ids:
+                character_roles = chapter_data.character_roles or {}
+                for character_id in chapter_data.character_ids:
+                    # Check if character exists
+                    char = db.query(Character).filter(Character.id == character_id).first()
+                    if not char:
+                        db.rollback()  # Rollback before returning error
+                        yield f"data: {json.dumps({'type': 'error', 'message': f'Character with ID {character_id} not found'})}\n\n"
+                        return
+                    
+                    # Check if StoryCharacter entry already exists for this story
+                    story_char = db.query(StoryCharacter).filter(
+                        StoryCharacter.story_id == story_id,
+                        StoryCharacter.character_id == character_id
+                    ).first()
+                    
+                    if not story_char:
+                        # Create new StoryCharacter entry
+                        # Handle both int and str keys (JSON may convert int keys to strings)
+                        role = None
+                        if isinstance(character_roles, dict):
+                            role = character_roles.get(character_id) or character_roles.get(str(character_id))
+                        story_char = StoryCharacter(
+                            story_id=story_id,
+                            character_id=character_id,
+                            role=role,
+                            is_active=True
+                        )
+                        db.add(story_char)
+                        db.flush()  # Flush to get the ID (but don't commit yet)
+                        logger.info(f"[CHAPTER] Created StoryCharacter entry for character {character_id} with role {role}")
+                    else:
+                        # Update role if provided and different
+                        # Handle both int and str keys (JSON may convert int keys to strings)
+                        new_role = None
+                        if isinstance(character_roles, dict):
+                            new_role = character_roles.get(character_id) or character_roles.get(str(character_id))
+                        if new_role and story_char.role != new_role:
+                            story_char.role = new_role
+                            logger.info(f"[CHAPTER] Updated role for StoryCharacter {story_char.id} to {new_role}")
+                    
+                    all_story_character_ids.add(story_char.id)
+            
+            # Handle existing story characters (story_character_ids)
+            if chapter_data.story_character_ids:
+                # Validate that all story_character_ids belong to this story
+                story_chars = db.query(StoryCharacter).filter(
+                    StoryCharacter.id.in_(chapter_data.story_character_ids),
+                    StoryCharacter.story_id == story_id
+                ).all()
+                
+                if len(story_chars) != len(chapter_data.story_character_ids):
+                    db.rollback()  # Rollback before returning error
+                    yield f"data: {json.dumps({'type': 'error', 'message': 'Some character IDs do not belong to this story'})}\n\n"
+                    return
+                
+                # Add to the set of story_character_ids
+                for story_char in story_chars:
+                    all_story_character_ids.add(story_char.id)
+            
+            # Create chapter-character associations for all characters
+            if all_story_character_ids:
+                for story_char_id in all_story_character_ids:
+                    db.execute(
+                        chapter_characters.insert().values(
+                            chapter_id=new_chapter.id,
+                            story_character_id=story_char_id
+                        )
+                    )
+                logger.info(f"[CHAPTER] Associated {len(all_story_character_ids)} characters with chapter {new_chapter.id}")
+            
+            # Generate the story_so_far for the new chapter (combining all previous chapters)
+            # BUT skip for the first chapter since there are no previous chapters
+            if next_chapter_number > 1:
+                yield f"data: {json.dumps({'type': 'status', 'message': 'Generating story so far...', 'step': 'generating_story_so_far'})}\n\n"
+                try:
+                    await generate_story_so_far(new_chapter.id, db, current_user.id)
+                    db.refresh(new_chapter)
+                    logger.info(f"[CHAPTER] Generated story_so_far for new chapter {new_chapter.id}")
+                except Exception as e:
+                    logger.error(f"[CHAPTER] Failed to generate story_so_far for new chapter {new_chapter.id}: {e}")
+                    # Set a fallback if generation fails
+                    new_chapter.story_so_far = "Continuing the story..."
+            else:
+                # First chapter - keep the placeholder
+                new_chapter.story_so_far = "The story begins..."
+            
+            # Now commit everything atomically: new chapter + character associations + summaries
+            db.commit()
+            db.refresh(new_chapter)
+            
+            logger.info(f"[CHAPTER] Created chapter {new_chapter.id} (Chapter {next_chapter_number})")
+            
+            yield f"data: {json.dumps({'type': 'status', 'message': 'Finalizing...', 'step': 'finalizing'})}\n\n"
+            
+            # Build and return the final chapter response
+            chapter_response = build_chapter_response(new_chapter, db)
+            # Convert Pydantic model to dict with proper datetime serialization
+            # Use model_dump with mode='json' to serialize datetime objects as ISO strings
+            if hasattr(chapter_response, 'model_dump'):
+                # Pydantic v2
+                chapter_dict = chapter_response.model_dump(mode='json')
+            else:
+                # Pydantic v1 - need to manually serialize datetime
+                chapter_dict = chapter_response.dict()
+                # Convert datetime objects to ISO format strings
+                if 'created_at' in chapter_dict and chapter_dict['created_at']:
+                    chapter_dict['created_at'] = chapter_dict['created_at'].isoformat()
+                if 'completed_at' in chapter_dict and chapter_dict['completed_at']:
+                    chapter_dict['completed_at'] = chapter_dict['completed_at'].isoformat()
+            yield f"data: {json.dumps({'type': 'complete', 'chapter': chapter_dict})}\n\n"
+            
+        except Exception as e:
+            logger.error(f"[CHAPTER] Error creating chapter: {e}")
+            # Rollback any uncommitted changes (new chapter creation)
             try:
-                # Generate the chapter's own summary
-                await generate_chapter_summary(active_chapter.id, db, current_user.id)
-                
-                # Also update its story_so_far (for reference)
-                await generate_story_so_far(active_chapter.id, db, current_user.id)
-                
-                db.refresh(active_chapter)  # Refresh to get the auto_summary
-                logger.info(f"[CHAPTER] Summary generated for completed chapter {active_chapter.id}")
-            except Exception as e:
-                logger.error(f"[CHAPTER] Failed to generate summary for completed chapter {active_chapter.id}: {e}")
-                # Continue with chapter creation even if summary fails
+                db.rollback()
+            except Exception as rollback_error:
+                logger.error(f"[CHAPTER] Error during rollback: {rollback_error}")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
     
-    # Create new chapter
-    # Generate initial story_so_far for the new chapter based on all previous chapters
-    new_chapter = Chapter(
-        story_id=story_id,
-        chapter_number=next_chapter_number,
-        title=chapter_data.title or f"Chapter {next_chapter_number}",
-        description=chapter_data.description,
-        story_so_far="Generating story summary...",  # Placeholder
-        plot_point=chapter_data.plot_point,
-        location_name=chapter_data.location_name,
-        time_period=chapter_data.time_period,
-        scenario=chapter_data.scenario,
-        continues_from_previous=chapter_data.continues_from_previous if chapter_data.continues_from_previous is not None else True,
-        status=ChapterStatus.ACTIVE,
-        context_tokens_used=0,
-        scenes_count=0
+    return StreamingResponse(
+        generate_stream(),
+        media_type="text/event-stream"
     )
-    
-    db.add(new_chapter)
-    db.flush()  # Flush to get the chapter ID
-    
-    # Handle character associations
-    if chapter_data.story_character_ids:
-        # Validate that all story_character_ids belong to this story
-        story_chars = db.query(StoryCharacter).filter(
-            StoryCharacter.id.in_(chapter_data.story_character_ids),
-            StoryCharacter.story_id == story_id
-        ).all()
-        
-        if len(story_chars) != len(chapter_data.story_character_ids):
-            raise HTTPException(
-                status_code=400,
-                detail="Some character IDs do not belong to this story"
-            )
-        
-        # Create chapter-character associations
-        for story_char in story_chars:
-            db.execute(
-                chapter_characters.insert().values(
-                    chapter_id=new_chapter.id,
-                    story_character_id=story_char.id
-                )
-            )
-        logger.info(f"[CHAPTER] Associated {len(story_chars)} characters with chapter {new_chapter.id}")
-    
-    db.commit()
-    db.refresh(new_chapter)
-    
-    logger.info(f"[CHAPTER] Created chapter {new_chapter.id} (Chapter {next_chapter_number})")
-    
-    # Generate the story_so_far for the new chapter (combining all previous chapters)
-    try:
-        await generate_story_so_far(new_chapter.id, db, current_user.id)
-        db.refresh(new_chapter)
-        logger.info(f"[CHAPTER] Generated story_so_far for new chapter {new_chapter.id}")
-    except Exception as e:
-        logger.error(f"[CHAPTER] Failed to generate story_so_far for new chapter {new_chapter.id}: {e}")
-        # Set a fallback if generation fails
-        new_chapter.story_so_far = "Continuing the story..."
-        db.commit()
-    
-    return build_chapter_response(new_chapter, db)
 
 
 @router.put("/{story_id}/chapters/{chapter_id}", response_model=ChapterResponse)
@@ -906,7 +1013,14 @@ Summary:"""
     user_settings_obj = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
     user_settings = user_settings_obj.to_dict() if user_settings_obj else None
     
+    # Add allow_nsfw from user to ensure NSFW filter is applied correctly
+    if user_settings is not None:
+        user = db.query(User).filter(User.id == user_id).first()
+        if user:
+            user_settings['allow_nsfw'] = user.allow_nsfw
+    
     # Generate summary using basic LLM generation (not scene continuation)
+    # NSFW filter is automatically applied based on user settings
     summary = await llm_service.generate(
         prompt=prompt,
         user_id=user_id,
@@ -993,7 +1107,14 @@ Story So Far:"""
     user_settings_obj = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
     user_settings = user_settings_obj.to_dict() if user_settings_obj else None
     
+    # Add allow_nsfw from user to ensure NSFW filter is applied correctly
+    if user_settings is not None:
+        user = db.query(User).filter(User.id == user_id).first()
+        if user:
+            user_settings['allow_nsfw'] = user.allow_nsfw
+    
     # Generate story so far
+    # NSFW filter is automatically applied based on user settings
     story_so_far = await llm_service.generate(
         prompt=prompt,
         user_id=user_id,

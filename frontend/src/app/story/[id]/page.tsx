@@ -282,11 +282,15 @@ export default function StoryPage() {
         deleteModeActive: isInDeleteMode,
         showCharacterBanner: showCharacterBanner,
         onDiscoverCharacters: () => setShowCharacterWizard(true),
+        // Generation/extraction status
+        lastGenerationTime,
+        generationStartTime,
+        extractionStatus,
       });
     } else {
       setStoryActions(undefined);
     }
-  }, [story, directorMode, showLorebook, isInDeleteMode, showCharacterBanner, setStoryActions, router]);
+  }, [story, directorMode, showLorebook, isInDeleteMode, showCharacterBanner, lastGenerationTime, generationStartTime, extractionStatus, setStoryActions, router]);
 
   // Auto-scroll to bottom when streaming starts
   useEffect(() => {
@@ -1363,7 +1367,9 @@ export default function StoryPage() {
   const handleChapterWizardComplete = async (chapterData: {
     title?: string;
     description?: string;
-    story_character_ids: number[];
+    story_character_ids?: number[];
+    character_ids?: number[];
+    character_roles?: { [characterId: number]: string };
     location_name?: string;
     time_period?: string;
     scenario?: string;
@@ -1372,7 +1378,16 @@ export default function StoryPage() {
     try {
       if (activeChapter && activeChapter.id) {
         // Update existing chapter (e.g., first chapter setup after story creation)
-        await apiClient.updateChapter(storyId, activeChapter.id, chapterData);
+        // Note: updateChapter doesn't support character_ids, only story_character_ids
+        await apiClient.updateChapter(storyId, activeChapter.id, {
+          title: chapterData.title,
+          description: chapterData.description,
+          story_character_ids: chapterData.story_character_ids,
+          location_name: chapterData.location_name,
+          time_period: chapterData.time_period,
+          scenario: chapterData.scenario,
+          continues_from_previous: chapterData.continues_from_previous
+        });
       } else {
         // Create new chapter (for new stories or when no active chapter exists)
         await apiClient.createChapter(storyId, chapterData);
@@ -1394,6 +1409,7 @@ export default function StoryPage() {
     } catch (error) {
       console.error('Failed to save chapter setup:', error);
       alert('Failed to save chapter setup. Please try again.');
+      throw error; // Re-throw so ChapterWizard can catch and reset loading state
     }
   };
   
@@ -1955,28 +1971,6 @@ export default function StoryPage() {
           }}
         />
       </div>
-      
-      {/* Generation Time / Extraction Status Display - Fixed bottom right */}
-      {(lastGenerationTime !== null || generationStartTime !== null || extractionStatus) && (
-        <div className="fixed bottom-4 right-4 z-40 px-3 py-2 bg-gray-800/95 backdrop-blur-md border border-gray-700 rounded-lg shadow-lg">
-          <div className="flex items-center gap-2 text-xs">
-            <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            {extractionStatus ? (
-              <span className={`text-gray-300 ${extractionStatus.status === 'extracting' ? 'animate-pulse' : ''}`}>
-                {extractionStatus.message}
-              </span>
-            ) : generationStartTime ? (
-              <span className="text-gray-300 animate-pulse">Generating...</span>
-            ) : (
-              <span className="text-gray-300">
-                Generated in <span className="font-semibold text-purple-400">{lastGenerationTime?.toFixed(1)}s</span>
-              </span>
-            )}
-          </div>
-        </div>
-      )}
       
       {/* Context Warning Modal - Shows at 80% */}
       {showContextWarning && (
@@ -2996,6 +2990,7 @@ export default function StoryPage() {
         <ChapterWizard
           storyId={storyId}
           chapterNumber={activeChapter?.chapter_number || 1}
+          chapterId={activeChapter?.id || undefined}
           initialData={{
             title: activeChapter?.title || undefined,
             description: activeChapter?.description || undefined,

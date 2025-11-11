@@ -837,38 +837,113 @@ class ApiClient {
     }>(`/api/stories/${storyId}/active-chapter`);
   }
 
-  async createChapter(storyId: number, data: {
-    title?: string;
-    description?: string;
-    plot_point?: string;
-    plot_point_index?: number;
-    story_so_far?: string;
-    story_character_ids?: number[];
-    location_name?: string;
-    time_period?: string;
-    scenario?: string;
-    continues_from_previous?: boolean;
-  }) {
-    return this.request<{
-      id: number;
-      story_id: number;
-      chapter_number: number;
-      title: string | null;
-      description: string | null;
-      plot_point: string | null;
-      plot_point_index: number | null;
-      story_so_far: string | null;
-      auto_summary: string | null;
-      status: 'draft' | 'active' | 'completed';
-      context_tokens_used: number;
-      scenes_count: number;
-      last_summary_scene_count: number;
-      created_at: string;
-      updated_at: string | null;
-    }>(`/api/stories/${storyId}/chapters`, {
+  async createChapter(
+    storyId: number,
+    data: {
+      title?: string;
+      description?: string;
+      plot_point?: string;
+      plot_point_index?: number;
+      story_so_far?: string;
+      story_character_ids?: number[];
+      character_ids?: number[];
+      character_roles?: { [characterId: number]: string };
+      location_name?: string;
+      time_period?: string;
+      scenario?: string;
+      continues_from_previous?: boolean;
+    },
+    onStatusUpdate?: (status: { message: string; step: string }) => void
+  ) {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (this.token) headers.Authorization = `Bearer ${this.token}`;
+
+    const response = await fetch(`${this.baseURL}/api/stories/${storyId}/chapters`, {
       method: 'POST',
+      headers,
       body: JSON.stringify(data),
     });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ detail: `HTTP ${response.status}: ${response.statusText}` }));
+      throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    // Handle streaming response
+    if (response.headers.get('content-type')?.includes('text/event-stream')) {
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('No response body');
+      }
+
+      const decoder = new TextDecoder();
+      let chapterData: any = null;
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value);
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+              if (data === '[DONE]') continue;
+
+              try {
+                const parsed = JSON.parse(data);
+                
+                if (parsed.type === 'status' && onStatusUpdate) {
+                  onStatusUpdate({ message: parsed.message, step: parsed.step });
+                } else if (parsed.type === 'complete') {
+                  chapterData = parsed.chapter;
+                } else if (parsed.type === 'error') {
+                  throw new Error(parsed.message);
+                }
+              } catch (e) {
+                // Ignore JSON parse errors for non-JSON lines
+                if (e instanceof SyntaxError) continue;
+                throw e;
+              }
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+
+      if (!chapterData) {
+        throw new Error('No chapter data received');
+      }
+
+      return chapterData;
+    } else {
+      // Fallback to regular JSON response
+      return this.request<{
+        id: number;
+        story_id: number;
+        chapter_number: number;
+        title: string | null;
+        description: string | null;
+        plot_point: string | null;
+        plot_point_index: number | null;
+        story_so_far: string | null;
+        auto_summary: string | null;
+        status: 'draft' | 'active' | 'completed';
+        context_tokens_used: number;
+        scenes_count: number;
+        last_summary_scene_count: number;
+        created_at: string;
+        updated_at: string | null;
+      }>(`/api/stories/${storyId}/chapters`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    }
   }
 
   async updateChapter(storyId: number, chapterId: number, data: {
