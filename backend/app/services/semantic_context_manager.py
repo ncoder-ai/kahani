@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from .context_manager import ContextManager
 from .semantic_memory import get_semantic_memory_service
-from ..models import Scene, SceneVariant, StoryFlow, Character, StoryCharacter
+from ..models import Scene, SceneVariant, StoryFlow, Character, StoryCharacter, ChapterStatus
 from ..config import settings
 
 logger = logging.getLogger(__name__)
@@ -172,7 +172,7 @@ class SemanticContextManager(ContextManager):
         
         # Build scene context using hybrid strategy
         scene_context = await self._build_hybrid_scene_context(
-            story_id, scenes, available_tokens, db
+            story_id, scenes, available_tokens, db, chapter_id=chapter_id
         )
         
         # Merge contexts
@@ -183,7 +183,8 @@ class SemanticContextManager(ContextManager):
         story_id: int,
         scenes: List[Scene],
         available_tokens: int,
-        db: Session
+        db: Session,
+        chapter_id: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Build scene context using hybrid retrieval strategy
@@ -246,9 +247,9 @@ class SemanticContextManager(ContextManager):
             story_id, entity_tokens, db
         )
         
-        # Get chapter summaries
+        # Get chapter summaries (includes story_so_far, previous chapter summary, and current chapter summary)
         summary_content = await self._get_chapter_summaries(
-            story_id, summary_tokens, db
+            story_id, summary_tokens, db, chapter_id=chapter_id
         )
         
         # Assemble final context
@@ -529,15 +530,22 @@ class SemanticContextManager(ContextManager):
         self,
         story_id: int,
         token_budget: int,
-        db: Session
+        db: Session,
+        chapter_id: Optional[int] = None
     ) -> Optional[str]:
         """
         Get chapter summaries for compressed history
+        
+        Includes three types of summaries:
+        a) Summary of story so far (story_so_far from current chapter)
+        b) Summary of the past chapter (auto_summary from most recent completed chapter)
+        c) Summary of the current chapter (auto_summary if it has scenes and has been processed)
         
         Args:
             story_id: Story ID
             token_budget: Available tokens
             db: Database session
+            chapter_id: Optional current chapter ID to get story_so_far from
             
         Returns:
             Formatted chapter summaries or None
@@ -548,32 +556,65 @@ class SemanticContextManager(ContextManager):
             return None
         
         try:
-            # Get completed chapters with summaries
-            chapters = db.query(Chapter).filter(
-                Chapter.story_id == story_id,
-                Chapter.auto_summary.isnot(None)
-            ).order_by(Chapter.chapter_number).all()
-            
-            if not chapters:
-                return None
-            
             summary_parts = []
             used_tokens = 0
             
-            for chapter in chapters:
-                summary_text = f"Chapter {chapter.chapter_number} ({chapter.title or 'Untitled'}): {chapter.auto_summary}"
-                summary_tokens = self.count_tokens(summary_text)
+            # a) Get story_so_far from current chapter (if available and not empty)
+            if chapter_id:
+                current_chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+                if current_chapter and current_chapter.story_so_far and current_chapter.story_so_far.strip() and current_chapter.story_so_far != "The story begins...":
+                    story_so_far_text = f"Story So Far:\n{current_chapter.story_so_far}"
+                    story_so_far_tokens = self.count_tokens(story_so_far_text)
+                    if used_tokens + story_so_far_tokens <= token_budget:
+                        summary_parts.append(story_so_far_text)
+                        used_tokens += story_so_far_tokens
+            
+            # b) Get previous chapter's auto_summary (most recent completed chapter)
+            previous_chapter = db.query(Chapter).filter(
+                Chapter.story_id == story_id,
+                Chapter.status == ChapterStatus.COMPLETED,
+                Chapter.auto_summary.isnot(None)
+            ).order_by(Chapter.chapter_number.desc()).first()
+            
+            if previous_chapter:
+                prev_summary_text = f"Previous Chapter Summary (Chapter {previous_chapter.chapter_number}):\n{previous_chapter.auto_summary}"
+                prev_summary_tokens = self.count_tokens(prev_summary_text)
+                if used_tokens + prev_summary_tokens <= token_budget:
+                    summary_parts.append(prev_summary_text)
+                    used_tokens += prev_summary_tokens
+            
+            # c) Get current chapter's auto_summary (if it has scenes and has been processed)
+            if chapter_id:
+                current_chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+                if current_chapter and current_chapter.auto_summary and current_chapter.scenes_count > 0:
+                    current_summary_text = f"Current Chapter Summary (Chapter {current_chapter.chapter_number}):\n{current_chapter.auto_summary}"
+                    current_summary_tokens = self.count_tokens(current_summary_text)
+                    if used_tokens + current_summary_tokens <= token_budget:
+                        summary_parts.append(current_summary_text)
+                        used_tokens += current_summary_tokens
+            
+            # Fallback: If we still have budget and no summaries yet, get all completed chapters
+            if not summary_parts:
+                chapters = db.query(Chapter).filter(
+                    Chapter.story_id == story_id,
+                    Chapter.auto_summary.isnot(None)
+                ).order_by(Chapter.chapter_number).all()
                 
-                if used_tokens + summary_tokens <= token_budget:
-                    summary_parts.append(summary_text)
-                    used_tokens += summary_tokens
-                else:
-                    # Include at least part of the summary
-                    remaining_budget = token_budget - used_tokens
-                    if remaining_budget > 100:
-                        truncated = summary_text[:remaining_budget * 4]  # Rough char estimate
-                        summary_parts.append(truncated + "...")
-                    break
+                if chapters:
+                    for chapter in chapters:
+                        summary_text = f"Chapter {chapter.chapter_number} ({chapter.title or 'Untitled'}): {chapter.auto_summary}"
+                        summary_tokens = self.count_tokens(summary_text)
+                        
+                        if used_tokens + summary_tokens <= token_budget:
+                            summary_parts.append(summary_text)
+                            used_tokens += summary_tokens
+                        else:
+                            # Include at least part of the summary
+                            remaining_budget = token_budget - used_tokens
+                            if remaining_budget > 100:
+                                truncated = summary_text[:remaining_budget * 4]  # Rough char estimate
+                                summary_parts.append(truncated + "...")
+                            break
             
             if summary_parts:
                 return "\n\n".join(summary_parts)

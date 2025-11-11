@@ -1087,6 +1087,7 @@ async def generate_scene_streaming_endpoint(
                 
                 # Link scene to active chapter
                 scene.chapter_id = active_chapter.id
+                db.flush()  # Flush to ensure chapter_id is set before counting scenes
                 
                 # Update chapter token tracking
                 scene_tokens = context_manager.count_tokens(full_content.strip())
@@ -1229,11 +1230,11 @@ async def generate_scene_streaming_endpoint(
                         )
                         
                         # Send status event with clear message
-                        extraction_msg = f"Extraction scheduled: {scenes_since_extraction}/{extraction_threshold} scenes threshold reached"
+                        extraction_msg = f"Extracting ({scenes_since_extraction}/{extraction_threshold})"
                         yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'scheduled', 'message': extraction_msg})}\n\n"
                     else:
                         # Threshold not reached - skip extraction with clear reason
-                        skip_msg = f"Extraction skipped: Only {scenes_since_extraction}/{extraction_threshold} scenes since last extraction"
+                        skip_msg = f"Skipped ({scenes_since_extraction}/{extraction_threshold})"
                         logger.warning(f"[EXTRACTION] ✗ SKIPPED: {skip_msg}")
                         yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'skipped', 'message': skip_msg})}\n\n"
                 except Exception as e:
