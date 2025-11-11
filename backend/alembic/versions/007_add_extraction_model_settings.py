@@ -42,3 +42,4 @@ def downgrade() -> None:
     op.drop_column('user_settings', 'extraction_model_enabled')
 
 
+

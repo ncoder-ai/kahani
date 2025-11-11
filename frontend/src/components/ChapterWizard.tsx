@@ -23,6 +23,7 @@ interface ChapterWizardProps {
     location_name?: string;
     time_period?: string;
     scenario?: string;
+    continues_from_previous?: boolean;
   };
   onComplete: (data: {
     title?: string;
@@ -31,6 +32,7 @@ interface ChapterWizardProps {
     location_name?: string;
     time_period?: string;
     scenario?: string;
+    continues_from_previous?: boolean;
   }) => void;
   onCancel: () => void;
 }
@@ -52,6 +54,9 @@ export default function ChapterWizard({
   const [availableLocations, setAvailableLocations] = useState<string[]>([]);
   const [timePeriod, setTimePeriod] = useState(initialData?.time_period || '');
   const [scenario, setScenario] = useState(initialData?.scenario || '');
+  const [continuesFromPrevious, setContinuesFromPrevious] = useState(
+    initialData?.continues_from_previous !== undefined ? initialData.continues_from_previous : true
+  );
   const [showCharacterQuickAdd, setShowCharacterQuickAdd] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(true);
@@ -138,7 +143,8 @@ export default function ChapterWizard({
       story_character_ids: storyCharacterIds,
       location_name: locationName.trim() || undefined,
       time_period: timePeriod.trim() || undefined,
-      scenario: scenario.trim() || undefined
+      scenario: scenario.trim() || undefined,
+      continues_from_previous: continuesFromPrevious
     });
   };
 
@@ -307,6 +313,24 @@ export default function ChapterWizard({
               className="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-pink-500 resize-none"
               placeholder="Describe the scenario or situation for this chapter..."
             />
+          </div>
+
+          {/* Continues from Previous Chapter */}
+          <div>
+            <label className="flex items-center space-x-3 p-3 bg-white/5 rounded-lg border border-white/10 cursor-pointer hover:bg-white/10 transition-colors">
+              <input
+                type="checkbox"
+                checked={continuesFromPrevious}
+                onChange={(e) => setContinuesFromPrevious(e.target.checked)}
+                className="w-5 h-5 text-pink-600 bg-white/10 border-white/20 rounded focus:ring-pink-500"
+              />
+              <div className="flex-1">
+                <div className="text-white font-medium">Chapter directly follows previous chapter?</div>
+                <div className="text-white/60 text-sm mt-1">
+                  If enabled, recent scenes from the previous chapter will be included in context for continuity.
+                </div>
+              </div>
+            </label>
           </div>
         </div>
 

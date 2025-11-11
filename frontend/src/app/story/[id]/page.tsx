@@ -778,13 +778,17 @@ export default function StoryPage() {
 
       // Check if chapter setup is needed
       const setupChapter = searchParams?.get('setup_chapter') === 'true';
-      if (setupChapter || !storyData.scenes || storyData.scenes.length === 0) {
-        // Load active chapter to check if it needs setup
-        try {
-          const activeChapterData = await apiClient.getActiveChapter(storyId);
-          setActiveChapter(activeChapterData);
-          
-          // Check if chapter needs setup (no characters or no location)
+      
+      // Try to load active chapter - may not exist for new stories
+      try {
+        const activeChapterData = await apiClient.getActiveChapter(storyId);
+        setActiveChapter(activeChapterData);
+        
+        // Always show wizard when coming from story creation
+        if (setupChapter) {
+          setShowChapterWizard(true);
+        } else if (!storyData.scenes || storyData.scenes.length === 0) {
+          // For existing stories without scenes, check if setup is needed
           const needsSetup = !activeChapterData.characters || 
                             activeChapterData.characters.length === 0 || 
                             !activeChapterData.location_name;
@@ -792,7 +796,14 @@ export default function StoryPage() {
           if (needsSetup) {
             setShowChapterWizard(true);
           }
-        } catch (err) {
+        }
+      } catch (err) {
+        // No active chapter found - show chapter wizard
+        if (err instanceof Error && (err.message.includes('404') || err.message.includes('No active chapter'))) {
+          setActiveChapter(null);
+          // Show chapter wizard for new stories or when no active chapter exists
+          setShowChapterWizard(true);
+        } else {
           console.error('Failed to load active chapter:', err);
         }
       }
@@ -1356,20 +1367,26 @@ export default function StoryPage() {
     location_name?: string;
     time_period?: string;
     scenario?: string;
+    continues_from_previous?: boolean;
   }) => {
     try {
       if (activeChapter && activeChapter.id) {
-        // Update existing chapter
+        // Update existing chapter (e.g., first chapter setup after story creation)
         await apiClient.updateChapter(storyId, activeChapter.id, chapterData);
       } else {
-        // Create new chapter (shouldn't happen in normal flow, but handle it)
+        // Create new chapter (for new stories or when no active chapter exists)
         await apiClient.createChapter(storyId, chapterData);
       }
       
       // Reload story and active chapter
       await loadStory(false, false);
-      const updatedChapter = await apiClient.getActiveChapter(storyId);
-      setActiveChapter(updatedChapter);
+      try {
+        const updatedChapter = await apiClient.getActiveChapter(storyId);
+        setActiveChapter(updatedChapter);
+      } catch (err) {
+        // If still no active chapter, that's okay - user will create one
+        console.warn('No active chapter after wizard completion:', err);
+      }
       setShowChapterWizard(false);
       
       // Remove setup_chapter from URL
@@ -2975,17 +2992,18 @@ export default function StoryPage() {
       )}
 
       {/* Chapter Wizard Modal */}
-      {showChapterWizard && activeChapter && (
+      {showChapterWizard && (
         <ChapterWizard
           storyId={storyId}
-          chapterNumber={activeChapter.chapter_number}
+          chapterNumber={activeChapter?.chapter_number || 1}
           initialData={{
-            title: activeChapter.title || undefined,
-            description: activeChapter.description || undefined,
-            characters: activeChapter.characters || [],
-            location_name: activeChapter.location_name || undefined,
-            time_period: activeChapter.time_period || undefined,
-            scenario: activeChapter.scenario || undefined
+            title: activeChapter?.title || undefined,
+            description: activeChapter?.description || undefined,
+            characters: activeChapter?.characters || [],
+            location_name: activeChapter?.location_name || undefined,
+            time_period: activeChapter?.time_period || undefined,
+            scenario: activeChapter?.scenario || undefined,
+            continues_from_previous: activeChapter?.continues_from_previous !== undefined ? activeChapter.continues_from_previous : true
           }}
           onComplete={handleChapterWizardComplete}
           onCancel={handleChapterWizardCancel}
