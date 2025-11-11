@@ -34,6 +34,7 @@ interface Chapter {
   location_name?: string | null;
   time_period?: string | null;
   scenario?: string | null;
+  continues_from_previous?: boolean;
 }
 
 interface ChapterContextStatus {
@@ -388,6 +389,49 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
     setIsCreatingChapter(false);
     setNewChapterTitle('');
     setNewChapterDescription('');
+  };
+
+  const handleSubmitNewChapter = async () => {
+    if (!newChapterTitle.trim()) return;
+    
+    setIsSubmittingNewChapter(true);
+    try {
+      const newChapter = await apiClient.createChapter(
+        storyId,
+        {
+          title: newChapterTitle.trim(),
+          description: newChapterDescription.trim() || undefined,
+        }
+      );
+      
+      // Reload chapters to get updated list
+      await loadChapters();
+      
+      // Notify parent component to reload story
+      if (onChapterChange) {
+        onChapterChange();
+      }
+      
+      // Switch to the new chapter
+      if (onChapterSelect && newChapter) {
+        setTimeout(() => {
+          onChapterSelect(newChapter.id);
+        }, 100);
+      }
+      
+      // Close modal
+      setIsCreatingChapter(false);
+      setNewChapterTitle('');
+      setNewChapterDescription('');
+      
+      // Show success message
+      alert(`Chapter ${newChapter.chapter_number} created successfully!`);
+    } catch (err) {
+      console.error('Failed to create chapter:', err);
+      alert('Failed to create new chapter. Please try again.');
+    } finally {
+      setIsSubmittingNewChapter(false);
+    }
   };
 
   const handleGenerateSummary = async () => {
