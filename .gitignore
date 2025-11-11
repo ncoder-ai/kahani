@@ -274,3 +274,6 @@ debug_*.py
 # Whisper and Silero-VAD models
 backend/data/whisper_models/
 backend/data/vad_models/
+
+# Prompt tracking files
+backend/app/prompt_sent.txt

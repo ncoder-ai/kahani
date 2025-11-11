@@ -82,7 +82,8 @@ class UnifiedLLMService:
         system_prompt: str = "",
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
-        stream: bool = False
+        stream: bool = False,
+        skip_nsfw_filter: bool = False
     ) -> str:
         """Generic text generation with streaming toggle"""
         if stream:
@@ -94,7 +95,8 @@ class UnifiedLLMService:
                 user_settings=user_settings,
                 system_prompt=system_prompt,
                 max_tokens=max_tokens,
-                temperature=temperature
+                temperature=temperature,
+                skip_nsfw_filter=skip_nsfw_filter
             ):
                 complete_text += chunk
             return complete_text
@@ -105,7 +107,8 @@ class UnifiedLLMService:
                 user_settings=user_settings,
                 system_prompt=system_prompt,
                 max_tokens=max_tokens,
-                temperature=temperature
+                temperature=temperature,
+                skip_nsfw_filter=skip_nsfw_filter
             )
     
     # Remove redundant generate_stream method - use _generate_stream directly
@@ -117,7 +120,8 @@ class UnifiedLLMService:
         user_settings: Dict[str, Any],
         system_prompt: str = "",
         max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None
+        temperature: Optional[float] = None,
+        skip_nsfw_filter: bool = False
     ) -> str:
         """Internal method for non-streaming generation"""
         
@@ -129,7 +133,7 @@ class UnifiedLLMService:
         if completion_mode == "text":
             logger.debug(f"Using text completion API for user {user_id}")
             return await self._generate_text_completion(
-                prompt, user_id, user_settings, system_prompt, max_tokens, temperature
+                prompt, user_id, user_settings, system_prompt, max_tokens, temperature, skip_nsfw_filter
             )
         
         logger.debug(f"Using chat completion API for user {user_id}")
@@ -141,13 +145,13 @@ class UnifiedLLMService:
         
         messages = []
         if system_prompt and system_prompt.strip():
-            # Inject NSFW filter if user doesn't have NSFW permissions
-            if should_inject_nsfw_filter(user_allow_nsfw):
+            # Inject NSFW filter if user doesn't have NSFW permissions (unless explicitly skipped)
+            if not skip_nsfw_filter and should_inject_nsfw_filter(user_allow_nsfw):
                 system_prompt = system_prompt.strip() + "\n\n" + get_nsfw_prevention_prompt()
                 logger.debug(f"NSFW filter injected for user {user_id}")
             
             messages.append({"role": "system", "content": system_prompt.strip()})
-        elif should_inject_nsfw_filter(user_allow_nsfw):
+        elif not skip_nsfw_filter and should_inject_nsfw_filter(user_allow_nsfw):
             # No system prompt provided, but we need to inject NSFW filter
             messages.append({"role": "system", "content": get_nsfw_prevention_prompt()})
             logger.debug(f"NSFW filter injected (no system prompt) for user {user_id}")
@@ -217,7 +221,8 @@ class UnifiedLLMService:
         user_settings: Dict[str, Any],
         system_prompt: str = "",
         max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None
+        temperature: Optional[float] = None,
+        skip_nsfw_filter: bool = False
     ) -> str:
         """Internal method for text completion generation"""
         
@@ -228,12 +233,12 @@ class UnifiedLLMService:
         user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
         logger.debug(f"NSFW check for user {user_id} (_generate_text_completion): user_settings keys={list(user_settings.keys()) if user_settings else None}, allow_nsfw value={user_settings.get('allow_nsfw') if user_settings else None}, user_allow_nsfw={user_allow_nsfw}, type={type(user_allow_nsfw)}")
         
-        # Inject NSFW filter into system prompt if needed
+        # Inject NSFW filter into system prompt if needed (unless explicitly skipped)
         if system_prompt and system_prompt.strip():
-            if should_inject_nsfw_filter(user_allow_nsfw):
+            if not skip_nsfw_filter and should_inject_nsfw_filter(user_allow_nsfw):
                 system_prompt = system_prompt.strip() + "\n\n" + get_nsfw_prevention_prompt()
                 logger.debug(f"NSFW filter injected for user {user_id}")
-        elif should_inject_nsfw_filter(user_allow_nsfw):
+        elif not skip_nsfw_filter and should_inject_nsfw_filter(user_allow_nsfw):
             # No system prompt provided, but we need to inject NSFW filter
             system_prompt = get_nsfw_prevention_prompt()
             logger.debug(f"NSFW filter injected (no system prompt) for user {user_id}")
@@ -480,7 +485,8 @@ class UnifiedLLMService:
         user_settings: Dict[str, Any],
         system_prompt: str = "",
         max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None
+        temperature: Optional[float] = None,
+        skip_nsfw_filter: bool = False
     ) -> AsyncGenerator[str, None]:
         """Internal method for streaming generation"""
         
@@ -492,7 +498,7 @@ class UnifiedLLMService:
         if completion_mode == "text":
             logger.debug(f"Using text completion streaming API for user {user_id}")
             async for chunk in self._generate_text_completion_stream(
-                prompt, user_id, user_settings, system_prompt, max_tokens, temperature
+                prompt, user_id, user_settings, system_prompt, max_tokens, temperature, skip_nsfw_filter
             ):
                 yield chunk
             return
@@ -505,13 +511,13 @@ class UnifiedLLMService:
         
         messages = []
         if system_prompt and system_prompt.strip():
-            # Inject NSFW filter if user doesn't have NSFW permissions
-            if should_inject_nsfw_filter(user_allow_nsfw):
+            # Inject NSFW filter if user doesn't have NSFW permissions (unless explicitly skipped)
+            if not skip_nsfw_filter and should_inject_nsfw_filter(user_allow_nsfw):
                 system_prompt = system_prompt.strip() + "\n\n" + get_nsfw_prevention_prompt()
                 logger.debug(f"NSFW filter injected for streaming user {user_id}")
             
             messages.append({"role": "system", "content": system_prompt.strip()})
-        elif should_inject_nsfw_filter(user_allow_nsfw):
+        elif not skip_nsfw_filter and should_inject_nsfw_filter(user_allow_nsfw):
             # No system prompt provided, but we need to inject NSFW filter
             messages.append({"role": "system", "content": get_nsfw_prevention_prompt()})
             logger.debug(f"NSFW filter injected (no system prompt) for streaming user {user_id}")
@@ -583,7 +589,8 @@ class UnifiedLLMService:
         user_settings: Dict[str, Any],
         system_prompt: str = "",
         max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None
+        temperature: Optional[float] = None,
+        skip_nsfw_filter: bool = False
     ) -> AsyncGenerator[str, None]:
         """Internal method for streaming text completion generation"""
         
@@ -594,12 +601,12 @@ class UnifiedLLMService:
         user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
         logger.debug(f"NSFW check for user {user_id} (text completion streaming): user_settings.get('allow_nsfw')={user_settings.get('allow_nsfw') if user_settings else None}, user_allow_nsfw={user_allow_nsfw}, type={type(user_allow_nsfw)}")
         
-        # Inject NSFW filter into system prompt if needed
+        # Inject NSFW filter into system prompt if needed (unless explicitly skipped)
         if system_prompt and system_prompt.strip():
-            if should_inject_nsfw_filter(user_allow_nsfw):
+            if not skip_nsfw_filter and should_inject_nsfw_filter(user_allow_nsfw):
                 system_prompt = system_prompt.strip() + "\n\n" + get_nsfw_prevention_prompt()
                 logger.debug(f"NSFW filter injected for streaming user {user_id}")
-        elif should_inject_nsfw_filter(user_allow_nsfw):
+        elif not skip_nsfw_filter and should_inject_nsfw_filter(user_allow_nsfw):
             # No system prompt provided, but we need to inject NSFW filter
             system_prompt = get_nsfw_prevention_prompt()
             logger.debug(f"NSFW filter injected (no system prompt) for streaming user {user_id}")
@@ -1763,7 +1770,7 @@ class UnifiedLLMService:
         return length_map.get(scene_length, "approximately 200-300 words")
     
     def _format_context_for_scene(self, context: Dict[str, Any], exclude_last_scene: bool = False) -> str:
-        """Format context for scene generation
+        """Format context for scene generation, handling active/inactive characters
         
         Args:
             context: Context dictionary
@@ -1807,21 +1814,68 @@ class UnifiedLLMService:
         if context.get("initial_premise"):
             context_parts.append(f"Initial Premise: {context['initial_premise']}")
         
-        if context.get("characters"):
-            char_descriptions = []
-            for char in context["characters"]:
-                char_desc = f"- {char.get('name', 'Unknown')}"
-                if char.get('role'):
-                    char_desc += f" ({char['role']})"
-                char_desc += f": {char.get('description', 'No description')}"
-                if char.get('personality'):
-                    char_desc += f". Personality: {char['personality']}"
-                if char.get('background'):
-                    char_desc += f". Background: {char['background']}"
-                if char.get('goals'):
-                    char_desc += f". Goals: {char['goals']}"
-                char_descriptions.append(char_desc)
-            context_parts.append(f"Characters:\n{chr(10).join(char_descriptions)}")
+        # Handle characters - check if we have active/inactive separation
+        characters = context.get("characters")
+        if characters:
+            # Check if characters is a dict with active_characters/inactive_characters
+            if isinstance(characters, dict) and "active_characters" in characters:
+                # Format active and inactive characters separately
+                active_chars = characters.get("active_characters", [])
+                inactive_chars = characters.get("inactive_characters", [])
+                
+                char_descriptions = []
+                
+                # Active characters - full details
+                if active_chars:
+                    char_descriptions.append("Active Characters (in this chapter):")
+                    for char in active_chars:
+                        char_desc = f"- {char.get('name', 'Unknown')}"
+                        if char.get('role'):
+                            char_desc += f" ({char['role']})"
+                        char_desc += f": {char.get('description', 'No description')}"
+                        if char.get('personality'):
+                            char_desc += f". Personality: {char['personality']}"
+                        if char.get('background'):
+                            char_desc += f". Background: {char['background']}"
+                        if char.get('goals'):
+                            char_desc += f". Goals: {char['goals']}"
+                        char_descriptions.append(char_desc)
+                
+                # Inactive characters - brief format
+                if inactive_chars:
+                    char_descriptions.append("\nInactive Characters (available for reference):")
+                    for char in inactive_chars:
+                        char_desc = f"- {char.get('name', 'Unknown')}"
+                        if char.get('role'):
+                            char_desc += f" ({char['role']})"
+                        char_descriptions.append(char_desc)
+                
+                if char_descriptions:
+                    context_parts.append(f"Characters:\n{chr(10).join(char_descriptions)}")
+            else:
+                # Legacy format - all characters are active
+                char_descriptions = []
+                for char in characters:
+                    char_desc = f"- {char.get('name', 'Unknown')}"
+                    if char.get('role'):
+                        char_desc += f" ({char['role']})"
+                    char_desc += f": {char.get('description', 'No description')}"
+                    if char.get('personality'):
+                        char_desc += f". Personality: {char['personality']}"
+                    if char.get('background'):
+                        char_desc += f". Background: {char['background']}"
+                    if char.get('goals'):
+                        char_desc += f". Goals: {char['goals']}"
+                    char_descriptions.append(char_desc)
+                context_parts.append(f"Characters:\n{chr(10).join(char_descriptions)}")
+        
+        # Add chapter-specific context if available
+        if context.get("chapter_location"):
+            context_parts.append(f"Chapter Location: {context['chapter_location']}")
+        if context.get("chapter_time_period"):
+            context_parts.append(f"Chapter Time Period: {context['chapter_time_period']}")
+        if context.get("chapter_scenario"):
+            context_parts.append(f"Chapter Scenario: {context['chapter_scenario']}")
         
         if context.get("scene_summary"):
             context_parts.append(f"Story Summary: {context['scene_summary']}")

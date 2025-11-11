@@ -17,6 +17,10 @@ export interface StoryActions {
   // Character suggestion banner
   showCharacterBanner?: boolean;
   onDiscoverCharacters?: () => void;
+  // Generation/extraction status
+  lastGenerationTime?: number | null;
+  generationStartTime?: number | null;
+  extractionStatus?: { status: 'extracting' | 'complete' | 'error'; message: string } | null;
 }
 
 interface StoryContextType {

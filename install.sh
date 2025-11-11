@@ -47,10 +47,6 @@ check_requirements() {
         missing_deps+=("node")
     fi
     
-    if ! command_exists npm; then
-        missing_deps+=("npm")
-    fi
-    
     if ! command_exists git; then
         missing_deps+=("git")
     fi
@@ -59,8 +55,7 @@ check_requirements() {
         log_error "Missing required tools: ${missing_deps[*]}"
         log_info "Please install these manually:"
         log_info "  - Python 3.11+ (https://python.org/downloads/)"
-        log_info "  - Node.js 20.9.0+ (https://nodejs.org/)"
-        log_info "  - npm 10+ (comes with Node.js 20.9.0+)"
+        log_info "  - Node.js 18+ (https://nodejs.org/)"
         log_info "  - Git (https://git-scm.com/)"
         exit 1
     fi
@@ -83,114 +78,12 @@ check_requirements() {
         fi
     fi
     
-    # Check Node version (20.9.0+)
-    # Find the best Node.js installation (prefer 20.9.0+)
-    local node_binary=""
-    local best_version=""
-    local best_major=0
-    local best_minor=0
-    
-    # Collect all possible Node.js locations (avoid duplicates)
-    local node_paths=()
-    local seen_paths=()
-    
-    # Add PATH Node.js if it exists
-    if command_exists node; then
-        local path_node=$(command -v node)
-        node_paths+=("$path_node")
-        seen_paths+=("$path_node")
-    fi
-    
-    # Add common installation locations (avoid duplicates)
-    local common_paths=(
-        "/usr/local/bin/node"
-        "/opt/homebrew/bin/node"
-        "/usr/bin/node"
-        "$HOME/.local/bin/node"
-        "/opt/nodejs/bin/node"
-    )
-    
-    for path in "${common_paths[@]}"; do
-        if [[ -x "$path" ]] && [[ ! " ${seen_paths[@]} " =~ " ${path} " ]]; then
-            node_paths+=("$path")
-            seen_paths+=("$path")
-        fi
-    done
-    
-    # Check for nvm installations (handle multiple versions)
-    if [[ -d "$HOME/.nvm/versions/node" ]]; then
-        while IFS= read -r nvm_node; do
-            if [[ -x "$nvm_node" ]] && [[ ! " ${seen_paths[@]} " =~ " ${nvm_node} " ]]; then
-                node_paths+=("$nvm_node")
-                seen_paths+=("$nvm_node")
-            fi
-        done < <(find "$HOME/.nvm/versions/node" -name "node" -type f 2>/dev/null || true)
-    fi
-    
-    # Check all locations and find the best version (20.9.0+)
-    for path in "${node_paths[@]}"; do
-        if [[ -x "$path" ]]; then
-            local check_version=$($path -v 2>/dev/null | cut -d'v' -f2)
-            local check_major=$(echo "$check_version" | cut -d'.' -f1)
-            local check_minor=$(echo "$check_version" | cut -d'.' -f2)
-            
-            # Only consider versions 20.9.0 or higher
-            if [[ $check_major -gt 20 ]] || [[ $check_major -eq 20 && $check_minor -ge 9 ]]; then
-                # Prefer highest version
-                if [[ $check_major -gt $best_major ]] || [[ $check_major -eq $best_major && $check_minor -gt $best_minor ]]; then
-                    node_binary="$path"
-                    best_version="$check_version"
-                    best_major=$check_major
-                    best_minor=$check_minor
-                fi
-            fi
-        fi
-    done
-    
-    if [[ -z "$node_binary" ]]; then
-        log_error "Node.js 20.9.0+ not found"
-        log_info "Searched locations:"
-        for path in "${node_paths[@]}"; do
-            if [[ -x "$path" ]]; then
-                local ver=$($path -v 2>/dev/null || echo "error")
-                log_info "  - $path: $ver"
-            fi
-        done
-        log_info ""
-        log_info "Please install Node.js 20.9.0+ using one of these methods:"
-        log_info "  1. Using nvm (recommended):"
-        log_info "     curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash"
-        log_info "     source ~/.bashrc  # or ~/.zshrc"
-        log_info "     nvm install 20"
-        log_info "     nvm use 20"
-        log_info ""
-        log_info "  2. Using NodeSource (Ubuntu/Debian):"
-        log_info "     curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -"
-        log_info "     sudo apt-get install -y nodejs"
-        log_info ""
-        log_info "  3. Or run: ./install-system-deps.sh (will install Node.js 20)"
+    # Check Node version
+    node_version=$(node -v | cut -d'v' -f2 | cut -d'.' -f1)
+    if [[ $node_version -lt 18 ]]; then
+        log_error "Node.js 18+ required, found: v$node_version"
+        log_info "Please upgrade Node.js manually"
         exit 1
-    fi
-    
-    # Use the found Node.js binary by updating PATH
-    export PATH="$(dirname "$node_binary"):$PATH"
-    node_version="$best_version"
-    node_major=$best_major
-    node_minor=$best_minor
-    
-    log_info "Using Node.js $node_version from $node_binary"
-    
-    # Check npm version (10+)
-    npm_version=$(npm -v)
-    npm_major=$(echo "$npm_version" | cut -d'.' -f1)
-    
-    if [[ $npm_major -lt 10 ]]; then
-        log_warning "npm 10+ recommended, found: v$npm_version"
-        log_info "Upgrading npm to latest version..."
-        npm install -g npm@latest || {
-            log_warning "Failed to upgrade npm, continuing with v$npm_version"
-            log_info "You may want to upgrade manually: npm install -g npm@latest"
-        }
     fi
     
     log_success "All requirements satisfied"
@@ -223,12 +116,10 @@ setup_python_env() {
     pip install --upgrade pip
     
     # Install Python dependencies
-    log_info "Installing Python dependencies (bare-metal)..."
-    log_info "This includes PyTorch CPU and sentence-transformers..."
-    pip install -r backend/requirements-baremetal.txt
+    log_info "Installing Python dependencies..."
+    pip install -r backend/requirements.txt
     
     log_success "Python environment setup complete"
-    # Note: Virtual environment remains activated for the rest of the script
 }
 
 # Setup Node.js dependencies
@@ -236,11 +127,7 @@ setup_nodejs_env() {
     log_info "Setting up Node.js environment..."
     
     cd frontend
-    
-    # Use --legacy-peer-deps to handle React 19 compatibility issues
-    # Some packages like @headlessui/react haven't updated their peer deps yet
-    npm install --legacy-peer-deps
-    
+    npm install
     cd ..
     
     log_success "Node.js environment setup complete"
@@ -248,18 +135,18 @@ setup_nodejs_env() {
 
 # Download AI models
 download_ai_models() {
-    log_info "Downloading AI models for semantic memory and STT..."
+    log_info "Downloading AI models for semantic memory..."
     log_info "This may take several minutes..."
     
+    source .venv/bin/activate
     cd backend
     python download_models.py || {
         log_warning "Model download failed, continuing anyway"
-        log_info "Models will be downloaded on first use"
-        log_info "You can download manually: cd backend && python download_models.py"
+        log_info "You can download models later: cd backend && python download_models.py"
     }
     cd ..
     
-    log_success "AI models setup complete"
+    log_success "AI models download complete"
 }
 
 # Setup database
@@ -292,18 +179,25 @@ setup_database() {
     
     log_info "Using Python command: $python_cmd"
     
-    # Initialize or update database using pure Alembic approach
+    # Initialize or update database
     if [[ -f backend/data/kahani.db ]]; then
-        log_info "Existing database found - running migrations..."
-        cd backend && alembic upgrade head && cd ..
+        log_warning "Database already exists, updating schema..."
+        cd backend && $python_cmd update_database_schema.py && cd .. || {
+            log_error "Failed to update database schema"
+            exit 1
+        }
     else
-        log_info "Creating new database via Alembic..."
-        cd backend && alembic upgrade head && cd ..
-        
-        # Optionally seed default data
-        log_info "Seeding default data..."
-        cd backend && python init_database_data.py && cd ..
+        log_info "Initializing database..."
+        cd backend && $python_cmd init_database.py && cd .. || {
+            log_error "Database initialization failed"
+            exit 1
+        }
     fi
+    # Run Alembic migrations to upgrade schema
+    log_info "Running Alembic migrations to upgrade database schema..."
+    source .venv/bin/activate
+    cd backend && alembic upgrade head && cd ..
+    deactivate
     
     log_success "Database setup complete"
 }
@@ -393,12 +287,14 @@ verify_installation() {
     fi
     
     # Check Python packages
+    source .venv/bin/activate
     if ! python -c "import fastapi" 2>/dev/null; then
         log_error "Python dependencies incomplete"
         ((errors++))
     else
         log_success "Backend dependencies: OK"
     fi
+    deactivate
     
     # Check Node modules
     if [[ ! -d "frontend/node_modules" ]]; then
@@ -422,8 +318,7 @@ main() {
     echo ""
     echo "⚠️  This script assumes you already have:"
     echo "   • Python 3.11+ installed"
-    echo "   • Node.js 20.9.0+ installed (required for Next.js 16)"
-    echo "   • npm 10+ installed (comes with Node.js 20.9.0+)"
+    echo "   • Node.js 18+ installed"
     echo "   • Git installed"
     echo ""
     echo "💡 If you need to install system dependencies first, run:"
@@ -461,6 +356,3 @@ main() {
 }
 
 main "$@"
-
-# Deactivate virtual environment at the end
-deactivate

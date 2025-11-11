@@ -70,6 +70,7 @@ class NPCTracking(Base):
     id = Column(Integer, primary_key=True, index=True)
     story_id = Column(Integer, ForeignKey("stories.id", ondelete="CASCADE"), nullable=False, index=True)
     character_name = Column(String(255), nullable=False, index=True)
+    entity_type = Column(String(50), default="CHARACTER", nullable=True)  # CHARACTER or ENTITY
     
     # Frequency metrics
     total_mentions = Column(Integer, default=0)  # Total mentions across all scenes
@@ -125,6 +126,7 @@ class NPCTracking(Base):
             "id": self.id,
             "story_id": self.story_id,
             "character_name": self.character_name,
+            "entity_type": self.entity_type or "CHARACTER",
             "total_mentions": self.total_mentions,
             "scene_count": self.scene_count,
             "first_appearance_scene": self.first_appearance_scene,
