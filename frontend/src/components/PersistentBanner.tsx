@@ -140,6 +140,27 @@ export default function PersistentBanner() {
                 </button>
               )}
 
+              {/* Generation/Extraction Status - Compact */}
+              {(storyActions?.lastGenerationTime !== null || storyActions?.generationStartTime !== null || storyActions?.extractionStatus) && (
+                <div className="flex items-center gap-1.5 px-2 py-1 text-[10px] text-white/80">
+                  <svg className="w-3.5 h-3.5 text-white/60 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  {storyActions.extractionStatus ? (
+                    <span className={`max-w-[120px] truncate ${storyActions.extractionStatus.status === 'extracting' ? 'animate-pulse' : ''}`}>
+                      {storyActions.extractionStatus.message}
+                    </span>
+                  ) : storyActions.generationStartTime ? (
+                    <span className="animate-pulse">Generating...</span>
+                  ) : (
+                    <span>
+                      <span className="text-white/60">Generated in </span>
+                      <span className="font-semibold text-white">{storyActions.lastGenerationTime?.toFixed(1)}s</span>
+                    </span>
+                  )}
+                </div>
+              )}
+
               {/* Menu Button */}
               <button
                 onClick={() => setShowUnifiedMenu(true)}

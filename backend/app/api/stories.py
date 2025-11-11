@@ -648,10 +648,17 @@ async def generate_scene(
             )
         effective_custom_prompt = user_content.strip()
         # Continue with normal AI generation flow
+        # Get active chapter for character separation
+        active_chapter = db.query(Chapter).filter(
+            Chapter.story_id == story_id,
+            Chapter.status == ChapterStatus.ACTIVE
+        ).first()
+        chapter_id = active_chapter.id if active_chapter else None
+        
         context_manager = get_context_manager_for_user(user_settings, current_user.id)
         try:
             context = await context_manager.build_scene_generation_context(
-                story_id, db, effective_custom_prompt
+                story_id, db, effective_custom_prompt, is_variant_generation=False, chapter_id=chapter_id
             )
         except Exception as e:
             logger.error(f"Failed to build context for story {story_id}: {e}")
@@ -674,10 +681,17 @@ async def generate_scene(
         # Create context manager with user settings (semantic or linear)
         context_manager = get_context_manager_for_user(user_settings, current_user.id)
         
+        # Get active chapter for character separation
+        active_chapter = db.query(Chapter).filter(
+            Chapter.story_id == story_id,
+            Chapter.status == ChapterStatus.ACTIVE
+        ).first()
+        chapter_id = active_chapter.id if active_chapter else None
+        
         # Use context manager to build optimized context
         try:
             context = await context_manager.build_scene_generation_context(
-                story_id, db, custom_prompt
+                story_id, db, custom_prompt, is_variant_generation=False, chapter_id=chapter_id
             )
         except Exception as e:
             logger.error(f"Failed to build context for story {story_id}: {e}")
@@ -868,10 +882,17 @@ async def generate_scene_streaming_endpoint(
         user_provided_content = user_content.strip()
         generation_method = "user_written"
         # Still need context for choice generation
+        # Get active chapter for character separation
+        active_chapter = db.query(Chapter).filter(
+            Chapter.story_id == story_id,
+            Chapter.status == ChapterStatus.ACTIVE
+        ).first()
+        chapter_id = active_chapter.id if active_chapter else None
+        
         context_manager = get_context_manager_for_user(user_settings, current_user.id)
         try:
             context = await context_manager.build_scene_generation_context(
-                story_id, db, ""
+                story_id, db, "", is_variant_generation=False, chapter_id=chapter_id
             )
         except Exception as e:
             logger.error(f"Failed to build context for story {story_id}: {e}")
@@ -892,10 +913,17 @@ async def generate_scene_streaming_endpoint(
     # Create context manager with user settings (semantic or linear)
     context_manager = get_context_manager_for_user(user_settings, current_user.id)
     
+    # Get active chapter for character separation
+    active_chapter = db.query(Chapter).filter(
+        Chapter.story_id == story_id,
+        Chapter.status == ChapterStatus.ACTIVE
+    ).first()
+    chapter_id = active_chapter.id if active_chapter else None
+    
     # Use context manager to build optimized context
     try:
         context = await context_manager.build_scene_generation_context(
-            story_id, db, effective_custom_prompt
+            story_id, db, effective_custom_prompt, is_variant_generation=False, chapter_id=chapter_id
         )
     except Exception as e:
         logger.error(f"Failed to build context for story {story_id}: {e}")
@@ -1059,6 +1087,7 @@ async def generate_scene_streaming_endpoint(
                 
                 # Link scene to active chapter
                 scene.chapter_id = active_chapter.id
+                db.flush()  # Flush to ensure chapter_id is set before counting scenes
                 
                 # Update chapter token tracking
                 scene_tokens = context_manager.count_tokens(full_content.strip())
@@ -1201,11 +1230,11 @@ async def generate_scene_streaming_endpoint(
                         )
                         
                         # Send status event with clear message
-                        extraction_msg = f"Extraction scheduled: {scenes_since_extraction}/{extraction_threshold} scenes threshold reached"
+                        extraction_msg = f"Extracting ({scenes_since_extraction}/{extraction_threshold})"
                         yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'scheduled', 'message': extraction_msg})}\n\n"
                     else:
                         # Threshold not reached - skip extraction with clear reason
-                        skip_msg = f"Extraction skipped: Only {scenes_since_extraction}/{extraction_threshold} scenes since last extraction"
+                        skip_msg = f"Skipped ({scenes_since_extraction}/{extraction_threshold})"
                         logger.warning(f"[EXTRACTION] ✗ SKIPPED: {skip_msg}")
                         yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'skipped', 'message': skip_msg})}\n\n"
                 except Exception as e:
@@ -2762,6 +2791,22 @@ async def finalize_draft_story(
                 )
                 db.add(story_character)
                 logger.info(f"[FINALIZE] Linked character {character.name} to story {story_id} with role: {char_data.get('role', 'N/A')}")
+                
+                # Mark NPC as converted if it was tracked as an NPC
+                try:
+                    from ..services.npc_tracking_service import NPCTrackingService
+                    from ..models import UserSettings
+                    user_settings = db.query(UserSettings).filter(
+                        UserSettings.user_id == current_user.id
+                    ).first()
+                    if user_settings:
+                        user_settings_dict = user_settings.to_dict()
+                        user_settings_dict['allow_nsfw'] = current_user.allow_nsfw
+                        npc_service = NPCTrackingService(current_user.id, user_settings_dict)
+                        npc_service.mark_npc_as_converted(db, story_id, character.name)
+                except Exception as e:
+                    logger.warning(f"Failed to mark NPC as converted during finalization: {e}")
+                    # Don't fail story finalization if NPC marking fails
     
     # Mark as active
     story.status = StoryStatus.ACTIVE

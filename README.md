@@ -2,9 +2,9 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.11+-blue.svg" alt="Python Version">
-  <img src="https://img.shields.io/badge/Node.js-20.9+-green.svg" alt="Node.js Version">
+  <img src="https://img.shields.io/badge/Node.js-18+-green.svg" alt="Node.js Version">
   <img src="https://img.shields.io/badge/FastAPI-Latest-teal.svg" alt="FastAPI">
-  <img src="https://img.shields.io/badge/Next.js-16-black.svg" alt="Next.js">
+  <img src="https://img.shields.io/badge/Next.js-14-black.svg" alt="Next.js">
   <img src="https://img.shields.io/badge/Docker-Supported-blue.svg" alt="Docker">
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License">
 </p>
@@ -12,8 +12,6 @@
 Kahani (meaning "story" in Hindi) is a modern interactive storytelling platform that combines the power of AI with intuitive story management. Create, organize, and evolve your stories with AI assistance, configurable prompts, and a beautiful, responsive interface.
 
 > **🚀 New here?** Check out the [5-Minute Quick Start Guide](QUICK_START.md) to get up and running fast!
-
-> **🔒 Production Deployment?** Review the [Security Setup Guide](docs/SECURITY_SETUP.md) and [Security Checklist](docs/SECURITY_CHECKLIST.md) before deploying.
 
 > **⚙️ Configuration Issues?** See the [Configuration Guide](CONFIGURATION_GUIDE.md) for setup and troubleshooting.
 
@@ -24,70 +22,31 @@ Kahani (meaning "story" in Hindi) is a modern interactive storytelling platform 
 - **Local AI Support**: Run completely offline with local models
 - **Smart Context Management**: Automatic context optimization and token management
 - **Semantic Memory**: AI-powered story memory and character tracking
-- **Hybrid Context Strategies**: Combine recent scenes with semantically relevant moments
-- **Character-Aware Context**: Intelligent retrieval based on character relationships
-- **Plot Thread Continuity**: Track and maintain consistency across multiple storylines
 
 ### 📝 **Advanced Story Management**
 - **Three-Tier Summary System**: Chapter summaries, story-so-far, and overall narrative summaries
 - **Character Management**: Create, edit, and track characters throughout your story
 - **Plot Thread Tracking**: Follow multiple storylines and plot developments
 - **Entity State Management**: Track character relationships and story world consistency
-- **Scene History**: Navigate back through scene versions with full history tracking
-- **Auto-Save**: Automatic story and scene persistence
-- **Auto-Resume**: Automatically opens your last worked-on story
-
-### 🎭 **Character Generation Wizard**
-- **AI Character Suggestions**: Automatically detect and suggest characters from your story
-- **Intelligent Character Analysis**: AI-powered character detail extraction with personality traits, background, goals, and fears
-- **Role-Based Organization**: Assign character roles (protagonist, antagonist, mentor, etc.) with visual indicators
-- **Character Wizard Interface**: Step-by-step guided character creation process
-- **Character Memory Service**: Track character development and relationships across scenes
-- **Character Importance Detection**: Automatically identify significant characters worth tracking
 
 ### 🎵 **Text-to-Speech Integration**
 - **Multiple TTS Providers**: OpenAI, Kokoro, Chatterbox, and custom providers
 - **Progressive Streaming**: Real-time audio generation and playback
 - **Voice Persistence**: Remember character voices across sessions
 - **WebSocket Support**: Real-time audio streaming with retry logic
-- **Auto-Narration**: Automatically narrate newly generated scenes
-- **Smart Text Chunking**: Intelligent paragraph-aware chunking for natural narration
-
-### 🎤 **Speech-to-Text Integration**
-- **Real-time Transcription**: Whisper-based STT with faster-whisper engine
-- **GPU/CPU Auto-Detection**: Automatic device selection with CPU fallback
-- **WebSocket Streaming**: Low-latency audio processing via WebSocket
-- **Voice Activity Detection**: Automatic speech detection with Silero VAD
-- **Performance Metrics**: Real-time latency, accuracy, and throughput tracking
-- **Dynamic Buffering**: Intelligent buffering with silence detection
-- **Sentence Boundary Detection**: Natural text segmentation for better transcription quality
-
-### 🧠 **Semantic Context & Memory**
-- **Semantic Search**: Find relevant scenes and moments using natural language queries
-- **Hybrid Context Assembly**: Combine recent scenes with semantically relevant moments
-- **Character Moment Extraction**: Automatically extract and track significant character moments
-- **Plot Event Tracking**: Identify and track important plot developments
-- **Local Extraction Models**: Use small local models (LM Studio, Ollama, etc.) for cost-effective extraction
-- **Context Strategy Options**: Choose between linear, hybrid, or semantic-only context strategies
-- **Token-Efficient Context**: Intelligent context selection to maximize relevant information
-- **Embedding-Based Retrieval**: Vector search for finding related story elements
 
 ### 🎨 **User Experience**
 - **Responsive Design**: Works seamlessly on desktop and mobile
 - **Keyboard Navigation**: Navigate scenes with arrow keys (← previous, → regenerate)
 - **Scene Regeneration**: Regenerate scenes you don't like with a single keypress
-- **Theme Customization**: Dark/Light/Auto themes with customizable color schemes
-- **Customizable Settings**: LLM parameters, context management, generation preferences
-- **Writing Style Presets**: Pre-configured settings for different writing styles
-- **Comprehensive Settings Modal**: Single unified interface for all configuration options
+- **Scene History**: Navigate back through scene versions with full history tracking
+- **Auto-Save**: Automatic story and scene persistence
+- **Auto-Resume**: Automatically opens your last worked-on story
 
 ### 🔐 **Security & Authentication**
-- **JWT Authentication**: Secure token-based authentication with configurable expiration
+- **JWT Authentication**: Secure token-based authentication
 - **User Management**: Registration, login, and user settings
-- **Admin Panel**: User management, permissions, and system configuration
-- **CORS Protection**: Configurable cross-origin resource sharing
-- **Production Ready**: Security best practices and deployment guides
-- **📖 See [Security Setup Guide](docs/SECURITY_SETUP.md) for production deployment**
+- **Admin Panel**: User management and system configuration
 
 ### 🐳 **Deployment**
 - **Docker Ready**: Easy deployment with Docker and Docker Compose
@@ -104,19 +63,17 @@ Kahani (meaning "story" in Hindi) is a modern interactive storytelling platform 
 git clone https://github.com/ncoder-ai/kahani.git
 cd kahani
 
-# Install dependencies and set up environment
-./install.sh
+# Set up environment (automated)
+./setup-env.sh
 
 # Start the development server
 ./start-dev.sh
 ```
 
 **That's it!** The setup script will:
-- ✅ Create Python virtual environment
-- ✅ Install backend and frontend dependencies
-- ✅ Create environment configuration with secure secrets
+- ✅ Create environment configuration from template
+- ✅ Auto-detect network configuration
 - ✅ Download AI models (one-time setup)
-- ✅ Set up database
 - ✅ Start both frontend and backend servers
 
 **Access the application**: http://localhost:6789
@@ -128,22 +85,12 @@ cd kahani
 git clone https://github.com/ncoder-ai/kahani.git
 cd kahani
 
-# Create .env file with secrets (required for Docker)
-# Generate secrets:
-python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_urlsafe(32))"
-python3 -c "import secrets; print('JWT_SECRET_KEY=' + secrets.token_urlsafe(32))"
-
-# Create .env file (if .env.example exists, copy it first)
-# Then add the generated secrets above to your .env file
-# Or manually create .env with:
-# SECRET_KEY=your-generated-secret-key-here
-# JWT_SECRET_KEY=your-generated-jwt-secret-key-here
+# Set up environment
+./setup-env.sh
 
 # Start with Docker
 docker-compose up -d
 ```
-
-**Note:** Docker Compose requires `SECRET_KEY` and `JWT_SECRET_KEY` environment variables. See [Security Setup Guide](docs/SECURITY_SETUP.md) for details.
 
 **Access the application**: http://localhost:6789
 
@@ -154,26 +101,14 @@ docker-compose up -d
 git clone https://github.com/ncoder-ai/kahani.git
 cd kahani
 
-# Create Python virtual environment
-python3.11 -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+# Set up environment
+./setup-env.sh
 
-# Install backend dependencies
-cd backend && pip install -r requirements.txt && cd ..
+# Install dependencies
+cd backend && pip install -r requirements.txt
+cd ../frontend && npm install
 
-# Install frontend dependencies
-cd frontend && npm install && cd ..
-
-# Set up environment (creates .env from .env.example if it exists)
-# Or manually create .env with required variables
-# Generate secrets if needed:
-python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_urlsafe(32))"
-python3 -c "import secrets; print('JWT_SECRET_KEY=' + secrets.token_urlsafe(32))"
-
-# Initialize database
-cd backend && alembic upgrade head && cd ..
-
-# Start backend (keep virtual environment activated)
+# Start backend
 cd backend && uvicorn app.main:app --reload --host 0.0.0.0 --port 9876
 
 # Start frontend (in another terminal)
@@ -187,18 +122,11 @@ cd frontend && npm run dev
 The application uses a template-based configuration system:
 
 ```bash
-# For baremetal: install.sh creates .env automatically with secure secrets
-# For Docker: You need to create .env manually with secrets (see Docker section above)
+# Set up environment (creates .env from .env.example)
+./setup-env.sh
 
 # Validate configuration
 ./validate-config.sh
-```
-
-**Note:** The `setup-env.sh` script creates a basic `.env` file from `.env.example` template, but doesn't generate secure secrets. For production use, always generate your own secrets using:
-
-```bash
-python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_urlsafe(32))"
-python3 -c "import secrets; print('JWT_SECRET_KEY=' + secrets.token_urlsafe(32))"
 ```
 
 ### **Network Configuration**
@@ -211,15 +139,18 @@ Kahani automatically detects network configuration for different deployment scen
 
 ### **LLM Configuration**
 
-Configure your AI model through the application Settings:
+Configure your AI model in `.env`:
 
-1. Go to **Settings** → **LLM Settings**
-2. Enter your LLM API URL (e.g., `http://localhost:1234/v1` for local models)
-3. Select your API type (OpenAI-compatible, Ollama, etc.)
-4. Enter your model name and API key (if required)
-5. Adjust generation parameters (temperature, top-p, etc.)
+```bash
+# Local LLM Server (Ollama, LM Studio, etc.)
+LLM_BASE_URL=http://localhost:1234/v1
+LLM_MODEL=local-model
 
-**Note:** LLM configuration is stored per-user in the database. Each user configures their own LLM settings through the web interface.
+# Or use cloud providers
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_API_KEY=your-api-key
+LLM_MODEL=gpt-4
+```
 
 ### **TTS Configuration**
 
@@ -267,8 +198,7 @@ kahani/
 ### **Prerequisites**
 
 - **Python 3.11+**
-- **Node.js 20.9.0+** (required for Next.js 16)
-- **npm 10+** (comes with Node.js 20.9.0+)
+- **Node.js 18+**
 - **Git**
 - **LLM Server** (optional): [LM Studio](https://lmstudio.ai/) or [Ollama](https://ollama.ai/)
 
@@ -329,14 +259,8 @@ KAHANI_ENV=production docker-compose -f docker-compose.network.yml up -d
 | Guide | Description |
 |-------|-------------|
 | [QUICK_START.md](QUICK_START.md) | 5-minute setup guide |
-| [PRODUCTION_DEPLOYMENT.md](PRODUCTION_DEPLOYMENT.md) | Production deployment guide |
-| [docs/SECURITY_SETUP.md](docs/SECURITY_SETUP.md) | 🔒 Security configuration and secrets |
-| [docs/SECURITY_CHECKLIST.md](docs/SECURITY_CHECKLIST.md) | 🔒 Pre/post-deployment security checklist |
 | [CONFIGURATION_GUIDE.md](CONFIGURATION_GUIDE.md) | Complete configuration guide |
 | [NETWORK_CONFIGURATION.md](NETWORK_CONFIGURATION.md) | Network setup and troubleshooting |
-| [docs/EXTRACTION_MODEL_SETUP.md](docs/EXTRACTION_MODEL_SETUP.md) | Local extraction model setup (LM Studio, Ollama, etc.) |
-| [docs/REVERSE_PROXY_GUIDE.md](docs/REVERSE_PROXY_GUIDE.md) | Nginx, Caddy, and NPM configuration |
-| [docs/database-migration-troubleshooting.md](docs/database-migration-troubleshooting.md) | Database migration issues and fixes |
 | [docs/](docs/) | Detailed feature documentation |
 
 ## 🤝 Contributing
