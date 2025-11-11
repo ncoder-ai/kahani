@@ -648,10 +648,17 @@ async def generate_scene(
             )
         effective_custom_prompt = user_content.strip()
         # Continue with normal AI generation flow
+        # Get active chapter for character separation
+        active_chapter = db.query(Chapter).filter(
+            Chapter.story_id == story_id,
+            Chapter.status == ChapterStatus.ACTIVE
+        ).first()
+        chapter_id = active_chapter.id if active_chapter else None
+        
         context_manager = get_context_manager_for_user(user_settings, current_user.id)
         try:
             context = await context_manager.build_scene_generation_context(
-                story_id, db, effective_custom_prompt
+                story_id, db, effective_custom_prompt, is_variant_generation=False, chapter_id=chapter_id
             )
         except Exception as e:
             logger.error(f"Failed to build context for story {story_id}: {e}")
@@ -674,10 +681,17 @@ async def generate_scene(
         # Create context manager with user settings (semantic or linear)
         context_manager = get_context_manager_for_user(user_settings, current_user.id)
         
+        # Get active chapter for character separation
+        active_chapter = db.query(Chapter).filter(
+            Chapter.story_id == story_id,
+            Chapter.status == ChapterStatus.ACTIVE
+        ).first()
+        chapter_id = active_chapter.id if active_chapter else None
+        
         # Use context manager to build optimized context
         try:
             context = await context_manager.build_scene_generation_context(
-                story_id, db, custom_prompt
+                story_id, db, custom_prompt, is_variant_generation=False, chapter_id=chapter_id
             )
         except Exception as e:
             logger.error(f"Failed to build context for story {story_id}: {e}")
@@ -868,10 +882,17 @@ async def generate_scene_streaming_endpoint(
         user_provided_content = user_content.strip()
         generation_method = "user_written"
         # Still need context for choice generation
+        # Get active chapter for character separation
+        active_chapter = db.query(Chapter).filter(
+            Chapter.story_id == story_id,
+            Chapter.status == ChapterStatus.ACTIVE
+        ).first()
+        chapter_id = active_chapter.id if active_chapter else None
+        
         context_manager = get_context_manager_for_user(user_settings, current_user.id)
         try:
             context = await context_manager.build_scene_generation_context(
-                story_id, db, ""
+                story_id, db, "", is_variant_generation=False, chapter_id=chapter_id
             )
         except Exception as e:
             logger.error(f"Failed to build context for story {story_id}: {e}")
@@ -892,10 +913,17 @@ async def generate_scene_streaming_endpoint(
     # Create context manager with user settings (semantic or linear)
     context_manager = get_context_manager_for_user(user_settings, current_user.id)
     
+    # Get active chapter for character separation
+    active_chapter = db.query(Chapter).filter(
+        Chapter.story_id == story_id,
+        Chapter.status == ChapterStatus.ACTIVE
+    ).first()
+    chapter_id = active_chapter.id if active_chapter else None
+    
     # Use context manager to build optimized context
     try:
         context = await context_manager.build_scene_generation_context(
-            story_id, db, effective_custom_prompt
+            story_id, db, effective_custom_prompt, is_variant_generation=False, chapter_id=chapter_id
         )
     except Exception as e:
         logger.error(f"Failed to build context for story {story_id}: {e}")

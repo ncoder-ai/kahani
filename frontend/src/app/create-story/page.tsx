@@ -256,8 +256,9 @@ function CreateStoryContent() {
         finalizedStoryId = response.id;
       }
       
-      // Redirect to the story page to begin scene generation
-      router.push(`/story/${finalizedStoryId}`);
+      // Redirect to the story page with chapter setup flag
+      // The story page will check if the first chapter needs setup and show the wizard
+      router.push(`/story/${finalizedStoryId}?setup_chapter=true`);
     } catch (error) {
       console.error('Failed to create story:', error);
     } finally {

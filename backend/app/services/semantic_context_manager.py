@@ -72,25 +72,26 @@ class SemanticContextManager(ContextManager):
             self.enable_semantic = False
             self.context_strategy = "linear"
     
-    async def build_story_context(self, story_id: int, db: Session) -> Dict[str, Any]:
+    async def build_story_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None) -> Dict[str, Any]:
         """
         Build optimized context using hybrid strategy if enabled
         
         Args:
             story_id: Story ID
             db: Database session
+            chapter_id: Optional chapter ID to separate active/inactive characters
             
         Returns:
             Optimized context dictionary
         """
         # If semantic memory is disabled, use parent class method
         if not self.enable_semantic or self.context_strategy == "linear":
-            return await super().build_story_context(story_id, db)
+            return await super().build_story_context(story_id, db, chapter_id=chapter_id)
         
         # Use hybrid strategy
-        return await self._build_hybrid_context(story_id, db)
+        return await self._build_hybrid_context(story_id, db, chapter_id=chapter_id)
     
-    async def _build_hybrid_context(self, story_id: int, db: Session) -> Dict[str, Any]:
+    async def _build_hybrid_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None) -> Dict[str, Any]:
         """
         Build hybrid context combining recent scenes with semantically relevant past
         
@@ -101,6 +102,11 @@ class SemanticContextManager(ContextManager):
         4. Get character-specific moments
         5. Get chapter summaries
         6. Assemble within token budget
+        
+        Args:
+            story_id: Story ID
+            db: Database session
+            chapter_id: Optional chapter ID to separate active/inactive characters
         """
         from ..models import Story
         
@@ -116,10 +122,10 @@ class SemanticContextManager(ContextManager):
         
         if not scenes:
             # No scenes yet, return base context
-            return await self._get_base_context(story_id, db)
+            return await self._get_base_context(story_id, db, chapter_id=chapter_id)
         
         # Calculate base context tokens
-        base_context = await self._get_base_context(story_id, db)
+        base_context = await self._get_base_context(story_id, db, chapter_id=chapter_id)
         base_tokens = self._calculate_base_context_tokens(base_context)
         
         # Available tokens for scene history (using effective max tokens)
@@ -240,8 +246,8 @@ class SemanticContextManager(ContextManager):
             "entity_states_included": entity_states_content is not None
         }
     
-    async def _get_base_context(self, story_id: int, db: Session) -> Dict[str, Any]:
-        """Get base story context (genre, tone, characters)"""
+    async def _get_base_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None) -> Dict[str, Any]:
+        """Get base story context (genre, tone, characters) with chapter-specific character separation"""
         from ..models import Story
         
         story = db.query(Story).filter(Story.id == story_id).first()
@@ -253,33 +259,80 @@ class SemanticContextManager(ContextManager):
             StoryCharacter.story_id == story_id
         ).all()
         
-        characters = []
+        # Separate into active (chapter) and inactive (story only) characters
+        active_characters = []
+        inactive_characters = []
+        
+        if chapter_id:
+            # Get chapter-specific characters
+            from ..models.chapter import chapter_characters
+            chapter_char_ids = db.execute(
+                chapter_characters.select().where(
+                    chapter_characters.c.chapter_id == chapter_id
+                )
+            ).fetchall()
+            chapter_story_char_ids = {row.story_character_id for row in chapter_char_ids}
+            
+            # Get chapter info for context
+            from ..models import Chapter
+            chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+        else:
+            chapter_story_char_ids = set()
+            chapter = None
+        
         for sc in story_characters:
             character = db.query(Character).filter(Character.id == sc.character_id).first()
-            if character:
-                characters.append({
+            if not character:
+                continue
+            
+            char_data = {
+                "name": character.name,
+                "role": sc.role or "",
+                "description": character.description or "",
+                "personality": ", ".join(character.personality_traits) if character.personality_traits else "",
+                "background": character.background or "",
+                "goals": character.goals or "",
+                "relationships": ""
+            }
+            
+            if chapter_id and sc.id in chapter_story_char_ids:
+                # Active character - full details
+                active_characters.append(char_data)
+            elif chapter_id:
+                # Inactive character - brief format
+                inactive_characters.append({
                     "name": character.name,
-                    "role": sc.role or "",  # Get role from StoryCharacter (story-specific)
-                    "description": character.description or "",
-                    "personality": ", ".join(character.personality_traits) if character.personality_traits else "",
-                    "background": character.background or "",
-                    "goals": character.goals or "",
-                    "relationships": ""  # Could extract from StoryCharacter relationships JSON if needed
+                    "role": sc.role or ""
                 })
+            else:
+                # No chapter specified - treat all as active
+                active_characters.append(char_data)
         
-        # Add important NPCs that crossed threshold
+        # Add important NPCs that crossed threshold (always as active)
         try:
             from .npc_tracking_service import NPCTrackingService
             npc_service = NPCTrackingService(user_id=self.user_id, user_settings=self.user_settings)
             npc_characters = npc_service.get_important_npcs_for_context(db, story_id)
-            characters.extend(npc_characters)
-            logger.warning(f"[CONTEXT BUILD] Added {len(npc_characters)} important NPCs to context (total characters now: {len(characters)})")
+            active_characters.extend(npc_characters)
+            logger.warning(f"[CONTEXT BUILD] Added {len(npc_characters)} important NPCs to context (total characters now: {len(active_characters)})")
             if npc_characters:
                 logger.warning(f"[CONTEXT BUILD] NPCs added: {[npc.get('name', 'Unknown') for npc in npc_characters]}")
         except Exception as e:
             logger.warning(f"Failed to include NPCs in context: {e}")
         
-        return {
+        # Format characters section with active/inactive distinction
+        if chapter_id and inactive_characters:
+            # Format with clear distinction
+            characters_section = {
+                "active_characters": active_characters,
+                "inactive_characters": inactive_characters
+            }
+            logger.info(f"[CONTEXT BUILD] Chapter {chapter_id}: {len(active_characters)} active, {len(inactive_characters)} inactive characters")
+        else:
+            # All characters are active (or no chapter specified)
+            characters_section = active_characters
+        
+        base_context = {
             "story_id": story_id,
             "title": story.title,
             "genre": story.genre,
@@ -287,8 +340,16 @@ class SemanticContextManager(ContextManager):
             "world_setting": story.world_setting,
             "initial_premise": story.initial_premise,
             "scenario": story.scenario,
-            "characters": characters
+            "characters": characters_section
         }
+        
+        # Add chapter-specific context if available
+        if chapter:
+            base_context["chapter_location"] = chapter.location_name
+            base_context["chapter_time_period"] = chapter.time_period
+            base_context["chapter_scenario"] = chapter.scenario
+        
+        return base_context
     
     async def _get_scene_content(self, scenes: List[Scene], db: Session) -> str:
         """Get content for scenes using active variants"""
@@ -354,12 +415,13 @@ class SemanticContextManager(ContextManager):
             # Get exclude list (recent scene sequences)
             exclude_sequences = [s.sequence_number for s in recent_scenes]
             
-            # Search for similar scenes
+            # Search for similar scenes across entire story (not just current chapter)
             similar_scenes = await self.semantic_memory.search_similar_scenes(
                 query_text=query_content,
                 story_id=story_id,
                 top_k=self.semantic_top_k,
-                exclude_sequences=exclude_sequences
+                exclude_sequences=exclude_sequences,
+                chapter_id=None  # Search entire story, not just current chapter
             )
             
             if not similar_scenes:

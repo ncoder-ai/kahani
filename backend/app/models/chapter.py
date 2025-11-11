@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Enum
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Enum, Table
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
@@ -8,6 +8,18 @@ class ChapterStatus(str, enum.Enum):
     DRAFT = "draft"
     ACTIVE = "active"
     COMPLETED = "completed"
+
+# Association table for chapter-character many-to-many relationship
+chapter_characters = Table(
+    'chapter_characters',
+    Base.metadata,
+    Column('id', Integer, primary_key=True),
+    Column('chapter_id', Integer, ForeignKey('chapters.id', ondelete='CASCADE'), nullable=False),
+    Column('story_character_id', Integer, ForeignKey('story_characters.id', ondelete='CASCADE'), nullable=False),
+    Column('perspective', String(50), nullable=True),  # For future use (POV, main, supporting)
+    # Unique constraint to prevent duplicate associations
+    # Note: SQLite doesn't support named constraints in Table(), so we'll handle this in migration
+)
 
 class Chapter(Base):
     """Story chapters for organizing narrative into manageable segments"""
@@ -31,6 +43,11 @@ class Chapter(Base):
     last_summary_scene_count = Column(Integer, default=0)  # Track when we last generated summary
     last_extraction_scene_count = Column(Integer, default=0)  # Track when we last ran character/NPC extraction
     
+    # Chapter metadata
+    location_name = Column(String(255), nullable=True)  # Primary location for this chapter
+    time_period = Column(String(100), nullable=True)  # Time of day, era, etc.
+    scenario = Column(Text, nullable=True)  # Chapter-specific scenario
+    
     # Status and metrics
     status = Column(Enum(ChapterStatus), default=ChapterStatus.ACTIVE)
     context_tokens_used = Column(Integer, default=0)
@@ -44,6 +61,13 @@ class Chapter(Base):
     # Relationships
     story = relationship("Story", back_populates="chapters")
     scenes = relationship("Scene", back_populates="chapter", cascade="all, delete-orphan", order_by="Scene.sequence_number")
+    # Many-to-many relationship with StoryCharacter via chapter_characters association table
+    characters = relationship(
+        "StoryCharacter",
+        secondary=chapter_characters,
+        backref="chapters",
+        lazy="dynamic"
+    )
     
     def __repr__(self):
         return f"<Chapter(id={self.id}, story_id={self.story_id}, number={self.chapter_number}, title='{self.title}')>"

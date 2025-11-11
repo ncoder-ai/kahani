@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { flushSync } from 'react-dom';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { useAuthStore, useStoryStore, useHasHydrated } from '@/store';
@@ -25,6 +25,11 @@ const CharacterWizard = dynamic(() => import('@/components/CharacterWizard'), {
 });
 
 const ChapterSidebar = dynamic(() => import('@/components/ChapterSidebar'), {
+  loading: () => null,
+  ssr: false
+});
+
+const ChapterWizard = dynamic(() => import('@/components/ChapterWizard'), {
   loading: () => null,
   ssr: false
 });
@@ -114,6 +119,7 @@ interface Story {
 export default function StoryPage() {
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const storyId = parseInt(params.id as string);
   
   const { user, token } = useAuthStore();
@@ -204,6 +210,10 @@ export default function StoryPage() {
   
   // Story Settings Edit modal state
   const [showEditStoryModal, setShowEditStoryModal] = useState(false);
+  
+  // Chapter wizard state
+  const [showChapterWizard, setShowChapterWizard] = useState(false);
+  const [activeChapter, setActiveChapter] = useState<any>(null);
   
   // Modern scene layout states
   const [sceneLayoutMode, setSceneLayoutMode] = useState<'stacked' | 'modern'>('modern');
@@ -766,6 +776,27 @@ export default function StoryPage() {
         setSelectedChapterId(parseInt(lastChapterId));
       }
 
+      // Check if chapter setup is needed
+      const setupChapter = searchParams?.get('setup_chapter') === 'true';
+      if (setupChapter || !storyData.scenes || storyData.scenes.length === 0) {
+        // Load active chapter to check if it needs setup
+        try {
+          const activeChapterData = await apiClient.getActiveChapter(storyId);
+          setActiveChapter(activeChapterData);
+          
+          // Check if chapter needs setup (no characters or no location)
+          const needsSetup = !activeChapterData.characters || 
+                            activeChapterData.characters.length === 0 || 
+                            !activeChapterData.location_name;
+          
+          if (needsSetup) {
+            setShowChapterWizard(true);
+          }
+        } catch (err) {
+          console.error('Failed to load active chapter:', err);
+        }
+      }
+
       // Load choices for the current story
       await loadChoices();
       
@@ -1293,7 +1324,7 @@ export default function StoryPage() {
     setEditContent(scene.content);
   };
 
-  const handleCharacterAdd = (character: any) => {
+  const handleCharacterAdd = async (character: any) => {
     const newCharacter = {
       name: character.name,
       role: character.role,
@@ -1301,6 +1332,58 @@ export default function StoryPage() {
     };
     setStoryCharacters(prev => [...prev, newCharacter]);
     setShowCharacterQuickAdd(false);
+    
+    // Automatically add character to current active chapter
+    if (activeChapter && activeChapter.id) {
+      try {
+        await apiClient.addCharacterToChapter(storyId, activeChapter.id, character.id);
+        // Reload active chapter to get updated character list
+        const updatedChapter = await apiClient.getActiveChapter(storyId);
+        setActiveChapter(updatedChapter);
+        // Refresh chapter sidebar
+        setChapterSidebarRefreshKey(prev => prev + 1);
+      } catch (error) {
+        console.error('Failed to add character to chapter:', error);
+        // Don't show error to user - character is still added to story
+      }
+    }
+  };
+  
+  const handleChapterWizardComplete = async (chapterData: {
+    title?: string;
+    description?: string;
+    story_character_ids: number[];
+    location_name?: string;
+    time_period?: string;
+    scenario?: string;
+  }) => {
+    try {
+      if (activeChapter && activeChapter.id) {
+        // Update existing chapter
+        await apiClient.updateChapter(storyId, activeChapter.id, chapterData);
+      } else {
+        // Create new chapter (shouldn't happen in normal flow, but handle it)
+        await apiClient.createChapter(storyId, chapterData);
+      }
+      
+      // Reload story and active chapter
+      await loadStory(false, false);
+      const updatedChapter = await apiClient.getActiveChapter(storyId);
+      setActiveChapter(updatedChapter);
+      setShowChapterWizard(false);
+      
+      // Remove setup_chapter from URL
+      router.replace(`/story/${storyId}`);
+    } catch (error) {
+      console.error('Failed to save chapter setup:', error);
+      alert('Failed to save chapter setup. Please try again.');
+    }
+  };
+  
+  const handleChapterWizardCancel = () => {
+    setShowChapterWizard(false);
+    // Remove setup_chapter from URL
+    router.replace(`/story/${storyId}`);
   };
 
   const checkCharacterImportance = async () => {
@@ -2888,6 +2971,24 @@ export default function StoryPage() {
           chapterId={currentChapterId}
           onCharacterCreated={handleCharacterCreated}
           onClose={() => setShowCharacterWizard(false)}
+        />
+      )}
+
+      {/* Chapter Wizard Modal */}
+      {showChapterWizard && activeChapter && (
+        <ChapterWizard
+          storyId={storyId}
+          chapterNumber={activeChapter.chapter_number}
+          initialData={{
+            title: activeChapter.title || undefined,
+            description: activeChapter.description || undefined,
+            characters: activeChapter.characters || [],
+            location_name: activeChapter.location_name || undefined,
+            time_period: activeChapter.time_period || undefined,
+            scenario: activeChapter.scenario || undefined
+          }}
+          onComplete={handleChapterWizardComplete}
+          onCancel={handleChapterWizardCancel}
         />
       )}
 
