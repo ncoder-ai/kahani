@@ -834,6 +834,15 @@ class ApiClient {
       last_summary_scene_count: number;
       created_at: string;
       updated_at: string | null;
+      characters?: Array<{
+        id: number;
+        name: string;
+        role: string | null;
+        description: string | null;
+      }>;
+      location_name?: string | null;
+      time_period?: string | null;
+      scenario?: string | null;
     }>(`/api/stories/${storyId}/active-chapter`);
   }
 
