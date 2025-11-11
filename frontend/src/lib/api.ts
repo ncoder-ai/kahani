@@ -805,6 +805,15 @@ class ApiClient {
       last_summary_scene_count: number;
       created_at: string;
       updated_at: string | null;
+      characters?: Array<{
+        id: number;
+        name: string;
+        role: string | null;
+        description: string | null;
+      }>;
+      location_name?: string | null;
+      time_period?: string | null;
+      scenario?: string | null;
     }>(`/api/stories/${storyId}/chapters/${chapterId}`);
   }
 
@@ -834,6 +843,10 @@ class ApiClient {
     plot_point?: string;
     plot_point_index?: number;
     story_so_far?: string;
+    story_character_ids?: number[];
+    location_name?: string;
+    time_period?: string;
+    scenario?: string;
   }) {
     return this.request<{
       id: number;
@@ -863,6 +876,10 @@ class ApiClient {
     story_so_far?: string;
     auto_summary?: string;
     plot_point?: string;
+    story_character_ids?: number[];
+    location_name?: string;
+    time_period?: string;
+    scenario?: string;
   }) {
     return this.request<{
       id: number;
@@ -906,6 +923,87 @@ class ApiClient {
     }>(`/api/stories/${storyId}/chapters/${chapterId}/complete`, {
       method: 'POST',
     });
+  }
+
+  async concludeChapter(storyId: number, chapterId: number) {
+    return this.request<{
+      id: number;
+      story_id: number;
+      chapter_number: number;
+      title: string | null;
+      description: string | null;
+      plot_point: string | null;
+      plot_point_index: number | null;
+      story_so_far: string | null;
+      auto_summary: string | null;
+      status: 'draft' | 'active' | 'completed';
+      context_tokens_used: number;
+      scenes_count: number;
+      last_summary_scene_count: number;
+      created_at: string;
+      updated_at: string | null;
+      characters?: Array<{
+        id: number;
+        name: string;
+        role: string | null;
+        description: string | null;
+      }>;
+      location_name?: string | null;
+      time_period?: string | null;
+      scenario?: string | null;
+    }>(`/api/stories/${storyId}/chapters/${chapterId}/conclude`, {
+      method: 'POST',
+    });
+  }
+
+  async addCharacterToChapter(storyId: number, chapterId: number, characterId?: number, storyCharacterId?: number) {
+    return this.request<{
+      id: number;
+      story_id: number;
+      chapter_number: number;
+      title: string | null;
+      description: string | null;
+      plot_point: string | null;
+      plot_point_index: number | null;
+      story_so_far: string | null;
+      auto_summary: string | null;
+      status: 'draft' | 'active' | 'completed';
+      context_tokens_used: number;
+      scenes_count: number;
+      last_summary_scene_count: number;
+      created_at: string;
+      updated_at: string | null;
+      characters?: Array<{
+        id: number;
+        name: string;
+        role: string | null;
+        description: string | null;
+      }>;
+      location_name?: string | null;
+      time_period?: string | null;
+      scenario?: string | null;
+    }>(`/api/stories/${storyId}/chapters/${chapterId}/characters`, {
+      method: 'POST',
+      body: JSON.stringify({ character_id: characterId, story_character_id: storyCharacterId }),
+    });
+  }
+
+  async getAvailableCharacters(storyId: number) {
+    return this.request<{
+      characters: Array<{
+        story_character_id: number;
+        character_id: number;
+        name: string;
+        role: string | null;
+        description: string | null;
+      }>;
+    }>(`/api/stories/${storyId}/available-characters`);
+  }
+
+  async getAvailableLocations(storyId: number) {
+    return this.request<{
+      locations: string[];
+    }>(`/api/stories/${storyId}/available-locations`);
   }
 
   async getChapterContextStatus(storyId: number, chapterId: number) {

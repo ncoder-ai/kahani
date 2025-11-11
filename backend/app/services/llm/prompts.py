@@ -158,6 +158,7 @@ class PromptManager:
     def _get_yaml_prompt(self, template_key: str, prompt_type: str) -> str:
         """Get prompt from YAML file"""
         if not self._prompts_cache:
+            logger.warning(f"[PROMPTS] YAML cache is empty, cannot retrieve {template_key}.{prompt_type}")
             return ""
         
         # Map template keys to YAML structure
@@ -174,24 +175,47 @@ class PromptManager:
             "scene_variants": ("summary_generation", "scene_variants"),
             "scene_variants_streaming": ("summary_generation", "scene_variants_streaming"),
             "story_chapters": ("summary_generation", "story_chapters"),
+            "chapter_conclusion": ("chapter_conclusion", ""),
             "character_assistant.extraction": ("character_assistant", "extraction"),
             "character_assistant.detection": ("character_assistant", "detection"),
             "character_assistant.generation": ("character_assistant", "generation")
         }
         
         if template_key not in yaml_mapping:
+            logger.warning(f"[PROMPTS] Template key '{template_key}' not found in yaml_mapping")
             return ""
         
         category, function = yaml_mapping[template_key]
+        logger.debug(f"[PROMPTS] Looking up {template_key}.{prompt_type} -> category='{category}', function='{function}'")
         
         try:
             if function:
-                return self._prompts_cache.get(category, {}).get(function, {}).get(prompt_type, "").strip()
+                prompt = self._prompts_cache.get(category, {}).get(function, {}).get(prompt_type, "").strip()
+                if prompt:
+                    logger.debug(f"[PROMPTS] Found YAML prompt for {template_key}.{prompt_type} (length: {len(prompt)})")
+                else:
+                    logger.warning(f"[PROMPTS] YAML prompt for {template_key}.{prompt_type} is empty. Path: {category}.{function}.{prompt_type}")
+                return prompt
             else:
-                # Direct access to category (for choice_generation)
-                return self._prompts_cache.get(category, {}).get(prompt_type, "").strip()
+                # Direct access to category (for choice_generation, chapter_conclusion)
+                prompt = self._prompts_cache.get(category, {}).get(prompt_type, "").strip()
+                if prompt:
+                    logger.debug(f"[PROMPTS] Found YAML prompt for {template_key}.{prompt_type} (length: {len(prompt)})")
+                else:
+                    logger.warning(f"[PROMPTS] YAML prompt for {template_key}.{prompt_type} is empty. Path: {category}.{prompt_type}")
+                    logger.debug(f"[PROMPTS] Available top-level keys in YAML: {list(self._prompts_cache.keys())}")
+                    if category in self._prompts_cache:
+                        logger.debug(f"[PROMPTS] Keys under '{category}': {list(self._prompts_cache[category].keys())}")
+                        logger.debug(f"[PROMPTS] Full structure of '{category}': {self._prompts_cache[category]}")
+                    else:
+                        logger.warning(f"[PROMPTS] Category '{category}' not found in YAML cache")
+                        # Check if it exists with different casing or structure
+                        for key in self._prompts_cache.keys():
+                            if key.lower() == category.lower():
+                                logger.warning(f"[PROMPTS] Found similar key '{key}' (case mismatch?)")
+                return prompt
         except Exception as e:
-            logger.error(f"Error retrieving YAML prompt {template_key}: {e}")
+            logger.error(f"[PROMPTS] Error retrieving YAML prompt {template_key}.{prompt_type}: {e}", exc_info=True)
             return ""
     
     def _get_fallback_prompt(self, template_key: str, prompt_type: str) -> str:
@@ -259,6 +283,22 @@ Rewrite the scene above incorporating the enhancement while maintaining the same
             "single_plot_point": {
                 "system": """You are a master storyteller. Generate a compelling plot point that is tailored to the characters, builds naturally from the scenario, and advances character development.""",
                 "user": """Generate a compelling plot point that naturally incorporates the characters' personalities and the established scenario."""
+            },
+            "chapter_conclusion": {
+                "system": """You are a skilled interactive fiction writer specializing in chapter endings. Create a compelling chapter conclusion that brings the current chapter to a natural and satisfying end, ties up loose threads, sets up anticipation for the next chapter, and maintains consistency with established story elements.""",
+                "user": """Based on the story context below, create a chapter conclusion that brings Chapter {chapter_number} to a natural and satisfying end.
+
+{context}
+
+Chapter Information:
+- Title: {chapter_title}
+- Location: {chapter_location}
+- Time Period: {chapter_time_period}
+- Scenario: {chapter_scenario}
+
+Create a conclusion that provides closure for this chapter's events, ties up chapter-specific plot threads, sets up anticipation for the next chapter, and maintains the established genre, tone, and writing style.
+
+Chapter Conclusion:"""
             }
         }
         

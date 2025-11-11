@@ -79,9 +79,14 @@ class ContextManager:
         # This is closer to the actual token count
         return int(len(text) / 3.5)
     
-    async def build_story_context(self, story_id: int, db: Session) -> Dict[str, Any]:
+    async def build_story_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None) -> Dict[str, Any]:
         """
         Build optimized context for story generation, managing token limits
+        
+        Args:
+            story_id: Story ID
+            db: Database session
+            chapter_id: Optional chapter ID to separate active/inactive characters
         
         Returns:
             Optimized context dict with story info, characters, and scene history
@@ -102,31 +107,78 @@ class ContextManager:
             StoryCharacter.story_id == story_id
         ).all()
         
-        characters = []
+        # Separate into active (chapter) and inactive (story only) characters
+        active_characters = []
+        inactive_characters = []
+        
+        if chapter_id:
+            # Get chapter-specific characters
+            from ..models import chapter_characters
+            chapter_char_ids = db.execute(
+                chapter_characters.select().where(
+                    chapter_characters.c.chapter_id == chapter_id
+                )
+            ).fetchall()
+            chapter_story_char_ids = {row.story_character_id for row in chapter_char_ids}
+            
+            # Get chapter info for context
+            from ..models import Chapter
+            chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+        else:
+            chapter_story_char_ids = set()
+            chapter = None
+        
         for sc in story_characters:
             character = db.query(Character).filter(Character.id == sc.character_id).first()
-            if character:
-                characters.append({
+            if not character:
+                continue
+            
+            char_data = {
+                "name": character.name,
+                "role": sc.role or "",
+                "description": character.description or "",
+                "personality": ", ".join(character.personality_traits) if character.personality_traits else "",
+                "background": character.background or "",
+                "goals": character.goals or "",
+                "relationships": ""
+            }
+            
+            if chapter_id and sc.id in chapter_story_char_ids:
+                # Active character - full details
+                active_characters.append(char_data)
+            elif chapter_id:
+                # Inactive character - brief format
+                inactive_characters.append({
                     "name": character.name,
-                    "role": sc.role or "",  # Get role from StoryCharacter (story-specific)
-                    "description": character.description or "",
-                    "personality": ", ".join(character.personality_traits) if character.personality_traits else "",
-                    "background": character.background or "",
-                    "goals": character.goals or "",
-                    "relationships": ""  # Could extract from StoryCharacter relationships JSON if needed
+                    "role": sc.role or ""
                 })
+            else:
+                # No chapter specified - treat all as active
+                active_characters.append(char_data)
         
-        # Add important NPCs that crossed threshold
+        # Add important NPCs that crossed threshold (always as active)
         try:
             from .npc_tracking_service import NPCTrackingService
             npc_service = NPCTrackingService(user_id=self.user_id, user_settings=self.user_settings)
             npc_characters = npc_service.get_important_npcs_for_context(db, story_id)
-            characters.extend(npc_characters)
-            logger.warning(f"[CONTEXT BUILD] Added {len(npc_characters)} important NPCs to context (total characters now: {len(characters)})")
+            active_characters.extend(npc_characters)
+            logger.warning(f"[CONTEXT BUILD] Added {len(npc_characters)} important NPCs to context (total characters now: {len(active_characters)})")
             if npc_characters:
                 logger.warning(f"[CONTEXT BUILD] NPCs added: {[npc.get('name', 'Unknown') for npc in npc_characters]}")
         except Exception as e:
             logger.warning(f"Failed to include NPCs in context: {e}")
+        
+        # Format characters section with active/inactive distinction
+        if chapter_id and inactive_characters:
+            # Format with clear distinction
+            characters_section = {
+                "active_characters": active_characters,
+                "inactive_characters": inactive_characters
+            }
+            logger.info(f"[CONTEXT BUILD] Chapter {chapter_id}: {len(active_characters)} active, {len(inactive_characters)} inactive characters")
+        else:
+            # All characters are active (or no chapter specified)
+            characters_section = active_characters
         
         # Build base context
         base_context = {
@@ -137,8 +189,14 @@ class ContextManager:
             "world_setting": story.world_setting,
             "initial_premise": story.initial_premise,
             "scenario": story.scenario,
-            "characters": characters
+            "characters": characters_section
         }
+        
+        # Add chapter-specific context if available
+        if chapter:
+            base_context["chapter_location"] = chapter.location_name
+            base_context["chapter_time_period"] = chapter.time_period
+            base_context["chapter_scenario"] = chapter.scenario
         
         # Calculate base context tokens
         base_tokens = self._calculate_base_context_tokens(base_context)
@@ -168,9 +226,17 @@ Premise: {base_context.get('initial_premise', '')}
 Scenario: {base_context.get('scenario', '')}
 """
         
-        # Add character information
-        for char in base_context.get('characters', []):
-            char_text = f"""
+        # Add character information - handle both list and dict formats
+        characters = base_context.get('characters', [])
+        if isinstance(characters, dict) and "active_characters" in characters:
+            # New format: dict with active_characters and inactive_characters
+            active_chars = characters.get("active_characters", [])
+            inactive_chars = characters.get("inactive_characters", [])
+            
+            # Count tokens for active characters (full details)
+            for char in active_chars:
+                if isinstance(char, dict):
+                    char_text = f"""
 Character: {char.get('name', '')}
 Role: {char.get('role', '')}
 Description: {char.get('description', '')}
@@ -178,7 +244,29 @@ Personality: {char.get('personality', '')}
 Background: {char.get('background', '')}
 Goals: {char.get('goals', '')}
 """
-            context_text += char_text
+                    context_text += char_text
+            
+            # Count tokens for inactive characters (brief format)
+            for char in inactive_chars:
+                if isinstance(char, dict):
+                    char_text = f"""
+Character: {char.get('name', '')}
+Role: {char.get('role', '')}
+"""
+                    context_text += char_text
+        else:
+            # Legacy format: list of character dicts
+            for char in characters:
+                if isinstance(char, dict):
+                    char_text = f"""
+Character: {char.get('name', '')}
+Role: {char.get('role', '')}
+Description: {char.get('description', '')}
+Personality: {char.get('personality', '')}
+Background: {char.get('background', '')}
+Goals: {char.get('goals', '')}
+"""
+                    context_text += char_text
         
         return self.count_tokens(context_text)
     
@@ -571,7 +659,7 @@ Goals: {char.get('goals', '')}
         
         return "\n".join(text_parts)
     
-    async def build_scene_generation_context(self, story_id: int, db: Session, custom_prompt: str = "", is_variant_generation: bool = False) -> Dict[str, Any]:
+    async def build_scene_generation_context(self, story_id: int, db: Session, custom_prompt: str = "", is_variant_generation: bool = False, chapter_id: Optional[int] = None) -> Dict[str, Any]:
         """
         Build optimized context specifically for scene generation
         
@@ -580,10 +668,11 @@ Goals: {char.get('goals', '')}
             db: Database session
             custom_prompt: Custom prompt (continue option for new scenes, enhancement guidance for variants)
             is_variant_generation: True if this is for variant generation, False for new scene generation
+            chapter_id: Optional chapter ID to separate active/inactive characters
         """
         
-        # Get full context
-        full_context = await self.build_story_context(story_id, db)
+        # Get full context with chapter_id for character separation
+        full_context = await self.build_story_context(story_id, db, chapter_id=chapter_id)
         
         # Check if this is the first scene (no previous scenes)
         total_scenes = full_context.get("total_scenes", 0)

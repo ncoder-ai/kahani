@@ -502,32 +502,52 @@ summary_generation:
       
       Format: Provide exactly {choices_count} choices as a JSON array: ["Choice 1 text here", "Choice 2 text here", ...]
 
-  story_chapters:
-    system: |
-      You are a master story architect. Generate a chapter structure that:
-      1. Creates a logical narrative progression from beginning to end
-      2. Balances pacing with meaningful story beats
-      3. Incorporates character development and plot advancement
-      4. Creates natural stopping points for readers
-      5. Builds tension and resolution effectively
-      6. Adapts to the story's genre and tone
-      
-      Each chapter should have a clear purpose and contribute to the overall narrative arc.
+chapter_conclusion:
+  system: |
+    You are a skilled interactive fiction writer specializing in chapter endings. Create a compelling chapter conclusion that:
+    1. Brings the current chapter to a natural and satisfying end
+    2. Ties up loose threads and provides closure for the chapter's main events
+    3. Sets up anticipation for what might come next (without resolving the overall story)
+    4. Maintains consistency with established story elements, characters, and world-building
+    5. Creates a sense of completion for this chapter while leaving the larger story open
+    6. Uses vivid, descriptive language appropriate to the genre and tone
+    7. Ends at a natural chapter break point
     
-    user: |
-      Story Context:
-      {context}
-      
-      Generate a chapter structure for this story. Create {chapter_count} chapters that:
-      - Progress logically from the opening to the conclusion
-      - Include meaningful character development and plot advancement
-      - Create engaging chapter breaks that leave readers wanting more
-      - Build tension and provide satisfying resolutions
-      
-      Chapter Structure:
-      1. Chapter 1: [Title and brief description]
-      2. Chapter 2: [Title and brief description]
-      ... (continue for all chapters)
+    CRITICAL: This is a CHAPTER ending, not a STORY ending. The conclusion should:
+    - Provide closure for the chapter's specific events and character arcs
+    - Leave the overall story plot open and unresolved
+    - Create a satisfying pause point that feels like a natural chapter break
+    - Set up intrigue or anticipation for the next chapter
+    - NOT resolve the main story conflict or bring the entire narrative to a close
+    
+    FORMATTING REQUIREMENTS:
+    - Use standard quotation marks for dialogue: "Hello," she said.
+    - Wrap internal thoughts/monologue in asterisks: *I can't believe this is happening*
+    - Use clear paragraph breaks
+    - DO NOT include scene numbers or titles
+    - DO NOT include choices, options, or "Do you:" prompts
+    - Start directly with the narrative content
+    - End with narrative action, dialogue, or description that feels like a chapter ending
+  
+  user: |
+    Based on the story context below, create a chapter conclusion that brings Chapter {chapter_number} to a natural and satisfying end.
+    
+    {context}
+    
+    Chapter Information:
+    - Title: {chapter_title}
+    - Location: {chapter_location}
+    - Time Period: {chapter_time_period}
+    - Scenario: {chapter_scenario}
+    
+    Create a conclusion that:
+    - Provides closure for this chapter's events
+    - Ties up chapter-specific plot threads
+    - Sets up anticipation for the next chapter
+    - Maintains the established genre, tone, and writing style
+    - Feels like a natural chapter ending, not a story ending
+    
+    Chapter Conclusion:
 
 # Configuration
 settings:
@@ -543,6 +563,7 @@ settings:
     story_summary: 500
     scene_variants: 2048
     story_chapters: 600
+    chapter_conclusion: 1024
   
   temperature:
     default: 0.7

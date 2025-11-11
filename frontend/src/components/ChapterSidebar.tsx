@@ -1,8 +1,14 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, BookOpen, AlertCircle, Edit2, Save, X, Plus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, BookOpen, AlertCircle, Edit2, Save, X, Plus, CheckCircle } from 'lucide-react';
 import apiClient, { getApiBaseUrl } from '@/lib/api';
+import dynamic from 'next/dynamic';
+
+const ChapterWizard = dynamic(() => import('@/components/ChapterWizard'), {
+  loading: () => null,
+  ssr: false
+});
 
 interface Chapter {
   id: number;
@@ -19,6 +25,15 @@ interface Chapter {
   last_summary_scene_count: number;
   created_at: string;
   updated_at: string | null;
+  characters?: Array<{
+    id: number;
+    name: string;
+    role: string | null;
+    description: string | null;
+  }>;
+  location_name?: string | null;
+  time_period?: string | null;
+  scenario?: string | null;
 }
 
 interface ChapterContextStatus {
@@ -60,9 +75,11 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
   
   // New Chapter creation state
   const [isCreatingChapter, setIsCreatingChapter] = useState(false);
+  const [showChapterWizard, setShowChapterWizard] = useState(false);
   const [newChapterTitle, setNewChapterTitle] = useState('');
   const [newChapterDescription, setNewChapterDescription] = useState('');
   const [isSubmittingNewChapter, setIsSubmittingNewChapter] = useState(false);
+  const [isConcludingChapter, setIsConcludingChapter] = useState(false);
   
   // Summary generation state
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
@@ -198,23 +215,67 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
   };
 
   const handleCreateNewChapter = () => {
-    // Auto-populate with next chapter number
+    // Show chapter wizard instead of simple modal
     const nextChapterNum = (chapters.length || 0) + 1;
     setNewChapterTitle(`Chapter ${nextChapterNum}`);
     setNewChapterDescription('');
-    setIsCreatingChapter(true);
+    setShowChapterWizard(true);
+  };
+  
+  const handleConcludeChapter = async () => {
+    if (!activeChapter) return;
+    
+    if (activeChapter.scenes_count === 0) {
+      alert('Cannot conclude a chapter with no scenes.');
+      return;
+    }
+    
+    if (!confirm(`Are you sure you want to conclude Chapter ${activeChapter.chapter_number}? This will generate a final scene and mark the chapter as completed.`)) {
+      return;
+    }
+    
+    setIsConcludingChapter(true);
+    try {
+      await apiClient.concludeChapter(storyId, activeChapter.id);
+      
+      // Reload chapters
+      await loadChapters();
+      
+      // Notify parent component
+      if (onChapterChange) {
+        onChapterChange();
+      }
+      
+      alert(`Chapter ${activeChapter.chapter_number} concluded successfully!`);
+    } catch (err) {
+      console.error('Failed to conclude chapter:', err);
+      alert('Failed to conclude chapter. Please try again.');
+    } finally {
+      setIsConcludingChapter(false);
+    }
   };
 
-  const handleSubmitNewChapter = async () => {
+  const handleChapterWizardComplete = async (chapterData: {
+    title?: string;
+    description?: string;
+    story_character_ids: number[];
+    location_name?: string;
+    time_period?: string;
+    scenario?: string;
+  }) => {
     setIsSubmittingNewChapter(true);
     try {
       // Use previous chapter's auto_summary as story_so_far for new chapter
       const storySoFar = activeChapter?.auto_summary || activeChapter?.story_so_far || 'Continuing the story...';
       
       const newChapter = await apiClient.createChapter(storyId, {
-        title: newChapterTitle || undefined,
-        description: newChapterDescription || undefined,
-        story_so_far: storySoFar
+        title: chapterData.title || newChapterTitle || undefined,
+        description: chapterData.description || newChapterDescription || undefined,
+        story_so_far: storySoFar,
+        story_character_ids: chapterData.story_character_ids,
+        location_name: chapterData.location_name,
+        time_period: chapterData.time_period,
+        scenario: chapterData.scenario
       });
       
       // Reload chapters to get updated list
@@ -225,7 +286,8 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
         onChapterChange();
       }
       
-      // Close modal
+      // Close wizard
+      setShowChapterWizard(false);
       setIsCreatingChapter(false);
       setNewChapterTitle('');
       setNewChapterDescription('');
@@ -238,6 +300,13 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
     } finally {
       setIsSubmittingNewChapter(false);
     }
+  };
+  
+  const handleChapterWizardCancel = () => {
+    setShowChapterWizard(false);
+    setIsCreatingChapter(false);
+    setNewChapterTitle('');
+    setNewChapterDescription('');
   };
 
   const handleCancelNewChapter = () => {
@@ -420,11 +489,60 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
                   </p>
                 )}
 
+                {/* Chapter Actions - Always Visible */}
+                <div className="mt-3 pt-3 border-t border-slate-700 space-y-3">
+                  <h4 className="text-xs font-semibold text-gray-400 uppercase">Chapter Actions</h4>
+                  
+                  {/* Create New Chapter Button - Always Visible */}
+                  <button
+                    onClick={handleCreateNewChapter}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-pink-600 hover:bg-pink-700 text-white rounded-lg text-sm font-medium transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Create New Chapter
+                  </button>
+                  
+                  {/* Scene Count */}
+                  <div className="text-sm text-gray-400 pt-2">
+                    <span className="font-semibold">{activeChapter.scenes_count || 0}</span> scenes in this chapter
+                  </div>
+                  
+                  {/* Conclude Chapter Button - Show if chapter has scenes and is not completed */}
+                  {(activeChapter.scenes_count || 0) > 0 && activeChapter.status !== 'completed' && (
+                    <button
+                      onClick={handleConcludeChapter}
+                      disabled={isConcludingChapter}
+                      className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors mt-2"
+                    >
+                      {isConcludingChapter ? (
+                        <>
+                          <span className="animate-spin">⚙️</span>
+                          Concluding...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle className="w-4 h-4" />
+                          Conclude Chapter
+                        </>
+                      )}
+                    </button>
+                  )}
+                  
+                  {/* Debug info - remove after testing */}
+                  {process.env.NODE_ENV === 'development' && (
+                    <div className="text-xs text-gray-500 mt-2 p-2 bg-slate-800/50 rounded">
+                      Debug: scenes={activeChapter.scenes_count || 0}, status={activeChapter.status}, 
+                      show={(activeChapter.scenes_count || 0) > 0 && activeChapter.status !== 'completed' ? 'YES' : 'NO'}
+                    </div>
+                  )}
+                </div>
+
                 {/* Context Usage */}
                 {contextStatus && (
-                  <div className="space-y-2">
+                  <div className="mt-3 pt-3 border-t border-slate-700 space-y-2">
+                    <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2">Context Usage</h4>
                     <div className="flex justify-between items-center text-sm">
-                      <span className="text-gray-400">Context Usage:</span>
+                      <span className="text-gray-400">Usage:</span>
                       <span className={`font-semibold ${getContextWarningColor(contextStatus.percentage_used || 0)}`}>
                         {Math.round(contextStatus.percentage_used || 0)}%
                       </span>
@@ -448,34 +566,20 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
                       {(contextStatus.current_tokens || 0).toLocaleString()} / {(contextStatus.max_tokens || 0).toLocaleString()} tokens
                     </div>
 
-                    {/* Warning Message */}
+                    {/* Warning Message - Display only, no button */}
                     {contextStatus.should_create_new_chapter && (
-                      <div className="space-y-2">
-                        <div className="flex items-start gap-2 p-2 bg-yellow-500/10 border border-yellow-500/20 rounded text-xs text-yellow-400">
-                          <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                          <div className="flex-1">
-                            <p className="font-semibold mb-1">Context Warning</p>
-                            <p className="text-yellow-400/80">
-                              {contextStatus.reason === 'context_limit' 
-                                ? 'Context usage is high. Consider starting a new chapter to maintain quality.'
-                                : 'Consider starting a new chapter.'}
-                            </p>
-                          </div>
+                      <div className="flex items-start gap-2 p-2 bg-yellow-500/10 border border-yellow-500/20 rounded text-xs text-yellow-400">
+                        <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <p className="font-semibold mb-1">Context Warning</p>
+                          <p className="text-yellow-400/80">
+                            {contextStatus.reason === 'context_limit' 
+                              ? 'Context usage is high. Consider starting a new chapter to maintain quality.'
+                              : 'Consider starting a new chapter.'}
+                          </p>
                         </div>
-                        <button
-                          onClick={handleCreateNewChapter}
-                          className="w-full flex items-center justify-center gap-2 px-3 py-2 theme-btn-primary rounded-lg text-sm font-medium transition-colors"
-                        >
-                          <Plus className="w-4 h-4" />
-                          Create New Chapter
-                        </button>
                       </div>
                     )}
-
-                    {/* Scene Count */}
-                    <div className="text-sm text-gray-400">
-                      <span className="font-semibold">{activeChapter.scenes_count || 0}</span> scenes in this chapter
-                    </div>
                   </div>
                 )}
 
@@ -809,6 +913,20 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
             </div>
           </div>
         </div>
+      )}
+
+      {/* Chapter Wizard Modal */}
+      {showChapterWizard && (
+        <ChapterWizard
+          storyId={storyId}
+          chapterNumber={chapters.length + 1}
+          initialData={{
+            title: newChapterTitle || undefined,
+            description: newChapterDescription || undefined
+          }}
+          onComplete={handleChapterWizardComplete}
+          onCancel={handleChapterWizardCancel}
+        />
       )}
 
       {/* Create New Chapter Modal */}

@@ -1763,7 +1763,7 @@ class UnifiedLLMService:
         return length_map.get(scene_length, "approximately 200-300 words")
     
     def _format_context_for_scene(self, context: Dict[str, Any], exclude_last_scene: bool = False) -> str:
-        """Format context for scene generation
+        """Format context for scene generation, handling active/inactive characters
         
         Args:
             context: Context dictionary
@@ -1807,21 +1807,68 @@ class UnifiedLLMService:
         if context.get("initial_premise"):
             context_parts.append(f"Initial Premise: {context['initial_premise']}")
         
-        if context.get("characters"):
-            char_descriptions = []
-            for char in context["characters"]:
-                char_desc = f"- {char.get('name', 'Unknown')}"
-                if char.get('role'):
-                    char_desc += f" ({char['role']})"
-                char_desc += f": {char.get('description', 'No description')}"
-                if char.get('personality'):
-                    char_desc += f". Personality: {char['personality']}"
-                if char.get('background'):
-                    char_desc += f". Background: {char['background']}"
-                if char.get('goals'):
-                    char_desc += f". Goals: {char['goals']}"
-                char_descriptions.append(char_desc)
-            context_parts.append(f"Characters:\n{chr(10).join(char_descriptions)}")
+        # Handle characters - check if we have active/inactive separation
+        characters = context.get("characters")
+        if characters:
+            # Check if characters is a dict with active_characters/inactive_characters
+            if isinstance(characters, dict) and "active_characters" in characters:
+                # Format active and inactive characters separately
+                active_chars = characters.get("active_characters", [])
+                inactive_chars = characters.get("inactive_characters", [])
+                
+                char_descriptions = []
+                
+                # Active characters - full details
+                if active_chars:
+                    char_descriptions.append("Active Characters (in this chapter):")
+                    for char in active_chars:
+                        char_desc = f"- {char.get('name', 'Unknown')}"
+                        if char.get('role'):
+                            char_desc += f" ({char['role']})"
+                        char_desc += f": {char.get('description', 'No description')}"
+                        if char.get('personality'):
+                            char_desc += f". Personality: {char['personality']}"
+                        if char.get('background'):
+                            char_desc += f". Background: {char['background']}"
+                        if char.get('goals'):
+                            char_desc += f". Goals: {char['goals']}"
+                        char_descriptions.append(char_desc)
+                
+                # Inactive characters - brief format
+                if inactive_chars:
+                    char_descriptions.append("\nInactive Characters (available for reference):")
+                    for char in inactive_chars:
+                        char_desc = f"- {char.get('name', 'Unknown')}"
+                        if char.get('role'):
+                            char_desc += f" ({char['role']})"
+                        char_descriptions.append(char_desc)
+                
+                if char_descriptions:
+                    context_parts.append(f"Characters:\n{chr(10).join(char_descriptions)}")
+            else:
+                # Legacy format - all characters are active
+                char_descriptions = []
+                for char in characters:
+                    char_desc = f"- {char.get('name', 'Unknown')}"
+                    if char.get('role'):
+                        char_desc += f" ({char['role']})"
+                    char_desc += f": {char.get('description', 'No description')}"
+                    if char.get('personality'):
+                        char_desc += f". Personality: {char['personality']}"
+                    if char.get('background'):
+                        char_desc += f". Background: {char['background']}"
+                    if char.get('goals'):
+                        char_desc += f". Goals: {char['goals']}"
+                    char_descriptions.append(char_desc)
+                context_parts.append(f"Characters:\n{chr(10).join(char_descriptions)}")
+        
+        # Add chapter-specific context if available
+        if context.get("chapter_location"):
+            context_parts.append(f"Chapter Location: {context['chapter_location']}")
+        if context.get("chapter_time_period"):
+            context_parts.append(f"Chapter Time Period: {context['chapter_time_period']}")
+        if context.get("chapter_scenario"):
+            context_parts.append(f"Chapter Scenario: {context['chapter_scenario']}")
         
         if context.get("scene_summary"):
             context_parts.append(f"Story Summary: {context['scene_summary']}")
