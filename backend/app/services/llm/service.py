@@ -82,7 +82,8 @@ class UnifiedLLMService:
         system_prompt: str = "",
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
-        stream: bool = False
+        stream: bool = False,
+        skip_nsfw_filter: bool = False
     ) -> str:
         """Generic text generation with streaming toggle"""
         if stream:
@@ -94,7 +95,8 @@ class UnifiedLLMService:
                 user_settings=user_settings,
                 system_prompt=system_prompt,
                 max_tokens=max_tokens,
-                temperature=temperature
+                temperature=temperature,
+                skip_nsfw_filter=skip_nsfw_filter
             ):
                 complete_text += chunk
             return complete_text
@@ -105,7 +107,8 @@ class UnifiedLLMService:
                 user_settings=user_settings,
                 system_prompt=system_prompt,
                 max_tokens=max_tokens,
-                temperature=temperature
+                temperature=temperature,
+                skip_nsfw_filter=skip_nsfw_filter
             )
     
     # Remove redundant generate_stream method - use _generate_stream directly
@@ -117,7 +120,8 @@ class UnifiedLLMService:
         user_settings: Dict[str, Any],
         system_prompt: str = "",
         max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None
+        temperature: Optional[float] = None,
+        skip_nsfw_filter: bool = False
     ) -> str:
         """Internal method for non-streaming generation"""
         
@@ -129,7 +133,7 @@ class UnifiedLLMService:
         if completion_mode == "text":
             logger.debug(f"Using text completion API for user {user_id}")
             return await self._generate_text_completion(
-                prompt, user_id, user_settings, system_prompt, max_tokens, temperature
+                prompt, user_id, user_settings, system_prompt, max_tokens, temperature, skip_nsfw_filter
             )
         
         logger.debug(f"Using chat completion API for user {user_id}")
@@ -141,13 +145,13 @@ class UnifiedLLMService:
         
         messages = []
         if system_prompt and system_prompt.strip():
-            # Inject NSFW filter if user doesn't have NSFW permissions
-            if should_inject_nsfw_filter(user_allow_nsfw):
+            # Inject NSFW filter if user doesn't have NSFW permissions (unless explicitly skipped)
+            if not skip_nsfw_filter and should_inject_nsfw_filter(user_allow_nsfw):
                 system_prompt = system_prompt.strip() + "\n\n" + get_nsfw_prevention_prompt()
                 logger.debug(f"NSFW filter injected for user {user_id}")
             
             messages.append({"role": "system", "content": system_prompt.strip()})
-        elif should_inject_nsfw_filter(user_allow_nsfw):
+        elif not skip_nsfw_filter and should_inject_nsfw_filter(user_allow_nsfw):
             # No system prompt provided, but we need to inject NSFW filter
             messages.append({"role": "system", "content": get_nsfw_prevention_prompt()})
             logger.debug(f"NSFW filter injected (no system prompt) for user {user_id}")
@@ -217,7 +221,8 @@ class UnifiedLLMService:
         user_settings: Dict[str, Any],
         system_prompt: str = "",
         max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None
+        temperature: Optional[float] = None,
+        skip_nsfw_filter: bool = False
     ) -> str:
         """Internal method for text completion generation"""
         
@@ -228,12 +233,12 @@ class UnifiedLLMService:
         user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
         logger.debug(f"NSFW check for user {user_id} (_generate_text_completion): user_settings keys={list(user_settings.keys()) if user_settings else None}, allow_nsfw value={user_settings.get('allow_nsfw') if user_settings else None}, user_allow_nsfw={user_allow_nsfw}, type={type(user_allow_nsfw)}")
         
-        # Inject NSFW filter into system prompt if needed
+        # Inject NSFW filter into system prompt if needed (unless explicitly skipped)
         if system_prompt and system_prompt.strip():
-            if should_inject_nsfw_filter(user_allow_nsfw):
+            if not skip_nsfw_filter and should_inject_nsfw_filter(user_allow_nsfw):
                 system_prompt = system_prompt.strip() + "\n\n" + get_nsfw_prevention_prompt()
                 logger.debug(f"NSFW filter injected for user {user_id}")
-        elif should_inject_nsfw_filter(user_allow_nsfw):
+        elif not skip_nsfw_filter and should_inject_nsfw_filter(user_allow_nsfw):
             # No system prompt provided, but we need to inject NSFW filter
             system_prompt = get_nsfw_prevention_prompt()
             logger.debug(f"NSFW filter injected (no system prompt) for user {user_id}")
@@ -480,7 +485,8 @@ class UnifiedLLMService:
         user_settings: Dict[str, Any],
         system_prompt: str = "",
         max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None
+        temperature: Optional[float] = None,
+        skip_nsfw_filter: bool = False
     ) -> AsyncGenerator[str, None]:
         """Internal method for streaming generation"""
         
@@ -492,7 +498,7 @@ class UnifiedLLMService:
         if completion_mode == "text":
             logger.debug(f"Using text completion streaming API for user {user_id}")
             async for chunk in self._generate_text_completion_stream(
-                prompt, user_id, user_settings, system_prompt, max_tokens, temperature
+                prompt, user_id, user_settings, system_prompt, max_tokens, temperature, skip_nsfw_filter
             ):
                 yield chunk
             return
@@ -505,13 +511,13 @@ class UnifiedLLMService:
         
         messages = []
         if system_prompt and system_prompt.strip():
-            # Inject NSFW filter if user doesn't have NSFW permissions
-            if should_inject_nsfw_filter(user_allow_nsfw):
+            # Inject NSFW filter if user doesn't have NSFW permissions (unless explicitly skipped)
+            if not skip_nsfw_filter and should_inject_nsfw_filter(user_allow_nsfw):
                 system_prompt = system_prompt.strip() + "\n\n" + get_nsfw_prevention_prompt()
                 logger.debug(f"NSFW filter injected for streaming user {user_id}")
             
             messages.append({"role": "system", "content": system_prompt.strip()})
-        elif should_inject_nsfw_filter(user_allow_nsfw):
+        elif not skip_nsfw_filter and should_inject_nsfw_filter(user_allow_nsfw):
             # No system prompt provided, but we need to inject NSFW filter
             messages.append({"role": "system", "content": get_nsfw_prevention_prompt()})
             logger.debug(f"NSFW filter injected (no system prompt) for streaming user {user_id}")
@@ -583,7 +589,8 @@ class UnifiedLLMService:
         user_settings: Dict[str, Any],
         system_prompt: str = "",
         max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None
+        temperature: Optional[float] = None,
+        skip_nsfw_filter: bool = False
     ) -> AsyncGenerator[str, None]:
         """Internal method for streaming text completion generation"""
         
@@ -594,12 +601,12 @@ class UnifiedLLMService:
         user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
         logger.debug(f"NSFW check for user {user_id} (text completion streaming): user_settings.get('allow_nsfw')={user_settings.get('allow_nsfw') if user_settings else None}, user_allow_nsfw={user_allow_nsfw}, type={type(user_allow_nsfw)}")
         
-        # Inject NSFW filter into system prompt if needed
+        # Inject NSFW filter into system prompt if needed (unless explicitly skipped)
         if system_prompt and system_prompt.strip():
-            if should_inject_nsfw_filter(user_allow_nsfw):
+            if not skip_nsfw_filter and should_inject_nsfw_filter(user_allow_nsfw):
                 system_prompt = system_prompt.strip() + "\n\n" + get_nsfw_prevention_prompt()
                 logger.debug(f"NSFW filter injected for streaming user {user_id}")
-        elif should_inject_nsfw_filter(user_allow_nsfw):
+        elif not skip_nsfw_filter and should_inject_nsfw_filter(user_allow_nsfw):
             # No system prompt provided, but we need to inject NSFW filter
             system_prompt = get_nsfw_prevention_prompt()
             logger.debug(f"NSFW filter injected (no system prompt) for streaming user {user_id}")

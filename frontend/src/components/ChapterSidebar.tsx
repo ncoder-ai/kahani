@@ -76,6 +76,7 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
   // New Chapter creation state
   const [isCreatingChapter, setIsCreatingChapter] = useState(false);
   const [showChapterWizard, setShowChapterWizard] = useState(false);
+  const [editingChapterId, setEditingChapterId] = useState<number | null>(null); // Track which chapter is being edited
   const [newChapterTitle, setNewChapterTitle] = useState('');
   const [newChapterDescription, setNewChapterDescription] = useState('');
   const [isSubmittingNewChapter, setIsSubmittingNewChapter] = useState(false);
@@ -231,6 +232,13 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
     const nextChapterNum = (chapters.length || 0) + 1;
     setNewChapterTitle(`Chapter ${nextChapterNum}`);
     setNewChapterDescription('');
+    setEditingChapterId(null); // Clear edit mode
+    setShowChapterWizard(true);
+  };
+
+  const handleEditChapter = () => {
+    if (!activeChapter) return;
+    setEditingChapterId(activeChapter.id);
     setShowChapterWizard(true);
   };
   
@@ -267,56 +275,111 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
     }
   };
 
-  const handleChapterWizardComplete = async (chapterData: {
-    title?: string;
-    description?: string;
-    story_character_ids: number[];
-    location_name?: string;
-    time_period?: string;
-    scenario?: string;
-  }) => {
+  const handleChapterWizardComplete = async (
+    chapterData: {
+      title?: string;
+      description?: string;
+      story_character_ids?: number[];
+      character_ids?: number[];
+      character_roles?: { [characterId: number]: string };
+      location_name?: string;
+      time_period?: string;
+      scenario?: string;
+      continues_from_previous?: boolean;
+    },
+    onStatusUpdate?: (status: { message: string; step: string }) => void
+  ) => {
     setIsSubmittingNewChapter(true);
     try {
-      // Use previous chapter's auto_summary as story_so_far for new chapter
-      const storySoFar = activeChapter?.auto_summary || activeChapter?.story_so_far || 'Continuing the story...';
-      
-      const newChapter = await apiClient.createChapter(storyId, {
-        title: chapterData.title || newChapterTitle || undefined,
-        description: chapterData.description || newChapterDescription || undefined,
-        story_so_far: storySoFar,
-        story_character_ids: chapterData.story_character_ids,
-        location_name: chapterData.location_name,
-        time_period: chapterData.time_period,
-        scenario: chapterData.scenario
-      });
-      
-      // Reload chapters to get updated list
-      await loadChapters();
-      
-      // Notify parent component to reload story (this will switch to the new active chapter)
-      if (onChapterChange) {
-        onChapterChange();
+      if (editingChapterId) {
+        // Update existing chapter
+        await apiClient.updateChapter(storyId, editingChapterId, {
+          title: chapterData.title,
+          description: chapterData.description,
+          story_character_ids: chapterData.story_character_ids,
+          location_name: chapterData.location_name,
+          time_period: chapterData.time_period,
+          scenario: chapterData.scenario,
+          continues_from_previous: chapterData.continues_from_previous
+        });
+        
+        // Reload chapters to get updated list
+        await loadChapters();
+        
+        // Notify parent component to reload story
+        if (onChapterChange) {
+          onChapterChange();
+        }
+        
+        // Close wizard
+        setShowChapterWizard(false);
+        setEditingChapterId(null);
+        
+        // Show success message
+        alert('Chapter updated successfully!');
+      } else {
+        // Create new chapter
+        // Use previous chapter's auto_summary as story_so_far for new chapter
+        const storySoFar = activeChapter?.auto_summary || activeChapter?.story_so_far || 'Continuing the story...';
+        
+        const handleStatusUpdate = (status: { message: string; step: string }) => {
+          // Status updates are handled by ChapterWizard
+        };
+        
+        const newChapter = await apiClient.createChapter(
+          storyId,
+          {
+            title: chapterData.title || newChapterTitle || undefined,
+            description: chapterData.description || newChapterDescription || undefined,
+            story_so_far: storySoFar,
+            story_character_ids: chapterData.story_character_ids,
+            character_ids: chapterData.character_ids,
+            character_roles: chapterData.character_roles,
+            location_name: chapterData.location_name,
+            time_period: chapterData.time_period,
+            scenario: chapterData.scenario,
+            continues_from_previous: chapterData.continues_from_previous
+          },
+          onStatusUpdate || handleStatusUpdate
+        );
+        
+        // Reload chapters to get updated list
+        await loadChapters();
+        
+        // Notify parent component to reload story (this will switch to the new active chapter)
+        if (onChapterChange) {
+          onChapterChange();
+        }
+        
+        // Switch to the new chapter (after onChapterChange to override any reset)
+        // Use a small timeout to ensure selection happens after async operations
+        if (onChapterSelect && newChapter) {
+          setTimeout(() => {
+            onChapterSelect(newChapter.id);
+          }, 100);
+        }
+        
+        // Close wizard
+        setShowChapterWizard(false);
+        setIsCreatingChapter(false);
+        setNewChapterTitle('');
+        setNewChapterDescription('');
+        
+        // Show success message
+        alert(`Chapter ${newChapter.chapter_number} created successfully! You're now in the new chapter.`);
       }
-      
-      // Close wizard
-      setShowChapterWizard(false);
-      setIsCreatingChapter(false);
-      setNewChapterTitle('');
-      setNewChapterDescription('');
-      
-      // Show success message
-      alert(`Chapter ${newChapter.chapter_number} created successfully! You're now in the new chapter.`);
     } catch (err) {
-      console.error('Failed to create chapter:', err);
-      alert('Failed to create new chapter. Please try again.');
-    } finally {
+      console.error('Failed to save chapter:', err);
       setIsSubmittingNewChapter(false);
+      alert(editingChapterId ? 'Failed to update chapter. Please try again.' : 'Failed to create new chapter. Please try again.');
+      throw err; // Re-throw so ChapterWizard can catch and reset loading state
     }
   };
   
   const handleChapterWizardCancel = () => {
     setShowChapterWizard(false);
     setIsCreatingChapter(false);
+    setEditingChapterId(null);
     setNewChapterTitle('');
     setNewChapterDescription('');
   };
@@ -504,6 +567,17 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
                 {/* Chapter Actions - Always Visible */}
                 <div className="mt-3 pt-3 border-t border-slate-700 space-y-3">
                   <h4 className="text-xs font-semibold text-gray-400 uppercase">Chapter Actions</h4>
+                  
+                  {/* Edit Chapter Button - Show for active chapter */}
+                  {activeChapter && (
+                    <button
+                      onClick={handleEditChapter}
+                      className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                      Edit Chapter
+                    </button>
+                  )}
                   
                   {/* Create New Chapter Button - Always Visible */}
                   <button
@@ -935,12 +1009,21 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
       {showChapterWizard && (
         <ChapterWizard
           storyId={storyId}
-          chapterNumber={chapters.length + 1}
-          initialData={{
+          chapterNumber={editingChapterId ? activeChapter?.chapter_number : (chapters.length + 1)}
+          chapterId={editingChapterId || undefined}
+          initialData={editingChapterId && activeChapter ? {
+            title: activeChapter.title || undefined,
+            description: activeChapter.description || undefined,
+            characters: activeChapter.characters || [],
+            location_name: activeChapter.location_name || undefined,
+            time_period: activeChapter.time_period || undefined,
+            scenario: activeChapter.scenario || undefined,
+            continues_from_previous: activeChapter.continues_from_previous !== undefined ? activeChapter.continues_from_previous : true
+          } : {
             title: newChapterTitle || undefined,
             description: newChapterDescription || undefined
           }}
-          onComplete={handleChapterWizardComplete}
+          onComplete={(data, onStatusUpdate) => handleChapterWizardComplete(data, onStatusUpdate)}
           onCancel={handleChapterWizardCancel}
         />
       )}
