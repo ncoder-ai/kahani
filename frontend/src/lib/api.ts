@@ -847,6 +847,7 @@ class ApiClient {
     location_name?: string;
     time_period?: string;
     scenario?: string;
+    continues_from_previous?: boolean;
   }) {
     return this.request<{
       id: number;
@@ -880,6 +881,7 @@ class ApiClient {
     location_name?: string;
     time_period?: string;
     scenario?: string;
+    continues_from_previous?: boolean;
   }) {
     return this.request<{
       id: number;

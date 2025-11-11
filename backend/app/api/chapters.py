@@ -24,6 +24,7 @@ class ChapterCreate(BaseModel):
     location_name: Optional[str] = None
     time_period: Optional[str] = None
     scenario: Optional[str] = None
+    continues_from_previous: Optional[bool] = True  # Default to True
 
 class ChapterUpdate(BaseModel):
     title: Optional[str] = None
@@ -35,6 +36,7 @@ class ChapterUpdate(BaseModel):
     location_name: Optional[str] = None
     time_period: Optional[str] = None
     scenario: Optional[str] = None
+    continues_from_previous: Optional[bool] = None
 
 class CharacterInfo(BaseModel):
     id: int
@@ -64,6 +66,7 @@ class ChapterResponse(BaseModel):
     location_name: Optional[str] = None
     time_period: Optional[str] = None
     scenario: Optional[str] = None
+    continues_from_previous: Optional[bool] = True
     
     class Config:
         from_attributes = True
@@ -107,7 +110,8 @@ def build_chapter_response(chapter: Chapter, db: Session) -> ChapterResponse:
         characters=char_info_list,
         location_name=chapter.location_name,
         time_period=chapter.time_period,
-        scenario=chapter.scenario
+        scenario=chapter.scenario,
+        continues_from_previous=getattr(chapter, 'continues_from_previous', True)
     )
 
 class ChapterContextStatus(BaseModel):
@@ -242,6 +246,7 @@ async def create_chapter(
         location_name=chapter_data.location_name,
         time_period=chapter_data.time_period,
         scenario=chapter_data.scenario,
+        continues_from_previous=chapter_data.continues_from_previous if chapter_data.continues_from_previous is not None else True,
         status=ChapterStatus.ACTIVE,
         context_tokens_used=0,
         scenes_count=0
@@ -337,6 +342,9 @@ async def update_chapter(
         chapter.time_period = chapter_data.time_period
     if chapter_data.scenario is not None:
         chapter.scenario = chapter_data.scenario
+    
+    if chapter_data.continues_from_previous is not None:
+        chapter.continues_from_previous = chapter_data.continues_from_previous
     
     # Update character associations if provided
     if chapter_data.story_character_ids is not None:
@@ -576,12 +584,11 @@ async def conclude_chapter(
         conclusion_scene.chapter_id = chapter_id
         db.commit()
         
-        # Update chapter
-        chapter.status = ChapterStatus.COMPLETED
-        chapter.completed_at = datetime.utcnow()
-        # scenes_count will be updated by the scene creation logic
+        # Note: Chapter remains ACTIVE after conclusion
+        # It will only be marked as COMPLETED when the next chapter is created
+        # This ensures users go through the chapter wizard to set up the next chapter
         
-        # Generate summary for the completed chapter
+        # Generate summary for the chapter (even though it's still active)
         if not chapter.auto_summary:
             await generate_chapter_summary(chapter_id, db, current_user.id)
             await generate_story_so_far(chapter_id, db, current_user.id)
@@ -589,7 +596,7 @@ async def conclude_chapter(
         db.commit()
         db.refresh(chapter)
         
-        logger.info(f"[CHAPTER] Chapter {chapter_id} concluded with scene {conclusion_scene.id}")
+        logger.info(f"[CHAPTER] Chapter {chapter_id} concluded with scene {conclusion_scene.id}. Chapter remains ACTIVE until next chapter is created.")
         
     except Exception as e:
         logger.error(f"[CHAPTER] Failed to conclude chapter {chapter_id}: {e}")
@@ -1159,17 +1166,12 @@ async def get_active_chapter(
     ).first()
     
     if not chapter:
-        # No active chapter - create Chapter 1
-        chapter = Chapter(
-            story_id=story_id,
-            chapter_number=1,
-            title="Chapter 1",
-            story_so_far="The story begins...",
-            status=ChapterStatus.ACTIVE
+        # No active chapter found - return 404
+        # Initial chapter should be created through chapter wizard during story setup
+        # or when first scene is generated
+        raise HTTPException(
+            status_code=404,
+            detail="No active chapter found. Please create a new chapter."
         )
-        db.add(chapter)
-        db.commit()
-        db.refresh(chapter)
-        logger.info(f"[CHAPTER] Created initial chapter for story {story_id}")
     
     return build_chapter_response(chapter, db)

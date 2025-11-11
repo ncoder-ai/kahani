@@ -116,9 +116,44 @@ class SemanticContextManager(ContextManager):
             raise ValueError(f"Story {story_id} not found")
         
         # Get all scenes ordered by sequence
-        scenes = db.query(Scene).filter(
-            Scene.story_id == story_id
-        ).order_by(Scene.sequence_number).all()
+        # For new chapters that don't continue from previous, filter out scenes from previous chapters
+        if chapter_id:
+            from ..models import Chapter
+            chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+            if chapter:
+                # Check if this is a new chapter that doesn't continue from previous
+                if chapter.scenes_count == 0 and not getattr(chapter, 'continues_from_previous', True):
+                    # First scene of new chapter that doesn't continue - exclude scenes from previous chapters
+                    # Get all previous chapter IDs
+                    previous_chapters = db.query(Chapter).filter(
+                        Chapter.story_id == story_id,
+                        Chapter.chapter_number < chapter.chapter_number
+                    ).all()
+                    previous_chapter_ids = [c.id for c in previous_chapters]
+                    
+                    if previous_chapter_ids:
+                        scenes = db.query(Scene).filter(
+                            Scene.story_id == story_id,
+                            ~Scene.chapter_id.in_(previous_chapter_ids)  # Exclude previous chapters
+                        ).order_by(Scene.sequence_number).all()
+                    else:
+                        # No previous chapters, get all scenes
+                        scenes = db.query(Scene).filter(
+                            Scene.story_id == story_id
+                        ).order_by(Scene.sequence_number).all()
+                else:
+                    # Chapter continues from previous or has scenes - include all scenes
+                    scenes = db.query(Scene).filter(
+                        Scene.story_id == story_id
+                    ).order_by(Scene.sequence_number).all()
+            else:
+                scenes = db.query(Scene).filter(
+                    Scene.story_id == story_id
+                ).order_by(Scene.sequence_number).all()
+        else:
+            scenes = db.query(Scene).filter(
+                Scene.story_id == story_id
+            ).order_by(Scene.sequence_number).all()
         
         if not scenes:
             # No scenes yet, return base context
