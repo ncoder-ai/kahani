@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from .context_manager import ContextManager
 from .semantic_memory import get_semantic_memory_service
-from ..models import Scene, SceneVariant, StoryFlow, Character, StoryCharacter
+from ..models import Scene, SceneVariant, StoryFlow, Character, StoryCharacter, ChapterStatus
 from ..config import settings
 
 logger = logging.getLogger(__name__)
@@ -72,25 +72,26 @@ class SemanticContextManager(ContextManager):
             self.enable_semantic = False
             self.context_strategy = "linear"
     
-    async def build_story_context(self, story_id: int, db: Session) -> Dict[str, Any]:
+    async def build_story_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None) -> Dict[str, Any]:
         """
         Build optimized context using hybrid strategy if enabled
         
         Args:
             story_id: Story ID
             db: Database session
+            chapter_id: Optional chapter ID to separate active/inactive characters
             
         Returns:
             Optimized context dictionary
         """
         # If semantic memory is disabled, use parent class method
         if not self.enable_semantic or self.context_strategy == "linear":
-            return await super().build_story_context(story_id, db)
+            return await super().build_story_context(story_id, db, chapter_id=chapter_id)
         
         # Use hybrid strategy
-        return await self._build_hybrid_context(story_id, db)
+        return await self._build_hybrid_context(story_id, db, chapter_id=chapter_id)
     
-    async def _build_hybrid_context(self, story_id: int, db: Session) -> Dict[str, Any]:
+    async def _build_hybrid_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None) -> Dict[str, Any]:
         """
         Build hybrid context combining recent scenes with semantically relevant past
         
@@ -101,6 +102,11 @@ class SemanticContextManager(ContextManager):
         4. Get character-specific moments
         5. Get chapter summaries
         6. Assemble within token budget
+        
+        Args:
+            story_id: Story ID
+            db: Database session
+            chapter_id: Optional chapter ID to separate active/inactive characters
         """
         from ..models import Story
         
@@ -110,16 +116,51 @@ class SemanticContextManager(ContextManager):
             raise ValueError(f"Story {story_id} not found")
         
         # Get all scenes ordered by sequence
-        scenes = db.query(Scene).filter(
-            Scene.story_id == story_id
-        ).order_by(Scene.sequence_number).all()
+        # For new chapters that don't continue from previous, filter out scenes from previous chapters
+        if chapter_id:
+            from ..models import Chapter
+            chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+            if chapter:
+                # Check if this is a new chapter that doesn't continue from previous
+                if chapter.scenes_count == 0 and not getattr(chapter, 'continues_from_previous', True):
+                    # First scene of new chapter that doesn't continue - exclude scenes from previous chapters
+                    # Get all previous chapter IDs
+                    previous_chapters = db.query(Chapter).filter(
+                        Chapter.story_id == story_id,
+                        Chapter.chapter_number < chapter.chapter_number
+                    ).all()
+                    previous_chapter_ids = [c.id for c in previous_chapters]
+                    
+                    if previous_chapter_ids:
+                        scenes = db.query(Scene).filter(
+                            Scene.story_id == story_id,
+                            ~Scene.chapter_id.in_(previous_chapter_ids)  # Exclude previous chapters
+                        ).order_by(Scene.sequence_number).all()
+                    else:
+                        # No previous chapters, get all scenes
+                        scenes = db.query(Scene).filter(
+                            Scene.story_id == story_id
+                        ).order_by(Scene.sequence_number).all()
+                else:
+                    # Chapter continues from previous or has scenes - include all scenes
+                    scenes = db.query(Scene).filter(
+                        Scene.story_id == story_id
+                    ).order_by(Scene.sequence_number).all()
+            else:
+                scenes = db.query(Scene).filter(
+                    Scene.story_id == story_id
+                ).order_by(Scene.sequence_number).all()
+        else:
+            scenes = db.query(Scene).filter(
+                Scene.story_id == story_id
+            ).order_by(Scene.sequence_number).all()
         
         if not scenes:
             # No scenes yet, return base context
-            return await self._get_base_context(story_id, db)
+            return await self._get_base_context(story_id, db, chapter_id=chapter_id)
         
         # Calculate base context tokens
-        base_context = await self._get_base_context(story_id, db)
+        base_context = await self._get_base_context(story_id, db, chapter_id=chapter_id)
         base_tokens = self._calculate_base_context_tokens(base_context)
         
         # Available tokens for scene history (using effective max tokens)
@@ -131,7 +172,7 @@ class SemanticContextManager(ContextManager):
         
         # Build scene context using hybrid strategy
         scene_context = await self._build_hybrid_scene_context(
-            story_id, scenes, available_tokens, db
+            story_id, scenes, available_tokens, db, chapter_id=chapter_id
         )
         
         # Merge contexts
@@ -142,7 +183,8 @@ class SemanticContextManager(ContextManager):
         story_id: int,
         scenes: List[Scene],
         available_tokens: int,
-        db: Session
+        db: Session,
+        chapter_id: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Build scene context using hybrid retrieval strategy
@@ -205,9 +247,9 @@ class SemanticContextManager(ContextManager):
             story_id, entity_tokens, db
         )
         
-        # Get chapter summaries
+        # Get chapter summaries (includes story_so_far, previous chapter summary, and current chapter summary)
         summary_content = await self._get_chapter_summaries(
-            story_id, summary_tokens, db
+            story_id, summary_tokens, db, chapter_id=chapter_id
         )
         
         # Assemble final context
@@ -240,8 +282,8 @@ class SemanticContextManager(ContextManager):
             "entity_states_included": entity_states_content is not None
         }
     
-    async def _get_base_context(self, story_id: int, db: Session) -> Dict[str, Any]:
-        """Get base story context (genre, tone, characters)"""
+    async def _get_base_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None) -> Dict[str, Any]:
+        """Get base story context (genre, tone, characters) with chapter-specific character separation"""
         from ..models import Story
         
         story = db.query(Story).filter(Story.id == story_id).first()
@@ -253,33 +295,80 @@ class SemanticContextManager(ContextManager):
             StoryCharacter.story_id == story_id
         ).all()
         
-        characters = []
+        # Separate into active (chapter) and inactive (story only) characters
+        active_characters = []
+        inactive_characters = []
+        
+        if chapter_id:
+            # Get chapter-specific characters
+            from ..models.chapter import chapter_characters
+            chapter_char_ids = db.execute(
+                chapter_characters.select().where(
+                    chapter_characters.c.chapter_id == chapter_id
+                )
+            ).fetchall()
+            chapter_story_char_ids = {row.story_character_id for row in chapter_char_ids}
+            
+            # Get chapter info for context
+            from ..models import Chapter
+            chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+        else:
+            chapter_story_char_ids = set()
+            chapter = None
+        
         for sc in story_characters:
             character = db.query(Character).filter(Character.id == sc.character_id).first()
-            if character:
-                characters.append({
+            if not character:
+                continue
+            
+            char_data = {
+                "name": character.name,
+                "role": sc.role or "",
+                "description": character.description or "",
+                "personality": ", ".join(character.personality_traits) if character.personality_traits else "",
+                "background": character.background or "",
+                "goals": character.goals or "",
+                "relationships": ""
+            }
+            
+            if chapter_id and sc.id in chapter_story_char_ids:
+                # Active character - full details
+                active_characters.append(char_data)
+            elif chapter_id:
+                # Inactive character - brief format
+                inactive_characters.append({
                     "name": character.name,
-                    "role": sc.role or "",  # Get role from StoryCharacter (story-specific)
-                    "description": character.description or "",
-                    "personality": ", ".join(character.personality_traits) if character.personality_traits else "",
-                    "background": character.background or "",
-                    "goals": character.goals or "",
-                    "relationships": ""  # Could extract from StoryCharacter relationships JSON if needed
+                    "role": sc.role or ""
                 })
+            else:
+                # No chapter specified - treat all as active
+                active_characters.append(char_data)
         
-        # Add important NPCs that crossed threshold
+        # Add important NPCs that crossed threshold (always as active)
         try:
             from .npc_tracking_service import NPCTrackingService
             npc_service = NPCTrackingService(user_id=self.user_id, user_settings=self.user_settings)
             npc_characters = npc_service.get_important_npcs_for_context(db, story_id)
-            characters.extend(npc_characters)
-            logger.warning(f"[CONTEXT BUILD] Added {len(npc_characters)} important NPCs to context (total characters now: {len(characters)})")
+            active_characters.extend(npc_characters)
+            logger.warning(f"[CONTEXT BUILD] Added {len(npc_characters)} important NPCs to context (total characters now: {len(active_characters)})")
             if npc_characters:
                 logger.warning(f"[CONTEXT BUILD] NPCs added: {[npc.get('name', 'Unknown') for npc in npc_characters]}")
         except Exception as e:
             logger.warning(f"Failed to include NPCs in context: {e}")
         
-        return {
+        # Format characters section with active/inactive distinction
+        if chapter_id and inactive_characters:
+            # Format with clear distinction
+            characters_section = {
+                "active_characters": active_characters,
+                "inactive_characters": inactive_characters
+            }
+            logger.info(f"[CONTEXT BUILD] Chapter {chapter_id}: {len(active_characters)} active, {len(inactive_characters)} inactive characters")
+        else:
+            # All characters are active (or no chapter specified)
+            characters_section = active_characters
+        
+        base_context = {
             "story_id": story_id,
             "title": story.title,
             "genre": story.genre,
@@ -287,8 +376,16 @@ class SemanticContextManager(ContextManager):
             "world_setting": story.world_setting,
             "initial_premise": story.initial_premise,
             "scenario": story.scenario,
-            "characters": characters
+            "characters": characters_section
         }
+        
+        # Add chapter-specific context if available
+        if chapter:
+            base_context["chapter_location"] = chapter.location_name
+            base_context["chapter_time_period"] = chapter.time_period
+            base_context["chapter_scenario"] = chapter.scenario
+        
+        return base_context
     
     async def _get_scene_content(self, scenes: List[Scene], db: Session) -> str:
         """Get content for scenes using active variants"""
@@ -354,12 +451,13 @@ class SemanticContextManager(ContextManager):
             # Get exclude list (recent scene sequences)
             exclude_sequences = [s.sequence_number for s in recent_scenes]
             
-            # Search for similar scenes
+            # Search for similar scenes across entire story (not just current chapter)
             similar_scenes = await self.semantic_memory.search_similar_scenes(
                 query_text=query_content,
                 story_id=story_id,
                 top_k=self.semantic_top_k,
-                exclude_sequences=exclude_sequences
+                exclude_sequences=exclude_sequences,
+                chapter_id=None  # Search entire story, not just current chapter
             )
             
             if not similar_scenes:
@@ -432,15 +530,22 @@ class SemanticContextManager(ContextManager):
         self,
         story_id: int,
         token_budget: int,
-        db: Session
+        db: Session,
+        chapter_id: Optional[int] = None
     ) -> Optional[str]:
         """
         Get chapter summaries for compressed history
+        
+        Includes three types of summaries:
+        a) Summary of story so far (story_so_far from current chapter)
+        b) Summary of the past chapter (auto_summary from most recent completed chapter)
+        c) Summary of the current chapter (auto_summary if it has scenes and has been processed)
         
         Args:
             story_id: Story ID
             token_budget: Available tokens
             db: Database session
+            chapter_id: Optional current chapter ID to get story_so_far from
             
         Returns:
             Formatted chapter summaries or None
@@ -451,32 +556,65 @@ class SemanticContextManager(ContextManager):
             return None
         
         try:
-            # Get completed chapters with summaries
-            chapters = db.query(Chapter).filter(
-                Chapter.story_id == story_id,
-                Chapter.auto_summary.isnot(None)
-            ).order_by(Chapter.chapter_number).all()
-            
-            if not chapters:
-                return None
-            
             summary_parts = []
             used_tokens = 0
             
-            for chapter in chapters:
-                summary_text = f"Chapter {chapter.chapter_number} ({chapter.title or 'Untitled'}): {chapter.auto_summary}"
-                summary_tokens = self.count_tokens(summary_text)
+            # a) Get story_so_far from current chapter (if available and not empty)
+            if chapter_id:
+                current_chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+                if current_chapter and current_chapter.story_so_far and current_chapter.story_so_far.strip() and current_chapter.story_so_far != "The story begins...":
+                    story_so_far_text = f"Story So Far:\n{current_chapter.story_so_far}"
+                    story_so_far_tokens = self.count_tokens(story_so_far_text)
+                    if used_tokens + story_so_far_tokens <= token_budget:
+                        summary_parts.append(story_so_far_text)
+                        used_tokens += story_so_far_tokens
+            
+            # b) Get previous chapter's auto_summary (most recent completed chapter)
+            previous_chapter = db.query(Chapter).filter(
+                Chapter.story_id == story_id,
+                Chapter.status == ChapterStatus.COMPLETED,
+                Chapter.auto_summary.isnot(None)
+            ).order_by(Chapter.chapter_number.desc()).first()
+            
+            if previous_chapter:
+                prev_summary_text = f"Previous Chapter Summary (Chapter {previous_chapter.chapter_number}):\n{previous_chapter.auto_summary}"
+                prev_summary_tokens = self.count_tokens(prev_summary_text)
+                if used_tokens + prev_summary_tokens <= token_budget:
+                    summary_parts.append(prev_summary_text)
+                    used_tokens += prev_summary_tokens
+            
+            # c) Get current chapter's auto_summary (if it has scenes and has been processed)
+            if chapter_id:
+                current_chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+                if current_chapter and current_chapter.auto_summary and current_chapter.scenes_count > 0:
+                    current_summary_text = f"Current Chapter Summary (Chapter {current_chapter.chapter_number}):\n{current_chapter.auto_summary}"
+                    current_summary_tokens = self.count_tokens(current_summary_text)
+                    if used_tokens + current_summary_tokens <= token_budget:
+                        summary_parts.append(current_summary_text)
+                        used_tokens += current_summary_tokens
+            
+            # Fallback: If we still have budget and no summaries yet, get all completed chapters
+            if not summary_parts:
+                chapters = db.query(Chapter).filter(
+                    Chapter.story_id == story_id,
+                    Chapter.auto_summary.isnot(None)
+                ).order_by(Chapter.chapter_number).all()
                 
-                if used_tokens + summary_tokens <= token_budget:
-                    summary_parts.append(summary_text)
-                    used_tokens += summary_tokens
-                else:
-                    # Include at least part of the summary
-                    remaining_budget = token_budget - used_tokens
-                    if remaining_budget > 100:
-                        truncated = summary_text[:remaining_budget * 4]  # Rough char estimate
-                        summary_parts.append(truncated + "...")
-                    break
+                if chapters:
+                    for chapter in chapters:
+                        summary_text = f"Chapter {chapter.chapter_number} ({chapter.title or 'Untitled'}): {chapter.auto_summary}"
+                        summary_tokens = self.count_tokens(summary_text)
+                        
+                        if used_tokens + summary_tokens <= token_budget:
+                            summary_parts.append(summary_text)
+                            used_tokens += summary_tokens
+                        else:
+                            # Include at least part of the summary
+                            remaining_budget = token_budget - used_tokens
+                            if remaining_budget > 100:
+                                truncated = summary_text[:remaining_budget * 4]  # Rough char estimate
+                                summary_parts.append(truncated + "...")
+                            break
             
             if summary_parts:
                 return "\n\n".join(summary_parts)
