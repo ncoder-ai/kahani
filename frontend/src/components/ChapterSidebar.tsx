@@ -101,29 +101,37 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
       const chaptersData = await apiClient.getChapters(storyId);
       setChapters(chaptersData);
       
-      // Load active chapter
-      const activeChapterData = await apiClient.getActiveChapter(storyId);
-      setActiveChapter(activeChapterData);
-      
-      // Load context status for active chapter (only if chapter has scenes)
-      if (activeChapterData && activeChapterData.scenes_count > 0) {
-        try {
-          const statusData = await apiClient.getChapterContextStatus(storyId, activeChapterData.id);
-          setContextStatus(statusData);
-        } catch (err) {
-          console.warn('Failed to load context status:', err);
-          // Don't fail the whole load if context status fails
-          setContextStatus(null);
+      // Load active chapter - may return null if no active chapter exists
+      try {
+        const activeChapterData = await apiClient.getActiveChapter(storyId);
+        setActiveChapter(activeChapterData);
+        
+        // Load context status for active chapter (only if chapter has scenes)
+        if (activeChapterData && activeChapterData.scenes_count > 0) {
+          try {
+            const statusData = await apiClient.getChapterContextStatus(storyId, activeChapterData.id);
+            setContextStatus(statusData);
+          } catch (err) {
+            console.warn('Failed to load context status:', err);
+            // Don't fail the whole load if context status fails
+            setContextStatus(null);
+          }
+        }
+      } catch (err) {
+        // No active chapter found - this is expected when:
+        // 1. Story is newly created and no chapter exists yet
+        // 2. All chapters are completed and user needs to create a new one
+        if (err instanceof Error && (err.message.includes('404') || err.message.includes('No active chapter'))) {
+          setActiveChapter(null);
+          // Don't show error - user should create a new chapter
+        } else {
+          console.error('Failed to load active chapter:', err);
+          setError(err instanceof Error ? err.message : 'Failed to load active chapter');
         }
       }
     } catch (err) {
       console.error('Failed to load chapters:', err);
-      // If chapters don't exist yet (new story), don't show error
-      if (err instanceof Error && err.message.includes('404')) {
-        setError(null); // Silently handle - chapters will be created on first scene
-      } else {
-        setError(err instanceof Error ? err.message : 'Failed to load chapters');
-      }
+      setError(err instanceof Error ? err.message : 'Failed to load chapters');
     } finally {
       setLoading(false);
     }
@@ -183,6 +191,10 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
     
     setIsSavingChapterSummary(true);
     try {
+      if (!activeChapter.id) {
+        alert('Cannot save: chapter ID is missing');
+        return;
+      }
       await apiClient.updateChapter(storyId, activeChapter.id, {
         auto_summary: chapterSummaryDraft
       });
@@ -503,12 +515,14 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
                   </button>
                   
                   {/* Scene Count */}
-                  <div className="text-sm text-gray-400 pt-2">
-                    <span className="font-semibold">{activeChapter.scenes_count || 0}</span> scenes in this chapter
-                  </div>
+                  {activeChapter && (
+                    <div className="text-sm text-gray-400 pt-2">
+                      <span className="font-semibold">{activeChapter.scenes_count || 0}</span> scenes in this chapter
+                    </div>
+                  )}
                   
                   {/* Conclude Chapter Button - Show if chapter has scenes and is not completed */}
-                  {(activeChapter.scenes_count || 0) > 0 && activeChapter.status !== 'completed' && (
+                  {activeChapter && (activeChapter.scenes_count || 0) > 0 && activeChapter.status !== 'completed' && (
                     <button
                       onClick={handleConcludeChapter}
                       disabled={isConcludingChapter}
@@ -654,35 +668,37 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
                   </div>
                   
                   {/* Current Chapter Summary Generation */}
-                  <div className="space-y-2">
-                    <button
-                      onClick={handleGenerateSummary}
-                      disabled={isGeneratingSummary || activeChapter.scenes_count === 0}
-                      className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-sm rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
-                      title={activeChapter.scenes_count === 0 ? 'Generate at least one scene first' : 'Generate summary for current chapter'}
-                    >
-                      {isGeneratingSummary ? (
-                        <>
-                          <span className="animate-spin">⚙️</span>
-                          Generating Chapter Summary...
-                        </>
-                      ) : (
-                        <>
-                          <BookOpen className="w-4 h-4" />
-                          Generate Chapter Summary
-                        </>
+                  {activeChapter && (
+                    <div className="space-y-2">
+                      <button
+                        onClick={handleGenerateSummary}
+                        disabled={isGeneratingSummary || activeChapter.scenes_count === 0}
+                        className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-sm rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                        title={activeChapter.scenes_count === 0 ? 'Generate at least one scene first' : 'Generate summary for current chapter'}
+                      >
+                        {isGeneratingSummary ? (
+                          <>
+                            <span className="animate-spin">⚙️</span>
+                            Generating Chapter Summary...
+                          </>
+                        ) : (
+                          <>
+                            <BookOpen className="w-4 h-4" />
+                            Generate Chapter Summary
+                          </>
+                        )}
+                      </button>
+                      <p className="text-xs text-gray-500">
+                        Generates summary for Chapter {activeChapter.chapter_number} and updates story so far
+                      </p>
+                      {summaryError && (
+                        <p className="text-xs text-red-400">{summaryError}</p>
                       )}
-                    </button>
-                    <p className="text-xs text-gray-500">
-                      Generates summary for Chapter {activeChapter.chapter_number} and updates story so far
-                    </p>
-                    {summaryError && (
-                      <p className="text-xs text-red-400">{summaryError}</p>
-                    )}
-                  </div>
+                    </div>
+                  )}
 
                   {/* Current Chapter Summary Display */}
-                  {activeChapter.auto_summary && (
+                  {activeChapter && activeChapter.auto_summary && (
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <h4 className="text-xs font-semibold text-gray-400 uppercase">Chapter Summary</h4>

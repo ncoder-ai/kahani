@@ -112,3 +112,4 @@ The issue appeared after upgrading to React 19.2.0 and Next.js 16.0.1. React 19 
 
 
 
+

@@ -98,9 +98,44 @@ class ContextManager:
             raise ValueError(f"Story {story_id} not found")
         
         # Get all scenes ordered by sequence
-        scenes = db.query(Scene).filter(
-            Scene.story_id == story_id
-        ).order_by(Scene.sequence_number).all()
+        # For new chapters that don't continue from previous, filter out scenes from previous chapters
+        if chapter_id:
+            from ..models import Chapter
+            chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+            if chapter:
+                # Check if this is a new chapter that doesn't continue from previous
+                if chapter.scenes_count == 0 and not getattr(chapter, 'continues_from_previous', True):
+                    # First scene of new chapter that doesn't continue - exclude scenes from previous chapters
+                    # Get all previous chapter IDs
+                    previous_chapters = db.query(Chapter).filter(
+                        Chapter.story_id == story_id,
+                        Chapter.chapter_number < chapter.chapter_number
+                    ).all()
+                    previous_chapter_ids = [c.id for c in previous_chapters]
+                    
+                    if previous_chapter_ids:
+                        scenes = db.query(Scene).filter(
+                            Scene.story_id == story_id,
+                            ~Scene.chapter_id.in_(previous_chapter_ids)  # Exclude previous chapters
+                        ).order_by(Scene.sequence_number).all()
+                    else:
+                        # No previous chapters, get all scenes
+                        scenes = db.query(Scene).filter(
+                            Scene.story_id == story_id
+                        ).order_by(Scene.sequence_number).all()
+                else:
+                    # Chapter continues from previous or has scenes - include all scenes
+                    scenes = db.query(Scene).filter(
+                        Scene.story_id == story_id
+                    ).order_by(Scene.sequence_number).all()
+            else:
+                scenes = db.query(Scene).filter(
+                    Scene.story_id == story_id
+                ).order_by(Scene.sequence_number).all()
+        else:
+            scenes = db.query(Scene).filter(
+                Scene.story_id == story_id
+            ).order_by(Scene.sequence_number).all()
         
         # Get story characters
         story_characters = db.query(StoryCharacter).filter(
@@ -698,7 +733,7 @@ Goals: {char.get('goals', '')}
             "genre": full_context.get("genre"),
             "tone": full_context.get("tone"), 
             "world_setting": full_context.get("world_setting"),
-            "scenario": full_context.get("scenario"),  # Include scenario
+            "scenario": full_context.get("scenario"),  # Story-level scenario (from story creation)
             "initial_premise": full_context.get("initial_premise"),  # Include initial premise
             "characters": full_context.get("characters", []),
             "previous_scenes": full_context.get("previous_scenes", ""),  # Full context (includes semantic for semantic manager)
@@ -708,7 +743,11 @@ Goals: {char.get('goals', '')}
             "context_type": full_context.get("context_type", "linear"),  # Indicate which context manager was used
             "is_first_scene": is_first_scene,
             "user_prompt_provided": bool(custom_prompt),
-            "enhancement_guidance": full_context.get("enhancement_guidance", "")  # Signal for guided enhancement
+            "enhancement_guidance": full_context.get("enhancement_guidance", ""),  # Signal for guided enhancement
+            # Add chapter-specific metadata
+            "chapter_location": full_context.get("chapter_location"),
+            "chapter_time_period": full_context.get("chapter_time_period"),
+            "chapter_scenario": full_context.get("chapter_scenario")  # Chapter-specific scenario
         }
         
         return scene_context

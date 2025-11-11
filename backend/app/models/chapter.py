@@ -47,6 +47,7 @@ class Chapter(Base):
     location_name = Column(String(255), nullable=True)  # Primary location for this chapter
     time_period = Column(String(100), nullable=True)  # Time of day, era, etc.
     scenario = Column(Text, nullable=True)  # Chapter-specific scenario
+    continues_from_previous = Column(Boolean, default=True)  # Whether chapter directly follows previous chapter
     
     # Status and metrics
     status = Column(Enum(ChapterStatus), default=ChapterStatus.ACTIVE)
