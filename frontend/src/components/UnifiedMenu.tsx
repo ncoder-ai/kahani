@@ -15,12 +15,10 @@ interface StoryActions {
   onAddCharacter?: () => void;
   onViewAllCharacters?: () => void;
   onDirectorMode?: () => void;
-  onLorebook?: () => void;
   onDeleteMode?: () => void;
   onExportStory?: () => void;
   onEditStorySettings?: () => void;
   directorModeActive?: boolean;
-  lorebookActive?: boolean;
   deleteModeActive?: boolean;
 }
 
@@ -204,32 +202,6 @@ export default function UnifiedMenu({
                   }`}>
                     {storyActions.directorModeActive ? 'ON' : 'OFF'}
                   </div>
-                </button>
-              )}
-
-              {/* Lorebook */}
-              {storyActions.onLorebook && (
-                <button
-                  onClick={() => {
-                    onClose();
-                    storyActions.onLorebook?.();
-                  }}
-                  className="w-full flex items-center gap-3 p-3 hover:bg-white/10 rounded-lg transition-colors text-left group"
-                >
-                  <div className={`p-2 rounded-lg transition-colors ${
-                    storyActions.lorebookActive 
-                      ? 'bg-yellow-600/20 group-hover:bg-yellow-600/30' 
-                      : 'bg-white/10 group-hover:bg-white/20'
-                  }`}>
-                    <BookOpen className={`w-5 h-5 ${storyActions.lorebookActive ? 'text-yellow-400' : 'theme-accent-primary'}`} />
-                  </div>
-                  <div className="flex-1">
-                    <div className="font-medium text-white">Lorebook</div>
-                    <div className={`text-xs ${storyActions.lorebookActive ? 'text-yellow-400' : 'text-gray-400'}`}>
-                      {storyActions.lorebookActive ? 'Managing lore items' : 'Manage world & characters'}
-                    </div>
-                  </div>
-                  <ChevronRight className="w-5 h-5 text-gray-500" />
                 </button>
               )}
 

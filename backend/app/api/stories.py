@@ -775,12 +775,12 @@ async def generate_scene(
                     logger.info(f"[AUTO-SUMMARY] Threshold reached ({scenes_since_summary}/{threshold}) for chapter {active_chapter.id}")
                     
                     # Generate chapter summary with context from previous chapters
-                    from ..api.chapters import generate_chapter_summary, generate_story_so_far
+                    from ..api.chapters import generate_chapter_summary_incremental
                     try:
-                        await generate_chapter_summary(active_chapter.id, db, current_user.id)
-                        # Also update story_so_far for context in next scene
-                        await generate_story_so_far(active_chapter.id, db, current_user.id)
-                        logger.info(f"[AUTO-SUMMARY] Generated summaries for chapter {active_chapter.id}")
+                        await generate_chapter_summary_incremental(active_chapter.id, db, current_user.id)
+                        # Note: story_so_far is NOT regenerated here because it only includes previous chapters,
+                        # not the current chapter, so updating current chapter's summary doesn't affect it
+                        logger.info(f"[AUTO-SUMMARY] Generated chapter summary for chapter {active_chapter.id}")
                     except Exception as e:
                         logger.error(f"[AUTO-SUMMARY] Failed to auto-generate summaries: {e}")
                         # Don't fail the scene creation if summary fails
@@ -1171,7 +1171,7 @@ async def generate_scene_streaming_endpoint(
                     logger.info(f"[CHAPTER] Auto-summary check: {scenes_since_last_summary} scenes since last summary (threshold: {summary_threshold})")
                     if scenes_since_last_summary >= summary_threshold:
                         logger.info(f"[CHAPTER] Chapter {active_chapter.id} reached {summary_threshold} scenes since last summary, triggering auto-summary in background")
-                        from ..api.chapters import generate_chapter_summary, generate_story_so_far
+                        from ..api.chapters import generate_chapter_summary_incremental
                         
                         async def generate_summaries_background():
                             try:
@@ -1182,12 +1182,13 @@ async def generate_scene_streaming_endpoint(
                                     # Reload chapter to get latest state
                                     bg_chapter = bg_db.query(Chapter).filter(Chapter.id == active_chapter.id).first()
                                     if bg_chapter:
-                                        await generate_chapter_summary(bg_chapter.id, bg_db, current_user.id)
-                                        await generate_story_so_far(bg_chapter.id, bg_db, current_user.id)
+                                        await generate_chapter_summary_incremental(bg_chapter.id, bg_db, current_user.id)
+                                        # Note: story_so_far is NOT regenerated here because it only includes previous chapters,
+                                        # not the current chapter, so updating current chapter's summary doesn't affect it
                                         
                                         bg_chapter.last_summary_scene_count = bg_chapter.scenes_count
                                         bg_db.commit()
-                                        logger.info(f"[CHAPTER] Auto-summary and story-so-far generated for chapter {bg_chapter.id}")
+                                        logger.info(f"[CHAPTER] Auto-summary generated for chapter {bg_chapter.id}")
                                 finally:
                                     bg_db.close()
                             except Exception as e:
