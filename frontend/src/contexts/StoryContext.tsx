@@ -7,12 +7,10 @@ export interface StoryActions {
   onAddCharacter?: () => void;
   onViewAllCharacters?: () => void;
   onDirectorMode?: () => void;
-  onLorebook?: () => void;
   onDeleteMode?: () => void;
   onExportStory?: () => void;
   onEditStorySettings?: () => void;
   directorModeActive?: boolean;
-  lorebookActive?: boolean;
   deleteModeActive?: boolean;
   // Character suggestion banner
   showCharacterBanner?: boolean;

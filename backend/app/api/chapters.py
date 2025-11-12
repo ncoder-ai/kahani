@@ -234,8 +234,8 @@ async def create_chapter(
                     yield f"data: {json.dumps({'type': 'status', 'message': 'Generating chapter summary...', 'step': 'generating_chapter_summary'})}\n\n"
                     logger.info(f"[CHAPTER] Generating final summary for completed chapter {active_chapter.id} ({active_chapter.scenes_count} scenes)")
                     try:
-                        # Generate the chapter's own summary (includes all scenes)
-                        await generate_chapter_summary(active_chapter.id, db, current_user.id)
+                        # Generate the chapter's own summary (incremental - only new scenes)
+                        await generate_chapter_summary_incremental(active_chapter.id, db, current_user.id)
                         
                         db.refresh(active_chapter)  # Refresh to get the auto_summary
                         logger.info(f"[CHAPTER] Final summary generated for completed chapter {active_chapter.id}")
@@ -517,7 +517,7 @@ async def complete_chapter(
     # Generate chapter summary if not already done
     if not chapter.auto_summary or chapter.last_summary_scene_count < chapter.scenes_count:
         logger.info(f"[CHAPTER] Generating final summary for chapter {chapter_id}")
-        await generate_chapter_summary(chapter_id, db, current_user.id)
+        await generate_chapter_summary_incremental(chapter_id, db, current_user.id)
     
     # Mark as completed
     chapter.status = ChapterStatus.COMPLETED
@@ -1028,6 +1028,249 @@ Summary:"""
     db.commit()
     
     logger.info(f"[CHAPTER] Generated summary for chapter {chapter_id}: {len(summary)} chars")
+    
+    return summary
+
+
+async def generate_chapter_summary_incremental(chapter_id: int, db: Session, user_id: int) -> str:
+    """
+    Generate or extend chapter summary incrementally.
+    
+    Instead of re-summarizing all scenes, this:
+    1. Takes existing summary (if exists)
+    2. Gets only NEW scenes since last summary
+    3. Asks LLM to create cohesive summary combining existing + new
+    4. Includes rich context (story_so_far, characters, entity states, etc.)
+    
+    This is much more efficient and scalable for long chapters.
+    """
+    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+    if not chapter:
+        return ""
+    
+    # Get scenes since last summary
+    last_summary_count = chapter.last_summary_scene_count or 0
+    new_scenes = db.query(Scene).filter(
+        Scene.chapter_id == chapter_id,
+        Scene.sequence_number > last_summary_count
+    ).order_by(Scene.sequence_number).all()
+    
+    if not new_scenes:
+        logger.info(f"[CHAPTER] No new scenes to summarize for chapter {chapter_id}")
+        return chapter.auto_summary or ""
+    
+    # Build scene content from active variants (only NEW scenes)
+    from .stories import SceneVariantServiceAdapter
+    from ..models import StoryFlow
+    
+    scene_contents = []
+    for scene in new_scenes:
+        flow = db.query(StoryFlow).filter(
+            StoryFlow.scene_id == scene.id,
+            StoryFlow.is_active == True
+        ).first()
+        
+        if flow and flow.scene_variant:
+            scene_contents.append(f"Scene {scene.sequence_number}: {flow.scene_variant.content}")
+    
+    if not scene_contents:
+        logger.info(f"[CHAPTER] No content available for new scenes in chapter {chapter_id}")
+        return chapter.auto_summary or ""
+    
+    new_scenes_text = "\n\n".join(scene_contents)
+    
+    # Get rich context (similar to scene generation)
+    # 1. story_so_far
+    story_so_far_text = ""
+    if chapter.story_so_far:
+        story_so_far_text = f"\nStory So Far (Previous Chapters):\n{chapter.story_so_far}\n"
+    
+    # 2. previous chapter summary
+    previous_chapter_text = ""
+    if chapter.chapter_number > 1:
+        previous_chapter = db.query(Chapter).filter(
+            Chapter.story_id == chapter.story_id,
+            Chapter.chapter_number == chapter.chapter_number - 1,
+            Chapter.auto_summary.isnot(None)
+        ).first()
+        if previous_chapter and previous_chapter.auto_summary:
+            previous_chapter_text = f"\nPrevious Chapter Summary:\n{previous_chapter.auto_summary}\n"
+    
+    # 3. Characters in this chapter
+    # Use the chapter's relationship to get characters
+    chapter_chars = chapter.characters.all()
+    
+    characters_text = ""
+    if chapter_chars:
+        # Get character names from the Character relationship
+        char_names = []
+        for story_char in chapter_chars:
+            if story_char.character and story_char.character.name:
+                char_names.append(story_char.character.name)
+        if char_names:
+            characters_text = f"\nCharacters in Chapter: {', '.join(char_names)}\n"
+    
+    # 4. Entity states (characters, locations, objects)
+    from ..models import CharacterState, LocationState, ObjectState, Character
+    entity_parts = []
+    
+    character_states = db.query(CharacterState).filter(
+        CharacterState.story_id == chapter.story_id
+    ).all()
+    
+    location_states = db.query(LocationState).filter(
+        LocationState.story_id == chapter.story_id
+    ).all()
+    
+    object_states = db.query(ObjectState).filter(
+        ObjectState.story_id == chapter.story_id
+    ).all()
+    
+    if character_states:
+        entity_parts.append("CURRENT CHARACTER STATES:")
+        for char_state in character_states[:5]:  # Limit to 5 characters
+            character = db.query(Character).filter(
+                Character.id == char_state.character_id
+            ).first()
+            
+            if not character:
+                continue
+            
+            char_text = f"\n{character.name}:"
+            
+            if char_state.current_location:
+                char_text += f"\n  Location: {char_state.current_location}"
+            
+            if char_state.emotional_state:
+                char_text += f"\n  Emotional State: {char_state.emotional_state}"
+            
+            if char_state.physical_condition:
+                char_text += f"\n  Physical Condition: {char_state.physical_condition}"
+            
+            if char_state.possessions:
+                possessions_str = ", ".join(char_state.possessions[:5])
+                char_text += f"\n  Possessions: {possessions_str}"
+            
+            if char_state.knowledge and len(char_state.knowledge) > 0:
+                recent_knowledge = char_state.knowledge[-3:]
+                char_text += f"\n  Recent Knowledge: {'; '.join(recent_knowledge)}"
+            
+            entity_parts.append(char_text)
+    
+    if location_states:
+        entity_parts.append("\n\nCURRENT LOCATIONS:")
+        for loc_state in location_states[:3]:  # Limit to 3 locations
+            loc_text = f"\n{loc_state.location_name}:"
+            
+            if loc_state.condition:
+                loc_text += f"\n  Condition: {loc_state.condition}"
+            
+            if loc_state.atmosphere:
+                loc_text += f"\n  Atmosphere: {loc_state.atmosphere}"
+            
+            if loc_state.current_occupants:
+                occupants_str = ", ".join(loc_state.current_occupants[:5])
+                loc_text += f"\n  Present: {occupants_str}"
+            
+            entity_parts.append(loc_text)
+    
+    if object_states:
+        entity_parts.append("\n\nIMPORTANT OBJECTS:")
+        for obj_state in object_states[:3]:  # Limit to 3 objects
+            obj_text = f"\n{obj_state.object_name}:"
+            
+            if obj_state.current_location:
+                obj_text += f"\n  Location: {obj_state.current_location}"
+            
+            if obj_state.condition:
+                obj_text += f"\n  Condition: {obj_state.condition}"
+            
+            if obj_state.significance:
+                obj_text += f"\n  Significance: {obj_state.significance}"
+            
+            entity_parts.append(obj_text)
+    
+    entity_states_text = ""
+    if entity_parts:
+        entity_states_text = "\n" + "\n".join(entity_parts) + "\n"
+    
+    # 5. Chapter metadata
+    chapter_context = ""
+    if chapter.location_name or chapter.time_period or chapter.scenario:
+        chapter_context = "\nChapter Context:\n"
+        if chapter.location_name:
+            chapter_context += f"Location: {chapter.location_name}\n"
+        if chapter.time_period:
+            chapter_context += f"Time Period: {chapter.time_period}\n"
+        if chapter.scenario:
+            chapter_context += f"Scenario: {chapter.scenario}\n"
+    
+    # Build prompt based on whether we have existing summary
+    existing_summary = chapter.auto_summary
+    
+    if existing_summary:
+        # Incremental update: extend existing summary
+        prompt = f"""You are creating a cohesive chapter summary. You have an existing summary and new scenes to incorporate.
+
+{story_so_far_text}{previous_chapter_text}{characters_text}{entity_states_text}{chapter_context}
+Existing Chapter Summary (Scenes 1-{last_summary_count}):
+{existing_summary}
+
+New Scenes to Add (Scenes {last_summary_count + 1}-{chapter.scenes_count}):
+{new_scenes_text}
+
+Instructions:
+- Create a cohesive summary that combines the existing summary with the new scenes
+- Maintain narrative flow and chronological order
+- Highlight key events, character developments, and plot progression
+- Keep the summary engaging and comprehensive (3-4 paragraphs)
+- Focus on what happens in THIS chapter only
+- Maintain consistency with the story context provided
+
+Updated Chapter {chapter.chapter_number} Summary:"""
+    else:
+        # First summary: create from scratch
+        prompt = f"""Summarize the following scenes from Chapter {chapter.chapter_number} into a cohesive summary.
+
+{story_so_far_text}{previous_chapter_text}{characters_text}{entity_states_text}{chapter_context}
+Chapter {chapter.chapter_number}: {chapter.title or 'Untitled'}
+
+Scenes to Summarize:
+{new_scenes_text}
+
+Instructions:
+- Summarize ONLY Chapter {chapter.chapter_number}'s content
+- Maintain consistency with the story context provided
+- Capture key events, character developments, and plot progression
+- Keep summary engaging and comprehensive (2-3 paragraphs)
+
+Chapter {chapter.chapter_number} Summary:"""
+    
+    # Get user settings
+    from ..models import UserSettings
+    user_settings_obj = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+    user_settings = user_settings_obj.to_dict() if user_settings_obj else None
+    
+    if user_settings is not None:
+        user = db.query(User).filter(User.id == user_id).first()
+        if user:
+            user_settings['allow_nsfw'] = user.allow_nsfw
+    
+    # Generate summary
+    summary = await llm_service.generate(
+        prompt=prompt,
+        user_id=user_id,
+        user_settings=user_settings,
+        system_prompt="You are a helpful assistant that creates cohesive narrative summaries.",
+        max_tokens=500  # Slightly more for incremental updates
+    )
+    
+    # Update chapter's auto_summary
+    chapter.auto_summary = summary
+    chapter.last_summary_scene_count = chapter.scenes_count
+    db.commit()
+    
+    logger.info(f"[CHAPTER] {'Extended' if existing_summary else 'Created'} summary for chapter {chapter_id}: {len(summary)} chars (scenes {last_summary_count + 1}-{chapter.scenes_count})")
     
     return summary
 
