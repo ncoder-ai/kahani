@@ -1877,6 +1877,22 @@ class UnifiedLLMService:
         if context.get("chapter_scenario"):
             context_parts.append(f"Chapter Scenario: {context['chapter_scenario']}")
         
+        # Add story_so_far if available (summary of all previous chapters)
+        story_so_far = context.get("story_so_far")
+        if story_so_far:
+            logger.info(f"[CONTEXT FORMAT] Including story_so_far ({len(story_so_far)} chars)")
+            context_parts.append(f"Story So Far:\n{story_so_far}")
+        else:
+            logger.info("[CONTEXT FORMAT] story_so_far is None or empty, not including")
+        
+        # Add previous chapter summary if available
+        previous_chapter_summary = context.get("previous_chapter_summary")
+        if previous_chapter_summary:
+            logger.info(f"[CONTEXT FORMAT] Including previous_chapter_summary ({len(previous_chapter_summary)} chars)")
+            context_parts.append(f"Previous Chapter Summary:\n{previous_chapter_summary}")
+        else:
+            logger.info("[CONTEXT FORMAT] previous_chapter_summary is None or empty, not including")
+        
         if context.get("scene_summary"):
             context_parts.append(f"Story Summary: {context['scene_summary']}")
         
