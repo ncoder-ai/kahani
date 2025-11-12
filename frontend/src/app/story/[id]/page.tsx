@@ -55,7 +55,6 @@ import {
   ArrowLeftIcon,
   ArrowRightIcon,
   DocumentDuplicateIcon,
-  MagnifyingGlassIcon,
   PlusIcon,
   PlayIcon,
   DocumentTextIcon,
@@ -132,7 +131,6 @@ export default function StoryPage() {
   const [error, setError] = useState('');
   const [customPrompt, setCustomPrompt] = useState('');
   const [currentChapterIndex, setCurrentChapterIndex] = useState(0);
-  const [showLorebook, setShowLorebook] = useState(false);
   const [showChoices, setShowChoices] = useState(true);
   const [directorMode, setDirectorMode] = useState(false);
   const [editingScene, setEditingScene] = useState<number | null>(null);
@@ -270,7 +268,6 @@ export default function StoryPage() {
         onAddCharacter: () => setShowCharacterQuickAdd(true),
         onViewAllCharacters: () => router.push('/characters'),
         onDirectorMode: () => setDirectorMode(!directorMode),
-        onLorebook: () => setShowLorebook(!showLorebook),
         onDeleteMode: () => setIsInDeleteMode(!isInDeleteMode),
         onExportStory: () => {
           // TODO: Implement export functionality
@@ -278,7 +275,6 @@ export default function StoryPage() {
         },
         onEditStorySettings: () => setShowEditStoryModal(true),
         directorModeActive: directorMode,
-        lorebookActive: showLorebook,
         deleteModeActive: isInDeleteMode,
         showCharacterBanner: showCharacterBanner,
         onDiscoverCharacters: () => setShowCharacterWizard(true),
@@ -290,7 +286,7 @@ export default function StoryPage() {
     } else {
       setStoryActions(undefined);
     }
-  }, [story, directorMode, showLorebook, isInDeleteMode, showCharacterBanner, lastGenerationTime, generationStartTime, extractionStatus, setStoryActions, router]);
+  }, [story, directorMode, isInDeleteMode, showCharacterBanner, lastGenerationTime, generationStartTime, extractionStatus, setStoryActions, router]);
 
   // Auto-scroll to bottom when streaming starts
   useEffect(() => {
@@ -2161,30 +2157,6 @@ export default function StoryPage() {
                 </div>
               </button>
 
-              {/* Lorebook */}
-              <button
-                onClick={() => {
-                  setShowMainMenu(false);
-                  setShowLorebook(!showLorebook);
-                }}
-                className="w-full flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors text-left group"
-              >
-                <div className={`p-2 rounded-lg transition-colors ${
-                  showLorebook 
-                    ? 'bg-yellow-600/20 group-hover:bg-yellow-600/30' 
-                    : 'bg-gray-600/20 group-hover:bg-gray-600/30'
-                }`}>
-                  <BookOpenIcon className={`w-5 h-5 ${showLorebook ? 'text-yellow-400' : 'text-gray-400'}`} />
-                </div>
-                <div className="flex-1">
-                  <div className="font-medium text-white">Lorebook</div>
-                  <div className={`text-xs ${showLorebook ? 'text-yellow-400' : 'text-gray-400'}`}>
-                    {showLorebook ? 'Managing lore items' : 'Manage world & characters'}
-                  </div>
-                </div>
-                <ChevronRight className="w-5 h-5 text-gray-500" />
-              </button>
-
               {/* Delete Mode */}
               <button
                 onClick={() => {
@@ -2895,46 +2867,6 @@ export default function StoryPage() {
           </div>
         </div>
       </div>
-
-      {/* Lorebook Sidebar */}
-      {showLorebook && (
-        <div className="fixed right-0 top-0 h-full w-80 bg-gray-800 border-l border-gray-700 z-50">
-          <div className="p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-lg font-bold text-white">LOREBOOK</h2>
-              <button
-                onClick={() => setShowLorebook(false)}
-                className="text-gray-400 hover:text-white"
-              >
-                ✕
-              </button>
-            </div>
-            
-            <div className="flex space-x-4 mb-6">
-              <button className="text-white border-b-2 border-white pb-2">Items</button>
-              <button className="text-gray-400 pb-2">Characters</button>
-            </div>
-
-            <button className="w-full flex items-center justify-center space-x-2 bg-gray-700 hover:bg-gray-600 rounded-lg p-3 mb-6 transition-colors">
-              <PlusIcon className="w-5 h-5" />
-              <span>Create</span>
-            </button>
-
-            <div className="text-center text-gray-400 mt-12">
-              <MagnifyingGlassIcon className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p>No lorebook items.</p>
-              <p className="text-sm">Start by creating one</p>
-            </div>
-
-            <div className="absolute bottom-6 left-6 right-6">
-              <p className="text-xs text-gray-500">
-                Use @ in the editor to access lorebook items.
-                The last 5 selected will be remembered by the AI.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
 
       {error && (
         <div className="fixed top-4 right-4 bg-red-600 text-white px-4 py-3 rounded-lg shadow-lg z-50 max-w-md">

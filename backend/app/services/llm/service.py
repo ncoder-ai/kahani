@@ -12,6 +12,8 @@ from litellm import acompletion
 import logging
 import re
 import json
+import os
+from pathlib import Path
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, desc
 
@@ -898,6 +900,20 @@ class UnifiedLLMService:
             max_tokens=max_tokens
         )
         
+        # Write raw response to file
+        try:
+            backend_dir = Path(__file__).parent.parent.parent
+            raw_response_file = backend_dir / "Raw-Response.txt"
+            with open(raw_response_file, 'w', encoding='utf-8') as f:
+                f.write("=" * 80 + "\n")
+                f.write("RAW LLM RESPONSE FOR NEW SCENE GENERATION\n")
+                f.write("=" * 80 + "\n\n")
+                f.write(response)
+                f.write("\n\n" + "=" * 80 + "\n")
+            logger.info(f"Raw LLM response written to {raw_response_file}")
+        except Exception as e:
+            logger.error(f"Failed to write raw response to file: {e}")
+        
         return self._clean_scene_numbers(response)
     
     async def generate_scene_with_choices(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> Tuple[str, Optional[List[str]]]:
@@ -930,17 +946,49 @@ class UnifiedLLMService:
             max_tokens=max_tokens
         )
         
+        # Write raw response to file
+        try:
+            backend_dir = Path(__file__).parent.parent.parent
+            raw_response_file = backend_dir / "Raw-Response.txt"
+            with open(raw_response_file, 'w', encoding='utf-8') as f:
+                f.write("=" * 80 + "\n")
+                f.write("RAW LLM RESPONSE FOR NEW SCENE GENERATION\n")
+                f.write("=" * 80 + "\n\n")
+                f.write(response)
+                f.write("\n\n" + "=" * 80 + "\n")
+            logger.info(f"Raw LLM response written to {raw_response_file}")
+        except Exception as e:
+            logger.error(f"Failed to write raw response to file: {e}")
+        
         cleaned_response = self._clean_scene_numbers(response)
+        
+        # Log response info for debugging
+        logger.info(f"[CHOICES] Response length: {len(cleaned_response)} chars, max_tokens: {max_tokens}")
         
         # Split scene and choices
         if CHOICES_MARKER in cleaned_response:
+            logger.info(f"[CHOICES] Marker found in response")
             parts = cleaned_response.split(CHOICES_MARKER, 1)
             scene_content = parts[0].strip()
             choices_text = parts[1].strip() if len(parts) > 1 else ""
+            logger.info(f"[CHOICES] Choices text length: {len(choices_text)} chars")
+            logger.debug(f"[CHOICES] Choices text preview: {choices_text[:300]}")
+            
             parsed_choices = self._parse_choices_from_json(choices_text)
-            return (scene_content, parsed_choices)
+            if parsed_choices:
+                logger.info(f"[CHOICES] Successfully parsed {len(parsed_choices)} choices")
+                return (scene_content, parsed_choices)
+            else:
+                logger.warning(f"[CHOICES] Marker found but parsing failed. Choices text: {choices_text[:200]}")
+                return (scene_content, None)
         else:
             # No marker found, return scene without choices
+            logger.warning(f"[CHOICES] Marker NOT found in response. Response length: {len(cleaned_response)} chars")
+            logger.warning(f"[CHOICES] Full LLM response received:")
+            logger.warning(f"[CHOICES] {'='*80}")
+            logger.warning(f"[CHOICES] {cleaned_response}")
+            logger.warning(f"[CHOICES] {'='*80}")
+            logger.debug(f"[CHOICES] Response preview (last 500 chars): {cleaned_response[-500:]}")
             return (cleaned_response, None)
     
     async def generate_scene_streaming(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> AsyncGenerator[str, None]:
@@ -970,6 +1018,9 @@ class UnifiedLLMService:
         
         max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
         
+        # Collect all raw chunks for raw response capture (before cleaning)
+        raw_chunks = []
+        
         async for chunk in self._generate_stream(
             prompt=user_prompt,
             user_id=user_id,
@@ -977,9 +1028,27 @@ class UnifiedLLMService:
             system_prompt=system_prompt,
             max_tokens=max_tokens
         ):
+            # Capture raw chunk before cleaning
+            raw_chunks.append(chunk)
             cleaned_chunk = self._clean_scene_numbers_chunk(chunk)
             if cleaned_chunk:  # Only yield non-empty chunks
                 yield cleaned_chunk
+        
+        # Write raw response to file after streaming completes
+        if raw_chunks:
+            try:
+                backend_dir = Path(__file__).parent.parent.parent
+                raw_response_file = backend_dir / "Raw-Response.txt"
+                full_response = ''.join(raw_chunks)
+                with open(raw_response_file, 'w', encoding='utf-8') as f:
+                    f.write("=" * 80 + "\n")
+                    f.write("RAW LLM RESPONSE FOR NEW SCENE GENERATION (STREAMING)\n")
+                    f.write("=" * 80 + "\n\n")
+                    f.write(full_response)
+                    f.write("\n\n" + "=" * 80 + "\n")
+                logger.info(f"Raw LLM response written to {raw_response_file}")
+            except Exception as e:
+                logger.error(f"Failed to write raw response to file: {e}")
     
     async def generate_scene_variants(self, original_scene: str, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> str:
         """Generate alternative versions of a scene"""
@@ -1159,35 +1228,82 @@ class UnifiedLLMService:
         Handles various formats and extracts valid choices.
         Returns None if parsing fails.
         """
+        if not text or not text.strip():
+            logger.warning("[CHOICES PARSE] Empty text provided")
+            return None
+            
         try:
             # Clean the text - remove any markdown code blocks
+            original_text = text
             text = text.strip()
-            if text.startswith('```'):
+            
+            # Handle markdown code blocks (```json ... ``` or ``` ... ```)
+            if '```' in text:
                 # Remove markdown code block markers
                 lines = text.split('\n')
-                text = '\n'.join([l for l in lines if not l.strip().startswith('```')])
+                filtered_lines = []
+                skip_code_block = False
+                for line in lines:
+                    stripped = line.strip()
+                    if stripped.startswith('```'):
+                        skip_code_block = not skip_code_block
+                        continue  # Skip the marker line
+                    if not skip_code_block:
+                        filtered_lines.append(line)
+                text = '\n'.join(filtered_lines).strip()
+                logger.debug(f"[CHOICES PARSE] Removed markdown code blocks, text length: {len(text)}")
             
             # Try to find JSON array - look for pattern like ["choice1", "choice2"]
-            # This handles cases where there might be extra text before/after
+            # Use non-greedy match first, then try greedy if that fails
             json_match = re.search(r'\[.*?\]', text, re.DOTALL)
+            if not json_match:
+                # Try greedy match in case array spans multiple lines
+                json_match = re.search(r'\[.*\]', text, re.DOTALL)
+            
             if json_match:
                 json_str = json_match.group(0)
-                choices = json.loads(json_str)
+                logger.debug(f"[CHOICES PARSE] Found JSON array: {json_str[:200]}")
+                
+                try:
+                    choices = json.loads(json_str)
+                except json.JSONDecodeError as e:
+                    logger.warning(f"[CHOICES PARSE] JSON decode error: {e}, JSON string: {json_str[:200]}")
+                    # Try to fix common JSON issues
+                    # Remove trailing commas
+                    json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
+                    try:
+                        choices = json.loads(json_str)
+                    except json.JSONDecodeError as e2:
+                        logger.warning(f"[CHOICES PARSE] Still failed after cleanup: {e2}")
+                        return None
                 
                 # Validate we got a list of strings
                 if isinstance(choices, list) and len(choices) >= 2:
                     # Clean and validate each choice
                     cleaned_choices = []
-                    for choice in choices:
-                        if isinstance(choice, str) and len(choice.strip()) > 5:
-                            cleaned_choices.append(choice.strip())
+                    for i, choice in enumerate(choices):
+                        if isinstance(choice, str):
+                            cleaned = choice.strip()
+                            if len(cleaned) > 5:  # Minimum reasonable choice length
+                                cleaned_choices.append(cleaned)
+                            else:
+                                logger.debug(f"[CHOICES PARSE] Skipping choice {i+1} (too short): {cleaned}")
+                        else:
+                            logger.debug(f"[CHOICES PARSE] Skipping choice {i+1} (not a string): {type(choice)}")
                     
                     if len(cleaned_choices) >= 2:
-                        return cleaned_choices  # Return all parsed choices
+                        logger.info(f"[CHOICES PARSE] Successfully parsed {len(cleaned_choices)} valid choices from {len(choices)} total")
+                        return cleaned_choices
+                    else:
+                        logger.warning(f"[CHOICES PARSE] Not enough valid choices: {len(cleaned_choices)} < 2")
+                else:
+                    logger.warning(f"[CHOICES PARSE] Invalid format: got {type(choices)}, length: {len(choices) if isinstance(choices, list) else 'N/A'}")
+            else:
+                logger.warning(f"[CHOICES PARSE] No JSON array found in text. Text preview: {text[:200]}")
             
             return None
-        except (json.JSONDecodeError, ValueError, AttributeError) as e:
-            logger.warning(f"Failed to parse choices from JSON: {e}")
+        except (json.JSONDecodeError, ValueError, AttributeError, Exception) as e:
+            logger.warning(f"[CHOICES PARSE] Failed to parse choices from JSON: {e}, text preview: {text[:200] if text else 'empty'}")
             return None
     
     async def generate_scene_with_choices_streaming(
@@ -1226,6 +1342,7 @@ class UnifiedLLMService:
         found_marker = False
         rolling_buffer = ""  # Buffer to detect marker across chunks
         total_chunks = 0
+        raw_chunks = []  # Collect raw chunks before cleaning
         
         async for chunk in self._generate_stream(
             prompt=user_prompt,
@@ -1235,6 +1352,7 @@ class UnifiedLLMService:
             max_tokens=max_tokens
         ):
             total_chunks += 1
+            raw_chunks.append(chunk)  # Capture raw chunk before cleaning
             cleaned_chunk = self._clean_scene_numbers_chunk(chunk)
             if not cleaned_chunk:
                 continue
@@ -1245,6 +1363,7 @@ class UnifiedLLMService:
                 
                 # Check if marker is in rolling buffer
                 if CHOICES_MARKER in rolling_buffer:
+                    logger.info(f"[CHOICES STREAMING] Found marker at chunk {total_chunks}")
                     # Split: before marker goes to scene, after to choices
                     parts = rolling_buffer.split(CHOICES_MARKER, 1)
                     scene_part = parts[0]  # Everything before marker - guaranteed to be new content
@@ -1260,6 +1379,7 @@ class UnifiedLLMService:
                     # Buffer the choices part - DO NOT YIELD
                     if choices_part:
                         choices_buffer.append(choices_part)
+                        logger.debug(f"[CHOICES STREAMING] Buffered initial choices part: {choices_part[:100]}")
                     
                     found_marker = True
                     rolling_buffer = ""  # Clear rolling buffer
@@ -1283,20 +1403,47 @@ class UnifiedLLMService:
             scene_buffer.append(rolling_buffer)
             yield (rolling_buffer, False, None)
         
+        # Build full response for logging
+        full_scene_content = ''.join(scene_buffer)
+        full_response = full_scene_content + (''.join(choices_buffer) if choices_buffer else '')
+        
+        # Write raw response to file (using raw chunks before cleaning)
+        try:
+            backend_dir = Path(__file__).parent.parent.parent
+            raw_response_file = backend_dir / "Raw-Response.txt"
+            raw_full_response = ''.join(raw_chunks)
+            with open(raw_response_file, 'w', encoding='utf-8') as f:
+                f.write("=" * 80 + "\n")
+                f.write("RAW LLM RESPONSE FOR NEW SCENE GENERATION (STREAMING)\n")
+                f.write("=" * 80 + "\n\n")
+                f.write(raw_full_response)
+                f.write("\n\n" + "=" * 80 + "\n")
+            logger.info(f"Raw LLM response written to {raw_response_file}")
+        except Exception as e:
+            logger.error(f"Failed to write raw response to file: {e}")
+        
         # Parse choices from buffer
         parsed_choices = None
         if found_marker and choices_buffer:
             choices_text = ''.join(choices_buffer).strip()
-            logger.warning(f"[GUIDED ENHANCEMENT] Choices buffer length: {len(choices_text)} chars")
-            logger.warning(f"[GUIDED ENHANCEMENT] Choices buffer preview: {choices_text[:200]}")
+            logger.info(f"[CHOICES STREAMING] Marker found, choices buffer length: {len(choices_text)} chars")
+            logger.debug(f"[CHOICES STREAMING] Choices buffer preview: {choices_text[:300]}")
             parsed_choices = self._parse_choices_from_json(choices_text)
-            logger.warning(f"[GUIDED ENHANCEMENT] Parsed {len(parsed_choices) if parsed_choices else 0} choices")
+            if parsed_choices:
+                logger.info(f"[CHOICES STREAMING] Successfully parsed {len(parsed_choices)} choices")
+            else:
+                logger.warning(f"[CHOICES STREAMING] Marker found but parsing failed. Choices text: {choices_text[:200]}")
         else:
             if not found_marker:
-                logger.warning(f"[GUIDED ENHANCEMENT] ERROR: ###CHOICES### marker not found after {total_chunks} chunks")
-                logger.warning(f"[GUIDED ENHANCEMENT] Scene buffer length: {len(''.join(scene_buffer))} chars")
+                logger.warning(f"[CHOICES STREAMING] ERROR: ###CHOICES### marker not found after {total_chunks} chunks")
+                logger.warning(f"[CHOICES STREAMING] Scene buffer length: {len(full_scene_content)} chars")
+                logger.warning(f"[CHOICES STREAMING] Full LLM response received ({len(full_response)} chars):")
+                logger.warning(f"[CHOICES STREAMING] {'='*80}")
+                logger.warning(f"[CHOICES STREAMING] {full_response}")
+                logger.warning(f"[CHOICES STREAMING] {'='*80}")
+                logger.debug(f"[CHOICES STREAMING] Scene buffer preview (last 500 chars): {full_scene_content[-500:]}")
             else:
-                logger.warning(f"[GUIDED ENHANCEMENT] Marker found but choices_buffer is empty")
+                logger.warning(f"[CHOICES STREAMING] Marker found but choices_buffer is empty")
         
         # Yield final completion with parsed choices
         yield ("", True, parsed_choices)
@@ -1385,7 +1532,7 @@ class UnifiedLLMService:
                 
                 # Check if marker is in rolling buffer
                 if CHOICES_MARKER in rolling_buffer:
-                    logger.warning(f"[GUIDED ENHANCEMENT] Found ###CHOICES### marker at chunk {total_chunks}")
+                    logger.info(f"[CHOICES VARIANT] Found marker at chunk {total_chunks}")
                     # Split: before marker goes to scene, after to choices
                     parts = rolling_buffer.split(CHOICES_MARKER, 1)
                     scene_part = parts[0]  # Everything before marker - guaranteed to be new content
@@ -1401,6 +1548,7 @@ class UnifiedLLMService:
                     # Buffer the choices part - DO NOT YIELD
                     if choices_part:
                         choices_buffer.append(choices_part)
+                        logger.debug(f"[CHOICES VARIANT] Buffered initial choices part: {choices_part[:100]}")
                     
                     found_marker = True
                     rolling_buffer = ""  # Clear rolling buffer
@@ -1426,16 +1574,20 @@ class UnifiedLLMService:
         parsed_choices = None
         if found_marker and choices_buffer:
             choices_text = ''.join(choices_buffer).strip()
-            logger.warning(f"[GUIDED ENHANCEMENT] Choices buffer length: {len(choices_text)} chars")
-            logger.warning(f"[GUIDED ENHANCEMENT] Choices buffer preview: {choices_text[:200]}")
+            logger.info(f"[CHOICES VARIANT] Marker found, choices buffer length: {len(choices_text)} chars")
+            logger.debug(f"[CHOICES VARIANT] Choices buffer preview: {choices_text[:300]}")
             parsed_choices = self._parse_choices_from_json(choices_text)
-            logger.warning(f"[GUIDED ENHANCEMENT] Parsed {len(parsed_choices) if parsed_choices else 0} choices")
+            if parsed_choices:
+                logger.info(f"[CHOICES VARIANT] Successfully parsed {len(parsed_choices)} choices")
+            else:
+                logger.warning(f"[CHOICES VARIANT] Marker found but parsing failed. Choices text: {choices_text[:200]}")
         else:
             if not found_marker:
-                logger.warning(f"[GUIDED ENHANCEMENT] ERROR: ###CHOICES### marker not found after {total_chunks} chunks")
-                logger.warning(f"[GUIDED ENHANCEMENT] Scene buffer length: {len(''.join(scene_buffer))} chars")
+                logger.warning(f"[CHOICES VARIANT] ERROR: ###CHOICES### marker not found after {total_chunks} chunks")
+                logger.warning(f"[CHOICES VARIANT] Scene buffer length: {len(''.join(scene_buffer))} chars")
+                logger.debug(f"[CHOICES VARIANT] Scene buffer preview (last 500 chars): {''.join(scene_buffer)[-500:]}")
             else:
-                logger.warning(f"[GUIDED ENHANCEMENT] Marker found but choices_buffer is empty")
+                logger.warning(f"[CHOICES VARIANT] Marker found but choices_buffer is empty")
         
         yield ("", True, parsed_choices)
     
@@ -1499,6 +1651,7 @@ class UnifiedLLMService:
                 
                 # Check if marker is in rolling buffer
                 if CHOICES_MARKER in rolling_buffer:
+                    logger.info(f"[CHOICES CONTINUATION] Found marker")
                     # Split: before marker goes to scene, after to choices
                     parts = rolling_buffer.split(CHOICES_MARKER, 1)
                     scene_part = parts[0]  # Everything before marker - guaranteed to be new content
@@ -1514,6 +1667,7 @@ class UnifiedLLMService:
                     # Buffer the choices part - DO NOT YIELD
                     if choices_part:
                         choices_buffer.append(choices_part)
+                        logger.debug(f"[CHOICES CONTINUATION] Buffered initial choices part: {choices_part[:100]}")
                     
                     found_marker = True
                     rolling_buffer = ""  # Clear rolling buffer
@@ -1538,7 +1692,18 @@ class UnifiedLLMService:
         parsed_choices = None
         if found_marker and choices_buffer:
             choices_text = ''.join(choices_buffer).strip()
+            logger.info(f"[CHOICES CONTINUATION] Marker found, choices buffer length: {len(choices_text)} chars")
+            logger.debug(f"[CHOICES CONTINUATION] Choices buffer preview: {choices_text[:300]}")
             parsed_choices = self._parse_choices_from_json(choices_text)
+            if parsed_choices:
+                logger.info(f"[CHOICES CONTINUATION] Successfully parsed {len(parsed_choices)} choices")
+            else:
+                logger.warning(f"[CHOICES CONTINUATION] Marker found but parsing failed. Choices text: {choices_text[:200]}")
+        else:
+            if not found_marker:
+                logger.warning(f"[CHOICES CONTINUATION] Marker NOT found")
+            else:
+                logger.warning(f"[CHOICES CONTINUATION] Marker found but choices_buffer is empty")
         
         yield ("", True, parsed_choices)
     
