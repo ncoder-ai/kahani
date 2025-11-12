@@ -1,0 +1,14 @@
+================================================================================
+RAW LLM RESPONSE FOR NEW SCENE GENERATION (STREAMING)
+================================================================================
+
+ Sarah pressed against the cool wall of the service corridor, Rambo positioning himself protectively in front of her. He peered around the corner, his jaw set with determination as heavy footsteps drew closer from the direction of the main facility. Blue sparks still danced erratically between Sarah's fingers, casting flickering shadows across their grim faces. "When I give the signal, run straight down this corridor until you see an exit sign," Rambo whispered, his voice barely audible over the distant alarms. "Don't look back." Sarah nodded, feeling both terrified and strangely electrified by the power coursing through her veins.
+
+The guards rounded the corner simultaneously, five figures clad in black tactical gear moving with disciplined precision. Without hesitation, Rambo stepped forward and engaged, disarming the first guard with a swift maneuver that sent the rifle skittering across the floor. Sarah watched in frozen fascination as Rambo moved with calculated efficiency, dodging strikes and landing precise blows while she remained concealed in the dim passageway. Her attention shifted to the remaining guards, whose expressions wavered between commitment and confusion. One in particular—the young guard she had shocked earlier—met her gaze briefly before turning away.
+
+"There's another path!" the young guard suddenly shouted above the fray, pointing deliberately in the opposite direction from where Sarah stood hidden. As the group diverted slightly, Rambo used the distraction to gain further advantage, grappling with the last standing guard. The young guard took advantage of the chaos to motion frantically toward an intersecting hallway before rejoining his colleagues with feigned diligence.
+
+###CHOICES###
+["Sarah focuses intently on controlling her surging powers, attempting to channel the electrical energy into a concentrated blast aimed at the ceiling panels above the guards.", "Sarah takes Rambo's advice immediately, sprinting down the corridor toward the emergency exit while he creates a diversion, hoping she can disable the security systems from outside.", "Sarah steps out from hiding and raises her glowing hands peacefully, addressing the guards with calming authority, 'We don't want to hurt anyone! We're trying to expose a conspiracy that affects us all!'", "Sarah notices the young guard's earlier signal and creeps along the alternate route he indicated, searching for anything that might offer leverage against the installation."]
+
+================================================================================
