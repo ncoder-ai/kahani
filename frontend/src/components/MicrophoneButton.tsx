@@ -81,7 +81,7 @@ export default function MicrophoneButton({
         
         console.log('[MicrophoneButton] Checking STT settings with token:', token ? 'present' : 'missing');
         
-        const response = await fetch(`${getApiBaseUrl()}/api/settings/`, {
+        const response = await fetch(`${await getApiBaseUrl()}/api/settings/`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }

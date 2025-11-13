@@ -1,34 +1,29 @@
 // API configuration and utilities
 
-// Runtime API URL detection - check if we're in browser and try to auto-detect
-function getApiBaseUrl(): string {
+import { getApiBaseUrl as getApiBaseUrlFromConfig, getApiBaseUrlSync as getApiBaseUrlSyncFromConfig } from './apiUrl';
+
+// Runtime API URL detection - uses config API
+async function getApiBaseUrl(): Promise<string> {
   // First check environment variable
   if (process.env.NEXT_PUBLIC_API_URL) {
     return process.env.NEXT_PUBLIC_API_URL;
   }
   
-  // In browser, auto-detect based on current host
-  if (typeof window !== 'undefined') {
-    const protocol = window.location.protocol; // Use same protocol as frontend (http: or https:)
-    const currentHost = window.location.hostname;
-    const port = window.location.port;
-    
-    // Check if we're using a reverse proxy (no port in URL or standard ports)
-    const isReverseProxy = !port || port === '80' || port === '443';
-    
-    if (isReverseProxy) {
-      // For reverse proxy: use /api on the same domain
-      return `${protocol}//${currentHost}`;
-    }
-    
-    // If not localhost, use current host with backend port using same protocol
-    if (currentHost !== 'localhost' && currentHost !== '127.0.0.1') {
-      return `${protocol}//${currentHost}:9876`;
-    }
+  // Use config API to get backend port
+  try {
+    return await getApiBaseUrlFromConfig();
+  } catch (error) {
+    // If config API unavailable, this is a critical error
+    throw new Error(`Unable to determine API URL: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
-  
-  // Default fallback
-  return 'http://localhost:9876';
+}
+
+// Synchronous version for backward compatibility (uses cached port)
+function getApiBaseUrlSync(): string {
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL;
+  }
+  return getApiBaseUrlSyncFromConfig();
 }
 
 class ApiClient {
@@ -36,8 +31,32 @@ class ApiClient {
   private token: string | null = null;
 
   constructor(baseURL?: string) {
-    this.baseURL = baseURL || getApiBaseUrl();
+    // Don't require baseURL immediately - allow lazy initialization
+    // This allows ApiClient to be created before config is loaded
+    if (baseURL) {
+      this.baseURL = baseURL;
+    } else {
+      // Try to get sync, but don't throw if not available yet
+      // Will be initialized via initialize() method
+      try {
+        this.baseURL = getApiBaseUrlSync();
+      } catch {
+        // Config not loaded yet - will be set via initialize()
+        this.baseURL = '';
+      }
+    }
     this.loadToken();
+  }
+  
+  // Method to update base URL after config is loaded
+  async initialize(): Promise<void> {
+    // Try to get from config API
+    try {
+      this.baseURL = await getApiBaseUrl();
+    } catch (error) {
+      console.error('Failed to initialize API URL from config:', error);
+      throw error; // Fail fast - config must be available
+    }
   }
 
   private loadToken() {
@@ -71,6 +90,10 @@ class ApiClient {
   }
 
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    // Ensure baseURL is initialized before making request
+    if (!this.baseURL) {
+      await this.initialize();
+    }
     const url = `${this.baseURL}${endpoint}`;
     const isFormData = (typeof FormData !== 'undefined') && (options.body instanceof FormData);
 

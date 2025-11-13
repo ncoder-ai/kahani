@@ -277,3 +277,13 @@ backend/data/vad_models/
 
 # Prompt tracking files
 backend/app/prompt_sent.txt
+backend/app/Raw-Response.txt
+
+# Backup files
+*.bak
+*.backup*
+migrations_backup/
+
+# Log files (additional patterns)
+*.log
+realtimesst.log

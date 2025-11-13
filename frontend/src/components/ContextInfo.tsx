@@ -49,7 +49,7 @@ export const ContextInfo: React.FC<ContextInfoProps> = ({ className = '', storyI
         setLoading(true);
         
         // Fetch story summary for scene counts and budget
-        const summaryResponse = await fetch(`${getApiBaseUrl()}/api/stories/${storyId}/summary`, {
+        const summaryResponse = await fetch(`${await getApiBaseUrl()}/api/stories/${storyId}/summary`, {
           headers: {
             'Authorization': `Bearer ${token}`,
           },

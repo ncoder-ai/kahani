@@ -117,8 +117,8 @@ export const useTTS = ({ sceneId, onPlaybackStart, onPlaybackEnd, onError }: Use
 
       // Fetch audio chunk with authentication
       const url = audioInfo.progressive 
-        ? `${getApiBaseUrl()}/api/tts/audio/${sceneId}/chunk/${chunkNumber}`
-        : `${getApiBaseUrl()}/api/tts/audio/${sceneId}`;
+        ? `${await getApiBaseUrl()}/api/tts/audio/${sceneId}/chunk/${chunkNumber}`
+        : `${await getApiBaseUrl()}/api/tts/audio/${sceneId}`;
 
       const response = await fetch(url, {
         headers: {
@@ -144,7 +144,7 @@ export const useTTS = ({ sceneId, onPlaybackStart, onPlaybackEnd, onError }: Use
         // Check generation status before retrying (optional optimization)
         try {
           const statusResponse = await fetch(
-            `${getApiBaseUrl()}/api/tts/audio/${sceneId}/status`,
+            `${await getApiBaseUrl()}/api/tts/audio/${sceneId}/status`,
             {
               headers: {
                 'Authorization': `Bearer ${localStorage.getItem('auth_token')}`

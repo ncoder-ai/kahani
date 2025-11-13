@@ -245,13 +245,21 @@ class SemanticMemoryService:
                 if exclude_sequences and metadata['sequence'] in exclude_sequences:
                     continue
                 
+                # Normalize cosine distance to similarity score
+                # Cosine distance range is [0, 2] where:
+                #   0 = identical (similarity = 1.0)
+                #   1 = orthogonal (similarity = 0.5)
+                #   2 = opposite (similarity = 0.0)
+                # Formula: similarity = max(0, 1 - (distance / 2))
+                normalized_similarity = max(0.0, 1.0 - (distance / 2.0))
+                
                 candidates.append({
                     'embedding_id': doc_id,
                     'scene_id': metadata['scene_id'],
                     'variant_id': metadata['variant_id'],
                     'sequence': metadata['sequence'],
                     'chapter_id': metadata['chapter_id'],
-                    'bi_encoder_score': 1 - distance,  # Initial similarity
+                    'bi_encoder_score': normalized_similarity,  # Normalized similarity [0, 1]
                     'timestamp': metadata['timestamp'],
                     'characters': metadata.get('characters', '[]'),
                     'document_text': doc_text  # For reranking
@@ -422,6 +430,9 @@ class SemanticMemoryService:
                 results['metadatas'][0],
                 results['distances'][0]
             ):
+                # Normalize cosine distance to similarity score [0, 1]
+                normalized_similarity = max(0.0, 1.0 - (distance / 2.0))
+                
                 candidates.append({
                     'embedding_id': doc_id,
                     'character_id': metadata['character_id'],
@@ -429,7 +440,7 @@ class SemanticMemoryService:
                     'scene_id': metadata['scene_id'],
                     'moment_type': metadata['moment_type'],
                     'sequence': metadata['sequence'],
-                    'bi_encoder_score': 1 - distance,
+                    'bi_encoder_score': normalized_similarity,  # Normalized similarity [0, 1]
                     'timestamp': metadata['timestamp'],
                     'document_text': doc_text
                 })
@@ -626,6 +637,9 @@ class SemanticMemoryService:
                 results['metadatas'][0],
                 results['distances'][0]
             ):
+                # Normalize cosine distance to similarity score [0, 1]
+                normalized_similarity = max(0.0, 1.0 - (distance / 2.0))
+                
                 candidates.append({
                     'embedding_id': doc_id,
                     'event_id': metadata['event_id'],
@@ -634,7 +648,7 @@ class SemanticMemoryService:
                     'sequence': metadata['sequence'],
                     'is_resolved': metadata['is_resolved'],
                     'involved_characters': metadata.get('involved_characters', '[]'),
-                    'bi_encoder_score': 1 - distance,
+                    'bi_encoder_score': normalized_similarity,  # Normalized similarity [0, 1]
                     'timestamp': metadata['timestamp'],
                     'document_text': doc_text
                 })

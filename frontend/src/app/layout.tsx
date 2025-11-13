@@ -1,6 +1,7 @@
 import './globals.css'
 import { Inter } from 'next/font/google'
 import PersistentBanner from '@/components/PersistentBanner'
+import { ConfigProvider } from '@/contexts/ConfigContext'
 import { GlobalTTSProvider } from '@/contexts/GlobalTTSContext'
 import { StoryProvider } from '@/contexts/StoryContext'
 import { ServiceWorkerRegistration } from '@/components/ServiceWorkerRegistration'
@@ -23,20 +24,28 @@ export default function RootLayout({
 }: {
   children: React.ReactNode
 }) {
-  // Use environment variable or safe default for SSR
+  // NEXT_PUBLIC_API_URL must be set via environment variable for SSR
+  // No hardcoded default - must be configured
   // GlobalTTSProvider will handle client-side URL detection to prevent hydration mismatches
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9876';
+  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || '';
+  if (!process.env.NEXT_PUBLIC_API_URL) {
+    // For SSR, we need an API URL. Client-side will load from config API.
+    // Use empty string - ClientGlobalTTSProvider will load from config API
+    console.warn('NEXT_PUBLIC_API_URL not set. Client-side will load from config API.');
+  }
   
   return (
     <html lang="en">
       <body className={inter.className}>
         <ServiceWorkerRegistration />
-        <GlobalTTSProvider apiBaseUrl={apiBaseUrl}>
-          <StoryProvider>
-            <PersistentBanner />
-            {children}
-          </StoryProvider>
-        </GlobalTTSProvider>
+        <ConfigProvider>
+          <GlobalTTSProvider apiBaseUrl={apiBaseUrl}>
+            <StoryProvider>
+              <PersistentBanner />
+              {children}
+            </StoryProvider>
+          </GlobalTTSProvider>
+        </ConfigProvider>
       </body>
     </html>
   )

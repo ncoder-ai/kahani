@@ -3,64 +3,226 @@ from typing import List, Optional
 from pydantic import field_validator
 import os
 import json
+import yaml
+from pathlib import Path
+import logging
 
-class Settings(BaseSettings):
-    # Application
-    app_name: str = "Kahani"
-    app_version: str = "0.1.0"
-    debug: bool = False
+logger = logging.getLogger(__name__)
+
+def load_yaml_config() -> dict:
+    """Load configuration from config.yaml file"""
+    # Find config.yaml in project root (two levels up from backend/app/)
+    backend_dir = Path(__file__).parent.parent.parent
+    config_file = backend_dir / "config.yaml"
+    
+    if not config_file.exists():
+        raise FileNotFoundError(
+            f"config.yaml not found at {config_file}. "
+            "Please create config.yaml in the project root with all required settings."
+        )
+    
+    try:
+        with open(config_file, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+        if config is None:
+            raise ValueError("config.yaml is empty")
+        logger.info(f"Loaded configuration from {config_file}")
+        return config
+    except yaml.YAMLError as e:
+        raise ValueError(f"Error parsing config.yaml: {e}")
+    except Exception as e:
+        raise ValueError(f"Error loading config.yaml: {e}")
+
+def flatten_yaml_config(yaml_config: dict) -> dict:
+    """Flatten nested YAML structure to match Settings class attributes"""
+    flattened = {}
+    
+    # Application settings
+    app = yaml_config.get('application', {})
+    flattened['app_name'] = app.get('app_name')
+    flattened['app_version'] = app.get('app_version')
+    flattened['debug'] = app.get('debug')
     
     # Database
-    database_url: str = "sqlite:///./data/kahani.db"
+    db = yaml_config.get('database', {})
+    flattened['database_url'] = db.get('database_url')
     
     # Security
-    jwt_secret_key: str
-    jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = 120  # 2 hours for normal sessions
-    refresh_token_expire_days: int = 30  # 30 days for remember me sessions
+    security = yaml_config.get('security', {})
+    flattened['jwt_algorithm'] = security.get('jwt_algorithm')
+    flattened['access_token_expire_minutes'] = security.get('access_token_expire_minutes')
+    flattened['refresh_token_expire_days'] = security.get('refresh_token_expire_days')
+    # jwt_secret_key and secret_key are NOT loaded from YAML - must come from environment variables
     
-    # Admin user
-    admin_email: str = "admin@localhost"
-    admin_password: str = "changeme123"
+    # Note: Admin credentials removed - first user to register becomes admin automatically
+    
+    # Context
+    context = yaml_config.get('context', {})
+    flattened['context_max_tokens'] = context.get('max_tokens')
+    flattened['context_keep_recent_scenes'] = context.get('keep_recent_scenes')
+    flattened['context_summary_threshold'] = context.get('summary_threshold')
+    flattened['context_summary_threshold_tokens'] = context.get('summary_threshold_tokens')
+    flattened['context_token_buffer'] = context.get('token_buffer')
+    flattened['DEFAULT_CHARACTER_EXTRACTION_THRESHOLD'] = context.get('default_character_extraction_threshold')
+    
+    # Semantic Memory
+    semantic = yaml_config.get('semantic_memory', {})
+    flattened['enable_semantic_memory'] = semantic.get('enabled')
+    flattened['semantic_db_path'] = semantic.get('db_path')
+    flattened['semantic_embedding_model'] = semantic.get('embedding_model')
+    flattened['semantic_search_top_k'] = semantic.get('search_top_k')
+    flattened['semantic_context_weight'] = semantic.get('context_weight')
+    
+    # Context Strategy
+    strategy = yaml_config.get('context_strategy', {})
+    flattened['context_strategy'] = strategy.get('strategy')
+    flattened['semantic_scenes_in_context'] = strategy.get('semantic_scenes_in_context')
+    flattened['character_moments_in_context'] = strategy.get('character_moments_in_context')
+    
+    # Extraction
+    extraction = yaml_config.get('extraction', {})
+    flattened['auto_extract_character_moments'] = extraction.get('auto_extract_character_moments')
+    flattened['auto_extract_plot_events'] = extraction.get('auto_extract_plot_events')
+    flattened['extraction_confidence_threshold'] = extraction.get('confidence_threshold')
+    
+    # Extraction Model
+    ext_model = yaml_config.get('extraction_model', {})
+    flattened['extraction_model_enabled'] = ext_model.get('enabled')
+    flattened['extraction_model_url'] = ext_model.get('url')
+    flattened['recommended_extraction_models'] = ext_model.get('recommended_models', [])
+    
+    # NPC Tracking
+    npc = yaml_config.get('npc_tracking', {})
+    flattened['npc_tracking_enabled'] = npc.get('enabled')
+    flattened['npc_importance_threshold'] = npc.get('importance_threshold')
+    flattened['npc_auto_extract_profile'] = npc.get('auto_extract_profile')
+    flattened['npc_prompt_user'] = npc.get('prompt_user')
+    
+    # CORS
+    cors = yaml_config.get('cors', {})
+    flattened['cors_origins'] = cors.get('origins')
+    
+    # Storage
+    storage = yaml_config.get('storage', {})
+    flattened['data_dir'] = storage.get('data_dir')
+    flattened['export_dir'] = storage.get('export_dir')
+    flattened['logs_dir'] = storage.get('logs_dir')
+    flattened['max_story_size_mb'] = storage.get('max_story_size_mb')
+    flattened['max_users'] = storage.get('max_users')
+    
+    # Features
+    features = yaml_config.get('features', {})
+    flattened['enable_registration'] = features.get('enable_registration')
+    flattened['enable_story_sharing'] = features.get('enable_story_sharing')
+    flattened['enable_public_stories'] = features.get('enable_public_stories')
+    
+    # Logging
+    logging_config = yaml_config.get('logging', {})
+    flattened['log_level'] = logging_config.get('log_level')
+    flattened['log_file'] = logging_config.get('log_file')
+    
+    # STT
+    stt = yaml_config.get('stt', {})
+    flattened['stt_model'] = stt.get('model')
+    flattened['stt_device'] = stt.get('device')
+    flattened['stt_compute_type'] = stt.get('compute_type')
+    flattened['stt_language'] = stt.get('language')
+    flattened['stt_use_silero_vad'] = stt.get('use_silero_vad')
+    flattened['stt_vad_threshold'] = stt.get('vad_threshold')
+    flattened['stt_min_speech_duration_ms'] = stt.get('min_speech_duration_ms')
+    flattened['stt_min_silence_duration_ms'] = stt.get('min_silence_duration_ms')
+    flattened['stt_max_speech_duration_s'] = stt.get('max_speech_duration_s')
+    flattened['stt_speech_pad_ms'] = stt.get('speech_pad_ms')
+    
+    # Debug
+    debug = yaml_config.get('debug', {})
+    flattened['prompt_debug'] = debug.get('prompt_debug')
+    
+    # Server
+    server = yaml_config.get('server', {})
+    backend_server = server.get('backend', {})
+    frontend_server = server.get('frontend', {})
+    flattened['backend_port'] = backend_server.get('port')
+    flattened['backend_host'] = backend_server.get('host')
+    flattened['frontend_port'] = frontend_server.get('port')
+    
+    # TTS (for frontend config API)
+    frontend_config = yaml_config.get('frontend', {})
+    tts_config = frontend_config.get('tts', {})
+    flattened['tts_provider_urls'] = tts_config.get('default_providers', {})
+    websocket_config = frontend_config.get('websocket', {})
+    flattened['tts_websocket_path'] = websocket_config.get('tts_path', '/ws/tts')
+    flattened['stt_websocket_path'] = websocket_config.get('stt_path', '/ws/stt')
+    flattened['extraction_model_url'] = frontend_config.get('extraction', {}).get('default_url')
+    
+    # Store full nested configs for access via properties
+    flattened['_yaml_config'] = yaml_config
+    
+    return flattened
+
+# Load YAML config
+try:
+    yaml_config = load_yaml_config()
+    yaml_flattened = flatten_yaml_config(yaml_config)
+except Exception as e:
+    logger.error(f"Failed to load config.yaml: {e}")
+    raise
+
+class Settings(BaseSettings):
+    # Application - NO DEFAULTS, must come from YAML or env
+    app_name: str
+    app_version: str
+    debug: bool
+    
+    # Database
+    database_url: str
+    
+    # Security
+    jwt_secret_key: str  # Required, must be set via env var
+    jwt_algorithm: str
+    access_token_expire_minutes: int
+    refresh_token_expire_days: int
+    
+    # Note: Admin credentials removed - first user to register becomes admin automatically
     
     # Context Management Configuration
-    context_max_tokens: int = 4000  # Maximum tokens to send to LLM
-    context_keep_recent_scenes: int = 3  # Always keep this many recent scenes
-    context_summary_threshold: int = 5  # Summarize when story has more than this many scenes
-    context_summary_threshold_tokens: int = 10000  # Summarize when total tokens exceed this threshold
-    context_token_buffer: float = 0.9  # Use 90% of max tokens as safety margin
-    DEFAULT_CHARACTER_EXTRACTION_THRESHOLD: int = 5  # Default threshold for character/NPC extraction (scenes since last extraction)
+    context_max_tokens: int
+    context_keep_recent_scenes: int
+    context_summary_threshold: int
+    context_summary_threshold_tokens: int
+    context_token_buffer: float
+    DEFAULT_CHARACTER_EXTRACTION_THRESHOLD: int
     
     # Semantic Memory Configuration
-    enable_semantic_memory: bool = True  # Enable semantic search and vector embeddings
-    semantic_db_path: str = "./data/chromadb"  # ChromaDB persistence directory
-    semantic_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"  # Embedding model
-    semantic_search_top_k: int = 5  # Number of semantically similar scenes to retrieve
-    semantic_context_weight: float = 0.4  # Weight for semantic scenes vs recent scenes (0-1)
+    enable_semantic_memory: bool
+    semantic_db_path: str
+    semantic_embedding_model: str
+    semantic_search_top_k: int
+    semantic_context_weight: float
     
     # Context Assembly Strategy
-    context_strategy: str = "hybrid"  # "linear" (old) or "hybrid" (semantic + linear)
-    semantic_scenes_in_context: int = 5  # Number of semantically relevant scenes to include
-    character_moments_in_context: int = 3  # Number of character moments to include
+    context_strategy: str
+    semantic_scenes_in_context: int
+    character_moments_in_context: int
     
     # Auto-extraction Settings
-    auto_extract_character_moments: bool = True  # Automatically extract character moments
-    auto_extract_plot_events: bool = True  # Automatically extract plot events
-    extraction_confidence_threshold: int = 70  # Minimum confidence (0-100) for auto-extraction
+    auto_extract_character_moments: bool
+    auto_extract_plot_events: bool
+    extraction_confidence_threshold: int
     
     # Extraction Model Configuration
-    extraction_model_enabled: bool = False  # Enable local extraction model by default
-    extraction_model_url: str = "http://localhost:1234/v1"  # LM Studio default, works with any OpenAI-compatible endpoint
-    recommended_extraction_models: List[str] = ["qwen2.5-3b-instruct", "ministral-3b-instruct", "phi-3-mini"]  # Recommended small uncensored models
+    extraction_model_enabled: bool
+    extraction_model_url: str
+    recommended_extraction_models: List[str]
     
     # NPC Tracking Configuration
-    npc_tracking_enabled: bool = True  # Enable automatic NPC tracking from scenes
-    npc_importance_threshold: float = 1.0  # Importance score threshold for including NPCs in context
-    npc_auto_extract_profile: bool = True  # Automatically extract full character profile when threshold crossed
-    npc_prompt_user: bool = False  # Prompt user to add NPCs as explicit characters (can enable later)
+    npc_tracking_enabled: bool
+    npc_importance_threshold: float
+    npc_auto_extract_profile: bool
+    npc_prompt_user: bool
     
-    # CORS - Will be auto-configured based on deployment environment
-    cors_origins: str = "*"  # Default, will be overridden by network config
+    # CORS
+    cors_origins: str
     
     @field_validator('cors_origins', mode='after')
     @classmethod
@@ -78,42 +240,82 @@ class Settings(BaseSettings):
         return v
     
     # File storage
-    data_dir: str = "./data"
-    export_dir: str = "./exports"
-    max_story_size_mb: int = 10
-    max_users: int = 100
+    data_dir: str
+    export_dir: str
+    logs_dir: str
+    max_story_size_mb: int
+    max_users: int
     
     # Features
-    enable_registration: bool = True
-    enable_story_sharing: bool = True
-    enable_public_stories: bool = False
+    enable_registration: bool
+    enable_story_sharing: bool
+    enable_public_stories: bool
     
     # Logging
-    log_level: str = "WARNING"  # Set to WARNING to reduce logging noise (only warnings and errors)
-    log_file: str = "./logs/kahani.log"
+    log_level: str
+    log_file: str
     
     # STT Configuration
-    stt_model: str = "small"  # Options: tiny, base, small, medium, large-v2
-    # Model comparison:
-    # - small: Good quality, fast, recommended (iPhone-quality)
-    # - medium: Very good quality, slower
-    # - large-v2: Best quality, slowest
-    stt_device: str = "auto"  # auto (try GPU, fallback CPU), cuda, or cpu
-    stt_compute_type: str = "int8"  # int8, int8_float16, float16 for GPU; int8 for CPU
-    stt_language: str = "en"  # Language code
+    stt_model: str
+    stt_device: str
+    stt_compute_type: str
+    stt_language: str
     
     # Advanced STT Settings
-    stt_use_silero_vad: bool = True  # Use Silero VAD (better than webrtcvad)
-    stt_vad_threshold: float = 0.5  # Silero VAD threshold (0.0-1.0, higher = more aggressive)
-    stt_min_speech_duration_ms: int = 250  # Minimum speech duration to process
-    stt_min_silence_duration_ms: int = 1000  # 1 second silence to mark end of sentence (prevents fragmentation)
-    stt_max_speech_duration_s: int = 60  # 60 seconds to allow longer speeches without cuts
-    stt_speech_pad_ms: int = 300  # Padding around detected speech
+    stt_use_silero_vad: bool
+    stt_vad_threshold: float
+    stt_min_speech_duration_ms: int
+    stt_min_silence_duration_ms: int
+    stt_max_speech_duration_s: int
+    stt_speech_pad_ms: int
+    
+    # Debug
+    prompt_debug: bool
+    
+    # Server
+    backend_port: int
+    backend_host: str
+    frontend_port: int
+    
+    # Frontend config (for API)
+    tts_provider_urls: dict
+    tts_websocket_path: str
+    stt_websocket_path: str
+    extraction_model_url: str
+    
+    # Store full YAML config for nested access
+    _yaml_config: dict
+    
+    @property
+    def user_defaults(self) -> dict:
+        """Get user default settings from config.yaml"""
+        return self._yaml_config.get('user_defaults', {})
+    
+    @property
+    def system_defaults(self) -> dict:
+        """Get system default settings from config.yaml"""
+        return self._yaml_config.get('system_defaults', {})
+    
+    @property
+    def service_defaults(self) -> dict:
+        """Get service-specific defaults from config.yaml"""
+        return self._yaml_config.get('service_defaults', {})
+    
+    @property
+    def chapter_context_threshold_percentage(self) -> int:
+        """Get chapter context threshold percentage from config.yaml"""
+        return self._yaml_config.get('context', {}).get('chapter_context_threshold_percentage', 80)
     
     class Config:
         env_file = "../.env"
         case_sensitive = False
-        extra = "ignore"  # Ignore frontend-specific and other extra env vars
+        extra = "allow"  # Allow extra fields like _yaml_config
 
 # Create global settings instance
-settings = Settings()
+# Pass YAML values as initial values, env vars will override
+# Ensure _yaml_config is included
+settings = Settings(**yaml_flattened)
+# Verify _yaml_config is set
+if not hasattr(settings, '_yaml_config') or settings._yaml_config is None:
+    # Fallback: set it directly
+    object.__setattr__(settings, '_yaml_config', yaml_config)

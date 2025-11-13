@@ -74,8 +74,10 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
         return `${protocol}//${hostname}`;
       }
       
-      // For direct access with non-standard port: use explicit backend port
-      return `${protocol}//${hostname}:9876`;
+      // For direct access: get backend port from config
+      // Note: This requires config to be loaded first
+      // In practice, apiBaseUrl should already have the correct port from config
+      return apiBaseUrl;
     }
     
     // Server-side fallback

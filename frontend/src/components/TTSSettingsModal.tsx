@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { X, Volume2, Loader2, Check, AlertCircle, Eye } from 'lucide-react';
 import apiClient from '@/lib/api';
+import { useConfig } from '@/contexts/ConfigContext';
 
 // Lazy load VoiceBrowserModal - only loads when voice browser is opened
 const VoiceBrowserModal = dynamic(() => import('./VoiceBrowserModal'), {
@@ -48,19 +49,16 @@ interface TTSSettingsModalProps {
   onSaved?: () => void;
 }
 
-// Default TTS provider URLs - these are common defaults but should be configured per user
-const DEFAULT_PROVIDER_URLS: Record<string, string> = {
-  'openai-compatible': process.env.NEXT_PUBLIC_TTS_URL || 'http://localhost:1234',
-  'chatterbox': process.env.NEXT_PUBLIC_CHATTERBOX_URL || 'http://localhost:8880',
-  'kokoro': process.env.NEXT_PUBLIC_KOKORO_URL || 'http://localhost:8188',
-};
+// Note: TTS provider URLs are now loaded via useConfig() hook in the component
+// Components should use useConfig().getTTSProviderUrls() instead
 
 export default function TTSSettingsModal({ isOpen, onClose, onSaved }: TTSSettingsModalProps) {
+  const config = useConfig(); // Use config from React context
   const [providers, setProviders] = useState<TTSProvider[]>([]);
   const [voices, setVoices] = useState<Voice[]>([]);
   const [settings, setSettings] = useState<TTSSettings>({
     provider_type: 'openai-compatible',
-    api_url: DEFAULT_PROVIDER_URLS['openai-compatible'],
+    api_url: '', // Will be loaded from config
     voice_id: 'default',
     speed: 1.0,
     timeout: 30,
@@ -136,9 +134,18 @@ export default function TTSSettingsModal({ isOpen, onClose, onSaved }: TTSSettin
     try {
       const data = await apiClient.get<TTSSettings>('/api/tts/settings');
       if (data) {
+        let defaultApiUrl = '';
+        if (!data.api_url) {
+          try {
+            const providerUrls = await config.getTTSProviderUrls();
+            defaultApiUrl = providerUrls['openai_compatible'] || '';
+          } catch (error) {
+            console.error('Failed to load TTS provider URLs:', error);
+          }
+        }
         setSettings({
           provider_type: data.provider_type || 'openai-compatible',
-          api_url: data.api_url || DEFAULT_PROVIDER_URLS['openai-compatible'],
+          api_url: data.api_url || defaultApiUrl,
           api_key: data.api_key,
           voice_id: data.voice_id || 'default',
           speed: data.speed || 1.0,
@@ -224,10 +231,24 @@ export default function TTSSettingsModal({ isOpen, onClose, onSaved }: TTSSettin
         setChatterboxTemperature(savedConfig.extra_params.temperature || 0.7);
       }
     } else {
-      // Use default configuration
+      // Use default configuration from config API
+      // Map provider type (with hyphen) to config key (with underscore)
+      const providerTypeMap: Record<string, keyof Awaited<ReturnType<typeof config.getTTSProviderUrls>>> = {
+        'openai-compatible': 'openai_compatible',
+        'chatterbox': 'chatterbox',
+        'kokoro': 'kokoro',
+      };
+      let defaultApiUrl = '';
+      try {
+        const providerUrls = await config.getTTSProviderUrls();
+        const configKey = providerTypeMap[providerType] || providerType as keyof typeof providerUrls;
+        defaultApiUrl = providerUrls[configKey] || '';
+      } catch (error) {
+        console.error('Failed to load TTS provider URLs:', error);
+      }
       newSettings = {
         provider_type: providerType,
-        api_url: DEFAULT_PROVIDER_URLS[providerType] || '',
+        api_url: defaultApiUrl,
         api_key: '',
         voice_id: 'default',
         speed: 1.0,

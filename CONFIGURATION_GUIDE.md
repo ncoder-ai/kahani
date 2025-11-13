@@ -4,10 +4,13 @@ This guide ensures that all configuration files are consistent and that anyone c
 
 ## 🎯 **Configuration Philosophy**
 
-- **No hard-coded values**: All configuration uses environment variables or auto-detection
-- **Template-based**: All configuration files have templates for easy setup
+- **Single source of truth**: All configuration defaults are in `config.yaml`
+- **Secrets in .env**: Only secrets (JWT_SECRET_KEY, SECRET_KEY) are in `.env` file
+- **No hard-coded defaults**: All defaults must be specified in `config.yaml`
+- **Environment variable overrides**: Environment variables can override any `config.yaml` value
+- **Template-based**: `.env.example` shows minimal required secrets
 - **Environment-aware**: Different configurations for development, Docker, and production
-- **Auto-detection**: Network configuration is automatically detected
+- **Auto-detection**: Network configuration is automatically detected where possible
 - **Validation**: Configuration is validated before startup
 
 ## 📁 **Configuration Files Structure**
@@ -33,61 +36,87 @@ kahani/
 ## 🔧 **Configuration Files**
 
 ### **1. config.yaml**
-Main application configuration with environment-specific settings:
+**Main application configuration** - Contains ALL configuration defaults:
 
 ```yaml
+# Server Configuration
 server:
   backend:
     port: 9876
     host: 0.0.0.0  # Bind to all interfaces for network access
-  
   frontend:
     port: 6789
-    # API URL will be auto-detected
 
-deployment:
-  environment: development
-  debug: true
+# Database Configuration
+database:
+  database_url: "sqlite:///./data/kahani.db"
 
-paths:
-  data: ./data
-  exports: ./exports
-  logs: ./logs
+# Security Settings (secrets must be set via .env)
+security:
+  jwt_algorithm: "HS256"
+  access_token_expire_minutes: 120
+  refresh_token_expire_days: 30
+  # jwt_secret_key: "" # MUST be set via .env file (JWT_SECRET_KEY)
+  # secret_key: "" # MUST be set via .env file (SECRET_KEY)
+
+# ... all other configuration settings
 ```
 
-### **2. .env.example**
-Template for environment variables with all possible settings:
+**Key Points:**
+- All non-sensitive defaults are in `config.yaml`
+- Secrets (JWT_SECRET_KEY, SECRET_KEY) are NOT in `config.yaml` - must be set via `.env`
+- Environment variables override `config.yaml` values
+- No hardcoded defaults in code - everything comes from `config.yaml`
+
+### **2. .env**
+**Secrets and deployment-specific settings:**
 
 ```bash
-# Core settings
-KAHANI_ENV=development
-JWT_SECRET_KEY=your-super-secret-jwt-key-change-this-in-production
+# REQUIRED SECRETS (no defaults for security)
+SECRET_KEY=your-generated-secret-key-here
+JWT_SECRET_KEY=your-generated-jwt-secret-key-here
 
-# Network (auto-detected if not set)
-# KAHANI_API_URL=http://localhost:9876
-# KAHANI_FRONTEND_URL=http://localhost:6789
-# KAHANI_CORS_ORIGINS=["*"]
+# NEXT_PUBLIC_API_URL - Frontend to Backend Communication
+# WHEN TO SET:
+# - Docker: REQUIRED (use: http://backend:9876)
+# - Baremetal (same machine): OPTIONAL (auto-detects)
+# - Separate machines: REQUIRED (use backend's IP/domain)
+# NEXT_PUBLIC_API_URL=http://localhost:9876
 
-# Database
-DATABASE_URL=sqlite:///./data/kahani.db
-
-# Semantic Memory
-ENABLE_SEMANTIC_MEMORY=true
-SEMANTIC_DB_PATH=./data/chromadb
+# OPTIONAL: Override any config.yaml value
+# DATABASE_URL=postgresql://user:password@localhost:5432/kahani
+# CORS_ORIGINS=["https://yourdomain.com"]
 ```
 
+**Key Points:**
+- **Required**: `SECRET_KEY`, `JWT_SECRET_KEY`
+- **Docker deployments**: Must set `NEXT_PUBLIC_API_URL=http://backend:9876`
+- **Baremetal (same machine)**: `NEXT_PUBLIC_API_URL` is optional (auto-detects)
+- **Separate machines**: Must set `NEXT_PUBLIC_API_URL` to backend's address
+- You can optionally override any `config.yaml` value via environment variable
+- Never commit `.env` to git
+- Copy from `.env.example` and generate secrets
+
 ### **3. backend/app/config.py**
-Backend settings with environment variable support:
+Backend settings loader - loads from `config.yaml` first, then environment variables override:
 
 ```python
 class Settings(BaseSettings):
-    # All settings with environment variable support
-    cors_origins: List[str] = ["*"]  # Auto-configured by network config
+    # All settings loaded from config.yaml (no hardcoded defaults)
+    # Environment variables override YAML values
+    jwt_secret_key: str  # Required, must be set via env var (not in YAML)
+    database_url: str    # From config.yaml, can be overridden via env
+    cors_origins: str    # From config.yaml, can be overridden via env
     
     class Config:
-        env_file = ".env"  # Flexible path
+        env_file = "../.env"
         case_sensitive = False
 ```
+
+**Loading Order:**
+1. Load `config.yaml` → provides all defaults
+2. Load `.env` → provides secrets and optional overrides
+3. Environment variables override both (highest precedence)
 
 ### **4. backend/app/utils/network_config.py**
 Automatic network configuration utility:
@@ -172,25 +201,79 @@ export KAHANI_FRONTEND_URL=http://192.168.1.100:6789
 export KAHANI_CORS_ORIGINS='["http://localhost:6789", "https://yourdomain.com"]'
 ```
 
+## 🚀 **Deployment Scenarios**
+
+### **Scenario 1: Local Development**
+```bash
+# .env
+SECRET_KEY=your-secret-key
+JWT_SECRET_KEY=your-jwt-secret
+
+# NEXT_PUBLIC_API_URL is auto-set by start-dev.sh to http://localhost:9876
+# No need to set manually
+```
+
+**Run:** `./start-dev.sh`
+
+### **Scenario 2: Baremetal Production (Same Machine)**
+```bash
+# .env
+SECRET_KEY=your-secret-key
+JWT_SECRET_KEY=your-jwt-secret
+
+# Optional: Set if you want to override auto-detection
+# NEXT_PUBLIC_API_URL=http://192.168.1.100:9876
+```
+
+**Access methods:**
+- `http://localhost:6789` → Works
+- `http://192.168.1.100:6789` → Works
+- `https://yourdomain.com` (reverse proxy) → Works
+
+**Run:** `./start-prod.sh`
+
+### **Scenario 3: Docker Deployment**
+```bash
+# .env
+SECRET_KEY=your-secret-key
+JWT_SECRET_KEY=your-jwt-secret
+
+# REQUIRED for Docker (frontend container needs to reach backend container)
+NEXT_PUBLIC_API_URL=http://backend:9876
+```
+
+**Run:** `docker-compose up -d`
+
+**Why required:** Frontend and backend are in separate containers. Frontend container's `localhost` ≠ backend container. Must use Docker service name `backend`.
+
+### **Scenario 4: Separate Machines**
+```bash
+# .env on frontend machine
+SECRET_KEY=your-secret-key
+JWT_SECRET_KEY=your-jwt-secret
+
+# REQUIRED: Point to backend machine
+NEXT_PUBLIC_API_URL=http://192.168.1.100:9876
+```
+
+**Example:**
+- Backend: `192.168.1.100:9876`
+- Frontend: `192.168.1.101:6789`
+
 ## 🐳 **Docker Configuration**
 
 ### **Docker Compose**
-Use the provided `docker-compose.network.yml`:
+The `docker-compose.yml` automatically sets `NEXT_PUBLIC_API_URL` to `http://backend:9876`:
 
-```bash
-# Set Docker environment
-export KAHANI_ENV=docker
-export DOCKER_CONTAINER=true
-
-# Run with Docker Compose
-docker-compose -f docker-compose.network.yml up
+```yaml
+frontend:
+  environment:
+    - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://backend:9876}
 ```
 
-### **Docker Environment Variables**
+Override in `.env` if needed:
 ```bash
-# Docker-specific settings
-DOCKER_CONTAINER=true
-CONTAINER_IP=172.17.0.2  # Optional: specific container IP
+NEXT_PUBLIC_API_URL=http://backend:9876
 ```
 
 ## 🏭 **Production Configuration**

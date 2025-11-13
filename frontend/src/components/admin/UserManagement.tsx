@@ -48,7 +48,7 @@ export default function UserManagement() {
   const fetchUsers = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${getApiBaseUrl()}/api/admin/users`, {
+      const response = await fetch(`${await getApiBaseUrl()}/api/admin/users`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -79,7 +79,7 @@ export default function UserManagement() {
 
   const approveUser = async (userId: number) => {
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/admin/users/${userId}/approve`, {
+      const response = await fetch(`${await getApiBaseUrl()}/api/admin/users/${userId}/approve`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -101,7 +101,7 @@ export default function UserManagement() {
     if (!confirm('Are you sure you want to revoke approval for this user?')) return;
     
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/admin/users/${userId}/revoke`, {
+      const response = await fetch(`${await getApiBaseUrl()}/api/admin/users/${userId}/revoke`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -123,7 +123,7 @@ export default function UserManagement() {
     if (!confirm('Are you sure you want to delete this user? This action cannot be undone.')) return;
     
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/admin/users/${userId}`, {
+      const response = await fetch(`${await getApiBaseUrl()}/api/admin/users/${userId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -153,7 +153,7 @@ export default function UserManagement() {
     if (!editingUser) return;
 
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/admin/users/${editingUser.id}`, {
+      const response = await fetch(`${await getApiBaseUrl()}/api/admin/users/${editingUser.id}`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,

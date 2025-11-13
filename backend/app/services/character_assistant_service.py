@@ -17,6 +17,7 @@ from ..models import (
 from ..services.llm.service import UnifiedLLMService
 from ..services.llm.extraction_service import ExtractionLLMService
 from ..services.llm.prompts import prompt_manager
+from ..config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -320,11 +321,12 @@ class CharacterAssistantService:
         
         try:
             # Get extraction model configuration
-            url = extraction_settings.get('url', 'http://localhost:1234/v1')
-            model = extraction_settings.get('model_name', 'qwen2.5-3b-instruct')
-            api_key = extraction_settings.get('api_key', '')
-            temperature = extraction_settings.get('temperature', 0.3)
-            max_tokens = extraction_settings.get('max_tokens', 1000)
+            ext_defaults = settings._yaml_config.get('extraction_model', {})
+            url = extraction_settings.get('url', ext_defaults.get('url'))
+            model = extraction_settings.get('model_name', ext_defaults.get('model_name'))
+            api_key = extraction_settings.get('api_key', ext_defaults.get('api_key', ''))
+            temperature = extraction_settings.get('temperature', ext_defaults.get('temperature'))
+            max_tokens = extraction_settings.get('max_tokens', ext_defaults.get('max_tokens'))
             
             # Create extraction service
             return ExtractionLLMService(
@@ -413,7 +415,7 @@ class CharacterAssistantService:
                 user_id=self.user_id,
                 user_settings=self.user_settings,
                 system_prompt=system_prompt,
-                max_tokens=3000  # Increased for detailed character profiles
+                max_tokens=settings.service_defaults.get('extraction_service', {}).get('character_profile_max_tokens', 3000)
             )
             
             # Log raw response for debugging
@@ -661,7 +663,7 @@ class CharacterAssistantService:
                     user_id=self.user_id,
                     user_settings=self.user_settings,
                     system_prompt=system_prompt,
-                    max_tokens=2000
+                    max_tokens=settings.service_defaults.get('extraction_service', {}).get('character_assistant_max_tokens', 2000)
                 )
                 logger.info("LLM service.generate() completed")
             except Exception as e:

@@ -21,6 +21,7 @@ from .client import LLMClient
 from .prompts import prompt_manager
 from .templates import TextCompletionTemplateManager
 from .thinking_parser import ThinkingTagParser
+from ...config import settings
 
 # Import for type hints (will be imported within functions to avoid circular imports)
 from typing import TYPE_CHECKING
@@ -114,6 +115,61 @@ class UnifiedLLMService:
             )
     
     # Remove redundant generate_stream method - use _generate_stream directly
+    
+    def _log_raw_response(self, response: Any, operation_name: str = "LLM Generation") -> None:
+        """
+        Log full raw LLM response object to file (only for scene generation debugging)
+        
+        Args:
+            response: The LLM response object
+            operation_name: Name of the operation (for logging context)
+        """
+        if not settings.prompt_debug:
+            return
+        
+        try:
+            import json
+            backend_dir = Path(__file__).parent.parent.parent
+            raw_response_file = backend_dir / "Raw-Response.txt"
+            with open(raw_response_file, 'w', encoding='utf-8') as f:
+                f.write("=" * 80 + "\n")
+                f.write(f"RAW LLM RESPONSE OBJECT (FULL - BEFORE PARSING)\n")
+                f.write(f"Operation: {operation_name}\n")
+                f.write("=" * 80 + "\n\n")
+                # Convert response object to dict for JSON serialization
+                response_dict = {
+                    "id": getattr(response, 'id', None),
+                    "model": getattr(response, 'model', None),
+                    "created": getattr(response, 'created', None),
+                    "object": getattr(response, 'object', None),
+                    "choices": [
+                        {
+                            "index": getattr(choice, 'index', None),
+                            "message": {
+                                "role": getattr(choice.message, 'role', None) if hasattr(choice, 'message') else None,
+                                "content": getattr(choice.message, 'content', None) if hasattr(choice, 'message') else None,
+                            } if hasattr(choice, 'message') else None,
+                            "finish_reason": getattr(choice, 'finish_reason', None),
+                        }
+                        for choice in getattr(response, 'choices', [])
+                    ],
+                    "usage": {
+                        "prompt_tokens": getattr(response.usage, 'prompt_tokens', None) if hasattr(response, 'usage') else None,
+                        "completion_tokens": getattr(response.usage, 'completion_tokens', None) if hasattr(response, 'usage') else None,
+                        "total_tokens": getattr(response.usage, 'total_tokens', None) if hasattr(response, 'usage') else None,
+                    } if hasattr(response, 'usage') else None,
+                }
+                f.write(json.dumps(response_dict, indent=2, ensure_ascii=False))
+                f.write("\n\n" + "=" * 80 + "\n")
+                f.write("PARSED CONTENT (what we extract):\n")
+                f.write("=" * 80 + "\n\n")
+                if hasattr(response, 'choices') and len(response.choices) > 0:
+                    content = response.choices[0].message.content
+                    f.write(content)
+                f.write("\n\n" + "=" * 80 + "\n")
+            logger.info(f"Full raw LLM response written to {raw_response_file} for {operation_name}")
+        except Exception as e:
+            logger.error(f"Failed to write full raw response to file: {e}")
     
     async def _generate(
         self,
@@ -547,29 +603,30 @@ class UnifiedLLMService:
         logger.info(f"GENERATION PARAMETERS: max_tokens={gen_params.get('max_tokens')}, temperature={gen_params.get('temperature')}, model={client.model_string}")
         logger.info("=" * 80)
         
-        # Write prompt to file for streaming generation (always write to ensure we capture scene generation)
-        try:
-            import os
-            prompt_file_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "prompt_sent.txt")
-            with open(prompt_file_path, "w", encoding="utf-8") as f:
-                f.write("=" * 80 + "\n")
-                f.write("STREAMING SCENE GENERATION PROMPT (EXACTLY AS SENT TO LLM)\n")
-                f.write("=" * 80 + "\n")
-                f.write(f"SYSTEM PROMPT:\n{system_prompt_log}\n")
-                f.write("-" * 80 + "\n")
-                f.write(f"USER PROMPT:\n{user_prompt_log}\n")
-                f.write("-" * 80 + "\n")
-                f.write(f"GENERATION PARAMETERS:\n")
-                f.write(f"  max_tokens: {gen_params.get('max_tokens')}\n")
-                f.write(f"  temperature: {gen_params.get('temperature')}\n")
-                f.write(f"  model: {client.model_string}\n")
-                f.write("-" * 80 + "\n")
-                f.write("FULL MESSAGES ARRAY (JSON):\n")
-                f.write(json.dumps(gen_params["messages"], indent=2, ensure_ascii=False))
-                f.write("\n")
-                f.write("=" * 80 + "\n")
-        except Exception as e:
-            logger.debug(f"Failed to write prompt to file: {e}")
+        # Write prompt to file for streaming generation (only if prompt_debug is enabled)
+        if settings.prompt_debug:
+            try:
+                import os
+                prompt_file_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "prompt_sent.txt")
+                with open(prompt_file_path, "w", encoding="utf-8") as f:
+                    f.write("=" * 80 + "\n")
+                    f.write("STREAMING SCENE GENERATION PROMPT (EXACTLY AS SENT TO LLM)\n")
+                    f.write("=" * 80 + "\n")
+                    f.write(f"SYSTEM PROMPT:\n{system_prompt_log}\n")
+                    f.write("-" * 80 + "\n")
+                    f.write(f"USER PROMPT:\n{user_prompt_log}\n")
+                    f.write("-" * 80 + "\n")
+                    f.write(f"GENERATION PARAMETERS:\n")
+                    f.write(f"  max_tokens: {gen_params.get('max_tokens')}\n")
+                    f.write(f"  temperature: {gen_params.get('temperature')}\n")
+                    f.write(f"  model: {client.model_string}\n")
+                    f.write("-" * 80 + "\n")
+                    f.write("FULL MESSAGES ARRAY (JSON):\n")
+                    f.write(json.dumps(gen_params["messages"], indent=2, ensure_ascii=False))
+                    f.write("\n")
+                    f.write("=" * 80 + "\n")
+            except Exception as e:
+                logger.debug(f"Failed to write prompt to file: {e}")
         
         try:
             logger.debug(f"Streaming generation with {client.model_string} for user {user_id}")
@@ -648,28 +705,29 @@ class UnifiedLLMService:
         logger.info(f"GENERATION PARAMETERS: max_tokens={gen_params.get('max_tokens')}, temperature={gen_params.get('temperature')}, model={client.model_string}")
         logger.info("=" * 80)
         
-        # Write prompt to file for text completion streaming generation
-        try:
-            import os
-            prompt_file_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "prompt_sent.txt")
-            with open(prompt_file_path, "w", encoding="utf-8") as f:
-                f.write("=" * 80 + "\n")
-                f.write("STREAMING SCENE GENERATION PROMPT (EXACTLY AS SENT TO LLM - TEXT COMPLETION)\n")
-                f.write("=" * 80 + "\n")
-                f.write(f"SYSTEM PROMPT:\n{system_prompt or '(none)'}\n")
-                f.write("-" * 80 + "\n")
-                f.write(f"USER PROMPT:\n{prompt.strip()}\n")
-                f.write("-" * 80 + "\n")
-                f.write(f"RENDERED PROMPT (FULL - EXACTLY AS SENT):\n{rendered_prompt}\n")
-                f.write("-" * 80 + "\n")
-                f.write(f"GENERATION PARAMETERS:\n")
-                f.write(f"  max_tokens: {gen_params.get('max_tokens')}\n")
-                f.write(f"  temperature: {gen_params.get('temperature')}\n")
-                f.write(f"  model: {client.model_string}\n")
-                f.write(f"  prompt (in gen_params): {gen_params.get('prompt', '')[:200]}...\n")
-                f.write("=" * 80 + "\n")
-        except Exception as e:
-            logger.debug(f"Failed to write prompt to file: {e}")
+        # Write prompt to file for text completion streaming generation (only if prompt_debug is enabled)
+        if settings.prompt_debug:
+            try:
+                import os
+                prompt_file_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "prompt_sent.txt")
+                with open(prompt_file_path, "w", encoding="utf-8") as f:
+                    f.write("=" * 80 + "\n")
+                    f.write("STREAMING SCENE GENERATION PROMPT (EXACTLY AS SENT TO LLM - TEXT COMPLETION)\n")
+                    f.write("=" * 80 + "\n")
+                    f.write(f"SYSTEM PROMPT:\n{system_prompt or '(none)'}\n")
+                    f.write("-" * 80 + "\n")
+                    f.write(f"USER PROMPT:\n{prompt.strip()}\n")
+                    f.write("-" * 80 + "\n")
+                    f.write(f"RENDERED PROMPT (FULL - EXACTLY AS SENT):\n{rendered_prompt}\n")
+                    f.write("-" * 80 + "\n")
+                    f.write(f"GENERATION PARAMETERS:\n")
+                    f.write(f"  max_tokens: {gen_params.get('max_tokens')}\n")
+                    f.write(f"  temperature: {gen_params.get('temperature')}\n")
+                    f.write(f"  model: {client.model_string}\n")
+                    f.write(f"  prompt (in gen_params): {gen_params.get('prompt', '')[:200]}...\n")
+                    f.write("=" * 80 + "\n")
+            except Exception as e:
+                logger.debug(f"Failed to write prompt to file: {e}")
         
         # For OpenAI-compatible providers (LM Studio, TabbyAPI, KoboldCpp), skip LiteLLM
         # and use direct HTTP to ensure correct /v1/completions endpoint is called
@@ -892,29 +950,47 @@ class UnifiedLLMService:
         
         max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
         
-        response = await self._generate(
-            prompt=user_prompt,
-            user_id=user_id,
-            user_settings=user_settings,
-            system_prompt=system_prompt,
-            max_tokens=max_tokens
-        )
+        # For scene generation, we need to capture the full response object for logging
+        # So we call the LLM directly instead of using _generate()
+        client = self.get_user_client(user_id, user_settings)
         
-        # Write raw response to file
-        try:
-            backend_dir = Path(__file__).parent.parent.parent
-            raw_response_file = backend_dir / "Raw-Response.txt"
-            with open(raw_response_file, 'w', encoding='utf-8') as f:
-                f.write("=" * 80 + "\n")
-                f.write("RAW LLM RESPONSE FOR NEW SCENE GENERATION\n")
-                f.write("=" * 80 + "\n\n")
-                f.write(response)
-                f.write("\n\n" + "=" * 80 + "\n")
-            logger.info(f"Raw LLM response written to {raw_response_file}")
-        except Exception as e:
-            logger.error(f"Failed to write raw response to file: {e}")
+        # Check completion mode and branch accordingly
+        completion_mode = client.completion_mode
+        if completion_mode == "text":
+            # Text completion mode - use _generate_text_completion
+            response_text = await self._generate_text_completion(
+                user_prompt, user_id, user_settings, system_prompt, max_tokens, None, False
+            )
+            return self._clean_scene_numbers(response_text)
         
-        return self._clean_scene_numbers(response)
+        # Chat completion mode - build messages and call LLM directly
+        from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
+        user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
+        
+        messages = []
+        if system_prompt and system_prompt.strip():
+            if should_inject_nsfw_filter(user_allow_nsfw):
+                system_prompt = system_prompt.strip() + "\n\n" + get_nsfw_prevention_prompt()
+            messages.append({"role": "system", "content": system_prompt.strip()})
+        elif should_inject_nsfw_filter(user_allow_nsfw):
+            messages.append({"role": "system", "content": get_nsfw_prevention_prompt()})
+        
+        messages.append({"role": "user", "content": user_prompt.strip()})
+        
+        # Get generation parameters
+        gen_params = client.get_generation_params(max_tokens, None)
+        gen_params["messages"] = messages
+        
+        # Call LLM and get full response object
+        response = await acompletion(**gen_params)
+        
+        # Log raw response for scene generation debugging
+        self._log_raw_response(response, "New Scene Generation")
+        
+        # Extract content
+        response_text = response.choices[0].message.content
+        
+        return self._clean_scene_numbers(response_text)
     
     async def generate_scene_with_choices(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> Tuple[str, Optional[List[str]]]:
         """
@@ -938,29 +1014,46 @@ class UnifiedLLMService:
         
         max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
         
-        response = await self._generate(
-            prompt=user_prompt,
-            user_id=user_id,
-            user_settings=user_settings,
-            system_prompt=system_prompt,
-            max_tokens=max_tokens
-        )
+        # For scene generation with choices, we need to capture the full response object for logging
+        # So we call the LLM directly instead of using _generate()
+        client = self.get_user_client(user_id, user_settings)
         
-        # Write raw response to file
-        try:
-            backend_dir = Path(__file__).parent.parent.parent
-            raw_response_file = backend_dir / "Raw-Response.txt"
-            with open(raw_response_file, 'w', encoding='utf-8') as f:
-                f.write("=" * 80 + "\n")
-                f.write("RAW LLM RESPONSE FOR NEW SCENE GENERATION\n")
-                f.write("=" * 80 + "\n\n")
-                f.write(response)
-                f.write("\n\n" + "=" * 80 + "\n")
-            logger.info(f"Raw LLM response written to {raw_response_file}")
-        except Exception as e:
-            logger.error(f"Failed to write raw response to file: {e}")
-        
-        cleaned_response = self._clean_scene_numbers(response)
+        # Check completion mode and branch accordingly
+        completion_mode = client.completion_mode
+        if completion_mode == "text":
+            # Text completion mode - use _generate_text_completion
+            response_text = await self._generate_text_completion(
+                user_prompt, user_id, user_settings, system_prompt, max_tokens, None, False
+            )
+            cleaned_response = self._clean_scene_numbers(response_text)
+        else:
+            # Chat completion mode - build messages and call LLM directly
+            from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
+            user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
+            
+            messages = []
+            if system_prompt and system_prompt.strip():
+                if should_inject_nsfw_filter(user_allow_nsfw):
+                    system_prompt = system_prompt.strip() + "\n\n" + get_nsfw_prevention_prompt()
+                messages.append({"role": "system", "content": system_prompt.strip()})
+            elif should_inject_nsfw_filter(user_allow_nsfw):
+                messages.append({"role": "system", "content": get_nsfw_prevention_prompt()})
+            
+            messages.append({"role": "user", "content": user_prompt.strip()})
+            
+            # Get generation parameters
+            gen_params = client.get_generation_params(max_tokens, None)
+            gen_params["messages"] = messages
+            
+            # Call LLM and get full response object
+            response = await acompletion(**gen_params)
+            
+            # Log raw response for scene generation debugging
+            self._log_raw_response(response, "New Scene Generation (with Choices)")
+            
+            # Extract content
+            response_text = response.choices[0].message.content
+            cleaned_response = self._clean_scene_numbers(response_text)
         
         # Log response info for debugging
         logger.info(f"[CHOICES] Response length: {len(cleaned_response)} chars, max_tokens: {max_tokens}")
@@ -1034,8 +1127,8 @@ class UnifiedLLMService:
             if cleaned_chunk:  # Only yield non-empty chunks
                 yield cleaned_chunk
         
-        # Write raw response to file after streaming completes
-        if raw_chunks:
+        # Write raw response to file after streaming completes (only if prompt_debug is enabled)
+        if settings.prompt_debug and raw_chunks:
             try:
                 backend_dir = Path(__file__).parent.parent.parent
                 raw_response_file = backend_dir / "Raw-Response.txt"
@@ -1407,20 +1500,21 @@ class UnifiedLLMService:
         full_scene_content = ''.join(scene_buffer)
         full_response = full_scene_content + (''.join(choices_buffer) if choices_buffer else '')
         
-        # Write raw response to file (using raw chunks before cleaning)
-        try:
-            backend_dir = Path(__file__).parent.parent.parent
-            raw_response_file = backend_dir / "Raw-Response.txt"
-            raw_full_response = ''.join(raw_chunks)
-            with open(raw_response_file, 'w', encoding='utf-8') as f:
-                f.write("=" * 80 + "\n")
-                f.write("RAW LLM RESPONSE FOR NEW SCENE GENERATION (STREAMING)\n")
-                f.write("=" * 80 + "\n\n")
-                f.write(raw_full_response)
-                f.write("\n\n" + "=" * 80 + "\n")
-            logger.info(f"Raw LLM response written to {raw_response_file}")
-        except Exception as e:
-            logger.error(f"Failed to write raw response to file: {e}")
+        # Write raw response to file (using raw chunks before cleaning, only if prompt_debug is enabled)
+        if settings.prompt_debug:
+            try:
+                backend_dir = Path(__file__).parent.parent.parent
+                raw_response_file = backend_dir / "Raw-Response.txt"
+                raw_full_response = ''.join(raw_chunks)
+                with open(raw_response_file, 'w', encoding='utf-8') as f:
+                    f.write("=" * 80 + "\n")
+                    f.write("RAW LLM RESPONSE FOR NEW SCENE GENERATION (STREAMING)\n")
+                    f.write("=" * 80 + "\n\n")
+                    f.write(raw_full_response)
+                    f.write("\n\n" + "=" * 80 + "\n")
+                logger.info(f"Raw LLM response written to {raw_response_file}")
+            except Exception as e:
+                logger.error(f"Failed to write raw response to file: {e}")
         
         # Parse choices from buffer
         parsed_choices = None
@@ -2058,9 +2152,7 @@ class UnifiedLLMService:
         else:
             logger.info("[CONTEXT FORMAT] previous_chapter_summary is None or empty, not including")
         
-        if context.get("scene_summary"):
-            context_parts.append(f"Story Summary: {context['scene_summary']}")
-        
+        # Parse and organize previous_scenes into clear sections
         if context.get("previous_scenes"):
             previous_scenes_text = context['previous_scenes']
             
@@ -2095,7 +2187,60 @@ class UnifiedLLMService:
                             previous_scenes_text = previous_scenes_text[:last_scene_start].rstrip()
                             logger.info(f"Excluded Scene {last_scene_num} from previous events for guided enhancement")
             
-            context_parts.append(f"Previous Events:\n{previous_scenes_text}")
+            # Parse previous_scenes_text into organized sections
+            import re
+            
+            # Extract Current Chapter Summary (if present)
+            current_chapter_summary_match = re.search(r'Current Chapter Summary[^:]*:\s*(.*?)(?=\n\n(?:Recent Scenes|Relevant Past Events|CURRENT CHARACTER STATES|CURRENT LOCATIONS|IMPORTANT OBJECTS)|$)', previous_scenes_text, re.DOTALL)
+            current_chapter_summary = current_chapter_summary_match.group(1).strip() if current_chapter_summary_match else None
+            
+            # Extract Recent Scenes section
+            recent_scenes_match = re.search(r'Recent Scenes:\s*(.*?)(?=\n\n(?:Relevant Past Events|CURRENT CHARACTER STATES|CURRENT LOCATIONS|IMPORTANT OBJECTS)|$)', previous_scenes_text, re.DOTALL)
+            recent_scenes_content = recent_scenes_match.group(1).strip() if recent_scenes_match else None
+            
+            # Extract Relevant Past Events (semantic search results)
+            relevant_events_match = re.search(r'Relevant Past Events:\s*(.*?)(?=\n\n(?:Recent Scenes|CURRENT CHARACTER STATES|CURRENT LOCATIONS|IMPORTANT OBJECTS)|$)', previous_scenes_text, re.DOTALL)
+            relevant_events_content = relevant_events_match.group(1).strip() if relevant_events_match else None
+            
+            # Extract Entity States sections
+            entity_states_match = re.search(r'(CURRENT CHARACTER STATES:.*?)(?=\n\n(?:CURRENT LOCATIONS|IMPORTANT OBJECTS|Recent Scenes|Relevant Past Events)|$)', previous_scenes_text, re.DOTALL)
+            entity_states_content = entity_states_match.group(1).strip() if entity_states_match else None
+            
+            locations_match = re.search(r'CURRENT LOCATIONS:\s*(.*?)(?=\n\n(?:IMPORTANT OBJECTS|Recent Scenes|Relevant Past Events|CURRENT CHARACTER STATES)|$)', previous_scenes_text, re.DOTALL)
+            locations_content = locations_match.group(1).strip() if locations_match else None
+            
+            objects_match = re.search(r'IMPORTANT OBJECTS:\s*(.*?)(?=\n\n(?:Recent Scenes|Relevant Past Events|CURRENT CHARACTER STATES|CURRENT LOCATIONS)|$)', previous_scenes_text, re.DOTALL)
+            objects_content = objects_match.group(1).strip() if objects_match else None
+            
+            # Build organized context sections
+            if current_chapter_summary or recent_scenes_content or relevant_events_content:
+                context_parts.append("Current Chapter Progress:")
+                
+                if current_chapter_summary:
+                    context_parts.append(f"  Current Chapter Summary:\n  {current_chapter_summary.replace(chr(10), chr(10) + '  ')}")
+                
+                if recent_scenes_content:
+                    context_parts.append(f"\n  Recent Scenes:\n  {recent_scenes_content.replace(chr(10), chr(10) + '  ')}")
+                
+                if relevant_events_content:
+                    context_parts.append(f"\n  Relevant Past Events (from semantic search):\n  {relevant_events_content.replace(chr(10), chr(10) + '  ')}")
+            
+            # Add Current State section if we have entity states
+            if entity_states_content or locations_content or objects_content:
+                context_parts.append("\nCurrent State:")
+                
+                if entity_states_content:
+                    context_parts.append(f"  {entity_states_content.replace(chr(10), chr(10) + '  ')}")
+                
+                if locations_content:
+                    context_parts.append(f"\n  CURRENT LOCATIONS:\n  {locations_content.replace(chr(10), chr(10) + '  ')}")
+                
+                if objects_content:
+                    context_parts.append(f"\n  IMPORTANT OBJECTS:\n  {objects_content.replace(chr(10), chr(10) + '  ')}")
+            
+            # If parsing failed, fall back to original format
+            if not (current_chapter_summary or recent_scenes_content or relevant_events_content or entity_states_content):
+                context_parts.append(f"Previous Events:\n{previous_scenes_text}")
         
         # Add current_situation at the END with maximum emphasis (Option C)
         # Skip this for guided enhancement - enhancement_guidance is handled in the prompt template
