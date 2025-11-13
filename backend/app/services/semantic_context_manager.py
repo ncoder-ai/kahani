@@ -51,6 +51,9 @@ class SemanticContextManager(ContextManager):
             self.auto_extract_character_moments = ctx_settings.get("auto_extract_character_moments", settings.auto_extract_character_moments)
             self.auto_extract_plot_events = ctx_settings.get("auto_extract_plot_events", settings.auto_extract_plot_events)
             self.extraction_confidence_threshold = ctx_settings.get("extraction_confidence_threshold", settings.extraction_confidence_threshold)
+            # New settings for filtering
+            self.semantic_min_similarity = ctx_settings.get("semantic_min_similarity", getattr(settings, "semantic_min_similarity", 0.3))
+            self.location_recency_window = ctx_settings.get("location_recency_window", getattr(settings, "location_recency_window", 10))
         else:
             # Fallback to global settings
             self.enable_semantic = settings.enable_semantic_memory
@@ -62,6 +65,9 @@ class SemanticContextManager(ContextManager):
             self.auto_extract_character_moments = settings.auto_extract_character_moments
             self.auto_extract_plot_events = settings.auto_extract_plot_events
             self.extraction_confidence_threshold = settings.extraction_confidence_threshold
+            # New settings for filtering
+            self.semantic_min_similarity = getattr(settings, "semantic_min_similarity", 0.3)
+            self.location_recency_window = getattr(settings, "location_recency_window", 10)
         
         # Get semantic memory service
         try:
@@ -234,9 +240,10 @@ class SemanticContextManager(ContextManager):
         )
         character_used_tokens = self.count_tokens(character_content) if character_content else 0
         
-        # Get entity states
+        # Get entity states - pass current scene sequence for filtering
+        current_scene_sequence = scenes[-1].sequence_number if scenes else None
         entity_states_content = await self._get_entity_states(
-            story_id, entity_tokens, db
+            story_id, entity_tokens, db, current_scene_sequence=current_scene_sequence
         )
         entity_used_tokens = self.count_tokens(entity_states_content) if entity_states_content else 0
         
@@ -504,40 +511,85 @@ class SemanticContextManager(ContextManager):
             return None
         
         try:
-            # Use the most recent scene as query
-            last_scene = recent_scenes[-1]
+            # Improved query strategy: Use last 2-3 scenes combined for better context
+            # Weight recent scenes more heavily (most recent = most important)
+            query_scenes = recent_scenes[-3:] if len(recent_scenes) >= 3 else recent_scenes
+            query_parts = []
             
-            # Get active variant content
-            flow = db.query(StoryFlow).filter(
-                StoryFlow.scene_id == last_scene.id,
-                StoryFlow.is_active == True
-            ).first()
+            for i, scene in enumerate(query_scenes):
+                # Get active variant content
+                flow = db.query(StoryFlow).filter(
+                    StoryFlow.scene_id == scene.id,
+                    StoryFlow.is_active == True
+                ).first()
+                
+                scene_content = flow.scene_variant.content if flow and flow.scene_variant else scene.content
+                if scene_content:
+                    # Weight: most recent scene gets full weight, older scenes get reduced weight
+                    weight = 1.0 - (i * 0.2)  # 1.0, 0.8, 0.6 for 3 scenes
+                    query_parts.append(scene_content)
             
-            query_content = flow.scene_variant.content if flow and flow.scene_variant else last_scene.content
-            
-            if not query_content:
+            if not query_parts:
                 return None
+            
+            # Combine scenes with newlines (most recent first)
+            query_content = "\n\n".join(reversed(query_parts))  # Reverse so most recent is first
             
             # Get exclude list (recent scene sequences)
             exclude_sequences = [s.sequence_number for s in recent_scenes]
             
             # Search for similar scenes across entire story (not just current chapter)
+            # Request more results than needed so we can filter by similarity threshold
+            search_top_k = self.semantic_top_k * 2  # Get 2x results to filter
+            
             similar_scenes = await self.semantic_memory.search_similar_scenes(
                 query_text=query_content,
                 story_id=story_id,
-                top_k=self.semantic_top_k,
+                top_k=search_top_k,
                 exclude_sequences=exclude_sequences,
                 chapter_id=None  # Search entire story, not just current chapter
             )
             
             if not similar_scenes:
+                logger.info(f"[SEMANTIC SEARCH] No similar scenes found for story {story_id}")
                 return None
             
-            # Get scene content within token budget
+            # Filter by minimum similarity threshold and age
+            current_scene_sequence = recent_scenes[-1].sequence_number if recent_scenes else None
+            filtered_results = []
+            
+            for result in similar_scenes:
+                similarity_score = result.get('similarity_score', 0.0)
+                
+                # Filter out low similarity results
+                if similarity_score < self.semantic_min_similarity:
+                    logger.debug(f"[SEMANTIC SEARCH] Filtered out scene {result.get('scene_id')} - similarity {similarity_score:.2f} < threshold {self.semantic_min_similarity}")
+                    continue
+                
+                # Get scene sequence for age filtering
+                scene = db.query(Scene).filter(Scene.id == result['scene_id']).first()
+                if not scene:
+                    continue
+                
+                # Optional: Filter out very old scenes unless similarity is very high
+                if current_scene_sequence is not None:
+                    scene_age = current_scene_sequence - scene.sequence_number
+                    # If scene is >50 scenes old, require higher similarity (>0.6)
+                    if scene_age > 50 and similarity_score < 0.6:
+                        logger.debug(f"[SEMANTIC SEARCH] Filtered out old scene {scene.sequence_number} (age {scene_age}) - similarity {similarity_score:.2f} < 0.6")
+                        continue
+                
+                filtered_results.append(result)
+            
+            if not filtered_results:
+                logger.info(f"[SEMANTIC SEARCH] No scenes passed similarity threshold {self.semantic_min_similarity} for story {story_id}")
+                return None
+            
+            # Get scene content within token budget (now using filtered results)
             relevant_parts = []
             used_tokens = 0
             
-            for result in similar_scenes:
+            for result in filtered_results[:self.semantic_top_k]:  # Limit to top_k after filtering
                 # Get the scene and variant
                 scene = db.query(Scene).filter(Scene.id == result['scene_id']).first()
                 if not scene:
@@ -547,7 +599,8 @@ class SemanticContextManager(ContextManager):
                 if not variant:
                     continue
                 
-                scene_text = f"[Relevant from Scene {scene.sequence_number}, similarity: {result['similarity_score']:.2f}]: {variant.content[:300]}..."
+                similarity_score = result.get('similarity_score', 0.0)
+                scene_text = f"[Relevant from Scene {scene.sequence_number}, similarity: {similarity_score:.2f}]: {variant.content[:300]}..."
                 scene_tokens = self.count_tokens(scene_text)
                 
                 if used_tokens + scene_tokens <= token_budget:
@@ -557,8 +610,10 @@ class SemanticContextManager(ContextManager):
                     break
             
             if relevant_parts:
+                logger.info(f"[SEMANTIC SEARCH] Selected {len(relevant_parts)} relevant scenes (similarity >= {self.semantic_min_similarity}) for story {story_id}")
                 return "\n\n".join(relevant_parts)
             
+            logger.info(f"[SEMANTIC SEARCH] No scenes fit within token budget after filtering")
             return None
             
         except Exception as e:
@@ -668,7 +723,8 @@ class SemanticContextManager(ContextManager):
         self,
         story_id: int,
         token_budget: int,
-        db: Session
+        db: Session,
+        current_scene_sequence: Optional[int] = None
     ) -> Optional[str]:
         """
         Get formatted entity states for context
@@ -707,83 +763,164 @@ class SemanticContextManager(ContextManager):
             used_tokens = 0
             
             # Character States
+            # Filter to only show characters with recent state updates
             if character_states:
-                entity_parts.append("CURRENT CHARACTER STATES:")
+                # Filter character states by recency (only show if updated recently)
+                filtered_char_states = []
                 for char_state in character_states:
-                    # Get character name
-                    character = db.query(Character).filter(
-                        Character.id == char_state.character_id
-                    ).first()
+                    # Include if updated recently OR if it's a main character (always show main characters)
+                    include = True
+                    if current_scene_sequence is not None and char_state.last_updated_scene is not None:
+                        scene_age = current_scene_sequence - char_state.last_updated_scene
+                        # Only include if updated within recency window (or if main character)
+                        if scene_age > self.location_recency_window:
+                            # Still include if it's likely a main character (has significant state)
+                            if not (char_state.current_goal or char_state.possessions or 
+                                   (char_state.knowledge and len(char_state.knowledge) > 0)):
+                                include = False
                     
-                    if not character:
-                        continue
-                    
-                    char_text = f"\n{character.name}:"
-                    
-                    if char_state.current_location:
-                        char_text += f"\n  Location: {char_state.current_location}"
-                    
-                    if char_state.emotional_state:
-                        char_text += f"\n  Emotional State: {char_state.emotional_state}"
-                    
-                    if char_state.physical_condition:
-                        char_text += f"\n  Physical Condition: {char_state.physical_condition}"
-                    
-                    if char_state.current_goal:
-                        char_text += f"\n  Current Goal: {char_state.current_goal}"
-                    
-                    if char_state.possessions:
-                        possessions_str = ", ".join(char_state.possessions[:5])  # Limit to 5
-                        char_text += f"\n  Possessions: {possessions_str}"
-                    
-                    if char_state.knowledge and len(char_state.knowledge) > 0:
-                        # Show most recent 3 knowledge items
-                        recent_knowledge = char_state.knowledge[-3:]
-                        char_text += f"\n  Recent Knowledge: {'; '.join(recent_knowledge)}"
-                    
-                    # Relationships (show top 3 most relevant)
-                    if char_state.relationships:
-                        char_text += f"\n  Key Relationships:"
-                        count = 0
-                        for rel_char, rel_data in char_state.relationships.items():
-                            if count >= 3:
-                                break
-                            if isinstance(rel_data, dict):
-                                status = rel_data.get('status', 'unknown')
-                                trust = rel_data.get('trust', 'unknown')
-                                char_text += f"\n    - {rel_char}: {status} (trust: {trust}/10)"
-                            count += 1
-                    
-                    # Check token budget
-                    char_tokens = self.count_tokens(char_text)
-                    if used_tokens + char_tokens > token_budget:
-                        break
-                    
-                    entity_parts.append(char_text)
-                    used_tokens += char_tokens
+                    if include:
+                        filtered_char_states.append(char_state)
+                
+                if filtered_char_states:
+                    entity_parts.append("CURRENT CHARACTER STATES:")
+                    for char_state in filtered_char_states:
+                        # Get character name
+                        character = db.query(Character).filter(
+                            Character.id == char_state.character_id
+                        ).first()
+                        
+                        if not character:
+                            continue
+                        
+                        char_text = f"\n{character.name}:"
+                        
+                        # Only show location if it's recent (within recency window)
+                        show_location = True
+                        if current_scene_sequence is not None and char_state.last_updated_scene is not None:
+                            scene_age = current_scene_sequence - char_state.last_updated_scene
+                            if scene_age > self.location_recency_window:
+                                show_location = False  # Location is outdated
+                        
+                        if char_state.current_location and show_location:
+                            char_text += f"\n  Location: {char_state.current_location}"
+                        elif char_state.current_location:
+                            # Location exists but is outdated - don't show it to avoid confusion
+                            logger.debug(f"[ENTITY STATES] Skipping outdated location for {character.name} (last updated scene {char_state.last_updated_scene}, current {current_scene_sequence})")
+                        
+                        if char_state.emotional_state:
+                            char_text += f"\n  Emotional State: {char_state.emotional_state}"
+                        
+                        if char_state.physical_condition:
+                            char_text += f"\n  Physical Condition: {char_state.physical_condition}"
+                        
+                        if char_state.current_goal:
+                            char_text += f"\n  Current Goal: {char_state.current_goal}"
+                        
+                        if char_state.possessions:
+                            possessions_str = ", ".join(char_state.possessions[:5])  # Limit to 5
+                            char_text += f"\n  Possessions: {possessions_str}"
+                        
+                        if char_state.knowledge and len(char_state.knowledge) > 0:
+                            # Show most recent 3 knowledge items
+                            recent_knowledge = char_state.knowledge[-3:]
+                            char_text += f"\n  Recent Knowledge: {'; '.join(recent_knowledge)}"
+                        
+                        # Relationships (show top 3 most relevant)
+                        if char_state.relationships:
+                            char_text += f"\n  Key Relationships:"
+                            count = 0
+                            for rel_char, rel_data in char_state.relationships.items():
+                                if count >= 3:
+                                    break
+                                if isinstance(rel_data, dict):
+                                    status = rel_data.get('status', 'unknown')
+                                    trust = rel_data.get('trust', 'unknown')
+                                    char_text += f"\n    - {rel_char}: {status} (trust: {trust}/10)"
+                                count += 1
+                        
+                        # Check token budget
+                        char_tokens = self.count_tokens(char_text)
+                        if used_tokens + char_tokens > token_budget:
+                            break
+                        
+                        entity_parts.append(char_text)
+                        used_tokens += char_tokens
             
             # Location States (if tokens available)
+            # Filter to only show CURRENT locations (recently updated or with current occupants)
             if location_states and used_tokens < token_budget * 0.8:
-                entity_parts.append("\n\nCURRENT LOCATIONS:")
-                for loc_state in location_states[:3]:  # Limit to 3 most relevant locations
-                    loc_text = f"\n{loc_state.location_name}:"
+                # Filter locations by recency and current occupants
+                current_locations = []
+                recent_locations = []
+                
+                for loc_state in location_states:
+                    is_current = False
                     
-                    if loc_state.condition:
-                        loc_text += f"\n  Condition: {loc_state.condition}"
+                    # Check if location was updated recently (within recency window)
+                    if current_scene_sequence is not None and loc_state.last_updated_scene is not None:
+                        scene_age = current_scene_sequence - loc_state.last_updated_scene
+                        if scene_age <= self.location_recency_window:
+                            is_current = True
                     
-                    if loc_state.atmosphere:
-                        loc_text += f"\n  Atmosphere: {loc_state.atmosphere}"
+                    # Check if location has current occupants (active location)
+                    if loc_state.current_occupants and len(loc_state.current_occupants) > 0:
+                        is_current = True
                     
-                    if loc_state.current_occupants:
-                        occupants_str = ", ".join(loc_state.current_occupants[:5])
-                        loc_text += f"\n  Present: {occupants_str}"
+                    if is_current:
+                        current_locations.append(loc_state)
+                    else:
+                        recent_locations.append(loc_state)
+                
+                # Prioritize current locations, then recent ones
+                filtered_locations = current_locations + recent_locations[:2]  # Max 2 recent for context
+                
+                if filtered_locations:
+                    # Separate current vs recent for clarity
+                    if current_locations:
+                        entity_parts.append("\n\nCURRENT LOCATION:")
+                        for loc_state in current_locations[:1]:  # Show only the PRIMARY current location
+                            loc_text = f"\n{loc_state.location_name}:"
+                            
+                            if loc_state.condition:
+                                loc_text += f"\n  Condition: {loc_state.condition}"
+                            
+                            if loc_state.atmosphere:
+                                loc_text += f"\n  Atmosphere: {loc_state.atmosphere}"
+                            
+                            if loc_state.current_occupants:
+                                occupants_str = ", ".join(loc_state.current_occupants[:5])
+                                loc_text += f"\n  Present: {occupants_str}"
+                            
+                            loc_tokens = self.count_tokens(loc_text)
+                            if used_tokens + loc_tokens > token_budget:
+                                break
+                            
+                            entity_parts.append(loc_text)
+                            used_tokens += loc_tokens
                     
-                    loc_tokens = self.count_tokens(loc_text)
-                    if used_tokens + loc_tokens > token_budget:
-                        break
-                    
-                    entity_parts.append(loc_text)
-                    used_tokens += loc_tokens
+                    # Show additional recent locations if space and they're relevant
+                    if recent_locations and used_tokens < token_budget * 0.9:
+                        entity_parts.append("\n\nRECENT LOCATIONS (for context):")
+                        for loc_state in recent_locations[:2]:  # Max 2 recent locations
+                            loc_text = f"\n{loc_state.location_name}:"
+                            
+                            if loc_state.condition:
+                                loc_text += f"\n  Condition: {loc_state.condition}"
+                            
+                            if loc_state.atmosphere:
+                                loc_text += f"\n  Atmosphere: {loc_state.atmosphere}"
+                            
+                            if loc_state.current_occupants:
+                                occupants_str = ", ".join(loc_state.current_occupants[:5])
+                                loc_text += f"\n  Present: {occupants_str}"
+                            
+                            loc_tokens = self.count_tokens(loc_text)
+                            if used_tokens + loc_tokens > token_budget:
+                                break
+                            
+                            entity_parts.append(loc_text)
+                            used_tokens += loc_tokens
             
             # Object States (if tokens available)
             if object_states and used_tokens < token_budget * 0.9:
