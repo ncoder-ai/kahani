@@ -30,7 +30,7 @@ export default function Statistics() {
   const fetchStats = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${getApiBaseUrl()}/api/admin/stats`, {
+      const response = await fetch(`${await getApiBaseUrl()}/api/admin/stats`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',

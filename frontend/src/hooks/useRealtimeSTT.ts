@@ -7,6 +7,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { AudioRecorder, useAudioRecorder } from '../utils/audioRecorder';
+import { useConfig } from '@/contexts/ConfigContext';
 
 export interface STTMessage {
   type: 'partial' | 'final' | 'status' | 'error' | 'complete';
@@ -36,6 +37,7 @@ export interface UseRealtimeSTTOptions {
 }
 
 export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
+  const config = useConfig(); // Use config from React context
   const [state, setState] = useState<STTState>({
     isConnected: false,
     isRecording: false,
@@ -68,7 +70,11 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
       // Get auth token from localStorage or auth store
       const token = localStorage.getItem('auth_token') || '';
       
-      const response = await fetch('/api/settings/', {
+      // Get API base URL from config
+      const { getApiBaseUrl } = await import('@/lib/apiUrl');
+      const apiBaseUrl = await getApiBaseUrl();
+      
+      const response = await fetch(`${apiBaseUrl}/api/settings/`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -120,7 +126,11 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
       // Get auth token from localStorage or auth store
       const token = localStorage.getItem('auth_token') || '';
       
-      const response = await fetch('http://localhost:9876/ws/stt/create-session', {
+      // Get API base URL and STT path from config context
+      const apiBaseUrl = await config.getApiBaseUrl();
+      const sttPath = await config.getSTTWebSocketPath();
+      
+      const response = await fetch(`${apiBaseUrl}${sttPath}/create-session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -168,7 +178,10 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
 
       // Get WebSocket URL (connect to backend)
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//localhost:9876/ws/stt/${sessionId}`;
+      const hostname = window.location.hostname;
+      const backendPort = await config.getBackendPort();
+      const sttPath = await config.getSTTWebSocketPath();
+      const wsUrl = `${protocol}//${hostname}:${backendPort}${sttPath}/${sessionId}`;
 
       console.log('[STT] Connecting to WebSocket:', wsUrl);
 

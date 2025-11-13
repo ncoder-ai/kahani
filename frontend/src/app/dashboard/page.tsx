@@ -64,7 +64,7 @@ function DashboardContent() {
       }
       
       // Make direct fetch request with explicit Authorization header - include all stories (active and archived)
-      const response = await fetch(`${getApiBaseUrl()}/api/stories/?skip=0&limit=10&include_archived=true`, {
+      const response = await fetch(`${await getApiBaseUrl()}/api/stories/?skip=0&limit=10&include_archived=true`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -119,7 +119,7 @@ function DashboardContent() {
     
     try {
       const { token } = useAuthStore.getState();
-      const url = `${getApiBaseUrl()}/api/stories/${storyId}/summary`;
+      const url = `${await getApiBaseUrl()}/api/stories/${storyId}/summary`;
       console.log('[SUMMARY] Fetching from:', url);
       
       const response = await fetch(url, {
@@ -162,7 +162,7 @@ function DashboardContent() {
     try {
       const { token } = useAuthStore.getState();
       const response = await fetch(
-        `${getApiBaseUrl()}/api/stories/${storyId}/generate-story-summary`,
+        `${await getApiBaseUrl()}/api/stories/${storyId}/generate-story-summary`,
         {
           method: 'POST',
           headers: {
@@ -202,7 +202,7 @@ function DashboardContent() {
     
     try {
       const { token } = useAuthStore.getState();
-      const response = await fetch(`${getApiBaseUrl()}/api/stories/${storyId}`, {
+      const response = await fetch(`${await getApiBaseUrl()}/api/stories/${storyId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -215,7 +215,7 @@ function DashboardContent() {
         console.log('[DELETE] Story deleted:', data);
         
         // Refresh the stories list
-        const storiesData = await fetch(`${getApiBaseUrl()}/api/stories`, {
+        const storiesData = await fetch(`${await getApiBaseUrl()}/api/stories`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
@@ -544,7 +544,7 @@ function DashboardContent() {
                     setLoadingSummary(true);
                     try {
                       const { token } = useAuthStore.getState();
-                      const url = `${getApiBaseUrl()}/api/stories/${selectedStory.id}/regenerate-summary`;
+                      const url = `${await getApiBaseUrl()}/api/stories/${selectedStory.id}/regenerate-summary`;
                       console.log('[SUMMARY] Calling API:', url);
                       
                       const response = await fetch(url, {
