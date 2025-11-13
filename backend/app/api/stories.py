@@ -9,6 +9,7 @@ from ..services.llm.service import UnifiedLLMService
 from sqlalchemy.sql import func
 from ..services.context_manager import ContextManager
 from ..dependencies import get_current_user
+from ..config import settings
 import logging
 import json
 
@@ -1809,9 +1810,10 @@ async def get_story_summary(
         UserSettings.user_id == current_user.id
     ).first()
     
-    context_budget = user_settings.context_max_tokens if user_settings else 4000
-    keep_recent = user_settings.context_keep_recent_scenes if user_settings else 3
-    summary_threshold = user_settings.context_summary_threshold if user_settings else 5
+    user_defaults = settings.user_defaults.get('context_settings', {})
+    context_budget = user_settings.context_max_tokens if user_settings else user_defaults.get('max_tokens', 4000)
+    keep_recent = user_settings.context_keep_recent_scenes if user_settings else user_defaults.get('keep_recent_scenes', 3)
+    summary_threshold = user_settings.context_summary_threshold if user_settings else user_defaults.get('summary_threshold', 5)
     summarization_enabled = user_settings.enable_context_summarization if user_settings else True
     
     # Calculate context usage

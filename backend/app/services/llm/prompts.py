@@ -421,11 +421,16 @@ Chapter Conclusion:"""
             }
             
             function_name = function_mapping.get(template_key, template_key)
-            yaml_max_tokens = self._prompts_cache.get("settings", {}).get("max_tokens", {}).get(function_name, 2048)
-            logger.debug(f"Using YAML max_tokens setting: {yaml_max_tokens} for {template_key}")
-            return yaml_max_tokens
+            yaml_max_tokens = self._prompts_cache.get("settings", {}).get("max_tokens", {}).get(function_name)
+            if yaml_max_tokens:
+                logger.debug(f"Using YAML max_tokens setting: {yaml_max_tokens} for {template_key}")
+                return yaml_max_tokens
+            # Fallback to config.yaml service defaults
+            from ..config import settings
+            return settings.service_defaults.get('prompts', {}).get('default_max_tokens', 2048)
         except (KeyError, TypeError):
-            return 2048
+            from ..config import settings
+            return settings.service_defaults.get('prompts', {}).get('default_max_tokens', 2048)
     
     def get_temperature(self, temp_type: str = "default") -> float:
         """Get temperature setting"""

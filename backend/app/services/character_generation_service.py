@@ -10,6 +10,7 @@ import re
 from typing import Dict, Any, Optional
 from ..services.llm.service import UnifiedLLMService
 from ..services.llm.prompts import prompt_manager
+from ..config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -122,8 +123,8 @@ class CharacterGenerationService:
                 user_id=self.user_id,
                 user_settings=self.user_settings,
                 system_prompt=system_prompt,
-                max_tokens=2000,
-                temperature=0.8  # Slightly higher temperature for creativity
+                max_tokens=settings.service_defaults.get('character_generation', {}).get('max_tokens', 2000),
+                temperature=settings.service_defaults.get('character_generation', {}).get('temperature', 0.8)
             )
             
             # Parse JSON response

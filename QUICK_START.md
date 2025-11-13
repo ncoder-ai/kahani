@@ -150,9 +150,10 @@ cd frontend && npm list
 ```
 
 ### Common Issues
-- **Port conflicts**: Change ports in `.env` file
+- **Port conflicts**: Change ports in `config.yaml` (under `server.backend.port` and `server.frontend.port`)
 - **Model download**: First run downloads AI models (~200MB)
 - **Database**: Automatically created on first run
+- **Configuration**: All settings are in `config.yaml`, only secrets go in `.env`
 
 ---
 

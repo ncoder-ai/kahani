@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useConfig } from '@/contexts/ConfigContext';
 
 export default function STTDebugPage() {
+  const config = useConfig(); // Use config from React context
   const [logs, setLogs] = useState<string[]>([]);
   const [deviceInfo, setDeviceInfo] = useState<any>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -14,48 +16,55 @@ export default function STTDebugPage() {
   };
 
   useEffect(() => {
-    addLog('Page loaded, testing API endpoints...');
-    
-    // Test device info
-    fetch('http://localhost:9876/ws/stt/device-info')
-      .then(response => {
-        addLog(`Device info response: ${response.status}`);
-        return response.json();
-      })
-      .then(data => {
-        addLog(`Device info data: ${JSON.stringify(data)}`);
-        setDeviceInfo(data);
-      })
-      .catch(error => {
-        addLog(`Device info error: ${error.message}`);
-      });
+    const loadConfigAndTest = async () => {
+      try {
+        const apiBaseUrl = await config.getApiBaseUrl();
+        const sttPath = await config.getSTTWebSocketPath();
+        const backendPort = await config.getBackendPort();
+        
+        addLog('Page loaded, testing API endpoints...');
+        
+        // Test device info
+        fetch(`${apiBaseUrl}${sttPath}/device-info`)
+          .then(response => {
+            addLog(`Device info response: ${response.status}`);
+            return response.json();
+          })
+          .then(data => {
+            addLog(`Device info data: ${JSON.stringify(data)}`);
+            setDeviceInfo(data);
+          })
+          .catch(error => {
+            addLog(`Device info error: ${error.message}`);
+          });
 
-    // Test session creation
-    fetch('http://localhost:9876/ws/stt/create-session', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
-    })
-      .then(response => {
-        addLog(`Session creation response: ${response.status}`);
-        return response.json();
-      })
-      .then(data => {
-        addLog(`Session creation data: ${JSON.stringify(data)}`);
-        setSessionId(data.session_id);
-        
-        // Test WebSocket connection
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//localhost:9876/ws/stt/${data.session_id}`;
-        addLog(`Attempting WebSocket connection to: ${wsUrl}`);
-        
-        const ws = new WebSocket(wsUrl);
-        
-        ws.onopen = () => {
-          addLog('WebSocket connected successfully!');
-          setWsStatus('connected');
-        };
-        
-        ws.onerror = (error) => {
+        // Test session creation
+        fetch(`${apiBaseUrl}${sttPath}/create-session`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        })
+          .then(response => {
+            addLog(`Session creation response: ${response.status}`);
+            return response.json();
+          })
+          .then(data => {
+            addLog(`Session creation data: ${JSON.stringify(data)}`);
+            setSessionId(data.session_id);
+            
+            // Test WebSocket connection
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const hostname = window.location.hostname;
+            const wsUrl = `${protocol}//${hostname}:${backendPort}${sttPath}/${data.session_id}`;
+            addLog(`Attempting WebSocket connection to: ${wsUrl}`);
+            
+            const ws = new WebSocket(wsUrl);
+            
+            ws.onopen = () => {
+              addLog('WebSocket connected successfully!');
+              setWsStatus('connected');
+            };
+            
+            ws.onerror = (error) => {
           addLog(`WebSocket error: ${error}`);
           setWsStatus('error');
         };
@@ -78,6 +87,12 @@ export default function STTDebugPage() {
       .catch(error => {
         addLog(`Session creation error: ${error.message}`);
       });
+      } catch (error) {
+        addLog(`Failed to load config: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    };
+    
+    loadConfigAndTest();
   }, []);
 
   return (

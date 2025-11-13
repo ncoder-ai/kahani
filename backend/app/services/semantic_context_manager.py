@@ -215,43 +215,58 @@ class SemanticContextManager(ContextManager):
                 "context_type": "recent_only"
             }
         
-        # Dynamic allocation: prioritize recent scenes, then semantic
-        # 50% for additional recent scenes (going backwards)
-        # 25% for semantic scenes
-        # 15% for character moments  
-        # 5% for entity states
-        # 5% for chapter summaries
-        additional_recent_tokens = int(remaining_tokens * 0.50)
+        # Dynamic allocation: prioritize semantic, character, entity, summary first
+        # Then fill remaining budget with recent scenes
         semantic_tokens = int(remaining_tokens * 0.25)
         character_tokens = int(remaining_tokens * 0.15)
         entity_tokens = int(remaining_tokens * 0.05)
         summary_tokens = int(remaining_tokens * 0.05)
         
-        # Get additional recent scenes dynamically
-        additional_recent_content, additional_recent_scenes = await self._add_recent_scenes_dynamically(
-            scenes, len(recent_scenes), additional_recent_tokens, db
-        )
-        
-        # Get semantically relevant scenes
+        # Get semantically relevant scenes first (top N from user settings)
         semantic_content = await self._get_semantic_scenes(
-            story_id, recent_scenes + additional_recent_scenes, semantic_tokens, db
+            story_id, recent_scenes, semantic_tokens, db
         )
+        semantic_used_tokens = self.count_tokens(semantic_content) if semantic_content else 0
         
         # Get character-specific context
         character_content = await self._get_character_context(
             story_id, recent_scenes, character_tokens, db
         )
+        character_used_tokens = self.count_tokens(character_content) if character_content else 0
         
-        # Get entity states (NEW!)
+        # Get entity states
         entity_states_content = await self._get_entity_states(
             story_id, entity_tokens, db
         )
+        entity_used_tokens = self.count_tokens(entity_states_content) if entity_states_content else 0
         
         # Get chapter summaries (only current chapter summary - story_so_far and previous_chapter_summary
         # are handled as direct fields in base_context to avoid duplication)
         summary_content = await self._get_chapter_summaries(
             story_id, summary_tokens, db, chapter_id=chapter_id
         )
+        summary_used_tokens = self.count_tokens(summary_content) if summary_content else 0
+        
+        # Calculate remaining tokens after semantic/character/entity/summary
+        used_tokens_so_far = semantic_used_tokens + character_used_tokens + entity_used_tokens + summary_used_tokens
+        remaining_for_recent = remaining_tokens - used_tokens_so_far
+        
+        # Fill ALL remaining tokens with additional recent scenes (going backwards)
+        # This ensures we use the full token budget
+        additional_recent_content, additional_recent_scenes = await self._add_recent_scenes_dynamically(
+            scenes, len(recent_scenes), remaining_for_recent, db
+        )
+        
+        # Combine initial recent scenes with additional scenes for the Recent Scenes section
+        # Exclude duplicates (additional_recent_scenes already excludes scenes in recent_scenes)
+        if additional_recent_content:
+            # Combine recent_content and additional_recent_content
+            if recent_content:
+                combined_recent_content = f"{recent_content}\n\n{additional_recent_content}"
+            else:
+                combined_recent_content = additional_recent_content
+        else:
+            combined_recent_content = recent_content
         
         # Log what we got from _get_chapter_summaries
         if summary_content:
@@ -299,14 +314,14 @@ class SemanticContextManager(ContextManager):
         if character_content:
             context_parts.append(f"\nCharacter Context:\n{character_content}")
         
-        context_parts.append(f"\nRecent Scenes:\n{recent_content}")
+        context_parts.append(f"\nRecent Scenes:\n{combined_recent_content}")
         
         full_context = "\n".join(context_parts)
         
         return {
             "previous_scenes": full_context,
-            "recent_scenes": recent_content,
-            "scene_summary": f"Hybrid context: {len(recent_scenes)} recent + semantic retrieval + entity states",
+            "recent_scenes": combined_recent_content,  # Include both initial and additional recent scenes
+            "scene_summary": "",  # Don't include metadata in prompt - it's debug info only
             "total_scenes": total_scenes,
             "context_type": "hybrid",
             "semantic_scenes_included": semantic_content is not None,
@@ -670,17 +685,19 @@ class SemanticContextManager(ContextManager):
             from ..models import CharacterState, LocationState, ObjectState, Character
             
             # Get all entity states for this story
+            # Order by updated_at DESC to ensure we get the latest states
+            # (though typically there's one state per entity, ordering ensures we get most recent if duplicates exist)
             character_states = db.query(CharacterState).filter(
                 CharacterState.story_id == story_id
-            ).all()
+            ).order_by(CharacterState.updated_at.desc()).all()
             
             location_states = db.query(LocationState).filter(
                 LocationState.story_id == story_id
-            ).all()
+            ).order_by(LocationState.updated_at.desc()).all()
             
             object_states = db.query(ObjectState).filter(
                 ObjectState.story_id == story_id
-            ).all()
+            ).order_by(ObjectState.updated_at.desc()).all()
             
             if not character_states and not location_states and not object_states:
                 return None
@@ -835,16 +852,23 @@ class SemanticContextManager(ContextManager):
     ) -> Tuple[str, List[Scene]]:
         """
         Add as many recent scenes as possible within token budget.
-        Starts with minimum, adds more going backwards.
+        Starts after min_recent_count (to avoid duplicates with already-included recent scenes),
+        then adds more going backwards.
         """
         if not scenes or available_tokens <= 0:
             return "", []
         
         included_scenes = []
+        scene_contents = []  # Store retrieved content for each scene
         used_tokens = 0
         
-        # Start from the most recent scenes and work backwards
-        for i in range(len(scenes) - 1, -1, -1):
+        # Start from the scene BEFORE the min_recent_count most recent scenes
+        # (to avoid duplicating scenes already in recent_scenes)
+        # If min_recent_count is 3, start from len(scenes)-4 (the 4th from the end)
+        start_index = len(scenes) - 1 - min_recent_count
+        
+        # Work backwards from start_index
+        for i in range(start_index, -1, -1):
             scene = scenes[i]
             # Use proper scene content retrieval
             scene_content = await self._get_scene_content_proper(scene, db)
@@ -852,14 +876,15 @@ class SemanticContextManager(ContextManager):
             
             if used_tokens + scene_tokens <= available_tokens:
                 included_scenes.insert(0, scene)  # Insert at beginning to maintain order
+                scene_contents.insert(0, scene_content)  # Store retrieved content
                 used_tokens += scene_tokens
             else:
                 break
         
-        # Build content
+        # Build content using the retrieved scene contents, not scene.content
         content = "\n\n".join([
-            f"Scene {scene.sequence_number}: {scene.content}" 
-            for scene in included_scenes
+            scene_content  # Use the properly retrieved content
+            for scene_content in scene_contents
         ])
         
         logger.info(f"Dynamic recent scenes: {len(included_scenes)} scenes, {used_tokens}/{available_tokens} tokens")

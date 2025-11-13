@@ -137,20 +137,31 @@ Kahani automatically detects network configuration for different deployment scen
 - **Docker**: Uses container networking
 - **Production**: Uses environment variables
 
+### **Configuration Structure**
+
+Kahani uses a two-file configuration system:
+
+- **`config.yaml`**: Contains ALL configuration defaults (ports, database URLs, feature flags, etc.)
+- **`.env`**: Contains ONLY secrets (JWT_SECRET_KEY, SECRET_KEY)
+
+**Key Points:**
+- All non-sensitive defaults are in `config.yaml`
+- Secrets are NOT in `config.yaml` - must be set via `.env` file
+- Environment variables can override any `config.yaml` value
+- No hardcoded defaults in code - everything comes from `config.yaml`
+
+See `CONFIGURATION_GUIDE.md` for detailed configuration documentation.
+
 ### **LLM Configuration**
 
-Configure your AI model in `.env`:
+Configure your AI model through the application Settings UI (not in `.env`):
 
-```bash
-# Local LLM Server (Ollama, LM Studio, etc.)
-LLM_BASE_URL=http://localhost:1234/v1
-LLM_MODEL=local-model
+1. Go to **Settings** → **LLM Settings**
+2. Enter your LLM API URL (e.g., `http://localhost:1234/v1` for local models)
+3. Select your API type (OpenAI-compatible, Ollama, etc.)
+4. Enter your model name and API key (if required)
 
-# Or use cloud providers
-LLM_BASE_URL=https://api.openai.com/v1
-LLM_API_KEY=your-api-key
-LLM_MODEL=gpt-4
-```
+**Note:** LLM configuration is stored per-user in the database. Each user configures their own LLM settings through the web interface. See `config.yaml` for default LLM provider URLs.
 
 ### **TTS Configuration**
 
