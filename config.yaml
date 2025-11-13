@@ -75,6 +75,8 @@ context_strategy:
   strategy: "hybrid"  # "linear" or "hybrid"
   semantic_scenes_in_context: 5
   character_moments_in_context: 3
+  semantic_min_similarity: 0.3  # Minimum similarity score to include (0.0-1.0)
+  location_recency_window: 10   # Only show locations updated in last N scenes
 
 # ----------------------------------------------------------------------------
 # SEMANTIC MEMORY
