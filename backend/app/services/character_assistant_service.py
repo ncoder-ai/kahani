@@ -419,11 +419,11 @@ class CharacterAssistantService:
             )
             
             # Log raw response for debugging
-            logger.info(f"=== RAW LLM RESPONSE FOR CHARACTER DETAIL EXTRACTION ===")
-            logger.info(f"Character: {character_name}")
-            logger.info(f"Response length: {len(response)} characters")
-            logger.info(f"Raw response:\n{response}")
-            logger.info(f"=== END RAW RESPONSE ===")
+            logger.debug(f"=== RAW LLM RESPONSE FOR CHARACTER DETAIL EXTRACTION ===")
+            logger.debug(f"Character: {character_name}")
+            logger.debug(f"Response length: {len(response)} characters")
+            logger.debug(f"Raw response:\n{response}")
+            logger.debug(f"=== END RAW RESPONSE ===")
             
             # Parse JSON response
             response_clean = response.strip()
@@ -638,16 +638,16 @@ class CharacterAssistantService:
             
             try:
                 system_prompt = prompt_manager.get_prompt("character_assistant.detection", "system")
-                logger.info(f"System prompt loaded: {len(system_prompt)} chars")
+                logger.debug(f"System prompt loaded: {len(system_prompt)} chars")
             except Exception as e:
                 logger.error(f"Failed to load system prompt: {e}")
                 raise
             
             try:
                 user_prompt_template = prompt_manager.get_prompt("character_assistant.detection", "user")
-                logger.info(f"User prompt template loaded: {len(user_prompt_template)} chars")
+                logger.debug(f"User prompt template loaded: {len(user_prompt_template)} chars")
                 user_prompt = user_prompt_template.format(scene_content=scene_content_text)
-                logger.info(f"User prompt formatted: {len(user_prompt)} chars")
+                logger.debug(f"User prompt formatted: {len(user_prompt)} chars")
             except Exception as e:
                 logger.error(f"Failed to format user prompt: {e}")
                 logger.error(f"Template: {user_prompt_template[:200]}")
@@ -674,8 +674,8 @@ class CharacterAssistantService:
                 raise
             
             # Log raw LLM response
-            logger.info(f"Raw LLM response received (length: {len(response)})")
-            logger.info(f"Raw response: {response[:500]}")
+            logger.debug(f"Raw LLM response received (length: {len(response)})")
+            logger.debug(f"Raw response: {response[:500]}")
             
             # Parse JSON response
             response_clean = response.strip()
