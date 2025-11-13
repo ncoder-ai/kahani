@@ -928,7 +928,7 @@ export default function StoryPage() {
         setStorySummary(null);
       } else {
         // Fallback to old summary endpoint if no chapter summary exists
-        const response = await fetch(`${getApiBaseUrl()}/api/stories/${storyId}/summary`, {
+        const response = await fetch(`${await getApiBaseUrl()}/api/stories/${storyId}/summary`, {
           headers: {
             'Authorization': `Bearer ${token}`,
           },
@@ -976,7 +976,7 @@ export default function StoryPage() {
       }
       
       // Fallback to old regenerate-summary endpoint
-      const url = `${getApiBaseUrl()}/api/stories/${storyId}/regenerate-summary`;
+      const url = `${await getApiBaseUrl()}/api/stories/${storyId}/regenerate-summary`;
       console.log('[SUMMARY] Calling fallback API:', url);
       
       const response = await fetch(url, {

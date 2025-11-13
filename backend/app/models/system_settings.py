@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Foreig
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
+from ..config import settings
 
 class SystemSettings(Base):
     """
@@ -12,14 +13,14 @@ class SystemSettings(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     
-    # Default permissions for new users
-    default_allow_nsfw = Column(Boolean, default=False, nullable=False)
-    default_can_change_llm_provider = Column(Boolean, default=True, nullable=False)
-    default_can_change_tts_settings = Column(Boolean, default=True, nullable=False)
-    default_can_use_stt = Column(Boolean, default=True, nullable=False)
-    default_can_use_image_generation = Column(Boolean, default=True, nullable=False)
-    default_can_export_stories = Column(Boolean, default=True, nullable=False)
-    default_can_import_stories = Column(Boolean, default=True, nullable=False)
+    # Default permissions for new users - NO DEFAULTS, must come from config.yaml
+    default_allow_nsfw = Column(Boolean, nullable=True)
+    default_can_change_llm_provider = Column(Boolean, nullable=True)
+    default_can_change_tts_settings = Column(Boolean, nullable=True)
+    default_can_use_stt = Column(Boolean, nullable=True)
+    default_can_use_image_generation = Column(Boolean, nullable=True)
+    default_can_export_stories = Column(Boolean, nullable=True)
+    default_can_import_stories = Column(Boolean, nullable=True)
     
     # Default resource limits for new users
     default_max_stories = Column(Integer, nullable=True)  # None = unlimited
@@ -30,10 +31,10 @@ class SystemSettings(Base):
     default_llm_api_url = Column(String(500), nullable=True)
     default_llm_api_key = Column(String(500), nullable=True)
     default_llm_model_name = Column(String(200), nullable=True)
-    default_llm_temperature = Column(Float, default=0.7, nullable=False)
+    default_llm_temperature = Column(Float, nullable=True)
     
     # Registration settings
-    registration_requires_approval = Column(Boolean, default=True, nullable=False)
+    registration_requires_approval = Column(Boolean, nullable=True)
     
     # Metadata
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

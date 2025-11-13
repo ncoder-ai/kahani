@@ -8,6 +8,7 @@ from ..models import Story, Chapter, Scene, User, ChapterStatus, StoryMode, Stor
 from ..models.chapter import chapter_characters
 from ..dependencies import get_current_user
 from ..services.llm.service import UnifiedLLMService
+from ..config import settings
 from datetime import datetime
 import logging
 import json
@@ -843,8 +844,9 @@ async def get_chapter_context_status(
         UserSettings.user_id == current_user.id
     ).first()
     
-    max_tokens = user_settings.context_max_tokens if user_settings else 4000
-    threshold_percentage = 80  # Default 80%
+    user_defaults = settings.user_defaults.get('context_settings', {})
+    max_tokens = user_settings.context_max_tokens if user_settings else user_defaults.get('max_tokens', 4000)
+    threshold_percentage = settings.chapter_context_threshold_percentage
     
     # Calculate percentage
     percentage_used = (chapter.context_tokens_used / max_tokens) * 100 if max_tokens > 0 else 0

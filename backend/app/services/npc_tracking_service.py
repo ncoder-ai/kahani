@@ -207,11 +207,13 @@ class NPCTrackingService:
         
         try:
             # Get extraction model configuration
-            url = extraction_settings.get('url', 'http://localhost:1234/v1')
-            model = extraction_settings.get('model_name', 'qwen2.5-3b-instruct')
-            api_key = extraction_settings.get('api_key', '')
-            temperature = extraction_settings.get('temperature', 0.3)
-            max_tokens = extraction_settings.get('max_tokens', 1500)  # Increased default for entity type and descriptions
+            ext_defaults = settings._yaml_config.get('extraction_model', {})
+            service_defaults = settings.service_defaults.get('extraction_service', {})
+            url = extraction_settings.get('url', ext_defaults.get('url'))
+            model = extraction_settings.get('model_name', ext_defaults.get('model_name'))
+            api_key = extraction_settings.get('api_key', ext_defaults.get('api_key', ''))
+            temperature = extraction_settings.get('temperature', ext_defaults.get('temperature'))
+            max_tokens = extraction_settings.get('max_tokens', service_defaults.get('npc_tracking_max_tokens', 1500))
             
             # Create extraction service
             return ExtractionLLMService(
@@ -316,7 +318,7 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
                 user_id=self.user_id,
                 user_settings=self.user_settings,
                 system_prompt="You are an expert at analyzing narrative text and extracting named entities. Classify each entity as CHARACTER or ENTITY and provide descriptions.",
-                max_tokens=3000  # Increased to prevent truncation
+                max_tokens=settings.service_defaults.get('extraction_service', {}).get('character_assistant_max_tokens', 3000)
             )
             
             logger.warning(f"RAW LLM RESPONSE - NPC TRACKING BATCH:\n{response}")
@@ -533,7 +535,7 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
                 user_id=self.user_id,
                 user_settings=self.user_settings,
                 system_prompt="You are a precise story analysis assistant. Extract NPCs and named entities from scenes. Classify each as CHARACTER or ENTITY and provide descriptions. Return only valid JSON.",
-                max_tokens=2000  # Increased to prevent truncation
+                max_tokens=settings.service_defaults.get('extraction_service', {}).get('character_assistant_max_tokens', 2000)
             )
             
             logger.warning(f"RAW LLM RESPONSE - NPC TRACKING:\n{response}")
@@ -1026,7 +1028,7 @@ Return ONLY the JSON, no other text."""
                 user_id=self.user_id,
                 user_settings=self.user_settings,
                 system_prompt="You are an expert literary analyst. Extract comprehensive character profiles from story scenes. Return only valid JSON.",
-                max_tokens=1500
+                max_tokens=settings.service_defaults.get('extraction_service', {}).get('npc_tracking_max_tokens', 1500)
             )
             
             # Clean and parse JSON

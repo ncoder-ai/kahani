@@ -31,7 +31,10 @@ services:
       - "6789:6789"
     environment:
       - PORT=6789
-      # NEXT_PUBLIC_API_URL removed - frontend auto-detects at runtime
+      # NEXT_PUBLIC_API_URL is required for Docker (frontend container needs to reach backend container)
+      # Use Docker service name 'backend' for inter-container communication
+      # Override in .env if needed (e.g., for external access)
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://backend:9876}
     depends_on:
       - backend
     # Enable logging with timestamps

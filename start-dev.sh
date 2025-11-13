@@ -75,31 +75,43 @@ fi
 
 # Load configuration from config.yaml
 if [[ -f config.yaml ]]; then
-    export BACKEND_PORT=$(grep -A 2 'backend:' config.yaml | grep 'port:' | grep -o '[0-9]*')
-    export FRONTEND_PORT=$(grep -A 2 'frontend:' config.yaml | grep 'port:' | grep -o '[0-9]*')
-    # API URL will be auto-detected by the network configuration utility
+    echo -e "${BLUE}📄 Reading configuration from config.yaml${NC}"
+    export BACKEND_PORT=$(python3 read-config.py backend_port) || {
+        echo -e "${RED}❌ Failed to read backend port from config.yaml${NC}"
+        exit 1
+    }
+    export FRONTEND_PORT=$(python3 read-config.py frontend_port) || {
+        echo -e "${RED}❌ Failed to read frontend port from config.yaml${NC}"
+        exit 1
+    }
+    echo -e "${BLUE}   Backend port: ${BACKEND_PORT}${NC}"
+    echo -e "${BLUE}   Frontend port: ${FRONTEND_PORT}${NC}"
+else
+    echo -e "${RED}❌ config.yaml not found${NC}"
+    echo -e "${RED}   Please ensure config.yaml exists in the project root${NC}"
+    exit 1
 fi
 
-# Set defaults
+# Set Python path
 export PYTHONPATH="${SCRIPT_DIR}/backend"
-BACKEND_PORT="${BACKEND_PORT:-9876}"
-FRONTEND_PORT="${FRONTEND_PORT:-6789}"
 
-# NEXT_PUBLIC_API_URL auto-detection removed in favor of runtime detection
-# The frontend now auto-detects the API URL at runtime based on window.location
-# This allows it to work correctly with reverse proxies and HTTPS
-# 
-# If you need to override auto-detection, set NEXT_PUBLIC_API_URL manually:
-#   export NEXT_PUBLIC_API_URL="https://yourdomain.com"
-#
 # Try to detect network IP for display purposes
 NETWORK_IP=$(python3 -c "import socket; s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.connect(('8.8.8.8', 80)); print(s.getsockname()[0]); s.close()" 2>/dev/null || echo "localhost")
 
-if [[ -n "$NEXT_PUBLIC_API_URL" ]]; then
-    echo -e "${BLUE}🌐 Using API URL: ${NEXT_PUBLIC_API_URL}${NC}"
+# Set NEXT_PUBLIC_API_URL for local development if not already set in .env
+# For local development: use localhost with backend port
+# For production/reverse proxy: set NEXT_PUBLIC_API_URL in .env or environment
+if [[ -z "$NEXT_PUBLIC_API_URL" ]]; then
+    # Local development: set to localhost with backend port
+    export NEXT_PUBLIC_API_URL="http://localhost:${BACKEND_PORT}"
+    echo -e "${BLUE}🌐 Setting NEXT_PUBLIC_API_URL for local development: ${NEXT_PUBLIC_API_URL}${NC}"
+    echo -e "${BLUE}💡 Tip: Add NEXT_PUBLIC_API_URL to .env if you want to persist this setting${NC}"
 else
-    echo -e "${BLUE}🌐 API URL will be auto-detected at runtime${NC}"
+    echo -e "${BLUE}🌐 Using NEXT_PUBLIC_API_URL from .env: ${NEXT_PUBLIC_API_URL}${NC}"
 fi
+
+# Next.js will pick up NEXT_PUBLIC_API_URL from the environment (exported above)
+# .env file is kept clean with only secrets - optional overrides can be added manually
 
 
 # Run Alembic migrations to upgrade schema before starting backend
@@ -123,17 +135,13 @@ if ! curl -s http://localhost:$BACKEND_PORT/health > /dev/null 2>&1; then
     sleep 3
 fi
 
-# Load frontend env if exists
-if [[ -f frontend/.env.local ]]; then
-    set -a
-    source frontend/.env.local
-    set +a
-fi
-
 # Start frontend
+# NEXT_PUBLIC_API_URL is already exported from base .env (or set above)
+# Next.js will pick it up from the environment
 echo -e "${BLUE}🎨 Starting frontend server on port ${FRONTEND_PORT}...${NC}"
 cd frontend
-PORT="$FRONTEND_PORT" npm run dev 2>&1 | sed 's/^/[FRONTEND] /' &
+# Explicitly pass NEXT_PUBLIC_API_URL to ensure Next.js picks it up
+PORT="$FRONTEND_PORT" NEXT_PUBLIC_API_URL="$NEXT_PUBLIC_API_URL" npm run dev 2>&1 | sed 's/^/[FRONTEND] /' &
 FRONTEND_PID=$!
 cd ..
 

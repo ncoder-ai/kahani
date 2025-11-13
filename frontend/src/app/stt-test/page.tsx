@@ -2,6 +2,7 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useRealtimeSTT } from '../../hooks/useRealtimeSTT';
+import { useConfig } from '@/contexts/ConfigContext';
 
 interface PerformanceMetrics {
   latency: number | null;
@@ -12,6 +13,7 @@ interface PerformanceMetrics {
 }
 
 export default function STTTestPage() {
+  const config = useConfig(); // Use config from React context
   const [metrics, setMetrics] = useState<PerformanceMetrics>({
     latency: null,
     totalTranscriptions: 0,
@@ -76,7 +78,9 @@ export default function STTTestPage() {
 
   const fetchDeviceInfo = async () => {
     try {
-      const response = await fetch('http://localhost:9876/ws/stt/device-info');
+      const apiBaseUrl = await config.getApiBaseUrl();
+      const sttPath = await config.getSTTWebSocketPath();
+      const response = await fetch(`${apiBaseUrl}${sttPath}/device-info`);
       if (response.ok) {
         const info = await response.json();
         setDeviceInfo(info);
