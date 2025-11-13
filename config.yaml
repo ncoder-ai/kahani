@@ -156,14 +156,14 @@ frontend:
 # LOGGING
 # ----------------------------------------------------------------------------
 logging:
-  log_level: "WARNING"
+  log_level: "DEBUG"
   log_file: "./logs/kahani.log"
 
 # ----------------------------------------------------------------------------
 # DEBUG
 # ----------------------------------------------------------------------------
 debug:
-  prompt_debug: true  # Save prompts and raw LLM responses to files
+  prompt_debug: false  # Save prompts and raw LLM responses to files
 
 # ----------------------------------------------------------------------------
 # USER DEFAULTS

@@ -167,7 +167,7 @@ class UnifiedLLMService:
                     content = response.choices[0].message.content
                     f.write(content)
                 f.write("\n\n" + "=" * 80 + "\n")
-            logger.info(f"Full raw LLM response written to {raw_response_file} for {operation_name}")
+            logger.debug(f"Full raw LLM response written to {raw_response_file} for {operation_name}")
         except Exception as e:
             logger.error(f"Failed to write full raw response to file: {e}")
     
@@ -227,13 +227,13 @@ class UnifiedLLMService:
         # Log complete prompt being sent to LLM
         system_prompt_log = next((msg["content"] for msg in messages if msg.get("role") == "system"), "")
         user_prompt_log = next((msg["content"] for msg in messages if msg.get("role") == "user"), "")
-        logger.info("=" * 80)
-        logger.info("COMPLETE PROMPT BEING SENT TO LLM")
-        logger.info("=" * 80)
-        logger.info(f"SYSTEM PROMPT:\n{system_prompt_log}")
-        logger.info("-" * 80)
-        logger.info(f"USER PROMPT:\n{user_prompt_log}")
-        logger.info("-" * 80)
+        logger.debug("=" * 80)
+        logger.debug("COMPLETE PROMPT BEING SENT TO LLM")
+        logger.debug("=" * 80)
+        logger.debug(f"SYSTEM PROMPT:\n{system_prompt_log}")
+        logger.debug("-" * 80)
+        logger.debug(f"USER PROMPT:\n{user_prompt_log}")
+        logger.debug("-" * 80)
         logger.info(f"GENERATION PARAMETERS: max_tokens={gen_params.get('max_tokens')}, temperature={gen_params.get('temperature')}, model={client.model_string}")
         logger.info("=" * 80)
         
@@ -324,15 +324,15 @@ class UnifiedLLMService:
         gen_params["prompt"] = rendered_prompt
         
         # Log complete prompt being sent to LLM
-        logger.info("=" * 80)
-        logger.info("COMPLETE PROMPT BEING SENT TO LLM (TEXT COMPLETION)")
-        logger.info("=" * 80)
-        logger.info(f"SYSTEM PROMPT:\n{system_prompt or '(none)'}")
-        logger.info("-" * 80)
-        logger.info(f"USER PROMPT:\n{prompt.strip()}")
-        logger.info("-" * 80)
-        logger.info(f"RENDERED PROMPT (FULL):\n{rendered_prompt}")
-        logger.info("-" * 80)
+        logger.debug("=" * 80)
+        logger.debug("COMPLETE PROMPT BEING SENT TO LLM (TEXT COMPLETION)")
+        logger.debug("=" * 80)
+        logger.debug(f"SYSTEM PROMPT:\n{system_prompt or '(none)'}")
+        logger.debug("-" * 80)
+        logger.debug(f"USER PROMPT:\n{prompt.strip()}")
+        logger.debug("-" * 80)
+        logger.debug(f"RENDERED PROMPT (FULL):\n{rendered_prompt}")
+        logger.debug("-" * 80)
         logger.info(f"GENERATION PARAMETERS: max_tokens={gen_params.get('max_tokens')}, temperature={gen_params.get('temperature')}, model={client.model_string}")
         logger.info("=" * 80)
         
@@ -345,7 +345,7 @@ class UnifiedLLMService:
         # For other providers, try LiteLLM
         try:
             logger.info(f"Text completion with {client.model_string} for user {user_id}")
-            logger.info(f"Calling text_completion with model={gen_params['model']}, prompt_length={len(gen_params['prompt'])}")
+            logger.debug(f"Calling text_completion with model={gen_params['model']}, prompt_length={len(gen_params['prompt'])}")
             
             # Use litellm.text_completion for text completion (synchronous, run in thread)
             from litellm import text_completion
@@ -593,12 +593,12 @@ class UnifiedLLMService:
         # Log complete prompt being sent to LLM
         system_prompt_log = next((msg["content"] for msg in messages if msg.get("role") == "system"), "")
         user_prompt_log = next((msg["content"] for msg in messages if msg.get("role") == "user"), "")
-        logger.info("=" * 80)
-        logger.info("COMPLETE PROMPT BEING SENT TO LLM (STREAMING)")
-        logger.info("=" * 80)
-        logger.info(f"SYSTEM PROMPT:\n{system_prompt_log}")
-        logger.info("-" * 80)
-        logger.info(f"USER PROMPT:\n{user_prompt_log}")
+        logger.debug("=" * 80)
+        logger.debug("COMPLETE PROMPT BEING SENT TO LLM (STREAMING)")
+        logger.debug("=" * 80)
+        logger.debug(f"SYSTEM PROMPT:\n{system_prompt_log}")
+        logger.debug("-" * 80)
+        logger.debug(f"USER PROMPT:\n{user_prompt_log}")
         logger.info("-" * 80)
         logger.info(f"GENERATION PARAMETERS: max_tokens={gen_params.get('max_tokens')}, temperature={gen_params.get('temperature')}, model={client.model_string}")
         logger.info("=" * 80)
@@ -693,14 +693,14 @@ class UnifiedLLMService:
         gen_params["prompt"] = rendered_prompt
         
         # Log complete prompt being sent to LLM
-        logger.info("=" * 80)
-        logger.info("COMPLETE PROMPT BEING SENT TO LLM (TEXT COMPLETION STREAMING)")
-        logger.info("=" * 80)
-        logger.info(f"SYSTEM PROMPT:\n{system_prompt or '(none)'}")
-        logger.info("-" * 80)
-        logger.info(f"USER PROMPT:\n{prompt.strip()}")
-        logger.info("-" * 80)
-        logger.info(f"RENDERED PROMPT (FULL):\n{rendered_prompt}")
+        logger.debug("=" * 80)
+        logger.debug("COMPLETE PROMPT BEING SENT TO LLM (TEXT COMPLETION STREAMING)")
+        logger.debug("=" * 80)
+        logger.debug(f"SYSTEM PROMPT:\n{system_prompt or '(none)'}")
+        logger.debug("-" * 80)
+        logger.debug(f"USER PROMPT:\n{prompt.strip()}")
+        logger.debug("-" * 80)
+        logger.debug(f"RENDERED PROMPT (FULL):\n{rendered_prompt}")
         logger.info("-" * 80)
         logger.info(f"GENERATION PARAMETERS: max_tokens={gen_params.get('max_tokens')}, temperature={gen_params.get('temperature')}, model={client.model_string}")
         logger.info("=" * 80)
@@ -740,7 +740,7 @@ class UnifiedLLMService:
         # For other providers, try LiteLLM
         try:
             logger.info(f"Streaming text completion with {client.model_string} for user {user_id}")
-            logger.info(f"Calling text_completion (streaming) with model={gen_params['model']}, prompt_length={len(gen_params['prompt'])}")
+            logger.debug(f"Calling text_completion (streaming) with model={gen_params['model']}, prompt_length={len(gen_params['prompt'])}")
             
             # Use litellm.text_completion for text completion
             # text_completion returns a synchronous generator when stream=True
@@ -940,13 +940,13 @@ class UnifiedLLMService:
         )
         
         # Log the complete prompt for debugging
-        logger.info("=" * 80)
-        logger.info("SCENE GENERATION PROMPT")
-        logger.info("=" * 80)
-        logger.info(f"SYSTEM PROMPT:\n{system_prompt}")
-        logger.info("-" * 80)
-        logger.info(f"USER PROMPT:\n{user_prompt}")
-        logger.info("=" * 80)
+        logger.debug("=" * 80)
+        logger.debug("SCENE GENERATION PROMPT")
+        logger.debug("=" * 80)
+        logger.debug(f"SYSTEM PROMPT:\n{system_prompt}")
+        logger.debug("-" * 80)
+        logger.debug(f"USER PROMPT:\n{user_prompt}")
+        logger.debug("=" * 80)
         
         max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
         
@@ -1101,13 +1101,13 @@ class UnifiedLLMService:
         )
         
         # Log the complete prompt for debugging
-        logger.info("=" * 80)
-        logger.info("SCENE GENERATION PROMPT (STREAMING)")
-        logger.info("=" * 80)
-        logger.info(f"SYSTEM PROMPT:\n{system_prompt}")
-        logger.info("-" * 80)
-        logger.info(f"USER PROMPT:\n{user_prompt}")
-        logger.info("=" * 80)
+        logger.debug("=" * 80)
+        logger.debug("SCENE GENERATION PROMPT (STREAMING)")
+        logger.debug("=" * 80)
+        logger.debug(f"SYSTEM PROMPT:\n{system_prompt}")
+        logger.debug("-" * 80)
+        logger.debug(f"USER PROMPT:\n{user_prompt}")
+        logger.debug("=" * 80)
         
         max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
         
@@ -1139,7 +1139,7 @@ class UnifiedLLMService:
                     f.write("=" * 80 + "\n\n")
                     f.write(full_response)
                     f.write("\n\n" + "=" * 80 + "\n")
-                logger.info(f"Raw LLM response written to {raw_response_file}")
+                logger.debug(f"Raw LLM response written to {raw_response_file}")
             except Exception as e:
                 logger.error(f"Failed to write raw response to file: {e}")
     
@@ -1512,7 +1512,7 @@ class UnifiedLLMService:
                     f.write("=" * 80 + "\n\n")
                     f.write(raw_full_response)
                     f.write("\n\n" + "=" * 80 + "\n")
-                logger.info(f"Raw LLM response written to {raw_response_file}")
+                logger.debug(f"Raw LLM response written to {raw_response_file}")
             except Exception as e:
                 logger.error(f"Failed to write raw response to file: {e}")
         
@@ -1593,8 +1593,8 @@ class UnifiedLLMService:
             )
         
         # Log prompts for debugging
-        logger.info(f"Variant generation - system_prompt length: {len(system_prompt) if system_prompt else 0}")
-        logger.info(f"Variant generation - user_prompt length: {len(user_prompt) if user_prompt else 0}")
+        logger.debug(f"Variant generation - system_prompt length: {len(system_prompt) if system_prompt else 0}")
+        logger.debug(f"Variant generation - user_prompt length: {len(user_prompt) if user_prompt else 0}")
         
         if not user_prompt or not user_prompt.strip():
             logger.error("Empty user prompt generated for variant generation")
