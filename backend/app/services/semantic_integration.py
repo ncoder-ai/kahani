@@ -731,23 +731,86 @@ async def batch_process_scene_extractions(
     }
     
     try:
-        # Get all scenes in the chapter within the sequence range
-        scenes = db.query(Scene).filter(
+        # DEBUG: Log query parameters
+        logger.warning(f"[EXTRACTION] Query parameters: story_id={story_id}, chapter_id={chapter_id}, from_sequence={from_sequence}, to_sequence={to_sequence}")
+        
+        # DEBUG: Check what scenes exist in the database matching each filter condition
+        total_scenes_in_story = db.query(Scene).filter(Scene.story_id == story_id, Scene.is_deleted == False).count()
+        scenes_in_chapter = db.query(Scene).filter(Scene.story_id == story_id, Scene.chapter_id == chapter_id, Scene.is_deleted == False).count()
+        scenes_in_range = db.query(Scene).filter(
             Scene.story_id == story_id,
+            Scene.sequence_number > from_sequence,
+            Scene.sequence_number <= to_sequence,
+            Scene.is_deleted == False
+        ).count()
+        scenes_in_chapter_and_range = db.query(Scene).filter(
+            Scene.story_id == story_id,
+            Scene.chapter_id == chapter_id,
+            Scene.sequence_number > from_sequence,
+            Scene.sequence_number <= to_sequence,
+            Scene.is_deleted == False
+        ).count()
+        
+        logger.warning(f"[EXTRACTION] Scene counts - Total in story: {total_scenes_in_story}, In chapter: {scenes_in_chapter}, In range: {scenes_in_range}, In chapter+range: {scenes_in_chapter_and_range}")
+        
+        # DEBUG: Log actual scenes in the range (without chapter filter) to see what we're missing
+        scenes_in_range_all_chapters = db.query(Scene).filter(
+            Scene.story_id == story_id,
+            Scene.sequence_number > from_sequence,
+            Scene.sequence_number <= to_sequence,
+            Scene.is_deleted == False
+        ).order_by(Scene.sequence_number).all()
+        
+        if scenes_in_range_all_chapters:
+            logger.warning(f"[EXTRACTION] Found {len(scenes_in_range_all_chapters)} scenes in range (all chapters):")
+            for s in scenes_in_range_all_chapters:
+                logger.warning(f"  - Scene {s.id}: seq={s.sequence_number}, chapter_id={s.chapter_id}, is_deleted={s.is_deleted}")
+        
+        # DEBUG: Check StoryFlow to see if scenes are active (since scenes_count uses StoryFlow)
+        from ..models import StoryFlow
+        active_scenes_in_chapter = db.query(StoryFlow).join(Scene).filter(
+            StoryFlow.story_id == story_id,
+            StoryFlow.is_active == True,
+            Scene.chapter_id == chapter_id,
+            Scene.sequence_number > from_sequence,
+            Scene.sequence_number <= to_sequence,
+            Scene.is_deleted == False
+        ).count()
+        logger.warning(f"[EXTRACTION] Active scenes in chapter+range (via StoryFlow): {active_scenes_in_chapter}")
+        
+        # Get all scenes in the chapter within the sequence range
+        # Try querying via StoryFlow first (to match how scenes_count is calculated)
+        scenes_via_flow = db.query(Scene).join(StoryFlow).filter(
+            StoryFlow.story_id == story_id,
+            StoryFlow.is_active == True,
             Scene.chapter_id == chapter_id,
             Scene.sequence_number > from_sequence,
             Scene.sequence_number <= to_sequence,
             Scene.is_deleted == False
         ).order_by(Scene.sequence_number).all()
         
+        # Fallback to direct Scene query if StoryFlow query returns nothing
+        if not scenes_via_flow:
+            logger.warning(f"[EXTRACTION] StoryFlow query returned no scenes, trying direct Scene query")
+            scenes = db.query(Scene).filter(
+                Scene.story_id == story_id,
+                Scene.chapter_id == chapter_id,
+                Scene.sequence_number > from_sequence,
+                Scene.sequence_number <= to_sequence,
+                Scene.is_deleted == False
+            ).order_by(Scene.sequence_number).all()
+        else:
+            scenes = scenes_via_flow
+        
         if not scenes:
             logger.warning(f"[EXTRACTION] No scenes to process in batch (from_sequence={from_sequence}, to_sequence={to_sequence})")
+            logger.warning(f"[EXTRACTION] DEBUG: This might be a timing issue - scenes may not be committed yet in this session")
             return results
         
         logger.warning(f"[EXTRACTION] Batch processing {len(scenes)} scenes for chapter {chapter_id} (sequences {from_sequence+1} to {to_sequence})")
         
         # Prepare scene data for batch extraction
-        from ..models import SceneVariant, StoryFlow
+        from ..models import SceneVariant
         scenes_data = []  # List of (scene_id, sequence_number, chapter_id, scene_content) for batch extraction
         scenes_for_embeddings = []  # List of (scene, variant, scene_content) for per-scene embeddings
         

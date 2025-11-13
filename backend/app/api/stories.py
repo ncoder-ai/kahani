@@ -552,23 +552,65 @@ async def run_extractions_in_background(
 ):
     """Run extractions in background, independent of streaming response"""
     try:
+        import asyncio
+        # Small delay to ensure database commits from main session are visible
+        # This helps with transaction isolation between sessions
+        await asyncio.sleep(0.1)
+        
         from ..database import SessionLocal
         extraction_db = SessionLocal()
         try:
+            # Reload chapter to get fresh data (in case it was updated)
+            extraction_chapter = extraction_db.query(Chapter).filter(Chapter.id == chapter_id).first()
+            if not extraction_chapter:
+                logger.error(f"[EXTRACTION] Chapter {chapter_id} not found in background task")
+                return
+            
+            # Get actual sequence numbers of scenes in this chapter (not scenes_count which is just a count)
+            from ..models import Scene, StoryFlow
+            scenes_in_chapter = extraction_db.query(Scene).join(StoryFlow).filter(
+                StoryFlow.story_id == story_id,
+                StoryFlow.is_active == True,
+                Scene.chapter_id == chapter_id,
+                Scene.is_deleted == False
+            ).order_by(Scene.sequence_number).all()
+            
+            if not scenes_in_chapter:
+                logger.warning(f"[EXTRACTION] No scenes found in chapter {chapter_id}, skipping extraction")
+                return
+            
+            # Get actual sequence numbers
+            scene_sequence_numbers = [s.sequence_number for s in scenes_in_chapter]
+            max_sequence_in_chapter = max(scene_sequence_numbers)
+            min_sequence_in_chapter = min(scene_sequence_numbers)
+            
+            # Use last_extraction_scene_count as from_sequence (it should be a sequence number, not a count)
+            # But if it's 0 or greater than max, use min_sequence_in_chapter - 1
+            actual_from_sequence = extraction_chapter.last_extraction_scene_count or 0
+            if actual_from_sequence == 0 or actual_from_sequence >= max_sequence_in_chapter:
+                actual_from_sequence = min_sequence_in_chapter - 1
+            
+            actual_to_sequence = max_sequence_in_chapter
+            
+            logger.warning(f"[EXTRACTION] Background task - Reloaded chapter {chapter_id}:")
+            logger.warning(f"  - Scenes in chapter: {len(scenes_in_chapter)} (sequences {min_sequence_in_chapter} to {max_sequence_in_chapter})")
+            logger.warning(f"  - Using from_sequence={actual_from_sequence}, to_sequence={actual_to_sequence}")
+            logger.warning(f"  - Original params: from={from_sequence}, to={to_sequence}")
+            
             batch_results = await batch_process_scene_extractions(
                 story_id=story_id,
                 chapter_id=chapter_id,
-                from_sequence=from_sequence,
-                to_sequence=to_sequence,
+                from_sequence=actual_from_sequence,
+                to_sequence=actual_to_sequence,
                 user_id=user_id,
                 user_settings=user_settings,
                 db=extraction_db
             )
             
-            extraction_chapter = extraction_db.query(Chapter).filter(Chapter.id == chapter_id).first()
-            if extraction_chapter:
-                extraction_chapter.last_extraction_scene_count = to_sequence
-                extraction_db.commit()
+            # Update last extraction count with actual sequence number (not count)
+            extraction_chapter.last_extraction_scene_count = actual_to_sequence
+            extraction_db.commit()
+            logger.warning(f"[EXTRACTION] Updated last_extraction_scene_count to {actual_to_sequence} for chapter {chapter_id}")
             
             logger.warning(f"[EXTRACTION] Background extraction complete for chapter {chapter_id}")
             logger.warning(f"  - Scenes processed: {batch_results.get('scenes_processed', 0)}")
@@ -581,6 +623,8 @@ async def run_extractions_in_background(
             extraction_db.close()
     except Exception as e:
         logger.error(f"[EXTRACTION] Background extraction failed: {e}")
+        import traceback
+        logger.error(f"[EXTRACTION] Traceback: {traceback.format_exc()}")
 
 @router.post("/{story_id}/scenes")
 async def generate_scene(
@@ -1211,34 +1255,52 @@ async def generate_scene_streaming_endpoint(
                         5  # Default threshold
                     ) if user_settings else 5
                     
-                    # Calculate scenes since last extraction
-                    last_extraction_count = active_chapter.last_extraction_scene_count or 0
-                    scenes_since_extraction = active_chapter.scenes_count - last_extraction_count
+                    # Calculate scenes since last extraction using actual sequence numbers
+                    # Get scenes in this chapter to find actual sequence numbers
+                    from ..models import Scene, StoryFlow
+                    scenes_in_chapter = db.query(Scene).join(StoryFlow).filter(
+                        StoryFlow.story_id == story_id,
+                        StoryFlow.is_active == True,
+                        Scene.chapter_id == active_chapter.id,
+                        Scene.is_deleted == False
+                    ).order_by(Scene.sequence_number).all()
                     
-                    logger.warning(f"[EXTRACTION] Scenes since last extraction: {scenes_since_extraction}/{extraction_threshold} for chapter {active_chapter.id}")
-                    
-                    if scenes_since_extraction >= extraction_threshold:
-                        logger.warning(f"[EXTRACTION] ✓ SCHEDULED: Threshold reached ({scenes_since_extraction}/{extraction_threshold})")
+                    if scenes_in_chapter:
+                        scene_sequence_numbers = [s.sequence_number for s in scenes_in_chapter]
+                        max_sequence_in_chapter = max(scene_sequence_numbers)
+                        last_extraction_sequence = active_chapter.last_extraction_scene_count or 0
                         
-                        # Schedule extraction to run after response completes
-                        background_tasks.add_task(
-                            run_extractions_in_background,
-                            story_id=story_id,
-                            chapter_id=active_chapter.id,
-                            from_sequence=active_chapter.last_extraction_scene_count or 0,
-                            to_sequence=active_chapter.scenes_count,
-                            user_id=current_user.id,
-                            user_settings=user_settings or {}
-                        )
+                        # Count scenes with sequence > last_extraction_sequence
+                        scenes_since_extraction = len([s for s in scene_sequence_numbers if s > last_extraction_sequence])
                         
-                        # Send status event with clear message
-                        extraction_msg = f"Extracting ({scenes_since_extraction}/{extraction_threshold})"
-                        yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'scheduled', 'message': extraction_msg})}\n\n"
+                        logger.warning(f"[EXTRACTION] Scenes since last extraction: {scenes_since_extraction}/{extraction_threshold} for chapter {active_chapter.id}")
+                        logger.warning(f"[EXTRACTION] Chapter {active_chapter.id} has {len(scenes_in_chapter)} scenes (sequences {min(scene_sequence_numbers)} to {max_sequence_in_chapter}), last extracted: {last_extraction_sequence}")
+                        
+                        if scenes_since_extraction >= extraction_threshold:
+                            logger.warning(f"[EXTRACTION] ✓ SCHEDULED: Threshold reached ({scenes_since_extraction}/{extraction_threshold})")
+                            
+                            # Schedule extraction to run after response completes
+                            # Use actual sequence numbers, not scenes_count
+                            background_tasks.add_task(
+                                run_extractions_in_background,
+                                story_id=story_id,
+                                chapter_id=active_chapter.id,
+                                from_sequence=last_extraction_sequence,
+                                to_sequence=max_sequence_in_chapter,
+                                user_id=current_user.id,
+                                user_settings=user_settings or {}
+                            )
+                            
+                            # Send status event with clear message
+                            extraction_msg = f"Extracting ({scenes_since_extraction}/{extraction_threshold})"
+                            yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'scheduled', 'message': extraction_msg})}\n\n"
+                        else:
+                            # Threshold not reached - skip extraction with clear reason
+                            skip_msg = f"Skipped ({scenes_since_extraction}/{extraction_threshold})"
+                            logger.warning(f"[EXTRACTION] ✗ SKIPPED: {skip_msg}")
+                            yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'skipped', 'message': skip_msg})}\n\n"
                     else:
-                        # Threshold not reached - skip extraction with clear reason
-                        skip_msg = f"Skipped ({scenes_since_extraction}/{extraction_threshold})"
-                        logger.warning(f"[EXTRACTION] ✗ SKIPPED: {skip_msg}")
-                        yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'skipped', 'message': skip_msg})}\n\n"
+                        logger.warning(f"[EXTRACTION] No scenes found in chapter {active_chapter.id}, skipping extraction")
                 except Exception as e:
                     logger.error(f"[EXTRACTION] Failed to process extraction: {e}")
                     import traceback
