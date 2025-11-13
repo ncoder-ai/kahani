@@ -14,7 +14,7 @@ sys.path.insert(0, str(backend_dir))
 
 # Import your models and database configuration
 from app.database import Base
-from app.config import Settings
+from app.config import settings
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -29,8 +29,7 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 target_metadata = Base.metadata
 
-# Get database URL from settings
-settings = Settings()
+# Get database URL from settings (use the global instance that's already loaded)
 database_url = settings.database_url
 
 # Set the database URL in the alembic config

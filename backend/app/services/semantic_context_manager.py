@@ -215,48 +215,95 @@ class SemanticContextManager(ContextManager):
                 "context_type": "recent_only"
             }
         
-        # Dynamic allocation: prioritize recent scenes, then semantic
-        # 50% for additional recent scenes (going backwards)
-        # 25% for semantic scenes
-        # 15% for character moments  
-        # 5% for entity states
-        # 5% for chapter summaries
-        additional_recent_tokens = int(remaining_tokens * 0.50)
+        # Dynamic allocation: prioritize semantic, character, entity, summary first
+        # Then fill remaining budget with recent scenes
         semantic_tokens = int(remaining_tokens * 0.25)
         character_tokens = int(remaining_tokens * 0.15)
         entity_tokens = int(remaining_tokens * 0.05)
         summary_tokens = int(remaining_tokens * 0.05)
         
-        # Get additional recent scenes dynamically
-        additional_recent_content, additional_recent_scenes = await self._add_recent_scenes_dynamically(
-            scenes, len(recent_scenes), additional_recent_tokens, db
-        )
-        
-        # Get semantically relevant scenes
+        # Get semantically relevant scenes first (top N from user settings)
         semantic_content = await self._get_semantic_scenes(
-            story_id, recent_scenes + additional_recent_scenes, semantic_tokens, db
+            story_id, recent_scenes, semantic_tokens, db
         )
+        semantic_used_tokens = self.count_tokens(semantic_content) if semantic_content else 0
         
         # Get character-specific context
         character_content = await self._get_character_context(
             story_id, recent_scenes, character_tokens, db
         )
+        character_used_tokens = self.count_tokens(character_content) if character_content else 0
         
-        # Get entity states (NEW!)
+        # Get entity states
         entity_states_content = await self._get_entity_states(
             story_id, entity_tokens, db
         )
+        entity_used_tokens = self.count_tokens(entity_states_content) if entity_states_content else 0
         
-        # Get chapter summaries (includes story_so_far, previous chapter summary, and current chapter summary)
+        # Get chapter summaries (only current chapter summary - story_so_far and previous_chapter_summary
+        # are handled as direct fields in base_context to avoid duplication)
         summary_content = await self._get_chapter_summaries(
             story_id, summary_tokens, db, chapter_id=chapter_id
         )
+        summary_used_tokens = self.count_tokens(summary_content) if summary_content else 0
+        
+        # Calculate remaining tokens after semantic/character/entity/summary
+        used_tokens_so_far = semantic_used_tokens + character_used_tokens + entity_used_tokens + summary_used_tokens
+        remaining_for_recent = remaining_tokens - used_tokens_so_far
+        
+        # Fill ALL remaining tokens with additional recent scenes (going backwards)
+        # This ensures we use the full token budget
+        additional_recent_content, additional_recent_scenes = await self._add_recent_scenes_dynamically(
+            scenes, len(recent_scenes), remaining_for_recent, db
+        )
+        
+        # Combine initial recent scenes with additional scenes for the Recent Scenes section
+        # Exclude duplicates (additional_recent_scenes already excludes scenes in recent_scenes)
+        if additional_recent_content:
+            # Combine recent_content and additional_recent_content
+            if recent_content:
+                combined_recent_content = f"{recent_content}\n\n{additional_recent_content}"
+            else:
+                combined_recent_content = additional_recent_content
+        else:
+            combined_recent_content = recent_content
+        
+        # Log what we got from _get_chapter_summaries
+        if summary_content:
+            logger.info(f"[SEMANTIC CONTEXT] _get_chapter_summaries returned content ({len(summary_content)} chars): {summary_content[:200]}...")
+        else:
+            logger.info("[SEMANTIC CONTEXT] _get_chapter_summaries returned None")
         
         # Assemble final context
         context_parts = []
         
         if summary_content:
-            context_parts.append(f"Story Summary:\n{summary_content}")
+            # Defensive check: Remove any "Story So Far:" or "Previous Chapter Summary" that might
+            # have accidentally been included (they should be in base_context as direct fields)
+            filtered_content = summary_content
+            
+            # Remove "Story So Far:" section (header + all content until next section or end)
+            if "Story So Far:" in filtered_content:
+                logger.error("[SEMANTIC CONTEXT] ERROR: Found 'Story So Far:' in summary_content! Filtering it out.")
+                import re
+                # Match "Story So Far:" and everything until "Previous Chapter Summary" or "Current Chapter Summary" or end
+                pattern = r'Story So Far:.*?(?=(?:Previous Chapter Summary|Current Chapter Summary|$))'
+                filtered_content = re.sub(pattern, '', filtered_content, flags=re.DOTALL)
+                filtered_content = filtered_content.strip()
+            
+            # Remove "Previous Chapter Summary" section (header + all content until next section or end)
+            if "Previous Chapter Summary" in filtered_content:
+                logger.error("[SEMANTIC CONTEXT] ERROR: Found 'Previous Chapter Summary' in summary_content! Filtering it out.")
+                import re
+                # Match "Previous Chapter Summary" and everything until "Current Chapter Summary" or end
+                pattern = r'Previous Chapter Summary.*?(?=(?:Current Chapter Summary|$))'
+                filtered_content = re.sub(pattern, '', filtered_content, flags=re.DOTALL)
+                filtered_content = filtered_content.strip()
+            
+            if filtered_content.strip():
+                context_parts.append(f"Story Summary:\n{filtered_content}")
+            else:
+                logger.info("[SEMANTIC CONTEXT] summary_content was filtered to empty, not adding to context")
         
         if entity_states_content:
             context_parts.append(f"\n{entity_states_content}")
@@ -267,14 +314,14 @@ class SemanticContextManager(ContextManager):
         if character_content:
             context_parts.append(f"\nCharacter Context:\n{character_content}")
         
-        context_parts.append(f"\nRecent Scenes:\n{recent_content}")
+        context_parts.append(f"\nRecent Scenes:\n{combined_recent_content}")
         
         full_context = "\n".join(context_parts)
         
         return {
             "previous_scenes": full_context,
-            "recent_scenes": recent_content,
-            "scene_summary": f"Hybrid context: {len(recent_scenes)} recent + semantic retrieval + entity states",
+            "recent_scenes": combined_recent_content,  # Include both initial and additional recent scenes
+            "scene_summary": "",  # Don't include metadata in prompt - it's debug info only
             "total_scenes": total_scenes,
             "context_type": "hybrid",
             "semantic_scenes_included": semantic_content is not None,
@@ -384,6 +431,29 @@ class SemanticContextManager(ContextManager):
             base_context["chapter_location"] = chapter.location_name
             base_context["chapter_time_period"] = chapter.time_period
             base_context["chapter_scenario"] = chapter.scenario
+            
+            # Include story_so_far if it exists (not None)
+            if chapter.story_so_far:
+                logger.info(f"[SEMANTIC CONTEXT BUILD] Chapter {chapter.chapter_number}: Found story_so_far ({len(chapter.story_so_far)} chars)")
+                base_context["story_so_far"] = chapter.story_so_far
+            else:
+                logger.info(f"[SEMANTIC CONTEXT BUILD] Chapter {chapter.chapter_number}: story_so_far is None")
+            
+            # Include previous chapter's summary if available
+            if chapter.chapter_number > 1:
+                from ..models import Chapter as ChapterModel, ChapterStatus
+                previous_chapter = db.query(ChapterModel).filter(
+                    ChapterModel.story_id == story_id,
+                    ChapterModel.chapter_number == chapter.chapter_number - 1,
+                    ChapterModel.auto_summary.isnot(None)
+                ).first()
+                if previous_chapter and previous_chapter.auto_summary:
+                    logger.info(f"[SEMANTIC CONTEXT BUILD] Chapter {chapter.chapter_number}: Found previous chapter {previous_chapter.chapter_number} summary ({len(previous_chapter.auto_summary)} chars)")
+                    base_context["previous_chapter_summary"] = previous_chapter.auto_summary
+                else:
+                    logger.info(f"[SEMANTIC CONTEXT BUILD] Chapter {chapter.chapter_number}: No previous chapter summary found (previous_chapter={previous_chapter is not None}, has_auto_summary={previous_chapter.auto_summary if previous_chapter else 'N/A'})")
+            else:
+                logger.info(f"[SEMANTIC CONTEXT BUILD] Chapter {chapter.chapter_number}: First chapter, no previous chapter summary")
         
         return base_context
     
@@ -536,16 +606,17 @@ class SemanticContextManager(ContextManager):
         """
         Get chapter summaries for compressed history
         
-        Includes three types of summaries:
-        a) Summary of story so far (story_so_far from current chapter)
-        b) Summary of the past chapter (auto_summary from most recent completed chapter)
-        c) Summary of the current chapter (auto_summary if it has scenes and has been processed)
+        NOTE: story_so_far and previous_chapter_summary are NOT included here because
+        they are already included as direct fields in base_context to avoid duplication.
+        
+        Only includes:
+        - Summary of the current chapter (auto_summary if it has scenes and has been processed)
         
         Args:
             story_id: Story ID
             token_budget: Available tokens
             db: Database session
-            chapter_id: Optional current chapter ID to get story_so_far from
+            chapter_id: Optional current chapter ID
             
         Returns:
             Formatted chapter summaries or None
@@ -559,66 +630,34 @@ class SemanticContextManager(ContextManager):
             summary_parts = []
             used_tokens = 0
             
-            # a) Get story_so_far from current chapter (if available and not empty)
-            if chapter_id:
-                current_chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
-                if current_chapter and current_chapter.story_so_far and current_chapter.story_so_far.strip() and current_chapter.story_so_far != "The story begins...":
-                    story_so_far_text = f"Story So Far:\n{current_chapter.story_so_far}"
-                    story_so_far_tokens = self.count_tokens(story_so_far_text)
-                    if used_tokens + story_so_far_tokens <= token_budget:
-                        summary_parts.append(story_so_far_text)
-                        used_tokens += story_so_far_tokens
-            
-            # b) Get previous chapter's auto_summary (most recent completed chapter)
-            previous_chapter = db.query(Chapter).filter(
-                Chapter.story_id == story_id,
-                Chapter.status == ChapterStatus.COMPLETED,
-                Chapter.auto_summary.isnot(None)
-            ).order_by(Chapter.chapter_number.desc()).first()
-            
-            if previous_chapter:
-                prev_summary_text = f"Previous Chapter Summary (Chapter {previous_chapter.chapter_number}):\n{previous_chapter.auto_summary}"
-                prev_summary_tokens = self.count_tokens(prev_summary_text)
-                if used_tokens + prev_summary_tokens <= token_budget:
-                    summary_parts.append(prev_summary_text)
-                    used_tokens += prev_summary_tokens
-            
-            # c) Get current chapter's auto_summary (if it has scenes and has been processed)
+            # Get current chapter's auto_summary (if it has scenes and has been processed)
+            # NOTE: We do NOT include story_so_far or previous_chapter_summary here - they are
+            # handled as direct fields in base_context to avoid duplication
             if chapter_id:
                 current_chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
                 if current_chapter and current_chapter.auto_summary and current_chapter.scenes_count > 0:
+                    logger.info(f"[SEMANTIC CONTEXT] Adding current chapter {current_chapter.chapter_number} summary to _get_chapter_summaries")
                     current_summary_text = f"Current Chapter Summary (Chapter {current_chapter.chapter_number}):\n{current_chapter.auto_summary}"
                     current_summary_tokens = self.count_tokens(current_summary_text)
                     if used_tokens + current_summary_tokens <= token_budget:
                         summary_parts.append(current_summary_text)
                         used_tokens += current_summary_tokens
+                else:
+                    logger.info(f"[SEMANTIC CONTEXT] Not adding current chapter summary (chapter_id={chapter_id}, has_auto_summary={current_chapter.auto_summary if current_chapter else False}, scenes_count={current_chapter.scenes_count if current_chapter else 0})")
             
-            # Fallback: If we still have budget and no summaries yet, get all completed chapters
-            if not summary_parts:
-                chapters = db.query(Chapter).filter(
-                    Chapter.story_id == story_id,
-                    Chapter.auto_summary.isnot(None)
-                ).order_by(Chapter.chapter_number).all()
-                
-                if chapters:
-                    for chapter in chapters:
-                        summary_text = f"Chapter {chapter.chapter_number} ({chapter.title or 'Untitled'}): {chapter.auto_summary}"
-                        summary_tokens = self.count_tokens(summary_text)
-                        
-                        if used_tokens + summary_tokens <= token_budget:
-                            summary_parts.append(summary_text)
-                            used_tokens += summary_tokens
-                        else:
-                            # Include at least part of the summary
-                            remaining_budget = token_budget - used_tokens
-                            if remaining_budget > 100:
-                                truncated = summary_text[:remaining_budget * 4]  # Rough char estimate
-                                summary_parts.append(truncated + "...")
-                            break
-            
+            # No fallback - if no current chapter summary exists, return None
+            # Historical context is already provided by "Story So Far" and "Previous Chapter Summary" direct fields
             if summary_parts:
-                return "\n\n".join(summary_parts)
+                result = "\n\n".join(summary_parts)
+                logger.info(f"[SEMANTIC CONTEXT] _get_chapter_summaries returning {len(summary_parts)} parts: {[part[:50] + '...' if len(part) > 50 else part for part in summary_parts]}")
+                # Verify we're not accidentally including story_so_far or previous_chapter_summary
+                if "Story So Far:" in result:
+                    logger.error("[SEMANTIC CONTEXT] ERROR: story_so_far found in _get_chapter_summaries result! This should not happen.")
+                if "Previous Chapter Summary" in result:
+                    logger.error("[SEMANTIC CONTEXT] ERROR: previous_chapter_summary found in _get_chapter_summaries result! This should not happen.")
+                return result
             
+            logger.info("[SEMANTIC CONTEXT] _get_chapter_summaries returning None (no summaries)")
             return None
             
         except Exception as e:
@@ -646,17 +685,19 @@ class SemanticContextManager(ContextManager):
             from ..models import CharacterState, LocationState, ObjectState, Character
             
             # Get all entity states for this story
+            # Order by updated_at DESC to ensure we get the latest states
+            # (though typically there's one state per entity, ordering ensures we get most recent if duplicates exist)
             character_states = db.query(CharacterState).filter(
                 CharacterState.story_id == story_id
-            ).all()
+            ).order_by(CharacterState.updated_at.desc()).all()
             
             location_states = db.query(LocationState).filter(
                 LocationState.story_id == story_id
-            ).all()
+            ).order_by(LocationState.updated_at.desc()).all()
             
             object_states = db.query(ObjectState).filter(
                 ObjectState.story_id == story_id
-            ).all()
+            ).order_by(ObjectState.updated_at.desc()).all()
             
             if not character_states and not location_states and not object_states:
                 return None
@@ -811,16 +852,23 @@ class SemanticContextManager(ContextManager):
     ) -> Tuple[str, List[Scene]]:
         """
         Add as many recent scenes as possible within token budget.
-        Starts with minimum, adds more going backwards.
+        Starts after min_recent_count (to avoid duplicates with already-included recent scenes),
+        then adds more going backwards.
         """
         if not scenes or available_tokens <= 0:
             return "", []
         
         included_scenes = []
+        scene_contents = []  # Store retrieved content for each scene
         used_tokens = 0
         
-        # Start from the most recent scenes and work backwards
-        for i in range(len(scenes) - 1, -1, -1):
+        # Start from the scene BEFORE the min_recent_count most recent scenes
+        # (to avoid duplicating scenes already in recent_scenes)
+        # If min_recent_count is 3, start from len(scenes)-4 (the 4th from the end)
+        start_index = len(scenes) - 1 - min_recent_count
+        
+        # Work backwards from start_index
+        for i in range(start_index, -1, -1):
             scene = scenes[i]
             # Use proper scene content retrieval
             scene_content = await self._get_scene_content_proper(scene, db)
@@ -828,14 +876,15 @@ class SemanticContextManager(ContextManager):
             
             if used_tokens + scene_tokens <= available_tokens:
                 included_scenes.insert(0, scene)  # Insert at beginning to maintain order
+                scene_contents.insert(0, scene_content)  # Store retrieved content
                 used_tokens += scene_tokens
             else:
                 break
         
-        # Build content
+        # Build content using the retrieved scene contents, not scene.content
         content = "\n\n".join([
-            f"Scene {scene.sequence_number}: {scene.content}" 
-            for scene in included_scenes
+            scene_content  # Use the properly retrieved content
+            for scene_content in scene_contents
         ])
         
         logger.info(f"Dynamic recent scenes: {len(included_scenes)} scenes, {used_tokens}/{available_tokens} tokens")

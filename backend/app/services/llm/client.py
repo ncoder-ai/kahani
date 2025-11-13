@@ -178,14 +178,18 @@ class LLMClient:
             params["max_tokens"] = self.max_tokens
         else:
             # Use a reasonable default if absolutely nothing is provided
-            params["max_tokens"] = 2048
+            from ...config import settings
+            service_defaults = settings.service_defaults.get('llm_client', {})
+            params["max_tokens"] = service_defaults.get('default_max_tokens', 2048)
         
         if temperature is not None:
             params["temperature"] = temperature
         elif self.temperature is not None:
             params["temperature"] = self.temperature
         else:
-            params["temperature"] = 0.7
+            from ...config import settings
+            service_defaults = settings.service_defaults.get('llm_client', {})
+            params["temperature"] = service_defaults.get('default_temperature', 0.7)
         
         # Only add top_p if explicitly set (don't default to 1.0)
         if self.top_p is not None:

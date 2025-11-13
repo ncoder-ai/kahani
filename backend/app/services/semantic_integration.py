@@ -330,11 +330,12 @@ async def _try_combined_extraction(
             return False
         
         # Get extraction service
-        url = extraction_settings.get('url', 'http://localhost:1234/v1')
-        model = extraction_settings.get('model_name', 'qwen2.5-3b-instruct')
-        api_key = extraction_settings.get('api_key', '')
-        temperature = extraction_settings.get('temperature', 0.3)
-        max_tokens = extraction_settings.get('max_tokens', 1000)
+        ext_defaults = settings._yaml_config.get('extraction_model', {})
+        url = extraction_settings.get('url', ext_defaults.get('url'))
+        model = extraction_settings.get('model_name', ext_defaults.get('model_name'))
+        api_key = extraction_settings.get('api_key', ext_defaults.get('api_key', ''))
+        temperature = extraction_settings.get('temperature', ext_defaults.get('temperature'))
+        max_tokens = extraction_settings.get('max_tokens', ext_defaults.get('max_tokens'))
         
         extraction_service = ExtractionLLMService(
             url=url,

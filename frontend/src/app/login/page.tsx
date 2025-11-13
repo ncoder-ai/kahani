@@ -29,7 +29,8 @@ export default function LoginPage() {
 
     try {
       console.log('=== LOGIN PROCESS STARTING ===');
-      console.log('API Base URL:', getApiBaseUrl());
+      const apiBaseUrl = await getApiBaseUrl();
+      console.log('API Base URL:', apiBaseUrl);
       console.log('Attempting login with email:', email);
       
       const response = await apiClient.login(email, password, rememberMe);
