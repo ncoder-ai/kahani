@@ -78,6 +78,8 @@ def flatten_yaml_config(yaml_config: dict) -> dict:
     flattened['context_strategy'] = strategy.get('strategy')
     flattened['semantic_scenes_in_context'] = strategy.get('semantic_scenes_in_context')
     flattened['character_moments_in_context'] = strategy.get('character_moments_in_context')
+    flattened['semantic_min_similarity'] = strategy.get('semantic_min_similarity')
+    flattened['location_recency_window'] = strategy.get('location_recency_window')
     
     # Extraction
     extraction = yaml_config.get('extraction', {})
@@ -204,6 +206,8 @@ class Settings(BaseSettings):
     context_strategy: str
     semantic_scenes_in_context: int
     character_moments_in_context: int
+    semantic_min_similarity: Optional[float] = None
+    location_recency_window: Optional[int] = None
     
     # Auto-extraction Settings
     auto_extract_character_moments: bool
