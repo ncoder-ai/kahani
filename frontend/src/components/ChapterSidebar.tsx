@@ -442,7 +442,7 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
     
     try {
       const response = await fetch(
-        `${getApiBaseUrl()}/api/stories/${storyId}/chapters/${activeChapter.id}/generate-summary?regenerate_story_so_far=true`,
+        `${await getApiBaseUrl()}/api/stories/${storyId}/chapters/${activeChapter.id}/generate-summary?regenerate_story_so_far=true`,
         {
           method: 'POST',
           headers: {
@@ -484,7 +484,7 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
     
     try {
       const response = await fetch(
-        `${getApiBaseUrl()}/api/stories/${storyId}/generate-story-summary`,
+        `${await getApiBaseUrl()}/api/stories/${storyId}/generate-story-summary`,
         {
           method: 'POST',
           headers: {

@@ -88,28 +88,31 @@ def init_database():
     db = Session(engine)
     
     try:
-        # Create system settings with safe defaults
+        # Create system settings from config.yaml defaults
+        from app.config import settings
+        system_defaults = settings.system_defaults
+        
         system_settings = SystemSettings(
             id=1,
             # Default permissions for new users
-            default_allow_nsfw=False,
-            default_can_change_llm_provider=True,
-            default_can_change_tts_settings=True,
-            default_can_use_stt=True,
-            default_can_use_image_generation=True,
-            default_can_export_stories=True,
-            default_can_import_stories=True,
+            default_allow_nsfw=system_defaults.get('permissions', {}).get('default_allow_nsfw'),
+            default_can_change_llm_provider=system_defaults.get('permissions', {}).get('default_can_change_llm_provider'),
+            default_can_change_tts_settings=system_defaults.get('permissions', {}).get('default_can_change_tts_settings'),
+            default_can_use_stt=system_defaults.get('permissions', {}).get('default_can_use_stt'),
+            default_can_use_image_generation=system_defaults.get('permissions', {}).get('default_can_use_image_generation'),
+            default_can_export_stories=system_defaults.get('permissions', {}).get('default_can_export_stories'),
+            default_can_import_stories=system_defaults.get('permissions', {}).get('default_can_import_stories'),
             # Default resource limits (None = unlimited)
-            default_max_stories=None,
-            default_max_images_per_story=None,
-            default_max_stt_minutes_per_month=None,
+            default_max_stories=system_defaults.get('resource_limits', {}).get('default_max_stories'),
+            default_max_images_per_story=system_defaults.get('resource_limits', {}).get('default_max_images_per_story'),
+            default_max_stt_minutes_per_month=system_defaults.get('resource_limits', {}).get('default_max_stt_minutes_per_month'),
             # Default LLM settings
-            default_llm_api_url=None,
-            default_llm_api_key=None,
-            default_llm_model_name=None,
-            default_llm_temperature=0.7,
+            default_llm_api_url=system_defaults.get('llm_defaults', {}).get('default_llm_api_url'),
+            default_llm_api_key=system_defaults.get('llm_defaults', {}).get('default_llm_api_key'),
+            default_llm_model_name=system_defaults.get('llm_defaults', {}).get('default_llm_model_name'),
+            default_llm_temperature=system_defaults.get('llm_defaults', {}).get('default_llm_temperature'),
             # Registration settings
-            registration_requires_approval=True,
+            registration_requires_approval=system_defaults.get('registration', {}).get('registration_requires_approval'),
         )
         db.add(system_settings)
         db.commit()

@@ -6,6 +6,7 @@ import { X, Settings as SettingsIcon, Check, AlertCircle, Volume2, Loader2, Eye 
 import apiClient, { getApiBaseUrl } from '@/lib/api';
 import { getThemeList, applyTheme } from '@/lib/themes';
 import { useAuthStore } from '@/store';
+import { useConfig } from '@/contexts/ConfigContext';
 import { UIPreferences, GenerationPreferences } from '@/types/settings';
 import TextCompletionTemplateEditor from './TextCompletionTemplateEditor';
 
@@ -108,11 +109,9 @@ interface TTSSettings {
   auto_play_last_scene?: boolean;
 }
 
-const DEFAULT_TTS_PROVIDER_URLS: Record<string, string> = {
-  'openai-compatible': process.env.NEXT_PUBLIC_TTS_URL || 'http://localhost:1234',
-  'chatterbox': process.env.NEXT_PUBLIC_CHATTERBOX_URL || 'http://localhost:8880',
-  'kokoro': process.env.NEXT_PUBLIC_KOKORO_URL || 'http://localhost:8188',
-};
+// Note: TTS provider URLs are now loaded via useConfig() hook in the component
+// This module-level function is kept for backward compatibility but should not be used
+// Components should use useConfig().getTTSProviderUrls() instead
 
 const DEFAULT_TTS_PROVIDERS: TTSProvider[] = [
   { type: 'openai-compatible', name: 'OpenAI Compatible', supports_streaming: true },
@@ -127,6 +126,7 @@ interface SettingsModalProps {
 
 export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { user, token } = useAuthStore();
+  const config = useConfig(); // Use config from React context
   const [activeTab, setActiveTab] = useState<'interface' | 'writing' | 'llm' | 'context' | 'voice'>('interface');
   
   // UI Settings
@@ -222,7 +222,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [ttsVoices, setTtsVoices] = useState<TTSVoice[]>([]);
   const [ttsSettings, setTtsSettings] = useState<TTSSettings>({
     provider_type: 'openai-compatible',
-    api_url: DEFAULT_TTS_PROVIDER_URLS['openai-compatible'],
+    api_url: '', // Will be loaded from config
     voice_id: 'default',
     speed: 1.0,
     timeout: 30,
@@ -276,7 +276,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   
   const loadAllSettings = async () => {
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/settings/`, {
+      const response = await fetch(`${await getApiBaseUrl()}/api/settings/`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -390,9 +390,15 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         
         // Load Extraction Model settings
         if (settings?.extraction_model_settings) {
+          let defaultExtractionUrl = '';
+          try {
+            defaultExtractionUrl = await config.getExtractionDefaultUrl();
+          } catch (error) {
+            console.error('Failed to load extraction default URL from config:', error);
+          }
           setExtractionModelSettings({
             enabled: settings.extraction_model_settings.enabled ?? false,
-            url: settings.extraction_model_settings.url || 'http://localhost:1234/v1',
+            url: settings.extraction_model_settings.url || defaultExtractionUrl,
             api_key: settings.extraction_model_settings.api_key || '',
             model_name: settings.extraction_model_settings.model_name || 'qwen2.5-3b-instruct',
             temperature: settings.extraction_model_settings.temperature ?? 0.3,
@@ -403,7 +409,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         
         // Load extraction model presets
         try {
-          const presetsResponse = await fetch(`${getApiBaseUrl()}/api/settings/extraction-model/presets`, {
+          const presetsResponse = await fetch(`${await getApiBaseUrl()}/api/settings/extraction-model/presets`, {
             headers: {
               'Authorization': `Bearer ${token}`,
             },
@@ -423,7 +429,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   const loadUISettings = async () => {
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/settings/`, {
+      const response = await fetch(`${await getApiBaseUrl()}/api/settings/`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -454,7 +460,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setLoadingPrompts(true);
     try {
       // Load all presets
-      const presetsResponse = await fetch(`${getApiBaseUrl()}/api/writing-presets/`, {
+      const presetsResponse = await fetch(`${await getApiBaseUrl()}/api/writing-presets/`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -493,7 +499,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const loadDefaultPrompts = async () => {
     try {
       // Get default template from backend
-      const response = await fetch(`${getApiBaseUrl()}/api/writing-presets/default/template`, {
+      const response = await fetch(`${await getApiBaseUrl()}/api/writing-presets/default/template`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -533,7 +539,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     if (!confirm('Are you sure you want to delete this preset?')) return;
     
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/writing-presets/${presetId}`, {
+      const response = await fetch(`${await getApiBaseUrl()}/api/writing-presets/${presetId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -567,7 +573,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
     // Auto-save
     try {
-      await fetch(`${getApiBaseUrl()}/api/settings/`, {
+      await fetch(`${await getApiBaseUrl()}/api/settings/`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -607,7 +613,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     // If preset selected, update it
     setSavingPrompts(true);
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/writing-presets/${selectedPresetId}`, {
+      const response = await fetch(`${await getApiBaseUrl()}/api/writing-presets/${selectedPresetId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -643,7 +649,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
     setSavingPrompts(true);
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/writing-presets/`, {
+      const response = await fetch(`${await getApiBaseUrl()}/api/writing-presets/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -679,7 +685,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
     setSavingPrompts(true);
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/writing-presets/`, {
+      const response = await fetch(`${await getApiBaseUrl()}/api/writing-presets/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -712,7 +718,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   const setActivePreset = async (presetId: number) => {
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/writing-presets/${presetId}/activate`, {
+      const response = await fetch(`${await getApiBaseUrl()}/api/writing-presets/${presetId}/activate`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -746,7 +752,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
     setLoadingModels(true);
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/settings/available-models`, {
+      const response = await fetch(`${await getApiBaseUrl()}/api/settings/available-models`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -787,7 +793,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
     setLoadingExtractionModels(true);
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/settings/extraction-model/available-models`, {
+      const response = await fetch(`${await getApiBaseUrl()}/api/settings/extraction-model/available-models`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -867,7 +873,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       setEngineSettings(updatedEngineSettings);
 
       // Save to backend
-      const response = await fetch(`${getApiBaseUrl()}/api/settings/`, {
+      const response = await fetch(`${await getApiBaseUrl()}/api/settings/`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -903,7 +909,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const loadTTSProviders = async () => {
     setIsLoadingTTSProviders(true);
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/tts/providers`, {
+      const response = await fetch(`${await getApiBaseUrl()}/api/tts/providers`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -931,7 +937,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   const loadAllTTSProviderConfigs = async () => {
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/tts/provider-configs`, {
+      const response = await fetch(`${await getApiBaseUrl()}/api/tts/provider-configs`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -954,7 +960,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setIsLoadingTTSSettings(true);
     try {
       // Load global TTS settings
-      const globalResponse = await fetch(`${getApiBaseUrl()}/api/tts/settings`, {
+      const globalResponse = await fetch(`${await getApiBaseUrl()}/api/tts/settings`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -964,7 +970,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         const globalData = await globalResponse.json();
         
         // Load current provider settings
-        const providerResponse = await fetch(`${getApiBaseUrl()}/api/tts/provider-configs`, {
+        const providerResponse = await fetch(`${await getApiBaseUrl()}/api/tts/provider-configs`, {
           headers: {
             'Authorization': `Bearer ${token}`,
           },
@@ -1063,7 +1069,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     
     setIsLoadingTTSVoices(true);
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/tts/test-connection`, {
+      const response = await fetch(`${await getApiBaseUrl()}/api/tts/test-connection`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1100,7 +1106,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     }
   };
 
-  const handleTTSProviderChange = (providerType: string) => {
+  const handleTTSProviderChange = async (providerType: string) => {
     // Save current settings to the current provider
     if (ttsSettings.provider_type && ttsSettings.provider_type !== '') {
       setTtsProviderConfigs(prev => ({
@@ -1139,19 +1145,36 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         setChatterboxTemperature(savedConfig.extra_params.temperature || 0.7);
       }
     } else {
-      // Default settings for new provider
-      setTtsSettings({
-        provider_type: providerType,
-        api_url: DEFAULT_TTS_PROVIDER_URLS[providerType] || '',
-        voice_id: 'default',
-        speed: 1.0,
-        timeout: 30,
-        tts_enabled: ttsSettings.tts_enabled,
-        progressive_narration: ttsSettings.progressive_narration,
-        chunk_size: ttsSettings.chunk_size,
-        stream_audio: ttsSettings.stream_audio,
-        auto_play_last_scene: ttsSettings.auto_play_last_scene,
-      });
+      // Default settings for new provider - load from config
+      try {
+        const providerUrls = await config.getTTSProviderUrls();
+        setTtsSettings({
+          provider_type: providerType,
+          api_url: providerUrls[providerType as keyof typeof providerUrls] || '',
+          voice_id: 'default',
+          speed: 1.0,
+          timeout: 30,
+          tts_enabled: ttsSettings.tts_enabled,
+          progressive_narration: ttsSettings.progressive_narration,
+          chunk_size: ttsSettings.chunk_size,
+          stream_audio: ttsSettings.stream_audio,
+          auto_play_last_scene: ttsSettings.auto_play_last_scene,
+        });
+      } catch (error) {
+        console.error('Failed to load TTS provider URLs:', error);
+        setTtsSettings({
+          provider_type: providerType,
+          api_url: '',
+          voice_id: 'default',
+          speed: 1.0,
+          timeout: 30,
+          tts_enabled: ttsSettings.tts_enabled,
+          progressive_narration: ttsSettings.progressive_narration,
+          chunk_size: ttsSettings.chunk_size,
+          stream_audio: ttsSettings.stream_audio,
+          auto_play_last_scene: ttsSettings.auto_play_last_scene,
+        });
+      }
     }
     
     setTtsVoices([]);
@@ -1182,7 +1205,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       };
 
       // Save provider-specific config
-      const providerConfigResponse = await fetch(`${getApiBaseUrl()}/api/tts/provider-configs/${ttsSettings.provider_type}`, {
+      const providerConfigResponse = await fetch(`${await getApiBaseUrl()}/api/tts/provider-configs/${ttsSettings.provider_type}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -1196,7 +1219,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       }
 
       // Save global TTS settings
-      const globalSettingsResponse = await fetch(`${getApiBaseUrl()}/api/tts/settings`, {
+      const globalSettingsResponse = await fetch(`${await getApiBaseUrl()}/api/tts/settings`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -1234,7 +1257,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
     setIsTestingTTS(true);
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/tts/test`, {
+      const response = await fetch(`${await getApiBaseUrl()}/api/tts/test`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1295,7 +1318,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setTtsConnectionStatus('idle');
     
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/tts/test-connection`, {
+      const response = await fetch(`${await getApiBaseUrl()}/api/tts/test-connection`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1339,7 +1362,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   // STT Functions
   const loadSTTSettings = async () => {
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/settings/`, {
+      const response = await fetch(`${await getApiBaseUrl()}/api/settings/`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -1363,7 +1386,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   const checkSTTModelStatus = async () => {
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/settings/stt-model-status`, {
+      const response = await fetch(`${await getApiBaseUrl()}/api/settings/stt-model-status`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -1392,7 +1415,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setSttDownloadError(null);
     
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/settings/download-stt-model`, {
+      const response = await fetch(`${await getApiBaseUrl()}/api/settings/download-stt-model`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1429,7 +1452,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   const handleSTTSave = async () => {
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/settings/`, {
+      const response = await fetch(`${await getApiBaseUrl()}/api/settings/`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -1644,7 +1667,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 <button
                   onClick={async () => {
                     try {
-                      const response = await fetch(`${getApiBaseUrl()}/api/settings/`, {
+                      const response = await fetch(`${await getApiBaseUrl()}/api/settings/`, {
                         method: 'PUT',
                         headers: {
                           'Content-Type': 'application/json',
@@ -1868,7 +1891,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         onClick={async () => {
                           setTestingConnection(true);
                           try {
-                            const response = await fetch(`${getApiBaseUrl()}/api/settings/test-api-connection`, {
+                            const response = await fetch(`${await getApiBaseUrl()}/api/settings/test-api-connection`, {
                               method: 'POST',
                               headers: {
                                 'Content-Type': 'application/json',
@@ -2633,7 +2656,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                               setTestingExtractionConnection(true);
                               setConnectionTestResult(null);
                               try {
-                                const response = await fetch(`${getApiBaseUrl()}/api/settings/extraction-model/test`, {
+                                const response = await fetch(`${await getApiBaseUrl()}/api/settings/extraction-model/test`, {
                                   method: 'POST',
                                   headers: {
                                     'Content-Type': 'application/json',
@@ -2727,7 +2750,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   <button
                     onClick={async () => {
                       try {
-                        const response = await fetch(`${getApiBaseUrl()}/api/settings/`, {
+                        const response = await fetch(`${await getApiBaseUrl()}/api/settings/`, {
                           method: 'PUT',
                           headers: {
                             'Content-Type': 'application/json',

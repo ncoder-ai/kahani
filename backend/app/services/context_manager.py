@@ -232,6 +232,29 @@ class ContextManager:
             base_context["chapter_location"] = chapter.location_name
             base_context["chapter_time_period"] = chapter.time_period
             base_context["chapter_scenario"] = chapter.scenario
+            
+            # Include story_so_far if it exists (not None)
+            if chapter.story_so_far:
+                logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: Found story_so_far ({len(chapter.story_so_far)} chars)")
+                base_context["story_so_far"] = chapter.story_so_far
+            else:
+                logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: story_so_far is None")
+            
+            # Include previous chapter's summary if available
+            if chapter.chapter_number > 1:
+                from ..models import Chapter as ChapterModel, ChapterStatus
+                previous_chapter = db.query(ChapterModel).filter(
+                    ChapterModel.story_id == story_id,
+                    ChapterModel.chapter_number == chapter.chapter_number - 1,
+                    ChapterModel.auto_summary.isnot(None)
+                ).first()
+                if previous_chapter and previous_chapter.auto_summary:
+                    logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: Found previous chapter {previous_chapter.chapter_number} summary ({len(previous_chapter.auto_summary)} chars)")
+                    base_context["previous_chapter_summary"] = previous_chapter.auto_summary
+                else:
+                    logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: No previous chapter summary found (previous_chapter={previous_chapter is not None}, has_auto_summary={previous_chapter.auto_summary if previous_chapter else 'N/A'})")
+            else:
+                logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: First chapter, no previous chapter summary")
         
         # Calculate base context tokens
         base_tokens = self._calculate_base_context_tokens(base_context)
@@ -747,8 +770,18 @@ Goals: {char.get('goals', '')}
             # Add chapter-specific metadata
             "chapter_location": full_context.get("chapter_location"),
             "chapter_time_period": full_context.get("chapter_time_period"),
-            "chapter_scenario": full_context.get("chapter_scenario")  # Chapter-specific scenario
+            "chapter_scenario": full_context.get("chapter_scenario"),  # Chapter-specific scenario
+            # Add chapter summaries
+            "story_so_far": full_context.get("story_so_far"),
+            "previous_chapter_summary": full_context.get("previous_chapter_summary")
         }
+        
+        # Log what's in the context
+        logger.info(f"[CONTEXT BUILD] Scene generation context - story_so_far: {'present' if scene_context.get('story_so_far') else 'None'}, previous_chapter_summary: {'present' if scene_context.get('previous_chapter_summary') else 'None'}")
+        if scene_context.get("story_so_far"):
+            logger.info(f"[CONTEXT BUILD] story_so_far length: {len(scene_context['story_so_far'])} chars")
+        if scene_context.get("previous_chapter_summary"):
+            logger.info(f"[CONTEXT BUILD] previous_chapter_summary length: {len(scene_context['previous_chapter_summary'])} chars")
         
         return scene_context
 

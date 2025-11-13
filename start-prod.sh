@@ -81,15 +81,25 @@ fi
 
 # Load configuration from config.yaml
 if [[ -f config.yaml ]]; then
-    export BACKEND_PORT=$(grep -A 2 'backend:' config.yaml | grep 'port:' | grep -o '[0-9]*')
-    export FRONTEND_PORT=$(grep -A 2 'frontend:' config.yaml | grep 'port:' | grep -o '[0-9]*')
-    # API URL will be auto-detected by the network configuration utility
+    echo -e "${BLUE}📄 Reading configuration from config.yaml${NC}"
+    export BACKEND_PORT=$(python3 read-config.py backend_port) || {
+        echo -e "${RED}❌ Failed to read backend port from config.yaml${NC}"
+        exit 1
+    }
+    export FRONTEND_PORT=$(python3 read-config.py frontend_port) || {
+        echo -e "${RED}❌ Failed to read frontend port from config.yaml${NC}"
+        exit 1
+    }
+    echo -e "${BLUE}   Backend port: ${BACKEND_PORT}${NC}"
+    echo -e "${BLUE}   Frontend port: ${FRONTEND_PORT}${NC}"
+else
+    echo -e "${RED}❌ config.yaml not found${NC}"
+    echo -e "${RED}   Please ensure config.yaml exists in the project root${NC}"
+    exit 1
 fi
 
-# Set defaults
+# Set Python path
 export PYTHONPATH="${SCRIPT_DIR}/backend"
-BACKEND_PORT="${BACKEND_PORT:-9876}"
-FRONTEND_PORT="${FRONTEND_PORT:-6789}"
 
 # NEXT_PUBLIC_API_URL auto-detection removed in favor of runtime detection
 # The frontend now auto-detects the API URL at runtime based on window.location

@@ -41,17 +41,19 @@ def get_system_settings(db: Session) -> SystemSettings:
     
     if not system_settings:
         # Create default system settings if none exist
+        system_defaults = settings.system_defaults
+        
         system_settings = SystemSettings(
             id=1,
-            default_allow_nsfw=False,
-            default_can_change_llm_provider=True,
-            default_can_change_tts_settings=True,
-            default_can_use_stt=True,
-            default_can_use_image_generation=True,
-            default_can_export_stories=True,
-            default_can_import_stories=True,
-            default_llm_temperature=0.7,
-            registration_requires_approval=True,
+            default_allow_nsfw=system_defaults.get('permissions', {}).get('default_allow_nsfw'),
+            default_can_change_llm_provider=system_defaults.get('permissions', {}).get('default_can_change_llm_provider'),
+            default_can_change_tts_settings=system_defaults.get('permissions', {}).get('default_can_change_tts_settings'),
+            default_can_use_stt=system_defaults.get('permissions', {}).get('default_can_use_stt'),
+            default_can_use_image_generation=system_defaults.get('permissions', {}).get('default_can_use_image_generation'),
+            default_can_export_stories=system_defaults.get('permissions', {}).get('default_can_export_stories'),
+            default_can_import_stories=system_defaults.get('permissions', {}).get('default_can_import_stories'),
+            default_llm_temperature=system_defaults.get('llm_defaults', {}).get('default_llm_temperature'),
+            registration_requires_approval=system_defaults.get('registration', {}).get('registration_requires_approval'),
         )
         db.add(system_settings)
         db.commit()

@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from ..database import get_db
 from ..models import User, UserSettings
 from ..dependencies import get_current_user
+from ..config import settings
 import logging
 from ..services.llm.service import UnifiedLLMService
 
@@ -306,11 +307,13 @@ async def update_user_settings(
         if ext.enabled is not None:
             user_settings.extraction_model_enabled = ext.enabled
         if ext.url is not None:
-            user_settings.extraction_model_url = ext.url if ext.url else "http://localhost:1234/v1"
+            ext_defaults = settings._yaml_config.get('extraction_model', {})
+            user_settings.extraction_model_url = ext.url if ext.url else ext_defaults.get('url')
         if ext.api_key is not None:
             user_settings.extraction_model_api_key = ext.api_key if ext.api_key else ""
         if ext.model_name is not None:
-            user_settings.extraction_model_name = ext.model_name if ext.model_name else "qwen2.5-3b-instruct"
+            ext_defaults = settings._yaml_config.get('extraction_model', {})
+            user_settings.extraction_model_name = ext.model_name if ext.model_name else ext_defaults.get('model_name')
         if ext.temperature is not None:
             user_settings.extraction_model_temperature = ext.temperature
         if ext.max_tokens is not None:
@@ -1179,9 +1182,9 @@ async def get_extraction_model_presets():
         "lm_studio": {
             "name": "LM Studio",
             "description": "GUI-based, easy setup (recommended for beginners)",
-            "url": "http://localhost:1234/v1",
+            "url": settings._yaml_config.get('extraction_model', {}).get('url', 'http://localhost:1234/v1'),
             "api_key": "",
-            "model_name": "qwen2.5-3b-instruct"
+            "model_name": settings._yaml_config.get('extraction_model', {}).get('model_name', 'qwen2.5-3b-instruct')
         },
         "ollama": {
             "name": "Ollama",
@@ -1195,7 +1198,7 @@ async def get_extraction_model_presets():
             "description": "Minimal, direct model loading",
             "url": "http://localhost:8080/v1",
             "api_key": "",
-            "model_name": "qwen2.5-3b-instruct"
+            "model_name": settings._yaml_config.get('extraction_model', {}).get('model_name', 'qwen2.5-3b-instruct')
         },
         "custom": {
             "name": "Custom",

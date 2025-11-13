@@ -3,6 +3,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import json
 from ..database import Base
+from ..config import settings
 
 class UserSettings(Base):
     """User-specific configuration settings"""
@@ -13,93 +14,93 @@ class UserSettings(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
-    # LLM Generation Settings
-    llm_temperature = Column(Float, default=0.7)  # 0.0 - 2.0
-    llm_top_p = Column(Float, default=1.0)  # 0.0 - 1.0
-    llm_top_k = Column(Integer, default=50)  # 1 - 100
-    llm_repetition_penalty = Column(Float, default=1.1)  # 1.0 - 2.0
-    llm_max_tokens = Column(Integer, default=2048)  # 100 - 4096
+    # LLM Generation Settings - NO DEFAULTS, must come from config.yaml
+    llm_temperature = Column(Float, nullable=True)
+    llm_top_p = Column(Float, nullable=True)
+    llm_top_k = Column(Integer, nullable=True)
+    llm_repetition_penalty = Column(Float, nullable=True)
+    llm_max_tokens = Column(Integer, nullable=True)
     
     # LLM API Configuration
-    llm_api_url = Column(String(500), default=None)  # No default URL - user must provide
-    llm_api_key = Column(String(500), default="")
-    llm_api_type = Column(String(50), default="openai-compatible")  # openai, openai-compatible, koboldcpp, ollama
-    llm_model_name = Column(String(200), default="")
+    llm_api_url = Column(String(500), nullable=True)  # No default URL - user must provide
+    llm_api_key = Column(String(500), nullable=True)
+    llm_api_type = Column(String(50), nullable=True)
+    llm_model_name = Column(String(200), nullable=True)
     
     # Text Completion Settings
-    completion_mode = Column(String(20), default="chat")  # "chat" or "text"
-    text_completion_template = Column(Text, default=None)  # JSON string storing template configuration
-    text_completion_preset = Column(String(50), default="llama3")  # Template preset name
+    completion_mode = Column(String(20), nullable=True)
+    text_completion_template = Column(Text, nullable=True)
+    text_completion_preset = Column(String(50), nullable=True)
     
     # Context Management Settings
-    context_max_tokens = Column(Integer, default=4000)  # 1000 - 1M
-    context_keep_recent_scenes = Column(Integer, default=3)  # 1 - 10
-    context_summary_threshold = Column(Integer, default=5)  # 3 - 20 scenes (auto-generate chapter summary every N scenes)
-    context_summary_threshold_tokens = Column(Integer, default=8000)  # 1000 - 50000 tokens
-    enable_context_summarization = Column(Boolean, default=True)
-    auto_generate_summaries = Column(Boolean, default=True)  # Auto-generate summaries based on threshold
-    character_extraction_threshold = Column(Integer, default=5)  # 3 - 20 scenes (run character/NPC extraction every N scenes)
+    context_max_tokens = Column(Integer, nullable=True)
+    context_keep_recent_scenes = Column(Integer, nullable=True)
+    context_summary_threshold = Column(Integer, nullable=True)
+    context_summary_threshold_tokens = Column(Integer, nullable=True)
+    enable_context_summarization = Column(Boolean, nullable=True)
+    auto_generate_summaries = Column(Boolean, nullable=True)
+    character_extraction_threshold = Column(Integer, nullable=True)
     
     # Semantic Memory Settings
-    enable_semantic_memory = Column(Boolean, default=True)  # Per-user semantic memory toggle
-    context_strategy = Column(String(20), default="hybrid")  # "linear" or "hybrid"
-    semantic_search_top_k = Column(Integer, default=5)  # Number of semantically similar scenes to retrieve
-    semantic_scenes_in_context = Column(Integer, default=5)  # Max semantic scenes to include in context
-    semantic_context_weight = Column(Float, default=0.4)  # Weight for semantic vs recent scenes (0.0-1.0)
-    character_moments_in_context = Column(Integer, default=3)  # Max character moments to include
-    auto_extract_character_moments = Column(Boolean, default=True)  # Auto-extract character moments from scenes
-    auto_extract_plot_events = Column(Boolean, default=True)  # Auto-extract plot events from scenes
-    extraction_confidence_threshold = Column(Integer, default=70)  # Minimum confidence for auto-extraction (0-100)
+    enable_semantic_memory = Column(Boolean, nullable=True)
+    context_strategy = Column(String(20), nullable=True)
+    semantic_search_top_k = Column(Integer, nullable=True)
+    semantic_scenes_in_context = Column(Integer, nullable=True)
+    semantic_context_weight = Column(Float, nullable=True)
+    character_moments_in_context = Column(Integer, nullable=True)
+    auto_extract_character_moments = Column(Boolean, nullable=True)
+    auto_extract_plot_events = Column(Boolean, nullable=True)
+    extraction_confidence_threshold = Column(Integer, nullable=True)
     
     # Story Generation Preferences
-    default_genre = Column(String(100), default="")
-    default_tone = Column(String(100), default="")
-    preferred_scene_length = Column(String(50), default="medium")  # short, medium, long
-    enable_auto_choices = Column(Boolean, default=True)
-    choices_count = Column(Integer, default=4)  # 2 - 6
+    default_genre = Column(String(100), nullable=True)
+    default_tone = Column(String(100), nullable=True)
+    preferred_scene_length = Column(String(50), nullable=True)
+    enable_auto_choices = Column(Boolean, nullable=True)
+    choices_count = Column(Integer, nullable=True)
     
     # UI Preferences
-    color_theme = Column(String(30), default="pure-dark")  # pure-dark, midnight-blue, forest-night, crimson-noir, amber-dusk, purple-dream
-    font_size = Column(String(20), default="medium")  # small, medium, large
-    show_token_info = Column(Boolean, default=False)
-    show_context_info = Column(Boolean, default=False)
-    enable_notifications = Column(Boolean, default=True)
-    scene_display_format = Column(String(20), default="default")  # default, bubble, card, minimal
-    show_scene_titles = Column(Boolean, default=True)
-    scene_edit_mode = Column(String(20), default="textarea")  # textarea, contenteditable
-    auto_open_last_story = Column(Boolean, default=False)  # Auto-redirect to last story on login
-    last_accessed_story_id = Column(Integer, default=None)  # Last story the user worked on
+    color_theme = Column(String(30), nullable=True)
+    font_size = Column(String(20), nullable=True)
+    show_token_info = Column(Boolean, nullable=True)
+    show_context_info = Column(Boolean, nullable=True)
+    enable_notifications = Column(Boolean, nullable=True)
+    scene_display_format = Column(String(20), nullable=True)
+    show_scene_titles = Column(Boolean, nullable=True)
+    scene_edit_mode = Column(String(20), nullable=True)
+    auto_open_last_story = Column(Boolean, nullable=True)
+    last_accessed_story_id = Column(Integer, nullable=True)
     
     # Export Settings
-    default_export_format = Column(String(20), default="markdown")  # markdown, pdf, txt
-    include_metadata = Column(Boolean, default=True)
-    include_choices = Column(Boolean, default=True)
+    default_export_format = Column(String(20), nullable=True)
+    include_metadata = Column(Boolean, nullable=True)
+    include_choices = Column(Boolean, nullable=True)
     
     # Character Assistant Settings
-    enable_character_suggestions = Column(Boolean, default=True)  # Show automatic suggestions
-    character_importance_threshold = Column(Integer, default=70)  # 0-100, threshold for auto-suggestions
-    character_mention_threshold = Column(Integer, default=5)  # Minimum mentions to trigger suggestion
+    enable_character_suggestions = Column(Boolean, nullable=True)
+    character_importance_threshold = Column(Integer, nullable=True)
+    character_mention_threshold = Column(Integer, nullable=True)
     
     # STT Settings
-    stt_enabled = Column(Boolean, default=True)  # User can enable/disable STT
-    stt_model = Column(String(20), default="small")  # base, small, medium
+    stt_enabled = Column(Boolean, nullable=True)
+    stt_model = Column(String(20), nullable=True)
     
     # Extraction Model Settings
-    extraction_model_enabled = Column(Boolean, default=False)  # Enable local extraction model
-    extraction_model_url = Column(String(500), default="http://localhost:1234/v1")  # OpenAI-compatible endpoint URL
-    extraction_model_api_key = Column(String(500), default="")  # API key if required
-    extraction_model_name = Column(String(200), default="qwen2.5-3b-instruct")  # Model name
-    extraction_model_temperature = Column(Float, default=0.3)  # Temperature for extraction
-    extraction_model_max_tokens = Column(Integer, default=1000)  # Max tokens for extraction
-    extraction_fallback_to_main = Column(Boolean, default=True)  # Fallback to main LLM on failure
+    extraction_model_enabled = Column(Boolean, nullable=True)
+    extraction_model_url = Column(String(500), nullable=True)
+    extraction_model_api_key = Column(String(500), nullable=True)
+    extraction_model_name = Column(String(200), nullable=True)
+    extraction_model_temperature = Column(Float, nullable=True)
+    extraction_model_max_tokens = Column(Integer, nullable=True)
+    extraction_fallback_to_main = Column(Boolean, nullable=True)
     
     # Advanced Settings
-    custom_system_prompt = Column(Text, default="")
-    enable_experimental_features = Column(Boolean, default=False)
+    custom_system_prompt = Column(Text, nullable=True)
+    enable_experimental_features = Column(Boolean, nullable=True)
     
     # Engine-Specific Settings
-    engine_settings = Column(Text, default="{}")  # JSON string storing settings per engine
-    current_engine = Column(String(50), default="")  # Currently selected engine
+    engine_settings = Column(Text, nullable=True)
+    current_engine = Column(String(50), nullable=True)
     
     # Relationships
     user = relationship("User", back_populates="settings")
@@ -199,72 +200,17 @@ class UserSettings(Base):
     
     @classmethod
     def get_defaults(cls):
-        """Get default settings as dictionary"""
+        """Get default settings as dictionary from config.yaml"""
+        user_defaults = settings.user_defaults
+        
+        # Map config.yaml structure to API response structure
         return {
-            "llm_settings": {
-                "temperature": 0.7,
-                "top_p": 1.0,
-                "top_k": 50,
-                "repetition_penalty": 1.1,
-                "max_tokens": 2048
-            },
-            "context_settings": {
-                "max_tokens": 4000,
-                "keep_recent_scenes": 3,
-                "summary_threshold": 5,
-                "summary_threshold_tokens": 8000,
-                "enable_summarization": True,
-                "character_extraction_threshold": 5,
-                # Semantic Memory Settings
-                "enable_semantic_memory": True,
-                "context_strategy": "hybrid",
-                "semantic_search_top_k": 5,
-                "semantic_scenes_in_context": 5,
-                "semantic_context_weight": 0.4,
-                "character_moments_in_context": 3,
-                "auto_extract_character_moments": True,
-                "auto_extract_plot_events": True,
-                "extraction_confidence_threshold": 70
-            },
-            "generation_preferences": {
-                "default_genre": "",
-                "default_tone": "",
-                "scene_length": "medium",
-                "auto_choices": True,
-                "choices_count": 4
-            },
-            "ui_preferences": {
-                "color_theme": "pure-dark",
-                "font_size": "medium",
-                "show_token_info": False,
-                "show_context_info": False,
-                "notifications": True,
-                "scene_display_format": "default",
-                "show_scene_titles": False,
-                "scene_edit_mode": "textarea",
-                "auto_open_last_story": False
-            },
-            "export_settings": {
-                "format": "markdown",
-                "include_metadata": True,
-                "include_choices": True
-            },
-            "character_assistant_settings": {
-                "enable_suggestions": True,
-                "importance_threshold": 70,
-                "mention_threshold": 5
-            },
-            "advanced": {
-                "custom_system_prompt": "",
-                "experimental_features": False
-            },
-            "extraction_model_settings": {
-                "enabled": False,
-                "url": "http://localhost:1234/v1",
-                "api_key": "",
-                "model_name": "qwen2.5-3b-instruct",
-                "temperature": 0.3,
-                "max_tokens": 1000,
-                "fallback_to_main": True
-            }
+            "llm_settings": user_defaults.get("llm_settings", {}),
+            "context_settings": user_defaults.get("context_settings", {}),
+            "generation_preferences": user_defaults.get("generation_preferences", {}),
+            "ui_preferences": user_defaults.get("ui_preferences", {}),
+            "export_settings": user_defaults.get("export_settings", {}),
+            "character_assistant_settings": user_defaults.get("character_assistant_settings", {}),
+            "advanced": user_defaults.get("advanced", {}),
+            "extraction_model_settings": user_defaults.get("extraction_model_settings", {})
         }
