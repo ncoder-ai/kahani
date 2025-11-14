@@ -11,6 +11,7 @@ services:
     volumes:
       - ./backend/data:/app/data
       - ./backend/logs:/app/logs
+      - ./config.yaml:/app/config.yaml
     # Run as root initially to set up permissions, then drop to app user
     user: "root"
     environment:
