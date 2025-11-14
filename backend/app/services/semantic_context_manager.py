@@ -223,14 +223,36 @@ class SemanticContextManager(ContextManager):
         
         # Dynamic allocation: prioritize semantic, character, entity, summary first
         # Then fill remaining budget with recent scenes
+        
+        # First, estimate which scenes will be included in Recent Scenes (for exclusion from semantic search)
+        # This prevents semantic search from returning scenes that will already appear in Recent Scenes section
+        # Estimate remaining tokens after semantic/character/entity/summary (use average allocation ~50%)
+        estimated_other_tokens = int(remaining_tokens * 0.5)
+        estimated_remaining_for_recent = remaining_tokens - estimated_other_tokens
+        
+        # Get preliminary list of additional scenes that will be included (for exclusion purposes only)
+        # Note: We'll recalculate this later with actual token usage, but this gives us a good estimate
+        _, estimated_additional_scenes = await self._add_recent_scenes_dynamically(
+            scenes, len(recent_scenes), estimated_remaining_for_recent, db
+        )
+        
+        # Collect ALL scene sequence numbers that will be in Recent Scenes
+        all_recent_scene_sequences = [s.sequence_number for s in recent_scenes]
+        all_recent_scene_sequences.extend([s.sequence_number for s in estimated_additional_scenes])
+        # Remove duplicates and sort for clarity
+        all_recent_scene_sequences = sorted(set(all_recent_scene_sequences))
+        
+        logger.info(f"[SEMANTIC CONTEXT] Excluding {len(all_recent_scene_sequences)} scenes from semantic search (recent scenes: {len(recent_scenes)}, additional: {len(estimated_additional_scenes)})")
+        
         semantic_tokens = int(remaining_tokens * 0.25)
         character_tokens = int(remaining_tokens * 0.15)
         entity_tokens = int(remaining_tokens * 0.05)
         summary_tokens = int(remaining_tokens * 0.05)
         
         # Get semantically relevant scenes first (top N from user settings)
+        # Pass complete exclusion list so we don't duplicate scenes already in Recent Scenes
         semantic_content = await self._get_semantic_scenes(
-            story_id, recent_scenes, semantic_tokens, db
+            story_id, recent_scenes, semantic_tokens, db, exclude_all_recent_sequences=all_recent_scene_sequences
         )
         semantic_used_tokens = self.count_tokens(semantic_content) if semantic_content else 0
         
@@ -266,10 +288,12 @@ class SemanticContextManager(ContextManager):
         
         # Combine initial recent scenes with additional scenes for the Recent Scenes section
         # Exclude duplicates (additional_recent_scenes already excludes scenes in recent_scenes)
+        # Order: older scenes (additional) come first, then recent scenes (chronological order)
         if additional_recent_content:
-            # Combine recent_content and additional_recent_content
+            # Combine additional_recent_content (older) + recent_content (newer)
+            # Both are now in chronological order, so combine oldest → newest
             if recent_content:
-                combined_recent_content = f"{recent_content}\n\n{additional_recent_content}"
+                combined_recent_content = f"{additional_recent_content}\n\n{recent_content}"
             else:
                 combined_recent_content = additional_recent_content
         else:
@@ -465,9 +489,16 @@ class SemanticContextManager(ContextManager):
         return base_context
     
     async def _get_scene_content(self, scenes: List[Scene], db: Session) -> str:
-        """Get content for scenes using active variants"""
+        """Get content for scenes using active variants
+        
+        Scenes are expected to be in chronological order (oldest → newest).
+        The scenes list from database query is already chronological, and slicing (scenes[-N:])
+        maintains that order, so we use scenes as-is.
+        """
         content_parts = []
         
+        # Scenes are already in chronological order (oldest → newest)
+        # No need to reverse - this ensures narrative flow and maximizes recency bias (most recent scenes at end)
         for scene in scenes:
             # Get active variant from StoryFlow
             flow = db.query(StoryFlow).filter(
@@ -493,7 +524,8 @@ class SemanticContextManager(ContextManager):
         story_id: int,
         recent_scenes: List[Scene],
         token_budget: int,
-        db: Session
+        db: Session,
+        exclude_all_recent_sequences: Optional[List[int]] = None
     ) -> Optional[str]:
         """
         Get semantically relevant scenes from the past
@@ -535,8 +567,15 @@ class SemanticContextManager(ContextManager):
             # Combine scenes with newlines (most recent first)
             query_content = "\n\n".join(reversed(query_parts))  # Reverse so most recent is first
             
-            # Get exclude list (recent scene sequences)
-            exclude_sequences = [s.sequence_number for s in recent_scenes]
+            # Get exclude list (all scenes that will be in Recent Scenes section)
+            # Use provided complete exclusion list if available, otherwise fall back to just recent_scenes
+            if exclude_all_recent_sequences:
+                exclude_sequences = exclude_all_recent_sequences
+                logger.debug(f"[SEMANTIC SEARCH] Using complete exclusion list: {len(exclude_sequences)} scenes")
+            else:
+                # Fallback: only exclude initial recent scenes (for backward compatibility)
+                exclude_sequences = [s.sequence_number for s in recent_scenes]
+                logger.debug(f"[SEMANTIC SEARCH] Using fallback exclusion list: {len(exclude_sequences)} scenes")
             
             # Search for similar scenes across entire story (not just current chapter)
             # Request more results than needed so we can filter by similarity threshold
@@ -585,16 +624,22 @@ class SemanticContextManager(ContextManager):
                 logger.info(f"[SEMANTIC SEARCH] No scenes passed similarity threshold {self.semantic_min_similarity} for story {story_id}")
                 return None
             
-            # Get scene content within token budget (now using filtered results)
+            # Sort filtered results by sequence_number (chronological order) before processing
+            # This ensures "Relevant Past Events" appear in narrative order
+            filtered_results_with_scenes = []
+            for result in filtered_results[:self.semantic_top_k]:  # Limit to top_k after filtering
+                scene = db.query(Scene).filter(Scene.id == result['scene_id']).first()
+                if scene:
+                    filtered_results_with_scenes.append((result, scene))
+            
+            # Sort by sequence_number ascending (oldest → newest)
+            filtered_results_with_scenes.sort(key=lambda x: x[1].sequence_number)
+            
+            # Get scene content within token budget (now using chronologically sorted results)
             relevant_parts = []
             used_tokens = 0
             
-            for result in filtered_results[:self.semantic_top_k]:  # Limit to top_k after filtering
-                # Get the scene and variant
-                scene = db.query(Scene).filter(Scene.id == result['scene_id']).first()
-                if not scene:
-                    continue
-                
+            for result, scene in filtered_results_with_scenes:
                 variant = db.query(SceneVariant).filter(SceneVariant.id == result['variant_id']).first()
                 if not variant:
                     continue
@@ -990,7 +1035,8 @@ class SemanticContextManager(ContextManager):
         """
         Add as many recent scenes as possible within token budget.
         Starts after min_recent_count (to avoid duplicates with already-included recent scenes),
-        then adds more going backwards.
+        then adds more going BACKWARDS from start_index to get the most recent scenes possible.
+        Final output is in chronological order (oldest → newest).
         """
         if not scenes or available_tokens <= 0:
             return "", []
@@ -1001,10 +1047,13 @@ class SemanticContextManager(ContextManager):
         
         # Start from the scene BEFORE the min_recent_count most recent scenes
         # (to avoid duplicating scenes already in recent_scenes)
-        # If min_recent_count is 3, start from len(scenes)-4 (the 4th from the end)
+        # If min_recent_count is 3, start_index = len(scenes)-4 (the 4th from the end)
+        # scenes list is already chronological (oldest → newest) from database query
         start_index = len(scenes) - 1 - min_recent_count
         
-        # Work backwards from start_index
+        # Iterate BACKWARDS from start_index to 0 to get the most recent scenes possible
+        # This ensures we fill token budget with scenes closest to the current scene
+        # We'll reverse the list at the end to maintain chronological order
         for i in range(start_index, -1, -1):
             scene = scenes[i]
             # Use proper scene content retrieval
@@ -1012,13 +1061,18 @@ class SemanticContextManager(ContextManager):
             scene_tokens = self.count_tokens(scene_content)
             
             if used_tokens + scene_tokens <= available_tokens:
-                included_scenes.insert(0, scene)  # Insert at beginning to maintain order
-                scene_contents.insert(0, scene_content)  # Store retrieved content
+                included_scenes.append(scene)  # Append (will reverse later for chronological order)
+                scene_contents.append(scene_content)  # Append (will reverse later)
                 used_tokens += scene_tokens
             else:
                 break
         
-        # Build content using the retrieved scene contents, not scene.content
+        # Reverse to maintain chronological order (oldest → newest)
+        # Since we iterated backwards, we collected newest-first, so reverse to get oldest-first
+        included_scenes.reverse()
+        scene_contents.reverse()
+        
+        # Build content using the retrieved scene contents in chronological order
         content = "\n\n".join([
             scene_content  # Use the properly retrieved content
             for scene_content in scene_contents
