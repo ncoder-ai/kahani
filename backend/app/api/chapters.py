@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
 from ..database import get_db
-from ..models import Story, Chapter, Scene, User, ChapterStatus, StoryMode, StoryCharacter, Character
+from ..models import Story, Chapter, Scene, User, ChapterStatus, StoryMode, StoryCharacter, Character, ChapterSummaryBatch
 from ..models.chapter import chapter_characters
 from ..dependencies import get_current_user
 from ..services.llm.service import UnifiedLLMService
@@ -435,6 +435,8 @@ async def update_chapter(
         chapter.description = chapter_data.description
     if chapter_data.story_so_far is not None:
         chapter.story_so_far = chapter_data.story_so_far
+    if chapter_data.auto_summary is not None:
+        chapter.auto_summary = chapter_data.auto_summary
     if chapter_data.plot_point is not None:
         chapter.plot_point = chapter_data.plot_point
     if chapter_data.location_name is not None:
@@ -1031,7 +1033,86 @@ Summary:"""
     
     logger.info(f"[CHAPTER] Generated summary for chapter {chapter_id}: {len(summary)} chars")
     
+    # Auto-update story.summary after chapter summary is generated
+    try:
+        from ..api.summaries import update_story_summary_from_chapters
+        await update_story_summary_from_chapters(chapter.story_id, db, user_id)
+    except Exception as e:
+        # Don't fail chapter summary generation if story summary update fails
+        logger.warning(f"[CHAPTER] Failed to auto-update story summary after chapter summary generation: {e}")
+    
     return summary
+
+
+def combine_chapter_batches(chapter_id: int, db: Session) -> Optional[str]:
+    """
+    Combine all valid batches for a chapter into the final auto_summary.
+    Returns None if no batches exist.
+    """
+    batches = db.query(ChapterSummaryBatch).filter(
+        ChapterSummaryBatch.chapter_id == chapter_id
+    ).order_by(ChapterSummaryBatch.start_scene_sequence).all()
+    
+    if not batches:
+        return None
+    
+    combined = "\n\n".join([b.summary for b in batches])
+    return combined
+
+
+def update_chapter_summary_from_batches(chapter_id: int, db: Session) -> None:
+    """
+    Update chapter.auto_summary and last_summary_scene_count from current batches.
+    """
+    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+    if not chapter:
+        return
+    
+    batches = db.query(ChapterSummaryBatch).filter(
+        ChapterSummaryBatch.chapter_id == chapter_id
+    ).order_by(ChapterSummaryBatch.start_scene_sequence).all()
+    
+    if batches:
+        chapter.auto_summary = combine_chapter_batches(chapter_id, db)
+        chapter.last_summary_scene_count = max(b.end_scene_sequence for b in batches)
+    else:
+        chapter.auto_summary = None
+        chapter.last_summary_scene_count = 0
+    
+    db.commit()
+
+
+def invalidate_chapter_batches_for_scene(scene_id: int, db: Session) -> None:
+    """
+    Invalidate chapter summary batches if scene was part of summarized range.
+    This should be called when a scene's content is modified.
+    """
+    from ..models import Scene
+    
+    scene = db.query(Scene).filter(Scene.id == scene_id).first()
+    if not scene or not scene.chapter_id:
+        return
+    
+    chapter = db.query(Chapter).filter(Chapter.id == scene.chapter_id).first()
+    if not chapter:
+        return
+    
+    # Find batches that contain this scene
+    affected_batches = db.query(ChapterSummaryBatch).filter(
+        ChapterSummaryBatch.chapter_id == chapter.id,
+        ChapterSummaryBatch.start_scene_sequence <= scene.sequence_number,
+        ChapterSummaryBatch.end_scene_sequence >= scene.sequence_number
+    ).all()
+    
+    if affected_batches:
+        # Delete affected batches
+        for batch in affected_batches:
+            db.delete(batch)
+        
+        logger.info(f"[INVALIDATE] Invalidated {len(affected_batches)} batch(es) for chapter {chapter.id} due to scene {scene_id} modification")
+        
+        # Recalculate summary from remaining batches
+        update_chapter_summary_from_batches(chapter.id, db)
 
 
 async def generate_chapter_summary_incremental(chapter_id: int, db: Session, user_id: int) -> str:
@@ -1258,8 +1339,8 @@ Chapter {chapter.chapter_number} Summary:"""
         if user:
             user_settings['allow_nsfw'] = user.allow_nsfw
     
-    # Generate summary
-    summary = await llm_service.generate(
+    # Generate summary for this batch
+    batch_summary = await llm_service.generate(
         prompt=prompt,
         user_id=user_id,
         user_settings=user_settings,
@@ -1267,14 +1348,41 @@ Chapter {chapter.chapter_number} Summary:"""
         max_tokens=500  # Slightly more for incremental updates
     )
     
-    # Update chapter's auto_summary
-    chapter.auto_summary = summary
-    chapter.last_summary_scene_count = chapter.scenes_count
-    db.commit()
+    # Determine scene range for this batch
+    batch_start = last_summary_count + 1
+    batch_end = chapter.scenes_count
     
-    logger.info(f"[CHAPTER] {'Extended' if existing_summary else 'Created'} summary for chapter {chapter_id}: {len(summary)} chars (scenes {last_summary_count + 1}-{chapter.scenes_count})")
+    # Store this batch
+    batch = ChapterSummaryBatch(
+        chapter_id=chapter_id,
+        start_scene_sequence=batch_start,
+        end_scene_sequence=batch_end,
+        summary=batch_summary
+    )
+    db.add(batch)
+    db.flush()  # Flush to get batch ID
     
-    return summary
+    # Update chapter's auto_summary from all batches
+    update_chapter_summary_from_batches(chapter_id, db)
+    
+    # Get batch count for logging
+    all_batches = db.query(ChapterSummaryBatch).filter(
+        ChapterSummaryBatch.chapter_id == chapter_id
+    ).all()
+    
+    combined_summary = chapter.auto_summary or ""
+    
+    logger.info(f"[CHAPTER] {'Extended' if existing_summary else 'Created'} summary for chapter {chapter_id}: {len(batch_summary)} chars (scenes {batch_start}-{batch_end}), total batches: {len(all_batches)}")
+    
+    # Auto-update story.summary after chapter summary is generated
+    try:
+        from ..api.summaries import update_story_summary_from_chapters
+        await update_story_summary_from_chapters(chapter.story_id, db, user_id)
+    except Exception as e:
+        # Don't fail chapter summary generation if story summary update fails
+        logger.warning(f"[CHAPTER] Failed to auto-update story summary after chapter summary generation: {e}")
+    
+    return combined_summary
 
 
 async def generate_story_so_far(chapter_id: int, db: Session, user_id: int) -> Optional[str]:
@@ -1356,6 +1464,46 @@ Story So Far:"""
     return story_so_far
 
 
+@router.post("/{story_id}/chapters/{chapter_id}/regenerate-story-so-far")
+async def regenerate_story_so_far_endpoint(
+    story_id: int,
+    chapter_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Regenerate only the story_so_far for a chapter without touching the chapter summary.
+    This is useful when previous chapters are modified and user wants to update story_so_far.
+    """
+    
+    logger.info(f"[CHAPTER] Regenerating story_so_far for chapter {chapter_id}")
+    
+    # Verify story ownership
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    
+    chapter = db.query(Chapter).filter(
+        Chapter.id == chapter_id,
+        Chapter.story_id == story_id
+    ).first()
+    
+    if not chapter:
+        raise HTTPException(status_code=404, detail="Chapter not found")
+    
+    # Generate story_so_far (only previous chapters, not current)
+    story_so_far = await generate_story_so_far(chapter_id, db, current_user.id)
+    
+    return {
+        "message": "Story so far regenerated successfully",
+        "story_so_far": story_so_far
+    }
+
+
 @router.delete("/{story_id}/chapters/{chapter_id}/scenes")
 async def delete_chapter_content(
     story_id: int,
@@ -1403,6 +1551,13 @@ async def delete_chapter_content(
     
     # Recalculate scenes_count from active StoryFlow (should be 0 after deletion)
     chapter.scenes_count = llm_service.get_active_scene_count(db, story_id, chapter_id)
+    
+    # Delete all summary batches for this chapter (CASCADE should handle this, but explicit is clearer)
+    batches_deleted = db.query(ChapterSummaryBatch).filter(
+        ChapterSummaryBatch.chapter_id == chapter_id
+    ).delete()
+    if batches_deleted > 0:
+        logger.info(f"[CHAPTER] Deleted {batches_deleted} summary batch(es) for chapter {chapter_id}")
     
     # Reset chapter metrics
     chapter.context_tokens_used = 0

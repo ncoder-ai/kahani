@@ -2790,13 +2790,38 @@ class UnifiedLLMService:
                 db.delete(scene)
                 scenes_deleted += 1
             
-            # Recalculate scenes_count for affected chapters
-            from ...models import Chapter
+            # Recalculate scenes_count and invalidate affected batches for affected chapters
+            from ...models import Chapter, ChapterSummaryBatch
+            from ...api.chapters import update_chapter_summary_from_batches
+            
+            # Get min and max deleted sequence numbers for batch invalidation
+            if scenes_to_delete:
+                min_deleted_seq = min(scene.sequence_number for scene in scenes_to_delete)
+                max_deleted_seq = max(scene.sequence_number for scene in scenes_to_delete)
+            else:
+                min_deleted_seq = sequence_number
+                max_deleted_seq = sequence_number
+            
             for chapter_id in affected_chapter_ids:
                 chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
                 if chapter:
                     chapter.scenes_count = self.get_active_scene_count(db, story_id, chapter_id)
                     logger.info(f"[DELETE] Updated chapter {chapter_id} scenes_count to {chapter.scenes_count}")
+                    
+                    # Invalidate batches that overlap with deleted scenes
+                    affected_batches = db.query(ChapterSummaryBatch).filter(
+                        ChapterSummaryBatch.chapter_id == chapter_id,
+                        ChapterSummaryBatch.start_scene_sequence <= max_deleted_seq,
+                        ChapterSummaryBatch.end_scene_sequence >= min_deleted_seq
+                    ).all()
+                    
+                    if affected_batches:
+                        for batch in affected_batches:
+                            db.delete(batch)
+                        logger.info(f"[DELETE] Invalidated {len(affected_batches)} batch(es) for chapter {chapter_id} due to scene deletion")
+                        
+                        # Recalculate summary from remaining batches
+                        update_chapter_summary_from_batches(chapter_id, db)
             
             # Commit the transaction
             db.commit()
