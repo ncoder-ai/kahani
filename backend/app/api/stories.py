@@ -1970,6 +1970,10 @@ async def create_scene_variant(
             flow_entry.scene_variant_id = variant.id
             db.commit()
             logger.info(f"Updated StoryFlow: scene {scene_id} now points to variant {variant.id} (was {old_variant_id})")
+            
+            # Invalidate chapter summary batches if this scene was summarized
+            from ..api.chapters import invalidate_chapter_batches_for_scene
+            invalidate_chapter_batches_for_scene(scene_id, db)
         else:
             logger.warning(f"No active StoryFlow entry found for scene {scene_id}")
         
@@ -2245,6 +2249,10 @@ async def create_scene_variant_streaming(
                 flow_entry.scene_variant_id = variant.id
                 db.commit()
                 logger.info(f"Updated StoryFlow: scene {scene_id} now points to variant {variant.id} (was {old_variant_id})")
+                
+                # Invalidate chapter summary batches if this scene was summarized
+                from ..api.chapters import invalidate_chapter_batches_for_scene
+                invalidate_chapter_batches_for_scene(scene_id, db)
             else:
                 logger.warning(f"No active StoryFlow entry found for scene {scene_id}")
             
@@ -2455,6 +2463,10 @@ async def continue_scene(
         current_variant.content = new_content
         current_variant.updated_at = datetime.utcnow()
         db.commit()
+        
+        # Invalidate chapter summary batches if this scene was summarized
+        from ..api.chapters import invalidate_chapter_batches_for_scene
+        invalidate_chapter_batches_for_scene(scene_id, db)
         
         return {
             "message": "Scene continued successfully",
