@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, BookOpen, AlertCircle, Edit2, Save, X, Plus, CheckCircle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, BookOpen, AlertCircle, Edit2, Save, X, Plus, CheckCircle, RefreshCw } from 'lucide-react';
 import apiClient, { getApiBaseUrl } from '@/lib/api';
 import dynamic from 'next/dynamic';
 
@@ -88,7 +88,6 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
   const [isGeneratingStorySummary, setIsGeneratingStorySummary] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [storySummaryError, setStorySummaryError] = useState<string | null>(null);
-  const [generatedStorySummary, setGeneratedStorySummary] = useState<string | null>(null);
 
   useEffect(() => {
     loadChapters();
@@ -441,8 +440,10 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
     setSummaryError(null);
     
     try {
+      // Only regenerate story_so_far if this is not the first chapter
+      const shouldRegenerateStorySoFar = activeChapter.chapter_number > 1;
       const response = await fetch(
-        `${await getApiBaseUrl()}/api/stories/${storyId}/chapters/${activeChapter.id}/generate-summary?regenerate_story_so_far=true`,
+        `${await getApiBaseUrl()}/api/stories/${storyId}/chapters/${activeChapter.id}/generate-summary?regenerate_story_so_far=${shouldRegenerateStorySoFar}`,
         {
           method: 'POST',
           headers: {
@@ -478,13 +479,15 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
     }
   };
 
-  const handleGenerateStorySummary = async () => {
-    setIsGeneratingStorySummary(true);
-    setStorySummaryError(null);
+  const handleRegenerateStorySoFar = async () => {
+    if (!activeChapter) return;
+    
+    setIsGeneratingSummary(true);
+    setSummaryError(null);
     
     try {
       const response = await fetch(
-        `${await getApiBaseUrl()}/api/stories/${storyId}/generate-story-summary`,
+        `${await getApiBaseUrl()}/api/stories/${storyId}/chapters/${activeChapter.id}/regenerate-story-so-far`,
         {
           method: 'POST',
           headers: {
@@ -495,15 +498,14 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
       );
       
       if (!response.ok) {
-        throw new Error('Failed to generate story summary');
+        throw new Error('Failed to regenerate story so far');
       }
       
       const data = await response.json();
       
-      // Store the generated summary to display
-      setGeneratedStorySummary(data.summary);
+      console.log('[STORY SO FAR] Regenerated:', data);
       
-      // Reload chapters to get updated summaries
+      // Reload chapters to get updated story_so_far
       await loadChapters();
       
       // Notify parent to refresh if callback exists
@@ -511,11 +513,54 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
         onChapterChange();
       }
       
-      alert(`✓ Story summary generated successfully!\n\nApproach: ${data.approach}\nChapters: ${data.chapters_summarized}\nScenes: ${data.total_scenes}`);
+      alert('✓ Story so far regenerated successfully!');
     } catch (err) {
-      console.error('Failed to generate story summary:', err);
-      setStorySummaryError(err instanceof Error ? err.message : 'Failed to generate story summary');
-      alert('✗ Failed to generate story summary. Please try again.');
+      console.error('Failed to regenerate story so far:', err);
+      setSummaryError(err instanceof Error ? err.message : 'Failed to regenerate story so far');
+      alert('✗ Failed to regenerate story so far. Please try again.');
+    } finally {
+      setIsGeneratingSummary(false);
+    }
+  };
+
+  const handleGenerateStorySummary = async () => {
+    if (!activeChapter) return;
+    
+    setIsGeneratingStorySummary(true);
+    setStorySummaryError(null);
+    
+    try {
+      // Call regenerate-story-so-far endpoint to regenerate and display story_so_far
+      const response = await fetch(
+        `${await getApiBaseUrl()}/api/stories/${storyId}/chapters/${activeChapter.id}/regenerate-story-so-far`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      
+      if (!response.ok) {
+        throw new Error('Failed to regenerate story so far');
+      }
+      
+      const data = await response.json();
+      
+      // Reload chapters to get updated story_so_far
+      await loadChapters();
+      
+      // Notify parent to refresh if callback exists
+      if (onChapterChange) {
+        onChapterChange();
+      }
+      
+      alert('✓ Story So Far regenerated successfully!');
+    } catch (err) {
+      console.error('Failed to regenerate story so far:', err);
+      setStorySummaryError(err instanceof Error ? err.message : 'Failed to regenerate story so far');
+      alert('✗ Failed to regenerate story so far. Please try again.');
     } finally {
       setIsGeneratingStorySummary(false);
     }
@@ -715,127 +760,99 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
                   </div>
                 )}
 
-                {/* Story So Far - Editable */}
-                {(activeChapter.story_so_far || activeChapter.auto_summary) && (
+                {/* Summary of Previous Chapters - Editable */}
+                {/* Only show for chapters > 1, or if chapter 1 has a story_so_far (user-edited) */}
+                {activeChapter.chapter_number > 1 && (activeChapter.story_so_far || activeChapter.auto_summary) && (
                   <div className="mt-3 pt-3 border-t border-slate-700">
                     <div className="flex items-center justify-between mb-2">
-                      <h4 className="text-xs font-semibold text-gray-400 uppercase">Story So Far</h4>
-                      <button
-                        onClick={handleEditStorySoFar}
-                        className="p-1 hover:bg-slate-700 rounded transition-colors text-gray-400 hover:text-white"
-                        title="Edit story summary"
-                      >
-                        <Edit2 className="w-3 h-3" />
-                      </button>
-                    </div>
-                    <div className="max-h-32 overflow-y-auto">
-                      <p className="text-sm text-gray-300 whitespace-pre-wrap">
-                        {/* Show auto_summary if it exists and story_so_far is default text, otherwise show story_so_far */}
-                        {activeChapter.auto_summary && (!activeChapter.story_so_far || activeChapter.story_so_far === 'The story begins...')
-                          ? activeChapter.auto_summary
-                          : activeChapter.story_so_far || activeChapter.auto_summary}
-                      </p>
-                    </div>
-                    {activeChapter.auto_summary && (!activeChapter.story_so_far || activeChapter.story_so_far === 'The story begins...') && (
-                      <p className="text-xs text-gray-500 italic mt-1">
-                        Auto-generated summary (click edit to customize)
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {/* Summary Generation Actions - Always Visible */}
-                <div className="mt-3 pt-3 border-t border-slate-700 space-y-3">
-                  <h4 className="text-xs font-semibold text-gray-400 uppercase">Summary Actions</h4>
-                  
-                  {/* Story-Level Summary Generation */}
-                  <div className="space-y-2">
-                    <button
-                      onClick={handleGenerateStorySummary}
-                      disabled={isGeneratingStorySummary || chapters.length === 0}
-                      className="w-full px-3 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-sm rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
-                      title={chapters.length === 0 ? 'Create chapters first' : 'Generate summary of entire story from all chapters'}
-                    >
-                      {isGeneratingStorySummary ? (
-                        <>
-                          <span className="animate-spin">⚙️</span>
-                          Generating Story Summary...
-                        </>
-                      ) : (
-                        <>
-                          <BookOpen className="w-4 h-4" />
-                          Generate Story Summary
-                        </>
-                      )}
-                    </button>
-                    <p className="text-xs text-gray-500">
-                      Creates a comprehensive summary from all chapter summaries
-                    </p>
-                    {storySummaryError && (
-                      <p className="text-xs text-red-400">{storySummaryError}</p>
-                    )}
-                    
-                    {/* Display generated story summary */}
-                    {generatedStorySummary && (
-                      <div className="mt-2 bg-slate-700/50 border border-slate-600 rounded-lg p-3 max-h-40 overflow-y-auto">
-                        <p className="text-sm text-gray-300 whitespace-pre-wrap">
-                          {generatedStorySummary}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                  
-                  {/* Current Chapter Summary Generation */}
-                  {activeChapter && (
-                    <div className="space-y-2">
-                      <button
-                        onClick={handleGenerateSummary}
-                        disabled={isGeneratingSummary || activeChapter.scenes_count === 0}
-                        className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-sm rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
-                        title={activeChapter.scenes_count === 0 ? 'Generate at least one scene first' : 'Generate summary for current chapter'}
-                      >
-                        {isGeneratingSummary ? (
-                          <>
-                            <span className="animate-spin">⚙️</span>
-                            Generating Chapter Summary...
-                          </>
-                        ) : (
-                          <>
-                            <BookOpen className="w-4 h-4" />
-                            Generate Chapter Summary
-                          </>
+                      <h4 className="text-xs font-semibold text-gray-400 uppercase">Summary of Previous Chapters</h4>
+                      <div className="flex items-center gap-1">
+                        {chapters.length > 1 && (
+                          <button
+                            onClick={handleGenerateStorySummary}
+                            disabled={isGeneratingStorySummary}
+                            className="p-1 hover:bg-slate-700 rounded transition-colors text-gray-400 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Regenerate Story So Far from previous chapter summaries"
+                          >
+                            {isGeneratingStorySummary ? (
+                              <RefreshCw className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <RefreshCw className="w-3 h-3" />
+                            )}
+                          </button>
                         )}
-                      </button>
-                      <p className="text-xs text-gray-500">
-                        Generates summary for Chapter {activeChapter.chapter_number} and updates story so far
-                      </p>
-                      {summaryError && (
-                        <p className="text-xs text-red-400">{summaryError}</p>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Current Chapter Summary Display */}
-                  {activeChapter && activeChapter.auto_summary && (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <h4 className="text-xs font-semibold text-gray-400 uppercase">Chapter Summary</h4>
                         <button
-                          onClick={handleEditChapterSummary}
+                          onClick={handleEditStorySoFar}
                           className="p-1 hover:bg-slate-700 rounded transition-colors text-gray-400 hover:text-white"
-                          title="Edit chapter summary"
+                          title="Edit story summary"
                         >
                           <Edit2 className="w-3 h-3" />
                         </button>
                       </div>
+                    </div>
+                    <div className="max-h-32 overflow-y-auto">
+                      <p className="text-sm text-gray-300 whitespace-pre-wrap">
+                        {activeChapter.story_so_far || 'No summary available'}
+                      </p>
+                    </div>
+                    {storySummaryError && (
+                      <p className="text-xs text-red-400 mt-2">{storySummaryError}</p>
+                    )}
+                  </div>
+                )}
+
+                {/* Current Chapter Summary Display */}
+                {activeChapter && (
+                  <div className="mt-3 pt-3 border-t border-slate-700">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-xs font-semibold text-gray-400 uppercase">Chapter Summary</h4>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={handleGenerateSummary}
+                          disabled={isGeneratingSummary || activeChapter.scenes_count === 0}
+                          className="p-1 hover:bg-slate-700 rounded transition-colors text-gray-400 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                          title={activeChapter.scenes_count === 0 ? 'Generate at least one scene first' : 'Generate summary for current chapter'}
+                        >
+                          {isGeneratingSummary ? (
+                            <RefreshCw className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <RefreshCw className="w-3 h-3" />
+                          )}
+                        </button>
+                        {activeChapter.auto_summary && (
+                          <button
+                            onClick={handleEditChapterSummary}
+                            className="p-1 hover:bg-slate-700 rounded transition-colors text-gray-400 hover:text-white"
+                            title="Edit chapter summary"
+                          >
+                            <Edit2 className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {activeChapter.auto_summary ? (
                       <div className="bg-slate-700/50 border border-slate-600 rounded-lg p-3 max-h-40 overflow-y-auto">
                         <p className="text-sm text-gray-300 whitespace-pre-wrap">
                           {activeChapter.auto_summary}
                         </p>
                       </div>
-                    </div>
-                  )}
-                </div>
+                    ) : (
+                      <div className="bg-slate-700/50 border border-slate-600 rounded-lg p-3">
+                        <p className="text-sm text-gray-500 italic">
+                          {activeChapter.scenes_count === 0 
+                            ? 'Generate scenes first, then create a summary'
+                            : 'No summary generated yet. Click the refresh icon above to generate.'}
+                        </p>
+                      </div>
+                    )}
+                    {summaryError && (
+                      <p className="text-xs text-red-400 mt-2">{summaryError}</p>
+                    )}
+                    {storySummaryError && (
+                      <p className="text-xs text-red-400 mt-2">{storySummaryError}</p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -1119,19 +1136,10 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
                   </button>
                 </div>
                 <p className="text-xs text-gray-500">
-                  Creates a comprehensive summary from all chapter summaries
+                  Regenerates Story So Far from previous chapter summaries
                 </p>
                 {storySummaryError && (
                   <p className="text-xs text-red-400">{storySummaryError}</p>
-                )}
-                
-                {/* Display generated story summary */}
-                {generatedStorySummary && (
-                  <div className="bg-slate-700/50 border border-slate-600 rounded-lg p-3 max-h-40 overflow-y-auto">
-                    <p className="text-sm text-gray-300 whitespace-pre-wrap">
-                      {generatedStorySummary}
-                    </p>
-                  </div>
                 )}
               </div>
               

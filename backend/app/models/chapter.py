@@ -69,6 +69,32 @@ class Chapter(Base):
         backref="chapters",
         lazy="dynamic"
     )
+    summary_batches = relationship("ChapterSummaryBatch", back_populates="chapter", cascade="all, delete-orphan", order_by="ChapterSummaryBatch.start_scene_sequence")
     
     def __repr__(self):
         return f"<Chapter(id={self.id}, story_id={self.story_id}, number={self.chapter_number}, title='{self.title}')>"
+
+
+class ChapterSummaryBatch(Base):
+    """Stores summary batches for chapters to enable partial regeneration"""
+    __tablename__ = "chapter_summary_batches"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    chapter_id = Column(Integer, ForeignKey("chapters.id", ondelete="CASCADE"), nullable=False)
+    
+    # Scene range this batch covers
+    start_scene_sequence = Column(Integer, nullable=False)  # First scene in batch
+    end_scene_sequence = Column(Integer, nullable=False)     # Last scene in batch
+    
+    # Batch summary content
+    summary = Column(Text, nullable=False)
+    
+    # Metadata
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationship
+    chapter = relationship("Chapter", back_populates="summary_batches")
+    
+    def __repr__(self):
+        return f"<ChapterSummaryBatch(id={self.id}, chapter_id={self.chapter_id}, scenes={self.start_scene_sequence}-{self.end_scene_sequence})>"

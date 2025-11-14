@@ -356,27 +356,20 @@ async def regenerate_story_summary(
         raise HTTPException(status_code=500, detail="Failed to regenerate summary")
 
 
-@router.post("/stories/{story_id}/generate-story-summary")
-async def generate_story_summary_from_chapters(
-    story_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
+async def update_story_summary_from_chapters(story_id: int, db: Session, user_id: int) -> None:
     """
-    Generate story-level summary from chapter summaries (summary of summaries approach).
-    This is more efficient than summarizing all scenes individually.
+    Reusable function to update story.summary from chapter summaries.
+    This is called automatically after chapter summaries are generated.
+    Handles errors gracefully - doesn't fail if story summary update fails.
     """
     try:
-        from ..models import Chapter, Scene, StoryFlow
+        from ..models import Chapter, Scene, StoryFlow, UserSettings
         
         # Get the story
-        story = db.query(Story).filter(
-            Story.id == story_id,
-            Story.owner_id == current_user.id
-        ).first()
-        
+        story = db.query(Story).filter(Story.id == story_id).first()
         if not story:
-            raise HTTPException(status_code=404, detail="Story not found")
+            logger.warning(f"[STORY SUMMARY] Story {story_id} not found, skipping summary update")
+            return
         
         # Get all chapters for this story
         chapters = db.query(Chapter).filter(
@@ -384,20 +377,21 @@ async def generate_story_summary_from_chapters(
         ).order_by(Chapter.chapter_number).all()
         
         if not chapters:
-            raise HTTPException(status_code=400, detail="Story has no chapters to summarize")
+            logger.info(f"[STORY SUMMARY] Story {story_id} has no chapters, skipping summary update")
+            return
         
         # Get user settings
+        user_settings_obj = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
         user_settings = None
-        if hasattr(current_user, 'settings') and current_user.settings:
-            settings_obj = current_user.settings
+        if user_settings_obj:
             user_settings = {
-                "api_type": settings_obj.llm_api_type,
-                "api_url": settings_obj.llm_api_url,
-                "api_key": settings_obj.llm_api_key,
-                "model_name": settings_obj.llm_model_name,
-                "max_tokens": settings_obj.llm_max_tokens,
-                "temperature": settings_obj.llm_temperature,
-                "top_p": settings_obj.llm_top_p
+                "api_type": user_settings_obj.llm_api_type,
+                "api_url": user_settings_obj.llm_api_url,
+                "api_key": user_settings_obj.llm_api_key,
+                "model_name": user_settings_obj.llm_model_name,
+                "max_tokens": user_settings_obj.llm_max_tokens,
+                "temperature": user_settings_obj.llm_temperature,
+                "top_p": user_settings_obj.llm_top_p
             }
         
         # Collect chapter summaries
@@ -431,7 +425,8 @@ async def generate_story_summary_from_chapters(
                     )
         
         if not chapter_summaries:
-            raise HTTPException(status_code=400, detail="No chapter content available to summarize")
+            logger.info(f"[STORY SUMMARY] No chapter content available for story {story_id}, skipping summary update")
+            return
         
         # Combine chapter summaries
         combined_summaries = "\n\n".join(chapter_summaries)
@@ -449,11 +444,11 @@ Chapter Summaries:
 
 Provide a cohesive, well-structured summary that reads as a complete narrative overview (3-5 paragraphs):"""
         
-        logger.info(f"[STORY SUMMARY] Generating story summary from {len(chapter_summaries)} chapters")
+        logger.info(f"[STORY SUMMARY] Auto-updating story summary from {len(chapter_summaries)} chapters for story {story_id}")
         
         story_summary = await llm_service.generate(
             prompt=prompt,
-            user_id=current_user.id,
+            user_id=user_id,
             user_settings=user_settings,
             system_prompt="You are a helpful assistant that creates comprehensive story summaries from chapter summaries.",
             max_tokens=800  # More tokens for full story summary
@@ -463,13 +458,39 @@ Provide a cohesive, well-structured summary that reads as a complete narrative o
         story.summary = story_summary
         db.commit()
         
-        logger.info(f"[STORY SUMMARY] Generated and saved story summary: {len(story_summary)} chars")
+        logger.info(f"[STORY SUMMARY] Auto-updated story summary for story {story_id}: {len(story_summary)} chars")
+            
+    except Exception as e:
+        # Log error but don't fail - story summary update is non-critical
+        logger.error(f"[STORY SUMMARY] Error auto-updating story summary for story {story_id}: {e}", exc_info=True)
+
+
+@router.post("/stories/{story_id}/generate-story-summary")
+async def generate_story_summary_from_chapters(
+    story_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Generate story-level summary from chapter summaries (summary of summaries approach).
+    This is more efficient than summarizing all scenes individually.
+    """
+    try:
+        await update_story_summary_from_chapters(story_id, db, current_user.id)
+        
+        # Refresh story to get updated summary
+        db.refresh(db.query(Story).filter(Story.id == story_id).first())
+        story = db.query(Story).filter(
+            Story.id == story_id,
+            Story.owner_id == current_user.id
+        ).first()
+        
+        if not story:
+            raise HTTPException(status_code=404, detail="Story not found")
         
         return {
             "message": "Story summary generated successfully",
-            "summary": story_summary,
-            "chapters_summarized": len(chapters),
-            "total_scenes": total_scenes,
+            "summary": story.summary,
             "approach": "summary_of_summaries"
         }
             

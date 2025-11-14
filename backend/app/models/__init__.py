@@ -7,7 +7,7 @@ from .user_settings import UserSettings
 from .system_settings import SystemSettings
 from .story import Story, StoryStatus, PrivacyLevel, StoryMode
 from .character import Character, StoryCharacter
-from .chapter import Chapter, ChapterStatus, chapter_characters
+from .chapter import Chapter, ChapterStatus, chapter_characters, ChapterSummaryBatch
 from .scene import Scene, SceneChoice, SceneType
 from .scene_variant import SceneVariant
 from .story_flow import StoryFlow
@@ -22,7 +22,7 @@ __all__ = [
     "Base",
     "User", "UserSettings", "SystemSettings",
     "Story", "StoryStatus", "PrivacyLevel", "StoryMode",
-    "Chapter", "ChapterStatus", "chapter_characters",
+    "Chapter", "ChapterStatus", "chapter_characters", "ChapterSummaryBatch",
     "Character", "StoryCharacter", 
     "Scene", "SceneChoice", "SceneType",
     "SceneVariant", "StoryFlow", "PromptTemplate",
