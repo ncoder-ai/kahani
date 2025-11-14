@@ -221,3 +221,30 @@ class ObjectState(Base):
             "updated_at": self.updated_at.isoformat() if self.updated_at else None
         }
 
+
+class EntityStateBatch(Base):
+    """Stores entity state snapshots in batches to enable partial regeneration"""
+    __tablename__ = "entity_state_batches"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    story_id = Column(Integer, ForeignKey("stories.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Scene range this batch covers
+    start_scene_sequence = Column(Integer, nullable=False)  # First scene in batch
+    end_scene_sequence = Column(Integer, nullable=False)     # Last scene in batch
+    
+    # Entity state snapshots (JSON)
+    character_states_snapshot = Column(JSON, nullable=False)  # Array of CharacterState dicts
+    location_states_snapshot = Column(JSON, nullable=False)   # Array of LocationState dicts
+    object_states_snapshot = Column(JSON, nullable=False)     # Array of ObjectState dicts
+    
+    # Metadata
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationship
+    story = relationship("Story", back_populates="entity_state_batches")
+    
+    def __repr__(self):
+        return f"<EntityStateBatch(id={self.id}, story_id={self.story_id}, scenes={self.start_scene_sequence}-{self.end_scene_sequence})>"
+
