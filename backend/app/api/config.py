@@ -24,12 +24,27 @@ def load_config_yaml() -> Dict[str, Any]:
     if _config_cache is not None:
         return _config_cache
     
-    # Find config.yaml in project root
-    backend_dir = Path(__file__).parent.parent.parent.parent
-    config_file = backend_dir / "config.yaml"
+    # Try multiple locations for config.yaml:
+    # 1. Project root (four levels up from backend/app/api/) - for local development
+    # 2. /app/config.yaml - for Docker (mounted from project root)
+    # 3. Current directory - fallback
     
-    if not config_file.exists():
-        logger.error(f"config.yaml not found at {config_file}")
+    backend_dir = Path(__file__).parent.parent.parent.parent
+    possible_locations = [
+        backend_dir / "config.yaml",  # Project root (local dev)
+        Path("/app/config.yaml"),     # Docker mount location
+        Path("config.yaml"),           # Current directory fallback
+    ]
+    
+    config_file = None
+    for location in possible_locations:
+        if location.exists():
+            config_file = location
+            break
+    
+    if not config_file:
+        locations_str = ", ".join([str(loc) for loc in possible_locations])
+        logger.error(f"config.yaml not found in any of these locations: {locations_str}")
         return {}
     
     try:

@@ -11,13 +11,28 @@ logger = logging.getLogger(__name__)
 
 def load_yaml_config() -> dict:
     """Load configuration from config.yaml file"""
-    # Find config.yaml in project root (two levels up from backend/app/)
-    backend_dir = Path(__file__).parent.parent.parent
-    config_file = backend_dir / "config.yaml"
+    # Try multiple locations for config.yaml:
+    # 1. Project root (two levels up from backend/app/) - for local development
+    # 2. /app/config.yaml - for Docker (mounted from project root)
+    # 3. Current directory - fallback
     
-    if not config_file.exists():
+    backend_dir = Path(__file__).parent.parent.parent
+    possible_locations = [
+        backend_dir / "config.yaml",  # Project root (local dev)
+        Path("/app/config.yaml"),     # Docker mount location
+        Path("config.yaml"),           # Current directory fallback
+    ]
+    
+    config_file = None
+    for location in possible_locations:
+        if location.exists():
+            config_file = location
+            break
+    
+    if not config_file:
+        locations_str = ", ".join([str(loc) for loc in possible_locations])
         raise FileNotFoundError(
-            f"config.yaml not found at {config_file}. "
+            f"config.yaml not found in any of these locations: {locations_str}. "
             "Please create config.yaml in the project root with all required settings."
         )
     
