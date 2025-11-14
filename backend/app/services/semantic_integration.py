@@ -992,6 +992,13 @@ async def cleanup_scene_embeddings(scene_id: int, db: Session):
         plot_service.delete_plot_events(scene_id, db)
         logger.debug(f"[CLEANUP] Deleted plot events for scene {scene_id}")
         
+        # Delete NPC mentions
+        from ..models.npc_tracking import NPCMention
+        npc_mentions_deleted = db.query(NPCMention).filter(
+            NPCMention.scene_id == scene_id
+        ).delete()
+        logger.debug(f"[CLEANUP] Deleted {npc_mentions_deleted} NPC mentions for scene {scene_id}")
+        
         # Delete scene embeddings from database
         from ..models import SceneEmbedding
         scene_embeddings = db.query(SceneEmbedding).filter(
