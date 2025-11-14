@@ -75,5 +75,8 @@ class Story(Base):
     npc_mentions = relationship("NPCMention", back_populates="story", cascade="all, delete-orphan")
     npc_tracking = relationship("NPCTracking", back_populates="story", cascade="all, delete-orphan")
     
+    # Entity State Batch Relationships
+    entity_state_batches = relationship("EntityStateBatch", back_populates="story", cascade="all, delete-orphan", order_by="EntityStateBatch.start_scene_sequence")
+    
     def __repr__(self):
         return f"<Story(id={self.id}, title='{self.title}', owner_id={self.owner_id})>"

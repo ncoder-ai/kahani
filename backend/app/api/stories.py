@@ -221,6 +221,129 @@ async def trigger_auto_play_tts(scene_id: int, user_id: int):
 
 router = APIRouter()
 
+async def invalidate_and_regenerate_extractions_for_scene(
+    scene_id: int,
+    story_id: int,
+    scene_sequence: int,
+    user_id: int,
+    user_settings: dict,
+    db: Session
+) -> None:
+    """
+    Invalidate and regenerate extractions for a modified scene.
+    
+    This function:
+    1. Deletes all extractions for the scene (CharacterMemory, PlotEvent, NPCMention, SceneEmbedding)
+    2. Invalidates entity state batches containing the scene
+    3. Regenerates extractions for the scene
+    4. Recalculates NPCTracking
+    5. Recalculates entity states if needed
+    """
+    try:
+        from ..services.semantic_integration import cleanup_scene_embeddings, process_scene_embeddings
+        from ..services.entity_state_service import EntityStateService
+        from ..services.npc_tracking_service import NPCTrackingService
+        from ..models import Scene, StoryFlow
+        
+        # Get scene to get content
+        scene = db.query(Scene).filter(Scene.id == scene_id).first()
+        if not scene:
+            logger.warning(f"Scene {scene_id} not found for extraction invalidation")
+            return
+        
+        # Get active variant content
+        flow = db.query(StoryFlow).filter(
+            StoryFlow.scene_id == scene_id,
+            StoryFlow.is_active == True
+        ).first()
+        
+        if not flow or not flow.scene_variant:
+            logger.warning(f"No active variant found for scene {scene_id}")
+            return
+        
+        scene_content = flow.scene_variant.content
+        
+        # 1. Invalidate extractions for the scene
+        await cleanup_scene_embeddings(scene_id, db)
+        logger.info(f"[MODIFY] Cleaned up extractions for scene {scene_id}")
+        
+        # 2. Invalidate entity state batches containing this scene
+        entity_service = EntityStateService(user_id=user_id, user_settings=user_settings)
+        entity_service.invalidate_entity_batches_for_scenes(
+            db, story_id, scene_sequence, scene_sequence
+        )
+        
+        # 3. Regenerate extractions for the modified scene
+        await process_scene_embeddings(
+            scene_id=scene_id,
+            variant_id=flow.scene_variant_id,
+            story_id=story_id,
+            scene_content=scene_content,
+            sequence_number=scene_sequence,
+            chapter_id=scene.chapter_id,
+            user_id=user_id,
+            user_settings=user_settings,
+            db=db
+        )
+        logger.info(f"[MODIFY] Regenerated extractions for scene {scene_id}")
+        
+        # 4. Recalculate NPCTracking
+        try:
+            npc_service = NPCTrackingService(user_id=user_id, user_settings=user_settings)
+            await npc_service.recalculate_all_scores(db, story_id)
+            logger.info(f"[MODIFY] Recalculated NPC tracking for story {story_id}")
+        except Exception as e:
+            logger.warning(f"[MODIFY] Failed to recalculate NPC tracking: {e}")
+        
+        # 5. Recalculate entity states if the modified scene affects them
+        # Find last valid batch before this scene
+        last_valid_batch = entity_service.get_last_valid_batch(db, story_id, scene_sequence)
+        
+        if last_valid_batch:
+            # Restore states from batch, then re-extract from modified scene onwards
+            entity_service.restore_entity_states_from_batch(db, last_valid_batch)
+            start_sequence = last_valid_batch.end_scene_sequence + 1
+            logger.info(f"[MODIFY] Restored entity states from batch {last_valid_batch.id} (scenes 1-{last_valid_batch.end_scene_sequence})")
+        else:
+            # No valid batch, delete all states and start from scratch
+            db.query(CharacterState).filter(CharacterState.story_id == story_id).delete()
+            db.query(LocationState).filter(LocationState.story_id == story_id).delete()
+            db.query(ObjectState).filter(ObjectState.story_id == story_id).delete()
+            start_sequence = 1
+            logger.info(f"[MODIFY] No valid batch found, starting entity state recalculation from scene 1")
+        
+        # Re-extract entity states from start_sequence onwards
+        from ..models import Scene as SceneModel
+        scenes_to_reprocess = db.query(SceneModel).filter(
+            SceneModel.story_id == story_id,
+            SceneModel.sequence_number >= start_sequence
+        ).order_by(SceneModel.sequence_number).all()
+        
+        scenes_processed = 0
+        for scene_to_process in scenes_to_reprocess:
+            flow_to_process = db.query(StoryFlow).filter(
+                StoryFlow.scene_id == scene_to_process.id,
+                StoryFlow.is_active == True
+            ).first()
+            
+            if flow_to_process and flow_to_process.scene_variant:
+                await entity_service.extract_and_update_states(
+                    db=db,
+                    story_id=story_id,
+                    scene_id=scene_to_process.id,
+                    scene_sequence=scene_to_process.sequence_number,
+                    scene_content=flow_to_process.scene_variant.content
+                )
+                scenes_processed += 1
+        
+        db.commit()
+        logger.info(f"[MODIFY] Recalculated entity states for story {story_id} (processed {scenes_processed} scenes from scene {start_sequence} onwards)")
+        
+    except Exception as e:
+        logger.error(f"[MODIFY] Failed to invalidate and regenerate extractions for scene {scene_id}: {e}")
+        db.rollback()
+
+
 def get_or_create_user_settings(user_id: int, db: Session, current_user: User = None) -> dict:
     """Get user settings or create defaults if none exist
     
@@ -1974,6 +2097,18 @@ async def create_scene_variant(
             # Invalidate chapter summary batches if this scene was summarized
             from ..api.chapters import invalidate_chapter_batches_for_scene
             invalidate_chapter_batches_for_scene(scene_id, db)
+            
+            # Invalidate and regenerate extractions for the modified scene
+            scene = db.query(Scene).filter(Scene.id == scene_id).first()
+            if scene:
+                await invalidate_and_regenerate_extractions_for_scene(
+                    scene_id=scene_id,
+                    story_id=story_id,
+                    scene_sequence=scene.sequence_number,
+                    user_id=current_user.id,
+                    user_settings=user_settings,
+                    db=db
+                )
         else:
             logger.warning(f"No active StoryFlow entry found for scene {scene_id}")
         
@@ -2253,6 +2388,18 @@ async def create_scene_variant_streaming(
                 # Invalidate chapter summary batches if this scene was summarized
                 from ..api.chapters import invalidate_chapter_batches_for_scene
                 invalidate_chapter_batches_for_scene(scene_id, db)
+                
+                # Invalidate and regenerate extractions for the modified scene
+                scene = db.query(Scene).filter(Scene.id == scene_id).first()
+                if scene:
+                    await invalidate_and_regenerate_extractions_for_scene(
+                        scene_id=scene_id,
+                        story_id=story_id,
+                        scene_sequence=scene.sequence_number,
+                        user_id=current_user.id,
+                        user_settings=user_settings,
+                        db=db
+                    )
             else:
                 logger.warning(f"No active StoryFlow entry found for scene {scene_id}")
             
@@ -2467,6 +2614,16 @@ async def continue_scene(
         # Invalidate chapter summary batches if this scene was summarized
         from ..api.chapters import invalidate_chapter_batches_for_scene
         invalidate_chapter_batches_for_scene(scene_id, db)
+        
+        # Invalidate and regenerate extractions for the modified scene
+        await invalidate_and_regenerate_extractions_for_scene(
+            scene_id=scene_id,
+            story_id=story_id,
+            scene_sequence=scene.sequence_number,
+            user_id=current_user.id,
+            user_settings=user_settings,
+            db=db
+        )
         
         return {
             "message": "Scene continued successfully",

@@ -2778,6 +2778,43 @@ class UnifiedLLMService:
                     # Continue with deletion even if cleanup fails
             logger.info(f"[DELETE] Completed cleanup for all {len(scenes_to_delete)} scenes")
             
+            # Recalculate NPCTracking after scene deletion
+            try:
+                from ...models import Story, UserSettings
+                from ...services.npc_tracking_service import NPCTrackingService
+                
+                # Get story to find owner_id
+                story = db.query(Story).filter(Story.id == story_id).first()
+                if story:
+                    # Get user settings
+                    user_settings_obj = db.query(UserSettings).filter(
+                        UserSettings.user_id == story.owner_id
+                    ).first()
+                    
+                    if user_settings_obj:
+                        user_settings = user_settings_obj.to_dict()
+                        npc_service = NPCTrackingService(
+                            user_id=story.owner_id,
+                            user_settings=user_settings
+                        )
+                        await npc_service.recalculate_all_scores(db, story_id)
+                        logger.info(f"[DELETE] Recalculated NPC tracking scores for story {story_id}")
+                    else:
+                        logger.warning(f"[DELETE] No user settings found for story owner {story.owner_id}, skipping NPC tracking recalculation")
+                else:
+                    logger.warning(f"[DELETE] Story {story_id} not found, skipping NPC tracking recalculation")
+            except Exception as e:
+                # Don't fail scene deletion if NPC tracking recalculation fails
+                logger.warning(f"[DELETE] Failed to recalculate NPC tracking after scene deletion: {e}")
+            
+            # Get min and max deleted sequence numbers for batch invalidation (before deleting scenes)
+            if scenes_to_delete:
+                min_deleted_seq = min(scene.sequence_number for scene in scenes_to_delete)
+                max_deleted_seq = max(scene.sequence_number for scene in scenes_to_delete)
+            else:
+                min_deleted_seq = sequence_number
+                max_deleted_seq = sequence_number
+            
             # Get affected chapter IDs before deleting scenes
             affected_chapter_ids = set()
             for scene in scenes_to_delete:
@@ -2793,14 +2830,6 @@ class UnifiedLLMService:
             # Recalculate scenes_count and invalidate affected batches for affected chapters
             from ...models import Chapter, ChapterSummaryBatch
             from ...api.chapters import update_chapter_summary_from_batches
-            
-            # Get min and max deleted sequence numbers for batch invalidation
-            if scenes_to_delete:
-                min_deleted_seq = min(scene.sequence_number for scene in scenes_to_delete)
-                max_deleted_seq = max(scene.sequence_number for scene in scenes_to_delete)
-            else:
-                min_deleted_seq = sequence_number
-                max_deleted_seq = sequence_number
             
             for chapter_id in affected_chapter_ids:
                 chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
@@ -2822,6 +2851,45 @@ class UnifiedLLMService:
                         
                         # Recalculate summary from remaining batches
                         update_chapter_summary_from_batches(chapter_id, db)
+            
+            # Invalidate and recalculate entity states using batch system
+            try:
+                from ...models import Story, UserSettings
+                from ...services.entity_state_service import EntityStateService
+                
+                # Get story to find owner_id
+                story = db.query(Story).filter(Story.id == story_id).first()
+                if story:
+                    # Get user settings
+                    user_settings_obj = db.query(UserSettings).filter(
+                        UserSettings.user_id == story.owner_id
+                    ).first()
+                    
+                    if user_settings_obj:
+                        user_settings = user_settings_obj.to_dict()
+                        entity_service = EntityStateService(
+                            user_id=story.owner_id,
+                            user_settings=user_settings
+                        )
+                        
+                        # Invalidate batches that overlap with deleted scenes
+                        entity_service.invalidate_entity_batches_for_scenes(
+                            db, story_id, min_deleted_seq, max_deleted_seq
+                        )
+                        
+                        # Recalculate entity states from batches
+                        await entity_service.recalculate_entity_states_from_batches(
+                            db, story_id, story.owner_id, user_settings, max_deleted_seq
+                        )
+                        
+                        logger.info(f"[DELETE] Recalculated entity states using batch system for story {story_id}")
+                    else:
+                        logger.warning(f"[DELETE] No user settings found for story owner {story.owner_id}, skipping entity state recalculation")
+                else:
+                    logger.warning(f"[DELETE] Story {story_id} not found, skipping entity state recalculation")
+            except Exception as e:
+                # Don't fail scene deletion if entity state recalculation fails
+                logger.warning(f"[DELETE] Failed to recalculate entity states after scene deletion: {e}")
             
             # Commit the transaction
             db.commit()

@@ -12,7 +12,7 @@ from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
 from ..models import (
     Character, CharacterState, LocationState, ObjectState,
-    Story, Scene, StoryCharacter
+    Story, Scene, StoryCharacter, EntityStateBatch
 )
 from ..services.llm.service import UnifiedLLMService
 from ..services.llm.extraction_service import ExtractionLLMService
@@ -143,6 +143,22 @@ class EntityStateService:
             
             results["extraction_successful"] = True
             logger.info(f"Updated entity states for scene {scene_id}: {results}")
+            
+            # Check if we should create a batch snapshot (every 5 scenes, matching chapter summary batch threshold)
+            batch_threshold = self.user_settings.get("context_summary_threshold", 5)
+            if scene_sequence % batch_threshold == 0:
+                # Find the start of this batch
+                batch_start = ((scene_sequence - 1) // batch_threshold) * batch_threshold + 1
+                batch_end = scene_sequence
+                
+                # Create batch snapshot
+                try:
+                    self.create_entity_state_batch_snapshot(
+                        db, story_id, batch_start, batch_end
+                    )
+                except Exception as e:
+                    # Don't fail extraction if batch creation fails
+                    logger.warning(f"Failed to create entity state batch snapshot: {e}")
             
         except Exception as e:
             logger.error(f"Failed to extract and update entity states: {e}")
@@ -607,4 +623,287 @@ If no changes for a category, use empty array. Return ONLY the JSON, no other te
         return db.query(ObjectState).filter(
             ObjectState.story_id == story_id
         ).all()
+    
+    def create_entity_state_batch_snapshot(
+        self,
+        db: Session,
+        story_id: int,
+        start_scene_sequence: int,
+        end_scene_sequence: int
+    ) -> Optional[EntityStateBatch]:
+        """
+        Create a snapshot of current entity states as a batch.
+        
+        Args:
+            db: Database session
+            story_id: Story ID
+            start_scene_sequence: First scene sequence in batch
+            end_scene_sequence: Last scene sequence in batch
+            
+        Returns:
+            Created EntityStateBatch or None if no states exist
+        """
+        try:
+            # Get all current entity states
+            character_states = db.query(CharacterState).filter(
+                CharacterState.story_id == story_id
+            ).all()
+            
+            location_states = db.query(LocationState).filter(
+                LocationState.story_id == story_id
+            ).all()
+            
+            object_states = db.query(ObjectState).filter(
+                ObjectState.story_id == story_id
+            ).all()
+            
+            # Convert to JSON snapshots
+            character_snapshot = [state.to_dict() for state in character_states]
+            location_snapshot = [state.to_dict() for state in location_states]
+            object_snapshot = [state.to_dict() for state in object_states]
+            
+            # Only create batch if there are states to snapshot
+            if not (character_snapshot or location_snapshot or object_snapshot):
+                logger.debug(f"No entity states to snapshot for story {story_id}")
+                return None
+            
+            # Create batch snapshot
+            batch = EntityStateBatch(
+                story_id=story_id,
+                start_scene_sequence=start_scene_sequence,
+                end_scene_sequence=end_scene_sequence,
+                character_states_snapshot=character_snapshot,
+                location_states_snapshot=location_snapshot,
+                object_states_snapshot=object_snapshot
+            )
+            
+            db.add(batch)
+            db.flush()
+            
+            logger.info(f"Created entity state batch snapshot for story {story_id}: scenes {start_scene_sequence}-{end_scene_sequence} ({len(character_snapshot)} characters, {len(location_snapshot)} locations, {len(object_snapshot)} objects)")
+            
+            return batch
+            
+        except Exception as e:
+            logger.error(f"Failed to create entity state batch snapshot: {e}")
+            return None
+    
+    def get_last_valid_batch(
+        self,
+        db: Session,
+        story_id: int,
+        max_scene_sequence: int
+    ) -> Optional[EntityStateBatch]:
+        """
+        Find the last valid batch that doesn't overlap with deleted scenes.
+        
+        Args:
+            db: Database session
+            story_id: Story ID
+            max_scene_sequence: Maximum scene sequence to consider (scenes after this are deleted)
+            
+        Returns:
+            Last valid EntityStateBatch or None
+        """
+        # Find the last batch where end_scene_sequence < max_scene_sequence
+        batch = db.query(EntityStateBatch).filter(
+            EntityStateBatch.story_id == story_id,
+            EntityStateBatch.end_scene_sequence < max_scene_sequence
+        ).order_by(EntityStateBatch.end_scene_sequence.desc()).first()
+        
+        return batch
+    
+    def restore_entity_states_from_batch(
+        self,
+        db: Session,
+        batch: EntityStateBatch
+    ) -> Dict[str, int]:
+        """
+        Restore entity states from a batch snapshot.
+        
+        Args:
+            db: Database session
+            batch: EntityStateBatch to restore from
+            
+        Returns:
+            Dictionary with counts of restored states
+        """
+        try:
+            # Delete existing entity states for this story
+            db.query(CharacterState).filter(
+                CharacterState.story_id == batch.story_id
+            ).delete()
+            db.query(LocationState).filter(
+                LocationState.story_id == batch.story_id
+            ).delete()
+            db.query(ObjectState).filter(
+                ObjectState.story_id == batch.story_id
+            ).delete()
+            
+            # Restore character states
+            char_count = 0
+            for char_dict in batch.character_states_snapshot:
+                char_state = CharacterState(**{k: v for k, v in char_dict.items() if k != 'id' and k != 'updated_at'})
+                db.add(char_state)
+                char_count += 1
+            
+            # Restore location states
+            loc_count = 0
+            for loc_dict in batch.location_states_snapshot:
+                loc_state = LocationState(**{k: v for k, v in loc_dict.items() if k != 'id' and k != 'updated_at'})
+                db.add(loc_state)
+                loc_count += 1
+            
+            # Restore object states
+            obj_count = 0
+            for obj_dict in batch.object_states_snapshot:
+                obj_state = ObjectState(**{k: v for k, v in obj_dict.items() if k != 'id' and k != 'updated_at'})
+                db.add(obj_state)
+                obj_count += 1
+            
+            db.flush()
+            
+            logger.info(f"Restored entity states from batch {batch.id}: {char_count} characters, {loc_count} locations, {obj_count} objects")
+            
+            return {
+                "characters_restored": char_count,
+                "locations_restored": loc_count,
+                "objects_restored": obj_count
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to restore entity states from batch: {e}")
+            db.rollback()
+            return {"characters_restored": 0, "locations_restored": 0, "objects_restored": 0}
+    
+    def invalidate_entity_batches_for_scenes(
+        self,
+        db: Session,
+        story_id: int,
+        min_seq: int,
+        max_seq: int
+    ) -> int:
+        """
+        Delete entity state batches that overlap with deleted scenes.
+        
+        Args:
+            db: Database session
+            story_id: Story ID
+            min_seq: Minimum scene sequence deleted
+            max_seq: Maximum scene sequence deleted
+            
+        Returns:
+            Number of batches deleted
+        """
+        affected_batches = db.query(EntityStateBatch).filter(
+            EntityStateBatch.story_id == story_id,
+            EntityStateBatch.start_scene_sequence <= max_seq,
+            EntityStateBatch.end_scene_sequence >= min_seq
+        ).all()
+        
+        if affected_batches:
+            count = len(affected_batches)
+            for batch in affected_batches:
+                db.delete(batch)
+            logger.info(f"Invalidated {count} entity state batch(es) for story {story_id} (scenes {min_seq}-{max_seq})")
+            return count
+        
+        return 0
+    
+    async def recalculate_entity_states_from_batches(
+        self,
+        db: Session,
+        story_id: int,
+        user_id: int,
+        user_settings: Dict[str, Any],
+        max_deleted_sequence: int
+    ) -> Dict[str, Any]:
+        """
+        Recalculate entity states using batch system after scene deletion.
+        
+        Args:
+            db: Database session
+            story_id: Story ID
+            user_id: User ID
+            user_settings: User settings
+            max_deleted_sequence: Maximum scene sequence that was deleted
+            
+        Returns:
+            Dictionary with recalculation results
+        """
+        try:
+            # Find last valid batch before deleted scenes
+            last_valid_batch = self.get_last_valid_batch(db, story_id, max_deleted_sequence)
+            
+            # Delete all existing entity states
+            db.query(CharacterState).filter(CharacterState.story_id == story_id).delete()
+            db.query(LocationState).filter(LocationState.story_id == story_id).delete()
+            db.query(ObjectState).filter(ObjectState.story_id == story_id).delete()
+            
+            # Restore from last valid batch if exists
+            if last_valid_batch:
+                restore_results = self.restore_entity_states_from_batch(db, last_valid_batch)
+                start_sequence = last_valid_batch.end_scene_sequence + 1
+                logger.info(f"Restored entity states from batch {last_valid_batch.id} (scenes 1-{last_valid_batch.end_scene_sequence})")
+            else:
+                restore_results = {"characters_restored": 0, "locations_restored": 0, "objects_restored": 0}
+                start_sequence = 1
+                logger.info(f"No valid batch found, starting from scene 1")
+            
+            # Get all remaining scenes after the last valid batch
+            from ..models import Scene, StoryFlow
+            remaining_scenes = db.query(Scene).filter(
+                Scene.story_id == story_id,
+                Scene.sequence_number >= start_sequence
+            ).order_by(Scene.sequence_number).all()
+            
+            if not remaining_scenes:
+                logger.info(f"No remaining scenes to process after batch restoration")
+                db.commit()
+                return {
+                    **restore_results,
+                    "scenes_processed": 0,
+                    "recalculation_successful": True
+                }
+            
+            # Re-extract entity states for remaining scenes
+            scenes_processed = 0
+            for scene in remaining_scenes:
+                # Get active variant content
+                flow = db.query(StoryFlow).filter(
+                    StoryFlow.scene_id == scene.id,
+                    StoryFlow.is_active == True
+                ).first()
+                
+                if flow and flow.scene_variant:
+                    scene_content = flow.scene_variant.content
+                    await self.extract_and_update_states(
+                        db=db,
+                        story_id=story_id,
+                        scene_id=scene.id,
+                        scene_sequence=scene.sequence_number,
+                        scene_content=scene_content
+                    )
+                    scenes_processed += 1
+            
+            db.commit()
+            
+            logger.info(f"Recalculated entity states: restored from batch, then processed {scenes_processed} remaining scenes")
+            
+            return {
+                **restore_results,
+                "scenes_processed": scenes_processed,
+                "recalculation_successful": True
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to recalculate entity states from batches: {e}")
+            db.rollback()
+            return {
+                "characters_restored": 0,
+                "locations_restored": 0,
+                "objects_restored": 0,
+                "scenes_processed": 0,
+                "recalculation_successful": False
+            }
 
