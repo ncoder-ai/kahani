@@ -12,7 +12,7 @@ backend_dir = Path(__file__).parent
 sys.path.insert(0, str(backend_dir))
 
 from sqlalchemy import create_engine, inspect, text
-from app.config import Settings
+from app.config import settings
 from app.database import Base
 
 def update_database_schema():
@@ -20,9 +20,6 @@ def update_database_schema():
     # Ensure data directory exists
     data_dir = Path(backend_dir) / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Now load settings
-    settings = Settings()
     
     # Database file path
     db_path = data_dir / "kahani.db"

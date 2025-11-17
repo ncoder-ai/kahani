@@ -27,7 +27,7 @@ from app.models.tts_settings import TTSSettings, SceneAudio
 from app.models.tts_provider_config import TTSProviderConfig
 from app.models.semantic_memory import CharacterMemory, PlotEvent, SceneEmbedding
 from app.models.entity_state import CharacterState, LocationState, ObjectState
-from app.config import Settings
+from app.config import settings
 from passlib.context import CryptContext
 from datetime import datetime
 
@@ -43,9 +43,6 @@ def init_database():
     print(f"  - Directory exists: {data_dir.exists()}")
     print(f"  - Directory is writable: {os.access(data_dir, os.W_OK)}")
     print(f"  - Current user: {os.getuid()}")
-    
-    # Now load settings
-    settings = Settings()
     
     # Database file path
     db_path = data_dir / "kahani.db"
@@ -89,7 +86,6 @@ def init_database():
     
     try:
         # Create system settings from config.yaml defaults
-        from app.config import settings
         system_defaults = settings.system_defaults
         
         system_settings = SystemSettings(

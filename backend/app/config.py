@@ -170,7 +170,6 @@ def flatten_yaml_config(yaml_config: dict) -> dict:
     websocket_config = frontend_config.get('websocket', {})
     flattened['tts_websocket_path'] = websocket_config.get('tts_path', '/ws/tts')
     flattened['stt_websocket_path'] = websocket_config.get('stt_path', '/ws/stt')
-    flattened['extraction_model_url'] = frontend_config.get('extraction', {}).get('default_url')
     
     # Store full nested configs for access via properties
     flattened['_yaml_config'] = yaml_config
