@@ -134,6 +134,7 @@ export default function StoryPage() {
   const [showChoices, setShowChoices] = useState(true);
   const [directorMode, setDirectorMode] = useState(false);
   const [editingScene, setEditingScene] = useState<number | null>(null);
+  const [editingVariantId, setEditingVariantId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState('');
   const [dynamicChoices, setDynamicChoices] = useState<Array<{text: string, order: number}>>([]);
   const [showCharacterQuickAdd, setShowCharacterQuickAdd] = useState(false);
@@ -1310,21 +1311,36 @@ export default function StoryPage() {
     }
   };
 
-  const updateScene = async (sceneId: number, content: string) => {
+  const updateScene = async (sceneId: number, content: string, variantId?: number) => {
     try {
-      // TODO: Implement scene update API call
-      console.log('Updating scene:', { sceneId, content });
-      // For now, just update locally
+      const variantIdToUse = variantId || editingVariantId;
+      
+      if (!variantIdToUse) {
+        setError('Cannot update scene: variant ID not found');
+        return;
+      }
+
+      // Call the API to update the scene variant
+      const response = await apiClient.updateSceneVariant(storyId, sceneId, variantIdToUse, content);
+      
+      // Update local state immediately for better UX
       if (story) {
         const updatedStory = {
           ...story,
           scenes: story.scenes.map(scene => 
-            scene.id === sceneId ? { ...scene, content } : scene
+            scene.id === sceneId && scene.variant_id === variantIdToUse
+              ? { ...scene, content: response.variant.content }
+              : scene
           )
         };
         setStory(updatedStory);
       }
+      
+      // Refresh story content to get updated data (including user_edited flag)
+      await refreshStoryContent();
+      
       setEditingScene(null);
+      setEditingVariantId(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update scene');
     }
@@ -1332,6 +1348,7 @@ export default function StoryPage() {
 
   const startEditingScene = (scene: Scene) => {
     setEditingScene(scene.id);
+    setEditingVariantId(scene.variant_id || null);
     setEditContent(scene.content);
   };
 
@@ -2547,7 +2564,7 @@ export default function StoryPage() {
                           isEditing={editingScene === scene.id}
                           editContent={editContent}
                           onStartEdit={startEditingScene}
-                          onSaveEdit={(sceneId: number, content: string) => updateScene(sceneId, content)}
+                          onSaveEdit={(sceneId: number, content: string, variantId?: number) => updateScene(sceneId, content, variantId)}
                           onCancelEdit={() => setEditingScene(null)}
                           dynamicChoices={isLastSceneInStory ? dynamicChoices : []}
                           showMoreOptions={isLastSceneInStory ? showMoreOptions : false}

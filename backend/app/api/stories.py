@@ -221,6 +221,39 @@ async def trigger_auto_play_tts(scene_id: int, user_id: int):
 
 router = APIRouter()
 
+async def invalidate_extractions_for_scene(
+    scene_id: int,
+    story_id: int,
+    scene_sequence: int,
+    user_id: int,
+    user_settings: dict,
+    db: Session
+) -> None:
+    """
+    Invalidate (clean up) extractions for a modified scene without regenerating.
+    
+    Regeneration will happen automatically when extraction threshold is reached.
+    
+    This function:
+    1. Deletes all extractions for the scene (CharacterMemory, PlotEvent, NPCMention, SceneEmbedding)
+    2. Invalidates entity state batches containing the scene
+    """
+    try:
+        from ..services.semantic_integration import cleanup_scene_embeddings
+        from ..services.entity_state_service import EntityStateService
+        
+        # Invalidate extractions for the scene
+        await cleanup_scene_embeddings(scene_id, db)
+        logger.info(f"[MODIFY] Cleaned up extractions for scene {scene_id} (regeneration will happen when threshold is reached)")
+        
+        # Invalidate entity state batches containing this scene
+        entity_service = EntityStateService(user_id=user_id, user_settings=user_settings)
+        entity_service.invalidate_entity_batches_for_scenes(
+            db, story_id, scene_sequence, scene_sequence
+        )
+    except Exception as e:
+        logger.error(f"Failed to invalidate extractions for scene {scene_id}: {e}")
+
 async def invalidate_and_regenerate_extractions_for_scene(
     scene_id: int,
     story_id: int,
@@ -417,6 +450,9 @@ class VariantGenerateRequest(BaseModel):
 
 class ContinuationRequest(BaseModel):
     custom_prompt: Optional[str] = ""
+
+class SceneVariantUpdateRequest(BaseModel):
+    content: str
 
 class PlotGenerateRequest(BaseModel):
     genre: Optional[str] = ""
@@ -1983,6 +2019,7 @@ async def get_scene_variants(
             'generation_method': variant.generation_method,
             'user_rating': variant.user_rating,
             'is_favorite': variant.is_favorite,
+            'user_edited': variant.user_edited,
             'created_at': variant.created_at,
             'choices': [
                 {
@@ -2131,10 +2168,10 @@ async def create_scene_variant(
             from ..api.chapters import invalidate_chapter_batches_for_scene
             invalidate_chapter_batches_for_scene(scene_id, db)
             
-            # Invalidate and regenerate extractions for the modified scene
+            # Invalidate extractions for the modified scene (regeneration happens when threshold is reached)
             scene = db.query(Scene).filter(Scene.id == scene_id).first()
             if scene:
-                await invalidate_and_regenerate_extractions_for_scene(
+                await invalidate_extractions_for_scene(
                     scene_id=scene_id,
                     story_id=story_id,
                     scene_sequence=scene.sequence_number,
@@ -2422,10 +2459,10 @@ async def create_scene_variant_streaming(
                 from ..api.chapters import invalidate_chapter_batches_for_scene
                 invalidate_chapter_batches_for_scene(scene_id, db)
                 
-                # Invalidate and regenerate extractions for the modified scene
+                # Invalidate extractions for the modified scene (regeneration happens when threshold is reached)
                 scene = db.query(Scene).filter(Scene.id == scene_id).first()
                 if scene:
-                    await invalidate_and_regenerate_extractions_for_scene(
+                    await invalidate_extractions_for_scene(
                         scene_id=scene_id,
                         story_id=story_id,
                         scene_sequence=scene.sequence_number,
@@ -2648,8 +2685,8 @@ async def continue_scene(
         from ..api.chapters import invalidate_chapter_batches_for_scene
         invalidate_chapter_batches_for_scene(scene_id, db)
         
-        # Invalidate and regenerate extractions for the modified scene
-        await invalidate_and_regenerate_extractions_for_scene(
+        # Invalidate extractions for the modified scene (regeneration happens when threshold is reached)
+        await invalidate_extractions_for_scene(
             scene_id=scene_id,
             story_id=story_id,
             scene_sequence=scene.sequence_number,
@@ -2754,6 +2791,20 @@ async def continue_scene_streaming(
             current_variant.updated_at = datetime.utcnow()
             db.commit()
             
+            # Invalidate chapter summary batches if this scene was summarized
+            from .chapters import invalidate_chapter_batches_for_scene
+            invalidate_chapter_batches_for_scene(scene_id, db)
+            
+            # Invalidate extractions for the modified scene (regeneration happens when threshold is reached)
+            await invalidate_extractions_for_scene(
+                scene_id=scene_id,
+                story_id=story_id,
+                scene_sequence=scene.sequence_number,
+                user_id=current_user.id,
+                user_settings=user_settings,
+                db=db
+            )
+            
             # Generate choices for continuation if parsed, otherwise use fallback
             choices_data = []
             if parsed_choices and len(parsed_choices) >= 2:
@@ -2793,6 +2844,235 @@ async def continue_scene_streaming(
             "Content-Type": "text/event-stream"
         }
     )
+
+
+@router.put("/{story_id}/scenes/{scene_id}/variants/{variant_id}")
+async def update_scene_variant(
+    story_id: int,
+    scene_id: int,
+    variant_id: int,
+    request: SceneVariantUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update scene variant content after manual editing"""
+    
+    # Verify story ownership
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found"
+        )
+    
+    # Verify scene belongs to story
+    scene = db.query(Scene).filter(
+        Scene.id == scene_id,
+        Scene.story_id == story_id
+    ).first()
+    
+    if not scene:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scene not found"
+        )
+    
+    # Verify variant belongs to scene
+    variant = db.query(SceneVariant).filter(
+        SceneVariant.id == variant_id,
+        SceneVariant.scene_id == scene_id
+    ).first()
+    
+    if not variant:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scene variant not found"
+        )
+    
+    # Get user settings
+    user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+    
+    try:
+        # Store original content if this is the first edit
+        if not variant.user_edited and not variant.original_content:
+            variant.original_content = variant.content
+        
+        # Update variant content
+        variant.content = request.content
+        variant.user_edited = True
+        variant.updated_at = datetime.utcnow()
+        
+        # Update edit history
+        if not variant.edit_history:
+            variant.edit_history = []
+        variant.edit_history.append({
+            "timestamp": datetime.utcnow().isoformat(),
+            "content_length": len(request.content)
+        })
+        
+        db.commit()
+        db.refresh(variant)
+        
+        # Invalidate chapter summary batches if this scene was summarized
+        from .chapters import invalidate_chapter_batches_for_scene
+        invalidate_chapter_batches_for_scene(scene_id, db)
+        
+        # Only invalidate extractions (clean up old ones), don't regenerate
+        # Regeneration will happen automatically when extraction threshold is reached
+        from ..services.semantic_integration import cleanup_scene_embeddings
+        from ..services.entity_state_service import EntityStateService
+        await cleanup_scene_embeddings(scene_id, db)
+        logger.info(f"[MODIFY] Cleaned up extractions for scene {scene_id} (regeneration will happen when threshold is reached)")
+        
+        # Invalidate entity state batches containing this scene
+        entity_service = EntityStateService(user_id=current_user.id, user_settings=user_settings)
+        entity_service.invalidate_entity_batches_for_scenes(
+            db, story_id, scene.sequence_number, scene.sequence_number
+        )
+        
+        return {
+            "message": "Scene variant updated successfully",
+            "variant": {
+                "id": variant.id,
+                "content": variant.content,
+                "user_edited": variant.user_edited,
+                "updated_at": variant.updated_at.isoformat() if variant.updated_at else None
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to update scene variant {variant_id}: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update scene variant: {str(e)}"
+        )
+
+
+@router.post("/{story_id}/scenes/{scene_id}/variants/{variant_id}/regenerate-choices")
+async def regenerate_scene_variant_choices(
+    story_id: int,
+    scene_id: int,
+    variant_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Regenerate choices for a scene variant after manual editing"""
+    
+    # Verify story ownership
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found"
+        )
+    
+    # Verify scene belongs to story
+    scene = db.query(Scene).filter(
+        Scene.id == scene_id,
+        Scene.story_id == story_id
+    ).first()
+    
+    if not scene:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scene not found"
+        )
+    
+    # Verify variant belongs to scene
+    variant = db.query(SceneVariant).filter(
+        SceneVariant.id == variant_id,
+        SceneVariant.scene_id == scene_id
+    ).first()
+    
+    if not variant:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scene variant not found"
+        )
+    
+    # Get user settings
+    user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+    
+    try:
+        # Verify we're using the correct variant
+        logger.info(f"[REGENERATE_CHOICES] Regenerating choices for variant {variant_id} (scene {scene_id}, story {story_id})")
+        logger.info(f"[REGENERATE_CHOICES] Variant details: id={variant.id}, variant_number={variant.variant_number}, content_length={len(variant.content)}")
+        
+        # Build context for choice generation (same as in create_scene_variant)
+        context_manager = ContextManager(user_settings=user_settings, user_id=current_user.id)
+        choice_context = await context_manager.build_choice_generation_context(story_id, db)
+        
+        # Generate new choices using the same fallback logic
+        generated_choices = await llm_service.generate_choices(
+            variant.content, 
+            choice_context, 
+            current_user.id, 
+            user_settings
+        )
+        
+        # Delete existing choices for this specific variant (using variant_id to ensure we target the correct one)
+        deleted_count = db.query(SceneChoice).filter(
+            SceneChoice.scene_variant_id == variant_id
+        ).delete()
+        logger.info(f"[REGENERATE_CHOICES] Deleted {deleted_count} existing choices for variant {variant_id}")
+        
+        # Create new choice records - explicitly use variant.id to ensure correct linkage
+        choices_data = []
+        for idx, choice_text in enumerate(generated_choices, 1):
+            choice = SceneChoice(
+                scene_id=scene_id,
+                scene_variant_id=variant.id,  # Explicitly use variant.id to ensure correct linkage
+                choice_text=choice_text,
+                choice_order=idx
+            )
+            db.add(choice)
+            choices_data.append({
+                "id": None,  # Will be set after commit
+                "text": choice_text,
+                "order": idx
+            })
+        
+        db.commit()
+        logger.info(f"[REGENERATE_CHOICES] Committed {len(choices_data)} new choices to database for variant {variant.id}")
+        
+        # Refresh to get IDs and verify choices were saved correctly
+        db.refresh(variant)
+        saved_choices = db.query(SceneChoice).filter(
+            SceneChoice.scene_variant_id == variant.id
+        ).order_by(SceneChoice.choice_order).all()
+        
+        logger.info(f"[REGENERATE_CHOICES] Verified: {len(saved_choices)} choices now linked to variant {variant.id}")
+        
+        # Update choice_data with actual IDs
+        for choice in saved_choices:
+            for choice_data in choices_data:
+                if choice.choice_text == choice_data["text"] and choice.choice_order == choice_data["order"]:
+                    choice_data["id"] = choice.id
+                    break
+        
+        logger.info(f"[REGENERATE_CHOICES] Successfully regenerated {len(choices_data)} choices for variant {variant.id}")
+        
+        return {
+            "message": "Choices regenerated successfully",
+            "choices": choices_data
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to regenerate choices for variant {variant_id}: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to regenerate choices: {str(e)}"
+        )
 
 
 @router.delete("/{story_id}/scenes/from/{sequence_number}")
