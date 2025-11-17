@@ -21,7 +21,7 @@ interface SceneDisplayProps {
   isEditing: boolean;
   editContent: string;
   onStartEdit: (scene: Scene) => void;
-  onSaveEdit: (sceneId: number, content: string) => void;
+  onSaveEdit: (sceneId: number, content: string, variantId?: number) => void | Promise<void>;
   onCancelEdit: () => void;
   onContentChange: (content: string) => void;
   streamingContinuation?: string;
@@ -174,7 +174,7 @@ export default function SceneDisplay({
           )}
           <div className="flex space-x-2">
             <button
-              onClick={() => onSaveEdit(scene.id, editContent)}
+              onClick={() => onSaveEdit(scene.id, editContent, scene.variant_id)}
               className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md text-sm transition-colors"
             >
               Save

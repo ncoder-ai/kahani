@@ -16,6 +16,7 @@ interface SceneVariant {
   generation_method: string;
   user_rating?: number;
   is_favorite: boolean;
+  user_edited?: boolean;
   created_at: string;
   choices: Array<{
     id: number;
@@ -53,7 +54,7 @@ interface SceneVariantDisplayProps {
   isEditing: boolean;
   editContent: string;
   onStartEdit: (scene: Scene) => void;
-  onSaveEdit: (sceneId: number, content: string) => void;
+  onSaveEdit: (sceneId: number, content: string, variantId?: number) => void | Promise<void>;
   onCancelEdit: () => void;
   onContentChange: (content: string) => void;
   isRegenerating: boolean;
@@ -142,6 +143,7 @@ export default function SceneVariantDisplay({
   const [variants, setVariants] = useState<SceneVariant[]>([]);
   const [currentVariantId, setCurrentVariantId] = useState<number | null>(null);
   const [isLoadingVariants, setIsLoadingVariants] = useState(false);
+  const [isRegeneratingChoices, setIsRegeneratingChoices] = useState(false);
   const [showGuidedOptions, setShowGuidedOptions] = useState(false);
   const sceneContentRef = useRef<HTMLDivElement>(null);
   const hasLoadedVariantsRef = useRef<Set<number>>(new Set());
@@ -483,6 +485,45 @@ export default function SceneVariantDisplay({
     return variants.find(v => v.id === currentVariantId) || null;
   };
 
+  // Regenerate choices for the current variant
+  const handleRegenerateChoices = async () => {
+    if (!currentVariantId) {
+      console.error('[RegenerateChoices] No current variant ID available');
+      alert('Cannot regenerate choices: no variant selected');
+      return;
+    }
+    
+    // Get the current variant to verify it exists
+    const currentVariant = getCurrentVariant();
+    if (!currentVariant) {
+      console.error('[RegenerateChoices] Current variant not found in variants list');
+      alert('Cannot regenerate choices: variant not found');
+      return;
+    }
+    
+    console.log(`[RegenerateChoices] Regenerating choices for variant ${currentVariantId} (variant #${currentVariant.variant_number})`);
+    
+    setIsRegeneratingChoices(true);
+    try {
+      const response = await apiClient.regenerateSceneVariantChoices(storyId, scene.id, currentVariantId);
+      
+      console.log(`[RegenerateChoices] Successfully regenerated ${response.choices.length} choices for variant ${currentVariantId}`);
+      
+      // Reload variants to get updated choices
+      await loadVariants();
+      
+      // Notify parent to refresh story content
+      if (onVariantChanged) {
+        onVariantChanged();
+      }
+    } catch (error) {
+      console.error('[RegenerateChoices] Failed to regenerate choices:', error);
+      alert('Failed to regenerate choices. Please try again.');
+    } finally {
+      setIsRegeneratingChoices(false);
+    }
+  };
+
   // Create a scene object with the current variant's content
   const getDisplayScene = (): Scene => {
     // If streaming a variant regeneration, show the streaming content
@@ -502,7 +543,8 @@ export default function SceneVariantDisplay({
         ...scene,
         content: currentVariant.content,
         title: currentVariant.title,
-        choices: currentVariant.choices
+        choices: currentVariant.choices,
+        variant_id: currentVariant.id
       };
     }
     return scene;
@@ -525,7 +567,11 @@ export default function SceneVariantDisplay({
           isEditing={isEditing}
           editContent={editContent}
           onStartEdit={onStartEdit}
-          onSaveEdit={onSaveEdit}
+          onSaveEdit={async (sceneId, content, variantId) => {
+            await onSaveEdit(sceneId, content, variantId);
+            // Reload variants after save to get updated user_edited flag
+            await loadVariants();
+          }}
         onCancelEdit={onCancelEdit}
         onContentChange={onContentChange}
         streamingContinuation={streamingContinuation}
@@ -759,6 +805,29 @@ export default function SceneVariantDisplay({
                   <div className="animate-pulse">Loading story choices...</div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Regenerate Choices Button - Show for last scene if variant has been manually edited */}
+          {isLastScene && getCurrentVariant()?.user_edited && (
+            <div className="mb-4 flex justify-center">
+              <button
+                onClick={handleRegenerateChoices}
+                disabled={isRegeneratingChoices || isGenerating || isStreaming || isRegenerating}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md text-sm transition-colors flex items-center space-x-2"
+              >
+                {isRegeneratingChoices ? (
+                  <>
+                    <span className="animate-spin">⚡</span>
+                    <span>Regenerating choices...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>🔄</span>
+                    <span>Regenerate Choices</span>
+                  </>
+                )}
+              </button>
             </div>
           )}
 
