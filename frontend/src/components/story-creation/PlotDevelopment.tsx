@@ -71,6 +71,16 @@ export default function PlotDevelopment({ storyData, onUpdate, onNext, onBack }:
   const generateCompletePlot = async () => {
     setIsGeneratingComplete(true);
     try {
+      console.log('=== PLOT GENERATION REQUEST ===');
+      console.log('Request data:', {
+        genre: storyData.genre,
+        tone: storyData.tone,
+        scenario: storyData.scenario,
+        characters: storyData.characters || [],
+        world_setting: worldSetting,
+        plot_type: 'complete'
+      });
+
       const response = await apiClient.generatePlot({
         genre: storyData.genre,
         tone: storyData.tone,
@@ -80,12 +90,31 @@ export default function PlotDevelopment({ storyData, onUpdate, onNext, onBack }:
         plot_type: 'complete'
       });
 
+      console.log('=== PLOT GENERATION RESPONSE ===');
+      console.log('Full response:', response);
+      console.log('Response plot_points:', response?.plot_points);
+      console.log('Response plot_points count:', response?.plot_points?.length);
+      console.log('Response message:', response?.message);
+
       if (response && response.plot_points) {
+        console.log('Setting plot points:', response.plot_points);
         setPlotPoints(response.plot_points);
         onUpdate({ plot_points: response.plot_points });
+        console.log('Plot points updated successfully');
+      } else {
+        console.warn('No plot_points in response or response is invalid');
+        console.warn('Response structure:', JSON.stringify(response, null, 2));
       }
     } catch (error) {
+      console.error('=== PLOT GENERATION ERROR ===');
       console.error('Failed to generate complete plot:', error);
+      if (error instanceof Error) {
+        console.error('Error message:', error.message);
+        console.error('Error stack:', error.stack);
+      }
+      if (typeof error === 'object' && error !== null) {
+        console.error('Error details:', JSON.stringify(error, null, 2));
+      }
       // Keep existing plot points on error
     } finally {
       setIsGeneratingComplete(false);
@@ -95,6 +124,17 @@ export default function PlotDevelopment({ storyData, onUpdate, onNext, onBack }:
   const generateSinglePlotPoint = async (index: number) => {
     setGeneratingPointIndex(index);
     try {
+      console.log(`=== SINGLE PLOT POINT GENERATION (index ${index}) ===`);
+      console.log('Request data:', {
+        genre: storyData.genre,
+        tone: storyData.tone,
+        scenario: storyData.scenario,
+        characters: storyData.characters || [],
+        world_setting: worldSetting,
+        plot_type: 'single_point',
+        plot_point_index: index
+      });
+
       const response = await apiClient.generatePlot({
         genre: storyData.genre,
         tone: storyData.tone,
@@ -105,11 +145,22 @@ export default function PlotDevelopment({ storyData, onUpdate, onNext, onBack }:
         plot_point_index: index
       });
 
+      console.log('Response:', response);
+      console.log('Response plot_point:', response?.plot_point);
+
       if (response && response.plot_point) {
+        console.log(`Setting plot point ${index} to:`, response.plot_point);
         handlePlotPointChange(index, response.plot_point);
+        console.log(`Plot point ${index} updated successfully`);
+      } else {
+        console.warn(`No plot_point in response for index ${index}`);
       }
     } catch (error) {
+      console.error(`=== PLOT POINT GENERATION ERROR (index ${index}) ===`);
       console.error('Failed to generate plot point:', error);
+      if (error instanceof Error) {
+        console.error('Error message:', error.message);
+      }
       // Fallback to old suggestion system
       generatePlotSuggestion(index);
     } finally {

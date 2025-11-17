@@ -327,14 +327,19 @@ plot_generation:
       6. Incorporates the genre and tone seamlessly
       7. Creates opportunities for character growth and conflict
       
-      Provide exactly 5 plot points in this order:
-      1. Opening Hook - How the story begins with character-specific elements
-      2. Inciting Incident - The event that sets everything in motion for THESE characters
-      3. Rising Action - Character-specific challenges and conflicts
-      4. Climax - The ultimate confrontation involving these characters' arcs
-      5. Resolution - How these specific characters' journeys conclude
+      You MUST return ONLY valid JSON in this exact format:
+      {{
+        "plot_points": [
+          "Opening Hook description (2-3 sentences)",
+          "Inciting Incident description (2-3 sentences)",
+          "Rising Action description (2-3 sentences)",
+          "Climax description (2-3 sentences)",
+          "Resolution description (2-3 sentences)"
+        ]
+      }}
       
-      Write each plot point as 2-3 sentences. Focus on how the plot serves these specific characters' growth and relationships.
+      Each plot point should be 2-3 sentences. Focus on how the plot serves these specific characters' growth and relationships.
+      Return ONLY the JSON object, no other text, no markdown formatting, no code blocks.
     
     user: |
       Based on these story elements:
@@ -343,13 +348,16 @@ plot_generation:
       
       Generate a complete 5-point plot structure that weaves these characters' personal journeys into a compelling narrative arc. Each plot point should advance both the external story and the internal character development.
       
-      Plot Structure:
-      
-      1. Opening Hook:
-      2. Inciting Incident:
-      3. Rising Action:
-      4. Climax:
-      5. Resolution:
+      Return ONLY valid JSON in this format:
+      {{
+        "plot_points": [
+          "Opening Hook: [2-3 sentences describing how the story begins with character-specific elements]",
+          "Inciting Incident: [2-3 sentences describing the event that sets everything in motion for these characters]",
+          "Rising Action: [2-3 sentences describing character-specific challenges and conflicts]",
+          "Climax: [2-3 sentences describing the ultimate confrontation involving these characters' arcs]",
+          "Resolution: [2-3 sentences describing how these specific characters' journeys conclude]"
+        ]
+      }}
 
   single_plot_point:
     system: |

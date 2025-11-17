@@ -1827,29 +1827,60 @@ async def generate_plot_endpoint(
         user_settings['allow_nsfw'] = current_user.allow_nsfw
         
         # Generate plot using LLM
-        if request.plot_type == "complete":
-            plot_points = await llm_service.generate_plot_points(context, current_user.id, user_settings, plot_type="complete")
-            return {
-                "plot_points": plot_points,
-                "message": "Complete plot generated successfully"
-            }
-        else:
-            plot_point = await llm_service.generate_plot_points(context, current_user.id, user_settings, plot_type="single")
-            return {
-                "plot_point": plot_point,
-                "message": "Plot point generated successfully"
-            }
+        try:
+            if request.plot_type == "complete":
+                plot_points = await llm_service.generate_plot_points(context, current_user.id, user_settings, plot_type="complete")
+                
+                # Validate that we got plot points
+                if not plot_points or len(plot_points) == 0:
+                    logger.error("Plot generation returned empty plot_points list")
+                    raise ValueError("Failed to parse plot points from LLM response")
+                
+                logger.info(f"Successfully generated {len(plot_points)} plot points for user {current_user.id}")
+                return {
+                    "plot_points": plot_points,
+                    "message": "Complete plot generated successfully"
+                }
+            else:
+                plot_point_result = await llm_service.generate_plot_points(context, current_user.id, user_settings, plot_type="single")
+                
+                # Handle single plot point (returns a list with one element)
+                plot_point = plot_point_result[0] if isinstance(plot_point_result, list) and len(plot_point_result) > 0 else str(plot_point_result) if plot_point_result else ""
+                
+                if not plot_point or len(plot_point.strip()) == 0:
+                    logger.error("Plot generation returned empty plot_point")
+                    raise ValueError("Failed to generate plot point from LLM response")
+                
+                logger.info(f"Successfully generated single plot point for user {current_user.id}")
+                return {
+                    "plot_point": plot_point,
+                    "message": "Plot point generated successfully"
+                }
+        except (ValueError, AttributeError, IndexError, TypeError) as parse_error:
+            # These are likely parsing errors
+            logger.error(f"Plot parsing error for user {current_user.id}: {parse_error}")
+            logger.error(f"Parse error type: {type(parse_error).__name__}")
+            logger.error(f"Context: plot_type={request.plot_type}, plot_point_index={request.plot_point_index}")
+            logger.error(f"Full traceback:", exc_info=True)
+            
+            # Return meaningful error to frontend
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to parse plot points from LLM response: {str(parse_error)}. Check backend logs for details."
+            )
         
     except ValueError as e:
         # This handles validation errors (like missing API URL)
+        logger.error(f"Plot generation validation error for user {current_user.id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
-        logger.error(f"Plot generation error: {e}")
+        logger.error(f"Plot generation error for user {current_user.id}: {e}")
         logger.error(f"Error type: {type(e).__name__}")
         logger.error(f"Full traceback:", exc_info=True)
+        
         # Fallback plot points
         fallback_points = [
             "The story begins with an intriguing hook that draws readers in.",
@@ -1860,15 +1891,17 @@ async def generate_plot_endpoint(
         ]
         
         if request.plot_type == "complete":
+            logger.warning(f"Using fallback plot points for user {current_user.id}")
             return {
                 "plot_points": fallback_points,
-                "message": "Plot generated (fallback mode)"
+                "message": "Plot generated (fallback mode due to error)"
             }
         else:
             index = request.plot_point_index or 0
+            logger.warning(f"Using fallback plot point for user {current_user.id}, index {index}")
             return {
                 "plot_point": fallback_points[min(index, len(fallback_points)-1)],
-                "message": "Plot point generated (fallback mode)"
+                "message": "Plot point generated (fallback mode due to error)"
             }
 
 # ====== NEW SCENE VARIANT ENDPOINTS ======
