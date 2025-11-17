@@ -487,6 +487,19 @@ class ApiClient {
     });
   }
 
+  async updateSceneVariant(storyId: number, sceneId: number, variantId: number, content: string) {
+    return this.request<{ message: string; variant: { id: number; content: string; user_edited: boolean; updated_at: string | null } }>(`/api/stories/${storyId}/scenes/${sceneId}/variants/${variantId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    });
+  }
+
+  async regenerateSceneVariantChoices(storyId: number, sceneId: number, variantId: number) {
+    return this.request<{ message: string; choices: Array<{ id: number | null; text: string; order: number }> }>(`/api/stories/${storyId}/scenes/${sceneId}/variants/${variantId}/regenerate-choices`, {
+      method: 'POST',
+    });
+  }
+
   // Scene Continuation
   async continueScene(storyId: number, sceneId: number, customPrompt?: string) {
     return this.request<{ message: string; scene: any }>(`/api/stories/${storyId}/scenes/${sceneId}/continue`, {

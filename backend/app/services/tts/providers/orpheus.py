@@ -1,11 +1,8 @@
 """
-OpenAI-Compatible TTS Provider
+Orpheus TTS Provider
 
-Supports OpenAI TTS API format and compatible services like:
-- Kokoro FastAPI
-- ChatterboxTTS
-- OpenAI TTS
-- LM Studio TTS
+Supports Orpheus TTS API format and compatible services.
+Uses the same OpenAI-compatible API format.
 """
 
 import httpx
@@ -24,18 +21,17 @@ from ..registry import TTSProviderRegistry
 logger = logging.getLogger(__name__)
 
 
-@TTSProviderRegistry.register("openai-compatible")
-class OpenAICompatibleProvider(TTSProviderBase):
+@TTSProviderRegistry.register("orpheus")
+class OrpheusProvider(TTSProviderBase):
     """
-    OpenAI-compatible TTS provider.
+    Orpheus TTS provider.
     
-    Works with OpenAI API, Kokoro FastAPI, ChatterboxTTS, and other
-    OpenAI-compatible endpoints.
+    Works with Orpheus TTS API and other OpenAI-compatible endpoints.
     """
     
     @property
     def provider_name(self) -> str:
-        return "openai-compatible"
+        return "orpheus"
     
     @property
     def supported_formats(self) -> List[AudioFormat]:
@@ -313,3 +309,4 @@ class OpenAICompatibleProvider(TTSProviderBase):
         bitrate = bitrates.get(format, 128000)
         duration = (file_size * 8) / bitrate
         return duration
+
