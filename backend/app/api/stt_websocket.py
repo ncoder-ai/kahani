@@ -222,6 +222,8 @@ async def create_stt_session(
         if not user_settings:
             # Create default settings for new user
             user_settings = UserSettings(user_id=current_user.id)
+            # Populate with defaults from config.yaml
+            user_settings.populate_from_defaults()
             db.add(user_settings)
             db.commit()
             db.refresh(user_settings)

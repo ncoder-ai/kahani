@@ -394,10 +394,12 @@ def get_or_create_user_settings(user_id: int, db: Session, current_user: User = 
     else:
         # Create default UserSettings for this user if none exist
         user_settings_db = UserSettings(user_id=user_id)
+        # Populate with defaults from config.yaml
+        user_settings_db.populate_from_defaults()
         db.add(user_settings_db)
         db.commit()
         db.refresh(user_settings_db)
-        logger.info(f"Created default UserSettings for user {user_id}")
+        logger.info(f"Created default UserSettings for user {user_id} with values from config.yaml")
         user_settings = user_settings_db.to_dict()
     
     # Add user permissions to settings for NSFW filtering if current_user is provided
@@ -553,6 +555,8 @@ def update_last_accessed_story(db: Session, user_id: int, story_id: int):
     
     if not user_settings:
         user_settings = UserSettings(user_id=user_id)
+        # Populate with defaults from config.yaml
+        user_settings.populate_from_defaults()
         db.add(user_settings)
     
     user_settings.last_accessed_story_id = story_id
