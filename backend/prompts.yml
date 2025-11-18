@@ -96,18 +96,9 @@ story_generation:
       - Any form of reader interaction or decision points
       
       Simply tell the story. End with action, dialogue, or description - never with reader prompts.
-    
-    user: |
-      Story Context:
-      {context}
       
-      Generate the next scene in this story. Make it engaging and immersive, {scene_length_description}.
-      Ensure the scene flows naturally from the previous events.
-      
-      IMPORTANT: Write ONLY the story content. Do not include any choices, options, or questions for the reader. 
-      This should be pure narrative - just tell what happens next in the story.
-      
-      After completing the scene narrative, add EXACTLY this line:
+      CHOICES GENERATION REQUIREMENTS:
+      After completing the scene narrative, you must add EXACTLY this line:
       ###CHOICES###
       
       Then provide exactly {choices_count} compelling narrative choices as a JSON array. Each choice should:
@@ -122,6 +113,18 @@ story_generation:
       Example: "Jack approaches the door cautiously" NOT "I approach the door cautiously" or "You approach the door cautiously"
       
       Format: Provide exactly {choices_count} choices as a JSON array: ["Choice 1 text here", "Choice 2 text here", ...]
+    
+    user: |
+      Story Context:
+      {context}
+      
+      Generate the next scene in this story. Make it engaging and immersive, {scene_length_description}.
+      Ensure the scene flows naturally from the previous events.
+      
+      IMPORTANT: Write ONLY the story content. Do not include any choices, options, or questions for the reader. 
+      This should be pure narrative - just tell what happens next in the story.
+      
+      After completing the scene narrative, add the ###CHOICES### marker and provide the choices as specified in the system instructions.
 
   scene_guided_enhancement:
     system: |
@@ -165,6 +168,23 @@ story_generation:
       - Any form of reader interaction or decision points
       
       Simply tell the story. End with action, dialogue, or description - never with reader prompts.
+      
+      CHOICES GENERATION REQUIREMENTS:
+      After completing the scene narrative, you must add EXACTLY this line:
+      ###CHOICES###
+      
+      Then provide exactly {choices_count} compelling narrative choices as a JSON array. Each choice should:
+      1. Offer meaningfully different story directions
+      2. Be specific to the current scene and context
+      3. Give readers genuine agency in the narrative
+      4. Vary in risk/consequence level
+      5. Be concise but evocative (1-2 sentences each)
+      6. Match the story's POV - use third person (he/she/they/character name) NOT first person (I/me/my) or second person (you/your)
+      
+      IMPORTANT: Write choices in THIRD PERSON perspective describing what the character does, NOT what "I do" or "you do".
+      Example: "Jack approaches the door cautiously" NOT "I approach the door cautiously" or "You approach the door cautiously"
+      
+      Format: Provide exactly {choices_count} choices as a JSON array: ["Choice 1 text here", "Choice 2 text here", ...]
     
     user: |
       Story Context:
@@ -188,21 +208,7 @@ story_generation:
       IMPORTANT: Write ONLY the story content. Do not include any choices, options, or questions for the reader. 
       This should be pure narrative - just tell what happens in the enhanced scene.
       
-      After completing the scene narrative, add EXACTLY this line:
-      ###CHOICES###
-      
-      Then provide exactly {choices_count} compelling narrative choices as a JSON array. Each choice should:
-      1. Offer meaningfully different story directions
-      2. Be specific to the current scene and context
-      3. Give readers genuine agency in the narrative
-      4. Vary in risk/consequence level
-      5. Be concise but evocative (1-2 sentences each)
-      6. Match the story's POV - use third person (he/she/they/character name) NOT first person (I/me/my) or second person (you/your)
-      
-      IMPORTANT: Write choices in THIRD PERSON perspective describing what the character does, NOT what "I do" or "you do".
-      Example: "Jack approaches the door cautiously" NOT "I approach the door cautiously" or "You approach the door cautiously"
-      
-      Format: Provide exactly {choices_count} choices as a JSON array: ["Choice 1 text here", "Choice 2 text here", ...]
+      After completing the scene narrative, add the ###CHOICES### marker and provide the choices as specified in the system instructions.
 
   scene_continuation:
     system: |
@@ -474,6 +480,23 @@ summary_generation:
       - Create a different narrative direction while maintaining story consistency
       - The variant should feel like a natural alternative that could have happened at this point in the story
       - Start from the same story context as the original scene
+      
+      CHOICES GENERATION REQUIREMENTS:
+      After completing the scene narrative, you must add EXACTLY this line:
+      ###CHOICES###
+      
+      Then provide exactly {choices_count} compelling narrative choices as a JSON array. Each choice should:
+      1. Offer meaningfully different story directions
+      2. Be specific to the current scene and context
+      3. Give readers genuine agency in the narrative
+      4. Vary in risk/consequence level
+      5. Be concise but evocative (1-2 sentences each)
+      6. Match the story's POV - use third person (he/she/they/character name) NOT first person (I/me/my) or second person (you/your)
+      
+      IMPORTANT: Write choices in THIRD PERSON perspective describing what the character does, NOT what "I do" or "you do".
+      Example: "Jack approaches the door cautiously" NOT "I approach the door cautiously" or "You approach the door cautiously"
+      
+      Format: Provide exactly {choices_count} choices as a JSON array: ["Choice 1 text here", "Choice 2 text here", ...]
     
     user: |
       Original Scene to Regenerate:
@@ -494,21 +517,7 @@ summary_generation:
       IMPORTANT: Write ONLY the story content. Do not include any choices, options, or questions for the reader. 
       This should be pure narrative - just tell what happens in this alternative version of the scene.
       
-      After completing the scene narrative, add EXACTLY this line:
-      ###CHOICES###
-      
-      Then provide exactly {choices_count} compelling narrative choices as a JSON array. Each choice should:
-      1. Offer meaningfully different story directions
-      2. Be specific to the current scene and context
-      3. Give readers genuine agency in the narrative
-      4. Vary in risk/consequence level
-      5. Be concise but evocative (1-2 sentences each)
-      6. Match the story's POV - use third person (he/she/they/character name) NOT first person (I/me/my) or second person (you/your)
-      
-      IMPORTANT: Write choices in THIRD PERSON perspective describing what the character does, NOT what "I do" or "you do".
-      Example: "Jack approaches the door cautiously" NOT "I approach the door cautiously" or "You approach the door cautiously"
-      
-      Format: Provide exactly {choices_count} choices as a JSON array: ["Choice 1 text here", "Choice 2 text here", ...]
+      After completing the scene narrative, add the ###CHOICES### marker and provide the choices as specified in the system instructions.
 
 chapter_conclusion:
   system: |
