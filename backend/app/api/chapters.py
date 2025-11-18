@@ -590,6 +590,8 @@ async def conclude_chapter(
         if not user_settings_obj:
             # Create default settings if none exist
             user_settings_obj = UserSettings(user_id=current_user.id)
+            # Populate with defaults from config.yaml
+            user_settings_obj.populate_from_defaults()
             db.add(user_settings_obj)
             db.commit()
             db.refresh(user_settings_obj)

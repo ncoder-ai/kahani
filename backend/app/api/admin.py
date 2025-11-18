@@ -581,6 +581,14 @@ async def create_user(
     db.commit()
     db.refresh(user)
     
+    # Create UserSettings with defaults from config.yaml
+    from ..models.user_settings import UserSettings
+    user_settings = UserSettings(user_id=user.id)
+    user_settings.populate_from_defaults()
+    db.add(user_settings)
+    db.commit()
+    logger.info(f"Created UserSettings with defaults for user {user.id}")
+    
     logger.info(f"Admin {current_user.id} created new user {user.id} ({user.username})")
     
     return {
