@@ -50,6 +50,12 @@ class ContextManager:
             self.summary_threshold_tokens = getattr(settings, "context_summary_threshold_tokens", 10000)
             self.enable_summarization = True
         
+        # Ensure max_tokens has a valid default (4000 from config.yaml)
+        # This can be None if user_settings.context_max_tokens is explicitly set to None
+        if self.max_tokens is None:
+            self.max_tokens = 4000
+            logger.warning(f"max_tokens was None, using default value of 4000")
+        
         # Apply token buffer for safety margin
         self.context_token_buffer = settings.context_token_buffer
         self.effective_max_tokens = int(self.max_tokens * self.context_token_buffer)
