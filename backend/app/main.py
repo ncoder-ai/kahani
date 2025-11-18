@@ -42,16 +42,25 @@ import os
 
 # Configure logging
 os.makedirs(os.path.dirname(settings.log_file), exist_ok=True)
+log_level = getattr(logging, settings.log_level.upper(), logging.ERROR)
 logging.basicConfig(
-    level=getattr(logging, settings.log_level.upper()),
+    level=log_level,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.FileHandler(settings.log_file),
         logging.StreamHandler()
-    ]
+    ],
+    force=True  # Force reconfiguration even if already configured
 )
 
+# Explicitly set root logger and all handlers to the configured level
+root_logger = logging.getLogger()
+root_logger.setLevel(log_level)
+for handler in root_logger.handlers:
+    handler.setLevel(log_level)
+
 logger = logging.getLogger(__name__)
+logger.setLevel(log_level)
 
 # NOTE: We do NOT create tables here anymore! 
 # Database schema is managed by Alembic migrations.
