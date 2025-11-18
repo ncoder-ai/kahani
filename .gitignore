@@ -282,6 +282,7 @@ backend/app/Raw-Response.txt
 # Backup files
 *.bak
 *.backup*
+*.bundle
 migrations_backup/
 
 # Log files (additional patterns)
