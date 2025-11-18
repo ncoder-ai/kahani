@@ -116,8 +116,17 @@ setup_python_env() {
     pip install --upgrade pip
     
     # Install Python dependencies
+    # Use requirements-baremetal.txt for bare-metal installations (includes torch and sentence-transformers)
+    # Docker installations should use Dockerfile which handles dependencies differently
     log_info "Installing Python dependencies..."
-    pip install -r backend/requirements.txt
+    if [[ -f "backend/requirements-baremetal.txt" ]]; then
+        log_info "Using bare-metal requirements (includes PyTorch and sentence-transformers)..."
+        pip install -r backend/requirements-baremetal.txt
+    else
+        log_warning "requirements-baremetal.txt not found, falling back to requirements.txt"
+        log_warning "Note: torch and sentence-transformers may need to be installed separately"
+        pip install -r backend/requirements.txt
+    fi
     
     log_success "Python environment setup complete"
 }
