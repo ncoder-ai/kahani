@@ -78,7 +78,7 @@ class SemanticContextManager(ContextManager):
             self.enable_semantic = False
             self.context_strategy = "linear"
     
-    async def build_story_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None) -> Dict[str, Any]:
+    async def build_story_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None, exclude_scene_id: Optional[int] = None) -> Dict[str, Any]:
         """
         Build optimized context using hybrid strategy if enabled
         
@@ -86,18 +86,19 @@ class SemanticContextManager(ContextManager):
             story_id: Story ID
             db: Database session
             chapter_id: Optional chapter ID to separate active/inactive characters
+            exclude_scene_id: Optional scene ID to exclude from context (for regeneration)
             
         Returns:
             Optimized context dictionary
         """
         # If semantic memory is disabled, use parent class method
         if not self.enable_semantic or self.context_strategy == "linear":
-            return await super().build_story_context(story_id, db, chapter_id=chapter_id)
+            return await super().build_story_context(story_id, db, chapter_id=chapter_id, exclude_scene_id=exclude_scene_id)
         
         # Use hybrid strategy
-        return await self._build_hybrid_context(story_id, db, chapter_id=chapter_id)
+        return await self._build_hybrid_context(story_id, db, chapter_id=chapter_id, exclude_scene_id=exclude_scene_id)
     
-    async def _build_hybrid_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None) -> Dict[str, Any]:
+    async def _build_hybrid_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None, exclude_scene_id: Optional[int] = None) -> Dict[str, Any]:
         """
         Build hybrid context combining recent scenes with semantically relevant past
         
@@ -113,6 +114,7 @@ class SemanticContextManager(ContextManager):
             story_id: Story ID
             db: Database session
             chapter_id: Optional chapter ID to separate active/inactive characters
+            exclude_scene_id: Optional scene ID to exclude from context (for regeneration)
         """
         from ..models import Story
         
@@ -121,9 +123,36 @@ class SemanticContextManager(ContextManager):
         if not story:
             raise ValueError(f"Story {story_id} not found")
         
+        # If exclude_scene_id is provided, get scenes from StoryFlow that come before it
+        if exclude_scene_id:
+            # Get the scene being excluded to find its sequence_number
+            excluded_scene = db.query(Scene).filter(Scene.id == exclude_scene_id).first()
+            if excluded_scene:
+                # Query StoryFlow for all active entries with sequence_number < excluded_scene.sequence_number
+                flow_entries = db.query(StoryFlow).filter(
+                    StoryFlow.story_id == story_id,
+                    StoryFlow.is_active == True,
+                    StoryFlow.sequence_number < excluded_scene.sequence_number
+                ).order_by(StoryFlow.sequence_number).all()
+                
+                # Get Scene objects from the flow entries
+                scene_ids = [flow.scene_id for flow in flow_entries]
+                if scene_ids:
+                    scenes = db.query(Scene).filter(
+                        Scene.id.in_(scene_ids)
+                    ).order_by(Scene.sequence_number).all()
+                else:
+                    scenes = []
+                logger.info(f"[SEMANTIC CONTEXT BUILD] Excluding scene {exclude_scene_id} (sequence {excluded_scene.sequence_number}), using {len(scenes)} scenes from StoryFlow")
+            else:
+                # Scene not found, fall back to normal query
+                logger.warning(f"[SEMANTIC CONTEXT BUILD] Excluded scene {exclude_scene_id} not found, falling back to normal query")
+                scenes = db.query(Scene).filter(
+                    Scene.story_id == story_id
+                ).order_by(Scene.sequence_number).all()
         # Get all scenes ordered by sequence
         # For new chapters that don't continue from previous, filter out scenes from previous chapters
-        if chapter_id:
+        elif chapter_id:
             from ..models import Chapter
             chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
             if chapter:

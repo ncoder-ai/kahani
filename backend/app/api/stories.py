@@ -2362,7 +2362,7 @@ async def create_scene_variant_streaming(
                 # GUIDED ENHANCEMENT: Has custom prompt from user
                 logger.warning(f"[VARIANT] Mode: GUIDED ENHANCEMENT")
                 context = await context_manager.build_scene_generation_context(
-                    story_id, db, custom_prompt, is_variant_generation=True
+                    story_id, db, custom_prompt, is_variant_generation=True, exclude_scene_id=scene_id
                 )
                 
                 # Use guided enhancement function
@@ -2386,7 +2386,7 @@ async def create_scene_variant_streaming(
                 
                 # Build context with original continue option (triggers IMMEDIATE SITUATION)
                 context = await context_manager.build_scene_generation_context(
-                    story_id, db, original_continue_option, is_variant_generation=False
+                    story_id, db, original_continue_option, is_variant_generation=False, exclude_scene_id=scene_id
                 )
                 
                 # Use the SAME function as new scene generation
