@@ -210,6 +210,8 @@ class ContextManager:
                 "personality": ", ".join(character.personality_traits) if character.personality_traits else "",
                 "background": character.background or "",
                 "goals": character.goals or "",
+                "fears": character.fears or "",
+                "appearance": character.appearance or "",
                 "relationships": ""
             }
             
@@ -336,6 +338,8 @@ Description: {char.get('description', '')}
 Personality: {char.get('personality', '')}
 Background: {char.get('background', '')}
 Goals: {char.get('goals', '')}
+Fears: {char.get('fears', '')}
+Appearance: {char.get('appearance', '')}
 """
                     context_text += char_text
             
@@ -358,6 +362,8 @@ Description: {char.get('description', '')}
 Personality: {char.get('personality', '')}
 Background: {char.get('background', '')}
 Goals: {char.get('goals', '')}
+Fears: {char.get('fears', '')}
+Appearance: {char.get('appearance', '')}
 """
                     context_text += char_text
         
@@ -748,6 +754,12 @@ Goals: {char.get('goals', '')}
                 char_text += f"Personality: {char.get('personality', '')}\n"
             if char.get('background'):
                 char_text += f"Background: {char.get('background', '')}\n"
+            if char.get('goals'):
+                char_text += f"Goals: {char.get('goals', '')}\n"
+            if char.get('fears'):
+                char_text += f"Fears: {char.get('fears', '')}\n"
+            if char.get('appearance'):
+                char_text += f"Appearance: {char.get('appearance', '')}\n"
             text_parts.append(char_text)
         
         return "\n".join(text_parts)
