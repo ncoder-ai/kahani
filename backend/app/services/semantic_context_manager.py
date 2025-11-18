@@ -1,0 +1,1100 @@
+"""
+Semantic Context Manager
+
+Extends the basic ContextManager with semantic search capabilities
+for intelligent context retrieval in long-form narratives.
+"""
+
+import logging
+from typing import List, Dict, Any, Optional, Tuple
+from sqlalchemy.orm import Session
+
+from .context_manager import ContextManager
+from .semantic_memory import get_semantic_memory_service
+from ..models import Scene, SceneVariant, StoryFlow, Character, StoryCharacter, ChapterStatus
+from ..config import settings
+
+logger = logging.getLogger(__name__)
+
+
+class SemanticContextManager(ContextManager):
+    """
+    Enhanced context manager with semantic search capabilities
+    
+    Features:
+    - Hybrid context assembly (recent + semantically relevant)
+    - Character-aware context retrieval
+    - Plot thread continuity
+    - Token-efficient context selection
+    """
+    
+    def __init__(self, max_tokens: int = None, user_settings: dict = None, user_id: int = 1):
+        """
+        Initialize semantic context manager
+        
+        Args:
+            max_tokens: Maximum tokens for context
+            user_settings: User-specific settings
+            user_id: User ID for LLM calls
+        """
+        super().__init__(max_tokens, user_settings, user_id)
+        
+        # Load semantic settings from user context_settings (now includes semantic options)
+        if user_settings and user_settings.get("context_settings"):
+            ctx_settings = user_settings["context_settings"]
+            self.enable_semantic = ctx_settings.get("enable_semantic_memory", settings.enable_semantic_memory)
+            self.semantic_top_k = ctx_settings.get("semantic_search_top_k", settings.semantic_search_top_k)
+            self.semantic_scenes_in_context = ctx_settings.get("semantic_scenes_in_context", settings.semantic_scenes_in_context)
+            self.semantic_weight = ctx_settings.get("semantic_context_weight", settings.semantic_context_weight)
+            self.character_moments_in_context = ctx_settings.get("character_moments_in_context", settings.character_moments_in_context)
+            self.context_strategy = ctx_settings.get("context_strategy", settings.context_strategy)
+            self.auto_extract_character_moments = ctx_settings.get("auto_extract_character_moments", settings.auto_extract_character_moments)
+            self.auto_extract_plot_events = ctx_settings.get("auto_extract_plot_events", settings.auto_extract_plot_events)
+            self.extraction_confidence_threshold = ctx_settings.get("extraction_confidence_threshold", settings.extraction_confidence_threshold)
+            # New settings for filtering
+            self.semantic_min_similarity = ctx_settings.get("semantic_min_similarity", getattr(settings, "semantic_min_similarity", 0.3))
+            self.location_recency_window = ctx_settings.get("location_recency_window", getattr(settings, "location_recency_window", 10))
+        else:
+            # Fallback to global settings
+            self.enable_semantic = settings.enable_semantic_memory
+            self.semantic_top_k = settings.semantic_search_top_k
+            self.semantic_scenes_in_context = settings.semantic_scenes_in_context
+            self.semantic_weight = settings.semantic_context_weight
+            self.character_moments_in_context = settings.character_moments_in_context
+            self.context_strategy = settings.context_strategy
+            self.auto_extract_character_moments = settings.auto_extract_character_moments
+            self.auto_extract_plot_events = settings.auto_extract_plot_events
+            self.extraction_confidence_threshold = settings.extraction_confidence_threshold
+            # New settings for filtering
+            self.semantic_min_similarity = getattr(settings, "semantic_min_similarity", 0.3)
+            self.location_recency_window = getattr(settings, "location_recency_window", 10)
+        
+        # Get semantic memory service
+        try:
+            self.semantic_memory = get_semantic_memory_service()
+            logger.info(f"Semantic memory service available, strategy: {self.context_strategy}")
+        except RuntimeError:
+            logger.warning("Semantic memory service not initialized, falling back to linear context")
+            self.enable_semantic = False
+            self.context_strategy = "linear"
+    
+    async def build_story_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Build optimized context using hybrid strategy if enabled
+        
+        Args:
+            story_id: Story ID
+            db: Database session
+            chapter_id: Optional chapter ID to separate active/inactive characters
+            
+        Returns:
+            Optimized context dictionary
+        """
+        # If semantic memory is disabled, use parent class method
+        if not self.enable_semantic or self.context_strategy == "linear":
+            return await super().build_story_context(story_id, db, chapter_id=chapter_id)
+        
+        # Use hybrid strategy
+        return await self._build_hybrid_context(story_id, db, chapter_id=chapter_id)
+    
+    async def _build_hybrid_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Build hybrid context combining recent scenes with semantically relevant past
+        
+        Strategy:
+        1. Get base context (genre, tone, characters)
+        2. Get recent scenes (immediate context)
+        3. Semantic search for relevant past scenes
+        4. Get character-specific moments
+        5. Get chapter summaries
+        6. Assemble within token budget
+        
+        Args:
+            story_id: Story ID
+            db: Database session
+            chapter_id: Optional chapter ID to separate active/inactive characters
+        """
+        from ..models import Story
+        
+        # Get story
+        story = db.query(Story).filter(Story.id == story_id).first()
+        if not story:
+            raise ValueError(f"Story {story_id} not found")
+        
+        # Get all scenes ordered by sequence
+        # For new chapters that don't continue from previous, filter out scenes from previous chapters
+        if chapter_id:
+            from ..models import Chapter
+            chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+            if chapter:
+                # Check if this is a new chapter that doesn't continue from previous
+                if chapter.scenes_count == 0 and not getattr(chapter, 'continues_from_previous', True):
+                    # First scene of new chapter that doesn't continue - exclude scenes from previous chapters
+                    # Get all previous chapter IDs
+                    previous_chapters = db.query(Chapter).filter(
+                        Chapter.story_id == story_id,
+                        Chapter.chapter_number < chapter.chapter_number
+                    ).all()
+                    previous_chapter_ids = [c.id for c in previous_chapters]
+                    
+                    if previous_chapter_ids:
+                        scenes = db.query(Scene).filter(
+                            Scene.story_id == story_id,
+                            ~Scene.chapter_id.in_(previous_chapter_ids)  # Exclude previous chapters
+                        ).order_by(Scene.sequence_number).all()
+                    else:
+                        # No previous chapters, get all scenes
+                        scenes = db.query(Scene).filter(
+                            Scene.story_id == story_id
+                        ).order_by(Scene.sequence_number).all()
+                else:
+                    # Chapter continues from previous or has scenes - include all scenes
+                    scenes = db.query(Scene).filter(
+                        Scene.story_id == story_id
+                    ).order_by(Scene.sequence_number).all()
+            else:
+                scenes = db.query(Scene).filter(
+                    Scene.story_id == story_id
+                ).order_by(Scene.sequence_number).all()
+        else:
+            scenes = db.query(Scene).filter(
+                Scene.story_id == story_id
+            ).order_by(Scene.sequence_number).all()
+        
+        if not scenes:
+            # No scenes yet, return base context
+            return await self._get_base_context(story_id, db, chapter_id=chapter_id)
+        
+        # Calculate base context tokens
+        base_context = await self._get_base_context(story_id, db, chapter_id=chapter_id)
+        base_tokens = self._calculate_base_context_tokens(base_context)
+        
+        # Available tokens for scene history (using effective max tokens)
+        available_tokens = self.effective_max_tokens - base_tokens - 500  # Safety buffer
+        
+        if available_tokens <= 0:
+            logger.warning(f"Base context too large for story {story_id}")
+            return base_context
+        
+        # Build scene context using hybrid strategy
+        scene_context = await self._build_hybrid_scene_context(
+            story_id, scenes, available_tokens, db, chapter_id=chapter_id
+        )
+        
+        # Merge contexts
+        return {**base_context, **scene_context}
+    
+    async def _build_hybrid_scene_context(
+        self,
+        story_id: int,
+        scenes: List[Scene],
+        available_tokens: int,
+        db: Session,
+        chapter_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Build scene context using hybrid retrieval strategy
+        
+        Token allocation:
+        - Recent scenes: 40% of available tokens
+        - Semantically relevant scenes: 35% of available tokens
+        - Character moments: 15% of available tokens
+        - Chapter summaries: 10% of available tokens
+        """
+        total_scenes = len(scenes)
+        
+        # Get recent scenes (last N scenes)
+        recent_scenes = scenes[-self.keep_recent_scenes:]
+        recent_content = await self._get_scene_content(recent_scenes, db)
+        recent_tokens = self.count_tokens(recent_content)
+        
+        # Allocate remaining tokens
+        remaining_tokens = available_tokens - recent_tokens
+        if remaining_tokens < 500:
+            # Not enough space for semantic retrieval
+            logger.info(f"Limited tokens, using only recent scenes for story {story_id}")
+            return {
+                "previous_scenes": recent_content,
+                "recent_scenes": recent_content,
+                "scene_summary": f"Recent context only ({len(recent_scenes)} scenes)",
+                "total_scenes": total_scenes,
+                "context_type": "recent_only"
+            }
+        
+        # Dynamic allocation: prioritize semantic, character, entity, summary first
+        # Then fill remaining budget with recent scenes
+        
+        # First, estimate which scenes will be included in Recent Scenes (for exclusion from semantic search)
+        # This prevents semantic search from returning scenes that will already appear in Recent Scenes section
+        # Estimate remaining tokens after semantic/character/entity/summary (use average allocation ~50%)
+        estimated_other_tokens = int(remaining_tokens * 0.5)
+        estimated_remaining_for_recent = remaining_tokens - estimated_other_tokens
+        
+        # Get preliminary list of additional scenes that will be included (for exclusion purposes only)
+        # Note: We'll recalculate this later with actual token usage, but this gives us a good estimate
+        _, estimated_additional_scenes = await self._add_recent_scenes_dynamically(
+            scenes, len(recent_scenes), estimated_remaining_for_recent, db
+        )
+        
+        # Collect ALL scene sequence numbers that will be in Recent Scenes
+        all_recent_scene_sequences = [s.sequence_number for s in recent_scenes]
+        all_recent_scene_sequences.extend([s.sequence_number for s in estimated_additional_scenes])
+        # Remove duplicates and sort for clarity
+        all_recent_scene_sequences = sorted(set(all_recent_scene_sequences))
+        
+        logger.info(f"[SEMANTIC CONTEXT] Excluding {len(all_recent_scene_sequences)} scenes from semantic search (recent scenes: {len(recent_scenes)}, additional: {len(estimated_additional_scenes)})")
+        
+        semantic_tokens = int(remaining_tokens * 0.25)
+        character_tokens = int(remaining_tokens * 0.15)
+        entity_tokens = int(remaining_tokens * 0.05)
+        summary_tokens = int(remaining_tokens * 0.05)
+        
+        # Get semantically relevant scenes first (top N from user settings)
+        # Pass complete exclusion list so we don't duplicate scenes already in Recent Scenes
+        semantic_content = await self._get_semantic_scenes(
+            story_id, recent_scenes, semantic_tokens, db, exclude_all_recent_sequences=all_recent_scene_sequences
+        )
+        semantic_used_tokens = self.count_tokens(semantic_content) if semantic_content else 0
+        
+        # Get character-specific context
+        character_content = await self._get_character_context(
+            story_id, recent_scenes, character_tokens, db
+        )
+        character_used_tokens = self.count_tokens(character_content) if character_content else 0
+        
+        # Get entity states - pass current scene sequence for filtering
+        current_scene_sequence = scenes[-1].sequence_number if scenes else None
+        entity_states_content = await self._get_entity_states(
+            story_id, entity_tokens, db, current_scene_sequence=current_scene_sequence
+        )
+        entity_used_tokens = self.count_tokens(entity_states_content) if entity_states_content else 0
+        
+        # Get chapter summaries (only current chapter summary - story_so_far and previous_chapter_summary
+        # are handled as direct fields in base_context to avoid duplication)
+        summary_content = await self._get_chapter_summaries(
+            story_id, summary_tokens, db, chapter_id=chapter_id
+        )
+        summary_used_tokens = self.count_tokens(summary_content) if summary_content else 0
+        
+        # Calculate remaining tokens after semantic/character/entity/summary
+        used_tokens_so_far = semantic_used_tokens + character_used_tokens + entity_used_tokens + summary_used_tokens
+        remaining_for_recent = remaining_tokens - used_tokens_so_far
+        
+        # Fill ALL remaining tokens with additional recent scenes (going backwards)
+        # This ensures we use the full token budget
+        additional_recent_content, additional_recent_scenes = await self._add_recent_scenes_dynamically(
+            scenes, len(recent_scenes), remaining_for_recent, db
+        )
+        
+        # Combine initial recent scenes with additional scenes for the Recent Scenes section
+        # Exclude duplicates (additional_recent_scenes already excludes scenes in recent_scenes)
+        # Order: older scenes (additional) come first, then recent scenes (chronological order)
+        if additional_recent_content:
+            # Combine additional_recent_content (older) + recent_content (newer)
+            # Both are now in chronological order, so combine oldest → newest
+            if recent_content:
+                combined_recent_content = f"{additional_recent_content}\n\n{recent_content}"
+            else:
+                combined_recent_content = additional_recent_content
+        else:
+            combined_recent_content = recent_content
+        
+        # Log what we got from _get_chapter_summaries
+        if summary_content:
+            logger.info(f"[SEMANTIC CONTEXT] _get_chapter_summaries returned content ({len(summary_content)} chars): {summary_content[:200]}...")
+        else:
+            logger.info("[SEMANTIC CONTEXT] _get_chapter_summaries returned None")
+        
+        # Assemble final context
+        context_parts = []
+        
+        if summary_content:
+            # Defensive check: Remove any "Story So Far:" or "Previous Chapter Summary" that might
+            # have accidentally been included (they should be in base_context as direct fields)
+            filtered_content = summary_content
+            
+            # Remove "Story So Far:" section (header + all content until next section or end)
+            if "Story So Far:" in filtered_content:
+                logger.error("[SEMANTIC CONTEXT] ERROR: Found 'Story So Far:' in summary_content! Filtering it out.")
+                import re
+                # Match "Story So Far:" and everything until "Previous Chapter Summary" or "Current Chapter Summary" or end
+                pattern = r'Story So Far:.*?(?=(?:Previous Chapter Summary|Current Chapter Summary|$))'
+                filtered_content = re.sub(pattern, '', filtered_content, flags=re.DOTALL)
+                filtered_content = filtered_content.strip()
+            
+            # Remove "Previous Chapter Summary" section (header + all content until next section or end)
+            if "Previous Chapter Summary" in filtered_content:
+                logger.error("[SEMANTIC CONTEXT] ERROR: Found 'Previous Chapter Summary' in summary_content! Filtering it out.")
+                import re
+                # Match "Previous Chapter Summary" and everything until "Current Chapter Summary" or end
+                pattern = r'Previous Chapter Summary.*?(?=(?:Current Chapter Summary|$))'
+                filtered_content = re.sub(pattern, '', filtered_content, flags=re.DOTALL)
+                filtered_content = filtered_content.strip()
+            
+            if filtered_content.strip():
+                context_parts.append(f"Story Summary:\n{filtered_content}")
+            else:
+                logger.info("[SEMANTIC CONTEXT] summary_content was filtered to empty, not adding to context")
+        
+        if entity_states_content:
+            context_parts.append(f"\n{entity_states_content}")
+        
+        if semantic_content:
+            context_parts.append(f"\nRelevant Past Events:\n{semantic_content}")
+        
+        if character_content:
+            context_parts.append(f"\nCharacter Context:\n{character_content}")
+        
+        context_parts.append(f"\nRecent Scenes:\n{combined_recent_content}")
+        
+        full_context = "\n".join(context_parts)
+        
+        return {
+            "previous_scenes": full_context,
+            "recent_scenes": combined_recent_content,  # Include both initial and additional recent scenes
+            "scene_summary": "",  # Don't include metadata in prompt - it's debug info only
+            "total_scenes": total_scenes,
+            "context_type": "hybrid",
+            "semantic_scenes_included": semantic_content is not None,
+            "character_context_included": character_content is not None,
+            "entity_states_included": entity_states_content is not None
+        }
+    
+    async def _get_base_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None) -> Dict[str, Any]:
+        """Get base story context (genre, tone, characters) with chapter-specific character separation"""
+        from ..models import Story
+        
+        story = db.query(Story).filter(Story.id == story_id).first()
+        if not story:
+            return {}
+        
+        # Get story characters
+        story_characters = db.query(StoryCharacter).filter(
+            StoryCharacter.story_id == story_id
+        ).all()
+        
+        # Separate into active (chapter) and inactive (story only) characters
+        active_characters = []
+        inactive_characters = []
+        
+        if chapter_id:
+            # Get chapter-specific characters
+            from ..models.chapter import chapter_characters
+            chapter_char_ids = db.execute(
+                chapter_characters.select().where(
+                    chapter_characters.c.chapter_id == chapter_id
+                )
+            ).fetchall()
+            chapter_story_char_ids = {row.story_character_id for row in chapter_char_ids}
+            
+            # Get chapter info for context
+            from ..models import Chapter
+            chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+        else:
+            chapter_story_char_ids = set()
+            chapter = None
+        
+        for sc in story_characters:
+            character = db.query(Character).filter(Character.id == sc.character_id).first()
+            if not character:
+                continue
+            
+            char_data = {
+                "name": character.name,
+                "role": sc.role or "",
+                "description": character.description or "",
+                "personality": ", ".join(character.personality_traits) if character.personality_traits else "",
+                "background": character.background or "",
+                "goals": character.goals or "",
+                "relationships": ""
+            }
+            
+            if chapter_id and sc.id in chapter_story_char_ids:
+                # Active character - full details
+                active_characters.append(char_data)
+            elif chapter_id:
+                # Inactive character - brief format
+                inactive_characters.append({
+                    "name": character.name,
+                    "role": sc.role or ""
+                })
+            else:
+                # No chapter specified - treat all as active
+                active_characters.append(char_data)
+        
+        # Add important NPCs that crossed threshold (always as active)
+        try:
+            from .npc_tracking_service import NPCTrackingService
+            npc_service = NPCTrackingService(user_id=self.user_id, user_settings=self.user_settings)
+            npc_characters = npc_service.get_important_npcs_for_context(db, story_id)
+            active_characters.extend(npc_characters)
+            logger.warning(f"[CONTEXT BUILD] Added {len(npc_characters)} important NPCs to context (total characters now: {len(active_characters)})")
+            if npc_characters:
+                logger.warning(f"[CONTEXT BUILD] NPCs added: {[npc.get('name', 'Unknown') for npc in npc_characters]}")
+        except Exception as e:
+            logger.warning(f"Failed to include NPCs in context: {e}")
+        
+        # Format characters section with active/inactive distinction
+        if chapter_id and inactive_characters:
+            # Format with clear distinction
+            characters_section = {
+                "active_characters": active_characters,
+                "inactive_characters": inactive_characters
+            }
+            logger.info(f"[CONTEXT BUILD] Chapter {chapter_id}: {len(active_characters)} active, {len(inactive_characters)} inactive characters")
+        else:
+            # All characters are active (or no chapter specified)
+            characters_section = active_characters
+        
+        base_context = {
+            "story_id": story_id,
+            "title": story.title,
+            "genre": story.genre,
+            "tone": story.tone,
+            "world_setting": story.world_setting,
+            "initial_premise": story.initial_premise,
+            "scenario": story.scenario,
+            "characters": characters_section
+        }
+        
+        # Add chapter-specific context if available
+        if chapter:
+            base_context["chapter_location"] = chapter.location_name
+            base_context["chapter_time_period"] = chapter.time_period
+            base_context["chapter_scenario"] = chapter.scenario
+            
+            # Include story_so_far if it exists (not None)
+            if chapter.story_so_far:
+                logger.info(f"[SEMANTIC CONTEXT BUILD] Chapter {chapter.chapter_number}: Found story_so_far ({len(chapter.story_so_far)} chars)")
+                base_context["story_so_far"] = chapter.story_so_far
+            else:
+                logger.info(f"[SEMANTIC CONTEXT BUILD] Chapter {chapter.chapter_number}: story_so_far is None")
+            
+            # Include previous chapter's summary if available
+            if chapter.chapter_number > 1:
+                from ..models import Chapter as ChapterModel, ChapterStatus
+                previous_chapter = db.query(ChapterModel).filter(
+                    ChapterModel.story_id == story_id,
+                    ChapterModel.chapter_number == chapter.chapter_number - 1,
+                    ChapterModel.auto_summary.isnot(None)
+                ).first()
+                if previous_chapter and previous_chapter.auto_summary:
+                    logger.info(f"[SEMANTIC CONTEXT BUILD] Chapter {chapter.chapter_number}: Found previous chapter {previous_chapter.chapter_number} summary ({len(previous_chapter.auto_summary)} chars)")
+                    base_context["previous_chapter_summary"] = previous_chapter.auto_summary
+                else:
+                    logger.info(f"[SEMANTIC CONTEXT BUILD] Chapter {chapter.chapter_number}: No previous chapter summary found (previous_chapter={previous_chapter is not None}, has_auto_summary={previous_chapter.auto_summary if previous_chapter else 'N/A'})")
+            else:
+                logger.info(f"[SEMANTIC CONTEXT BUILD] Chapter {chapter.chapter_number}: First chapter, no previous chapter summary")
+        
+        return base_context
+    
+    async def _get_scene_content(self, scenes: List[Scene], db: Session) -> str:
+        """Get content for scenes using active variants
+        
+        Scenes are expected to be in chronological order (oldest → newest).
+        The scenes list from database query is already chronological, and slicing (scenes[-N:])
+        maintains that order, so we use scenes as-is.
+        """
+        content_parts = []
+        
+        # Scenes are already in chronological order (oldest → newest)
+        # No need to reverse - this ensures narrative flow and maximizes recency bias (most recent scenes at end)
+        for scene in scenes:
+            # Get active variant from StoryFlow
+            flow = db.query(StoryFlow).filter(
+                StoryFlow.scene_id == scene.id,
+                StoryFlow.is_active == True
+            ).first()
+            
+            if flow and flow.scene_variant:
+                content_parts.append(
+                    f"Scene {scene.sequence_number}: {flow.scene_variant.content}"
+                )
+            else:
+                # Fallback to scene content if no flow entry
+                if scene.content:
+                    content_parts.append(
+                        f"Scene {scene.sequence_number}: {scene.content}"
+                    )
+        
+        return "\n\n".join(content_parts)
+    
+    async def _get_semantic_scenes(
+        self,
+        story_id: int,
+        recent_scenes: List[Scene],
+        token_budget: int,
+        db: Session,
+        exclude_all_recent_sequences: Optional[List[int]] = None
+    ) -> Optional[str]:
+        """
+        Get semantically relevant scenes from the past
+        
+        Args:
+            story_id: Story ID
+            recent_scenes: Recent scenes to use as query
+            token_budget: Available tokens
+            db: Database session
+            
+        Returns:
+            Formatted string of relevant scenes or None
+        """
+        if not recent_scenes:
+            return None
+        
+        try:
+            # Improved query strategy: Use last 2-3 scenes combined for better context
+            # Weight recent scenes more heavily (most recent = most important)
+            query_scenes = recent_scenes[-3:] if len(recent_scenes) >= 3 else recent_scenes
+            query_parts = []
+            
+            for i, scene in enumerate(query_scenes):
+                # Get active variant content
+                flow = db.query(StoryFlow).filter(
+                    StoryFlow.scene_id == scene.id,
+                    StoryFlow.is_active == True
+                ).first()
+                
+                scene_content = flow.scene_variant.content if flow and flow.scene_variant else scene.content
+                if scene_content:
+                    # Weight: most recent scene gets full weight, older scenes get reduced weight
+                    weight = 1.0 - (i * 0.2)  # 1.0, 0.8, 0.6 for 3 scenes
+                    query_parts.append(scene_content)
+            
+            if not query_parts:
+                return None
+            
+            # Combine scenes with newlines (most recent first)
+            query_content = "\n\n".join(reversed(query_parts))  # Reverse so most recent is first
+            
+            # Get exclude list (all scenes that will be in Recent Scenes section)
+            # Use provided complete exclusion list if available, otherwise fall back to just recent_scenes
+            if exclude_all_recent_sequences:
+                exclude_sequences = exclude_all_recent_sequences
+                logger.debug(f"[SEMANTIC SEARCH] Using complete exclusion list: {len(exclude_sequences)} scenes")
+            else:
+                # Fallback: only exclude initial recent scenes (for backward compatibility)
+                exclude_sequences = [s.sequence_number for s in recent_scenes]
+                logger.debug(f"[SEMANTIC SEARCH] Using fallback exclusion list: {len(exclude_sequences)} scenes")
+            
+            # Search for similar scenes across entire story (not just current chapter)
+            # Request more results than needed so we can filter by similarity threshold
+            search_top_k = self.semantic_top_k * 2  # Get 2x results to filter
+            
+            similar_scenes = await self.semantic_memory.search_similar_scenes(
+                query_text=query_content,
+                story_id=story_id,
+                top_k=search_top_k,
+                exclude_sequences=exclude_sequences,
+                chapter_id=None  # Search entire story, not just current chapter
+            )
+            
+            if not similar_scenes:
+                logger.info(f"[SEMANTIC SEARCH] No similar scenes found for story {story_id}")
+                return None
+            
+            # Filter by minimum similarity threshold and age
+            current_scene_sequence = recent_scenes[-1].sequence_number if recent_scenes else None
+            filtered_results = []
+            
+            for result in similar_scenes:
+                similarity_score = result.get('similarity_score', 0.0)
+                
+                # Filter out low similarity results
+                if similarity_score < self.semantic_min_similarity:
+                    logger.debug(f"[SEMANTIC SEARCH] Filtered out scene {result.get('scene_id')} - similarity {similarity_score:.2f} < threshold {self.semantic_min_similarity}")
+                    continue
+                
+                # Get scene sequence for age filtering
+                scene = db.query(Scene).filter(Scene.id == result['scene_id']).first()
+                if not scene:
+                    continue
+                
+                # Optional: Filter out very old scenes unless similarity is very high
+                if current_scene_sequence is not None:
+                    scene_age = current_scene_sequence - scene.sequence_number
+                    # If scene is >50 scenes old, require higher similarity (>0.6)
+                    if scene_age > 50 and similarity_score < 0.6:
+                        logger.debug(f"[SEMANTIC SEARCH] Filtered out old scene {scene.sequence_number} (age {scene_age}) - similarity {similarity_score:.2f} < 0.6")
+                        continue
+                
+                filtered_results.append(result)
+            
+            if not filtered_results:
+                logger.info(f"[SEMANTIC SEARCH] No scenes passed similarity threshold {self.semantic_min_similarity} for story {story_id}")
+                return None
+            
+            # Sort filtered results by sequence_number (chronological order) before processing
+            # This ensures "Relevant Past Events" appear in narrative order
+            filtered_results_with_scenes = []
+            for result in filtered_results[:self.semantic_top_k]:  # Limit to top_k after filtering
+                scene = db.query(Scene).filter(Scene.id == result['scene_id']).first()
+                if scene:
+                    filtered_results_with_scenes.append((result, scene))
+            
+            # Sort by sequence_number ascending (oldest → newest)
+            filtered_results_with_scenes.sort(key=lambda x: x[1].sequence_number)
+            
+            # Get scene content within token budget (now using chronologically sorted results)
+            relevant_parts = []
+            used_tokens = 0
+            
+            for result, scene in filtered_results_with_scenes:
+                variant = db.query(SceneVariant).filter(SceneVariant.id == result['variant_id']).first()
+                if not variant:
+                    continue
+                
+                similarity_score = result.get('similarity_score', 0.0)
+                scene_text = f"[Relevant from Scene {scene.sequence_number}, similarity: {similarity_score:.2f}]: {variant.content[:300]}..."
+                scene_tokens = self.count_tokens(scene_text)
+                
+                if used_tokens + scene_tokens <= token_budget:
+                    relevant_parts.append(scene_text)
+                    used_tokens += scene_tokens
+                else:
+                    break
+            
+            if relevant_parts:
+                logger.info(f"[SEMANTIC SEARCH] Selected {len(relevant_parts)} relevant scenes (similarity >= {self.semantic_min_similarity}) for story {story_id}")
+                return "\n\n".join(relevant_parts)
+            
+            logger.info(f"[SEMANTIC SEARCH] No scenes fit within token budget after filtering")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to get semantic scenes: {e}")
+            return None
+    
+    async def _get_character_context(
+        self,
+        story_id: int,
+        recent_scenes: List[Scene],
+        token_budget: int,
+        db: Session
+    ) -> Optional[str]:
+        """
+        Get character-specific context
+        
+        Args:
+            story_id: Story ID
+            recent_scenes: Recent scenes to identify active characters
+            token_budget: Available tokens
+            db: Database session
+            
+        Returns:
+            Formatted character context or None
+        """
+        if not recent_scenes or token_budget < 100:
+            return None
+        
+        try:
+            # TODO: Extract characters from recent scenes
+            # For now, return None - will be implemented with CharacterMemoryService
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to get character context: {e}")
+            return None
+    
+    async def _get_chapter_summaries(
+        self,
+        story_id: int,
+        token_budget: int,
+        db: Session,
+        chapter_id: Optional[int] = None
+    ) -> Optional[str]:
+        """
+        Get chapter summaries for compressed history
+        
+        NOTE: story_so_far and previous_chapter_summary are NOT included here because
+        they are already included as direct fields in base_context to avoid duplication.
+        
+        Only includes:
+        - Summary of the current chapter (auto_summary if it has scenes and has been processed)
+        
+        Args:
+            story_id: Story ID
+            token_budget: Available tokens
+            db: Database session
+            chapter_id: Optional current chapter ID
+            
+        Returns:
+            Formatted chapter summaries or None
+        """
+        from ..models import Chapter
+        
+        if token_budget < 200:
+            return None
+        
+        try:
+            summary_parts = []
+            used_tokens = 0
+            
+            # Get current chapter's auto_summary (if it has scenes and has been processed)
+            # NOTE: We do NOT include story_so_far or previous_chapter_summary here - they are
+            # handled as direct fields in base_context to avoid duplication
+            if chapter_id:
+                current_chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+                if current_chapter and current_chapter.auto_summary and current_chapter.scenes_count > 0:
+                    logger.info(f"[SEMANTIC CONTEXT] Adding current chapter {current_chapter.chapter_number} summary to _get_chapter_summaries")
+                    current_summary_text = f"Current Chapter Summary (Chapter {current_chapter.chapter_number}):\n{current_chapter.auto_summary}"
+                    current_summary_tokens = self.count_tokens(current_summary_text)
+                    if used_tokens + current_summary_tokens <= token_budget:
+                        summary_parts.append(current_summary_text)
+                        used_tokens += current_summary_tokens
+                else:
+                    logger.info(f"[SEMANTIC CONTEXT] Not adding current chapter summary (chapter_id={chapter_id}, has_auto_summary={current_chapter.auto_summary if current_chapter else False}, scenes_count={current_chapter.scenes_count if current_chapter else 0})")
+            
+            # No fallback - if no current chapter summary exists, return None
+            # Historical context is already provided by "Story So Far" and "Previous Chapter Summary" direct fields
+            if summary_parts:
+                result = "\n\n".join(summary_parts)
+                logger.info(f"[SEMANTIC CONTEXT] _get_chapter_summaries returning {len(summary_parts)} parts: {[part[:50] + '...' if len(part) > 50 else part for part in summary_parts]}")
+                # Verify we're not accidentally including story_so_far or previous_chapter_summary
+                if "Story So Far:" in result:
+                    logger.error("[SEMANTIC CONTEXT] ERROR: story_so_far found in _get_chapter_summaries result! This should not happen.")
+                if "Previous Chapter Summary" in result:
+                    logger.error("[SEMANTIC CONTEXT] ERROR: previous_chapter_summary found in _get_chapter_summaries result! This should not happen.")
+                return result
+            
+            logger.info("[SEMANTIC CONTEXT] _get_chapter_summaries returning None (no summaries)")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to get chapter summaries: {e}")
+            return None
+    
+    async def _get_entity_states(
+        self,
+        story_id: int,
+        token_budget: int,
+        db: Session,
+        current_scene_sequence: Optional[int] = None
+    ) -> Optional[str]:
+        """
+        Get formatted entity states for context
+        
+        Args:
+            story_id: Story ID
+            token_budget: Available tokens
+            db: Database session
+            
+        Returns:
+            Formatted entity states or None
+        """
+        try:
+            from ..models import CharacterState, LocationState, ObjectState, Character
+            
+            # Get all entity states for this story
+            # Order by updated_at DESC to ensure we get the latest states
+            # (though typically there's one state per entity, ordering ensures we get most recent if duplicates exist)
+            character_states = db.query(CharacterState).filter(
+                CharacterState.story_id == story_id
+            ).order_by(CharacterState.updated_at.desc()).all()
+            
+            location_states = db.query(LocationState).filter(
+                LocationState.story_id == story_id
+            ).order_by(LocationState.updated_at.desc()).all()
+            
+            object_states = db.query(ObjectState).filter(
+                ObjectState.story_id == story_id
+            ).order_by(ObjectState.updated_at.desc()).all()
+            
+            if not character_states and not location_states and not object_states:
+                return None
+            
+            # Format entity states
+            entity_parts = []
+            used_tokens = 0
+            
+            # Character States
+            # Filter to only show characters with recent state updates
+            if character_states:
+                # Filter character states by recency (only show if updated recently)
+                filtered_char_states = []
+                for char_state in character_states:
+                    # Include if updated recently OR if it's a main character (always show main characters)
+                    include = True
+                    if current_scene_sequence is not None and char_state.last_updated_scene is not None:
+                        scene_age = current_scene_sequence - char_state.last_updated_scene
+                        # Only include if updated within recency window (or if main character)
+                        if scene_age > self.location_recency_window:
+                            # Still include if it's likely a main character (has significant state)
+                            if not (char_state.current_goal or char_state.possessions or 
+                                   (char_state.knowledge and len(char_state.knowledge) > 0)):
+                                include = False
+                    
+                    if include:
+                        filtered_char_states.append(char_state)
+                
+                if filtered_char_states:
+                    entity_parts.append("CURRENT CHARACTER STATES:")
+                    for char_state in filtered_char_states:
+                        # Get character name
+                        character = db.query(Character).filter(
+                            Character.id == char_state.character_id
+                        ).first()
+                        
+                        if not character:
+                            continue
+                        
+                        char_text = f"\n{character.name}:"
+                        
+                        # Only show location if it's recent (within recency window)
+                        show_location = True
+                        if current_scene_sequence is not None and char_state.last_updated_scene is not None:
+                            scene_age = current_scene_sequence - char_state.last_updated_scene
+                            if scene_age > self.location_recency_window:
+                                show_location = False  # Location is outdated
+                        
+                        if char_state.current_location and show_location:
+                            char_text += f"\n  Location: {char_state.current_location}"
+                        elif char_state.current_location:
+                            # Location exists but is outdated - don't show it to avoid confusion
+                            logger.debug(f"[ENTITY STATES] Skipping outdated location for {character.name} (last updated scene {char_state.last_updated_scene}, current {current_scene_sequence})")
+                        
+                        if char_state.emotional_state:
+                            char_text += f"\n  Emotional State: {char_state.emotional_state}"
+                        
+                        if char_state.physical_condition:
+                            char_text += f"\n  Physical Condition: {char_state.physical_condition}"
+                        
+                        if char_state.current_goal:
+                            char_text += f"\n  Current Goal: {char_state.current_goal}"
+                        
+                        if char_state.possessions:
+                            possessions_str = ", ".join(char_state.possessions[:5])  # Limit to 5
+                            char_text += f"\n  Possessions: {possessions_str}"
+                        
+                        if char_state.knowledge and len(char_state.knowledge) > 0:
+                            # Show most recent 3 knowledge items
+                            recent_knowledge = char_state.knowledge[-3:]
+                            char_text += f"\n  Recent Knowledge: {'; '.join(recent_knowledge)}"
+                        
+                        # Relationships (show top 3 most relevant)
+                        if char_state.relationships:
+                            char_text += f"\n  Key Relationships:"
+                            count = 0
+                            for rel_char, rel_data in char_state.relationships.items():
+                                if count >= 3:
+                                    break
+                                if isinstance(rel_data, dict):
+                                    status = rel_data.get('status', 'unknown')
+                                    trust = rel_data.get('trust', 'unknown')
+                                    char_text += f"\n    - {rel_char}: {status} (trust: {trust}/10)"
+                                count += 1
+                        
+                        # Check token budget
+                        char_tokens = self.count_tokens(char_text)
+                        if used_tokens + char_tokens > token_budget:
+                            break
+                        
+                        entity_parts.append(char_text)
+                        used_tokens += char_tokens
+            
+            # Location States (if tokens available)
+            # Filter to only show CURRENT locations (recently updated or with current occupants)
+            if location_states and used_tokens < token_budget * 0.8:
+                # Filter locations by recency and current occupants
+                current_locations = []
+                recent_locations = []
+                
+                for loc_state in location_states:
+                    is_current = False
+                    
+                    # Check if location was updated recently (within recency window)
+                    if current_scene_sequence is not None and loc_state.last_updated_scene is not None:
+                        scene_age = current_scene_sequence - loc_state.last_updated_scene
+                        if scene_age <= self.location_recency_window:
+                            is_current = True
+                    
+                    # Check if location has current occupants (active location)
+                    if loc_state.current_occupants and len(loc_state.current_occupants) > 0:
+                        is_current = True
+                    
+                    if is_current:
+                        current_locations.append(loc_state)
+                    else:
+                        recent_locations.append(loc_state)
+                
+                # Prioritize current locations, then recent ones
+                filtered_locations = current_locations + recent_locations[:2]  # Max 2 recent for context
+                
+                if filtered_locations:
+                    # Separate current vs recent for clarity
+                    if current_locations:
+                        entity_parts.append("\n\nCURRENT LOCATION:")
+                        for loc_state in current_locations[:1]:  # Show only the PRIMARY current location
+                            loc_text = f"\n{loc_state.location_name}:"
+                            
+                            if loc_state.condition:
+                                loc_text += f"\n  Condition: {loc_state.condition}"
+                            
+                            if loc_state.atmosphere:
+                                loc_text += f"\n  Atmosphere: {loc_state.atmosphere}"
+                            
+                            if loc_state.current_occupants:
+                                occupants_str = ", ".join(loc_state.current_occupants[:5])
+                                loc_text += f"\n  Present: {occupants_str}"
+                            
+                            loc_tokens = self.count_tokens(loc_text)
+                            if used_tokens + loc_tokens > token_budget:
+                                break
+                            
+                            entity_parts.append(loc_text)
+                            used_tokens += loc_tokens
+                    
+                    # Show additional recent locations if space and they're relevant
+                    if recent_locations and used_tokens < token_budget * 0.9:
+                        entity_parts.append("\n\nRECENT LOCATIONS (for context):")
+                        for loc_state in recent_locations[:2]:  # Max 2 recent locations
+                            loc_text = f"\n{loc_state.location_name}:"
+                            
+                            if loc_state.condition:
+                                loc_text += f"\n  Condition: {loc_state.condition}"
+                            
+                            if loc_state.atmosphere:
+                                loc_text += f"\n  Atmosphere: {loc_state.atmosphere}"
+                            
+                            if loc_state.current_occupants:
+                                occupants_str = ", ".join(loc_state.current_occupants[:5])
+                                loc_text += f"\n  Present: {occupants_str}"
+                            
+                            loc_tokens = self.count_tokens(loc_text)
+                            if used_tokens + loc_tokens > token_budget:
+                                break
+                            
+                            entity_parts.append(loc_text)
+                            used_tokens += loc_tokens
+            
+            # Object States (if tokens available)
+            if object_states and used_tokens < token_budget * 0.9:
+                entity_parts.append("\n\nIMPORTANT OBJECTS:")
+                for obj_state in object_states[:3]:  # Limit to 3 most important objects
+                    obj_text = f"\n{obj_state.object_name}:"
+                    
+                    if obj_state.current_location:
+                        obj_text += f"\n  Location: {obj_state.current_location}"
+                    
+                    if obj_state.condition:
+                        obj_text += f"\n  Condition: {obj_state.condition}"
+                    
+                    if obj_state.significance:
+                        obj_text += f"\n  Significance: {obj_state.significance}"
+                    
+                    obj_tokens = self.count_tokens(obj_text)
+                    if used_tokens + obj_tokens > token_budget:
+                        break
+                    
+                    entity_parts.append(obj_text)
+                    used_tokens += obj_tokens
+            
+            if len(entity_parts) > 0:
+                return "\n".join(entity_parts)
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to get entity states: {e}")
+            return None
+    
+    async def _get_scene_content_proper(self, scene: Scene, db: Session = None) -> str:
+        """
+        Get proper scene content from active variant via StoryFlow.
+        This is the correct way to get scene content.
+        """
+        if not db:
+            # Fallback to scene.content if no db session
+            return f"Scene {scene.sequence_number}: {scene.content}"
+        
+        try:
+            from ..models import StoryFlow, SceneVariant
+            
+            # Get active variant from StoryFlow
+            flow = db.query(StoryFlow).filter(
+                StoryFlow.scene_id == scene.id,
+                StoryFlow.is_active == True
+            ).first()
+            
+            if flow and flow.scene_variant:
+                return f"Scene {scene.sequence_number}: {flow.scene_variant.content}"
+            else:
+                # Fallback to scene content if no flow entry
+                return f"Scene {scene.sequence_number}: {scene.content}"
+        except Exception as e:
+            logger.warning(f"Failed to get proper scene content for scene {scene.id}: {e}")
+            return f"Scene {scene.sequence_number}: {scene.content}"
+
+    async def _add_recent_scenes_dynamically(
+        self,
+        scenes: List[Scene],
+        min_recent_count: int,
+        available_tokens: int,
+        db: Session
+    ) -> Tuple[str, List[Scene]]:
+        """
+        Add as many recent scenes as possible within token budget.
+        Starts after min_recent_count (to avoid duplicates with already-included recent scenes),
+        then adds more going BACKWARDS from start_index to get the most recent scenes possible.
+        Final output is in chronological order (oldest → newest).
+        """
+        if not scenes or available_tokens <= 0:
+            return "", []
+        
+        included_scenes = []
+        scene_contents = []  # Store retrieved content for each scene
+        used_tokens = 0
+        
+        # Start from the scene BEFORE the min_recent_count most recent scenes
+        # (to avoid duplicating scenes already in recent_scenes)
+        # If min_recent_count is 3, start_index = len(scenes)-4 (the 4th from the end)
+        # scenes list is already chronological (oldest → newest) from database query
+        start_index = len(scenes) - 1 - min_recent_count
+        
+        # Iterate BACKWARDS from start_index to 0 to get the most recent scenes possible
+        # This ensures we fill token budget with scenes closest to the current scene
+        # We'll reverse the list at the end to maintain chronological order
+        for i in range(start_index, -1, -1):
+            scene = scenes[i]
+            # Use proper scene content retrieval
+            scene_content = await self._get_scene_content_proper(scene, db)
+            scene_tokens = self.count_tokens(scene_content)
+            
+            if used_tokens + scene_tokens <= available_tokens:
+                included_scenes.append(scene)  # Append (will reverse later for chronological order)
+                scene_contents.append(scene_content)  # Append (will reverse later)
+                used_tokens += scene_tokens
+            else:
+                break
+        
+        # Reverse to maintain chronological order (oldest → newest)
+        # Since we iterated backwards, we collected newest-first, so reverse to get oldest-first
+        included_scenes.reverse()
+        scene_contents.reverse()
+        
+        # Build content using the retrieved scene contents in chronological order
+        content = "\n\n".join([
+            scene_content  # Use the properly retrieved content
+            for scene_content in scene_contents
+        ])
+        
+        logger.info(f"Dynamic recent scenes: {len(included_scenes)} scenes, {used_tokens}/{available_tokens} tokens")
+        
+        return content, included_scenes
+
+
+# Global instance factory
+def create_semantic_context_manager(max_tokens: int = None, user_settings: dict = None, user_id: int = 1) -> SemanticContextManager:
+    """
+    Factory function to create SemanticContextManager instance
+    
+    Args:
+        max_tokens: Maximum tokens for context
+        user_settings: User-specific settings
+        user_id: User ID
+        
+    Returns:
+        SemanticContextManager instance
+    """
+    return SemanticContextManager(max_tokens, user_settings, user_id)
+

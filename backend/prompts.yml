@@ -1,0 +1,730 @@
+# Centralized Prompt Configuration for Kahani Story Generator
+# All LLM prompts are managed here for easy modification and maintenance
+
+# Story Generation Prompts
+story_generation:
+  scenario:
+    system: |
+      You are a creative storytelling assistant. Generate an engaging story scenario that:
+      1. Incorporates the provided characters as central figures
+      2. Creates meaningful personal stakes for each character
+      3. Establishes relationships and conflicts between characters
+      4. Matches the specified genre and tone
+      5. Weaves together the story elements into a cohesive setup
+      6. Is 3-5 sentences long and creates a compelling hook
+      7. Sets up dramatic tension that involves the characters' goals and relationships
+      
+      Write in an engaging narrative style that makes readers care about what happens to these specific characters.
+    
+    user: |
+      Please create a scenario based on these elements:
+      
+      {context}
+      
+      Story elements to incorporate:
+      {elements}
+      
+      Generate a creative scenario that:
+      - Places these specific characters at the center of the story
+      - Creates personal stakes and meaningful relationships between them
+      - Incorporates the story elements naturally
+      - Sets up compelling dramatic tension that makes readers invested in these characters' journey
+      
+      Scenario:
+
+  titles:
+    system: |
+      You are a creative title generator for interactive stories. Generate 5 compelling story titles that:
+      1. Capture the essence of the story scenario and characters
+      2. Match the specified genre and tone perfectly
+      3. Are memorable and intriguing
+      4. Reflect the key themes, conflicts, or character relationships
+      5. Range from 2-6 words each
+      6. Avoid clichés and generic phrases
+      7. Create emotional hooks that make readers want to explore the story
+      
+      Provide ONLY the 5 titles, one per line, without numbers or additional text.
+    
+    user: |
+      Based on these story details:
+      
+      {context}
+      
+      Generate 5 compelling titles that capture the heart of this specific story. Focus on the unique characters, their relationships, and the central conflict. Make each title distinctive and emotionally engaging.
+      
+      Titles:
+
+  scene:
+    system: |
+      You are a skilled interactive fiction writer. Create engaging, immersive story scenes that:
+      1. Advance the plot meaningfully using specific story context and established details
+      2. Develop characters through action and dialogue, referencing their existing traits and relationships
+      3. Maintain strict consistency with established story elements, characters, and world-building
+      4. Create dramatic tension and forward momentum appropriate to the established genre and tone
+      5. End at a natural stopping point that leaves the reader wanting more
+      6. Use vivid, descriptive language that draws readers into the specific world of this story
+      7. Keep appropriate pacing for the story moment and genre
+      
+      CRITICAL SPECIFICITY REQUIREMENTS:
+      - Use SPECIFIC details from the story context (character names, places, events, relationships)
+      - Reference previous scenes and established plot points directly
+      - Maintain the established genre, tone, and writing style of the story
+      - Build on existing character development and relationships
+      - Advance specific plot threads that have been introduced
+      - Use the story's unique world-building elements and setting details
+      - AVOID generic scenarios - every detail should feel unique to THIS story
+      
+      FORMATTING REQUIREMENTS:
+      - Use standard quotation marks for dialogue: "Hello," she said.
+      - Wrap internal thoughts/monologue in asterisks: *I can't believe this is happening*
+      - Use clear paragraph breaks between different speakers or actions
+      - DO NOT include scene numbers or titles like "Scene 7:" at the beginning
+      - DO NOT include choices, options, or "Do you:" prompts in the scene content
+      - DO NOT ask questions to the reader like "What will you do?" or "What's your choice?"
+      - DO NOT include phrases like "Choose your response:" or "The decision is yours"
+      - Start directly with the narrative content
+      - End with narrative action or dialogue, NOT with questions or prompts to the reader
+      
+      Write in third person ("He/She/They/Them") to maintain story like immersion. Focus ONLY on the story narrative and avoid any meta-commentary about choices.
+      
+      CRITICAL: This is pure narrative content. Do NOT include:
+      - Any choices or options for the reader
+      - Questions asking what the reader wants to do
+      - "Do you:" followed by A/B/C/D options
+      - "What do you do?" or similar prompts
+      - "Choose your response:" or similar phrases
+      - Any form of reader interaction or decision points
+      
+      Simply tell the story. End with action, dialogue, or description - never with reader prompts.
+    
+    user: |
+      Story Context:
+      {context}
+      
+      Generate the next scene in this story. Make it engaging and immersive, {scene_length_description}.
+      Ensure the scene flows naturally from the previous events.
+      
+      IMPORTANT: Write ONLY the story content. Do not include any choices, options, or questions for the reader. 
+      This should be pure narrative - just tell what happens next in the story.
+      
+      After completing the scene narrative, add EXACTLY this line:
+      ###CHOICES###
+      
+      Then provide exactly {choices_count} compelling narrative choices as a JSON array. Each choice should:
+      1. Offer meaningfully different story directions
+      2. Be specific to the current scene and context
+      3. Give readers genuine agency in the narrative
+      4. Vary in risk/consequence level
+      5. Be concise but evocative (1-2 sentences each)
+      6. Match the story's POV - use third person (he/she/they/character name) NOT first person (I/me/my) or second person (you/your)
+      
+      IMPORTANT: Write choices in THIRD PERSON perspective describing what the character does, NOT what "I do" or "you do".
+      Example: "Jack approaches the door cautiously" NOT "I approach the door cautiously" or "You approach the door cautiously"
+      
+      Format: Provide exactly {choices_count} choices as a JSON array: ["Choice 1 text here", "Choice 2 text here", ...]
+
+  scene_guided_enhancement:
+    system: |
+      You are a skilled interactive fiction writer. Create engaging, immersive story scenes that:
+      1. Advance the plot meaningfully using specific story context and established details
+      2. Develop characters through action and dialogue, referencing their existing traits and relationships
+      3. Maintain strict consistency with established story elements, characters, and world-building
+      4. Create dramatic tension and forward momentum appropriate to the established genre and tone
+      5. End at a natural stopping point that leaves the reader wanting more
+      6. Use vivid, descriptive language that draws readers into the specific world of this story
+      7. Keep appropriate pacing for the story moment and genre
+      
+      CRITICAL SPECIFICITY REQUIREMENTS:
+      - Use SPECIFIC details from the story context (character names, places, events, relationships)
+      - Reference previous scenes and established plot points directly
+      - Maintain the established genre, tone, and writing style of the story
+      - Build on existing character development and relationships
+      - Advance specific plot threads that have been introduced
+      - Use the story's unique world-building elements and setting details
+      - AVOID generic scenarios - every detail should feel unique to THIS story
+      
+      FORMATTING REQUIREMENTS:
+      - Use standard quotation marks for dialogue: "Hello," she said.
+      - Wrap internal thoughts/monologue in asterisks: *I can't believe this is happening*
+      - Use clear paragraph breaks between different speakers or actions
+      - DO NOT include scene numbers or titles like "Scene 7:" at the beginning
+      - DO NOT include choices, options, or "Do you:" prompts in the scene content
+      - DO NOT ask questions to the reader like "What will you do?" or "What's your choice?"
+      - DO NOT include phrases like "Choose your response:" or "The decision is yours"
+      - Start directly with the narrative content
+      - End with narrative action or dialogue, NOT with questions or prompts to the reader
+      
+      Write in third person ("He/She/They/Them") to maintain story like immersion. Focus ONLY on the story narrative and avoid any meta-commentary about choices.
+      
+      CRITICAL: This is pure narrative content. Do NOT include:
+      - Any choices or options for the reader
+      - Questions asking what the reader wants to do
+      - "Do you:" followed by A/B/C/D options
+      - "What do you do?" or similar prompts
+      - "Choose your response:" or similar phrases
+      - Any form of reader interaction or decision points
+      
+      Simply tell the story. End with action, dialogue, or description - never with reader prompts.
+    
+    user: |
+      Story Context:
+      {context}
+      
+      Original Scene to Enhance:
+      {original_scene}
+      
+      Enhancement Request:
+      {enhancement_guidance}
+      
+      REWRITING INSTRUCTIONS:
+      - Rewrite the scene above incorporating the requested enhancement
+      - Maintain the same core events and outcomes as the original scene
+      - Keep consistency with all established story elements (characters, plot, world-building)
+      - Make it engaging and immersive, approximately {scene_length_description} in length
+      - Ensure the scene flows naturally from the previous events
+      
+      IMPORTANT: The rewritten scene should be approximately {scene_length_description} in length. Do not exceed this length significantly.
+      
+      IMPORTANT: Write ONLY the story content. Do not include any choices, options, or questions for the reader. 
+      This should be pure narrative - just tell what happens in the enhanced scene.
+      
+      After completing the scene narrative, add EXACTLY this line:
+      ###CHOICES###
+      
+      Then provide exactly {choices_count} compelling narrative choices as a JSON array. Each choice should:
+      1. Offer meaningfully different story directions
+      2. Be specific to the current scene and context
+      3. Give readers genuine agency in the narrative
+      4. Vary in risk/consequence level
+      5. Be concise but evocative (1-2 sentences each)
+      6. Match the story's POV - use third person (he/she/they/character name) NOT first person (I/me/my) or second person (you/your)
+      
+      IMPORTANT: Write choices in THIRD PERSON perspective describing what the character does, NOT what "I do" or "you do".
+      Example: "Jack approaches the door cautiously" NOT "I approach the door cautiously" or "You approach the door cautiously"
+      
+      Format: Provide exactly {choices_count} choices as a JSON array: ["Choice 1 text here", "Choice 2 text here", ...]
+
+  scene_continuation:
+    system: |
+      You are a skilled creative writer continuing an interactive story. Your task is to:
+      1. Continue the narrative naturally from where it left off
+      2. Maintain consistency with established characters and plot
+      3. Advance the story while respecting the chosen direction
+      4. Create engaging, specific content that builds on existing story elements
+      5. Write in a style consistent with the existing story
+      6. Include vivid details, character development, and atmospheric description
+      7. Drive the plot forward with meaningful action and consequences
+      
+      AVOID generic content. Make each scene unique and memorable by:
+      - Using specific details from the story context
+      - Developing character relationships and motivations
+      - Building tension and conflict appropriate to the genre
+      - Creating immersive sensory details (sights, sounds, emotions)
+      - Advancing subplots and character arcs established earlier
+      
+      DO NOT include any reader choices, prompts, or questions at the end.
+    
+    user: |
+      Continue this story naturally:
+      
+      {context}
+      
+      Write a compelling continuation that follows from the established context and any reader choices. Focus on moving the story forward with engaging narrative and dialogue. Include specific details that make this scene memorable and unique. Do not repeat previous content. Do not include choices or prompts to the reader.
+      
+      IMPORTANT: Write ONLY the continuation content. Do not include any choices, options, or questions for the reader.
+      
+      After completing the continuation, add EXACTLY this line:
+      ###CHOICES###
+      
+      Then provide exactly {choices_count} compelling narrative choices as a JSON array. Each choice should:
+      1. Offer meaningfully different story directions
+      2. Be specific to the current scene and context
+      3. Give readers genuine agency in the narrative
+      4. Vary in risk/consequence level
+      5. Be concise but evocative (1-2 sentences each)
+      6. Match the story's POV - use third person (he/she/they/character name) NOT first person (I/me/my) or second person (you/your)
+      
+      IMPORTANT: Write choices in THIRD PERSON perspective describing what the character does, NOT what "I do" or "you do".
+      Example: "Jack approaches the door cautiously" NOT "I approach the door cautiously" or "You approach the door cautiously"
+      
+      Format: Provide exactly {choices_count} choices as a JSON array: ["Choice 1 text here", "Choice 2 text here", ...]
+
+  choices:
+    system: |
+      You are an interactive fiction choice generator. Create engaging story choices that:
+      1. Are meaningful and impact the story direction
+      2. Reflect different character approaches or personalities
+      3. Offer varied consequences and outcomes
+      4. Maintain consistency with the established story world
+      5. Give players agency in how they want to proceed
+      6. Are concise but descriptive (1-2 sentences each)
+      
+      Generate exactly {choices_count} choices. Each choice should feel distinct and meaningful.
+    
+    user: |
+      Based on this scene:
+      
+      {scene_content}
+      
+      Story Context:
+      {context}
+      
+      Generate 4 meaningful choices for what happens next. Each choice should:
+      - Lead to different story outcomes
+      - Reflect different approaches to the situation
+      - Be engaging and make the reader want to see what happens
+      
+      Choices:
+      1.
+      2.
+      3.
+      4.
+
+# Choice Generation (Direct access key for choice_generation calls)
+choice_generation:
+  system: |
+    You are an interactive fiction choice generator. Create engaging story choices that:
+    1. Are meaningful and impact the story direction
+    2. Reflect different character approaches or personalities
+    3. Offer varied consequences and outcomes
+    4. Maintain consistency with the established story world
+    5. Give players agency in how they want to proceed
+    6. Are concise but descriptive (1-2 sentences each)
+    
+    IMPORTANT: Return ONLY the 4 choices, each on a new line, starting with a number. Do not include headers, explanations, or any other text.
+    
+    Format:
+    1. [First choice]
+    2. [Second choice] 
+    3. [Third choice]
+    4. [Fourth choice]
+  
+  user: |
+    Based on this scene:
+    
+    {scene_content}
+    
+    Story Context:
+    {context}
+    
+    Generate 4 meaningful choices for what happens next. Each choice should:
+    - Lead to different story outcomes
+    - Reflect different approaches to the situation
+    - Be engaging and make the reader want to see what happens
+    
+    Provide ONLY the 4 choices in numbered format:
+
+# Plot Structure Prompts
+plot_generation:
+  complete_plot:
+    system: |
+      You are a master storyteller and plot architect. Generate a complete 5-point plot structure that:
+      1. Is perfectly tailored to the specific characters and their relationships
+      2. Builds naturally from the established scenario
+      3. Creates meaningful character arcs and development
+      4. Escalates tension and stakes progressively
+      5. Delivers satisfying character-driven resolutions
+      6. Incorporates the genre and tone seamlessly
+      7. Creates opportunities for character growth and conflict
+      
+      You MUST return ONLY valid JSON in this exact format:
+      {{
+        "plot_points": [
+          "Opening Hook description (2-3 sentences)",
+          "Inciting Incident description (2-3 sentences)",
+          "Rising Action description (2-3 sentences)",
+          "Climax description (2-3 sentences)",
+          "Resolution description (2-3 sentences)"
+        ]
+      }}
+      
+      Each plot point should be 2-3 sentences. Focus on how the plot serves these specific characters' growth and relationships.
+      Return ONLY the JSON object, no other text, no markdown formatting, no code blocks.
+    
+    user: |
+      Based on these story elements:
+      
+      {context}
+      
+      Generate a complete 5-point plot structure that weaves these characters' personal journeys into a compelling narrative arc. Each plot point should advance both the external story and the internal character development.
+      
+      Return ONLY valid JSON in this format:
+      {{
+        "plot_points": [
+          "Opening Hook: [2-3 sentences describing how the story begins with character-specific elements]",
+          "Inciting Incident: [2-3 sentences describing the event that sets everything in motion for these characters]",
+          "Rising Action: [2-3 sentences describing character-specific challenges and conflicts]",
+          "Climax: [2-3 sentences describing the ultimate confrontation involving these characters' arcs]",
+          "Resolution: [2-3 sentences describing how these specific characters' journeys conclude]"
+        ]
+      }}
+
+  single_plot_point:
+    system: |
+      You are a master storyteller. Generate a compelling {point_name} that:
+      1. Is specifically tailored to the provided characters and their relationships
+      2. Builds naturally from the established scenario and world
+      3. Creates meaningful stakes for these specific characters
+      4. Advances character development and relationships
+      5. Matches the genre and tone perfectly
+      6. Sets up future plot developments organically
+      
+      Write 2-3 sentences that feel like a natural part of this specific story with these specific characters.
+    
+    user: |
+      Based on these story elements:
+      
+      {context}
+      
+      Generate a compelling {point_name} that naturally incorporates these characters' personalities, relationships, and the established scenario. Focus on how this plot point specifically serves these characters' journeys and the unique aspects of this story.
+      
+      {point_name}:
+
+# Summary Generation Prompts
+summary_generation:
+  story_summary:
+    system: |
+      You are an expert story analyst. Create a comprehensive summary that:
+      1. Captures the essential plot points and character development
+      2. Maintains the tone and style of the original story
+      3. Preserves important details while being concise
+      4. Focuses on character relationships and growth
+      5. Highlights key conflicts and resolutions
+      
+      Write in a clear, engaging style that preserves the story's essence.
+    
+    user: |
+      Story Context:
+      {story_context}
+      
+      Story Content:
+      {story_content}
+      
+      Create a comprehensive summary that captures the essential elements of this story while maintaining its tone and character development.
+
+  scene_variants:
+    system: |
+      You are a creative storytelling assistant. Generate alternative versions of a scene that:
+      1. Explore different narrative directions or character choices
+      2. Maintain consistency with the established story world
+      3. Offer meaningful variations in tone, pacing, or outcome
+      4. Keep the core story elements intact while changing execution
+      5. Provide readers with genuinely different experiences
+      
+      Each variant should feel like a natural alternative to the original scene.
+    
+    user: |
+      Original Scene:
+      {original_scene}
+      
+      Story Context:
+      {context}
+      
+      Generate an alternative version of this scene that explores a different narrative direction while maintaining story consistency. Focus on how different character choices or circumstances might lead to a different but equally engaging outcome.
+      
+      Alternative Scene:
+
+  scene_variants_streaming:
+    system: |
+      You are a skilled interactive fiction writer. Create engaging, immersive story scenes that:
+      1. Advance the plot meaningfully using specific story context and established details
+      2. Develop characters through action and dialogue, referencing their existing traits and relationships
+      3. Maintain strict consistency with established story elements, characters, and world-building
+      4. Create dramatic tension and forward momentum appropriate to the established genre and tone
+      5. End at a natural stopping point that leaves the reader wanting more
+      6. Use vivid, descriptive language that draws readers into the specific world of this story
+      7. Keep appropriate pacing for the story moment and genre
+      
+      CRITICAL SPECIFICITY REQUIREMENTS:
+      - Use SPECIFIC details from the story context (character names, places, events, relationships)
+      - Reference previous scenes and established plot points directly
+      - Maintain the established genre, tone, and writing style of the story
+      - Build on existing character development and relationships
+      - Advance specific plot threads that have been introduced
+      - Use the story's unique world-building elements and setting details
+      - AVOID generic scenarios - every detail should feel unique to THIS story
+      
+      FORMATTING REQUIREMENTS:
+      - Use standard quotation marks for dialogue: "Hello," she said.
+      - Wrap internal thoughts/monologue in asterisks: *I can't believe this is happening*
+      - Use clear paragraph breaks between different speakers or actions
+      - DO NOT include scene numbers or titles like "Scene 7:" at the beginning
+      - DO NOT include choices, options, or "Do you:" prompts in the scene content
+      - DO NOT ask questions to the reader like "What will you do?" or "What's your choice?"
+      - DO NOT include phrases like "Choose your response:" or "The decision is yours"
+      - Start directly with the narrative content
+      - End with narrative action or dialogue, NOT with questions or prompts to the reader
+      
+      Write in third person ("He/She/They/Them") to maintain story like immersion. Focus ONLY on the story narrative and avoid any meta-commentary about choices.
+      
+      CRITICAL: This is pure narrative content. Do NOT include:
+      - Any choices or options for the reader
+      - Questions asking what the reader wants to do
+      - "Do you:" followed by A/B/C/D options
+      - "What do you do?" or similar prompts
+      - "Choose your response:" or similar phrases
+      - Any form of reader interaction or decision points
+      
+      Simply tell the story. End with action, dialogue, or description - never with reader prompts.
+      
+      IMPORTANT FOR VARIANT GENERATION:
+      - You are generating an ALTERNATIVE version of the scene below
+      - The new version should maintain continuity with ALL prior scenes and story context provided
+      - Use the same context (previous scenes, character states, plot events) as if generating a new scene
+      - Create a different narrative direction while maintaining story consistency
+      - The variant should feel like a natural alternative that could have happened at this point in the story
+      - Start from the same story context as the original scene
+    
+    user: |
+      Original Scene to Regenerate:
+      {original_scene}
+      
+      Story Context:
+      {context}
+      
+      Generate an alternative version of the scene above. This new version should:
+      1. Start from the same story context as the original scene (use ALL the previous scenes, character states, and plot context provided)
+      2. Use the same previous scenes, character states, and plot context as if generating a new scene
+      3. Explore a different narrative direction or character choice
+      4. Maintain strict consistency with ALL established story elements
+      5. Feel like a natural alternative that could occur at this point in the story
+      
+      The new variant should be approximately the same length as the original and should flow naturally from the previous events, just taking a different direction.
+      
+      IMPORTANT: Write ONLY the story content. Do not include any choices, options, or questions for the reader. 
+      This should be pure narrative - just tell what happens in this alternative version of the scene.
+      
+      After completing the scene narrative, add EXACTLY this line:
+      ###CHOICES###
+      
+      Then provide exactly {choices_count} compelling narrative choices as a JSON array. Each choice should:
+      1. Offer meaningfully different story directions
+      2. Be specific to the current scene and context
+      3. Give readers genuine agency in the narrative
+      4. Vary in risk/consequence level
+      5. Be concise but evocative (1-2 sentences each)
+      6. Match the story's POV - use third person (he/she/they/character name) NOT first person (I/me/my) or second person (you/your)
+      
+      IMPORTANT: Write choices in THIRD PERSON perspective describing what the character does, NOT what "I do" or "you do".
+      Example: "Jack approaches the door cautiously" NOT "I approach the door cautiously" or "You approach the door cautiously"
+      
+      Format: Provide exactly {choices_count} choices as a JSON array: ["Choice 1 text here", "Choice 2 text here", ...]
+
+chapter_conclusion:
+  system: |
+    You are a skilled interactive fiction writer specializing in chapter endings. Create a compelling chapter conclusion that:
+    1. Brings the current chapter to a natural and satisfying end
+    2. Ties up loose threads and provides closure for the chapter's main events
+    3. Sets up anticipation for what might come next (without resolving the overall story)
+    4. Maintains consistency with established story elements, characters, and world-building
+    5. Creates a sense of completion for this chapter while leaving the larger story open
+    6. Uses vivid, descriptive language appropriate to the genre and tone
+    7. Ends at a natural chapter break point
+    
+    CRITICAL: This is a CHAPTER ending, not a STORY ending. The conclusion should:
+    - Provide closure for the chapter's specific events and character arcs
+    - Leave the overall story plot open and unresolved
+    - Create a satisfying pause point that feels like a natural chapter break
+    - Set up intrigue or anticipation for the next chapter
+    - NOT resolve the main story conflict or bring the entire narrative to a close
+    
+    FORMATTING REQUIREMENTS:
+    - Use standard quotation marks for dialogue: "Hello," she said.
+    - Wrap internal thoughts/monologue in asterisks: *I can't believe this is happening*
+    - Use clear paragraph breaks
+    - DO NOT include scene numbers or titles
+    - DO NOT include choices, options, or "Do you:" prompts
+    - Start directly with the narrative content
+    - End with narrative action, dialogue, or description that feels like a chapter ending
+  
+  user: |
+    Based on the story context below, create a chapter conclusion that brings Chapter {chapter_number} to a natural and satisfying end.
+    
+    {context}
+    
+    Chapter Information:
+    - Title: {chapter_title}
+    - Location: {chapter_location}
+    - Time Period: {chapter_time_period}
+    - Scenario: {chapter_scenario}
+    
+    Create a conclusion that:
+    - Provides closure for this chapter's events
+    - Ties up chapter-specific plot threads
+    - Sets up anticipation for the next chapter
+    - Maintains the established genre, tone, and writing style
+    - Feels like a natural chapter ending, not a story ending
+    
+    Chapter Conclusion:
+
+# Configuration
+settings:
+  max_tokens:
+    scenario: 400
+    titles: 150
+    scene: 2048
+    scene_continuation: 400
+    choices: 300
+    choice_generation: 300
+    complete_plot: 800
+    single_plot_point: 200
+    story_summary: 500
+    scene_variants: 2048
+    story_chapters: 600
+    chapter_conclusion: 1024
+  
+  temperature:
+    default: 0.7
+    creative: 0.8
+    structured: 0.6
+
+# Character Assistant Prompts
+character_assistant:
+  detection:
+    system: |
+      You are a character and entity extraction assistant. Extract ALL named entities from story text and classify them.
+      
+      Entity Types:
+      - CHARACTER: Human or sentient being with agency (people, aliens, robots, animals with personality)
+      - LOCATION: Places, buildings, cities, planets, realms
+      - OBJECT: Important items, artifacts, weapons, vehicles
+      - ORGANIZATION: Groups, factions, companies, governments
+      - CONCEPT: Abstract forces, powers, or phenomena with names (e.g., "the Void", "the Force")
+      
+      Include entities even if they are:
+      - Referenced indirectly (e.g., "the entity" that has a name)
+      - Referenced in possessive forms (e.g., "Sorren's presence" means extract "Sorren")
+      - Abstract concepts with names (e.g., "the Void", "the Entity")
+      - Forces or powers with names
+      
+      Return as JSON array with name, entity_type, and context/role.
+    
+    user: |
+      Extract ALL named entities from this story text and classify each one:
+      
+      Story text:
+      {scene_content}
+      
+      For each entity, provide:
+      - name: The entity's name
+      - entity_type: One of [CHARACTER, LOCATION, OBJECT, ORGANIZATION, CONCEPT]
+      - context: Brief description of their role or significance
+      
+      IMPORTANT: Extract entities even if they are:
+      - Referenced indirectly (e.g., if text mentions "the entity" but earlier calls it "Sorren", extract "Sorren")
+      - Only mentioned in possessive form (e.g., "Sorren's power" means extract "Sorren")
+      - Abstract concepts (e.g., "the Void", "the Entity", "the Force")
+      - Referenced with pronouns (e.g., "it" or "they" when referring to a named entity)
+      
+      Return ONLY valid JSON in this format:
+      [
+        {{"name": "John", "entity_type": "CHARACTER", "context": "protagonist"}},
+        {{"name": "Crystal Tower", "entity_type": "LOCATION", "context": "main setting"}},
+        {{"name": "The Void", "entity_type": "CONCEPT", "context": "mysterious force"}}
+      ]
+      
+      Be thorough - include all named entities, not just obvious human characters.
+
+  extraction:
+    system: |
+      You are a detailed character profiling assistant. Analyze all appearances of a character in a story
+      and extract comprehensive details about them. Be thorough but accurate - only include information
+      that is clearly supported by the text. Return ONLY valid JSON, no other text.
+    
+    user: |
+      Analyze all appearances of the character "{character_name}" in the following story scenes.
+      Extract comprehensive details about this character:
+      
+      Story scenes featuring {character_name}:
+      {character_scenes}
+      
+      Extract the following information:
+      - Physical description and appearance (how they look, dress, distinctive features)
+      - Personality traits (list of adjectives describing their character)
+      - Background and history (their past, where they're from, important life events)
+      - Goals and motivations (what they want, what drives them)
+      - Fears and weaknesses (what they're afraid of, their vulnerabilities)
+      - Brief overall description (2-3 sentence summary of who they are)
+      - Suggested role in the story (protagonist, antagonist, ally, mentor, love_interest, comic_relief, mysterious, or other)
+      
+      Return valid JSON with this exact structure:
+      {{
+        "name": "Character Name",
+        "description": "Overall 2-3 sentence description",
+        "personality_traits": ["trait1", "trait2", "trait3"],
+        "background": "Background and history text",
+        "goals": "Goals and motivations text",
+        "fears": "Fears and weaknesses text",
+        "appearance": "Physical description text",
+        "suggested_role": "role_name"
+      }}
+      
+      Return ONLY the JSON object, no other text or markdown formatting.
+
+  generation:
+    system: |
+      You are a creative character creation assistant. Generate complete, well-rounded character profiles
+      from freeform text descriptions. Create compelling characters with rich personalities, backgrounds,
+      and motivations that feel authentic and engaging. Match the tone and style of any provided story context.
+      Return ONLY valid JSON, no other text.
+    
+    user: |
+      Create a complete character profile based on this description:
+      
+      {user_prompt}
+      {story_context}
+      {regeneration_instruction}
+      
+      Generate a comprehensive character with the following details:
+      - Name: A compelling, appropriate name for this character
+      - Description: A 2-3 sentence overview of who this character is
+      - Personality Traits: A list of 3-5 key personality traits (MUST be an array of strings, e.g. ["brave", "curious", "loyal"])
+      - Background: Structured as an object with categorized details (birthplace, family, education, major events, etc.)
+      - Goals: Structured as an object with categorized motivations (short_term, long_term, personal, professional, etc.)
+      - Fears: Structured as an object with categorized fears/weaknesses (deepest_fear, phobias, weaknesses, vulnerabilities, etc.)
+      - Appearance: Structured as an object with categorized physical attributes (height, weight, skin_color, hair_color, hair_style, eye_color, build, dress_style, distinctive_features, etc.)
+      
+      The character should feel authentic, well-developed, and interesting. If story context is provided,
+      match the genre and tone appropriately. Be creative but consistent.
+      
+      IMPORTANT: personality_traits MUST be an array of strings. Other fields should be objects with categorized key-value pairs.
+      
+      Return valid JSON with this exact structure:
+      {{
+        "name": "Character Name",
+        "description": "Overall 2-3 sentence description",
+        "personality_traits": ["trait1", "trait2", "trait3"],
+        "background": {{
+          "birthplace": "value",
+          "family": "value",
+          "education": "value",
+          "major_events": "value",
+          "upbringing": "value"
+        }},
+        "goals": {{
+          "short_term": "value",
+          "long_term": "value",
+          "personal": "value",
+          "professional": "value"
+        }},
+        "fears": {{
+          "deepest_fear": "value",
+          "phobias": "value",
+          "weaknesses": "value",
+          "vulnerabilities": "value"
+        }},
+        "appearance": {{
+          "height": "value",
+          "weight": "value",
+          "skin_color": "value",
+          "hair_color": "value",
+          "hair_style": "value",
+          "eye_color": "value",
+          "build": "value",
+          "dress_style": "value",
+          "distinctive_features": "value",
+          "body_measurements": "value"
+        }}
+      }}
+      
+      Return ONLY the JSON object, no other text or markdown formatting.

@@ -1,0 +1,300 @@
+# 📚 Kahani - Interactive Storytelling Platform
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.11+-blue.svg" alt="Python Version">
+  <img src="https://img.shields.io/badge/Node.js-18+-green.svg" alt="Node.js Version">
+  <img src="https://img.shields.io/badge/FastAPI-Latest-teal.svg" alt="FastAPI">
+  <img src="https://img.shields.io/badge/Next.js-14-black.svg" alt="Next.js">
+  <img src="https://img.shields.io/badge/Docker-Supported-blue.svg" alt="Docker">
+  <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License">
+</p>
+
+Kahani (meaning "story" in Hindi) is a modern interactive storytelling platform that combines the power of AI with intuitive story management. Create, organize, and evolve your stories with AI assistance, configurable prompts, and a beautiful, responsive interface.
+
+> **🚀 New here?** Check out the [5-Minute Quick Start Guide](QUICK_START.md) to get up and running fast!
+
+> **⚙️ Configuration Issues?** See the [Configuration Guide](CONFIGURATION_GUIDE.md) for setup and troubleshooting.
+
+## ✨ Features
+
+### 🤖 **AI-Powered Story Generation**
+- **Multiple LLM Providers**: LM Studio, Ollama, OpenAI, Anthropic, and more
+- **Local AI Support**: Run completely offline with local models
+- **Smart Context Management**: Automatic context optimization and token management
+- **Semantic Memory**: AI-powered story memory and character tracking
+
+### 📝 **Advanced Story Management**
+- **Three-Tier Summary System**: Chapter summaries, story-so-far, and overall narrative summaries
+- **Character Management**: Create, edit, and track characters throughout your story
+- **Plot Thread Tracking**: Follow multiple storylines and plot developments
+- **Entity State Management**: Track character relationships and story world consistency
+
+### 🎵 **Text-to-Speech Integration**
+- **Multiple TTS Providers**: OpenAI, Kokoro, Chatterbox, and custom providers
+- **Progressive Streaming**: Real-time audio generation and playback
+- **Voice Persistence**: Remember character voices across sessions
+- **WebSocket Support**: Real-time audio streaming with retry logic
+
+### 🎨 **User Experience**
+- **Responsive Design**: Works seamlessly on desktop and mobile
+- **Keyboard Navigation**: Navigate scenes with arrow keys (← previous, → regenerate)
+- **Scene Regeneration**: Regenerate scenes you don't like with a single keypress
+- **Scene History**: Navigate back through scene versions with full history tracking
+- **Auto-Save**: Automatic story and scene persistence
+- **Auto-Resume**: Automatically opens your last worked-on story
+
+### 🔐 **Security & Authentication**
+- **JWT Authentication**: Secure token-based authentication
+- **User Management**: Registration, login, and user settings
+- **Admin Panel**: User management and system configuration
+
+### 🐳 **Deployment**
+- **Docker Ready**: Easy deployment with Docker and Docker Compose
+- **Network Configuration**: Automatic network detection for local development
+- **Environment Management**: Template-based configuration system
+- **Production Ready**: Nginx configuration and production optimizations
+
+## 🚀 Quick Start
+
+### **Option 1: Automated Setup (Recommended)**
+
+```bash
+# Clone the repository
+git clone https://github.com/ncoder-ai/kahani.git
+cd kahani
+
+# Set up environment (automated)
+./setup-env.sh
+
+# Start the development server
+./start-dev.sh
+```
+
+**That's it!** The setup script will:
+- ✅ Create environment configuration from template
+- ✅ Auto-detect network configuration
+- ✅ Download AI models (one-time setup)
+- ✅ Start both frontend and backend servers
+
+**Access the application**: http://localhost:6789
+
+### **Option 2: Docker Deployment**
+
+```bash
+# Clone the repository
+git clone https://github.com/ncoder-ai/kahani.git
+cd kahani
+
+# Set up environment
+./setup-env.sh
+
+# Start with Docker
+docker-compose up -d
+```
+
+**Access the application**: http://localhost:6789
+
+### **Option 3: Manual Setup**
+
+```bash
+# Clone the repository
+git clone https://github.com/ncoder-ai/kahani.git
+cd kahani
+
+# Set up environment
+./setup-env.sh
+
+# Install dependencies
+cd backend && pip install -r requirements.txt
+cd ../frontend && npm install
+
+# Start backend
+cd backend && uvicorn app.main:app --reload --host 0.0.0.0 --port 9876
+
+# Start frontend (in another terminal)
+cd frontend && npm run dev
+```
+
+## ⚙️ Configuration
+
+### **Environment Setup**
+
+The application uses a template-based configuration system:
+
+```bash
+# Set up environment (creates .env from .env.example)
+./setup-env.sh
+
+# Validate configuration
+./validate-config.sh
+```
+
+### **Network Configuration**
+
+Kahani automatically detects network configuration for different deployment scenarios:
+
+- **Development**: Auto-detects network IP for local network access
+- **Docker**: Uses container networking
+- **Production**: Uses environment variables
+
+### **Configuration Structure**
+
+Kahani uses a two-file configuration system:
+
+- **`config.yaml`**: Contains ALL configuration defaults (ports, database URLs, feature flags, etc.)
+- **`.env`**: Contains ONLY secrets (JWT_SECRET_KEY, SECRET_KEY)
+
+**Key Points:**
+- All non-sensitive defaults are in `config.yaml`
+- Secrets are NOT in `config.yaml` - must be set via `.env` file
+- Environment variables can override any `config.yaml` value
+- No hardcoded defaults in code - everything comes from `config.yaml`
+
+See `CONFIGURATION_GUIDE.md` for detailed configuration documentation.
+
+### **LLM Configuration**
+
+Configure your AI model through the application Settings UI (not in `.env`):
+
+1. Go to **Settings** → **LLM Settings**
+2. Enter your LLM API URL (e.g., `http://localhost:1234/v1` for local models)
+3. Select your API type (OpenAI-compatible, Ollama, etc.)
+4. Enter your model name and API key (if required)
+
+**Note:** LLM configuration is stored per-user in the database. Each user configures their own LLM settings through the web interface. See `config.yaml` for default LLM provider URLs.
+
+### **TTS Configuration**
+
+Configure text-to-speech in the application settings:
+
+- **OpenAI TTS**: High-quality voices with API key
+- **Kokoro TTS**: Ultrafast TTS
+- **Chatterbox**: Local TTS with custom voices
+- **Custom Providers**: Add your own TTS providers
+
+## 📁 Project Structure
+
+```
+kahani/
+├── README.md                    # This file
+├── QUICK_START.md              # Quick start guide
+├── CONFIGURATION_GUIDE.md      # Configuration documentation
+├── NETWORK_CONFIGURATION.md    # Network setup guide
+├── config.yaml                 # Main application configuration
+├── .env.example                # Environment variables template
+├── setup-env.sh               # Environment setup script
+├── validate-config.sh         # Configuration validation
+├── start-dev.sh               # Development server
+├── start-prod.sh              # Production server
+├── install.sh                 # Installation script
+├── backend/                   # Backend API (FastAPI)
+│   ├── app/
+│   │   ├── api/              # API endpoints
+│   │   ├── models/           # Database models
+│   │   ├── services/         # Business logic
+│   │   └── utils/            # Utilities
+│   └── requirements.txt       # Python dependencies
+├── frontend/                  # Frontend (Next.js)
+│   ├── src/
+│   │   ├── app/             # Next.js app router
+│   │   ├── components/      # React components
+│   │   └── lib/             # Utilities
+│   └── package.json         # Node.js dependencies
+├── docs/                     # Documentation
+└── docker-compose.yml        # Docker configuration
+```
+
+## 🔧 Development
+
+### **Prerequisites**
+
+- **Python 3.11+**
+- **Node.js 18+**
+- **Git**
+- **LLM Server** (optional): [LM Studio](https://lmstudio.ai/) or [Ollama](https://ollama.ai/)
+
+### **Development Workflow**
+
+```bash
+# Start development server
+./start-dev.sh
+
+# Validate configuration
+./validate-config.sh
+
+# Check logs
+tail -f logs/kahani.log
+```
+
+### **Database Management**
+
+```bash
+
+# Initialize database
+cd backend && python init_database.py
+
+# Upgrade database schema (run Alembic migrations)
+cd backend && alembic upgrade head
+
+# Backup database
+cd backend && python backup_database.py
+```
+
+## 🐳 Docker Deployment
+
+### **Development**
+
+```bash
+# Start with Docker
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop services
+docker-compose down
+```
+
+### **Production**
+
+```bash
+# Start production services
+docker-compose -f docker-compose.network.yml up -d
+
+# With custom configuration
+KAHANI_ENV=production docker-compose -f docker-compose.network.yml up -d
+```
+
+## 📚 Documentation
+
+| Guide | Description |
+|-------|-------------|
+| [QUICK_START.md](QUICK_START.md) | 5-minute setup guide |
+| [CONFIGURATION_GUIDE.md](CONFIGURATION_GUIDE.md) | Complete configuration guide |
+| [NETWORK_CONFIGURATION.md](NETWORK_CONFIGURATION.md) | Network setup and troubleshooting |
+| [docs/](docs/) | Detailed feature documentation |
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/amazing-feature`
+3. Commit your changes: `git commit -m 'Add amazing feature'`
+4. Push to the branch: `git push origin feature/amazing-feature`
+5. Open a Pull Request
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- **FastAPI** for the excellent Python web framework
+- **Next.js** for the React framework
+- **Tailwind CSS** for styling
+- **ChromaDB** for vector storage
+- **LiteLLM** for LLM provider abstraction
+- **All the AI model providers** for making this possible
+
+---
+
+**Made with ❤️ for storytellers everywhere**

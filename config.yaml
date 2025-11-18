@@ -1,0 +1,291 @@
+# ============================================================================
+# KAHANI CONFIGURATION
+# All application settings - see CONFIGURATION_GUIDE.md for details
+# Environment variables can override any value (use UPPERCASE with underscores)
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# APPLICATION
+# ----------------------------------------------------------------------------
+application:
+  app_name: "Kahani"
+  app_version: "0.1.0"
+  debug: false
+  environment: "development"  # development, production
+
+# ----------------------------------------------------------------------------
+# SERVER & NETWORKING
+# ----------------------------------------------------------------------------
+server:
+  backend:
+    port: 9876
+    host: "0.0.0.0"
+  frontend:
+    port: 6789
+
+cors:
+  origins: "*"  # Comma-separated list or "*" for all
+
+# ----------------------------------------------------------------------------
+# DATABASE
+# ----------------------------------------------------------------------------
+database:
+  database_url: "sqlite:///./data/kahani.db"
+
+# ----------------------------------------------------------------------------
+# SECURITY
+# Note: SECRET_KEY and JWT_SECRET_KEY MUST be set via .env file
+# ----------------------------------------------------------------------------
+security:
+  jwt_algorithm: "HS256"
+  access_token_expire_minutes: 120
+  refresh_token_expire_days: 30
+
+# ----------------------------------------------------------------------------
+# STORAGE & PATHS
+# ----------------------------------------------------------------------------
+storage:
+  data_dir: "./data"
+  export_dir: "./exports"
+  logs_dir: "./logs"
+  max_story_size_mb: 10
+  max_users: 100
+
+# ----------------------------------------------------------------------------
+# FEATURES
+# ----------------------------------------------------------------------------
+features:
+  enable_registration: true
+  enable_story_sharing: true
+  enable_public_stories: false
+
+# ----------------------------------------------------------------------------
+# CONTEXT MANAGEMENT
+# ----------------------------------------------------------------------------
+context:
+  max_tokens: 4000
+  keep_recent_scenes: 3
+  summary_threshold: 5
+  summary_threshold_tokens: 10000
+  token_buffer: 0.9
+  default_character_extraction_threshold: 5
+  chapter_context_threshold_percentage: 80  # Percentage of context tokens used before suggesting new chapter
+
+context_strategy:
+  strategy: "hybrid"  # "linear" or "hybrid"
+  semantic_scenes_in_context: 5
+  character_moments_in_context: 3
+  semantic_min_similarity: 0.3  # Minimum similarity score to include (0.0-1.0)
+  location_recency_window: 10   # Only show locations updated in last N scenes
+
+# ----------------------------------------------------------------------------
+# SEMANTIC MEMORY
+# ----------------------------------------------------------------------------
+semantic_memory:
+  enabled: true
+  db_path: "./data/chromadb"
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  search_top_k: 5
+  context_weight: 0.4
+
+# ----------------------------------------------------------------------------
+# EXTRACTION & NPC TRACKING
+# ----------------------------------------------------------------------------
+extraction:
+  auto_extract_character_moments: true
+  auto_extract_plot_events: true
+  confidence_threshold: 70
+
+extraction_model:
+  enabled: false
+  url: "http://localhost:1234/v1"
+  api_key: ""
+  model_name: "qwen2.5-3b-instruct"
+  temperature: 0.3
+  max_tokens: 1000
+  fallback_to_main: true
+  recommended_models:
+    - "qwen2.5-3b-instruct"
+    - "ministral-3b-instruct"
+    - "phi-3-mini"
+
+npc_tracking:
+  enabled: true
+  importance_threshold: 1.0
+  auto_extract_profile: true
+  prompt_user: false
+
+# ----------------------------------------------------------------------------
+# SPEECH-TO-TEXT (STT)
+# ----------------------------------------------------------------------------
+stt:
+  model: "small"  # Options: tiny, base, small, medium, large-v2
+  device: "auto"  # auto, cuda, or cpu
+  compute_type: "int8"  # int8, int8_float16, float16 for GPU; int8 for CPU
+  language: "en"
+  use_silero_vad: true
+  vad_threshold: 0.5
+  min_speech_duration_ms: 250
+  min_silence_duration_ms: 1000
+  max_speech_duration_s: 60
+  speech_pad_ms: 300
+
+# ----------------------------------------------------------------------------
+# FRONTEND DEFAULTS
+# Default URLs for TTS providers and extraction models
+# Users can override these in their settings
+#
+# Note: NEXT_PUBLIC_API_URL is an environment variable (not in this file)
+# - Set in .env file for Docker deployments (required)
+# - Optional for baremetal (auto-detects from server.backend.port)
+# - See .env.example for configuration examples
+# ----------------------------------------------------------------------------
+frontend:
+  tts:
+    default_providers:
+      openai_compatible: "http://localhost:1234"
+      chatterbox: "http://localhost:8880"
+      kokoro: "http://localhost:8188"
+  extraction:
+    default_url: "http://localhost:1234/v1"
+  websocket:
+    stt_path: "/ws/stt"
+    tts_path: "/ws/tts"
+
+# ----------------------------------------------------------------------------
+# LOGGING
+# ----------------------------------------------------------------------------
+logging:
+  log_level: "DEBUG"
+  log_file: "./logs/kahani.log"
+
+# ----------------------------------------------------------------------------
+# DEBUG
+# ----------------------------------------------------------------------------
+debug:
+  prompt_debug: false  # Save prompts and raw LLM responses to files
+
+# ----------------------------------------------------------------------------
+# USER DEFAULTS
+# Applied when creating new users or resetting settings
+# ----------------------------------------------------------------------------
+user_defaults:
+  llm_settings:
+    temperature: 0.7
+    top_p: 1.0
+    top_k: 50
+    repetition_penalty: 1.1
+    max_tokens: 2048
+  llm_api:
+    api_type: "openai-compatible"
+    api_key: ""
+    model_name: ""
+  text_completion:
+    mode: "chat"
+    preset: "llama3"
+  context_settings:
+    max_tokens: 4000
+    keep_recent_scenes: 3
+    summary_threshold: 5
+    summary_threshold_tokens: 8000
+    enable_summarization: true
+    auto_generate_summaries: true
+    character_extraction_threshold: 5
+    enable_semantic_memory: true
+    context_strategy: "hybrid"
+    semantic_search_top_k: 5
+    semantic_scenes_in_context: 5
+    semantic_context_weight: 0.4
+    character_moments_in_context: 3
+    auto_extract_character_moments: true
+    auto_extract_plot_events: true
+    extraction_confidence_threshold: 70
+  generation_preferences:
+    default_genre: ""
+    default_tone: ""
+    scene_length: "medium"
+    auto_choices: true
+    choices_count: 4
+  ui_preferences:
+    color_theme: "pure-dark"
+    font_size: "medium"
+    show_token_info: false
+    show_context_info: false
+    notifications: true
+    scene_display_format: "default"
+    show_scene_titles: true
+    scene_edit_mode: "textarea"
+    auto_open_last_story: false
+  export_settings:
+    format: "markdown"
+    include_metadata: true
+    include_choices: true
+  character_assistant_settings:
+    enable_suggestions: true
+    importance_threshold: 70
+    mention_threshold: 5
+  stt_settings:
+    enabled: true
+    model: "small"
+  extraction_model_settings:
+    enabled: false
+    url: "http://localhost:1234/v1"
+    api_key: ""
+    model_name: "qwen2.5-3b-instruct"
+    temperature: 0.3
+    max_tokens: 1000
+    fallback_to_main: true
+  advanced:
+    custom_system_prompt: ""
+    experimental_features: false
+
+# ----------------------------------------------------------------------------
+# SYSTEM DEFAULTS
+# Applied to system_settings table on initialization
+# Note: First user to register becomes admin automatically
+# ----------------------------------------------------------------------------
+system_defaults:
+  permissions:
+    default_allow_nsfw: false
+    default_can_change_llm_provider: true
+    default_can_change_tts_settings: true
+    default_can_use_stt: true
+    default_can_use_image_generation: true
+    default_can_export_stories: true
+    default_can_import_stories: true
+  resource_limits:
+    default_max_stories: null  # null = unlimited
+    default_max_images_per_story: null
+    default_max_stt_minutes_per_month: null
+  llm_defaults:
+    default_llm_api_url: null
+    default_llm_api_key: null
+    default_llm_model_name: null
+    default_llm_temperature: 0.7
+  registration:
+    registration_requires_approval: true
+
+# ----------------------------------------------------------------------------
+# SERVICE DEFAULTS
+# Internal defaults used by various services
+# ----------------------------------------------------------------------------
+service_defaults:
+  llm_client:
+    default_max_tokens: 2048
+    default_temperature: 0.7
+  extraction_service:
+    default_max_tokens: 1000
+    default_temperature: 0.3
+    npc_tracking_max_tokens: 1500
+    character_assistant_max_tokens: 3000
+    character_profile_max_tokens: 3000
+    entity_state_max_tokens: 1000
+    plot_thread_batch_max_tokens: 1500
+    plot_thread_single_max_tokens: 500
+    character_memory_batch_max_tokens: 1500
+    character_memory_single_max_tokens: 500
+  prompts:
+    default_max_tokens: 2048
+  character_generation:
+    max_tokens: 2000
+    temperature: 0.8

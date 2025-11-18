@@ -1,0 +1,47 @@
+# Kahani Docker Compose Configuration
+# First user to register becomes admin automatically
+# No default users - register your first account to get started
+
+services:
+  backend:
+    build: ./backend
+    container_name: kahani-backend
+    ports:
+      - "9876:9876"
+    volumes:
+      - ./backend/data:/app/data
+      - ./backend/logs:/app/logs
+      - ./config.yaml:/app/config.yaml
+    # Run as root initially to set up permissions, then drop to app user
+    user: "root"
+    environment:
+      - DATABASE_URL=sqlite:///./data/kahani.db
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY environment variable is required - see docs/SECURITY_SETUP.md}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT_SECRET_KEY environment variable is required - see docs/SECURITY_SETUP.md}
+      - CORS_ORIGINS=${CORS_ORIGINS:-["http://localhost:6789"]}
+      - PORT=9876
+      - TRANSFORMERS_CACHE=/app/.cache/huggingface
+      - HF_HOME=/app/.cache/huggingface
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    
+  frontend:
+    build: ./frontend
+    container_name: kahani-frontend
+    ports:
+      - "6789:6789"
+    environment:
+      - PORT=6789
+      # NEXT_PUBLIC_API_URL is required for Docker (frontend container needs to reach backend container)
+      # Use Docker service name 'backend' for inter-container communication
+      # Override in .env if needed (e.g., for external access)
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://backend:9876}
+    depends_on:
+      - backend
+    # Enable logging with timestamps
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "kahani-frontend"

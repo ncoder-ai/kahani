@@ -1,0 +1,149 @@
+"""
+NPC Tracking Models
+
+Tracks NPCs (Non-Player Characters) mentioned in scenes that aren't explicitly added as characters.
+Calculates importance scores and automatically includes them in context when they cross a threshold.
+"""
+
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Float, JSON, Boolean, Index
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+from ..database import Base
+
+
+class NPCMention(Base):
+    """
+    Tracks individual mentions of NPCs in scenes.
+    
+    Stores per-scene data about NPC appearances:
+    - How many times mentioned
+    - Whether they have dialogue, actions, relationships
+    - Context snippets from the scene
+    """
+    __tablename__ = "npc_mentions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    story_id = Column(Integer, ForeignKey("stories.id", ondelete="CASCADE"), nullable=False, index=True)
+    scene_id = Column(Integer, ForeignKey("scenes.id", ondelete="CASCADE"), nullable=False, index=True)
+    character_name = Column(String(255), nullable=False, index=True)
+    sequence_number = Column(Integer, nullable=False)  # Scene sequence number
+    
+    # Mention metrics
+    mention_count = Column(Integer, default=1)  # How many times mentioned in this scene
+    has_dialogue = Column(Boolean, default=False)  # NPC has dialogue in this scene
+    has_actions = Column(Boolean, default=False)  # NPC performs actions in this scene
+    has_relationships = Column(Boolean, default=False)  # NPC has relationship interactions
+    
+    # Context data
+    context_snippets = Column(JSON, nullable=True)  # Array of text snippets mentioning the NPC
+    extracted_properties = Column(JSON, nullable=True)  # Extracted properties: role, description, etc.
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationships
+    story = relationship("Story", back_populates="npc_mentions")
+    scene = relationship("Scene")
+    
+    # Index for efficient queries
+    __table_args__ = (
+        Index('idx_npc_mentions_story_name', 'story_id', 'character_name'),
+        Index('idx_npc_mentions_story_scene', 'story_id', 'scene_id'),
+    )
+    
+    def __repr__(self):
+        return f"<NPCMention(story_id={self.story_id}, character_name='{self.character_name}', scene_id={self.scene_id})>"
+
+
+class NPCTracking(Base):
+    """
+    Aggregated tracking of NPCs across a story.
+    
+    Maintains:
+    - Total mentions and scene appearances
+    - Importance score (frequency + significance)
+    - Extracted full character profile
+    - Threshold crossing status
+    """
+    __tablename__ = "npc_tracking"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    story_id = Column(Integer, ForeignKey("stories.id", ondelete="CASCADE"), nullable=False, index=True)
+    character_name = Column(String(255), nullable=False, index=True)
+    entity_type = Column(String(50), default="CHARACTER", nullable=True)  # CHARACTER or ENTITY
+    
+    # Frequency metrics
+    total_mentions = Column(Integer, default=0)  # Total mentions across all scenes
+    scene_count = Column(Integer, default=0)  # Number of scenes where NPC appears
+    first_appearance_scene = Column(Integer, nullable=True)  # First scene sequence number
+    last_appearance_scene = Column(Integer, nullable=True)  # Last scene sequence number
+    
+    # Significance metrics
+    has_dialogue_count = Column(Integer, default=0)  # Scenes with dialogue
+    has_actions_count = Column(Integer, default=0)  # Scenes with actions
+    significance_score = Column(Float, default=0.0)  # Calculated significance
+    
+    # Importance score
+    importance_score = Column(Float, default=0.0, index=True)  # Combined frequency + significance
+    frequency_score = Column(Float, default=0.0)  # Frequency component
+    
+    # Profile data
+    extracted_profile = Column(JSON, nullable=True)  # Full character profile extracted from scenes
+    # Profile structure:
+    # {
+    #   "name": "Batman",
+    #   "role": "superhero ally",
+    #   "description": "...",
+    #   "personality": ["determined", "vigilant"],
+    #   "background": "...",
+    #   "goals": "...",
+    #   "relationships": {...},
+    #   "appearance": "..."
+    # }
+    
+    # Status flags
+    crossed_threshold = Column(Boolean, default=False, index=True)  # Has crossed importance threshold
+    user_prompted = Column(Boolean, default=False)  # User has been prompted to add as character
+    profile_extracted = Column(Boolean, default=False)  # Full profile has been extracted
+    converted_to_character = Column(Boolean, default=False, index=True)  # NPC has been converted to explicit character
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_calculated = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    story = relationship("Story", back_populates="npc_tracking")
+    
+    # Index for efficient queries
+    __table_args__ = (
+        Index('idx_npc_tracking_story_name', 'story_id', 'character_name', unique=True),
+        Index('idx_npc_tracking_threshold', 'story_id', 'crossed_threshold'),
+    )
+    
+    def to_dict(self):
+        """Convert to dictionary for easy serialization"""
+        return {
+            "id": self.id,
+            "story_id": self.story_id,
+            "character_name": self.character_name,
+            "entity_type": self.entity_type or "CHARACTER",
+            "total_mentions": self.total_mentions,
+            "scene_count": self.scene_count,
+            "first_appearance_scene": self.first_appearance_scene,
+            "last_appearance_scene": self.last_appearance_scene,
+            "has_dialogue_count": self.has_dialogue_count,
+            "has_actions_count": self.has_actions_count,
+            "significance_score": self.significance_score,
+            "importance_score": self.importance_score,
+            "frequency_score": self.frequency_score,
+            "extracted_profile": self.extracted_profile or {},
+            "crossed_threshold": self.crossed_threshold,
+            "user_prompted": self.user_prompted,
+            "profile_extracted": self.profile_extracted,
+            "converted_to_character": self.converted_to_character,
+            "last_calculated": self.last_calculated.isoformat() if self.last_calculated else None
+        }
+    
+    def __repr__(self):
+        return f"<NPCTracking(story_id={self.story_id}, character_name='{self.character_name}', importance_score={self.importance_score:.2f})>"
+

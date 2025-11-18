@@ -1,0 +1,10 @@
+================================================================================
+RAW LLM RESPONSE FOR NEW SCENE GENERATION (STREAMING)
+================================================================================
+
+ "Wait," Sarah whispers urgently, pulling Rambo to a halt as they traverse the dim maintenance tunnels. Blue sparks dance between her trembling fingers as she stares at her hands with a mixture of fascination and terror. "I need to understand what's happening to me. These powers... I can't control them." The crackling energy intensifies, casting shadows that leap across the damp concrete walls. Rambo glances anxiously at their escape route, then back at Sarah's glowing hands, torn between the urgency of flight and the reality of Sarah's transformation.
+
+###CHOICES###
+["Sarah concentrates fiercely, trying to channel the energy into a focused beam", "Rambo searches Sarah's pockets for clues about the power source", "Sarah pleads with Rambo to wait while she meditates, seeking answers in the quiet of her mind", "Sarah decides they must keep moving despite the risks, ignoring the unpredictable surges"]
+
+================================================================================

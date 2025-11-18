@@ -1,0 +1,3225 @@
+'use client';
+
+import { useEffect, useState, useRef, useCallback } from 'react';
+import { flushSync } from 'react-dom';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useParams } from 'next/navigation';
+import dynamic from 'next/dynamic';
+import { useAuthStore, useStoryStore, useHasHydrated } from '@/store';
+import { useGlobalTTS } from '@/contexts/GlobalTTSContext';
+import { useStoryActions } from '@/contexts/StoryContext';
+import { useUISettings } from '@/hooks/useUISettings';
+import apiClient, { getApiBaseUrl } from '@/lib/api';
+import CharacterQuickAdd from '@/components/CharacterQuickAdd';
+import { ContextInfo } from '@/components/ContextInfo';
+import FormattedText from '@/components/FormattedText';
+import SceneDisplay from '@/components/SceneDisplay';
+import SceneVariantDisplay from '@/components/SceneVariantDisplay';
+import { GlobalTTSWidget } from '@/components/GlobalTTSWidget';
+import MicrophoneButton from '@/components/MicrophoneButton';
+
+// Lazy load heavy components - only load when needed
+const CharacterWizard = dynamic(() => import('@/components/CharacterWizard'), {
+  loading: () => null,
+  ssr: false
+});
+
+const ChapterSidebar = dynamic(() => import('@/components/ChapterSidebar'), {
+  loading: () => null,
+  ssr: false
+});
+
+const ChapterWizard = dynamic(() => import('@/components/ChapterWizard'), {
+  loading: () => null,
+  ssr: false
+});
+
+const TTSSettingsModal = dynamic(() => import('@/components/TTSSettingsModal'), {
+  loading: () => null,
+  ssr: false
+});
+
+const StorySettingsModal = dynamic(() => import('@/components/StorySettingsModal'), {
+  loading: () => null,
+  ssr: false
+});
+import { BookOpen, ChevronRight, X, AlertCircle, Sparkles, Volume2, Trash2 } from 'lucide-react';
+import { 
+  BookOpenIcon, 
+  FilmIcon,
+  PhotoIcon,
+  ClockIcon,
+  CheckIcon,
+  ArrowDownIcon,
+  ArrowUpIcon,
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  DocumentDuplicateIcon,
+  PlusIcon,
+  PlayIcon,
+  DocumentTextIcon,
+  TrashIcon
+} from '@heroicons/react/24/outline';
+
+interface Scene {
+  id: number;
+  sequence_number: number;
+  title: string;
+  content: string;
+  location: string;
+  characters_present: string[];
+  chapter_id?: number; // Link to chapter
+  // New variant properties
+  variant_id?: number;
+  variant_number?: number;
+  is_original?: boolean;
+  has_multiple_variants?: boolean;
+  choices?: Array<{
+    id: number;
+    text: string;
+    description?: string;
+    order: number;
+  }>;
+}
+
+interface SceneVariant {
+  id: number;
+  variant_number: number;
+  content: string;
+  title: string;
+  is_original: boolean;
+  generation_method: string;
+  user_rating?: number;
+  is_favorite: boolean;
+  created_at: string;
+  choices: Array<{
+    id: number;
+    text: string;
+    description?: string;
+    order: number;
+  }>;
+}
+
+interface Story {
+  id: number;
+  title: string;
+  description: string;
+  genre: string;
+  tone: string;
+  world_setting: string;
+  status: string;
+  scenes: Scene[];
+  flow_info?: {
+    total_scenes: number;
+    has_variants: boolean;
+  };
+}
+
+export default function StoryPage() {
+  const router = useRouter();
+  const params = useParams();
+  const searchParams = useSearchParams();
+  const storyId = parseInt(params.id as string);
+  
+  const { user, token } = useAuthStore();
+  const hasHydrated = useHasHydrated();
+  const globalTTS = useGlobalTTS();
+  const { setStoryActions } = useStoryActions();
+  const [story, setStory] = useState<Story | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [error, setError] = useState('');
+  const [customPrompt, setCustomPrompt] = useState('');
+  const [currentChapterIndex, setCurrentChapterIndex] = useState(0);
+  const [showChoices, setShowChoices] = useState(true);
+  const [directorMode, setDirectorMode] = useState(false);
+  const [editingScene, setEditingScene] = useState<number | null>(null);
+  const [editingVariantId, setEditingVariantId] = useState<number | null>(null);
+  const [editContent, setEditContent] = useState('');
+  const [dynamicChoices, setDynamicChoices] = useState<Array<{text: string, order: number}>>([]);
+  const [showCharacterQuickAdd, setShowCharacterQuickAdd] = useState(false);
+  const [showCharacterWizard, setShowCharacterWizard] = useState(false);
+  const [showCharacterBanner, setShowCharacterBanner] = useState(false);
+  const [currentChapterId, setCurrentChapterId] = useState<number | undefined>(undefined);
+  const [storyCharacters, setStoryCharacters] = useState<Array<{name: string, role: string, description: string}>>([]);
+  const [showMoreOptions, setShowMoreOptions] = useState(false);
+  const [isGeneratingMoreOptions, setIsGeneratingMoreOptions] = useState(false);
+  const [sceneHistory, setSceneHistory] = useState<Scene[][]>([]);
+  const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
+  const [isRegenerating, setIsRegenerating] = useState(false);
+  const [userSettings, setUserSettings] = useState<any>(null);
+  
+  // First scene input mode states
+  const [firstSceneMode, setFirstSceneMode] = useState<'ai' | 'write'>('ai');
+  const [userSceneContent, setUserSceneContent] = useState('');
+  const [writeMode, setWriteMode] = useState<'scene' | 'prompt'>('prompt');
+  
+  // New variant system states - now managed by SceneVariantDisplay
+  // const [selectedSceneVariants, setSelectedSceneVariants] = useState<{[sceneId: number]: SceneVariant[]}>({});
+  // const [currentVariantIds, setCurrentVariantIds] = useState<{[sceneId: number]: number}>({});
+  // const [showVariantSelector, setShowVariantSelector] = useState<{[sceneId: number]: boolean}>({});
+  const [isDeletingScenes, setIsDeletingScenes] = useState(false);
+  const [selectedScenesForDeletion, setSelectedScenesForDeletion] = useState<number[]>([]);
+  const [isInDeleteMode, setIsInDeleteMode] = useState(false);
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
+  
+  // Streaming states
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingContent, setStreamingContent] = useState('');
+  const [streamingSceneNumber, setStreamingSceneNumber] = useState<number | null>(null);
+  const [useStreaming, setUseStreaming] = useState(true); // Enable streaming by default
+  
+  // Variant regeneration streaming states
+  const [streamingVariantSceneId, setStreamingVariantSceneId] = useState<number | null>(null);
+  const [streamingVariantContent, setStreamingVariantContent] = useState('');
+  
+  // Continue scene streaming states
+  const [isStreamingContinuation, setIsStreamingContinuation] = useState(false);
+  const [streamingContinuation, setStreamingContinuation] = useState('');
+  const [streamingContinuationSceneId, setStreamingContinuationSceneId] = useState<number | null>(null);
+  
+  // Scene pagination for performance
+  const [displayMode, setDisplayMode] = useState<'recent' | 'all'>('recent'); // Start with recent scenes only
+  
+  // Summary modal states
+  const [showSummaryModal, setShowSummaryModal] = useState(false);
+  const [storySummary, setStorySummary] = useState<any>(null);
+  const [loadingSummary, setLoadingSummary] = useState(false);
+  const [isGeneratingAISummary, setIsGeneratingAISummary] = useState(false);
+  const [aiSummary, setAiSummary] = useState<string | null>(null);
+  const [scenesToShow, setScenesToShow] = useState(5); // Show last 5 scenes initially
+  const [isLoadingEarlierScenes, setIsLoadingEarlierScenes] = useState(false);
+  const [isAutoLoadingScenes, setIsAutoLoadingScenes] = useState(false);
+  
+  // Ref for infinite scroll sentinel element
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  
+  // Chapter sidebar state
+  const [isChapterSidebarOpen, setIsChapterSidebarOpen] = useState(false); // Start closed
+  
+  const [chapterSidebarRefreshKey, setChapterSidebarRefreshKey] = useState(0);
+  const [selectedChapterId, setSelectedChapterId] = useState<number | null>(null); // For viewing specific chapter
+  const [currentChapterInfo, setCurrentChapterInfo] = useState<{id: number, number: number, title: string | null, isActive: boolean} | null>(null);
+  
+  // Main menu modal state
+  const [showMainMenu, setShowMainMenu] = useState(false);
+  
+  // TTS Settings modal state
+  const [showTTSSettings, setShowTTSSettings] = useState(false);
+  
+  // Story Settings Edit modal state
+  const [showEditStoryModal, setShowEditStoryModal] = useState(false);
+  
+  // Chapter wizard state
+  const [showChapterWizard, setShowChapterWizard] = useState(false);
+  const [activeChapter, setActiveChapter] = useState<any>(null);
+  
+  // Modern scene layout states
+  const [sceneLayoutMode, setSceneLayoutMode] = useState<'stacked' | 'modern'>('modern');
+  const [isNewSceneAdded, setIsNewSceneAdded] = useState(false);
+  const [selectedChoice, setSelectedChoice] = useState<string | null>(null);
+  const [showChoicesDuringGeneration, setShowChoicesDuringGeneration] = useState(true);
+  const [previousSceneCount, setPreviousSceneCount] = useState(0);
+  
+  // Global flag to prevent variant loading during operations
+  const [isSceneOperationInProgress, setIsSceneOperationInProgress] = useState(false);
+  
+  // Context usage and timing states
+  const [contextUsagePercent, setContextUsagePercent] = useState(0);
+  const [lastGenerationTime, setLastGenerationTime] = useState<number | null>(null);
+  const [generationStartTime, setGenerationStartTime] = useState<number | null>(null);
+  const [extractionStatus, setExtractionStatus] = useState<{ status: 'extracting' | 'complete' | 'error'; message: string } | null>(null);
+  const [showContextWarning, setShowContextWarning] = useState(false);
+  const [hasShownContextWarning, setHasShownContextWarning] = useState(false);
+  
+  const storyContentRef = useRef<HTMLDivElement>(null);
+  
+  // Apply UI settings (theme, font size, etc.)
+  useUISettings(userSettings?.ui_preferences || null);
+
+  useEffect(() => {
+    // Wait for auth store to hydrate before checking authentication
+    if (!hasHydrated) {
+      return;
+    }
+    
+    if (!user) {
+      router.push('/login');
+      return;
+    }
+    
+    loadStory();
+    loadUserSettings();
+  }, [user, hasHydrated, storyId, router]);
+
+  const loadUserSettings = async () => {
+    try {
+      const settings = await apiClient.getUserSettings();
+      setUserSettings(settings.settings);
+    } catch (err) {
+      console.error('Failed to load user settings:', err);
+    }
+  };
+
+  // Set up story actions for the PersistentBanner menu
+  useEffect(() => {
+    if (story) {
+      setStoryActions({
+        onChapters: () => setIsChapterSidebarOpen(true),
+        onAddCharacter: () => setShowCharacterQuickAdd(true),
+        onViewAllCharacters: () => router.push('/characters'),
+        onDirectorMode: () => setDirectorMode(!directorMode),
+        onDeleteMode: () => setIsInDeleteMode(!isInDeleteMode),
+        onExportStory: () => {
+          // TODO: Implement export functionality
+          console.log('Export story functionality not yet implemented');
+        },
+        onEditStorySettings: () => setShowEditStoryModal(true),
+        directorModeActive: directorMode,
+        deleteModeActive: isInDeleteMode,
+        showCharacterBanner: showCharacterBanner,
+        onDiscoverCharacters: () => setShowCharacterWizard(true),
+        // Generation/extraction status
+        lastGenerationTime,
+        generationStartTime,
+        extractionStatus,
+      });
+    } else {
+      setStoryActions(undefined);
+    }
+  }, [story, directorMode, isInDeleteMode, showCharacterBanner, lastGenerationTime, generationStartTime, extractionStatus, setStoryActions, router]);
+
+  // Auto-scroll to bottom when streaming starts
+  useEffect(() => {
+    if (isStreaming && streamingContent) {
+      // Scroll to bottom smoothly when streaming content appears
+      setTimeout(() => {
+        if (storyContentRef.current) {
+          storyContentRef.current.scrollTo({
+            top: storyContentRef.current.scrollHeight,
+            behavior: 'smooth'
+          });
+        }
+      }, 100);
+    }
+  }, [isStreaming, streamingContent]);
+
+  // Show context warning popup when reaching 80%
+  useEffect(() => {
+    if (contextUsagePercent >= 80 && !hasShownContextWarning) {
+      setShowContextWarning(true);
+      setHasShownContextWarning(true);
+    }
+  }, [contextUsagePercent, hasShownContextWarning]);
+
+  // Load chapter info when a chapter is selected OR on initial load
+  useEffect(() => {
+    const loadChapterInfo = async () => {
+      try {
+        if (selectedChapterId) {
+          // Load the specific selected chapter
+          const chapter = await apiClient.getChapter(storyId, selectedChapterId);
+          setCurrentChapterInfo({
+            id: chapter.id,
+            number: chapter.chapter_number,
+            title: chapter.title,
+            isActive: chapter.status === 'active'
+          });
+          // Save to localStorage for persistence
+          localStorage.setItem(`lastChapter_${storyId}`, selectedChapterId.toString());
+        } else {
+          // Load the active chapter info
+          const chapters = await apiClient.getChapters(storyId);
+          const activeChapter = chapters.find((ch: any) => ch.status === 'active');
+          if (activeChapter) {
+            setCurrentChapterInfo({
+              id: activeChapter.id,
+              number: activeChapter.chapter_number,
+              title: activeChapter.title,
+              isActive: true
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load chapter info:', err);
+      }
+    };
+    loadChapterInfo();
+  }, [selectedChapterId, storyId]);
+
+  // Get scenes to display based on current mode and selected chapter
+  const getScenesToDisplay = (): Scene[] => {
+    if (!story?.scenes || story.scenes.length === 0) return [];
+    
+    // Filter by selected chapter if one is selected
+    let filteredScenes = story.scenes;
+    if (selectedChapterId !== null) {
+      filteredScenes = story.scenes.filter(scene => scene.chapter_id === selectedChapterId);
+    }
+    
+    if (displayMode === 'all') {
+      return filteredScenes.sort((a, b) => a.sequence_number - b.sequence_number);
+    }
+    
+    // For 'recent' mode, show only the last N scenes
+    const sortedScenes = [...filteredScenes].sort((a, b) => a.sequence_number - b.sequence_number);
+    const totalScenes = sortedScenes.length;
+    const startIndex = Math.max(0, totalScenes - scenesToShow);
+    const displayedScenes = sortedScenes.slice(startIndex);
+    
+    // Debug log to verify only last N scenes are returned
+    if (displayedScenes.length !== scenesToShow && displayedScenes.length < totalScenes) {
+      console.log('[Scene Display] Showing only last N scenes:', {
+        totalScenes,
+        scenesToShow,
+        displayedCount: displayedScenes.length,
+        displayedSceneIds: displayedScenes.map(s => s.id),
+        firstDisplayedSequence: displayedScenes[0]?.sequence_number,
+        lastDisplayedSequence: displayedScenes[displayedScenes.length - 1]?.sequence_number
+      });
+    }
+    
+    return displayedScenes;
+  };
+
+  // Load all scenes (when user clicks "Load All Scenes")
+  const loadAllScenes = async () => {
+    setIsLoadingEarlierScenes(true);
+    try {
+      setDisplayMode('all');
+      // Story is already loaded, just change the display mode
+      // If we wanted to optimize further, we could implement server-side pagination
+    } catch (err) {
+      console.error('Failed to load all scenes:', err);
+    } finally {
+      setIsLoadingEarlierScenes(false);
+    }
+  };
+
+  // Automatically load more scenes when scrolling to top (infinite scroll)
+  const loadMoreScenesAutomatically = useCallback(() => {
+    // Prevent duplicate loads
+    if (isAutoLoadingScenes) {
+      console.log('[Infinite Scroll] Skipping - already loading');
+      return;
+    }
+    
+    // Only load if in 'recent' mode and there are more scenes to load
+    if (displayMode !== 'recent' || !story?.scenes) {
+      console.log('[Infinite Scroll] Skipping - not in recent mode or no scenes');
+      return;
+    }
+    
+    // Get filtered scenes count (accounting for chapter filtering)
+    let filteredScenes = story.scenes;
+    if (selectedChapterId !== null) {
+      filteredScenes = story.scenes.filter(scene => scene.chapter_id === selectedChapterId);
+    }
+    const totalScenes = filteredScenes.length;
+    
+    if (scenesToShow >= totalScenes) {
+      console.log('[Infinite Scroll] All scenes already loaded', { scenesToShow, totalScenes });
+      return;
+    }
+    
+    console.log('[Infinite Scroll] Loading more scenes', { scenesToShow, totalScenes });
+    setIsAutoLoadingScenes(true);
+    
+    // Save current scroll position before loading
+    const container = storyContentRef.current;
+    if (!container) {
+      setIsAutoLoadingScenes(false);
+      return;
+    }
+    
+    const scrollTop = container.scrollTop;
+    const scrollHeight = container.scrollHeight;
+    const firstVisibleElement = container.querySelector('[data-scene-id]') as HTMLElement;
+    const firstVisibleSceneId = firstVisibleElement?.getAttribute('data-scene-id');
+    
+    // Load 10 more scenes (or all remaining if less than 10)
+    const newScenesToShow = Math.min(scenesToShow + 10, totalScenes);
+    setScenesToShow(newScenesToShow);
+    
+    // Restore scroll position after DOM update
+    // Use multiple RAFs to ensure React has rendered the new scenes
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (container) {
+            // Try to restore position relative to the first visible scene
+            if (firstVisibleSceneId && firstVisibleElement) {
+              const newFirstVisibleElement = container.querySelector(`[data-scene-id="${firstVisibleSceneId}"]`) as HTMLElement;
+              if (newFirstVisibleElement) {
+                // Calculate offset from top of container
+                const containerRect = container.getBoundingClientRect();
+                const elementRect = newFirstVisibleElement.getBoundingClientRect();
+                const offsetFromTop = elementRect.top - containerRect.top + container.scrollTop;
+                container.scrollTop = offsetFromTop;
+              } else {
+                // Fallback: maintain scroll position by height difference
+                const newScrollHeight = container.scrollHeight;
+                const heightDifference = newScrollHeight - scrollHeight;
+                container.scrollTop = scrollTop + heightDifference;
+              }
+            } else {
+              // Fallback: maintain scroll position by height difference
+              const newScrollHeight = container.scrollHeight;
+              const heightDifference = newScrollHeight - scrollHeight;
+              container.scrollTop = scrollTop + heightDifference;
+            }
+          }
+          setIsAutoLoadingScenes(false);
+          console.log('[Infinite Scroll] Scenes loaded', { newScenesToShow, totalScenes });
+        });
+      });
+    });
+  }, [displayMode, story?.scenes, scenesToShow, isAutoLoadingScenes, selectedChapterId]);
+
+  // Targeted story refresh that doesn't cause scrolling
+  const refreshStoryContent = async () => {
+    try {
+      const storyData = await apiClient.getStory(storyId);
+      setStory(storyData);
+    } catch (err) {
+      console.error('Failed to refresh story:', err);
+    }
+  };
+
+  // Track scene count to detect new scenes
+  useEffect(() => {
+    if (story?.scenes) {
+      setPreviousSceneCount(story.scenes.length);
+    }
+  }, [story?.scenes?.length]);
+
+  // Infinite scroll: detect when user scrolls to top using scroll listener
+  useEffect(() => {
+    console.log('[Infinite Scroll] Effect running', {
+      displayMode,
+      hasStory: !!story,
+      scenesCount: story?.scenes?.length,
+      scenesToShow,
+      selectedChapterId
+    });
+
+    let cleanupFunction: (() => void) | null = null;
+    let retryTimeout: NodeJS.Timeout;
+
+    // Wait for container to be available (retry mechanism)
+    const setupScrollListener = () => {
+      const scrollContainer = storyContentRef.current;
+      if (!scrollContainer) {
+        console.log('[Infinite Scroll] Container not ready, will retry...');
+        // Retry after a short delay
+        retryTimeout = setTimeout(setupScrollListener, 100);
+        return;
+      }
+
+      console.log('[Infinite Scroll] Container found!', {
+        scrollHeight: scrollContainer.scrollHeight,
+        clientHeight: scrollContainer.clientHeight
+      });
+
+      // Only enable infinite scroll in 'recent' mode
+      if (displayMode !== 'recent') {
+        console.log('[Infinite Scroll] Not in recent mode, skipping');
+        return;
+      }
+
+      // Get filtered scenes count to check if there are more to load
+      let filteredScenes = story?.scenes || [];
+      if (selectedChapterId !== null && story?.scenes) {
+        filteredScenes = story.scenes.filter(scene => scene.chapter_id === selectedChapterId);
+      }
+      const hasMoreScenes = filteredScenes.length > scenesToShow;
+
+      console.log('[Infinite Scroll] Scene check', {
+        filteredScenesCount: filteredScenes.length,
+        scenesToShow,
+        hasMoreScenes
+      });
+
+      if (!hasMoreScenes) {
+        console.log('[Infinite Scroll] No more scenes to load');
+        return;
+      }
+
+      console.log('[Infinite Scroll] ✅ Setting up scroll listener');
+      console.log('[Infinite Scroll] Container info', {
+        scrollTop: scrollContainer.scrollTop,
+        scrollHeight: scrollContainer.scrollHeight,
+        clientHeight: scrollContainer.clientHeight,
+        isScrollable: scrollContainer.scrollHeight > scrollContainer.clientHeight
+      });
+
+      let scrollTimeout: NodeJS.Timeout;
+      let lastScrollTop = scrollContainer.scrollTop;
+      let lastWindowScroll = typeof window !== 'undefined' ? window.pageYOffset : 0;
+      let hasTriggered = false; // Prevent multiple rapid triggers
+      let triggerCooldown: NodeJS.Timeout;
+      let observerSetupTimeout: NodeJS.Timeout;
+      let isInitialLoad = true; // Track if this is the initial page load
+      
+      // Mark initial load as complete after a delay to prevent immediate triggering
+      setTimeout(() => {
+        isInitialLoad = false;
+        console.log('[Infinite Scroll] Initial load period complete, infinite scroll enabled');
+      }, 2000); // 2 second grace period after page load
+
+    // Scroll event listener for container
+    const handleContainerScroll = () => {
+      console.log('[Infinite Scroll] 🔵 Container scroll event fired!');
+      // Clear previous timeout
+      clearTimeout(scrollTimeout);
+      
+      // Throttle scroll events
+      scrollTimeout = setTimeout(() => {
+        // Don't trigger on initial load - wait for user to actually scroll
+        if (isAutoLoadingScenes || hasTriggered || isInitialLoad) {
+          if (isInitialLoad) {
+            console.log('[Infinite Scroll] Ignoring scroll during initial load period');
+          }
+          return;
+        }
+
+        const currentScrollTop = scrollContainer.scrollTop;
+        const scrollHeight = scrollContainer.scrollHeight;
+        const clientHeight = scrollContainer.clientHeight;
+        const scrollDirection = currentScrollTop < lastScrollTop ? 'up' : 'down';
+        
+        // Mark that user has scrolled, so we can enable infinite scroll
+        if (Math.abs(currentScrollTop - lastScrollTop) > 10) {
+          isInitialLoad = false;
+        }
+        
+        lastScrollTop = currentScrollTop;
+
+        // Log every scroll for debugging
+        console.log('[Infinite Scroll] Container scroll', {
+          scrollTop: currentScrollTop,
+          scrollHeight,
+          clientHeight,
+          direction: scrollDirection,
+          isAutoLoading: isAutoLoadingScenes,
+          hasTriggered,
+          scenesToShow,
+          total: filteredScenes.length
+        });
+
+        // Only trigger on scroll up
+        if (scrollDirection === 'up') {
+          // Calculate distance from top
+          const distanceFromTop = currentScrollTop;
+          
+          // Calculate scroll percentage (0% = top, 100% = bottom)
+          const maxScroll = Math.max(1, scrollHeight - clientHeight);
+          const scrollPercentage = maxScroll > 0 ? (currentScrollTop / maxScroll) * 100 : 0;
+          
+          // More aggressive trigger: within 600px of top OR in top 20% OR scrollTop is very small
+          const shouldTrigger = 
+            distanceFromTop < 600 || 
+            scrollPercentage < 20 || 
+            currentScrollTop < 50;
+          
+          console.log('[Infinite Scroll] Checking trigger conditions', {
+            distanceFromTop,
+            scrollPercentage: scrollPercentage.toFixed(1),
+            shouldTrigger
+          });
+          
+          if (shouldTrigger) {
+            console.log('[Infinite Scroll] ✅ TRIGGERING LOAD', {
+              scrollTop: currentScrollTop,
+              distanceFromTop,
+              scrollPercentage: scrollPercentage.toFixed(1),
+              scenesToShow,
+              total: filteredScenes.length
+            });
+            
+            hasTriggered = true;
+            loadMoreScenesAutomatically();
+            
+            // Reset trigger flag after cooldown
+            clearTimeout(triggerCooldown);
+            triggerCooldown = setTimeout(() => {
+              hasTriggered = false;
+              console.log('[Infinite Scroll] Cooldown expired, ready for next trigger');
+            }, 2000);
+          }
+        }
+      }, 50); // Reduced throttle to 50ms for more responsive detection
+    };
+
+    // Also listen to window scroll in case that's what's actually scrolling
+    const handleWindowScroll = () => {
+      console.log('[Infinite Scroll] 🟢 Window scroll event fired!');
+      if (isAutoLoadingScenes || hasTriggered) {
+        return;
+      }
+
+      const currentWindowScroll = typeof window !== 'undefined' ? window.pageYOffset : 0;
+      const scrollDirection = currentWindowScroll < lastWindowScroll ? 'up' : 'down';
+      lastWindowScroll = currentWindowScroll;
+
+      console.log('[Infinite Scroll] Window scroll', {
+        pageYOffset: currentWindowScroll,
+        direction: scrollDirection,
+        containerScrollTop: scrollContainer.scrollTop
+      });
+
+      // If window is scrolling up and we're near the top, trigger
+      if (scrollDirection === 'up' && currentWindowScroll < 400) {
+        console.log('[Infinite Scroll] ✅ TRIGGERING LOAD (window scroll)');
+        hasTriggered = true;
+        loadMoreScenesAutomatically();
+        clearTimeout(triggerCooldown);
+        triggerCooldown = setTimeout(() => {
+          hasTriggered = false;
+        }, 2000);
+      }
+    };
+
+    // Also set up IntersectionObserver as secondary method
+    let observer: IntersectionObserver | null = null;
+    
+    // Wait for sentinel to be rendered
+    const setupObserver = () => {
+      const sentinel = sentinelRef.current;
+      if (!sentinel || observer) return;
+
+      observer = new IntersectionObserver(
+        (entries) => {
+          const entry = entries[0];
+          // Don't trigger on initial load - wait for user to actually scroll
+          if (entry.isIntersecting && !isAutoLoadingScenes && !hasTriggered && !isInitialLoad) {
+            console.log('[Infinite Scroll] Sentinel visible via IntersectionObserver');
+            hasTriggered = true;
+            loadMoreScenesAutomatically();
+            clearTimeout(triggerCooldown);
+            triggerCooldown = setTimeout(() => {
+              hasTriggered = false;
+            }, 1500);
+          } else if (entry.isIntersecting && isInitialLoad) {
+            console.log('[Infinite Scroll] Sentinel visible but ignoring (initial load period)');
+          }
+        },
+        {
+          root: scrollContainer,
+          rootMargin: '400px 0px',
+          threshold: [0, 0.1, 0.5, 1.0],
+        }
+      );
+
+      observer.observe(sentinel);
+    };
+
+    // Try to set up observer immediately, then retry after a short delay
+    setupObserver();
+    observerSetupTimeout = setTimeout(setupObserver, 200);
+
+    // Add listeners to both container and window
+    scrollContainer.addEventListener('scroll', handleContainerScroll, { passive: true });
+    
+    // Also listen to window scroll as fallback
+    if (typeof window !== 'undefined') {
+      window.addEventListener('scroll', handleWindowScroll, { passive: true });
+    }
+
+    // Test if scroll events work at all
+    console.log('[Infinite Scroll] Testing scroll detection...');
+    setTimeout(() => {
+      console.log('[Infinite Scroll] Test: Container scrollable?', {
+        scrollHeight: scrollContainer.scrollHeight,
+        clientHeight: scrollContainer.clientHeight,
+        isScrollable: scrollContainer.scrollHeight > scrollContainer.clientHeight,
+        currentScrollTop: scrollContainer.scrollTop
+      });
+    }, 1000);
+
+      cleanupFunction = () => {
+        clearTimeout(scrollTimeout);
+        clearTimeout(triggerCooldown);
+        clearTimeout(observerSetupTimeout);
+        scrollContainer.removeEventListener('scroll', handleContainerScroll);
+        if (typeof window !== 'undefined') {
+          window.removeEventListener('scroll', handleWindowScroll);
+        }
+        if (observer) {
+          observer.disconnect();
+        }
+      };
+    };
+
+    // Start setup
+    setupScrollListener();
+
+    // Return cleanup function
+    return () => {
+      clearTimeout(retryTimeout);
+      if (cleanupFunction) {
+        cleanupFunction();
+      }
+    };
+  }, [displayMode, loadMoreScenesAutomatically, isAutoLoadingScenes, story?.scenes, scenesToShow, selectedChapterId]);
+
+  const loadStory = async (scrollToLastScene = true, scrollToNewScene = false) => {
+    console.log('� Loading story - scrollToLastScene:', scrollToLastScene);
+    try {
+      setIsLoading(true);
+
+      const storyData = await apiClient.getStory(storyId);
+      setStory(storyData);
+
+      // Auto-select last viewed chapter if available
+      const lastChapterId = localStorage.getItem(`lastChapter_${storyId}`);
+      if (lastChapterId && selectedChapterId === null) {
+        setSelectedChapterId(parseInt(lastChapterId));
+      }
+
+      // Check if chapter setup is needed
+      const setupChapter = searchParams?.get('setup_chapter') === 'true';
+      
+      // Try to load active chapter - may not exist for new stories
+      try {
+        const activeChapterData = await apiClient.getActiveChapter(storyId);
+        setActiveChapter(activeChapterData);
+        
+        // Always show wizard when coming from story creation
+        if (setupChapter) {
+          setShowChapterWizard(true);
+        } else if (!storyData.scenes || storyData.scenes.length === 0) {
+          // For existing stories without scenes, check if setup is needed
+          const needsSetup = !activeChapterData.characters || 
+                            activeChapterData.characters.length === 0 || 
+                            !activeChapterData.location_name;
+          
+          if (needsSetup) {
+            setShowChapterWizard(true);
+          }
+        }
+      } catch (err) {
+        // No active chapter found - show chapter wizard
+        if (err instanceof Error && (err.message.includes('404') || err.message.includes('No active chapter'))) {
+          setActiveChapter(null);
+          // Show chapter wizard for new stories or when no active chapter exists
+          setShowChapterWizard(true);
+        } else {
+          console.error('Failed to load active chapter:', err);
+        }
+      }
+
+      // Load choices for the current story
+      await loadChoices();
+      
+      // Load context status for progress bar
+      await loadContextStatus();
+
+      // Helper function to scroll to a scene element within the container
+      const scrollToScene = (container: HTMLElement, element: HTMLElement) => {
+        console.log('🎯 Found scene element, scrolling within container');
+        // Calculate scroll position to bring element to top of container
+        const containerRect = container.getBoundingClientRect();
+        const elementRect = element.getBoundingClientRect();
+        const relativeTop = elementRect.top - containerRect.top;
+        const scrollTop = container.scrollTop + relativeTop;
+        
+        container.scrollTo({ top: scrollTop, behavior: 'smooth' });
+        console.log('🎯 Scrolled to position:', scrollTop);
+      };
+
+      // Scroll to bottom only on initial page load OR when explicitly requested for new scenes
+      if ((scrollToLastScene || scrollToNewScene) && storyData.scenes && storyData.scenes.length > 0) {
+        // Wait for React to render the scenes, then scroll within the container
+        // Use multiple timeouts to ensure DOM is fully updated
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            setTimeout(() => {
+              const container = storyContentRef.current;
+              if (!container) {
+                console.log('🎯 Container not found for scrolling');
+                return;
+              }
+
+              // Get the last scene that will actually be displayed (based on getScenesToDisplay logic)
+              // This matches the logic in getScenesToDisplay()
+              let filteredScenes = storyData.scenes;
+              if (selectedChapterId !== null) {
+                filteredScenes = storyData.scenes.filter((s: Scene) => s.chapter_id === selectedChapterId);
+              }
+              
+              // In 'recent' mode, only the last N scenes are displayed
+              const sortedScenes = [...filteredScenes].sort((a, b) => a.sequence_number - b.sequence_number);
+              const totalScenes = sortedScenes.length;
+              const startIndex = Math.max(0, totalScenes - scenesToShow);
+              const displayedScenes = sortedScenes.slice(startIndex);
+              const targetScene = displayedScenes[displayedScenes.length - 1]; // Last scene in displayed list
+              
+              console.log('🎯 Attempting to scroll to last displayed scene:', {
+                targetSceneId: targetScene.id,
+                totalScenes,
+                displayedScenesCount: displayedScenes.length,
+                scenesToShow
+              });
+              
+              // Try to find the scene element - wait a bit more if not found
+              let targetSceneElement = container.querySelector(`[data-scene-id="${targetScene.id}"]`) as HTMLElement;
+              
+              if (!targetSceneElement) {
+                // Retry after a short delay
+                setTimeout(() => {
+                  targetSceneElement = container.querySelector(`[data-scene-id="${targetScene.id}"]`) as HTMLElement;
+                  if (targetSceneElement) {
+                    scrollToScene(container, targetSceneElement);
+                  } else {
+                    // Final fallback: scroll container to bottom
+                    console.log('🎯 Scene element not found after retry, scrolling container to bottom');
+                    container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+                  }
+                }, 200);
+              } else {
+                scrollToScene(container, targetSceneElement);
+              }
+            }, 200);
+          });
+        });
+      }
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load story');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loadChoices = async () => {
+    try {
+      const choicesData = await apiClient.getStoryChoices(storyId);
+      setDynamicChoices(choicesData.choices || []);
+    } catch (err) {
+      console.error('Failed to load choices:', err);
+      setDynamicChoices([]);
+    }
+  };
+
+  const loadContextStatus = async () => {
+    try {
+      const activeChapter = await apiClient.getActiveChapter(storyId);
+      if (activeChapter) {
+        const contextStatus = await apiClient.getChapterContextStatus(storyId, activeChapter.id);
+        setContextUsagePercent(contextStatus.percentage_used);
+      }
+    } catch (err) {
+      console.error('Failed to load context status:', err);
+    }
+  };
+
+  const handleViewSummary = async () => {
+    setLoadingSummary(true);
+    setShowSummaryModal(true);
+    
+    try {
+      // Load active chapter to get auto_summary
+      const activeChapter = await apiClient.getActiveChapter(storyId);
+      
+      if (activeChapter && activeChapter.auto_summary) {
+        // Set the chapter's auto_summary as the AI summary
+        setAiSummary(activeChapter.auto_summary);
+        // Don't set storySummary - we'll only show the chapter summary in aiSummary
+        setStorySummary(null);
+      } else {
+        // Fallback to old summary endpoint if no chapter summary exists
+        const response = await fetch(`${await getApiBaseUrl()}/api/stories/${storyId}/summary`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+        
+        if (response.ok) {
+          const summaryData = await response.json();
+          setStorySummary(summaryData);
+        } else {
+          console.error('Failed to load summary');
+          setStorySummary({ error: 'Failed to load summary' });
+        }
+      }
+    } catch (error) {
+      console.error('Error loading summary:', error);
+      setStorySummary({ error: 'Error loading summary' });
+    } finally {
+      setLoadingSummary(false);
+    }
+  };
+
+  const handleCloseStory = () => {
+    console.log('[CLOSE] Navigating back to dashboard');
+    router.push('/dashboard');
+  };
+
+  const handleGenerateAISummary = async () => {
+    console.log('[SUMMARY] Generating AI summary for story:', storyId);
+    setIsGeneratingAISummary(true);
+    setAiSummary(null);
+    
+    try {
+      // First try to get active chapter and generate its summary
+      const activeChapter = await apiClient.getActiveChapter(storyId);
+      
+      if (activeChapter) {
+        console.log('[SUMMARY] Generating chapter summary for chapter:', activeChapter.id);
+        const summary = await apiClient.generateChapterSummary(storyId, activeChapter.id);
+        
+        if (summary && summary.auto_summary) {
+          console.log('[SUMMARY] Chapter summary generated:', summary.auto_summary.length, 'chars');
+          setAiSummary(summary.auto_summary);
+          return;
+        }
+      }
+      
+      // Fallback to old regenerate-summary endpoint
+      const url = `${await getApiBaseUrl()}/api/stories/${storyId}/regenerate-summary`;
+      console.log('[SUMMARY] Calling fallback API:', url);
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      console.log('[SUMMARY] Response status:', response.status);
+      
+      if (response.ok) {
+        const summaryData = await response.json();
+        console.log('[SUMMARY] Received response:', summaryData);
+        console.log('[SUMMARY] Summary content:', summaryData.summary);
+        setAiSummary(summaryData.summary);
+      } else {
+        const errorText = await response.text();
+        console.error('[SUMMARY] Failed to generate AI summary:', response.status, errorText);
+        setAiSummary('Failed to generate AI summary. Please try again.');
+      }
+    } catch (error) {
+      console.error('[SUMMARY] Error generating AI summary:', error);
+      setAiSummary('Error generating AI summary. Please try again.');
+    } finally {
+      setIsGeneratingAISummary(false);
+    }
+  };
+
+  const generateNewScene = async (prompt?: string) => {
+    if (!story) return;
+    console.log('generateNewScene called', { storyId: story.id, prompt });
+    
+    setError('');
+    setIsGenerating(true);
+    setIsSceneOperationInProgress(true); // Block variant loading operations
+    
+    // Start timing
+    const startTime = Date.now();
+    setGenerationStartTime(startTime);
+
+    // Don't clear choices immediately - hide more options
+    setShowMoreOptions(false);
+
+    try {
+      // Determine content mode and user content based on first scene mode
+      let userContent: string | undefined;
+      let contentMode: 'ai_generate' | 'user_scene' | 'user_prompt' = 'ai_generate';
+      
+      if (firstSceneMode === 'write' && userSceneContent.trim()) {
+        if (writeMode === 'scene') {
+          contentMode = 'user_scene';
+          userContent = userSceneContent.trim();
+        } else {
+          contentMode = 'user_prompt';
+          userContent = userSceneContent.trim();
+        }
+      }
+      
+      const response = await apiClient.generateScene(
+        story.id, 
+        prompt || customPrompt,
+        userContent,
+        contentMode
+      );
+      console.log('generateNewScene response', response);
+      
+      // End timing
+      const endTime = Date.now();
+      const generationTime = (endTime - startTime) / 1000; // Convert to seconds
+      setLastGenerationTime(generationTime);
+      setGenerationStartTime(null);
+
+      // AUTO-PLAY TTS if enabled and session provided
+      if (response.auto_play && response.auto_play.session_id) {
+        console.log('[AUTO-PLAY] Connecting to global TTS for scene', response.auto_play);
+        globalTTS.connectToSession(response.auto_play.session_id, response.auto_play.scene_id);
+      }
+
+      // Reload the story to get the new scene and its choices
+      await loadStory(false, true); // Scroll to new scene after generation
+      setCustomPrompt('');
+      setUserSceneContent(''); // Clear user content after successful generation
+      setFirstSceneMode('ai'); // Reset to AI mode after first scene
+
+      // Reset choice selection state
+      setSelectedChoice(null);
+      setShowChoicesDuringGeneration(true);
+      
+      // Refresh chapter sidebar to update context counter
+      setChapterSidebarRefreshKey(prev => prev + 1);
+
+      // Check for new important characters
+      checkCharacterImportance();
+
+    } catch (err) {
+      console.error('generateNewScene error', err);
+      setError(err instanceof Error ? err.message : 'Failed to generate scene');
+      setGenerationStartTime(null);
+    } finally {
+      setIsGenerating(false);
+      // Clear operation flag with delay to let DOM settle
+      setTimeout(() => setIsSceneOperationInProgress(false), 1500);
+    }
+  };
+
+  const generateNewSceneStreaming = async (prompt?: string) => {
+    if (!story) return;
+    console.log('generateNewSceneStreaming called', { storyId: story.id, prompt });
+    
+    setError('');
+    setIsStreaming(true);
+    setIsSceneOperationInProgress(true); // Block variant loading operations
+    setStreamingContent('');
+    
+    // Start timing
+    const startTime = Date.now();
+    setGenerationStartTime(startTime);
+    
+    // Calculate the next scene number
+    const nextSceneNumber = (story.scenes?.length || 0) + 1;
+    setStreamingSceneNumber(nextSceneNumber);
+    
+    // Don't clear choices immediately - hide more options
+    setShowMoreOptions(false);
+    
+    // Accumulate content locally so callback can access it
+    let accumulatedContent = '';
+    
+    try {
+      // Determine content mode and user content based on first scene mode
+      let userContent: string | undefined;
+      let contentMode: 'ai_generate' | 'user_scene' | 'user_prompt' = 'ai_generate';
+      
+      if (firstSceneMode === 'write' && userSceneContent.trim()) {
+        if (writeMode === 'prompt') {
+          contentMode = 'user_prompt';
+          userContent = userSceneContent.trim();
+        } else {
+          contentMode = 'user_scene';
+          userContent = userSceneContent.trim();
+        }
+      }
+      
+      // Detect iOS Safari
+      const isIOS = typeof window !== 'undefined' && 
+        (/iPad|iPhone|iPod/.test(navigator.userAgent) || 
+         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+      
+      // For iOS, batch chunks to prevent too many synchronous renders
+      let iosChunkBuffer = '';
+      let iosFlushTimer: ReturnType<typeof setTimeout> | null = null;
+      
+      const flushIOSChunks = () => {
+        if (iosChunkBuffer) {
+          flushSync(() => {
+            setStreamingContent(prev => prev + iosChunkBuffer);
+          });
+          iosChunkBuffer = '';
+        }
+        if (iosFlushTimer) {
+          clearTimeout(iosFlushTimer);
+          iosFlushTimer = null;
+        }
+      };
+      
+      await apiClient.generateSceneStreaming(
+        story.id,
+        prompt || customPrompt,
+        userContent,
+        contentMode,
+        // onChunk
+        (chunk: string) => {
+          accumulatedContent += chunk;
+          if (isIOS) {
+            // Buffer chunks and flush frequently on iOS (every 50ms max, or immediately if buffer gets large)
+            iosChunkBuffer += chunk;
+            
+            // Flush immediately if buffer is getting large (more than 200 chars)
+            if (iosChunkBuffer.length > 200) {
+              flushIOSChunks();
+            } else if (!iosFlushTimer) {
+              // Schedule flush every 50ms for responsive updates
+              iosFlushTimer = setTimeout(() => {
+                flushIOSChunks();
+              }, 50);
+            }
+          } else {
+            setStreamingContent(prev => prev + chunk);
+          }
+        },
+        // onComplete
+        async (sceneId: number, choices: any[], autoPlay?: { enabled: boolean; session_id: string; scene_id: number }) => {
+          console.log('Scene generation complete', { sceneId, choices, autoPlay });
+          console.log('[SCENE COMPLETE] Accumulated content length:', accumulatedContent.length);
+          
+          // Flush any remaining buffered chunks on iOS
+          if (isIOS) {
+            flushIOSChunks();
+          }
+          
+          // End timing
+          const endTime = Date.now();
+          const generationTime = (endTime - startTime) / 1000; // Convert to seconds
+          setLastGenerationTime(generationTime);
+          setGenerationStartTime(null);
+          // Clear extraction status if still showing
+          setExtractionStatus(null);
+          
+          setStreamingContent('');
+          setStreamingSceneNumber(null);
+          setIsStreaming(false);
+
+          // Reset choice selection state
+          setSelectedChoice(null);
+          setShowChoicesDuringGeneration(true);
+
+          // AUTO-PLAY TTS if enabled and session provided
+          // This is a fallback in case onAutoPlayReady wasn't called
+          // (Global TTS will ignore duplicate connections to same session)
+          if (autoPlay && autoPlay.session_id) {
+            console.log('[AUTO-PLAY] Connecting to global TTS from complete event (fallback)', autoPlay);
+            globalTTS.connectToSession(autoPlay.session_id, autoPlay.scene_id);
+          }
+
+          // ADD the new scene to the story
+          // This is a NEW scene, not updating an existing one
+          console.log('[SCENE COMPLETE] Adding new scene to story');
+          
+          if (story && accumulatedContent) {
+            const newScene = {
+              id: sceneId,
+              sequence_number: nextSceneNumber,
+              title: `Scene ${nextSceneNumber}`,
+              content: accumulatedContent,
+              location: '',
+              characters_present: [],
+              choices: choices || []
+            };
+            
+            const updatedStory = {
+              ...story,
+              scenes: [...story.scenes, newScene]
+            };
+            setStory(updatedStory);
+            console.log('[SCENE COMPLETE] New scene added with choices, audio continues playing');
+          } else {
+            console.error('[SCENE COMPLETE] Failed to add scene - story:', !!story, 'content length:', accumulatedContent?.length || 0);
+          }
+          
+          setCustomPrompt('');
+          setUserSceneContent(''); // Clear user content after successful generation
+          setFirstSceneMode('ai'); // Reset to AI mode after first scene
+          
+          // Refresh chapter sidebar to update context counter
+          setChapterSidebarRefreshKey(prev => prev + 1);
+          
+          // Reload story to get choices from backend (they're saved to DB)
+          // Use a small delay to ensure backend has committed the choices
+          setTimeout(async () => {
+            await loadStory(false, true); // Scroll to new scene after reload
+            console.log('[SCENE COMPLETE] Story reloaded with choices from backend');
+          }, 500);
+          
+          // Clear operation flag with delay to let DOM settle
+          setTimeout(() => setIsSceneOperationInProgress(false), 1500);
+        },
+        // onError
+        (error: string) => {
+          console.error('Streaming error:', error);
+          setError(error);
+          setStreamingContent('');
+          setStreamingSceneNumber(null);
+          setIsStreaming(false);
+          setGenerationStartTime(null);
+          setExtractionStatus(null);
+
+          // Reset choice selection state on error
+          setSelectedChoice(null);
+          setShowChoicesDuringGeneration(true);
+          
+          // Clear operation flag
+          setIsSceneOperationInProgress(false);
+        },
+        // onAutoPlayReady - Connect to global TTS session immediately
+        (sessionId: string, sceneId: number) => {
+          console.log('[AUTO-PLAY-READY] Received session ID:', sessionId, 'for scene:', sceneId);
+          console.log('[AUTO-PLAY-READY] Connecting to global TTS widget');
+          globalTTS.connectToSession(sessionId, sceneId);
+        },
+        // onExtractionStatus - Handle extraction status updates
+        (status: 'extracting' | 'complete' | 'error', message: string) => {
+          console.log('[EXTRACTION] Status:', status, message);
+          setExtractionStatus({ status, message });
+          if (status === 'complete' || status === 'error') {
+            // Clear extraction status after a short delay
+            setTimeout(() => setExtractionStatus(null), 2000);
+          }
+        }
+      );
+
+      // Check for new important characters
+      checkCharacterImportance();
+    } catch (err) {
+      console.error('generateNewSceneStreaming error', err);
+      const errorMessage = err instanceof Error 
+        ? (err.message === 'Load failed' 
+           ? 'Network request failed. Please check your connection and try again.'
+           : err.message)
+        : 'Failed to generate scene';
+      setError(errorMessage);
+      setStreamingContent('');
+      setStreamingSceneNumber(null);
+      setIsStreaming(false);
+      setGenerationStartTime(null);
+      setIsSceneOperationInProgress(false);
+    }
+  };
+
+  // Wrapper function to choose between streaming and regular generation
+  const generateScene = async (prompt?: string) => {
+    // Set the selected choice for UI feedback
+    setSelectedChoice(prompt || null);
+    setShowChoicesDuringGeneration(false);
+
+    if (useStreaming) {
+      return generateNewSceneStreaming(prompt);
+    } else {
+      return generateNewScene(prompt);
+    }
+  };
+
+  const updateScene = async (sceneId: number, content: string, variantId?: number) => {
+    try {
+      const variantIdToUse = variantId || editingVariantId;
+      
+      if (!variantIdToUse) {
+        setError('Cannot update scene: variant ID not found');
+        return;
+      }
+
+      // Call the API to update the scene variant
+      const response = await apiClient.updateSceneVariant(storyId, sceneId, variantIdToUse, content);
+      
+      // Update local state immediately for better UX
+      if (story) {
+        const updatedStory = {
+          ...story,
+          scenes: story.scenes.map(scene => 
+            scene.id === sceneId && scene.variant_id === variantIdToUse
+              ? { ...scene, content: response.variant.content }
+              : scene
+          )
+        };
+        setStory(updatedStory);
+      }
+      
+      // Refresh story content to get updated data (including user_edited flag)
+      await refreshStoryContent();
+      
+      setEditingScene(null);
+      setEditingVariantId(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update scene');
+    }
+  };
+
+  const startEditingScene = (scene: Scene) => {
+    setEditingScene(scene.id);
+    setEditingVariantId(scene.variant_id || null);
+    setEditContent(scene.content);
+  };
+
+  const handleCharacterAdd = async (character: any) => {
+    const newCharacter = {
+      name: character.name,
+      role: character.role,
+      description: character.description
+    };
+    setStoryCharacters(prev => [...prev, newCharacter]);
+    setShowCharacterQuickAdd(false);
+    
+    // Automatically add character to current active chapter
+    if (activeChapter && activeChapter.id) {
+      try {
+        await apiClient.addCharacterToChapter(storyId, activeChapter.id, character.id);
+        // Reload active chapter to get updated character list
+        const updatedChapter = await apiClient.getActiveChapter(storyId);
+        setActiveChapter(updatedChapter);
+        // Refresh chapter sidebar
+        setChapterSidebarRefreshKey(prev => prev + 1);
+      } catch (error) {
+        console.error('Failed to add character to chapter:', error);
+        // Don't show error to user - character is still added to story
+      }
+    }
+  };
+  
+  const handleChapterWizardComplete = async (chapterData: {
+    title?: string;
+    description?: string;
+    story_character_ids?: number[];
+    character_ids?: number[];
+    character_roles?: { [characterId: number]: string };
+    location_name?: string;
+    time_period?: string;
+    scenario?: string;
+    continues_from_previous?: boolean;
+  }) => {
+    try {
+      if (activeChapter && activeChapter.id) {
+        // Update existing chapter (e.g., first chapter setup after story creation)
+        // Note: updateChapter doesn't support character_ids, only story_character_ids
+        await apiClient.updateChapter(storyId, activeChapter.id, {
+          title: chapterData.title,
+          description: chapterData.description,
+          story_character_ids: chapterData.story_character_ids,
+          location_name: chapterData.location_name,
+          time_period: chapterData.time_period,
+          scenario: chapterData.scenario,
+          continues_from_previous: chapterData.continues_from_previous
+        });
+      } else {
+        // Create new chapter (for new stories or when no active chapter exists)
+        await apiClient.createChapter(storyId, chapterData);
+      }
+      
+      // Reload story and active chapter
+      await loadStory(false, false);
+      try {
+        const updatedChapter = await apiClient.getActiveChapter(storyId);
+        setActiveChapter(updatedChapter);
+      } catch (err) {
+        // If still no active chapter, that's okay - user will create one
+        console.warn('No active chapter after wizard completion:', err);
+      }
+      setShowChapterWizard(false);
+      
+      // Remove setup_chapter from URL
+      router.replace(`/story/${storyId}`);
+    } catch (error) {
+      console.error('Failed to save chapter setup:', error);
+      alert('Failed to save chapter setup. Please try again.');
+      throw error; // Re-throw so ChapterWizard can catch and reset loading state
+    }
+  };
+  
+  const handleChapterWizardCancel = () => {
+    setShowChapterWizard(false);
+    // Remove setup_chapter from URL
+    router.replace(`/story/${storyId}`);
+  };
+
+  const checkCharacterImportance = async () => {
+    try {
+      const response = await apiClient.checkCharacterImportance(storyId, currentChapterId);
+      setShowCharacterBanner(response.new_character_detected);
+    } catch (error) {
+      console.error('Failed to check character importance:', error);
+    }
+  };
+
+  const handleCharacterCreated = (character: any) => {
+    // Refresh story characters or add to local state
+    setStoryCharacters(prev => [...prev, {
+      name: character.name,
+      role: character.role,
+      description: character.description
+    }]);
+    setShowCharacterBanner(false);
+  };
+
+  const generateMoreOptions = async () => {
+    if (!story || !story.scenes.length || isGeneratingMoreOptions) return;
+    
+    setIsGeneratingMoreOptions(true);
+    try {
+      // Generate fresh choices using the LLM
+      const choicesData = await apiClient.generateMoreChoices(storyId);
+      const newChoices = choicesData.choices || [];
+      
+      // Append new choices to existing ones instead of replacing
+      setDynamicChoices(prev => [
+        ...prev, 
+        ...newChoices.map(choice => ({ 
+          text: choice.text, 
+          order: prev.length + choice.order 
+        }))
+      ]);
+      setShowMoreOptions(true);
+    } catch (error) {
+      console.error('Failed to generate more options:', error);
+    } finally {
+      setIsGeneratingMoreOptions(false);
+    }
+  };
+
+  const regenerateLastScene = async () => {
+    if (!story || !story.scenes.length) return;
+    
+    setIsRegenerating(true);
+    try {
+      const response = await apiClient.regenerateLastScene(story.id);
+      
+      // Reload the story to get the updated flow
+      await loadStory(false, true); // Scroll to updated last scene after regeneration
+      
+      // Show success message or handle the new variant
+      console.log('Scene regenerated:', response.variant);
+      
+    } catch (error) {
+      console.error('Failed to regenerate scene:', error);
+      setError(error instanceof Error ? error.message : 'Failed to regenerate scene');
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
+
+  const goToPreviousScene = () => {
+    if (sceneHistory.length > 0) {
+      const previousScenes = sceneHistory[sceneHistory.length - 1];
+      setStory(prev => prev ? { ...prev, scenes: previousScenes } : null);
+      setSceneHistory(prev => prev.slice(0, -1));
+    }
+  };
+
+  const goToNextScene = () => {
+    // Navigate forward in linear scene progression
+    if (story && story.scenes.length > 0) {
+      // For now, this could scroll to the next scene or enable "continue story" functionality
+      console.log('Go to next scene - to be implemented');
+    }
+  };
+
+  const createNewVariant = async (sceneId: number, customPrompt?: string, variantId?: number) => {
+    if (!story) return;
+    
+    console.log('createNewVariant called', { sceneId, customPrompt, useStreaming });
+    
+    try {
+      setIsRegenerating(true);
+      
+      if (useStreaming) {
+        // Streaming variant creation with animation
+        setIsStreaming(true);
+        setStreamingVariantSceneId(sceneId);
+        setStreamingVariantContent('');
+        
+        // Track if we already received auto_play_ready event to avoid double-connection
+        let autoPlayAlreadyTriggered = false;
+        
+        // Detect iOS Safari for variant streaming
+        const isIOSVariant = typeof window !== 'undefined' && 
+          (/iPad|iPhone|iPod/.test(navigator.userAgent) || 
+           (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+        
+        // For iOS, batch chunks to prevent too many synchronous renders
+        let iosVariantChunkBuffer = '';
+        let iosVariantFlushTimer: ReturnType<typeof setTimeout> | null = null;
+        
+        const flushIOSVariantChunks = () => {
+          if (iosVariantChunkBuffer) {
+            flushSync(() => {
+              setStreamingVariantContent(prev => prev + iosVariantChunkBuffer);
+            });
+            iosVariantChunkBuffer = '';
+          }
+          if (iosVariantFlushTimer) {
+            clearTimeout(iosVariantFlushTimer);
+            iosVariantFlushTimer = null;
+          }
+        };
+        
+        await apiClient.createSceneVariantStreaming(
+          story.id,
+          sceneId,
+          customPrompt || '',
+          variantId,
+          // onChunk
+          (chunk: string) => {
+            if (isIOSVariant) {
+              // Buffer chunks and flush frequently on iOS (every 50ms max, or immediately if buffer gets large)
+              iosVariantChunkBuffer += chunk;
+              
+              // Flush immediately if buffer is getting large (more than 200 chars)
+              if (iosVariantChunkBuffer.length > 200) {
+                flushIOSVariantChunks();
+              } else if (!iosVariantFlushTimer) {
+                // Schedule flush every 50ms for responsive updates
+                iosVariantFlushTimer = setTimeout(() => {
+                  flushIOSVariantChunks();
+                }, 50);
+              }
+            } else {
+              setStreamingVariantContent(prev => prev + chunk);
+            }
+          },
+          // onComplete
+          async (response: any) => {
+            // Flush any remaining buffered chunks on iOS
+            if (isIOSVariant) {
+              flushIOSVariantChunks();
+            }
+            
+            console.log('[VARIANT COMPLETE] Full response:', JSON.stringify(response, null, 2));
+            console.log('[VARIANT COMPLETE] Has auto_play_session_id?', 'auto_play_session_id' in response);
+            console.log('[VARIANT COMPLETE] auto_play_session_id value:', response.auto_play_session_id);
+            
+            // IMMEDIATELY update choices in state
+            if (response.variant && response.variant.choices && story) {
+              const updatedScenes = story.scenes.map(s => 
+                s.id === sceneId 
+                  ? { ...s, choices: response.variant.choices.map((c: any) => c.text || c.choice_text) }
+                  : s
+              );
+              setStory({ ...story, scenes: updatedScenes });
+              console.log('[VARIANT] Choices updated immediately in state');
+            }
+            
+            // Check if auto-play was triggered - but ONLY if we didn't already handle it via auto_play_ready
+            if (response.auto_play_session_id && !autoPlayAlreadyTriggered) {
+              console.log('[AUTO-PLAY] Connecting to global TTS from COMPLETE event:', response.auto_play_session_id, 'for scene:', sceneId);
+              globalTTS.connectToSession(response.auto_play_session_id, sceneId);
+            } else if (autoPlayAlreadyTriggered) {
+              console.log('[AUTO-PLAY] Skipping auto-play setup - already triggered via auto_play_ready event');
+            } else {
+              console.log('[AUTO-PLAY] NO session ID in response - auto-play will not trigger');
+            }
+            
+            setStreamingVariantContent('');
+            setStreamingVariantSceneId(null);
+            setIsStreaming(false);
+            
+            // Reload story after a delay to let audio start and buffer chunks
+            // This is needed to get the full variant list for the scene
+            console.log('[VARIANT] Variant generation complete, reloading story in 2 seconds');
+            
+            setTimeout(async () => {
+              await loadStory(false, false); // Don't scroll
+              console.log('[VARIANT] Story reloaded, variant list updated');
+              
+              // Scroll to the scene
+              setTimeout(() => {
+                const sceneElement = document.querySelector(`[data-scene-id="${sceneId}"]`);
+                if (sceneElement) {
+                  sceneElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+              }, 100);
+            }, 2000); // Wait 2 seconds for audio to start and buffer
+          },
+          // onError
+          (error: string) => {
+            console.error('[VARIANT ERROR]', error);
+            setStreamingVariantContent('');
+            setStreamingVariantSceneId(null);
+            setIsStreaming(false);
+            alert(`Failed to create variant: ${error}`);
+          },
+          // onAutoPlayReady - Connect to global TTS immediately when ready
+          (sessionId: string) => {
+            console.log('[AUTO-PLAY-READY] Received session ID immediately:', sessionId, 'for scene:', sceneId);
+            console.log('[AUTO-PLAY-READY] Connecting to global TTS NOW (before choices are generated)');
+            autoPlayAlreadyTriggered = true; // Mark that we handled auto-play
+            globalTTS.connectToSession(sessionId, sceneId);
+          }
+        );
+      } else {
+        // Non-streaming variant creation
+        const response = await apiClient.createSceneVariant(story.id, sceneId, customPrompt);
+        
+        console.log('New variant created:', response.variant);
+        
+        // Check if auto-play was triggered
+        if (response.auto_play_session_id) {
+          console.log('[AUTO-PLAY] Connecting to global TTS:', response.auto_play_session_id, 'for scene:', sceneId);
+          globalTTS.connectToSession(response.auto_play_session_id, sceneId);
+        }
+        
+        // Preserve current scroll position for variant operations
+        const currentScrollPosition = window.pageYOffset;
+        
+        // Reload story to show new variant
+        await loadStory(false, false); // Don't auto-scroll for variants
+        
+        // Restore scroll position to stay at the scene being worked on
+        setTimeout(() => {
+          window.scrollTo({ top: currentScrollPosition, behavior: 'instant' });
+          
+          // Then smoothly scroll to the specific scene that was modified
+          const sceneElement = document.querySelector(`[data-scene-id="${sceneId}"]`);
+          if (sceneElement) {
+            sceneElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        }, 50);
+      }
+      
+    } catch (error) {
+      console.error('Failed to create variant:', error);
+      setError(error instanceof Error ? error.message : 'Failed to create variant');
+      setIsStreaming(false);
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
+
+  const continueScene = async (sceneId: number, customPrompt?: string) => {
+    if (!story) return;
+    
+    console.log('continueScene called', { sceneId, customPrompt });
+    
+    try {
+      setIsRegenerating(true);
+      
+      if (useStreaming) {
+        // Use streaming for continuation
+        setIsStreamingContinuation(true);
+        setStreamingContinuation('');
+        setStreamingContinuationSceneId(sceneId);
+        
+        // Detect iOS Safari for continuation streaming
+        const isIOSContinuation = typeof window !== 'undefined' && 
+          (/iPad|iPhone|iPod/.test(navigator.userAgent) || 
+           (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+        
+        // For iOS, batch chunks to prevent too many synchronous renders
+        let iosContinuationChunkBuffer = '';
+        let iosContinuationFlushTimer: ReturnType<typeof setTimeout> | null = null;
+        
+        const flushIOSContinuationChunks = () => {
+          if (iosContinuationChunkBuffer) {
+            flushSync(() => {
+              setStreamingContinuation(prev => prev + iosContinuationChunkBuffer);
+            });
+            iosContinuationChunkBuffer = '';
+          }
+          if (iosContinuationFlushTimer) {
+            clearTimeout(iosContinuationFlushTimer);
+            iosContinuationFlushTimer = null;
+          }
+        };
+        
+        await apiClient.continueSceneStreaming(
+          story.id,
+          sceneId,
+          customPrompt || "Continue this scene with more details and development, adding to the existing content.",
+          // onChunk
+          (chunk: string) => {
+            if (isIOSContinuation) {
+              // Buffer chunks and flush frequently on iOS (every 50ms max, or immediately if buffer gets large)
+              iosContinuationChunkBuffer += chunk;
+              
+              // Flush immediately if buffer is getting large (more than 200 chars)
+              if (iosContinuationChunkBuffer.length > 200) {
+                flushIOSContinuationChunks();
+              } else if (!iosContinuationFlushTimer) {
+                // Schedule flush every 50ms for responsive updates
+                iosContinuationFlushTimer = setTimeout(() => {
+                  flushIOSContinuationChunks();
+                }, 50);
+              }
+            } else {
+              setStreamingContinuation(prev => prev + chunk);
+            }
+          },
+          // onComplete
+          async (completedSceneId: number, newContent: string) => {
+            // Flush any remaining buffered chunks on iOS
+            if (isIOSContinuation) {
+              flushIOSContinuationChunks();
+            }
+            
+            console.log('🎬 Scene continuation complete', { completedSceneId, newContent: newContent.substring(0, 50) + '...' });
+            console.log('📍 Scroll position before loadStory:', window.pageYOffset);
+            
+            // Preserve current scroll position
+            const currentScrollPosition = window.pageYOffset;
+            
+            // Reload story to get updated scene data from backend
+            await loadStory(false, false); // Don't auto-scroll, we'll handle it manually
+            
+            // Restore scroll position and then scroll to the continued scene
+            window.scrollTo({ top: currentScrollPosition, behavior: 'instant' });
+            
+            // Now scroll to the scene that was continued
+            setTimeout(() => {
+              const sceneElement = document.querySelector(`[data-scene-id="${completedSceneId}"]`);
+              if (sceneElement) {
+                sceneElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }
+            }, 50);
+            
+            console.log('📍 Scroll position after loadStory:', window.pageYOffset);
+            
+            // Then clear streaming states after story is loaded
+            setIsStreamingContinuation(false);
+            setStreamingContinuation('');
+            setStreamingContinuationSceneId(null);
+            
+            console.log('✅ Scene continued successfully, final scroll position:', window.pageYOffset);
+          },
+          // onError
+          (error: string) => {
+            setIsStreamingContinuation(false);
+            setStreamingContinuation('');
+            setStreamingContinuationSceneId(null);
+            setError(error);
+          }
+        );
+      } else {
+        // Use non-streaming continuation
+        const response = await apiClient.continueScene(story.id, sceneId, customPrompt);
+        
+        // Reload story to show updated scene
+        await loadStory(false, true); // Scroll to updated last scene after continuing
+        
+        console.log('Scene continued:', response.scene);
+      }
+      
+    } catch (error) {
+      console.error('Failed to continue scene:', error);
+      const errorMessage = error instanceof Error 
+        ? (error.message === 'Load failed' 
+           ? 'Network request failed. Please check your connection and try again.'
+           : error.message)
+        : 'Failed to continue scene';
+      setError(errorMessage);
+      setIsStreamingContinuation(false);
+      setStreamingContinuation('');
+      setStreamingContinuationSceneId(null);
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
+
+  const stopGeneration = () => {
+    // Stop all streaming states
+    setIsStreaming(false);
+    setStreamingContent('');
+    setStreamingSceneNumber(null);
+    setIsStreamingContinuation(false);
+    setStreamingContinuation('');
+    setStreamingContinuationSceneId(null);
+    setIsGenerating(false);
+    setIsRegenerating(false);
+    
+    // Reset UI states
+    setSelectedChoice(null);
+    setShowChoicesDuringGeneration(true);
+    
+    console.log('Generation stopped by user');
+  };
+
+  const toggleDeleteMode = () => {
+    setIsInDeleteMode(!isInDeleteMode);
+    setSelectedScenesForDeletion([]);
+    setShowDeleteConfirmation(false);
+  };
+
+  const toggleSceneForDeletion = (sequenceNumber: number) => {
+    if (selectedScenesForDeletion.includes(sequenceNumber)) {
+      setSelectedScenesForDeletion(prev => prev.filter(seq => seq !== sequenceNumber));
+    } else {
+      setSelectedScenesForDeletion(prev => [...prev, sequenceNumber]);
+    }
+  };
+
+  // Activate delete mode and select this scene and all subsequent scenes
+  const activateDeleteModeFromScene = (sequenceNumber: number) => {
+    if (!story) return;
+    
+    // Activate delete mode
+    setIsInDeleteMode(true);
+    
+    // Select this scene and all subsequent scenes
+    const scenesToDelete: number[] = [];
+    story.scenes.forEach(scene => {
+      if (scene.sequence_number >= sequenceNumber) {
+        scenesToDelete.push(scene.sequence_number);
+      }
+    });
+    
+    setSelectedScenesForDeletion(scenesToDelete);
+  };
+
+  // Deactivate delete mode
+  const deactivateDeleteMode = () => {
+    setIsInDeleteMode(false);
+    setSelectedScenesForDeletion([]);
+    setShowDeleteConfirmation(false);
+  };
+
+  const deleteScenesFromSelected = () => {
+    if (!story || selectedScenesForDeletion.length === 0) return;
+    
+    // Show confirmation dialog
+    setShowDeleteConfirmation(true);
+  };
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+        return; // Don't interfere with input fields
+      }
+      
+      if (story?.scenes.length) {
+        if (event.key === 'ArrowRight') {
+          event.preventDefault();
+          // Right arrow: Navigate to next variant of last scene
+          console.log('Right arrow: Next variant navigation handled by SceneVariantDisplay');
+          // This will be handled by the SceneVariantDisplay component
+        } else if (event.key === 'ArrowLeft') {
+          event.preventDefault();
+          // Left arrow: Navigate to previous variant of last scene
+          console.log('Left arrow: Previous variant navigation handled by SceneVariantDisplay');
+          // This will be handled by the SceneVariantDisplay component
+        }
+      }
+      
+      if (event.key === 'ArrowUp' && story?.scenes.length) {
+        event.preventDefault();
+        // Navigate up in the story (scroll up)
+        if (storyContentRef.current) {
+          storyContentRef.current.scrollTop -= 200;
+        }
+      } else if (event.key === 'ArrowDown' && story?.scenes.length) {
+        event.preventDefault();
+        // Navigate down in the story (scroll down)
+        if (storyContentRef.current) {
+          storyContentRef.current.scrollTop += 200;
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isGenerating, isRegenerating, sceneHistory, story]);
+
+  if (!user) {
+    return (
+      <div className="min-h-screen theme-bg-primary flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-pink-500 mx-auto"></div>
+          <p className="mt-4 text-gray-400">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!hasHydrated) {
+    return (
+      <div className="min-h-screen theme-bg-primary flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-pink-500 mx-auto mb-4"></div>
+          <p className="text-gray-400">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen theme-bg-primary flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-pink-500 mx-auto"></div>
+          <p className="mt-4 text-gray-400">Loading story...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!story) {
+    return (
+      <div className="min-h-screen theme-bg-primary flex items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold text-white mb-4">Story not found</h2>
+          <button
+            onClick={() => router.push('/dashboard')}
+            className="bg-pink-600 hover:bg-pink-700 text-white px-4 py-2 rounded-lg"
+          >
+            Back to Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const currentScene = story.scenes?.[currentChapterIndex];
+
+  return (
+    <div className="min-h-screen theme-bg-primary text-white pt-16">
+      {/* Context Usage Progress Bar - Fixed at top */}
+      <div className="fixed top-0 left-0 right-0 z-50 h-1 bg-gray-800">
+        <div 
+          className="h-full transition-all duration-500 ease-out"
+          style={{ 
+            width: `${contextUsagePercent}%`,
+            background: contextUsagePercent >= 80 
+              ? 'linear-gradient(90deg, #ef4444, #dc2626)' // Red when high
+              : contextUsagePercent >= 50 
+              ? 'linear-gradient(90deg, #f59e0b, #d97706)' // Orange when medium
+              : 'linear-gradient(90deg, #10b981, #059669)' // Green when low
+          }}
+        />
+      </div>
+      
+      {/* Context Warning Modal - Shows at 80% */}
+      {showContextWarning && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <div className="bg-gradient-to-br from-yellow-900/90 to-orange-900/90 backdrop-blur-md rounded-lg shadow-2xl w-full max-w-md border-2 border-yellow-500/50">
+            {/* Header */}
+            <div className="p-6 border-b border-yellow-500/30">
+              <div className="flex items-start gap-4">
+                <div className="p-3 bg-yellow-500/20 rounded-full">
+                  <AlertCircle className="w-8 h-8 text-yellow-400" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-xl font-bold text-white mb-1">Context Limit Warning</h3>
+                  <p className="text-yellow-200/80 text-sm">Your chapter is reaching its context capacity</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 space-y-4">
+              <div className="bg-black/20 rounded-lg p-4 border border-yellow-500/20">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-yellow-200 font-semibold">Context Usage</span>
+                  <span className="text-2xl font-bold text-yellow-400">{contextUsagePercent}%</span>
+                </div>
+                <div className="w-full h-2 bg-gray-800 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-gradient-to-r from-yellow-500 to-orange-500 transition-all duration-500"
+                    style={{ width: `${contextUsagePercent}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-3 text-sm text-yellow-100">
+                <p className="leading-relaxed">
+                  Your current chapter has used <span className="font-semibold text-yellow-300">{contextUsagePercent}%</span> of its available context window. 
+                  To maintain story quality and coherence, consider creating a new chapter soon.
+                </p>
+                
+                <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
+                  <p className="text-blue-200 text-xs">
+                    💡 <span className="font-semibold">What happens when you create a new chapter?</span>
+                  </p>
+                  <p className="text-blue-200/80 text-xs mt-1">
+                    The AI will generate a summary of your current chapter and use it as context for the new chapter, 
+                    ensuring your story continues smoothly without losing important details.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-6 border-t border-yellow-500/30 flex gap-3">
+              <button
+                onClick={() => setShowContextWarning(false)}
+                className="flex-1 px-4 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors"
+              >
+                Continue Current Chapter
+              </button>
+              <button
+                onClick={() => {
+                  setShowContextWarning(false);
+                  setIsChapterSidebarOpen(true);
+                }}
+                className="flex-1 px-4 py-3 bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-700 hover:to-orange-700 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+              >
+                <BookOpen className="w-4 h-4" />
+                Open Chapters
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Note: Floating menu button is now in PersistentBanner - always visible */}
+      
+      {/* Story Menu Modal - For Phase 2: This will be removed when UnifiedMenu has all story actions */}
+      {showMainMenu && (
+        <>
+          {/* Backdrop */}
+          <div 
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40"
+            onClick={() => setShowMainMenu(false)}
+          />
+          
+          {/* Menu Modal */}
+          <div className="fixed left-4 bottom-20 z-50 w-80 max-w-[calc(100vw-2rem)] bg-slate-900 border border-slate-700 rounded-lg shadow-2xl overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b border-slate-700 bg-gradient-to-r from-purple-900/50 to-pink-900/50">
+              <h2 className="text-lg font-semibold">Story Menu</h2>
+              <button
+                onClick={() => setShowMainMenu(false)}
+                className="p-1 hover:bg-slate-700 rounded transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            {/* Menu Items */}
+            <div className="p-2 max-h-[calc(100vh-12rem)] overflow-y-auto">
+              {/* TTS Audio Player */}
+              <GlobalTTSWidget />
+              
+              {/* Chapter Navigation */}
+              <button
+                onClick={() => {
+                  setShowMainMenu(false);
+                  setIsChapterSidebarOpen(true);
+                }}
+                className="w-full flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors text-left group"
+              >
+                <div className="p-2 bg-purple-600/20 rounded-lg group-hover:bg-purple-600/30 transition-colors">
+                  <BookOpen className="w-5 h-5 text-purple-400" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-white">Chapters</div>
+                  <div className="text-xs text-gray-400">View chapter info & summaries</div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-gray-500" />
+              </button>
+              
+              {/* Add Character */}
+              <button
+                onClick={() => {
+                  setShowMainMenu(false);
+                  setShowCharacterQuickAdd(true);
+                }}
+                className="w-full flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors text-left group"
+              >
+                <div className="p-2 bg-purple-600/20 rounded-lg group-hover:bg-purple-600/30 transition-colors">
+                  <PlusIcon className="w-5 h-5 text-purple-400" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-white">Add Character</div>
+                  <div className="text-xs text-gray-400">Quick add a new character</div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-gray-500" />
+              </button>
+              
+              {/* View All Characters */}
+              <button
+                onClick={() => {
+                  setShowMainMenu(false);
+                  router.push('/characters');
+                }}
+                className="w-full flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors text-left group"
+              >
+                <div className="p-2 bg-blue-600/20 rounded-lg group-hover:bg-blue-600/30 transition-colors">
+                  <BookOpenIcon className="w-5 h-5 text-blue-400" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-white">All Characters</div>
+                  <div className="text-xs text-gray-400">Manage your characters</div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-gray-500" />
+              </button>
+
+              {/* Divider */}
+              <div className="my-2 border-t border-slate-700"></div>
+              
+              {/* Director Mode */}
+              <button
+                onClick={() => {
+                  setShowMainMenu(false);
+                  setDirectorMode(!directorMode);
+                }}
+                className="w-full flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors text-left group"
+              >
+                <div className={`p-2 rounded-lg transition-colors ${
+                  directorMode 
+                    ? 'bg-pink-600/20 group-hover:bg-pink-600/30' 
+                    : 'bg-gray-600/20 group-hover:bg-gray-600/30'
+                }`}>
+                  <FilmIcon className={`w-5 h-5 ${directorMode ? 'text-pink-400' : 'text-gray-400'}`} />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-white">Director Mode</div>
+                  <div className={`text-xs ${directorMode ? 'text-pink-400' : 'text-gray-400'}`}>
+                    {directorMode ? 'Control scene details' : 'Direct what happens next'}
+                  </div>
+                </div>
+                <div className={`px-2 py-1 rounded text-xs font-medium ${
+                  directorMode 
+                    ? 'bg-pink-600/20 text-pink-400' 
+                    : 'bg-gray-600/20 text-gray-400'
+                }`}>
+                  {directorMode ? 'ON' : 'OFF'}
+                </div>
+              </button>
+
+              {/* Delete Mode */}
+              <button
+                onClick={() => {
+                  setShowMainMenu(false);
+                  if (isInDeleteMode) {
+                    if (selectedScenesForDeletion.length === 0) {
+                      // If no scenes selected, just exit delete mode
+                      toggleDeleteMode();
+                    } else {
+                      deleteScenesFromSelected();
+                    }
+                  } else {
+                    toggleDeleteMode();
+                  }
+                }}
+                disabled={isInDeleteMode && selectedScenesForDeletion.length === 0}
+                className={`w-full flex items-center gap-3 p-3 rounded-lg transition-colors text-left group ${
+                  isInDeleteMode && selectedScenesForDeletion.length === 0
+                    ? 'opacity-50 cursor-not-allowed'
+                    : 'hover:bg-slate-800'
+                }`}
+              >
+                <div className={`p-2 rounded-lg transition-colors ${
+                  isInDeleteMode 
+                    ? 'bg-red-600/20 group-hover:bg-red-600/30' 
+                    : 'bg-gray-600/20 group-hover:bg-gray-600/30'
+                }`}>
+                  <CheckIcon className={`w-5 h-5 ${isInDeleteMode ? 'text-red-400' : 'text-gray-400'}`} />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-white">
+                    {isInDeleteMode ? 'Delete Selected' : 'Delete Mode'}
+                  </div>
+                  <div className={`text-xs ${isInDeleteMode ? 'text-red-400' : 'text-gray-400'}`}>
+                    {isInDeleteMode 
+                      ? selectedScenesForDeletion.length === 0 
+                        ? 'Select scenes to delete' 
+                        : 'Confirm deletion'
+                      : 'Select scenes to delete'}
+                  </div>
+                </div>
+                {isInDeleteMode && selectedScenesForDeletion.length > 0 && (
+                  <div className="px-2 py-1 rounded text-xs font-medium bg-red-600/20 text-red-400">
+                    {selectedScenesForDeletion.length} selected
+                  </div>
+                )}
+              </button>
+
+              {/* Divider */}
+              <div className="my-2 border-t border-slate-700"></div>
+
+              {/* Streaming Toggle */}
+              <button
+                onClick={() => setUseStreaming(!useStreaming)}
+                className="w-full flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors text-left group"
+              >
+                <div className={`p-2 rounded-lg transition-colors ${
+                  useStreaming 
+                    ? 'bg-green-600/20 group-hover:bg-green-600/30' 
+                    : 'bg-gray-600/20 group-hover:bg-gray-600/30'
+                }`}>
+                  {useStreaming ? (
+                    <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                  ) : (
+                    <DocumentTextIcon className="w-5 h-5 text-gray-400" />
+                  )}
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-white">Streaming Mode</div>
+                  <div className={`text-xs ${useStreaming ? 'text-green-400' : 'text-gray-400'}`}>
+                    {useStreaming ? 'Real-time generation' : 'Standard mode'}
+                  </div>
+                </div>
+                <div className={`px-2 py-1 rounded text-xs font-medium ${
+                  useStreaming 
+                    ? 'bg-green-600/20 text-green-400' 
+                    : 'bg-gray-600/20 text-gray-400'
+                }`}>
+                  {useStreaming ? 'ON' : 'OFF'}
+                </div>
+              </button>
+
+              {/* TTS Settings */}
+              <button
+                onClick={() => {
+                  setShowMainMenu(false);
+                  setShowTTSSettings(true);
+                }}
+                className="w-full flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors text-left group"
+              >
+                <div className="p-2 bg-purple-600/20 group-hover:bg-purple-600/30 rounded-lg transition-colors">
+                  <Volume2 className="w-5 h-5 text-purple-400" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-white">Text-to-Speech</div>
+                  <div className="text-xs text-gray-400">Configure voice narration</div>
+                </div>
+              </button>
+
+              {/* Divider */}
+              <div className="my-2 border-t border-slate-700"></div>
+
+              {/* Placeholders for future features */}
+              <button
+                disabled
+                className="w-full flex items-center gap-3 p-3 opacity-50 cursor-not-allowed rounded-lg text-left group"
+              >
+                <div className="p-2 bg-gray-600/20 rounded-lg">
+                  <PhotoIcon className="w-5 h-5 text-gray-400" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-white">Image Generation</div>
+                  <div className="text-xs text-gray-400">Coming soon</div>
+                </div>
+              </button>
+
+              <button
+                disabled
+                className="w-full flex items-center gap-3 p-3 opacity-50 cursor-not-allowed rounded-lg text-left group"
+              >
+                <div className="p-2 bg-gray-600/20 rounded-lg">
+                  <ClockIcon className="w-5 h-5 text-gray-400" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-white">History</div>
+                  <div className="text-xs text-gray-400">Coming soon</div>
+                </div>
+              </button>
+
+              <button
+                disabled
+                className="w-full flex items-center gap-3 p-3 opacity-50 cursor-not-allowed rounded-lg text-left group"
+              >
+                <div className="p-2 bg-gray-600/20 rounded-lg">
+                  <ArrowDownIcon className="w-5 h-5 text-gray-400" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-white">Export</div>
+                  <div className="text-xs text-gray-400">Coming soon</div>
+                </div>
+              </button>
+
+              {/* Divider */}
+              <div className="my-2 border-t border-slate-700"></div>
+
+              {/* Close Story */}
+              <button
+                onClick={() => {
+                  setShowMainMenu(false);
+                  handleCloseStory();
+                }}
+                className="w-full flex items-center gap-3 p-3 hover:bg-red-900/20 rounded-lg transition-colors text-left group"
+              >
+                <div className="p-2 bg-orange-600/20 rounded-lg group-hover:bg-orange-600/30 transition-colors">
+                  <X className="w-5 h-5 text-orange-400" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-white">Close Story</div>
+                  <div className="text-xs text-orange-400">Return to dashboard</div>
+                </div>
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+      
+      {/* Chapter Sidebar - Opens from main menu */}
+      <ChapterSidebar 
+        key={chapterSidebarRefreshKey}
+        storyId={storyId}
+        isOpen={isChapterSidebarOpen}
+        onToggle={() => setIsChapterSidebarOpen(!isChapterSidebarOpen)}
+        onChapterChange={() => {
+          // Reload story to switch to new active chapter
+          loadStory(false, false);
+          // Update context status
+          loadContextStatus();
+          // Reset chapter selection when new chapter is created
+          setSelectedChapterId(null);
+        }}
+        onChapterSelect={(chapterId) => {
+          setSelectedChapterId(chapterId);
+          // Scroll to top when switching chapters
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+        currentChapterId={selectedChapterId ?? undefined}
+      />
+      
+      {/* Navigation Header - Simplified */}
+      <div className="bg-gray-800/95 backdrop-blur-md border-b border-gray-700">
+        <div className="max-w-4xl mx-auto px-4 md:px-6 py-3 md:py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2 md:space-x-4">
+              <div className="text-gray-300 text-sm md:text-base font-medium truncate">
+                {story?.title}
+              </div>
+              <div className="hidden sm:flex items-center space-x-2 text-gray-500 text-xs md:text-sm">
+                <span>•</span>
+                <span>{story?.scenes?.length || 0} scenes</span>
+                {storyCharacters.length > 0 && (
+                  <>
+                    <span>•</span>
+                    <span className="text-purple-400">{storyCharacters.length} characters</span>
+                  </>
+                )}
+              </div>
+            </div>
+            
+            {/* Chapter Indicator */}
+            {currentChapterInfo && (
+              <div className="flex items-center gap-2">
+                <div className="px-3 py-1 bg-purple-600/20 border border-purple-500/30 rounded-full text-xs font-medium text-purple-300">
+                  {currentChapterInfo.title || `Chapter ${currentChapterInfo.number}`}
+                </div>
+                <button
+                  onClick={() => setSelectedChapterId(null)}
+                  className="px-2 py-1 text-xs text-gray-400 hover:text-white hover:bg-slate-700 rounded transition-colors"
+                  title="Return to active chapter"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Main Story Container */}
+      <div className="max-w-4xl mx-auto flex flex-col" style={{ height: 'calc(100vh - 80px)' }}>
+        {/* Story Content Area */}
+        <div className="flex-1 p-6 overflow-y-auto" ref={storyContentRef}>
+          <div className="min-h-full">
+            {/* Chapter Header */}
+            <div className="flex items-center justify-between mb-8">
+              <div className="flex items-center space-x-3">
+                <span className="text-gray-400 text-sm">
+                  {currentChapterInfo 
+                    ? (currentChapterInfo.title || `Chapter ${currentChapterInfo.number}`)
+                    : 'Chapter 1'
+                  }
+                </span>
+                <ArrowDownIcon className="w-4 h-4 text-gray-400" />
+              </div>
+              <button className="text-gray-400 hover:text-white">
+                <DocumentDuplicateIcon className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Story Title */}
+            <h1 className="text-2xl font-bold text-white mb-8 leading-relaxed">
+              {story?.title}
+            </h1>
+
+            {/* Character Display */}
+            {storyCharacters.length > 0 && (
+              <div className="bg-gray-700/30 rounded-lg p-4 mb-6 border border-gray-600/50">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-medium text-gray-300">Story Characters</h3>
+                  <span className="text-xs text-gray-500">{storyCharacters.length} characters</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {storyCharacters.map((character, index) => (
+                    <div key={index} className="inline-flex items-center space-x-2 bg-gray-600/50 rounded-full px-3 py-1 text-xs">
+                      <span className="text-gray-300">{character.name}</span>
+                      <span className="text-gray-500">•</span>
+                      <span className="text-purple-300">{character.role}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Scenes Display with Performance Optimization */}
+            <div className="prose prose-invert prose-lg max-w-none mb-8">
+              {getScenesToDisplay().length > 0 ? (
+                <div className="space-y-8">
+                  {/* Infinite scroll sentinel and manual load button */}
+                  {displayMode === 'recent' && (() => {
+                    // Get filtered scenes count (accounting for chapter filtering)
+                    let filteredScenes = story.scenes;
+                    if (selectedChapterId !== null) {
+                      filteredScenes = story.scenes.filter(scene => scene.chapter_id === selectedChapterId);
+                    }
+                    const hasMoreScenes = filteredScenes.length > scenesToShow;
+                    
+                    if (!hasMoreScenes) return null;
+                    
+                    return (
+                      <div className="relative">
+                        {/* Sentinel for IntersectionObserver - made more visible for better detection */}
+                        <div 
+                          ref={sentinelRef} 
+                          className="h-1 w-full" 
+                          aria-hidden="true"
+                          style={{ minHeight: '1px' }}
+                        />
+                        
+                        {/* Manual load button as fallback */}
+                        <div className="flex justify-center my-4">
+                          <button
+                            onClick={() => {
+                              if (!isAutoLoadingScenes) {
+                                loadMoreScenesAutomatically();
+                              }
+                            }}
+                            disabled={isAutoLoadingScenes}
+                            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                          >
+                            {isAutoLoadingScenes ? (
+                              <>
+                                <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                <span>Loading...</span>
+                              </>
+                            ) : (
+                              <>
+                                <ArrowUpIcon className="h-4 w-4" />
+                                <span>Load Earlier Scenes ({filteredScenes.length - scenesToShow} more)</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {(() => {
+                    const scenesToRender = getScenesToDisplay();
+                    // Debug: Log what's being rendered
+                    if (scenesToRender.length > 0) {
+                      console.log('[Scene Rendering] Rendering scenes:', {
+                        count: scenesToRender.length,
+                        mode: displayMode,
+                        sceneIds: scenesToRender.map(s => s.id),
+                        totalScenesInStory: story.scenes.length
+                      });
+                    }
+                    return scenesToRender.map((scene, displayIndex) => {
+                      // Calculate the actual scene number in the full story
+                      const actualSceneNumber = story.scenes.findIndex(s => s.id === scene.id) + 1;
+                      const isLastSceneInStory = scene.id === story.scenes[story.scenes.length - 1].id;
+
+                    return (
+                      <div
+                        key={scene.id}
+                        data-scene-id={scene.id}
+                        className={`scene-container ${sceneLayoutMode === 'modern' ? 'modern-scene' : 'stacked-scene'} ${
+                          isLastSceneInStory && isNewSceneAdded ? 'new-scene' : ''
+                        }`}
+                      >
+                        {/* Scene Separator */}
+                        {displayIndex > 0 && userSettings?.show_scene_titles === true && (
+                          <div className="flex items-center my-8">
+                            <div className="flex-1 h-px bg-gray-600"></div>
+                            <div className="px-4 text-gray-500 text-sm">Scene {actualSceneNumber}</div>
+                            <div className="flex-1 h-px bg-gray-600"></div>
+                          </div>
+                        )}
+
+                        {/* Delete Mode Indicator - Show at top of scene (read-only) */}
+                        {isInDeleteMode && selectedScenesForDeletion.includes(scene.sequence_number) && (
+                          <div className="mb-4 p-3 bg-red-900/20 rounded-lg border border-red-600/50">
+                            <div className="flex items-center space-x-2 text-sm text-red-300">
+                              <div className="w-4 h-4 flex items-center justify-center">
+                                <svg className="w-4 h-4 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                </svg>
+                              </div>
+                              <span>
+                                {selectedScenesForDeletion.length > 0 && Math.min(...selectedScenesForDeletion) === scene.sequence_number
+                                  ? 'Delete from here onwards' 
+                                  : 'Will be deleted'}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+
+                        <SceneVariantDisplay
+                          scene={scene}
+                          sceneNumber={actualSceneNumber}
+                          storyId={story.id}
+                          isLastScene={isLastSceneInStory}
+                          userSettings={userSettings}
+                          isEditing={editingScene === scene.id}
+                          editContent={editContent}
+                          onStartEdit={startEditingScene}
+                          onSaveEdit={(sceneId: number, content: string, variantId?: number) => updateScene(sceneId, content, variantId)}
+                          onCancelEdit={() => setEditingScene(null)}
+                          dynamicChoices={isLastSceneInStory ? dynamicChoices : []}
+                          showMoreOptions={isLastSceneInStory ? showMoreOptions : false}
+                          onContentChange={setEditContent}
+                          isRegenerating={isRegenerating}
+                          isGenerating={isGenerating}
+                          isStreaming={isStreaming}
+                          onCreateVariant={createNewVariant}
+                          onVariantChanged={refreshStoryContent}
+                          onContinueScene={continueScene}
+                          onStopGeneration={stopGeneration}
+                          showChoices={showChoices}
+                          directorMode={directorMode}
+                          customPrompt={customPrompt}
+                          onCustomPromptChange={setCustomPrompt}
+                          onGenerateScene={generateScene}
+                          layoutMode={sceneLayoutMode}
+                          onNewSceneAdded={() => setIsNewSceneAdded(true)}
+                          selectedChoice={selectedChoice}
+                          showChoicesDuringGeneration={showChoicesDuringGeneration}
+                          setShowChoicesDuringGeneration={setShowChoicesDuringGeneration}
+                          setSelectedChoice={setSelectedChoice}
+                          streamingContinuation={streamingContinuationSceneId === scene.id ? streamingContinuation : ''}
+                          isStreamingContinuation={streamingContinuationSceneId === scene.id && isStreamingContinuation}
+                          isSceneOperationInProgress={isSceneOperationInProgress}
+                          streamingVariantContent={streamingVariantSceneId === scene.id ? streamingVariantContent : ''}
+                          isStreamingVariant={streamingVariantSceneId === scene.id}
+                          isInDeleteMode={isInDeleteMode}
+                          isSceneSelectedForDeletion={selectedScenesForDeletion.includes(scene.sequence_number)}
+                          onToggleSceneDeletion={toggleSceneForDeletion}
+                          onActivateDeleteMode={activateDeleteModeFromScene}
+                          onDeactivateDeleteMode={deactivateDeleteMode}
+                          onCopySceneText={async (text: string) => {
+                            try {
+                              await navigator.clipboard.writeText(text);
+                            } catch (error) {
+                              console.error('Failed to copy text:', error);
+                            }
+                          }}
+                        />
+                      </div>
+                    );
+                  });
+                  })()}
+                  
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  {selectedChapterId !== null && currentChapterInfo && !currentChapterInfo.isActive ? (
+                    // Viewing a COMPLETED chapter with no scenes (rare case)
+                    <>
+                      <BookOpen className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+                      <p className="text-gray-400 mb-2">
+                        {currentChapterInfo.title || `Chapter ${currentChapterInfo.number}`} - No scenes yet
+                      </p>
+                      <p className="text-gray-500 text-sm mb-6">
+                        This chapter is completed. Return to the active chapter to continue writing.
+                      </p>
+                      <button
+                        onClick={() => setSelectedChapterId(null)}
+                        className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg font-medium"
+                      >
+                        Return to Active Chapter
+                      </button>
+                    </>
+                  ) : (
+                    // Active chapter with no scenes - allow generation
+                    <>
+                      <div className="space-y-6 max-w-2xl mx-auto">
+                        <div>
+                          <BookOpen className="w-16 h-16 text-purple-500 mx-auto mb-4" />
+                          <p className="text-gray-400 mb-2 text-lg">
+                            {currentChapterInfo ? `Begin ${currentChapterInfo.title || `Chapter ${currentChapterInfo.number}`}` : 'Your story awaits...'}
+                          </p>
+                          {currentChapterInfo && (
+                            <p className="text-gray-500 text-sm mb-6">
+                              The story will continue from where you left off
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Mode Selector */}
+                        <div className="flex gap-2 mb-6">
+                          <button
+                            onClick={() => setFirstSceneMode('ai')}
+                            className={`flex-1 px-4 py-2 rounded-lg font-medium transition-all ${
+                              firstSceneMode === 'ai'
+                                ? 'bg-purple-600 text-white'
+                                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                            }`}
+                          >
+                            AI Generate
+                          </button>
+                          <button
+                            onClick={() => setFirstSceneMode('write')}
+                            className={`flex-1 px-4 py-2 rounded-lg font-medium transition-all ${
+                              firstSceneMode === 'write'
+                                ? 'bg-purple-600 text-white'
+                                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                            }`}
+                          >
+                            Write Your Own
+                          </button>
+                        </div>
+
+                        {/* Write Your Own Mode */}
+                        {firstSceneMode === 'write' && (
+                          <div className="mb-6 space-y-4">
+                            <textarea
+                              value={userSceneContent}
+                              onChange={(e) => setUserSceneContent(e.target.value)}
+                              placeholder="Write your opening scene here... You can write a complete scene or describe what you want the AI to generate."
+                              className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 resize-none"
+                              rows={8}
+                            />
+                            
+                            {/* Radio buttons for write mode */}
+                            <div className="space-y-2">
+                              <label className="flex items-center space-x-2 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name="writeMode"
+                                  value="prompt"
+                                  checked={writeMode === 'prompt'}
+                                  onChange={() => setWriteMode('prompt')}
+                                  className="w-4 h-4 text-purple-600 bg-gray-700 border-gray-600 focus:ring-purple-500"
+                                />
+                                <span className="text-gray-300">Use as prompt for AI</span>
+                              </label>
+                              <label className="flex items-center space-x-2 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name="writeMode"
+                                  value="scene"
+                                  checked={writeMode === 'scene'}
+                                  onChange={() => setWriteMode('scene')}
+                                  className="w-4 h-4 text-purple-600 bg-gray-700 border-gray-600 focus:ring-purple-500"
+                                />
+                                <span className="text-gray-300">Use as my first scene</span>
+                              </label>
+                            </div>
+                            
+                            <p className="text-gray-500 text-xs">
+                              {writeMode === 'prompt' 
+                                ? 'The AI will generate a scene based on your description'
+                                : 'Your text will be saved as the first scene, and AI will generate continuation choices'}
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Director Mode Input for First Scene (only in AI mode) */}
+                        {firstSceneMode === 'ai' && directorMode && (
+                          <div className="mb-6">
+                            <label className="block text-sm font-medium text-gray-400 mb-2">
+                              Direct the opening scene:
+                            </label>
+                            <textarea
+                              value={customPrompt}
+                              onChange={(e) => setCustomPrompt(e.target.value)}
+                              placeholder="e.g., 'Start with the protagonist waking up in an unfamiliar place' or leave blank for AI to decide"
+                              className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 resize-none"
+                              rows={3}
+                            />
+                          </div>
+                        )}
+
+                        {/* Generation Button */}
+                        <button
+                          onClick={() => {
+                            if (firstSceneMode === 'write' && !userSceneContent.trim()) {
+                              setError('Please enter your scene content or prompt');
+                              return;
+                            }
+                            useStreaming ? generateNewSceneStreaming() : generateNewScene();
+                          }}
+                          disabled={isGenerating || isStreaming || (firstSceneMode === 'write' && !userSceneContent.trim())}
+                          className="w-full sm:w-auto theme-btn-primary px-8 py-4 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl"
+                        >
+                          {isGenerating || isStreaming ? (
+                            <span className="flex items-center justify-center gap-2">
+                              <span className="animate-spin">⚙️</span>
+                              {firstSceneMode === 'write' && writeMode === 'scene' ? 'Saving scene...' : 'Creating first scene...'}
+                            </span>
+                          ) : (
+                            <span className="flex items-center justify-center gap-2">
+                              <Sparkles className="w-5 h-5" />
+                              {firstSceneMode === 'write' && writeMode === 'scene' 
+                                ? 'Save & Continue'
+                                : firstSceneMode === 'write' && writeMode === 'prompt'
+                                ? 'Generate Scene'
+                                : currentChapterInfo 
+                                ? 'Begin Chapter' 
+                                : 'Begin Your Story'}
+                            </span>
+                          )}
+                        </button>
+
+                        {/* Director Mode Toggle Hint */}
+                        {firstSceneMode === 'ai' && !directorMode && (
+                          <p className="text-gray-500 text-xs">
+                            💡 Tip: Enable Director Mode from the menu to guide the opening scene
+                          </p>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+              
+              {/* Streaming Content Display - Show at bottom after existing scenes */}
+              {isStreaming && streamingContent && (
+                <div className="streaming-scene mt-8">
+                  {/* Scene Separator for streaming */}
+                  {story?.scenes && story.scenes.length > 0 && userSettings?.show_scene_titles === true && (
+                    <div className="flex items-center my-8">
+                      <div className="flex-1 h-px bg-gray-600"></div>
+                      <div className="px-4 text-gray-500 text-sm">Scene {streamingSceneNumber}</div>
+                      <div className="flex-1 h-px bg-gray-600"></div>
+                    </div>
+                  )}
+                  
+                  <div className="relative">
+                    <div className="prose prose-invert prose-lg max-w-none">
+                      <div className="streaming-content-wrapper">
+                        <FormattedText 
+                          content={streamingContent} 
+                          className="streaming-content inline"
+                        />
+                        <span className="inline-block w-2 h-5 bg-pink-500 animate-pulse ml-1 align-middle">|</span>
+                      </div>
+                    </div>
+                    
+                    {/* Streaming indicator */}
+                    <div className="absolute top-0 right-0 bg-pink-600 text-white text-xs px-2 py-1 rounded-full animate-pulse">
+                      Generating...
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Director Mode Interface - Only show if story has scenes */}
+            {directorMode && story?.scenes && story.scenes.length > 0 && (
+              <div className="mb-8 space-y-4">
+                <div className="bg-gray-700 rounded-xl border border-gray-600 p-4">
+                  <h4 className="text-pink-400 text-sm font-medium mb-3">DIRECTOR MODE</h4>
+                  <textarea
+                    value={customPrompt}
+                    onChange={(e) => setCustomPrompt(e.target.value)}
+                    placeholder="Describe exactly what happens next in detail..."
+                    rows={4}
+                    className="w-full bg-gray-800 border border-gray-600 rounded-lg p-3 text-gray-200 placeholder-gray-400 resize-none focus:outline-none focus:border-pink-500"
+                  />
+                  <div className="flex justify-between items-center mt-3">
+                    <span className="text-xs text-gray-500">Be specific about actions, dialogue, and scene details</span>
+                    <div className="flex gap-2">
+                      <MicrophoneButton
+                        onTranscriptUpdate={(text) => {
+                          // Real-time update while recording - replace with STT text
+                          setCustomPrompt(text);
+                        }}
+                        onTranscriptComplete={(text) => {
+                          // Final transcript when stopped - replace with STT text
+                          setCustomPrompt(text);
+                        }}
+                        disabled={isGenerating || isStreaming}
+                        showPreview={true}
+                      />
+                      <button
+                        onClick={() => generateScene()}
+                        disabled={isGenerating || isStreaming}
+                        className="bg-pink-600 hover:bg-pink-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+                      >
+                        {isGenerating || isStreaming ? 'Directing...' : 'Direct Scene'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Note: Continue Input is now handled by SceneVariantDisplay component for last scene */}
+
+            {/* More Button - Keep in DOM but hide with opacity to prevent layout shifts */}
+            <div className={`flex justify-center mt-6 transition-opacity duration-200 ${
+              !isGenerating && !isStreaming && !isRegenerating && !isStreamingContinuation
+                ? 'opacity-100 pointer-events-auto'
+                : 'opacity-0 pointer-events-none'
+            }`}>
+              <button 
+                onClick={generateMoreOptions}
+                disabled={isGeneratingMoreOptions || isGenerating || isStreaming || isRegenerating || isStreamingContinuation}
+                className={`text-sm transition-colors disabled:opacity-50 ${
+                  showMoreOptions 
+                    ? 'text-purple-400 hover:text-purple-300' 
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                {isGeneratingMoreOptions ? (
+                  <>
+                    <span className="animate-spin inline-block mr-1">⚡</span>
+                    Generating more choices...
+                  </>
+                ) : showMoreOptions ? (
+                  `Generate more (${dynamicChoices.length} choices available)`
+                ) : (
+                  'More choices'
+                )} 
+                {!isGeneratingMoreOptions && <span className="ml-1">ⓘ</span>}
+              </button>
+            </div>
+
+            {/* Info Components */}
+            <div className="mt-6 space-y-4">
+              <ContextInfo storyId={storyId} />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {error && (
+        <div className="fixed top-4 right-4 bg-red-600 text-white px-4 py-3 rounded-lg shadow-lg z-50 max-w-md">
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <div className="font-medium mb-1">Error</div>
+              <div className="text-sm">{error}</div>
+              {error.includes('No models loaded') && (
+                <div className="mt-2 text-xs bg-red-700 rounded p-2">
+                  <strong>Solution:</strong> Load a model in LM Studio's developer page or use the `lms load` command.
+                </div>
+              )}
+              {error.includes('Failed to connect') && (
+                <div className="mt-2 text-xs bg-red-700 rounded p-2">
+                  <strong>Solution:</strong> Make sure LM Studio is running on localhost:1234
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => setError('')}
+              className="ml-2 text-white hover:text-gray-200 flex-shrink-0"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Character Quick Add Modal */}
+      {showCharacterQuickAdd && (
+        <CharacterQuickAdd
+          onCharacterAdd={handleCharacterAdd}
+          onClose={() => setShowCharacterQuickAdd(false)}
+          existingCharacters={storyCharacters}
+          storyId={storyId}
+          chapterId={currentChapterId}
+          onOpenCharacterWizard={() => setShowCharacterWizard(true)}
+        />
+      )}
+
+      {/* Character Wizard Modal */}
+      {showCharacterWizard && (
+        <CharacterWizard
+          storyId={storyId}
+          chapterId={currentChapterId}
+          onCharacterCreated={handleCharacterCreated}
+          onClose={() => setShowCharacterWizard(false)}
+        />
+      )}
+
+      {/* Chapter Wizard Modal */}
+      {showChapterWizard && (
+        <ChapterWizard
+          storyId={storyId}
+          chapterNumber={activeChapter?.chapter_number || 1}
+          chapterId={activeChapter?.id || undefined}
+          initialData={{
+            title: activeChapter?.title || undefined,
+            description: activeChapter?.description || undefined,
+            characters: activeChapter?.characters || [],
+            location_name: activeChapter?.location_name || undefined,
+            time_period: activeChapter?.time_period || undefined,
+            scenario: activeChapter?.scenario || undefined,
+            continues_from_previous: activeChapter?.continues_from_previous !== undefined ? activeChapter.continues_from_previous : true
+          }}
+          onComplete={handleChapterWizardComplete}
+          onCancel={handleChapterWizardCancel}
+        />
+      )}
+
+      {/* TTS Settings Modal */}
+      <TTSSettingsModal
+        isOpen={showTTSSettings}
+        onClose={() => setShowTTSSettings(false)}
+        onSaved={() => {
+          // Optionally refresh story or show success message
+          console.log('TTS settings saved');
+        }}
+      />
+      
+      {/* Story Settings Edit Modal */}
+      <StorySettingsModal
+        isOpen={showEditStoryModal}
+        onClose={() => setShowEditStoryModal(false)}
+        storyId={storyId}
+        onSaved={() => {
+          loadStory(); // Reload story after save
+        }}
+      />
+      
+      {/* Story Summary Modal */}
+      {showSummaryModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
+          <div className="bg-gray-800 rounded-xl max-w-2xl w-full max-h-[90vh] flex flex-col">
+            {/* Header - fixed */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-700 flex-shrink-0">
+              <h2 className="text-xl font-bold text-white">Story Summary & Context</h2>
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={handleGenerateAISummary}
+                  disabled={isGeneratingAISummary}
+                  className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                >
+                  {isGeneratingAISummary ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      <span>Generating...</span>
+                    </>
+                  ) : (
+                    <>
+                      <DocumentTextIcon className="w-4 h-4" />
+                      <span>Summarize Now</span>
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={() => setShowSummaryModal(false)}
+                  className="text-gray-400 hover:text-white p-2 hover:bg-gray-700 rounded-lg"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+            
+            {/* Scrollable content */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {loadingSummary ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+                  <span className="ml-3 text-gray-300">Loading summary...</span>
+                </div>
+              ) : storySummary?.error ? (
+                <div className="text-center py-8 text-red-400">
+                  {storySummary.error}
+                </div>
+              ) : storySummary ? (
+                <div className="space-y-6">
+                  {/* Story Info */}
+                  <div className="bg-gray-700/50 rounded-lg p-4">
+                    <h3 className="font-semibold text-white mb-2">{storySummary.story?.title}</h3>
+                    <p className="text-gray-300 text-sm mb-2">{storySummary.story?.description}</p>
+                    <div className="text-xs text-gray-400">
+                      Genre: {storySummary.story?.genre || 'Not specified'} • 
+                      Scenes: {storySummary.story?.total_scenes}
+                    </div>
+                  </div>
+
+                  {/* Context Management Info */}
+                  {storySummary.context_info && (
+                    <div className="bg-gray-700/30 rounded-lg p-4">
+                      <h3 className="font-semibold text-blue-300 mb-3">Context Management</h3>
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <span className="text-gray-400">Total Scenes:</span>
+                          <span className="ml-2 text-white">{storySummary.context_info.total_scenes}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-400">Recent (Full):</span>
+                          <span className="ml-2 text-green-400">{storySummary.context_info.recent_scenes}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-400">Summarized:</span>
+                          <span className="ml-2 text-blue-400">{storySummary.context_info.summarized_scenes}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-400">Budget:</span>
+                          <span className="ml-2 text-white">{storySummary.context_info.context_budget.toLocaleString()} tokens</span>
+                        </div>
+                      </div>
+                      
+                      {/* Usage Bar */}
+                      <div className="mt-4">
+                        <div className="flex justify-between text-xs text-gray-400 mb-1">
+                          <span>Context Usage</span>
+                          <span>{storySummary.context_info.estimated_tokens.toLocaleString()} / {storySummary.context_info.context_budget.toLocaleString()} tokens</span>
+                        </div>
+                        <div className="w-full bg-gray-600 rounded-full h-2">
+                          <div 
+                            className={`h-2 rounded-full ${
+                              storySummary.context_info.usage_percentage > 80 ? 'bg-red-500' :
+                              storySummary.context_info.usage_percentage > 60 ? 'bg-yellow-500' :
+                              'bg-blue-500'
+                            }`}
+                            style={{ width: `${Math.min(100, storySummary.context_info.usage_percentage)}%` }}
+                          ></div>
+                        </div>
+                        <div className="text-xs text-gray-400 mt-1">
+                          {storySummary.context_info.usage_percentage.toFixed(1)}% used
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* AI Generated Summary */}
+                  {(aiSummary || isGeneratingAISummary) && (
+                    <div className="bg-blue-900/30 border border-blue-600/30 rounded-lg p-4">
+                      <h3 className="font-semibold text-blue-300 mb-3">AI Generated Summary</h3>
+                      {isGeneratingAISummary ? (
+                        <div className="flex items-center justify-center py-8">
+                          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-400"></div>
+                          <span className="ml-3 text-gray-300">Generating comprehensive story summary...</span>
+                        </div>
+                      ) : aiSummary ? (
+                        <div className="text-gray-300 text-sm leading-relaxed h-96 overflow-y-auto border border-blue-600/50 rounded p-3 bg-blue-900/20">
+                          {aiSummary}
+                        </div>
+                      ) : null}
+                      <div className="text-xs text-blue-400 mt-2">
+                        This is an AI-generated comprehensive summary using advanced prompts
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Story Summary */}
+                  <div className="bg-gray-700/30 rounded-lg p-4">
+                    <h3 className="font-semibold text-green-300 mb-3">Story Summary</h3>
+                    <div className="text-gray-300 text-sm leading-relaxed h-64 overflow-y-auto border border-gray-600/50 rounded p-3 bg-gray-800/50">
+                      {storySummary.summary}
+                    </div>
+                    <div className="text-xs text-gray-400 mt-2">
+                      Scroll to read the complete summary
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Delete Button - Appears when scenes are selected */}
+      {isInDeleteMode && selectedScenesForDeletion.length > 0 && (
+        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50">
+          <button
+            onClick={() => deleteScenesFromSelected()}
+            disabled={isDeletingScenes}
+            className="flex items-center gap-3 px-6 py-4 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-lg font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed border-2 border-red-500"
+          >
+            {isDeletingScenes ? (
+              <>
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                <span>Deleting...</span>
+              </>
+            ) : (
+              <>
+                <Trash2 className="w-5 h-5" />
+                <span>Delete {selectedScenesForDeletion.length} Scene{selectedScenesForDeletion.length !== 1 ? 's' : ''}</span>
+              </>
+            )}
+          </button>
+        </div>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {showDeleteConfirmation && story && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 rounded-lg max-w-md w-full p-6 border border-gray-700">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-red-600/20 rounded-lg">
+                <AlertCircle className="w-6 h-6 text-red-400" />
+              </div>
+              <h3 className="text-xl font-bold text-white">Confirm Deletion</h3>
+            </div>
+            
+            <p className="text-gray-300 mb-2">
+              Are you sure you want to delete scenes from scene {Math.min(...selectedScenesForDeletion)} onwards?
+            </p>
+            
+            {(() => {
+              const earliestSequence = Math.min(...selectedScenesForDeletion);
+              const scenesToDelete = story.scenes.filter(scene => scene.sequence_number >= earliestSequence);
+              return (
+                <div className="mb-6">
+                  <p className="text-red-400 font-semibold mb-2">
+                    This will permanently delete {scenesToDelete.length} scene{scenesToDelete.length !== 1 ? 's' : ''}:
+                  </p>
+                  <div className="bg-gray-900/50 rounded p-3 max-h-32 overflow-y-auto">
+                    <ul className="text-sm text-gray-400 space-y-1">
+                      {scenesToDelete.map((scene, idx) => (
+                        <li key={scene.id}>
+                          • Scene {scene.sequence_number}: {scene.title || 'Untitled'}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    All variants, choices, and related data will also be deleted. This action cannot be undone.
+                  </p>
+                </div>
+              );
+            })()}
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowDeleteConfirmation(false);
+                }}
+                className="flex-1 px-4 py-2 border border-gray-600 rounded-lg text-gray-300 hover:bg-gray-700 font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  if (!story || selectedScenesForDeletion.length === 0) return;
+                  
+                  const earliestSequence = Math.min(...selectedScenesForDeletion);
+                  
+                  try {
+                    setIsDeletingScenes(true);
+                    await apiClient.deleteScenesFromSequence(story.id, earliestSequence);
+                    
+                    // Exit delete mode and close confirmation
+                    setIsInDeleteMode(false);
+                    setSelectedScenesForDeletion([]);
+                    setShowDeleteConfirmation(false);
+                    
+                    // Reload the story
+                    await loadStory();
+                    
+                  } catch (error) {
+                    console.error('Failed to delete scenes:', error);
+                    setError(error instanceof Error ? error.message : 'Failed to delete scenes');
+                    setShowDeleteConfirmation(false);
+                  } finally {
+                    setIsDeletingScenes(false);
+                  }
+                }}
+                disabled={isDeletingScenes}
+                className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isDeletingScenes ? 'Deleting...' : 'Delete Scenes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
