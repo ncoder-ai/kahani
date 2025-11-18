@@ -85,7 +85,7 @@ class ContextManager:
         # This is closer to the actual token count
         return int(len(text) / 3.5)
     
-    async def build_story_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None) -> Dict[str, Any]:
+    async def build_story_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None, exclude_scene_id: Optional[int] = None) -> Dict[str, Any]:
         """
         Build optimized context for story generation, managing token limits
         
@@ -93,6 +93,7 @@ class ContextManager:
             story_id: Story ID
             db: Database session
             chapter_id: Optional chapter ID to separate active/inactive characters
+            exclude_scene_id: Optional scene ID to exclude from context (for regeneration)
         
         Returns:
             Optimized context dict with story info, characters, and scene history
@@ -103,9 +104,37 @@ class ContextManager:
         if not story:
             raise ValueError(f"Story {story_id} not found")
         
+        # If exclude_scene_id is provided, get scenes from StoryFlow that come before it
+        if exclude_scene_id:
+            from ..models import StoryFlow
+            # Get the scene being excluded to find its sequence_number
+            excluded_scene = db.query(Scene).filter(Scene.id == exclude_scene_id).first()
+            if excluded_scene:
+                # Query StoryFlow for all active entries with sequence_number < excluded_scene.sequence_number
+                flow_entries = db.query(StoryFlow).filter(
+                    StoryFlow.story_id == story_id,
+                    StoryFlow.is_active == True,
+                    StoryFlow.sequence_number < excluded_scene.sequence_number
+                ).order_by(StoryFlow.sequence_number).all()
+                
+                # Get Scene objects from the flow entries
+                scene_ids = [flow.scene_id for flow in flow_entries]
+                if scene_ids:
+                    scenes = db.query(Scene).filter(
+                        Scene.id.in_(scene_ids)
+                    ).order_by(Scene.sequence_number).all()
+                else:
+                    scenes = []
+                logger.info(f"[CONTEXT BUILD] Excluding scene {exclude_scene_id} (sequence {excluded_scene.sequence_number}), using {len(scenes)} scenes from StoryFlow")
+            else:
+                # Scene not found, fall back to normal query
+                logger.warning(f"[CONTEXT BUILD] Excluded scene {exclude_scene_id} not found, falling back to normal query")
+                scenes = db.query(Scene).filter(
+                    Scene.story_id == story_id
+                ).order_by(Scene.sequence_number).all()
         # Get all scenes ordered by sequence
         # For new chapters that don't continue from previous, filter out scenes from previous chapters
-        if chapter_id:
+        elif chapter_id:
             from ..models import Chapter
             chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
             if chapter:
@@ -723,7 +752,7 @@ Goals: {char.get('goals', '')}
         
         return "\n".join(text_parts)
     
-    async def build_scene_generation_context(self, story_id: int, db: Session, custom_prompt: str = "", is_variant_generation: bool = False, chapter_id: Optional[int] = None) -> Dict[str, Any]:
+    async def build_scene_generation_context(self, story_id: int, db: Session, custom_prompt: str = "", is_variant_generation: bool = False, chapter_id: Optional[int] = None, exclude_scene_id: Optional[int] = None) -> Dict[str, Any]:
         """
         Build optimized context specifically for scene generation
         
@@ -733,10 +762,11 @@ Goals: {char.get('goals', '')}
             custom_prompt: Custom prompt (continue option for new scenes, enhancement guidance for variants)
             is_variant_generation: True if this is for variant generation, False for new scene generation
             chapter_id: Optional chapter ID to separate active/inactive characters
+            exclude_scene_id: Optional scene ID to exclude from context (for regeneration)
         """
         
         # Get full context with chapter_id for character separation
-        full_context = await self.build_story_context(story_id, db, chapter_id=chapter_id)
+        full_context = await self.build_story_context(story_id, db, chapter_id=chapter_id, exclude_scene_id=exclude_scene_id)
         
         # Check if this is the first scene (no previous scenes)
         total_scenes = full_context.get("total_scenes", 0)

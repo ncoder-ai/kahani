@@ -2808,7 +2808,7 @@ class UnifiedLLMService:
         # Build context using ContextManager
         context_manager = ContextManager(user_settings=user_settings or {})
         context = await context_manager.build_scene_generation_context(
-            story.id, db, custom_prompt=custom_prompt
+            story.id, db, custom_prompt=custom_prompt, exclude_scene_id=scene_id
         )
         
         # Generate new content using the original scene as base
