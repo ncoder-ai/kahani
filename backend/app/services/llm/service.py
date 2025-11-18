@@ -1012,6 +1012,17 @@ class UnifiedLLMService:
             choices_count=choices_count
         )
         
+        # Log exact input prompts sent to LLM
+        logger.info(f"[SCENE GENERATION INPUT] {'='*80}")
+        logger.info(f"[SCENE GENERATION INPUT] SYSTEM PROMPT ({len(system_prompt)} chars):")
+        logger.info(f"[SCENE GENERATION INPUT] {'='*80}")
+        logger.info(f"[SCENE GENERATION INPUT] {system_prompt}")
+        logger.info(f"[SCENE GENERATION INPUT] {'='*80}")
+        logger.info(f"[SCENE GENERATION INPUT] USER PROMPT ({len(user_prompt)} chars):")
+        logger.info(f"[SCENE GENERATION INPUT] {'='*80}")
+        logger.info(f"[SCENE GENERATION INPUT] {user_prompt}")
+        logger.info(f"[SCENE GENERATION INPUT] {'='*80}")
+        
         max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
         
         # For scene generation with choices, we need to capture the full response object for logging
@@ -1026,6 +1037,13 @@ class UnifiedLLMService:
                 user_prompt, user_id, user_settings, system_prompt, max_tokens, None, False
             )
             cleaned_response = self._clean_scene_numbers(response_text)
+            
+            # Log complete raw response received from LLM (text completion mode)
+            logger.info(f"[SCENE GENERATION OUTPUT] {'='*80}")
+            logger.info(f"[SCENE GENERATION OUTPUT] RAW LLM RESPONSE ({len(response_text)} chars, cleaned: {len(cleaned_response)} chars):")
+            logger.info(f"[SCENE GENERATION OUTPUT] {'='*80}")
+            logger.info(f"[SCENE GENERATION OUTPUT] {response_text}")
+            logger.info(f"[SCENE GENERATION OUTPUT] {'='*80}")
         else:
             # Chat completion mode - build messages and call LLM directly
             from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
@@ -1054,6 +1072,13 @@ class UnifiedLLMService:
             # Extract content
             response_text = response.choices[0].message.content
             cleaned_response = self._clean_scene_numbers(response_text)
+        
+        # Log complete raw response received from LLM
+        logger.info(f"[SCENE GENERATION OUTPUT] {'='*80}")
+        logger.info(f"[SCENE GENERATION OUTPUT] RAW LLM RESPONSE ({len(response_text)} chars, cleaned: {len(cleaned_response)} chars):")
+        logger.info(f"[SCENE GENERATION OUTPUT] {'='*80}")
+        logger.info(f"[SCENE GENERATION OUTPUT] {response_text}")
+        logger.info(f"[SCENE GENERATION OUTPUT] {'='*80}")
         
         # Log response info for debugging
         logger.info(f"[CHOICES] Response length: {len(cleaned_response)} chars, max_tokens: {max_tokens}")
@@ -1428,6 +1453,17 @@ class UnifiedLLMService:
             choices_count=choices_count
         )
         
+        # Log exact input prompts sent to LLM
+        logger.info(f"[SCENE GENERATION STREAMING INPUT] {'='*80}")
+        logger.info(f"[SCENE GENERATION STREAMING INPUT] SYSTEM PROMPT ({len(system_prompt)} chars):")
+        logger.info(f"[SCENE GENERATION STREAMING INPUT] {'='*80}")
+        logger.info(f"[SCENE GENERATION STREAMING INPUT] {system_prompt}")
+        logger.info(f"[SCENE GENERATION STREAMING INPUT] {'='*80}")
+        logger.info(f"[SCENE GENERATION STREAMING INPUT] USER PROMPT ({len(user_prompt)} chars):")
+        logger.info(f"[SCENE GENERATION STREAMING INPUT] {'='*80}")
+        logger.info(f"[SCENE GENERATION STREAMING INPUT] {user_prompt}")
+        logger.info(f"[SCENE GENERATION STREAMING INPUT] {'='*80}")
+        
         max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
         
         scene_buffer = []
@@ -1499,13 +1535,24 @@ class UnifiedLLMService:
         # Build full response for logging
         full_scene_content = ''.join(scene_buffer)
         full_response = full_scene_content + (''.join(choices_buffer) if choices_buffer else '')
+        raw_full_response = ''.join(raw_chunks)  # Combined raw chunks before cleaning
+        
+        # Log complete raw response received from LLM (combined, not chunked)
+        logger.info(f"[SCENE GENERATION STREAMING OUTPUT] {'='*80}")
+        logger.info(f"[SCENE GENERATION STREAMING OUTPUT] RAW LLM RESPONSE (combined from {total_chunks} chunks, {len(raw_full_response)} chars):")
+        logger.info(f"[SCENE GENERATION STREAMING OUTPUT] {'='*80}")
+        logger.info(f"[SCENE GENERATION STREAMING OUTPUT] {raw_full_response}")
+        logger.info(f"[SCENE GENERATION STREAMING OUTPUT] {'='*80}")
+        logger.info(f"[SCENE GENERATION STREAMING OUTPUT] CLEANED RESPONSE ({len(full_response)} chars):")
+        logger.info(f"[SCENE GENERATION STREAMING OUTPUT] {'='*80}")
+        logger.info(f"[SCENE GENERATION STREAMING OUTPUT] {full_response}")
+        logger.info(f"[SCENE GENERATION STREAMING OUTPUT] {'='*80}")
         
         # Write raw response to file (using raw chunks before cleaning, only if prompt_debug is enabled)
         if settings.prompt_debug:
             try:
                 backend_dir = Path(__file__).parent.parent.parent
                 raw_response_file = backend_dir / "Raw-Response.txt"
-                raw_full_response = ''.join(raw_chunks)
                 with open(raw_response_file, 'w', encoding='utf-8') as f:
                     f.write("=" * 80 + "\n")
                     f.write("RAW LLM RESPONSE FOR NEW SCENE GENERATION (STREAMING)\n")
