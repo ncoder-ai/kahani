@@ -10,6 +10,7 @@ interface Scene {
   content: string;
   location: string;
   characters_present: string[];
+  variant_id?: number;
 }
 
 interface SceneDisplayProps {
