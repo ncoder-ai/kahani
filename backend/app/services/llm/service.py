@@ -2109,6 +2109,10 @@ class UnifiedLLMService:
                             char_desc += f". Background: {char['background']}"
                         if char.get('goals'):
                             char_desc += f". Goals: {char['goals']}"
+                        if char.get('fears'):
+                            char_desc += f". Fears & Weaknesses: {char['fears']}"
+                        if char.get('appearance'):
+                            char_desc += f". Appearance: {char['appearance']}"
                         char_descriptions.append(char_desc)
                 
                 # Inactive characters - brief format
@@ -2136,6 +2140,10 @@ class UnifiedLLMService:
                         char_desc += f". Background: {char['background']}"
                     if char.get('goals'):
                         char_desc += f". Goals: {char['goals']}"
+                    if char.get('fears'):
+                        char_desc += f". Fears & Weaknesses: {char['fears']}"
+                    if char.get('appearance'):
+                        char_desc += f". Appearance: {char['appearance']}"
                     char_descriptions.append(char_desc)
                 context_parts.append(f"Characters:\n{chr(10).join(char_descriptions)}")
         

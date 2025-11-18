@@ -435,6 +435,8 @@ class SemanticContextManager(ContextManager):
                 "personality": ", ".join(character.personality_traits) if character.personality_traits else "",
                 "background": character.background or "",
                 "goals": character.goals or "",
+                "fears": character.fears or "",
+                "appearance": character.appearance or "",
                 "relationships": ""
             }
             
