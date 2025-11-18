@@ -120,7 +120,18 @@ setup_python_env() {
     # Docker installations should use Dockerfile which handles dependencies differently
     log_info "Installing Python dependencies..."
     if [[ -f "backend/requirements-baremetal.txt" ]]; then
-        log_info "Using bare-metal requirements (includes PyTorch and sentence-transformers)..."
+        log_info "Using bare-metal requirements (includes PyTorch CPU-only and sentence-transformers)..."
+        
+        # Install PyTorch CPU-only first (must be before sentence-transformers)
+        # This avoids installing GPU dependencies (~900MB vs ~150MB)
+        log_info "Installing PyTorch CPU-only (this may take a few minutes)..."
+        pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.6.0+cpu torchaudio==2.6.0 || {
+            log_warning "Failed to install PyTorch CPU-only from PyTorch index, falling back to PyPI"
+            log_warning "Note: This will install GPU-enabled PyTorch (~900MB)"
+            pip install --no-cache-dir torch>=2.0.0,<3.0.0 torchaudio>=2.0.0
+        }
+        
+        # Install remaining dependencies
         pip install -r backend/requirements-baremetal.txt
     else
         log_warning "requirements-baremetal.txt not found, falling back to requirements.txt"
@@ -192,24 +203,67 @@ setup_database() {
     
     log_info "Using Python command: $python_cmd"
     
-    # Initialize or update database
-    if [[ -f backend/data/kahani.db ]]; then
-        log_warning "Database already exists, updating schema..."
-        cd backend && $python_cmd update_database_schema.py && cd .. || {
-            log_error "Failed to update database schema"
-            exit 1
-        }
-    else
-        log_info "Initializing database..."
-        cd backend && $python_cmd init_database.py && cd .. || {
-            log_error "Database initialization failed"
-            exit 1
-        }
-    fi
-    # Run Alembic migrations to upgrade schema
-    log_info "Running Alembic migrations to upgrade database schema..."
+    # Run Alembic migrations to create/upgrade database schema
+    # This is the ONLY way database schema should be modified
+    log_info "Setting up database schema using Alembic..."
     source .venv/bin/activate
-    cd backend && alembic upgrade head && cd ..
+    cd backend
+    
+    # Check if database file exists
+    if [[ -f data/kahani.db ]]; then
+        log_info "Database file exists, checking Alembic version..."
+        
+        # Check if alembic_version table exists
+        # If it doesn't, the database was created by old init_database.py
+        # We need to stamp it with the initial revision before upgrading
+        if ! $python_cmd -c "
+import sqlite3
+from pathlib import Path
+
+db_path = Path('data/kahani.db')
+if db_path.exists():
+    conn = sqlite3.connect(str(db_path))
+    cursor = conn.cursor()
+    cursor.execute(\"SELECT name FROM sqlite_master WHERE type='table' AND name='alembic_version'\")
+    result = cursor.fetchone()
+    conn.close()
+    exit(0 if result else 1)
+else:
+    exit(1)
+" 2>/dev/null; then
+            log_warning "Database exists but alembic_version table not found"
+            log_info "This database was likely created by the old init_database.py"
+            log_info "Stamping with initial revision (001) before upgrading..."
+            alembic stamp 001 || {
+                log_error "Failed to stamp database. You may need to recreate it."
+                log_info "To recreate: rm backend/data/kahani.db && ./install.sh"
+                cd ..
+                deactivate
+                exit 1
+            }
+        fi
+    else
+        log_info "Database file does not exist, Alembic will create it..."
+    fi
+    
+    # Run Alembic migrations - this creates/updates all tables
+    log_info "Running Alembic migrations to create/upgrade schema..."
+    alembic upgrade head || {
+        log_error "Alembic migration failed"
+        cd ..
+        deactivate
+        exit 1
+    }
+    
+    # Seed initial data (system settings, etc.)
+    # This does NOT modify schema, only adds default data
+    log_info "Seeding initial data..."
+    $python_cmd init_database_data.py || {
+        log_warning "Failed to seed initial data (database will still work)"
+        log_info "You can run this manually later: cd backend && python init_database_data.py"
+    }
+    
+    cd ..
     deactivate
     
     log_success "Database setup complete"
