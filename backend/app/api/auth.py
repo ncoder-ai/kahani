@@ -124,6 +124,14 @@ async def register(
     db.commit()
     db.refresh(user)
     
+    # Create UserSettings with defaults from config.yaml
+    from ..models.user_settings import UserSettings
+    user_settings = UserSettings(user_id=user.id)
+    user_settings.populate_from_defaults()
+    db.add(user_settings)
+    db.commit()
+    logger.info(f"Created UserSettings with defaults for user {user.id}")
+    
     if is_first_user:
         logger.info(f"First user registered as admin: {user.email}")
     else:
