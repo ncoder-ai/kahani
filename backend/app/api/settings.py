@@ -207,11 +207,17 @@ async def update_user_settings(
     # Update context settings
     if settings_update.context_settings:
         ctx = settings_update.context_settings
-        user_settings.context_max_tokens = ctx.max_tokens
-        user_settings.context_keep_recent_scenes = ctx.keep_recent_scenes
-        user_settings.context_summary_threshold = ctx.summary_threshold
-        user_settings.context_summary_threshold_tokens = ctx.summary_threshold_tokens
-        user_settings.enable_context_summarization = ctx.enable_summarization
+        # Add defensive checks for None values
+        if ctx.max_tokens is not None:
+            user_settings.context_max_tokens = ctx.max_tokens
+        if ctx.keep_recent_scenes is not None:
+            user_settings.context_keep_recent_scenes = ctx.keep_recent_scenes
+        if ctx.summary_threshold is not None:
+            user_settings.context_summary_threshold = ctx.summary_threshold
+        if ctx.summary_threshold_tokens is not None:
+            user_settings.context_summary_threshold_tokens = ctx.summary_threshold_tokens
+        if ctx.enable_summarization is not None:
+            user_settings.enable_context_summarization = ctx.enable_summarization
         if ctx.character_extraction_threshold is not None:
             user_settings.character_extraction_threshold = ctx.character_extraction_threshold
         
@@ -238,22 +244,32 @@ async def update_user_settings(
     # Update generation preferences
     if settings_update.generation_preferences:
         gen = settings_update.generation_preferences
-        user_settings.default_genre = gen.default_genre
-        user_settings.default_tone = gen.default_tone
-        user_settings.preferred_scene_length = gen.scene_length
-        user_settings.enable_auto_choices = gen.auto_choices
-        user_settings.choices_count = gen.choices_count
+        if gen.default_genre is not None:
+            user_settings.default_genre = gen.default_genre
+        if gen.default_tone is not None:
+            user_settings.default_tone = gen.default_tone
+        if gen.scene_length is not None:
+            user_settings.preferred_scene_length = gen.scene_length
+        if gen.auto_choices is not None:
+            user_settings.enable_auto_choices = gen.auto_choices
+        if gen.choices_count is not None:
+            user_settings.choices_count = gen.choices_count
     
     # Update UI preferences
     if settings_update.ui_preferences:
         ui = settings_update.ui_preferences
         if ui.color_theme is not None:
             user_settings.color_theme = ui.color_theme
-        user_settings.font_size = ui.font_size
-        user_settings.show_token_info = ui.show_token_info
-        user_settings.show_context_info = ui.show_context_info
-        user_settings.enable_notifications = ui.notifications
-        user_settings.scene_display_format = ui.scene_display_format
+        if ui.font_size is not None:
+            user_settings.font_size = ui.font_size
+        if ui.show_token_info is not None:
+            user_settings.show_token_info = ui.show_token_info
+        if ui.show_context_info is not None:
+            user_settings.show_context_info = ui.show_context_info
+        if ui.notifications is not None:
+            user_settings.enable_notifications = ui.notifications
+        if ui.scene_display_format is not None:
+            user_settings.scene_display_format = ui.scene_display_format
         if ui.show_scene_titles is not None:
             user_settings.show_scene_titles = ui.show_scene_titles
         if ui.scene_edit_mode is not None:
@@ -264,15 +280,20 @@ async def update_user_settings(
     # Update export settings
     if settings_update.export_settings:
         exp = settings_update.export_settings
-        user_settings.default_export_format = exp.format
-        user_settings.include_metadata = exp.include_metadata
-        user_settings.include_choices = exp.include_choices
+        if exp.format is not None:
+            user_settings.default_export_format = exp.format
+        if exp.include_metadata is not None:
+            user_settings.include_metadata = exp.include_metadata
+        if exp.include_choices is not None:
+            user_settings.include_choices = exp.include_choices
     
     # Update advanced settings
     if settings_update.advanced:
         adv = settings_update.advanced
-        user_settings.custom_system_prompt = adv.custom_system_prompt
-        user_settings.enable_experimental_features = adv.experimental_features
+        if adv.custom_system_prompt is not None:
+            user_settings.custom_system_prompt = adv.custom_system_prompt
+        if adv.experimental_features is not None:
+            user_settings.enable_experimental_features = adv.experimental_features
     
     # Update character assistant settings
     if settings_update.character_assistant_settings:
@@ -337,10 +358,18 @@ async def update_user_settings(
         
     except Exception as e:
         db.rollback()
-        logger.error(f"Failed to update user settings: {e}")
+        logger.error(f"Failed to update user settings for user {current_user.id}: {e}", exc_info=True)
+        
+        # Provide more detailed error information
+        error_detail = f"Failed to update settings: {str(e)}"
+        if "NOT NULL constraint" in str(e) or "constraint" in str(e).lower():
+            error_detail = f"Database constraint violation: {str(e)}. Please check that all required fields are provided."
+        elif "IntegrityError" in str(type(e).__name__):
+            error_detail = f"Database integrity error: {str(e)}. This may indicate a data conflict."
+        
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update settings"
+            detail=error_detail
         )
 
 @router.post("/reset")
