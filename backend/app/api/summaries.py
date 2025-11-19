@@ -132,6 +132,11 @@ async def generate_ai_summary(
                 "top_p": settings_obj.llm_top_p
             }
         
+        # Ensure user_settings exists and add allow_nsfw from user to ensure NSFW filter is applied correctly
+        if user_settings is None:
+            user_settings = {}
+        user_settings['allow_nsfw'] = current_user.allow_nsfw
+        
         # Combine all scene content
         combined_text = "\n\n".join([
             f"Scene {scene.sequence_number}: {scene.title}\n{scene.content}"
@@ -228,6 +233,11 @@ async def regenerate_story_summary(
                 "temperature": settings_obj.llm_temperature,
                 "top_p": settings_obj.llm_top_p
             }
+        
+        # Ensure user_settings exists and add allow_nsfw from user to ensure NSFW filter is applied correctly
+        if user_settings is None:
+            user_settings = {}
+        user_settings['allow_nsfw'] = current_user.allow_nsfw
         
         # Initialize services
         context_manager = ContextManager()
@@ -393,6 +403,13 @@ async def update_story_summary_from_chapters(story_id: int, db: Session, user_id
                 "temperature": user_settings_obj.llm_temperature,
                 "top_p": user_settings_obj.llm_top_p
             }
+        
+        # Ensure user_settings exists and add allow_nsfw from user to ensure NSFW filter is applied correctly
+        if user_settings is None:
+            user_settings = {}
+        user = db.query(User).filter(User.id == user_id).first()
+        if user:
+            user_settings['allow_nsfw'] = user.allow_nsfw
         
         # Collect chapter summaries
         chapter_summaries = []

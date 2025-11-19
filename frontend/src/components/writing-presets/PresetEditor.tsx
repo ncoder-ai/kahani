@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { WritingStylePreset, WritingPresetCreateData, WritingPresetUpdateData, SUGGESTED_PRESETS } from '@/types/writing-presets';
+import api from '@/lib/api';
 
 interface PresetEditorProps {
   preset?: WritingStylePreset;
@@ -16,7 +17,9 @@ export default function PresetEditor({ preset, isOpen, onClose, onSave }: Preset
     description: '',
     system_prompt: '',
     summary_system_prompt: '',
+    pov: 'third' as 'first' | 'second' | 'third',
   });
+  const [showPromptInfo, setShowPromptInfo] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSuggested, setShowSuggested] = useState(false);
@@ -28,15 +31,33 @@ export default function PresetEditor({ preset, isOpen, onClose, onSave }: Preset
         description: preset.description || '',
         system_prompt: preset.system_prompt,
         summary_system_prompt: preset.summary_system_prompt || '',
+        pov: (preset.pov as 'first' | 'second' | 'third') || 'third',
       });
     } else {
-      // New preset - start with default template
-      setFormData({
-        name: '',
-        description: '',
-        system_prompt: SUGGESTED_PRESETS[0].system_prompt,
-        summary_system_prompt: '',
-      });
+      // New preset - load default template from API
+      const loadDefault = async () => {
+        try {
+          const data = await api.getDefaultWritingPresetTemplate();
+          setFormData({
+            name: '',
+            description: '',
+            system_prompt: data.system_prompt || SUGGESTED_PRESETS[0].system_prompt,
+            summary_system_prompt: '',
+            pov: (data.pov as 'first' | 'second' | 'third') || 'third',
+          });
+        } catch (error) {
+          console.error('Failed to load default template:', error);
+          // Fallback to suggested preset
+          setFormData({
+            name: '',
+            description: '',
+            system_prompt: SUGGESTED_PRESETS[0].system_prompt,
+            summary_system_prompt: '',
+            pov: 'third',
+          });
+        }
+      };
+      loadDefault();
     }
     setError(null);
   }, [preset, isOpen]);
@@ -52,6 +73,7 @@ export default function PresetEditor({ preset, isOpen, onClose, onSave }: Preset
         description: formData.description.trim() || undefined,
         system_prompt: formData.system_prompt.trim(),
         summary_system_prompt: formData.summary_system_prompt.trim() || undefined,
+        pov: formData.pov,
       };
 
       await onSave(data);
@@ -173,13 +195,106 @@ export default function PresetEditor({ preset, isOpen, onClose, onSave }: Preset
             />
           </div>
 
+          {/* Prompt Construction Info */}
+          <div className="bg-blue-50 dark:bg-blue-950 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
+            <button
+              type="button"
+              onClick={() => setShowPromptInfo(!showPromptInfo)}
+              className="w-full flex items-center justify-between text-left"
+            >
+              <span className="text-sm font-semibold text-blue-900 dark:text-blue-100">
+                ℹ️ How prompts are constructed
+              </span>
+              <svg
+                className={`w-5 h-5 text-blue-600 dark:text-blue-400 transition-transform ${showPromptInfo ? 'rotate-180' : ''}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            {showPromptInfo && (
+              <div className="mt-4 text-sm text-blue-900 dark:text-blue-100 space-y-2">
+                <p className="font-medium">Your writing style prompt is combined with technical requirements:</p>
+                <div className="bg-white dark:bg-gray-800 rounded p-3 space-y-1 text-xs">
+                  <div className="flex items-start gap-2">
+                    <span className="font-semibold text-green-600 dark:text-green-400">✓ Your Style:</span>
+                    <span>The writing style prompt you define below (tone, pacing, character development, etc.)</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="font-semibold text-blue-600 dark:text-blue-400">+ POV:</span>
+                    <span>Point of view selection (First/Second/Third person) - see below</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="font-semibold text-purple-600 dark:text-purple-400">+ Formatting Rules:</span>
+                    <span>Automatically added from system defaults (dialogue format, structure, etc.)</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="font-semibold text-orange-600 dark:text-orange-400">+ Choices Rules:</span>
+                    <span>Automatically added from system defaults (JSON format, marker placement, etc.)</span>
+                  </div>
+                </div>
+                <p className="text-xs italic">You only need to customize the writing style - technical requirements are handled automatically.</p>
+              </div>
+            )}
+          </div>
+
+          {/* Point of View Selection */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Point of View
+            </label>
+            <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">
+              Choose the narrative perspective for your stories
+            </p>
+            <div className="grid grid-cols-3 gap-3">
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, pov: 'first' })}
+                className={`px-4 py-3 rounded-lg border-2 transition-colors ${
+                  formData.pov === 'first'
+                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300'
+                    : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:border-gray-400'
+                }`}
+              >
+                <div className="font-semibold">First Person</div>
+                <div className="text-xs mt-1">I, me, my</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, pov: 'second' })}
+                className={`px-4 py-3 rounded-lg border-2 transition-colors ${
+                  formData.pov === 'second'
+                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300'
+                    : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:border-gray-400'
+                }`}
+              >
+                <div className="font-semibold">Second Person</div>
+                <div className="text-xs mt-1">You, your</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, pov: 'third' })}
+                className={`px-4 py-3 rounded-lg border-2 transition-colors ${
+                  formData.pov === 'third'
+                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300'
+                    : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:border-gray-400'
+                }`}
+              >
+                <div className="font-semibold">Third Person</div>
+                <div className="text-xs mt-1">He, she, they</div>
+              </button>
+            </div>
+          </div>
+
           {/* System Prompt */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Writing Style Prompt *
             </label>
             <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">
-              This controls how the AI writes ALL your stories (scenes, dialogue, descriptions, etc.)
+              This controls how the AI writes your stories (tone, pacing, character development, etc.). Formatting and choices requirements are automatically added.
             </p>
             <textarea
               value={formData.system_prompt}

@@ -33,6 +33,7 @@ class WritingStylePreset(Base):
     description = Column(Text, nullable=True)
     system_prompt = Column(Text, nullable=False)
     summary_system_prompt = Column(Text, nullable=True)
+    pov = Column(String(20), nullable=True)  # 'first', 'second', 'third', or None for default
     is_active = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
@@ -57,6 +58,7 @@ class WritingStylePreset(Base):
             "description": self.description,
             "system_prompt": self.system_prompt,
             "summary_system_prompt": self.summary_system_prompt,
+            "pov": self.pov,
             "is_active": self.is_active,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,

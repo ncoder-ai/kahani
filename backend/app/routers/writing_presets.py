@@ -27,6 +27,7 @@ class WritingStylePresetCreate(BaseModel):
     description: Optional[str] = Field(None, description="Optional description of the writing style")
     system_prompt: str = Field(..., min_length=10, description="System prompt that controls AI writing style")
     summary_system_prompt: Optional[str] = Field(None, description="Optional override for story summaries")
+    pov: Optional[str] = Field(None, description="Point of view: 'first', 'second', or 'third'")
 
 
 class WritingStylePresetUpdate(BaseModel):
@@ -35,6 +36,7 @@ class WritingStylePresetUpdate(BaseModel):
     description: Optional[str] = None
     system_prompt: Optional[str] = Field(None, min_length=10)
     summary_system_prompt: Optional[str] = None
+    pov: Optional[str] = Field(None, description="Point of view: 'first', 'second', or 'third'")
 
 
 class WritingStylePresetResponse(BaseModel):
@@ -45,6 +47,7 @@ class WritingStylePresetResponse(BaseModel):
     description: Optional[str]
     system_prompt: str
     summary_system_prompt: Optional[str]
+    pov: Optional[str]
     is_active: bool
     created_at: datetime
     updated_at: Optional[datetime]
@@ -116,6 +119,7 @@ async def create_preset(
         description=preset_data.description,
         system_prompt=preset_data.system_prompt,
         summary_system_prompt=preset_data.summary_system_prompt,
+        pov=preset_data.pov,
         is_active=False
     )
     
@@ -233,6 +237,7 @@ async def duplicate_preset(
         description=original.description,
         system_prompt=original.system_prompt,
         summary_system_prompt=original.summary_system_prompt,
+        pov=original.pov,
         is_active=False
     )
     
@@ -245,20 +250,35 @@ async def duplicate_preset(
 
 @router.get("/default/template", response_model=dict)
 async def get_default_template():
-    """Get the default system prompt template for new presets"""
-    default_template = """You are a creative storytelling assistant. Write in an engaging narrative style that:
-- Uses vivid, descriptive language to paint clear mental images
-- Creates immersive scenes that draw readers into the story world
-- Develops characters naturally through their actions, dialogue, and decisions
-- Maintains appropriate pacing to keep the story moving forward
-- Respects the genre, tone, and themes specified by the user
-
-Keep content appropriate for general audiences unless explicitly told otherwise by the user. Write in second person ("you") for interactive stories to create an immersive experience."""
+    """Get the default system prompt template for new presets
+    
+    Extracts the style portion from prompts.yml to show users what they're actually customizing.
+    Technical requirements (formatting, choices) are automatically appended at runtime.
+    """
+    from ..services.llm.prompts import prompt_manager
+    
+    # Get the full scene generation prompt from YAML
+    yaml_full_prompt = prompt_manager._get_yaml_prompt("scene_generation", "system")
+    
+    if yaml_full_prompt:
+        # Extract just the style portion (everything before technical requirements)
+        default_template = prompt_manager._extract_style_portion(yaml_full_prompt)
+    else:
+        # Fallback if YAML not available
+        default_template = """You are a skilled interactive fiction writer. Create engaging, immersive story scenes that:
+1. Advance the plot meaningfully using specific story context and established details
+2. Develop characters through action and dialogue, referencing their existing traits and relationships
+3. Maintain strict consistency with established story elements, characters, and world-building
+4. Create dramatic tension and forward momentum appropriate to the established genre and tone
+5. End at a natural stopping point that leaves the reader wanting more
+6. Use vivid, descriptive language that draws readers into the specific world of this story
+7. Keep appropriate pacing for the story moment and genre"""
     
     return {
         "name": "New Preset",
-        "description": "Customize this preset to match your preferred writing style",
+        "description": "Customize this preset to match your preferred writing style. Formatting and choices requirements are automatically added.",
         "system_prompt": default_template,
-        "summary_system_prompt": None
+        "summary_system_prompt": None,
+        "pov": "third"  # Default to third person
     }
 
