@@ -34,6 +34,7 @@ interface WritingPreset {
   name: string;
   system_prompt: string;
   summary_system_prompt: string;
+  pov?: string;
 }
 
 interface LLMSettings {
@@ -148,6 +149,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [systemPrompt, setSystemPrompt] = useState('');
   const [summaryPrompt, setSummaryPrompt] = useState('');
   const [presetName, setPresetName] = useState('');
+  const [pov, setPov] = useState<'first' | 'second' | 'third'>('third');
+  const [showPromptInfo, setShowPromptInfo] = useState(false);
   const [loadingPrompts, setLoadingPrompts] = useState(false);
   const [savingPrompts, setSavingPrompts] = useState(false);
   const [showSavePresetDialog, setShowSavePresetDialog] = useState(false);
@@ -477,12 +480,14 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               setSystemPrompt(activePreset.system_prompt || '');
               setSummaryPrompt(activePreset.summary_system_prompt || '');
               setPresetName(activePreset.name || '');
+              setPov((activePreset.pov as 'first' | 'second' | 'third') || 'third');
             } else if (presets.length > 0) {
               // If no active, load first preset
               setSelectedPresetId(presets[0].id || null);
               setSystemPrompt(presets[0].system_prompt || '');
               setSummaryPrompt(presets[0].summary_system_prompt || '');
               setPresetName(presets[0].name || '');
+              setPov((presets[0].pov as 'first' | 'second' | 'third') || 'third');
             } else {
           // No presets, load defaults from backend (prompts.yaml)
           await loadDefaultPrompts();
@@ -510,17 +515,20 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         setSystemPrompt(data.system_prompt || 'You are a creative storytelling assistant. Write engaging, immersive narrative prose.');
         setSummaryPrompt(data.summary_system_prompt || 'Summarize the key events and character developments concisely.');
         setPresetName('Default');
+        setPov((data.pov as 'first' | 'second' | 'third') || 'third');
       } else {
         // Fallback if API doesn't exist
         setSystemPrompt('You are a creative storytelling assistant. Write engaging, immersive narrative prose.');
         setSummaryPrompt('Summarize the key events and character developments concisely.');
         setPresetName('Default');
+        setPov('third');
       }
     } catch (error) {
       console.error('Failed to load default prompts:', error);
       // Fallback to hardcoded defaults
       setSystemPrompt('You are a creative storytelling assistant. Write engaging, immersive narrative prose.');
       setSummaryPrompt('Summarize the key events and character developments concisely.');
+      setPov('third');
       setPresetName('Default');
     }
   };
@@ -532,6 +540,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       setSystemPrompt(preset.system_prompt);
       setSummaryPrompt(preset.summary_system_prompt);
       setPresetName(preset.name);
+      setPov((preset.pov as 'first' | 'second' | 'third') || 'third');
     }
   };
 
@@ -623,6 +632,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               name: presetName,
               system_prompt: systemPrompt,
               summary_system_prompt: summaryPrompt,
+              pov: pov,
               is_active: makeActive,
             }),
       });
@@ -659,6 +669,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               name: name.trim(),
               system_prompt: systemPrompt,
               summary_system_prompt: summaryPrompt,
+              pov: pov,
               is_active: makeActive,
             }),
       });
@@ -694,7 +705,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         body: JSON.stringify({
           name: newName.trim(),
           system_prompt: systemPrompt,
-          summary_prompt: summaryPrompt,
+          summary_system_prompt: summaryPrompt,
+          pov: pov,
           is_active: false,
         }),
       });
@@ -1723,6 +1735,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                               setPresetName('');
                               setSystemPrompt('');
                               setSummaryPrompt('');
+                              setPov('third');
                             } else if (e.target.value === 'default') {
                               setSelectedPresetId(null);
                               loadDefaultPrompts();
@@ -1775,6 +1788,99 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
                         placeholder="e.g., NSFW Adventure, Family Friendly, Poetic Style"
                       />
+                    </div>
+
+                    {/* Prompt Construction Info */}
+                    <div className="bg-blue-900/20 border border-blue-700/30 rounded-lg p-4">
+                      <button
+                        type="button"
+                        onClick={() => setShowPromptInfo(!showPromptInfo)}
+                        className="w-full flex items-center justify-between text-left"
+                      >
+                        <span className="text-sm font-semibold text-blue-200">
+                          ℹ️ How prompts are constructed
+                        </span>
+                        <svg
+                          className={`w-5 h-5 text-blue-400 transition-transform ${showPromptInfo ? 'rotate-180' : ''}`}
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+                      {showPromptInfo && (
+                        <div className="mt-4 text-sm text-blue-200 space-y-2">
+                          <p className="font-medium">Your writing style prompt is combined with technical requirements:</p>
+                          <div className="bg-gray-800 rounded p-3 space-y-1 text-xs">
+                            <div className="flex items-start gap-2">
+                              <span className="font-semibold text-green-400">✓ Your Style:</span>
+                              <span>The writing style prompt you define below (tone, pacing, character development, etc.)</span>
+                            </div>
+                            <div className="flex items-start gap-2">
+                              <span className="font-semibold text-blue-400">+ POV:</span>
+                              <span>Point of view selection (First/Second/Third person) - see below</span>
+                            </div>
+                            <div className="flex items-start gap-2">
+                              <span className="font-semibold text-purple-400">+ Formatting Rules:</span>
+                              <span>Automatically added from system defaults (dialogue format, structure, etc.)</span>
+                            </div>
+                            <div className="flex items-start gap-2">
+                              <span className="font-semibold text-orange-400">+ Choices Rules:</span>
+                              <span>Automatically added from system defaults (JSON format, marker placement, etc.)</span>
+                            </div>
+                          </div>
+                          <p className="text-xs italic">You only need to customize the writing style - technical requirements are handled automatically.</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Point of View Selection */}
+                    <div>
+                      <label className="block text-sm font-medium text-white mb-2">
+                        Point of View
+                      </label>
+                      <p className="text-xs text-gray-400 mb-2">
+                        Choose the narrative perspective for your stories
+                      </p>
+                      <div className="grid grid-cols-3 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setPov('first')}
+                          className={`px-4 py-3 rounded-lg border-2 transition-all ${
+                            pov === 'first'
+                              ? 'border-blue-500 bg-blue-600/20 text-blue-200'
+                              : 'border-gray-600 bg-gray-700 text-gray-300 hover:border-gray-500'
+                          }`}
+                        >
+                          <div className="font-semibold">First Person</div>
+                          <div className="text-xs mt-1 opacity-75">I, me, my</div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPov('second')}
+                          className={`px-4 py-3 rounded-lg border-2 transition-all ${
+                            pov === 'second'
+                              ? 'border-blue-500 bg-blue-600/20 text-blue-200'
+                              : 'border-gray-600 bg-gray-700 text-gray-300 hover:border-gray-500'
+                          }`}
+                        >
+                          <div className="font-semibold">Second Person</div>
+                          <div className="text-xs mt-1 opacity-75">You, your</div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPov('third')}
+                          className={`px-4 py-3 rounded-lg border-2 transition-all ${
+                            pov === 'third'
+                              ? 'border-blue-500 bg-blue-600/20 text-blue-200'
+                              : 'border-gray-600 bg-gray-700 text-gray-300 hover:border-gray-500'
+                          }`}
+                        >
+                          <div className="font-semibold">Third Person</div>
+                          <div className="text-xs mt-1 opacity-75">He, she, they</div>
+                        </button>
+                      </div>
                     </div>
 
                     {/* System Prompt */}

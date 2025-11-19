@@ -12,6 +12,7 @@ export interface WritingStylePreset {
   description: string | null;
   system_prompt: string;
   summary_system_prompt: string | null;
+  pov: string | null;  // 'first', 'second', 'third', or null
   is_active: boolean;
   created_at: string;
   updated_at: string | null;
@@ -22,6 +23,7 @@ export interface WritingPresetCreateData {
   description?: string;
   system_prompt: string;
   summary_system_prompt?: string;
+  pov?: string;  // 'first', 'second', or 'third'
 }
 
 export interface WritingPresetUpdateData {
@@ -29,6 +31,7 @@ export interface WritingPresetUpdateData {
   description?: string;
   system_prompt?: string;
   summary_system_prompt?: string;
+  pov?: string;  // 'first', 'second', or 'third'
 }
 
 export interface WritingPresetTemplate {
@@ -36,6 +39,7 @@ export interface WritingPresetTemplate {
   description: string;
   system_prompt: string;
   summary_system_prompt: string | null;
+  pov?: string;  // 'first', 'second', or 'third'
 }
 
 // Preset categories for UI organization

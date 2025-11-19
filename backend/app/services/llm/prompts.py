@@ -112,15 +112,40 @@ class PromptManager:
                     if active_preset:
                         # For story summaries, check if there's a specific override
                         if template_key == "story_summary" and active_preset.summary_system_prompt:
-                            prompt_text = active_preset.summary_system_prompt
+                            style_prompt = active_preset.summary_system_prompt
                             logger.debug(f"Using custom summary system prompt from preset '{active_preset.name}'")
                         else:
                             # Use universal system prompt for other enabled generations
-                            prompt_text = active_preset.system_prompt
+                            style_prompt = active_preset.system_prompt
                             logger.debug(f"Using universal system prompt from preset '{active_preset.name}' for {template_key}")
                         
-                        if prompt_text:
-                            return self._substitute_variables(prompt_text, **template_vars)
+                        if style_prompt:
+                            # Get POV from preset if available
+                            pov = getattr(active_preset, 'pov', None) if hasattr(active_preset, 'pov') else None
+                            
+                            # Get technical requirements from YAML (with POV substitution)
+                            yaml_full_prompt = self._get_yaml_prompt(template_key, "system")
+                            technical_requirements = self._extract_technical_requirements(yaml_full_prompt, pov)
+                            
+                            pov_instruction = ""
+                            if pov == "first":
+                                pov_instruction = "\n\nWrite in first person perspective (using 'I', 'me', 'my') to create an immersive experience."
+                            elif pov == "second":
+                                pov_instruction = "\n\nWrite in second person perspective (using 'you', 'your') to create an immersive interactive experience."
+                            elif pov == "third" or not pov:
+                                # Default to third person
+                                pov_instruction = "\n\nWrite in third person perspective (using 'he', 'she', 'they', character names) to maintain story immersion."
+                            
+                            # Combine: style + POV instruction + technical requirements
+                            if technical_requirements:
+                                combined_prompt = f"{style_prompt.strip()}{pov_instruction}\n\n{technical_requirements}"
+                                logger.debug(f"Combined user preset style with POV ({pov or 'third'}) and technical requirements from YAML for {template_key}")
+                            else:
+                                # No technical requirements found, combine style + POV only
+                                combined_prompt = f"{style_prompt.strip()}{pov_instruction}"
+                                logger.debug(f"Combined user preset style with POV ({pov or 'third'}) (no technical requirements) for {template_key}")
+                            
+                            return self._substitute_variables(combined_prompt, **template_vars)
                             
                 except Exception as e:
                     logger.warning(f"Error querying writing style preset: {e}")
@@ -128,10 +153,36 @@ class PromptManager:
                 logger.debug(f"Using YAML prompts for {template_key} (not user preset enabled)")
             
             # Fallback to YAML system prompt
-            prompt_text = self._get_yaml_prompt(template_key, "system")
-            if prompt_text:
-                logger.debug(f"Using YAML system prompt for template {template_key}")
-                return self._substitute_variables(prompt_text, **template_vars)
+            # For templates with technical requirements, extract style and combine with technical requirements
+            # For others, use full prompt as-is
+            yaml_full_prompt = self._get_yaml_prompt(template_key, "system")
+            if yaml_full_prompt:
+                templates_with_tech_requirements = {
+                    "scene_generation", "scene_guided_enhancement", "scene_continuation",
+                    "scene_variants", "scene_variants_streaming"
+                }
+                
+                if template_key in templates_with_tech_requirements:
+                    # Extract style portion and technical requirements separately for consistency
+                    style_portion = self._extract_style_portion(yaml_full_prompt)
+                    # Default to third person POV when no preset
+                    technical_requirements = self._extract_technical_requirements(yaml_full_prompt, "third")
+                    
+                    # Default to third person POV when no preset
+                    pov_instruction = "\n\nWrite in third person perspective (using 'he', 'she', 'they', character names) to maintain story immersion."
+                    
+                    if technical_requirements:
+                        combined_prompt = f"{style_portion}{pov_instruction}\n\n{technical_requirements}"
+                        logger.debug(f"Using extracted YAML style + POV + technical requirements for template {template_key}")
+                    else:
+                        combined_prompt = f"{style_portion}{pov_instruction}"
+                        logger.debug(f"Using extracted YAML style + POV for template {template_key}")
+                    
+                    return self._substitute_variables(combined_prompt, **template_vars)
+                else:
+                    # Use as-is (may not have technical sections)
+                    logger.debug(f"Using YAML system prompt for template {template_key}")
+                    return self._substitute_variables(yaml_full_prompt, **template_vars)
             
             # Final fallback
             prompt_text = self._get_fallback_prompt(template_key, "system")
@@ -154,6 +205,104 @@ class PromptManager:
                 return self._substitute_variables(prompt_text, **template_vars)
         
         logger.warning(f"No prompt found for template_key: {template_key}, prompt_type: {prompt_type}")
+        return ""
+    
+    def _extract_style_portion(self, full_prompt: str) -> str:
+        """
+        Extract the style portion from a full system prompt.
+        Style portion is everything before "FORMATTING REQUIREMENTS" or "CRITICAL SPECIFICITY REQUIREMENTS".
+        """
+        if not full_prompt:
+            return ""
+        
+        # Find where technical requirements start
+        formatting_marker = "FORMATTING REQUIREMENTS:"
+        specificity_marker = "CRITICAL SPECIFICITY REQUIREMENTS:"
+        
+        formatting_pos = full_prompt.find(formatting_marker)
+        specificity_pos = full_prompt.find(specificity_marker)
+        
+        # Find the earliest technical section
+        tech_start = None
+        if formatting_pos != -1 and specificity_pos != -1:
+            tech_start = min(formatting_pos, specificity_pos)
+        elif formatting_pos != -1:
+            tech_start = formatting_pos
+        elif specificity_pos != -1:
+            tech_start = specificity_pos
+        
+        if tech_start is not None:
+            # Extract everything before technical requirements
+            style = full_prompt[:tech_start].strip()
+            return style
+        
+        # If no technical markers found, return the full prompt (might be a simple style-only prompt)
+        return full_prompt.strip()
+    
+    def _extract_technical_requirements(self, full_prompt: str, pov: Optional[str] = None) -> str:
+        """
+        Extract technical requirements (formatting + choices) from a full system prompt.
+        Returns everything from "CRITICAL SPECIFICITY REQUIREMENTS" or "FORMATTING REQUIREMENTS" onwards.
+        Optionally substitutes POV instructions based on pov parameter.
+        """
+        if not full_prompt:
+            return ""
+        
+        # Find where technical requirements start
+        formatting_marker = "FORMATTING REQUIREMENTS:"
+        specificity_marker = "CRITICAL SPECIFICITY REQUIREMENTS:"
+        
+        formatting_pos = full_prompt.find(formatting_marker)
+        specificity_pos = full_prompt.find(specificity_marker)
+        
+        # Find the earliest technical section
+        tech_start = None
+        if formatting_pos != -1 and specificity_pos != -1:
+            tech_start = min(formatting_pos, specificity_pos)
+        elif formatting_pos != -1:
+            tech_start = formatting_pos
+        elif specificity_pos != -1:
+            tech_start = specificity_pos
+        
+        if tech_start is not None:
+            # Extract everything from technical requirements onwards
+            technical = full_prompt[tech_start:].strip()
+            
+            # Substitute POV in choices requirements if pov is specified
+            if pov and "CHOICES GENERATION REQUIREMENTS" in technical:
+                if pov == "first":
+                    # Replace third person instructions with first person
+                    technical = technical.replace(
+                        "use third person (he/she/they/character name) NOT first person (I/me/my) or second person (you/your)",
+                        "use first person (I/me/my) NOT second person (you/your) or third person (he/she/they)"
+                    )
+                    technical = technical.replace(
+                        "Write choices in THIRD PERSON perspective describing what the character does, NOT what \"I do\" or \"you do\".",
+                        "Write choices in FIRST PERSON perspective describing what I do, NOT what \"you do\" or third person descriptions."
+                    )
+                    technical = technical.replace(
+                        "Example: \"Jack approaches the door cautiously\" NOT \"I approach the door cautiously\" or \"You approach the door cautiously\"",
+                        "Example: \"I approach the door cautiously\" NOT \"You approach the door cautiously\" or \"Jack approaches the door cautiously\""
+                    )
+                elif pov == "second":
+                    # Replace third person instructions with second person
+                    technical = technical.replace(
+                        "use third person (he/she/they/character name) NOT first person (I/me/my) or second person (you/your)",
+                        "use second person (you/your) NOT first person (I/me/my) or third person (he/she/they)"
+                    )
+                    technical = technical.replace(
+                        "Write choices in THIRD PERSON perspective describing what the character does, NOT what \"I do\" or \"you do\".",
+                        "Write choices in SECOND PERSON perspective describing what you do, NOT what \"I do\" or third person descriptions."
+                    )
+                    technical = technical.replace(
+                        "Example: \"Jack approaches the door cautiously\" NOT \"I approach the door cautiously\" or \"You approach the door cautiously\"",
+                        "Example: \"You approach the door cautiously\" NOT \"I approach the door cautiously\" or \"Jack approaches the door cautiously\""
+                    )
+                # For third person or None, keep as-is (already third person)
+            
+            return technical
+        
+        # If no technical markers found, return empty (no technical requirements)
         return ""
     
     def _get_yaml_prompt(self, template_key: str, prompt_type: str) -> str:

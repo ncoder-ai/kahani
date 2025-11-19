@@ -692,6 +692,7 @@ class ApiClient {
       description: string | null;
       system_prompt: string;
       summary_system_prompt: string | null;
+      pov: string | null;
       is_active: boolean;
       created_at: string;
       updated_at: string | null;
@@ -706,6 +707,7 @@ class ApiClient {
       description: string | null;
       system_prompt: string;
       summary_system_prompt: string | null;
+      pov: string | null;
       is_active: boolean;
       created_at: string;
       updated_at: string | null;
@@ -717,6 +719,7 @@ class ApiClient {
     description?: string;
     system_prompt: string;
     summary_system_prompt?: string;
+    pov?: string;
   }) {
     return this.request<{
       id: number;
@@ -725,6 +728,7 @@ class ApiClient {
       description: string | null;
       system_prompt: string;
       summary_system_prompt: string | null;
+      pov: string | null;
       is_active: boolean;
       created_at: string;
       updated_at: string | null;
@@ -739,6 +743,7 @@ class ApiClient {
     description?: string;
     system_prompt?: string;
     summary_system_prompt?: string;
+    pov?: string;
   }) {
     return this.request<{
       id: number;
@@ -747,6 +752,7 @@ class ApiClient {
       description: string | null;
       system_prompt: string;
       summary_system_prompt: string | null;
+      pov: string | null;
       is_active: boolean;
       created_at: string;
       updated_at: string | null;
@@ -770,6 +776,7 @@ class ApiClient {
       description: string | null;
       system_prompt: string;
       summary_system_prompt: string | null;
+      pov: string | null;
       is_active: boolean;
       created_at: string;
       updated_at: string | null;
@@ -786,6 +793,7 @@ class ApiClient {
       description: string | null;
       system_prompt: string;
       summary_system_prompt: string | null;
+      pov: string | null;
       is_active: boolean;
       created_at: string;
       updated_at: string | null;
@@ -800,6 +808,7 @@ class ApiClient {
       description: string;
       system_prompt: string;
       summary_system_prompt: string | null;
+      pov?: string;
     }>(`/api/writing-presets/default/template`);
   }
 
