@@ -923,7 +923,7 @@ class UnifiedLLMService:
         
         return chapters[:chapter_count]
     
-    async def generate_scene(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> str:
+    async def generate_scene(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], db: Optional[Session] = None) -> str:
         """Generate a story scene"""
         
         # Get scene length and choices count from user settings
@@ -934,6 +934,8 @@ class UnifiedLLMService:
         
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "scene_generation", "scene_generation",
+            user_id=user_id,
+            db=db,
             context=self._format_context_for_scene(context),
             scene_length_description=scene_length_description,
             choices_count=choices_count
@@ -992,7 +994,7 @@ class UnifiedLLMService:
         
         return self._clean_scene_numbers(response_text)
     
-    async def generate_scene_with_choices(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> Tuple[str, Optional[List[str]]]:
+    async def generate_scene_with_choices(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], db: Optional[Session] = None) -> Tuple[str, Optional[List[str]]]:
         """
         Generate scene content and choices in a single non-streaming call.
         Returns (scene_content, parsed_choices)
@@ -1007,6 +1009,8 @@ class UnifiedLLMService:
         
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "scene_generation", "scene_generation",
+            user_id=user_id,
+            db=db,
             context=self._format_context_for_scene(context),
             scene_length_description=scene_length_description,
             choices_count=choices_count
@@ -1168,7 +1172,7 @@ class UnifiedLLMService:
             except Exception as e:
                 logger.error(f"Failed to write raw response to file: {e}")
     
-    async def generate_scene_variants(self, original_scene: str, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> str:
+    async def generate_scene_variants(self, original_scene: str, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], db: Optional[Session] = None) -> str:
         """Generate alternative versions of a scene"""
         
         # Check if this is guided enhancement (has enhancement_guidance) or simple variant
@@ -1184,6 +1188,8 @@ class UnifiedLLMService:
             # Exclude last scene from previous events to avoid duplication
             system_prompt, user_prompt = prompt_manager.get_prompt_pair(
                 "scene_guided_enhancement", "scene_guided_enhancement",
+                user_id=user_id,
+                db=db,
                 context=self._format_context_for_scene(context, exclude_last_scene=True),
                 original_scene=original_scene,
                 enhancement_guidance=enhancement_guidance,
@@ -1194,6 +1200,8 @@ class UnifiedLLMService:
             # Simple variant: use the old scene_variants template
             system_prompt, user_prompt = prompt_manager.get_prompt_pair(
                 "summary_generation", "scene_variants",
+                user_id=user_id,
+                db=db,
                 original_scene=original_scene,
                 context=self._format_context_for_scene(context, exclude_last_scene=False)
             )
@@ -1210,7 +1218,7 @@ class UnifiedLLMService:
         
         return self._clean_scene_numbers(response)
     
-    async def generate_scene_variants_streaming(self, original_scene: str, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> AsyncGenerator[str, None]:
+    async def generate_scene_variants_streaming(self, original_scene: str, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], db: Optional[Session] = None) -> AsyncGenerator[str, None]:
         """Generate alternative versions of a scene with streaming"""
         
         # Check if this is guided enhancement (has enhancement_guidance) or simple variant
@@ -1226,6 +1234,8 @@ class UnifiedLLMService:
             # Exclude last scene from previous events to avoid duplication
             system_prompt, user_prompt = prompt_manager.get_prompt_pair(
                 "scene_guided_enhancement", "scene_guided_enhancement",
+                user_id=user_id,
+                db=db,
                 context=self._format_context_for_scene(context, exclude_last_scene=True),
                 original_scene=original_scene,
                 enhancement_guidance=enhancement_guidance,
@@ -1233,9 +1243,11 @@ class UnifiedLLMService:
                 choices_count=4  # Default for non-streaming variants
             )
         else:
-            # Simple variant: use the old scene_variants_streaming template
+            # Simple variant: use scene_variants template (same as non-streaming)
             system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-                "scene_variants_streaming", "scene_variants_streaming",
+                "scene_variants", "scene_variants",
+                user_id=user_id,
+                db=db,
                 original_scene=original_scene,
                 context=self._format_context_for_scene(context, exclude_last_scene=False)
             )
@@ -1253,7 +1265,7 @@ class UnifiedLLMService:
             if cleaned_chunk:  # Only yield non-empty chunks
                 yield cleaned_chunk
     
-    async def generate_scene_continuation(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> str:
+    async def generate_scene_continuation(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], db: Optional[Session] = None) -> str:
         """Generate continuation content for an existing scene"""
         
         # Detect POV from current scene content
@@ -1275,6 +1287,8 @@ class UnifiedLLMService:
         # Enhance system prompt with POV consistency requirement
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "story_generation", "scene_continuation",
+            user_id=user_id,
+            db=db,
             context=self._format_context_for_continuation(context),
             choices_count=choices_count
         )
@@ -1296,7 +1310,7 @@ class UnifiedLLMService:
         
         return self._clean_scene_numbers(response)
     
-    async def generate_scene_continuation_streaming(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> AsyncGenerator[str, None]:
+    async def generate_scene_continuation_streaming(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], db: Optional[Session] = None) -> AsyncGenerator[str, None]:
         """Generate continuation content for an existing scene with streaming"""
         
         # Detect POV from current scene content
@@ -1317,6 +1331,8 @@ class UnifiedLLMService:
         
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "story_generation", "scene_continuation",
+            user_id=user_id,
+            db=db,
             context=self._format_context_for_continuation(context),
             choices_count=choices_count
         )
@@ -1428,7 +1444,8 @@ class UnifiedLLMService:
         self, 
         context: Dict[str, Any], 
         user_id: int, 
-        user_settings: Dict[str, Any]
+        user_settings: Dict[str, Any],
+        db: Optional[Session] = None
     ) -> AsyncGenerator[Tuple[str, bool, Optional[List[str]]], None]:
         """
         Generate scene content and choices in a single streaming call.
@@ -1448,6 +1465,8 @@ class UnifiedLLMService:
         
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "scene_generation", "scene_generation",
+            user_id=user_id,
+            db=db,
             context=self._format_context_for_scene(context),
             scene_length_description=scene_length_description,
             choices_count=choices_count
@@ -1594,7 +1613,8 @@ class UnifiedLLMService:
         original_scene: str,
         context: Dict[str, Any],
         user_id: int,
-        user_settings: Dict[str, Any]
+        user_settings: Dict[str, Any],
+        db: Optional[Session] = None
     ) -> AsyncGenerator[Tuple[str, bool, Optional[List[str]]], None]:
         """
         Generate scene variant and choices in a single streaming call.
@@ -1622,6 +1642,8 @@ class UnifiedLLMService:
             logger.warning(f"[GUIDED ENHANCEMENT] choices_count: {choices_count}")
             system_prompt, user_prompt = prompt_manager.get_prompt_pair(
                 "scene_guided_enhancement", "scene_guided_enhancement",
+                user_id=user_id,
+                db=db,
                 context=formatted_context,
                 original_scene=original_scene,
                 enhancement_guidance=enhancement_guidance,
@@ -1634,6 +1656,8 @@ class UnifiedLLMService:
             # Simple variant: use the same prompt template as new scene generation
             system_prompt, user_prompt = prompt_manager.get_prompt_pair(
                 "scene_generation", "scene_generation",
+                user_id=user_id,
+                db=db,
                 context=self._format_context_for_scene(context, exclude_last_scene=False),
                 scene_length_description=scene_length_description,
                 choices_count=choices_count

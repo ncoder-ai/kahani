@@ -92,11 +92,12 @@ class PromptManager:
             # These are the core story writing operations that should respect user's writing style
             user_preset_enabled_types = {
                 "scene_generation",           # Main story scenes
-                "scene_continuation",         # Scene continuations
-                "scene_variants",             # Scene variants
-                "scene_variants_streaming",   # Scene variants streaming
-                "story_summary",              # Story summaries (uses summary_system_prompt)
-                "scenario_generation"         # Story scenario/premise generation
+                "scene_continuation",          # Scene continuations
+                "scene_variants",              # Scene variants
+                "scene_variants_streaming",    # Scene variants streaming (uses same prompts as scene_variants)
+                "scene_guided_enhancement",   # Scene guided enhancement
+                "story_summary",               # Story summaries (uses summary_system_prompt)
+                "scenario_generation"          # Story scenario/premise generation
             }
             
             # Only use user presets for enabled generation types
@@ -173,7 +174,7 @@ class PromptManager:
             "complete_plot": ("plot_generation", "complete_plot"),
             "single_plot_point": ("plot_generation", "single_plot_point"),
             "scene_variants": ("summary_generation", "scene_variants"),
-            "scene_variants_streaming": ("summary_generation", "scene_variants_streaming"),
+            "scene_variants_streaming": ("summary_generation", "scene_variants"),  # Use same prompts as scene_variants
             "story_chapters": ("summary_generation", "story_chapters"),
             "chapter_conclusion": ("chapter_conclusion", ""),
             "character_assistant.extraction": ("character_assistant", "extraction"),

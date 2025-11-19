@@ -114,11 +114,11 @@ async def generate_scene_streaming(context, user_id, user_settings):
     async for chunk in llm_service.generate_scene_streaming(context, user_id, user_settings):
         yield chunk
 
-async def generate_scene_continuation(context, user_id, user_settings):
-    return await llm_service.generate_scene_continuation(context, user_id, user_settings)
+async def generate_scene_continuation(context, user_id, user_settings, db=None):
+    return await llm_service.generate_scene_continuation(context, user_id, user_settings, db)
 
-async def generate_scene_continuation_streaming(context, user_id, user_settings):
-    async for chunk in llm_service.generate_scene_continuation_streaming(context, user_id, user_settings):
+async def generate_scene_continuation_streaming(context, user_id, user_settings, db=None):
+    async for chunk in llm_service.generate_scene_continuation_streaming(context, user_id, user_settings, db):
         yield chunk
 
 def SceneVariantService(db: Session):
@@ -877,7 +877,7 @@ async def generate_scene(
         
         # Generate scene content using enhanced method
         try:
-            scene_content = await llm_service.generate_scene(context, current_user.id, user_settings)
+            scene_content = await llm_service.generate_scene(context, current_user.id, user_settings, db)
         except Exception as e:
             logger.error(f"Failed to generate scene for story {story_id}: {e}")
             raise HTTPException(
@@ -910,7 +910,7 @@ async def generate_scene(
         
         # Generate scene content using enhanced method with combined choices
         try:
-            scene_content, parsed_choices = await llm_service.generate_scene_with_choices(context, current_user.id, user_settings)
+            scene_content, parsed_choices = await llm_service.generate_scene_with_choices(context, current_user.id, user_settings, db)
             
             # If choices weren't parsed, fall back to separate generation
             if not parsed_choices or len(parsed_choices) < 2:
@@ -1167,7 +1167,8 @@ async def generate_scene_streaming_endpoint(
                 async for chunk, scene_complete, choices in llm_service.generate_scene_with_choices_streaming(
                     scene_context,
                     current_user.id,
-                    user_settings
+                    user_settings,
+                    db
                 ):
                     if not scene_complete:
                         # Still streaming scene content
@@ -2370,7 +2371,8 @@ async def create_scene_variant_streaming(
                     original_scene_content,
                     context,
                     current_user.id,
-                    user_settings
+                    user_settings,
+                    db
                 ):
                     if not scene_complete:
                         variant_content += chunk
@@ -2393,7 +2395,8 @@ async def create_scene_variant_streaming(
                 async for chunk, scene_complete, choices in llm_service.generate_scene_with_choices_streaming(
                     context,
                     current_user.id,
-                    user_settings
+                    user_settings,
+                    db
                 ):
                     if not scene_complete:
                         variant_content += chunk
@@ -2675,7 +2678,7 @@ async def continue_scene(
         )
         
         # Generate continuation content
-        continuation_content = await generate_scene_continuation(context, current_user.id, user_settings)
+        continuation_content = await generate_scene_continuation(context, current_user.id, user_settings, db)
         
         # Append to existing content
         new_content = current_variant.content + "\n\n" + continuation_content
