@@ -124,7 +124,7 @@ story_generation:
       IMPORTANT: Write ONLY the story content. Do not include any choices, options, or questions for the reader. 
       This should be pure narrative - just tell what happens next in the story.
       
-      After completing the scene narrative, add the ###CHOICES### marker and provide the choices as specified in the system instructions.
+      After completing the scene narrative, add the ###CHOICES### marker and provide the choices as as specified in the system instructions. Remember each choice must be only 1-2 sentences.
 
   scene_guided_enhancement:
     system: |
