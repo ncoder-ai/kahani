@@ -833,24 +833,18 @@ Appearance: {char.get('appearance', '')}
         
         return scene_context
 
-    async def build_choice_generation_context(self, story_id: int, db: Session) -> Dict[str, Any]:
+    async def build_choice_generation_context(self, story_id: int, db: Session, scene_context: Optional[Dict[str, Any]] = None, chapter_id: Optional[int] = None) -> Dict[str, Any]:
         """
         Build context optimized for choice generation
-        Uses similar logic to scene generation but focuses on current situation
+        If scene_context is provided, reuse it to preserve all context fields.
+        Otherwise, build full context using build_scene_generation_context() (for "More Choices" button case)
         """
-        # Reuse the scene generation context which already has the right info
-        scene_context = await self.build_scene_generation_context(story_id, db)
-        
-        # Return a focused context for choice generation
-        return {
-            "story_title": scene_context.get("story_title", ""),
-            "story_description": scene_context.get("story_description", ""),
-            "genre": scene_context.get("genre", ""),
-            "tone": scene_context.get("tone", ""),
-            "characters": scene_context.get("characters", []),
-            "current_situation": scene_context.get("current_situation", ""),
-            "scene_summary": scene_context.get("scene_summary", "")
-        }
+        if scene_context is not None:
+            # Reuse the provided scene generation context - preserve all fields
+            return scene_context.copy()
+        else:
+            # Build full context (for "More Choices" button case where original context isn't available)
+            return await self.build_scene_generation_context(story_id, db, chapter_id=chapter_id)
 
     async def build_scene_continuation_context(
         self, 

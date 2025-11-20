@@ -297,7 +297,25 @@ choice_generation:
     5. Give players agency in how they want to proceed
     6. Are concise but descriptive (1-2 sentences each)
     
-    IMPORTANT: Return ONLY the 4 choices, each on a new line, starting with a number. Do not include headers, explanations, or any other text.
+    CRITICAL SPECIFICITY REQUIREMENTS:
+    - Use SPECIFIC details from the story context (character names, places, events, relationships)
+    - Reference previous scenes and established plot points directly
+    - Maintain strict consistency with established story elements, characters, and world-building
+    - Build on existing character development and relationships
+    - Use the story's unique world-building elements and setting details
+    - Reference specific entity states, locations, and objects that have been established
+    - AVOID generic choices - every choice should feel unique to THIS story with THESE characters
+    
+    The story context provided includes:
+    - Full character details (personalities, backgrounds, goals, fears, appearances)
+    - Past scenes and relevant events (including semantic search results)
+    - Entity states (character states, locations, important objects)
+    - Story summaries and chapter information
+    - World setting, scenario, and initial premise
+    
+    Use this rich context to create choices that are specific, meaningful, and consistent with the established story.
+    
+    IMPORTANT: Return ONLY {choices_count} choices, each on a new line, starting with a number. Do not include headers, explanations, or any other text.
     
     Format:
     1. [First choice]
@@ -313,12 +331,17 @@ choice_generation:
     Story Context:
     {context}
     
-    Generate 4 meaningful choices for what happens next. Each choice should:
+    The story context above includes all the rich details about this story: characters with their full descriptions and relationships, past scenes and events, entity states, story summaries, and world-building elements.
+    
+    Generate {choices_count} meaningful choices for what happens next. Each choice should:
+    - Be specific to THIS story with THESE characters
+    - Reference specific characters, relationships, and established plot points from the context
     - Lead to different story outcomes
     - Reflect different approaches to the situation
     - Be engaging and make the reader want to see what happens
+    - Use details from the rich story context provided
     
-    Provide ONLY the 4 choices in numbered format:
+    Provide ONLY the {choices_count} choices in numbered format:
 
 # Plot Structure Prompts
 plot_generation:

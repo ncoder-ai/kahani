@@ -1905,7 +1905,7 @@ class UnifiedLLMService:
         return 'third'
     
     async def generate_choices(self, scene_content: str, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> List[str]:
-        """Generate 4 narrative choices for the given scene"""
+        """Generate narrative choices for the given scene"""
         
         # Detect POV from scene content
         pov = self._detect_pov(scene_content)
@@ -1923,14 +1923,21 @@ class UnifiedLLMService:
         enhanced_context = context.copy()
         enhanced_context["pov_instruction"] = pov_instruction
         
+        # CRITICAL: Add scene_content to context as current_situation so it's formatted identically to scene generation
+        # This ensures the context formatting is identical, maximizing LLM cache hits
+        enhanced_context["current_situation"] = scene_content
+        
         # Get choices count from user settings
         generation_prefs = user_settings.get("generation_preferences", {})
         choices_count = generation_prefs.get("choices_count", 4)
         
+        # Format context using the same method as scene generation
+        formatted_context = self._format_context_for_choices(enhanced_context)
+        
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "choice_generation", "choice_generation",
-            scene_content=scene_content[-800:],  # Last 800 chars to avoid token limits
-            context=self._format_context_for_choices(enhanced_context),
+            scene_content=scene_content[-800:],  # Last 800 chars for backward compatibility with prompt template
+            context=formatted_context,
             choices_count=choices_count
         )
         
@@ -2377,24 +2384,12 @@ class UnifiedLLMService:
         return "\n".join(context_parts)
     
     def _format_context_for_choices(self, context: Dict[str, Any]) -> str:
-        """Format context for choice generation"""
-        context_parts = []
-        
-        if context.get("genre"):
-            context_parts.append(f"Genre: {context['genre']}")
-        
-        if context.get("tone"):
-            context_parts.append(f"Tone: {context['tone']}")
-        
-        if context.get("characters"):
-            char_list = [char.get('name', 'Unknown') for char in context.get('characters', [])]
-            if char_list:
-                context_parts.append(f"Characters involved: {', '.join(char_list)}")
-        
-        if context.get("current_situation"):
-            context_parts.append(f"Current situation: {context['current_situation']}")
-        
-        return "\n".join(context_parts)
+        """Format context for choice generation
+        CRITICAL: Reuse _format_context_for_scene() to ensure identical formatting
+        This maximizes LLM cache hits by keeping the initial prompt parts identical
+        """
+        # Reuse the same formatting as scene generation to maximize cache hits
+        return self._format_context_for_scene(context, exclude_last_scene=False)
     
     def _format_context_for_scenario(self, context: Dict[str, Any]) -> str:
         """Format context for scenario generation"""

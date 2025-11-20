@@ -1007,9 +1007,6 @@ export default function StoryPage() {
     const startTime = Date.now();
     setGenerationStartTime(startTime);
 
-    // Don't clear choices immediately - hide more options
-    setShowMoreOptions(false);
-
     try {
       // Determine content mode and user content based on first scene mode
       let userContent: string | undefined;
@@ -1088,9 +1085,6 @@ export default function StoryPage() {
     // Calculate the next scene number
     const nextSceneNumber = (story.scenes?.length || 0) + 1;
     setStreamingSceneNumber(nextSceneNumber);
-    
-    // Don't clear choices immediately - hide more options
-    setShowMoreOptions(false);
     
     // Accumulate content locally so callback can access it
     let accumulatedContent = '';
