@@ -915,8 +915,9 @@ async def generate_scene(
             # If choices weren't parsed, fall back to separate generation
             if not parsed_choices or len(parsed_choices) < 2:
                 logger.warning("Choice parsing failed, using fallback generation")
-                choice_context = await context_manager.build_choice_generation_context(story_id, db)
-                parsed_choices = await llm_service.generate_choices(scene_content, choice_context, current_user.id, user_settings)
+                # Reuse the existing scene generation context - don't rebuild it
+                # The scene_content will be added to context as current_situation in generate_choices()
+                parsed_choices = await llm_service.generate_choices(scene_content, context, current_user.id, user_settings)
         except Exception as e:
             logger.error(f"Failed to generate scene for story {story_id}: {e}")
             raise HTTPException(
@@ -1240,13 +1241,9 @@ async def generate_scene_streaming_endpoint(
                 else:
                     # Fallback: separate choice generation
                     logger.warning("Choice parsing failed or no choices found, using fallback generation")
-                    choice_context = {
-                        "genre": context.get("genre"),
-                        "tone": context.get("tone"),
-                        "characters": context.get("characters", []),
-                        "current_situation": f"Scene {next_sequence}: {full_content}"
-                    }
-                    choices = await llm_service.generate_choices(full_content, choice_context, current_user.id, user_settings)
+                    # Reuse the existing scene generation context - don't create minimal dict
+                    # The scene_content will be added to context as current_situation in generate_choices()
+                    choices = await llm_service.generate_choices(full_content, context, current_user.id, user_settings)
                 
                 # Format and save choices
                 for i, choice_text in enumerate(choices):
@@ -1650,15 +1647,24 @@ async def generate_more_choices(
     user_settings = get_or_create_user_settings(current_user.id, db, current_user)
     
     # Create context manager with user settings
-    context_manager = ContextManager(user_settings=user_settings)
+    context_manager = get_context_manager_for_user(user_settings, current_user.id)
     
     try:
-        # Build context for choice generation
-        choice_context = await context_manager.build_choice_generation_context(
-            story_id, db
+        # For "More Choices": We need to rebuild context since the original scene generation context isn't available
+        # Build full scene generation context with appropriate parameters
+        active_chapter = db.query(Chapter).filter(
+            Chapter.story_id == story_id,
+            Chapter.status == ChapterStatus.ACTIVE
+        ).first()
+        chapter_id = active_chapter.id if active_chapter else None
+        
+        # Build full scene generation context (exclude the current scene to avoid duplication)
+        choice_context = await context_manager.build_scene_generation_context(
+            story_id, db, chapter_id=chapter_id, exclude_scene_id=scene.id
         )
         
         # Generate fresh choices using LLM with variant's content
+        # The variant.content will be added to context as current_situation in generate_choices()
         generated_choices = await llm_service.generate_choices(
             variant.content, 
             choice_context, 
@@ -2269,9 +2275,23 @@ async def create_scene_variant(
         
         # Generate choices for the new variant
         try:
+            # Build full scene generation context for choice generation
+            # Note: We don't have the original scene generation context here, so we rebuild it
             from ..services.context_manager import ContextManager
             context_manager = ContextManager(user_settings=user_settings, user_id=current_user.id)
-            choice_context = await context_manager.build_choice_generation_context(story_id, db)
+            
+            # Get active chapter for character separation
+            active_chapter = db.query(Chapter).filter(
+                Chapter.story_id == story_id,
+                Chapter.status == ChapterStatus.ACTIVE
+            ).first()
+            chapter_id = active_chapter.id if active_chapter else None
+            
+            # Build full scene generation context
+            choice_context = await context_manager.build_scene_generation_context(
+                story_id, db, chapter_id=chapter_id, exclude_scene_id=scene_id
+            )
+            
             generated_choices = await llm_service.generate_choices(
                 variant.content, 
                 choice_context, 
@@ -2567,10 +2587,11 @@ async def create_scene_variant_streaming(
                 else:
                     # Fallback: separate choice generation
                     logger.warning("Choice parsing failed for variant, using fallback generation")
-                    choice_context = await context_manager.build_choice_generation_context(story_id, db)
+                    # Reuse the existing scene generation context - don't rebuild it
+                    # The variant_content will be added to context as current_situation in generate_choices()
                     generated_choices = await llm_service.generate_choices(
                         variant_content, 
-                        choice_context, 
+                        context, 
                         current_user.id, 
                         user_settings
                     )
