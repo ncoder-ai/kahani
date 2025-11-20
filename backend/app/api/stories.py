@@ -1599,10 +1599,18 @@ async def get_current_choices(
 @router.post("/{story_id}/generate-more-choices")
 async def generate_more_choices(
     story_id: int,
+    request: Dict[str, Any] = Body(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Generate fresh alternative choices for the current scene"""
+    """Generate fresh alternative choices for a specific scene variant"""
+    
+    variant_id = request.get("variant_id")
+    if not variant_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="variant_id is required"
+        )
     
     story = db.query(Story).filter(
         Story.id == story_id,
@@ -1615,15 +1623,27 @@ async def generate_more_choices(
             detail="Story not found"
         )
     
-    # Get the latest scene
-    latest_scene = db.query(Scene).filter(
-        Scene.story_id == story_id
-    ).order_by(Scene.sequence_number.desc()).first()
+    # Get the specified variant
+    variant = db.query(SceneVariant).filter(
+        SceneVariant.id == variant_id
+    ).first()
     
-    if not latest_scene:
+    if not variant:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="No scenes found for this story"
+            detail="Variant not found"
+        )
+    
+    # Verify the variant belongs to a scene in this story
+    scene = db.query(Scene).filter(
+        Scene.id == variant.scene_id,
+        Scene.story_id == story_id
+    ).first()
+    
+    if not scene:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scene not found for this variant"
         )
     
     # Get user settings
@@ -1638,26 +1658,59 @@ async def generate_more_choices(
             story_id, db
         )
         
-        # Generate fresh choices using LLM
-        choices = await llm_service.generate_choices(
-            latest_scene.content, 
+        # Generate fresh choices using LLM with variant's content
+        generated_choices = await llm_service.generate_choices(
+            variant.content, 
             choice_context, 
             current_user.id,
             user_settings
         )
         
+        # Get existing choices for this variant to determine next order number
+        existing_choices = db.query(SceneChoice).filter(
+            SceneChoice.scene_variant_id == variant_id
+        ).order_by(SceneChoice.choice_order.desc()).first()
+        
+        next_order = (existing_choices.choice_order + 1) if existing_choices else 1
+        
+        # Store choices in database linked to the variant
+        stored_choices = []
+        for idx, choice_text in enumerate(generated_choices):
+            choice = SceneChoice(
+                scene_id=scene.id,
+                scene_variant_id=variant.id,
+                choice_text=choice_text,
+                choice_order=next_order + idx
+            )
+            db.add(choice)
+            stored_choices.append({
+                "id": None,  # Will be set after commit
+                "text": choice_text,
+                "order": next_order + idx
+            })
+        
+        db.commit()
+        
+        # Refresh to get IDs - query all choices for this variant ordered by creation time
+        # Get the most recently created choices (the ones we just added)
+        all_variant_choices = db.query(SceneChoice).filter(
+            SceneChoice.scene_variant_id == variant_id
+        ).order_by(SceneChoice.created_at.desc()).limit(len(stored_choices)).all()
+        
+        # Match stored choices with created choices (reverse order since we queried desc)
+        for i, created_choice in enumerate(reversed(all_variant_choices[:len(stored_choices)])):
+            if i < len(stored_choices):
+                stored_choices[i]["id"] = created_choice.id
+        
+        logger.info(f"Generated and stored {len(stored_choices)} additional choices for variant {variant_id}")
+        
         return {
-            "choices": [
-                {
-                    "text": choice_text,
-                    "order": i
-                }
-                for i, choice_text in enumerate(choices)
-            ]
+            "choices": stored_choices
         }
         
     except Exception as e:
-        logger.error(f"Failed to generate more choices for story {story_id}: {e}")
+        db.rollback()
+        logger.error(f"Failed to generate more choices for variant {variant_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate choices: {str(e)}"

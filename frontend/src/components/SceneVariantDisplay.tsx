@@ -281,13 +281,7 @@ export default function SceneVariantDisplay({
       );
     }
     
-    // Add dynamic choices if showMoreOptions is true
-    if (showMoreOptions && dynamicChoices && dynamicChoices.length > 0) {
-      baseChoices.push(...dynamicChoices
-        .sort((a, b) => a.order - b.order)
-        .map(choice => choice.text));
-    }
-    
+    // All choices now come from variant data (including "more choices" stored in DB)
     return baseChoices;
   };
 
@@ -325,6 +319,42 @@ export default function SceneVariantDisplay({
       setCurrentVariantId(scene.variant_id);
     }
   }, [scene.variant_id, currentVariantId]);
+
+  // Reload variants when scene choices change (e.g., after generating more choices)
+  // This ensures we get the latest choices including newly generated "more choices"
+  const previousChoicesCountRef = useRef<number>(0);
+  const sceneChoicesKeyRef = useRef<string>('');
+  
+  useEffect(() => {
+    // Create a key from choices to detect changes (not just count)
+    const currentChoicesKey = JSON.stringify(scene.choices?.map(c => ({ id: c.id, text: c.text, order: c.order })) || []);
+    const currentChoicesCount = scene.choices?.length || 0;
+    
+    // Reload variants if:
+    // 1. Variants have been loaded for this scene
+    // 2. Choices have actually changed (different key or increased count)
+    // 3. We're not in the middle of loading
+    if (hasLoadedVariantsRef.current.has(scene.id) && 
+        variants.length > 0 && 
+        currentVariantId &&
+        !isLoadingVariants &&
+        (currentChoicesKey !== sceneChoicesKeyRef.current || currentChoicesCount > previousChoicesCountRef.current)) {
+      
+      console.log(`[SceneVariantDisplay] Scene choices changed, reloading variants for scene ${scene.id}`, {
+        previousCount: previousChoicesCountRef.current,
+        currentCount: currentChoicesCount,
+        previousKey: sceneChoicesKeyRef.current.substring(0, 50),
+        currentKey: currentChoicesKey.substring(0, 50)
+      });
+      
+      hasLoadedVariantsRef.current.delete(scene.id); // Allow reload
+      loadVariants();
+    }
+    
+    // Update refs for next comparison
+    previousChoicesCountRef.current = currentChoicesCount;
+    sceneChoicesKeyRef.current = currentChoicesKey;
+  }, [scene.choices, scene.id, currentVariantId, variants.length, isLoadingVariants]);
 
   // Keyboard navigation for variants (only for last scene)
   useEffect(() => {

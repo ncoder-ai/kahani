@@ -348,8 +348,11 @@ class ApiClient {
     return this.request<{ choices: Array<{ text: string; order: number; }>; }>(`/api/stories/${storyId}/choices`);
   }
 
-  async generateMoreChoices(storyId: number) {
-    return this.request<{ choices: Array<{ text: string; order: number; }>; }>(`/api/stories/${storyId}/generate-more-choices`, { method: 'POST' });
+  async generateMoreChoices(storyId: number, variantId: number) {
+    return this.request<{ choices: Array<{ id: number; text: string; order: number; }>; }>(`/api/stories/${storyId}/generate-more-choices`, { 
+      method: 'POST',
+      body: JSON.stringify({ variant_id: variantId })
+    });
   }
 
   async regenerateLastScene(storyId: number) {

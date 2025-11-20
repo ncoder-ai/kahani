@@ -136,13 +136,11 @@ export default function StoryPage() {
   const [editingScene, setEditingScene] = useState<number | null>(null);
   const [editingVariantId, setEditingVariantId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState('');
-  const [dynamicChoices, setDynamicChoices] = useState<Array<{text: string, order: number}>>([]);
   const [showCharacterQuickAdd, setShowCharacterQuickAdd] = useState(false);
   const [showCharacterWizard, setShowCharacterWizard] = useState(false);
   const [showCharacterBanner, setShowCharacterBanner] = useState(false);
   const [currentChapterId, setCurrentChapterId] = useState<number | undefined>(undefined);
   const [storyCharacters, setStoryCharacters] = useState<Array<{name: string, role: string, description: string}>>([]);
-  const [showMoreOptions, setShowMoreOptions] = useState(false);
   const [isGeneratingMoreOptions, setIsGeneratingMoreOptions] = useState(false);
   const [sceneHistory, setSceneHistory] = useState<Scene[][]>([]);
   const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
@@ -809,8 +807,6 @@ export default function StoryPage() {
         }
       }
 
-      // Load choices for the current story
-      await loadChoices();
       
       // Load context status for progress bar
       await loadContextStatus();
@@ -892,15 +888,6 @@ export default function StoryPage() {
     }
   };
 
-  const loadChoices = async () => {
-    try {
-      const choicesData = await apiClient.getStoryChoices(storyId);
-      setDynamicChoices(choicesData.choices || []);
-    } catch (err) {
-      console.error('Failed to load choices:', err);
-      setDynamicChoices([]);
-    }
-  };
 
   const loadContextStatus = async () => {
     try {
@@ -1451,24 +1438,20 @@ export default function StoryPage() {
     setShowCharacterBanner(false);
   };
 
-  const generateMoreOptions = async () => {
-    if (!story || !story.scenes.length || isGeneratingMoreOptions) return;
+  const generateMoreOptions = async (variantId: number) => {
+    if (!story || !story.scenes.length || isGeneratingMoreOptions || !variantId) return;
     
     setIsGeneratingMoreOptions(true);
     try {
-      // Generate fresh choices using the LLM
-      const choicesData = await apiClient.generateMoreChoices(storyId);
-      const newChoices = choicesData.choices || [];
+      // Generate fresh choices using the LLM for the specific variant
+      await apiClient.generateMoreChoices(storyId, variantId);
       
-      // Append new choices to existing ones instead of replacing
-      setDynamicChoices(prev => [
-        ...prev, 
-        ...newChoices.map(choice => ({ 
-          text: choice.text, 
-          order: prev.length + choice.order 
-        }))
-      ]);
-      setShowMoreOptions(true);
+      // Refresh story data to load new choices from database
+      await refreshStoryContent();
+      
+      // Small delay to ensure state updates propagate, then force a re-render
+      // This helps SceneVariantDisplay detect the changes and reload variants
+      await new Promise(resolve => setTimeout(resolve, 100));
     } catch (error) {
       console.error('Failed to generate more options:', error);
     } finally {
@@ -2566,8 +2549,6 @@ export default function StoryPage() {
                           onStartEdit={startEditingScene}
                           onSaveEdit={(sceneId: number, content: string, variantId?: number) => updateScene(sceneId, content, variantId)}
                           onCancelEdit={() => setEditingScene(null)}
-                          dynamicChoices={isLastSceneInStory ? dynamicChoices : []}
-                          showMoreOptions={isLastSceneInStory ? showMoreOptions : false}
                           onContentChange={setEditContent}
                           isRegenerating={isRegenerating}
                           isGenerating={isGenerating}
@@ -2849,33 +2830,34 @@ export default function StoryPage() {
             {/* Note: Continue Input is now handled by SceneVariantDisplay component for last scene */}
 
             {/* More Button - Keep in DOM but hide with opacity to prevent layout shifts */}
-            <div className={`flex justify-center mt-6 transition-opacity duration-200 ${
-              !isGenerating && !isStreaming && !isRegenerating && !isStreamingContinuation
-                ? 'opacity-100 pointer-events-auto'
-                : 'opacity-0 pointer-events-none'
-            }`}>
-              <button 
-                onClick={generateMoreOptions}
-                disabled={isGeneratingMoreOptions || isGenerating || isStreaming || isRegenerating || isStreamingContinuation}
-                className={`text-sm transition-colors disabled:opacity-50 ${
-                  showMoreOptions 
-                    ? 'text-purple-400 hover:text-purple-300' 
-                    : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                {isGeneratingMoreOptions ? (
-                  <>
-                    <span className="animate-spin inline-block mr-1">⚡</span>
-                    Generating more choices...
-                  </>
-                ) : showMoreOptions ? (
-                  `Generate more (${dynamicChoices.length} choices available)`
-                ) : (
-                  'More choices'
-                )} 
-                {!isGeneratingMoreOptions && <span className="ml-1">ⓘ</span>}
-              </button>
-            </div>
+            {story && story.scenes.length > 0 && story.scenes[story.scenes.length - 1].variant_id && (
+              <div className={`flex justify-center mt-6 transition-opacity duration-200 ${
+                !isGenerating && !isStreaming && !isRegenerating && !isStreamingContinuation
+                  ? 'opacity-100 pointer-events-auto'
+                  : 'opacity-0 pointer-events-none'
+              }`}>
+                <button 
+                  onClick={() => {
+                    const lastScene = story.scenes[story.scenes.length - 1];
+                    if (lastScene.variant_id) {
+                      generateMoreOptions(lastScene.variant_id);
+                    }
+                  }}
+                  disabled={isGeneratingMoreOptions || isGenerating || isStreaming || isRegenerating || isStreamingContinuation}
+                  className="text-sm transition-colors disabled:opacity-50 text-gray-400 hover:text-white"
+                >
+                  {isGeneratingMoreOptions ? (
+                    <>
+                      <span className="animate-spin inline-block mr-1">⚡</span>
+                      Generating more choices...
+                    </>
+                  ) : (
+                    'More choices'
+                  )} 
+                  {!isGeneratingMoreOptions && <span className="ml-1">ⓘ</span>}
+                </button>
+              </div>
+            )}
 
             {/* Info Components */}
             <div className="mt-6 space-y-4">
