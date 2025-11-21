@@ -240,6 +240,15 @@ async def create_chapter(
                         
                         db.refresh(active_chapter)  # Refresh to get the auto_summary
                         logger.info(f"[CHAPTER] Final summary generated for completed chapter {active_chapter.id}")
+                        
+                        # Update story.summary now that this chapter is completed
+                        try:
+                            from ..api.summaries import update_story_summary_from_chapters
+                            await update_story_summary_from_chapters(active_chapter.story_id, db, current_user.id)
+                            logger.info(f"[CHAPTER] Updated story summary after completing chapter {active_chapter.id}")
+                        except Exception as e:
+                            # Don't fail chapter creation if story summary update fails
+                            logger.warning(f"[CHAPTER] Failed to update story summary after completing chapter {active_chapter.id}: {e}")
                     except Exception as e:
                         logger.error(f"[CHAPTER] Failed to generate summary for completed chapter {active_chapter.id}: {e}")
                         # Continue with chapter creation even if summary fails
@@ -1035,14 +1044,6 @@ Summary:"""
     
     logger.info(f"[CHAPTER] Generated summary for chapter {chapter_id}: {len(summary)} chars")
     
-    # Auto-update story.summary after chapter summary is generated
-    try:
-        from ..api.summaries import update_story_summary_from_chapters
-        await update_story_summary_from_chapters(chapter.story_id, db, user_id)
-    except Exception as e:
-        # Don't fail chapter summary generation if story summary update fails
-        logger.warning(f"[CHAPTER] Failed to auto-update story summary after chapter summary generation: {e}")
-    
     return summary
 
 
@@ -1375,14 +1376,6 @@ Chapter {chapter.chapter_number} Summary:"""
     combined_summary = chapter.auto_summary or ""
     
     logger.info(f"[CHAPTER] {'Extended' if existing_summary else 'Created'} summary for chapter {chapter_id}: {len(batch_summary)} chars (scenes {batch_start}-{batch_end}), total batches: {len(all_batches)}")
-    
-    # Auto-update story.summary after chapter summary is generated
-    try:
-        from ..api.summaries import update_story_summary_from_chapters
-        await update_story_summary_from_chapters(chapter.story_id, db, user_id)
-    except Exception as e:
-        # Don't fail chapter summary generation if story summary update fails
-        logger.warning(f"[CHAPTER] Failed to auto-update story summary after chapter summary generation: {e}")
     
     return combined_summary
 
