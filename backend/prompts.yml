@@ -263,9 +263,15 @@ story_generation:
       3. Offer varied consequences and outcomes
       4. Maintain consistency with the established story world
       5. Give players agency in how they want to proceed
-      6. Are concise but descriptive (1-2 sentences each)
+      6. Are concise but evocative (Only 1 sentence each)
+      7. Match the story's POV - use third person (he/she/they/character name) NOT first person (I/me/my) or second person (you/your)
       
-      Generate exactly {choices_count} choices. Each choice should feel distinct and meaningful.
+      IMPORTANT: Write choices in THIRD PERSON perspective describing what the character does, NOT what "I do" or "you do".
+      Example: "Jack approaches the door cautiously" NOT "I approach the door cautiously" or "You approach the door cautiously"
+      
+      Generate exactly {choices_count} choices. Each choice should feel distinct and meaningful. Each should be just one short sentence, no more than 15 words.
+      
+      Format: Provide exactly {choices_count} choices as a JSON array: ["Choice 1 text here", "Choice 2 text here", ...]
     
     user: |
       Based on this scene:
@@ -275,16 +281,17 @@ story_generation:
       Story Context:
       {context}
       
-      Generate 4 meaningful choices for what happens next. Each choice should:
+      Generate {choices_count} meaningful choices for what happens next. Each choice should:
       - Lead to different story outcomes
       - Reflect different approaches to the situation
       - Be engaging and make the reader want to see what happens
+      - Be specific to the current scene and context
+      - Give readers genuine agency in the narrative
+      - Vary in risk/consequence level
       
-      Choices:
-      1.
-      2.
-      3.
-      4.
+      Remember each choice must be only 1 short sentence, no more than 15 words.
+      
+      Provide exactly {choices_count} choices as a JSON array: ["Choice 1 text here", "Choice 2 text here", ...]
 
 # Choice Generation (Direct access key for choice_generation calls)
 choice_generation:
@@ -295,7 +302,11 @@ choice_generation:
     3. Offer varied consequences and outcomes
     4. Maintain consistency with the established story world
     5. Give players agency in how they want to proceed
-    6. Are concise but descriptive (1-2 sentences each)
+    6. Are concise but evocative (Only 1 sentence each)
+    7. Match the story's POV - use third person (he/she/they/character name) NOT first person (I/me/my) or second person (you/your)
+    
+    IMPORTANT: Write choices in THIRD PERSON perspective describing what the character does, NOT what "I do" or "you do".
+    Example: "Jack approaches the door cautiously" NOT "I approach the door cautiously" or "You approach the door cautiously"
     
     CRITICAL SPECIFICITY REQUIREMENTS:
     - Use SPECIFIC details from the story context (character names, places, events, relationships)
@@ -315,13 +326,9 @@ choice_generation:
     
     Use this rich context to create choices that are specific, meaningful, and consistent with the established story.
     
-    IMPORTANT: Return ONLY {choices_count} choices, each on a new line, starting with a number. Do not include headers, explanations, or any other text.
+    Generate exactly {choices_count} choices. Each choice should be just one short sentence, no more than 15 words.
     
-    Format:
-    1. [First choice]
-    2. [Second choice] 
-    3. [Third choice]
-    4. [Fourth choice]
+    Format: Provide exactly {choices_count} choices as a JSON array: ["Choice 1 text here", "Choice 2 text here", ...]
   
   user: |
     Based on this scene:
@@ -340,8 +347,13 @@ choice_generation:
     - Reflect different approaches to the situation
     - Be engaging and make the reader want to see what happens
     - Use details from the rich story context provided
+    - Be specific to the current scene and context
+    - Give readers genuine agency in the narrative
+    - Vary in risk/consequence level
     
-    Provide ONLY the {choices_count} choices in numbered format:
+    Remember each choice must be only 1 short sentence, no more than 15 words.
+    
+    Provide exactly {choices_count} choices as a JSON array: ["Choice 1 text here", "Choice 2 text here", ...]
 
 # Plot Structure Prompts
 plot_generation:

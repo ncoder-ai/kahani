@@ -385,21 +385,39 @@ Story Content:
 Provide a summary that is approximately 2-3 paragraphs long, capturing the essence of what happened."""
             },
             "choice_generation": {
-                "system": """You are a creative storytelling assistant. Generate exactly 4 compelling narrative choices that:
-1. Offer meaningfully different story directions
-2. Are specific to the current scene and context
-3. Give readers genuine agency in the narrative
-4. Vary in risk/consequence level
-5. Are concise but evocative (1-2 sentences each)
+                "system": """You are an interactive fiction choice generator. Create engaging story choices that:
+1. Are meaningful and impact the story direction
+2. Reflect different character approaches or personalities
+3. Offer varied consequences and outcomes
+4. Maintain consistency with the established story world
+5. Give players agency in how they want to proceed
+6. Are concise but evocative (Only 1 sentence each)
+7. Match the story's POV - use third person (he/she/they/character name) NOT first person (I/me/my) or second person (you/your)
 
-Format each choice as a numbered list (1., 2., 3., 4.) with clear, actionable options.""",
-                "user": """Based on this scene content and story context, generate 4 distinct narrative choices for what the protagonist could do next:
+IMPORTANT: Write choices in THIRD PERSON perspective describing what the character does, NOT what "I do" or "you do".
+Example: "Jack approaches the door cautiously" NOT "I approach the door cautiously" or "You approach the door cautiously"
 
-Scene: {scene_content}
+Generate exactly {choices_count} choices. Each choice should be just one short sentence, no more than 15 words.
 
-Context: {context}
+Format: Provide exactly {choices_count} choices as a JSON array: ["Choice 1 text here", "Choice 2 text here", ...]""",
+                "user": """Based on this scene:
 
-Generate 4 specific choices that advance the story in different ways."""
+{scene_content}
+
+Story Context:
+{context}
+
+Generate {choices_count} meaningful choices for what happens next. Each choice should:
+- Lead to different story outcomes
+- Reflect different approaches to the situation
+- Be engaging and make the reader want to see what happens
+- Be specific to the current scene and context
+- Give readers genuine agency in the narrative
+- Vary in risk/consequence level
+
+Remember each choice must be only 1 short sentence, no more than 15 words.
+
+Provide exactly {choices_count} choices as a JSON array: ["Choice 1 text here", "Choice 2 text here", ...]"""
             },
             "title_generation": {
                 "system": """You are a creative title generator. Generate 5 compelling story titles that capture the essence of the story, are memorable, and fit the genre and tone.""",
