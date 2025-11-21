@@ -1957,24 +1957,12 @@ class UnifiedLLMService:
             max_tokens=max_tokens
         )
         
-        # Parse choices from response
-        choices = []
-        lines = response.split('\n')
-        
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-            
-            # Look for numbered choices
-            if re.match(r'^[\d\.\-\*\s]+', line):
-                # Clean the choice text - remove all leading numbers, dots, hyphens, asterisks and spaces
-                choice_text = re.sub(r'^[\d\.\-\*\s]+', '', line).strip()
-                if choice_text and len(choice_text) > 10:  # Ensure substantial content
-                    choices.append(choice_text)
+        # Parse choices from response using JSON format
+        choices = self._parse_choices_from_json(response)
         
         # Ensure we have at least some choices
-        if len(choices) < 2:
+        if not choices or len(choices) < 2:
+            logger.warning(f"[CHOICES] Failed to parse choices from JSON, using fallback. Response: {response[:200]}")
             choices = [
                 "Continue forward cautiously",
                 "Take a different approach", 
