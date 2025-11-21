@@ -90,15 +90,106 @@ async function loadConfig(): Promise<FrontendConfig> {
       try {
         apiBaseUrl = getConfigApiBaseUrl();
       } catch (error) {
-        // Cannot determine API URL - configuration must be set up properly
+        // If error is about NEXT_PUBLIC_API_URL not being set for direct access, try common backend ports
         const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-        throw new Error(
-          `Cannot determine backend API URL for config fetch: ${errorMsg}. ` +
-          `For direct access, set NEXT_PUBLIC_API_URL environment variable (e.g., http://hostname:9876). ` +
-          `For reverse proxy deployments, ensure the frontend is accessed via standard ports (80/443) or set NEXT_PUBLIC_API_URL.`
-        );
+        if (errorMsg.includes('NEXT_PUBLIC_API_URL') && typeof window !== 'undefined') {
+          console.log('[Config] NEXT_PUBLIC_API_URL not set, trying to auto-detect backend port...');
+          
+          // Extract hostname and protocol from browser URL (already available)
+          const hostname = window.location.hostname;
+          let protocol = window.location.protocol; // Returns "http:" or "https:"
+          
+          // Ensure we have a valid protocol (default to http if missing or invalid)
+          if (!protocol || !protocol.endsWith(':')) {
+            protocol = 'http:';
+          }
+          
+          // Try common backend ports: 9876 (default from config.yaml), 8000, 3000
+          const commonPorts = [9876, 8000, 3000];
+          
+          for (const port of commonPorts) {
+            // Construct absolute URL: protocol includes colon, so "http://" not "http:///"
+            // Ensure it's a proper absolute URL starting with http:// or https://
+            // Use new URL() to ensure proper URL construction
+            let testUrl: string;
+            try {
+              testUrl = new URL(`${protocol}//${hostname}:${port}`).href;
+            } catch (urlError) {
+              // Fallback to string construction if URL constructor fails
+              testUrl = `${protocol}//${hostname}:${port}`;
+            }
+            console.log(`[Config] Trying backend at ${testUrl}...`);
+            console.log(`[Config] Protocol: "${protocol}", Hostname: "${hostname}", Port: ${port}`);
+            console.log(`[Config] Constructed URL: "${testUrl}"`);
+            
+            try {
+              // Create abort controller for timeout
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), 3000);
+              
+              // Ensure we're using an absolute URL - verify it starts with http:// or https://
+              const fullUrl = `${testUrl}/api/config/frontend`;
+              console.log(`[Config] Fetching from absolute URL: ${fullUrl}`);
+              console.log(`[Config] URL is absolute: ${fullUrl.startsWith('http://') || fullUrl.startsWith('https://')}`);
+              
+              // Use new URL() to ensure it's properly formatted
+              const absoluteUrl = new URL('/api/config/frontend', testUrl).href;
+              console.log(`[Config] Using URL constructor result: ${absoluteUrl}`);
+              
+              const testResponse = await fetch(absoluteUrl, {
+                method: 'GET',
+                signal: controller.signal,
+                // Add mode to ensure it's treated as a cross-origin request if needed
+                mode: 'cors'
+              });
+              
+              clearTimeout(timeoutId);
+              
+              if (testResponse.ok) {
+                console.log(`[Config] Successfully detected backend at ${testUrl}`);
+                apiBaseUrl = testUrl;
+                break;
+              }
+            } catch (fetchError) {
+              // Continue to next port (timeout, network error, etc.)
+              if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+                console.log(`[Config] Backend at ${testUrl} did not respond within timeout, trying next port...`);
+              } else {
+                console.log(`[Config] Backend not available at ${testUrl}, trying next port...`);
+              }
+              continue;
+            }
+          }
+          
+          // If we found a working backend, use it; otherwise throw original error
+          if (!apiBaseUrl) {
+            throw new Error(
+              `Cannot determine backend API URL for config fetch: ${errorMsg}. ` +
+              `Tried common ports (9876, 8000, 3000) on ${hostname} but none responded. ` +
+              `For direct access, set NEXT_PUBLIC_API_URL environment variable (e.g., http://${hostname}:9876). ` +
+              `For reverse proxy deployments, ensure the frontend is accessed via standard ports (80/443) or set NEXT_PUBLIC_API_URL.`
+            );
+          }
+        } else {
+          // Re-throw other errors
+          throw new Error(
+            `Cannot determine backend API URL for config fetch: ${errorMsg}. ` +
+            `For direct access, set NEXT_PUBLIC_API_URL environment variable (e.g., http://hostname:9876). ` +
+            `For reverse proxy deployments, ensure the frontend is accessed via standard ports (80/443) or set NEXT_PUBLIC_API_URL.`
+          );
+        }
       }
-      const response = await fetch(`${apiBaseUrl}/api/config/frontend`);
+      // Ensure apiBaseUrl is an absolute URL using URL constructor
+      let configUrl: string;
+      try {
+        configUrl = new URL('/api/config/frontend', apiBaseUrl).href;
+      } catch (urlError) {
+        // Fallback to string concatenation if URL constructor fails
+        configUrl = `${apiBaseUrl}/api/config/frontend`;
+      }
+      console.log(`[Config] Fetching config from absolute URL: ${configUrl}`);
+      console.log(`[Config] URL is absolute: ${configUrl.startsWith('http://') || configUrl.startsWith('https://')}`);
+      const response = await fetch(configUrl);
 
       if (!response.ok) {
         throw new Error(`Failed to load config: ${response.status} ${response.statusText}`);
