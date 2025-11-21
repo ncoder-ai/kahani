@@ -320,6 +320,36 @@ class Settings(BaseSettings):
         return self._yaml_config.get('service_defaults', {})
     
     @property
+    def llm_timeout_total(self) -> float:
+        """Get LLM HTTP request total timeout in seconds"""
+        return self.service_defaults.get('llm_client', {}).get('timeout_total', 180.0)
+    
+    @property
+    def llm_timeout_connect(self) -> float:
+        """Get LLM HTTP request connection timeout in seconds"""
+        return self.service_defaults.get('llm_client', {}).get('timeout_connect', 30.0)
+    
+    @property
+    def llm_timeout_read(self) -> float:
+        """Get LLM HTTP request read timeout in seconds"""
+        return self.service_defaults.get('llm_client', {}).get('timeout_read', 150.0)
+    
+    @property
+    def llm_timeout_write(self) -> float:
+        """Get LLM HTTP request write timeout in seconds"""
+        return self.service_defaults.get('llm_client', {}).get('timeout_write', 150.0)
+    
+    @property
+    def llm_max_retries(self) -> int:
+        """Get maximum number of retry attempts for LLM requests"""
+        return self.service_defaults.get('llm_client', {}).get('max_retries', 3)
+    
+    @property
+    def llm_retry_base_delay(self) -> float:
+        """Get base delay in seconds for exponential backoff retries"""
+        return self.service_defaults.get('llm_client', {}).get('retry_base_delay', 2.0)
+    
+    @property
     def chapter_context_threshold_percentage(self) -> int:
         """Get chapter context threshold percentage from config.yaml"""
         return self._yaml_config.get('context', {}).get('chapter_context_threshold_percentage', 80)

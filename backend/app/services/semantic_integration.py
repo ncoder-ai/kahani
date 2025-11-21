@@ -8,6 +8,7 @@ during scene generation and story management.
 import logging
 from typing import Optional, Dict, Any, List, Tuple
 from sqlalchemy.orm import Session
+from datetime import datetime
 
 from .semantic_context_manager import SemanticContextManager, create_semantic_context_manager
 from .context_manager import ContextManager
@@ -628,17 +629,62 @@ Return only valid JSON with all four sections: character_moments, npcs, plot_eve
             base_max_tokens = 2000
             max_tokens = base_max_tokens + (num_scenes * 500)
             
+            # Get timeout from user settings or fallback to system default
+            llm_settings = user_settings.get('llm_settings', {})
+            timeout_seconds = llm_settings.get('timeout_total', settings.llm_timeout_total)
+            
+            # Log extraction parameters
+            logger.warning(f"[EXTRACTION] Starting combined extraction: timeout={timeout_seconds}s, max_tokens={max_tokens}, num_scenes={num_scenes}, prompt_length={len(prompt)}")
+            
             # Call main LLM with combined extraction prompt
-            response = await llm_service.generate(
-                prompt=prompt,
-                user_id=user_id,
-                user_settings=user_settings,
-                system_prompt=system_prompt,
-                max_tokens=max_tokens
-            )
+            import time
+            start_time = time.time()
+            try:
+                response = await llm_service.generate(
+                    prompt=prompt,
+                    user_id=user_id,
+                    user_settings=user_settings,
+                    system_prompt=system_prompt,
+                    max_tokens=max_tokens
+                )
+                elapsed_time = time.time() - start_time
+                logger.warning(f"[EXTRACTION] LLM call completed in {elapsed_time:.2f}s")
+                
+                # ALWAYS log the FULL raw response immediately after receiving it
+                logger.warning(f"[EXTRACTION] RAW LLM RESPONSE (length: {len(response)} chars):\n{response}")
+                
+                # Log response completeness indicators
+                response_stripped = response.strip()
+                ends_with_brace = response_stripped.endswith('}')
+                has_opening_brace = response_stripped.startswith('{')
+                logger.warning(f"[EXTRACTION] Response completeness: starts_with_{{={has_opening_brace}, ends_with_}}={ends_with_brace}")
+                
+                # Log first and last 500 chars for quick inspection
+                logger.warning(f"[EXTRACTION] Response preview - first 500 chars: {response[:500]}")
+                logger.warning(f"[EXTRACTION] Response preview - last 500 chars: {response[-500:]}")
+                
+            except Exception as e:
+                elapsed_time = time.time() - start_time
+                logger.error(f"[EXTRACTION] LLM call failed after {elapsed_time:.2f}s: {e}")
+                # Try to capture partial response if available
+                if hasattr(e, 'response') and hasattr(e.response, 'text'):
+                    partial_response = e.response.text
+                    logger.error(f"[EXTRACTION] PARTIAL RESPONSE RECEIVED (length: {len(partial_response)} chars):\n{partial_response}")
+                elif hasattr(e, 'args') and len(e.args) > 0:
+                    error_str = str(e.args[0])
+                    if len(error_str) > 100:  # Might contain partial response
+                        logger.error(f"[EXTRACTION] Error details (may contain partial response): {error_str[:1000]}")
+                raise
             
             # Parse the response
-            combined_results = _parse_combined_json_response(response)
+            try:
+                logger.warning(f"[EXTRACTION] Attempting to parse JSON response...")
+                combined_results = _parse_combined_json_response(response)
+                logger.warning(f"[EXTRACTION] JSON parsing successful")
+            except Exception as parse_error:
+                logger.error(f"[EXTRACTION] JSON parsing failed: {parse_error}")
+                logger.error(f"[EXTRACTION] Full response that failed to parse:\n{response}")
+                raise
         
         # Validate results - need at least one non-empty section
         entity_states = combined_results.get('entity_states', {})
@@ -836,6 +882,7 @@ Return only valid JSON with all four sections: character_moments, npcs, plot_eve
                 
                 # Create PlotEvent entries
                 plot_service = get_plot_thread_service()
+                semantic_memory = get_semantic_memory_service()
                 total_events = 0
                 
                 for scene_id, sequence_number, chapter_id, scene_content in scenes_data:
@@ -854,19 +901,58 @@ Return only valid JSON with all four sections: character_moments, npcs, plot_eve
                         # Generate thread ID
                         thread_id = plot_service._generate_thread_id(description, event_type)
                         
+                        # Generate unique event ID
+                        event_id = f"{story_id}_{scene_id}_{thread_id}_{total_events}"
+                        
+                        # Check if embedding_id already exists
+                        potential_embedding_id = f"plot_{event_id}"
+                        existing_embedding = db.query(PlotEvent).filter(
+                            PlotEvent.embedding_id == potential_embedding_id
+                        ).first()
+                        
+                        if existing_embedding:
+                            logger.debug(f"Plot event with embedding_id {potential_embedding_id} already exists, skipping")
+                            continue
+                        
+                        # Create embedding
+                        embedding_id = await semantic_memory.add_plot_event(
+                            event_id=event_id,
+                            story_id=story_id,
+                            scene_id=scene_id,
+                            event_type=event_type,
+                            description=description,
+                            metadata={
+                                'sequence': sequence_number,
+                                'is_resolved': False,
+                                'involved_characters': involved_chars,
+                                'timestamp': datetime.utcnow().isoformat()
+                            }
+                        )
+                        
+                        # Double-check embedding_id doesn't exist (race condition protection)
+                        final_check = db.query(PlotEvent).filter(
+                            PlotEvent.embedding_id == embedding_id
+                        ).first()
+                        
+                        if final_check:
+                            logger.debug(f"Plot event with embedding_id {embedding_id} was created concurrently, skipping")
+                            continue
+                        
                         # Create PlotEvent
                         plot_event = PlotEvent(
                             story_id=story_id,
                             scene_id=scene_id,
-                            sequence_number=sequence_number,
-                            chapter_id=chapter_id,
                             event_type=EventType(event_type),
                             description=description,
-                            importance_score=importance,
-                            confidence_score=confidence,
+                            embedding_id=embedding_id,
                             thread_id=thread_id,
+                            is_resolved=False,
+                            sequence_order=sequence_number,
+                            chapter_id=chapter_id,
                             involved_characters=involved_chars,
-                            extracted_automatically=True
+                            extracted_automatically=True,
+                            confidence_score=confidence,
+                            importance_score=importance
                         )
                         db.add(plot_event)
                         total_events += 1
@@ -1068,7 +1154,7 @@ async def batch_process_scene_extractions(
         # Prepare scene data for batch extraction
         from ..models import SceneVariant
         scenes_data = []  # List of (scene_id, sequence_number, chapter_id, scene_content) for batch extraction
-        scenes_for_embeddings = []  # List of (scene, variant, scene_content) for per-scene embeddings
+        scenes_for_embeddings = []  # List of (scene_id, variant_id, sequence_number, scene_content) for per-scene embeddings
         
         for scene in scenes:
             try:
@@ -1092,9 +1178,14 @@ async def batch_process_scene_extractions(
                 
                 scene_content = variant.content
                 
+                # Extract attributes before batch processing to avoid ObjectDeletedError if scene is deleted
+                scene_id = scene.id
+                variant_id = variant.id
+                sequence_number = scene.sequence_number
+                
                 # Add to batch extraction list
-                scenes_data.append((scene.id, scene.sequence_number, chapter_id, scene_content))
-                scenes_for_embeddings.append((scene, variant, scene_content))
+                scenes_data.append((scene_id, sequence_number, chapter_id, scene_content))
+                scenes_for_embeddings.append((scene_id, variant_id, sequence_number, scene_content))
                 
             except Exception as e:
                 logger.error(f"Failed to prepare scene {scene.id} for batch processing: {e}")
@@ -1178,16 +1269,16 @@ async def batch_process_scene_extractions(
                 logger.error(f"Failed to batch extract character moments: {e}")
         
         # PER-SCENE PROCESSING: Scene embeddings and entity states (still per-scene)
-        for scene, variant, scene_content in scenes_for_embeddings:
+        for scene_id, variant_id, sequence_number, scene_content in scenes_for_embeddings:
             try:
                 # Process scene embeddings (still per-scene)
                 # Skip NPC/plot/character/entity extraction since they're done in batch above
                 scene_results = await process_scene_embeddings(
-                    scene_id=scene.id,
-                    variant_id=variant.id,
+                    scene_id=scene_id,
+                    variant_id=variant_id,
                     story_id=story_id,
                     scene_content=scene_content,
-                    sequence_number=scene.sequence_number,
+                    sequence_number=sequence_number,
                     chapter_id=chapter_id,
                     user_id=user_id,
                     user_settings=user_settings,
@@ -1205,12 +1296,12 @@ async def batch_process_scene_extractions(
                 if scene_results.get('entity_states'):
                     results['entity_states'] += 1
                 
-                logger.debug(f"Processed scene {scene.id} (sequence {scene.sequence_number}): "
+                logger.debug(f"Processed scene {scene_id} (sequence {sequence_number}): "
                            f"embedding={scene_results.get('scene_embedding')}, "
                            f"entities={scene_results.get('entity_states')}")
                 
             except Exception as e:
-                logger.error(f"Failed to process scene {scene.id} embeddings: {e}")
+                logger.error(f"Failed to process scene {scene_id} embeddings: {e}")
                 # Continue with next scene
                 continue
         

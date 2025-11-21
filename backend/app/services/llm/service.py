@@ -16,6 +16,8 @@ import os
 from pathlib import Path
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, desc
+import httpx
+import time
 
 from .client import LLMClient
 from .prompts import prompt_manager
@@ -224,6 +226,14 @@ class UnifiedLLMService:
         gen_params = client.get_generation_params(max_tokens, temperature)
         gen_params["messages"] = messages
         
+        # Get timeout from user settings or fallback to system default
+        user_timeout = None
+        if user_settings:
+            llm_settings = user_settings.get('llm_settings', {})
+            user_timeout = llm_settings.get('timeout_total')
+        timeout_value = user_timeout if user_timeout is not None else settings.llm_timeout_total
+        gen_params["timeout"] = timeout_value
+        
         # Log complete prompt being sent to LLM
         system_prompt_log = next((msg["content"] for msg in messages if msg.get("role") == "system"), "")
         user_prompt_log = next((msg["content"] for msg in messages if msg.get("role") == "user"), "")
@@ -235,6 +245,7 @@ class UnifiedLLMService:
         logger.debug(f"USER PROMPT:\n{user_prompt_log}")
         logger.debug("-" * 80)
         logger.info(f"GENERATION PARAMETERS: max_tokens={gen_params.get('max_tokens')}, temperature={gen_params.get('temperature')}, model={client.model_string}")
+        logger.info(f"LLM timeout configured: {settings.llm_timeout_total}s (total), {settings.llm_timeout_read}s (read)")
         logger.info("=" * 80)
         
         try:
@@ -250,6 +261,15 @@ class UnifiedLLMService:
         except Exception as e:
             error_msg = str(e)
             logger.warning(f"LiteLLM generation failed for user {user_id}: {error_msg}")
+            
+            # Log timeout information
+            timeout_used = gen_params.get('timeout', 'not set (using LiteLLM default ~60s)')
+            logger.warning(f"Timeout used: {timeout_used}, max_tokens: {gen_params.get('max_tokens')}")
+            
+            # Try to capture partial response
+            if hasattr(e, 'response') and hasattr(e.response, 'text'):
+                partial_response = e.response.text
+                logger.warning(f"Partial response received (length: {len(partial_response)} chars):\n{partial_response[:1000]}")
             
             # Provide helpful error messages for common connection issues
             if "404" in error_msg or "Not Found" in error_msg:
@@ -323,6 +343,14 @@ class UnifiedLLMService:
         gen_params = client.get_text_completion_params(max_tokens, temperature)
         gen_params["prompt"] = rendered_prompt
         
+        # Get timeout from user settings or fallback to system default
+        user_timeout = None
+        if user_settings:
+            llm_settings = user_settings.get('llm_settings', {})
+            user_timeout = llm_settings.get('timeout_total')
+        timeout_value = user_timeout if user_timeout is not None else settings.llm_timeout_total
+        gen_params["timeout"] = timeout_value
+        
         # Log complete prompt being sent to LLM
         logger.debug("=" * 80)
         logger.debug("COMPLETE PROMPT BEING SENT TO LLM (TEXT COMPLETION)")
@@ -371,7 +399,15 @@ class UnifiedLLMService:
     
     async def _direct_http_fallback(self, client, messages, max_tokens, temperature, stream):
         """Direct HTTP fallback for LM Studio when LiteLLM fails"""
-        import httpx
+        # Configure timeout from settings
+        timeout = httpx.Timeout(
+            settings.llm_timeout_total,
+            connect=settings.llm_timeout_connect,
+            read=settings.llm_timeout_read,
+            write=settings.llm_timeout_write
+        )
+        max_retries = settings.llm_max_retries
+        base_delay = settings.llm_retry_base_delay
         
         payload = {
             "model": client.model_name,  # Use the actual model name, not the prefixed one
@@ -388,57 +424,158 @@ class UnifiedLLMService:
         if client.api_key:
             headers["Authorization"] = f"Bearer {client.api_key}"
         
-        try:
-            # Determine the correct endpoint URL
-            if client.api_url.endswith("/v1"):
-                endpoint_url = f"{client.api_url}/chat/completions"
-            else:
-                endpoint_url = f"{client.api_url}/v1/chat/completions"
-            
-            async with httpx.AsyncClient() as http_client:
-                response = await http_client.post(
-                    endpoint_url,
-                    json=payload,
-                    headers=headers,
-                    timeout=60.0
-                )
-                response.raise_for_status()
+        # Determine the correct endpoint URL
+        if client.api_url.endswith("/v1"):
+            endpoint_url = f"{client.api_url}/chat/completions"
+        else:
+            endpoint_url = f"{client.api_url}/v1/chat/completions"
+        
+        if stream:
+            # For streaming, retry logic must be inside the generator
+            async def stream_generator():
+                last_error = None
+                for attempt in range(max_retries):
+                    try:
+                        async with httpx.AsyncClient(timeout=timeout) as http_client:
+                            async with http_client.stream(
+                                "POST",
+                                endpoint_url,
+                                json=payload,
+                                headers=headers
+                            ) as response:
+                                response.raise_for_status()
+                                async for line in response.aiter_lines():
+                                    if line.startswith("data: "):
+                                        data = line[6:]  # Remove "data: " prefix
+                                        if data.strip() == "[DONE]":
+                                            break
+                                        try:
+                                            chunk = json.loads(data)
+                                            if "choices" in chunk and len(chunk["choices"]) > 0:
+                                                delta = chunk["choices"][0].get("delta", {})
+                                                content = delta.get("content", "")
+                                                if content:
+                                                    yield content
+                                        except json.JSONDecodeError:
+                                            continue
+                                return  # Success, exit retry loop
+                    except httpx.HTTPStatusError as e:
+                        # Check if it's a 504 Gateway Timeout
+                        if e.response.status_code == 504:
+                            last_error = e
+                            if attempt < max_retries - 1:
+                                delay = base_delay * (2 ** attempt)  # Exponential backoff
+                                logger.warning(
+                                    f"504 Gateway Timeout on attempt {attempt + 1}/{max_retries} for {endpoint_url}. "
+                                    f"Retrying in {delay:.1f}s..."
+                                )
+                                await asyncio.sleep(delay)
+                                continue
+                            else:
+                                logger.error(f"504 Gateway Timeout after {max_retries} attempts: {e}")
+                                raise ValueError(f"LLM generation failed: Gateway timeout after {max_retries} attempts. The API may be overloaded or slow.")
+                        else:
+                            # For other HTTP errors, don't retry
+                            logger.error(f"HTTP error {e.response.status_code} from {endpoint_url}: {e}")
+                            raise ValueError(f"LLM generation failed: HTTP {e.response.status_code}")
+                    except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as e:
+                        last_error = e
+                        if attempt < max_retries - 1:
+                            delay = base_delay * (2 ** attempt)  # Exponential backoff
+                            logger.warning(
+                                f"Network/timeout error on attempt {attempt + 1}/{max_retries} for {endpoint_url}. "
+                                f"Retrying in {delay:.1f}s... Error: {str(e)}"
+                            )
+                            await asyncio.sleep(delay)
+                            continue
+                        else:
+                            logger.error(f"Network/timeout error after {max_retries} attempts: {e}")
+                            raise ValueError(f"LLM generation failed: {str(e)}")
+                    except Exception as e:
+                        # For other exceptions, don't retry
+                        logger.error(f"Direct HTTP fallback failed: {e}", exc_info=True)
+                        raise ValueError(f"LLM generation failed: {str(e)}")
                 
-                if stream:
-                    # Handle streaming response
-                    async def stream_generator():
-                        async for line in response.aiter_lines():
-                            if line.startswith("data: "):
-                                data = line[6:]  # Remove "data: " prefix
-                                if data.strip() == "[DONE]":
-                                    break
-                                try:
-                                    import json
-                                    chunk = json.loads(data)
-                                    if "choices" in chunk and len(chunk["choices"]) > 0:
-                                        delta = chunk["choices"][0].get("delta", {})
-                                        content = delta.get("content", "")
-                                        if content:
-                                            yield content
-                                except json.JSONDecodeError:
-                                    continue
-                    return stream_generator()
+                # If we exhausted all retries
+                if last_error:
+                    raise ValueError(f"LLM generation failed after {max_retries} attempts: {str(last_error)}")
                 else:
-                    # Handle non-streaming response
-                    data = response.json()
-                    if "choices" in data and len(data["choices"]) > 0:
-                        return data["choices"][0]["message"]["content"]
+                    raise ValueError("LLM generation failed: Unknown error")
+            return stream_generator()
+        else:
+            # Handle non-streaming response with retry logic
+            last_error = None
+            for attempt in range(max_retries):
+                try:
+                    async with httpx.AsyncClient(timeout=timeout) as http_client:
+                        response = await http_client.post(
+                            endpoint_url,
+                            json=payload,
+                            headers=headers
+                        )
+                        response.raise_for_status()
+                        data = response.json()
+                        if "choices" in data and len(data["choices"]) > 0:
+                            return data["choices"][0]["message"]["content"]
+                        else:
+                            raise ValueError("Invalid response format from LM Studio")
+                            
+                except httpx.HTTPStatusError as e:
+                    # Check if it's a 504 Gateway Timeout
+                    if e.response.status_code == 504:
+                        last_error = e
+                        if attempt < max_retries - 1:
+                            delay = base_delay * (2 ** attempt)  # Exponential backoff
+                            logger.warning(
+                                f"504 Gateway Timeout on attempt {attempt + 1}/{max_retries} for {endpoint_url}. "
+                                f"Retrying in {delay:.1f}s..."
+                            )
+                            await asyncio.sleep(delay)
+                            continue
+                        else:
+                            logger.error(f"504 Gateway Timeout after {max_retries} attempts: {e}")
+                            raise ValueError(f"LLM generation failed: Gateway timeout after {max_retries} attempts. The API may be overloaded or slow.")
                     else:
-                        raise ValueError("Invalid response format from LM Studio")
+                        # For other HTTP errors, don't retry
+                        logger.error(f"HTTP error {e.response.status_code} from {endpoint_url}: {e}")
+                        raise ValueError(f"LLM generation failed: HTTP {e.response.status_code}")
                         
-        except Exception as e:
-            logger.error(f"Direct HTTP fallback failed: {e}", exc_info=True)
-            raise ValueError(f"LLM generation failed: {str(e)}")
+                except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as e:
+                    last_error = e
+                    if attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)  # Exponential backoff
+                        logger.warning(
+                            f"Network/timeout error on attempt {attempt + 1}/{max_retries} for {endpoint_url}. "
+                            f"Retrying in {delay:.1f}s... Error: {str(e)}"
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        logger.error(f"Network/timeout error after {max_retries} attempts: {e}")
+                        raise ValueError(f"LLM generation failed: {str(e)}")
+                        
+                except Exception as e:
+                    # For other exceptions, don't retry
+                    logger.error(f"Direct HTTP fallback failed: {e}", exc_info=True)
+                    raise ValueError(f"LLM generation failed: {str(e)}")
+            
+            # If we exhausted all retries
+            if last_error:
+                raise ValueError(f"LLM generation failed after {max_retries} attempts: {str(last_error)}")
+            else:
+                raise ValueError("LLM generation failed: Unknown error")
     
     async def _direct_http_text_completion_fallback(self, client, prompt, max_tokens, temperature, stream):
         """Direct HTTP call to /v1/completions endpoint for text completion"""
-        import httpx
-        import json
+        # Configure timeout from settings
+        timeout = httpx.Timeout(
+            settings.llm_timeout_total,
+            connect=settings.llm_timeout_connect,
+            read=settings.llm_timeout_read,
+            write=settings.llm_timeout_write
+        )
+        max_retries = settings.llm_max_retries
+        base_delay = settings.llm_retry_base_delay
         
         logger.info(f"Direct HTTP text completion: stream={stream}, model={client.model_name}")
         
@@ -474,67 +611,155 @@ class UnifiedLLMService:
         if client.api_key:
             headers["Authorization"] = f"Bearer {client.api_key}"
         
-        try:
-            # Determine the correct endpoint URL for text completion
-            if client.api_url.endswith("/v1"):
-                endpoint_url = f"{client.api_url}/completions"
-            else:
-                endpoint_url = f"{client.api_url}/v1/completions"
-            
-            logger.info(f"Calling text completion endpoint: {endpoint_url}")
-            logger.debug(f"Payload: model={client.model_name}, prompt_length={len(prompt)}, stream={stream}, stop={payload.get('stop')}")
-            
-            if stream:
-                # Handle streaming response - generator that keeps client alive
-                async def stream_generator():
-                    # Create client that lives for the duration of streaming
-                    async with httpx.AsyncClient(timeout=60.0) as http_client:
-                        async with http_client.stream(
-                            "POST",
+        # Determine the correct endpoint URL for text completion
+        if client.api_url.endswith("/v1"):
+            endpoint_url = f"{client.api_url}/completions"
+        else:
+            endpoint_url = f"{client.api_url}/v1/completions"
+        
+        logger.info(f"Calling text completion endpoint: {endpoint_url}")
+        logger.debug(f"Payload: model={client.model_name}, prompt_length={len(prompt)}, stream={stream}, stop={payload.get('stop')}")
+        
+        if stream:
+            # For streaming, retry logic must be inside the generator
+            async def stream_generator():
+                last_error = None
+                for attempt in range(max_retries):
+                    try:
+                        async with httpx.AsyncClient(timeout=timeout) as http_client:
+                            async with http_client.stream(
+                                "POST",
+                                endpoint_url,
+                                json=payload,
+                                headers=headers
+                            ) as response:
+                                response.raise_for_status()
+                                async for line in response.aiter_lines():
+                                    if line.startswith("data: "):
+                                        data = line[6:]  # Remove "data: " prefix
+                                        if data.strip() == "[DONE]":
+                                            break
+                                        try:
+                                            chunk = json.loads(data)
+                                            if "choices" in chunk and len(chunk["choices"]) > 0:
+                                                # Text completion uses 'text' field, not 'delta'
+                                                text = chunk["choices"][0].get("text", "")
+                                                if text:
+                                                    # Strip thinking tags from each chunk
+                                                    # Preserve whitespace for streaming chunks to maintain word boundaries
+                                                    cleaned_text = ThinkingTagParser.strip_thinking_tags(text, preserve_whitespace=True)
+                                                    if cleaned_text:
+                                                        yield cleaned_text
+                                        except json.JSONDecodeError:
+                                            continue
+                                return  # Success, exit retry loop
+                    except httpx.HTTPStatusError as e:
+                        # Check if it's a 504 Gateway Timeout
+                        if e.response.status_code == 504:
+                            last_error = e
+                            if attempt < max_retries - 1:
+                                delay = base_delay * (2 ** attempt)  # Exponential backoff
+                                logger.warning(
+                                    f"504 Gateway Timeout on attempt {attempt + 1}/{max_retries} for {endpoint_url}. "
+                                    f"Retrying in {delay:.1f}s..."
+                                )
+                                await asyncio.sleep(delay)
+                                continue
+                            else:
+                                logger.error(f"504 Gateway Timeout after {max_retries} attempts: {e}")
+                                raise ValueError(f"Text completion failed: Gateway timeout after {max_retries} attempts. The API may be overloaded or slow.")
+                        else:
+                            # For other HTTP errors, don't retry
+                            logger.error(f"HTTP error {e.response.status_code} from {endpoint_url}: {e}")
+                            raise ValueError(f"Text completion failed: HTTP {e.response.status_code}")
+                    except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as e:
+                        last_error = e
+                        if attempt < max_retries - 1:
+                            delay = base_delay * (2 ** attempt)  # Exponential backoff
+                            logger.warning(
+                                f"Network/timeout error on attempt {attempt + 1}/{max_retries} for {endpoint_url}. "
+                                f"Retrying in {delay:.1f}s... Error: {str(e)}"
+                            )
+                            await asyncio.sleep(delay)
+                            continue
+                        else:
+                            logger.error(f"Network/timeout error after {max_retries} attempts: {e}")
+                            raise ValueError(f"Text completion failed: {str(e)}")
+                    except Exception as e:
+                        # For other exceptions, don't retry
+                        logger.error(f"Direct HTTP text completion fallback failed: {e}", exc_info=True)
+                        raise ValueError(f"Text completion failed: {str(e)}")
+                
+                # If we exhausted all retries
+                if last_error:
+                    raise ValueError(f"Text completion failed after {max_retries} attempts: {str(last_error)}")
+                else:
+                    raise ValueError("Text completion failed: Unknown error")
+            return stream_generator()
+        else:
+            # Handle non-streaming response with retry logic
+            last_error = None
+            for attempt in range(max_retries):
+                try:
+                    async with httpx.AsyncClient(timeout=timeout) as http_client:
+                        response = await http_client.post(
                             endpoint_url,
                             json=payload,
                             headers=headers
-                        ) as response:
-                            response.raise_for_status()
-                            async for line in response.aiter_lines():
-                                if line.startswith("data: "):
-                                    data = line[6:]  # Remove "data: " prefix
-                                    if data.strip() == "[DONE]":
-                                        break
-                                    try:
-                                        chunk = json.loads(data)
-                                        if "choices" in chunk and len(chunk["choices"]) > 0:
-                                            # Text completion uses 'text' field, not 'delta'
-                                            text = chunk["choices"][0].get("text", "")
-                                            if text:
-                                                # Strip thinking tags from each chunk
-                                                # Preserve whitespace for streaming chunks to maintain word boundaries
-                                                cleaned_text = ThinkingTagParser.strip_thinking_tags(text, preserve_whitespace=True)
-                                                if cleaned_text:
-                                                    yield cleaned_text
-                                    except json.JSONDecodeError:
-                                        continue
-                return stream_generator()
-            else:
-                # Handle non-streaming response
-                async with httpx.AsyncClient(timeout=60.0) as http_client:
-                    response = await http_client.post(
-                        endpoint_url,
-                        json=payload,
-                        headers=headers
-                    )
-                    response.raise_for_status()
-                    data = response.json()
-                    if "choices" in data and len(data["choices"]) > 0:
-                        content = data["choices"][0]["text"]
-                        # Strip thinking tags from response
-                        return ThinkingTagParser.strip_thinking_tags(content)
+                        )
+                        response.raise_for_status()
+                        data = response.json()
+                        if "choices" in data and len(data["choices"]) > 0:
+                            content = data["choices"][0]["text"]
+                            # Strip thinking tags from response
+                            return ThinkingTagParser.strip_thinking_tags(content)
+                        else:
+                            raise ValueError("Invalid response format from text completion endpoint")
+                            
+                except httpx.HTTPStatusError as e:
+                    # Check if it's a 504 Gateway Timeout
+                    if e.response.status_code == 504:
+                        last_error = e
+                        if attempt < max_retries - 1:
+                            delay = base_delay * (2 ** attempt)  # Exponential backoff
+                            logger.warning(
+                                f"504 Gateway Timeout on attempt {attempt + 1}/{max_retries} for {endpoint_url}. "
+                                f"Retrying in {delay:.1f}s..."
+                            )
+                            await asyncio.sleep(delay)
+                            continue
+                        else:
+                            logger.error(f"504 Gateway Timeout after {max_retries} attempts: {e}")
+                            raise ValueError(f"Text completion failed: Gateway timeout after {max_retries} attempts. The API may be overloaded or slow.")
                     else:
-                        raise ValueError("Invalid response format from text completion endpoint")
+                        # For other HTTP errors, don't retry
+                        logger.error(f"HTTP error {e.response.status_code} from {endpoint_url}: {e}")
+                        raise ValueError(f"Text completion failed: HTTP {e.response.status_code}")
                         
-        except Exception as e:
-            logger.error(f"Direct HTTP text completion fallback failed: {e}", exc_info=True)
-            raise ValueError(f"Text completion failed: {str(e)}")
+                except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as e:
+                    last_error = e
+                    if attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)  # Exponential backoff
+                        logger.warning(
+                            f"Network/timeout error on attempt {attempt + 1}/{max_retries} for {endpoint_url}. "
+                            f"Retrying in {delay:.1f}s... Error: {str(e)}"
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        logger.error(f"Network/timeout error after {max_retries} attempts: {e}")
+                        raise ValueError(f"Text completion failed: {str(e)}")
+                        
+                except Exception as e:
+                    # For other exceptions, don't retry
+                    logger.error(f"Direct HTTP text completion fallback failed: {e}", exc_info=True)
+                    raise ValueError(f"Text completion failed: {str(e)}")
+            
+            # If we exhausted all retries
+            if last_error:
+                raise ValueError(f"Text completion failed after {max_retries} attempts: {str(last_error)}")
+            else:
+                raise ValueError("Text completion failed: Unknown error")
     
     async def _generate_stream(
         self,
@@ -590,6 +815,14 @@ class UnifiedLLMService:
         gen_params = client.get_streaming_params(max_tokens, temperature)
         gen_params["messages"] = messages
         
+        # Get timeout from user settings or fallback to system default
+        user_timeout = None
+        if user_settings:
+            llm_settings = user_settings.get('llm_settings', {})
+            user_timeout = llm_settings.get('timeout_total')
+        timeout_value = user_timeout if user_timeout is not None else settings.llm_timeout_total
+        gen_params["timeout"] = timeout_value
+        
         # Log complete prompt being sent to LLM
         system_prompt_log = next((msg["content"] for msg in messages if msg.get("role") == "system"), "")
         user_prompt_log = next((msg["content"] for msg in messages if msg.get("role") == "user"), "")
@@ -601,6 +834,7 @@ class UnifiedLLMService:
         logger.debug(f"USER PROMPT:\n{user_prompt_log}")
         logger.info("-" * 80)
         logger.info(f"GENERATION PARAMETERS: max_tokens={gen_params.get('max_tokens')}, temperature={gen_params.get('temperature')}, model={client.model_string}")
+        logger.info(f"LLM timeout configured: {settings.llm_timeout_total}s (total), {settings.llm_timeout_read}s (read)")
         logger.info("=" * 80)
         
         # Write prompt to file for streaming generation (only if prompt_debug is enabled)
@@ -691,6 +925,14 @@ class UnifiedLLMService:
         # Get streaming parameters
         gen_params = client.get_text_completion_streaming_params(max_tokens, temperature)
         gen_params["prompt"] = rendered_prompt
+        
+        # Get timeout from user settings or fallback to system default
+        user_timeout = None
+        if user_settings:
+            llm_settings = user_settings.get('llm_settings', {})
+            user_timeout = llm_settings.get('timeout_total')
+        timeout_value = user_timeout if user_timeout is not None else settings.llm_timeout_total
+        gen_params["timeout"] = timeout_value
         
         # Log complete prompt being sent to LLM
         logger.debug("=" * 80)
@@ -983,6 +1225,14 @@ class UnifiedLLMService:
         gen_params = client.get_generation_params(max_tokens, None)
         gen_params["messages"] = messages
         
+        # Get timeout from user settings or fallback to system default
+        user_timeout = None
+        if user_settings:
+            llm_settings = user_settings.get('llm_settings', {})
+            user_timeout = llm_settings.get('timeout_total')
+        timeout_value = user_timeout if user_timeout is not None else settings.llm_timeout_total
+        gen_params["timeout"] = timeout_value
+        
         # Call LLM and get full response object
         response = await acompletion(**gen_params)
         
@@ -1066,6 +1316,14 @@ class UnifiedLLMService:
             # Get generation parameters
             gen_params = client.get_generation_params(max_tokens, None)
             gen_params["messages"] = messages
+            
+            # Get timeout from user settings or fallback to system default
+            user_timeout = None
+            if user_settings:
+                llm_settings = user_settings.get('llm_settings', {})
+                user_timeout = llm_settings.get('timeout_total')
+            timeout_value = user_timeout if user_timeout is not None else settings.llm_timeout_total
+            gen_params["timeout"] = timeout_value
             
             # Call LLM and get full response object
             response = await acompletion(**gen_params)

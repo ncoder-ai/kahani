@@ -21,6 +21,7 @@ class LLMSettingsUpdate(BaseModel):
     top_k: int = Field(ge=1, le=100, default=50)
     repetition_penalty: float = Field(ge=1.0, le=2.0, default=1.1)
     max_tokens: int = Field(ge=100, le=4096, default=2048)
+    timeout_total: Optional[float] = Field(ge=30.0, le=600.0, default=None)
     api_url: Optional[str] = None  # No default - user must provide
     api_key: Optional[str] = None
     api_type: Optional[str] = Field(default="openai_compatible")
@@ -188,6 +189,8 @@ async def update_user_settings(
         user_settings.llm_top_k = llm.top_k
         user_settings.llm_repetition_penalty = llm.repetition_penalty
         user_settings.llm_max_tokens = llm.max_tokens
+        if llm.timeout_total is not None:
+            user_settings.llm_timeout_total = llm.timeout_total
         
         # Update API configuration fields (only if permitted)
         # Handle empty strings as valid values (to clear fields)
