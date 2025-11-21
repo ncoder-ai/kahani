@@ -304,6 +304,7 @@ async def _try_combined_extraction(
 ) -> bool:
     """
     Try to extract character moments, NPCs, and plot events in a single combined LLM call.
+    Always attempts combined extraction, using extraction model if enabled, otherwise main LLM.
     
     Args:
         scenes_data: List of (scene_id, sequence_number, chapter_id, scene_content) tuples
@@ -318,32 +319,13 @@ async def _try_combined_extraction(
     """
     try:
         from .llm.extraction_service import ExtractionLLMService
+        from .llm.service import UnifiedLLMService
         from .npc_tracking_service import NPCTrackingService
         from .character_memory_service import get_character_memory_service
         from .plot_thread_service import get_plot_thread_service
         from ..models import StoryCharacter, Character, PlotEvent
-        
-        # Check if extraction model is enabled
-        extraction_settings = user_settings.get('extraction_model_settings', {})
-        if not extraction_settings.get('enabled', False):
-            logger.info("[EXTRACTION] Extraction model not enabled, skipping combined extraction")
-            return False
-        
-        # Get extraction service
-        ext_defaults = settings._yaml_config.get('extraction_model', {})
-        url = extraction_settings.get('url', ext_defaults.get('url'))
-        model = extraction_settings.get('model_name', ext_defaults.get('model_name'))
-        api_key = extraction_settings.get('api_key', ext_defaults.get('api_key', ''))
-        temperature = extraction_settings.get('temperature', ext_defaults.get('temperature'))
-        max_tokens = extraction_settings.get('max_tokens', ext_defaults.get('max_tokens'))
-        
-        extraction_service = ExtractionLLMService(
-            url=url,
-            model=model,
-            api_key=api_key,
-            temperature=temperature,
-            max_tokens=max_tokens
-        )
+        import json
+        import re
         
         # Get character names for character moments
         story_characters = db.query(StoryCharacter).filter(
@@ -374,15 +356,289 @@ async def _try_combined_extraction(
             thread_list = [f"- {t['description']}" for t in existing_threads[:5]]
             thread_context = f"\n{chr(10).join(thread_list)}"
         
-        # Call combined extraction
         num_scenes = len(scenes_data)
-        combined_results = await extraction_service.extract_all_batch(
-            batch_content=batch_content,
-            character_names=character_names,
-            explicit_character_names=explicit_character_names,
-            thread_context=thread_context,
-            num_scenes=num_scenes
-        )
+        
+        # Build the combined extraction prompt (same for both extraction model and main LLM)
+        explicit_names_str = ", ".join(explicit_character_names) if explicit_character_names else "None"
+        character_names_str = ", ".join(character_names) if character_names else "None"
+        thread_section = f"\n\nActive plot threads to consider:{thread_context}" if thread_context else ""
+        max_moments_per_char = 5
+        max_npcs_total = 10
+        max_events_total = 8
+        
+        prompt = f"""Analyze the following scenes and extract FOUR types of information in a single response:
+
+1. CHARACTER MOMENTS (for explicit characters only: {character_names_str})
+2. NPCs and ENTITIES (NOT in the explicit character list: {explicit_names_str})
+3. PLOT EVENTS (significant story events){thread_section}
+4. ENTITY STATE CHANGES (characters, locations, objects)
+
+Scenes:
+{batch_content}
+
+IMPORTANT: Extract only the MOST IMPORTANT/SIGNIFICANT items. Quality over quantity.
+
+For CHARACTER MOMENTS:
+- Focus on explicit characters: {character_names_str}
+- Extract only significant moments (confidence >= 70)
+- Maximum 5 moments per character per scene
+- Moment types: "action", "dialogue", "development", "relationship"
+
+For NPCs:
+- Extract named entities NOT in explicit character list: {character_names_str}
+- Classify each as "CHARACTER" (sentient beings) or "ENTITY" (locations, objects, organizations)
+- Focus on entities with dialogue, actions, or relationships
+- Maximum {max_npcs_total} total NPCs across all scenes
+- Prioritize: has_dialogue OR has_actions OR mention_count >= 2
+
+For PLOT EVENTS:
+- Extract significant plot events only
+- Importance >= 60 AND confidence >= 70
+- Maximum {max_events_total} total events across all scenes
+- Event types: "introduction", "complication", "revelation", "resolution"
+
+For ENTITY STATE CHANGES:
+- Extract state changes for characters, locations, and objects
+- Focus on significant changes (location, emotional state, possessions, condition)
+- Maximum 15 total state changes across all scenes (prioritize most important)
+- Include only entities that have meaningful state changes
+
+Return ONLY valid JSON in this exact format:
+{{
+  "character_moments": [
+    {{
+      "character_name": "Character Name",
+      "moment_type": "action",
+      "content": "Description of the moment",
+      "confidence": 85
+    }}
+  ],
+  "npcs": [
+    {{
+      "name": "NPC name",
+      "entity_type": "CHARACTER",
+      "mention_count": 3,
+      "has_dialogue": true,
+      "has_actions": true,
+      "has_relationships": true,
+      "context_snippets": ["snippet 1", "snippet 2"],
+      "properties": {{
+        "role": "role description",
+        "description": "brief description"
+      }}
+    }}
+  ],
+  "plot_events": [
+    {{
+      "event_type": "complication",
+      "description": "Description of the event",
+      "importance": 85,
+      "confidence": 95,
+      "involved_characters": ["Character1", "Character2"]
+    }}
+  ],
+  "entity_states": {{
+    "characters": [
+      {{
+        "name": "character name",
+        "location": "current location or null",
+        "emotional_state": "brief emotional state or null",
+        "physical_condition": "condition or null",
+        "possessions_gained": ["item1"],
+        "possessions_lost": [],
+        "knowledge_gained": ["fact1"],
+        "relationship_changes": {{"other_char": "relationship description"}}
+      }}
+    ],
+    "locations": [
+      {{
+        "name": "location name",
+        "condition": "condition description or null",
+        "atmosphere": "atmosphere description or null",
+        "occupants": ["character1"]
+      }}
+    ],
+    "objects": [
+      {{
+        "name": "object name",
+        "location": "where it is",
+        "owner": "who has it or null",
+        "condition": "its condition or null",
+        "significance": "why it matters or null"
+      }}
+    ]
+  }}
+}}
+
+If no items found for a category, return empty array [] or empty object {{}}. Return ONLY the JSON, no other text or markdown."""
+        
+        system_prompt = """You are an expert story analysis assistant. Analyze scenes and extract character moments, NPCs, plot events, and entity state changes. 
+Return only valid JSON with all four sections: character_moments, npcs, plot_events, and entity_states. Focus on the most important items only."""
+        
+        # Helper function to parse combined JSON response (same logic as ExtractionLLMService)
+        def _parse_combined_json_response(content: str) -> Dict[str, Any]:
+            result = {
+                'character_moments': [],
+                'npcs': [],
+                'plot_events': [],
+                'entity_states': {
+                    'characters': [],
+                    'locations': [],
+                    'objects': []
+                }
+            }
+            
+            try:
+                # Clean response (remove markdown code blocks if present)
+                response_clean = content.strip()
+                if response_clean.startswith("```json"):
+                    response_clean = response_clean[7:]
+                elif response_clean.startswith("```"):
+                    response_clean = response_clean[3:]
+                if response_clean.endswith("```"):
+                    response_clean = response_clean[:-3]
+                response_clean = response_clean.strip()
+                
+                # Try to parse full JSON
+                try:
+                    data = json.loads(response_clean)
+                    
+                    # Extract each section independently
+                    if 'character_moments' in data and isinstance(data['character_moments'], list):
+                        result['character_moments'] = data['character_moments']
+                    elif 'moments' in data and isinstance(data['moments'], list):
+                        result['character_moments'] = data['moments']
+                    
+                    if 'npcs' in data:
+                        if isinstance(data['npcs'], list):
+                            result['npcs'] = data['npcs']
+                        elif isinstance(data['npcs'], dict) and 'npcs' in data['npcs']:
+                            result['npcs'] = data['npcs']['npcs'] if isinstance(data['npcs']['npcs'], list) else []
+                    
+                    if 'plot_events' in data and isinstance(data['plot_events'], list):
+                        result['plot_events'] = data['plot_events']
+                    elif 'events' in data and isinstance(data['events'], list):
+                        result['plot_events'] = data['events']
+                    
+                    # Parse entity_states
+                    if 'entity_states' in data and isinstance(data['entity_states'], dict):
+                        entity_states = data['entity_states']
+                        if 'characters' in entity_states and isinstance(entity_states['characters'], list):
+                            result['entity_states']['characters'] = entity_states['characters']
+                        if 'locations' in entity_states and isinstance(entity_states['locations'], list):
+                            result['entity_states']['locations'] = entity_states['locations']
+                        if 'objects' in entity_states and isinstance(entity_states['objects'], list):
+                            result['entity_states']['objects'] = entity_states['objects']
+                    
+                    return result
+                    
+                except json.JSONDecodeError:
+                    # Try to extract partial JSON using regex
+                    moments_match = re.search(r'"character_moments"\s*:\s*\[(.*?)\]', response_clean, re.DOTALL)
+                    if not moments_match:
+                        moments_match = re.search(r'"moments"\s*:\s*\[(.*?)\]', response_clean, re.DOTALL)
+                    if moments_match:
+                        try:
+                            moments_json = json.loads(f'[{moments_match.group(1)}]')
+                            result['character_moments'] = moments_json if isinstance(moments_json, list) else []
+                        except:
+                            pass
+                    
+                    npcs_match = re.search(r'"npcs"\s*:\s*\[(.*?)\]', response_clean, re.DOTALL)
+                    if npcs_match:
+                        try:
+                            npcs_json = json.loads(f'[{npcs_match.group(1)}]')
+                            result['npcs'] = npcs_json if isinstance(npcs_json, list) else []
+                        except:
+                            pass
+                    
+                    events_match = re.search(r'"plot_events"\s*:\s*\[(.*?)\]', response_clean, re.DOTALL)
+                    if not events_match:
+                        events_match = re.search(r'"events"\s*:\s*\[(.*?)\]', response_clean, re.DOTALL)
+                    if events_match:
+                        try:
+                            events_json = json.loads(f'[{events_match.group(1)}]')
+                            result['plot_events'] = events_json if isinstance(events_json, list) else []
+                        except:
+                            pass
+                    
+                    # Try to parse entity_states with regex
+                    entity_states_match = re.search(r'"entity_states"\s*:\s*\{(.*?)\}', response_clean, re.DOTALL)
+                    if entity_states_match:
+                        try:
+                            entity_states_json = json.loads(f'{{{entity_states_match.group(1)}}}')
+                            if isinstance(entity_states_json, dict):
+                                if 'characters' in entity_states_json and isinstance(entity_states_json['characters'], list):
+                                    result['entity_states']['characters'] = entity_states_json['characters']
+                                if 'locations' in entity_states_json and isinstance(entity_states_json['locations'], list):
+                                    result['entity_states']['locations'] = entity_states_json['locations']
+                                if 'objects' in entity_states_json and isinstance(entity_states_json['objects'], list):
+                                    result['entity_states']['objects'] = entity_states_json['objects']
+                        except:
+                            pass
+                    
+                    if any(result.values()) or any(result['entity_states'].values()):
+                        return result
+                    else:
+                        raise
+                        
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse combined JSON response: {e}\nContent preview: {content[:500]}")
+                return result
+            except Exception as e:
+                logger.error(f"Unexpected error parsing combined response: {e}\nContent preview: {content[:500]}")
+                return result
+        
+        # Determine which LLM to use: extraction model if enabled, otherwise main LLM
+        extraction_settings = user_settings.get('extraction_model_settings', {})
+        use_extraction_model = extraction_settings.get('enabled', False)
+        
+        if use_extraction_model:
+            # Use extraction model
+            logger.info("[EXTRACTION] Using extraction model for combined extraction")
+            ext_defaults = settings._yaml_config.get('extraction_model', {})
+            url = extraction_settings.get('url', ext_defaults.get('url'))
+            model = extraction_settings.get('model_name', ext_defaults.get('model_name'))
+            api_key = extraction_settings.get('api_key', ext_defaults.get('api_key', ''))
+            temperature = extraction_settings.get('temperature', ext_defaults.get('temperature'))
+            max_tokens = extraction_settings.get('max_tokens', ext_defaults.get('max_tokens'))
+            
+            extraction_service = ExtractionLLMService(
+                url=url,
+                model=model,
+                api_key=api_key,
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+            
+            # Call combined extraction using extraction model
+            combined_results = await extraction_service.extract_all_batch(
+                batch_content=batch_content,
+                character_names=character_names,
+                explicit_character_names=explicit_character_names,
+                thread_context=thread_context,
+                num_scenes=num_scenes
+            )
+        else:
+            # Use main LLM
+            logger.info("[EXTRACTION] Using main LLM for combined extraction")
+            llm_service = UnifiedLLMService()
+            
+            # Calculate max_tokens based on number of scenes (similar to extraction service)
+            base_max_tokens = 2000
+            max_tokens = base_max_tokens + (num_scenes * 500)
+            
+            # Call main LLM with combined extraction prompt
+            response = await llm_service.generate(
+                prompt=prompt,
+                user_id=user_id,
+                user_settings=user_settings,
+                system_prompt=system_prompt,
+                max_tokens=max_tokens
+            )
+            
+            # Parse the response
+            combined_results = _parse_combined_json_response(response)
         
         # Validate results - need at least one non-empty section
         entity_states = combined_results.get('entity_states', {})

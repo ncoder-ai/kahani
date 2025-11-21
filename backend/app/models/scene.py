@@ -40,7 +40,7 @@ class Scene(Base):
     chapter = relationship("Chapter", back_populates="scenes")
     parent_scene = relationship("Scene", remote_side=[id], backref="child_scenes")
     variants = relationship("SceneVariant", back_populates="scene", cascade="all, delete-orphan")
-    story_flows = relationship("StoryFlow", back_populates="scene")
+    story_flows = relationship("StoryFlow", back_populates="scene", cascade="all, delete-orphan")
     
     # Legacy relationship (will be deprecated)
     choices = relationship("SceneChoice", back_populates="scene", foreign_keys="SceneChoice.scene_id", cascade="all, delete-orphan")

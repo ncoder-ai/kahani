@@ -2940,7 +2940,7 @@ class UnifiedLLMService:
         ).first()
         
         if flow_entry:
-            flow_entry.variant_id = variant_id
+            flow_entry.scene_variant_id = variant_id
             db.commit()
             logger.info(f"Switched to variant {variant_id} for scene {scene_id} in story {story_id}")
             return True
@@ -3070,7 +3070,7 @@ class UnifiedLLMService:
             )
             db.add(flow_entry)
 
-    async def delete_scenes_from_sequence(self, db: Session, story_id: int, sequence_number: int) -> bool:
+    async def delete_scenes_from_sequence(self, db: Session, story_id: int, sequence_number: int, skip_restoration: bool = False) -> bool:
         """Delete all scenes from a given sequence number onwards"""
         try:
             from ...models import StoryFlow, Scene
@@ -3100,34 +3100,71 @@ class UnifiedLLMService:
                     # Continue with deletion even if cleanup fails
             logger.info(f"[DELETE] Completed cleanup for all {len(scenes_to_delete)} scenes")
             
-            # Recalculate NPCTracking after scene deletion
-            try:
-                from ...models import Story, UserSettings
-                from ...services.npc_tracking_service import NPCTrackingService
-                
-                # Get story to find owner_id
-                story = db.query(Story).filter(Story.id == story_id).first()
-                if story:
-                    # Get user settings
-                    user_settings_obj = db.query(UserSettings).filter(
-                        UserSettings.user_id == story.owner_id
-                    ).first()
+            # Restore NPCTracking from snapshot after scene deletion (skip if doing in background)
+            if not skip_restoration:
+                try:
+                    from ...models import Story, NPCTracking, NPCTrackingSnapshot
                     
-                    if user_settings_obj:
-                        user_settings = user_settings_obj.to_dict()
-                        npc_service = NPCTrackingService(
-                            user_id=story.owner_id,
-                            user_settings=user_settings
-                        )
-                        await npc_service.recalculate_all_scores(db, story_id)
-                        logger.info(f"[DELETE] Recalculated NPC tracking scores for story {story_id}")
+                    # Find the last remaining scene's sequence number
+                    last_remaining_scene = db.query(Scene).filter(
+                        Scene.story_id == story_id,
+                        Scene.sequence_number < sequence_number
+                    ).order_by(Scene.sequence_number.desc()).first()
+                    
+                    if last_remaining_scene:
+                        # Get snapshot for the last remaining scene
+                        snapshot = db.query(NPCTrackingSnapshot).filter(
+                            NPCTrackingSnapshot.story_id == story_id,
+                            NPCTrackingSnapshot.scene_sequence == last_remaining_scene.sequence_number
+                        ).first()
+                        
+                        if snapshot:
+                            # Restore NPCTracking from snapshot
+                            snapshot_data = snapshot.snapshot_data or {}
+                            
+                            # Delete all existing NPC tracking records for this story
+                            db.query(NPCTracking).filter(
+                                NPCTracking.story_id == story_id
+                            ).delete()
+                            
+                            # Restore from snapshot
+                            for character_name, npc_data in snapshot_data.items():
+                                tracking = NPCTracking(
+                                    story_id=story_id,
+                                    character_name=character_name,
+                                    entity_type=npc_data.get("entity_type", "CHARACTER"),
+                                    total_mentions=npc_data.get("total_mentions", 0),
+                                    scene_count=npc_data.get("scene_count", 0),
+                                    importance_score=npc_data.get("importance_score", 0.0),
+                                    frequency_score=npc_data.get("frequency_score", 0.0),
+                                    significance_score=npc_data.get("significance_score", 0.0),
+                                    first_appearance_scene=npc_data.get("first_appearance_scene"),
+                                    last_appearance_scene=npc_data.get("last_appearance_scene"),
+                                    has_dialogue_count=npc_data.get("has_dialogue_count", 0),
+                                    has_actions_count=npc_data.get("has_actions_count", 0),
+                                    crossed_threshold=npc_data.get("crossed_threshold", False),
+                                    user_prompted=npc_data.get("user_prompted", False),
+                                    profile_extracted=npc_data.get("profile_extracted", False),
+                                    converted_to_character=npc_data.get("converted_to_character", False),
+                                    extracted_profile=npc_data.get("extracted_profile", {})
+                                )
+                                db.add(tracking)
+                            
+                            logger.info(f"[DELETE] Restored NPC tracking from snapshot for scene {last_remaining_scene.sequence_number} (story {story_id})")
+                        else:
+                            logger.warning(f"[DELETE] No snapshot found for last remaining scene {last_remaining_scene.sequence_number}, NPC tracking may be inconsistent")
                     else:
-                        logger.warning(f"[DELETE] No user settings found for story owner {story.owner_id}, skipping NPC tracking recalculation")
-                else:
-                    logger.warning(f"[DELETE] Story {story_id} not found, skipping NPC tracking recalculation")
-            except Exception as e:
-                # Don't fail scene deletion if NPC tracking recalculation fails
-                logger.warning(f"[DELETE] Failed to recalculate NPC tracking after scene deletion: {e}")
+                        # No remaining scenes - delete all NPC tracking
+                        db.query(NPCTracking).filter(
+                            NPCTracking.story_id == story_id
+                        ).delete()
+                        logger.info(f"[DELETE] No remaining scenes, deleted all NPC tracking for story {story_id}")
+                        
+                except Exception as e:
+                    # Don't fail scene deletion if NPC tracking restoration fails
+                    logger.warning(f"[DELETE] Failed to restore NPC tracking from snapshot after scene deletion: {e}")
+                    import traceback
+                    logger.warning(f"[DELETE] Traceback: {traceback.format_exc()}")
             
             # Get min and max deleted sequence numbers for batch invalidation (before deleting scenes)
             if scenes_to_delete:
@@ -3174,44 +3211,71 @@ class UnifiedLLMService:
                         # Recalculate summary from remaining batches
                         update_chapter_summary_from_batches(chapter_id, db)
             
-            # Invalidate and recalculate entity states using batch system
-            try:
-                from ...models import Story, UserSettings
-                from ...services.entity_state_service import EntityStateService
-                
-                # Get story to find owner_id
-                story = db.query(Story).filter(Story.id == story_id).first()
-                if story:
-                    # Get user settings
-                    user_settings_obj = db.query(UserSettings).filter(
-                        UserSettings.user_id == story.owner_id
-                    ).first()
+            # Invalidate and restore entity states using batch system (skip if doing in background)
+            if not skip_restoration:
+                try:
+                    from ...models import Story, UserSettings, Scene
+                    from ...services.entity_state_service import EntityStateService
                     
-                    if user_settings_obj:
-                        user_settings = user_settings_obj.to_dict()
-                        entity_service = EntityStateService(
-                            user_id=story.owner_id,
-                            user_settings=user_settings
-                        )
+                    # Get story to find owner_id
+                    story = db.query(Story).filter(Story.id == story_id).first()
+                    if story:
+                        # Get user settings
+                        user_settings_obj = db.query(UserSettings).filter(
+                            UserSettings.user_id == story.owner_id
+                        ).first()
                         
-                        # Invalidate batches that overlap with deleted scenes
-                        entity_service.invalidate_entity_batches_for_scenes(
-                            db, story_id, min_deleted_seq, max_deleted_seq
-                        )
-                        
-                        # Recalculate entity states from batches
-                        await entity_service.recalculate_entity_states_from_batches(
-                            db, story_id, story.owner_id, user_settings, max_deleted_seq
-                        )
-                        
-                        logger.info(f"[DELETE] Recalculated entity states using batch system for story {story_id}")
+                        if user_settings_obj:
+                            user_settings = user_settings_obj.to_dict()
+                            entity_service = EntityStateService(
+                                user_id=story.owner_id,
+                                user_settings=user_settings
+                            )
+                            
+                            # Invalidate batches that overlap with deleted scenes
+                            entity_service.invalidate_entity_batches_for_scenes(
+                                db, story_id, min_deleted_seq, max_deleted_seq
+                            )
+                            
+                            # Check if remaining scenes form a complete batch
+                            last_remaining_scene = db.query(Scene).filter(
+                                Scene.story_id == story_id,
+                                Scene.sequence_number < sequence_number
+                            ).order_by(Scene.sequence_number.desc()).first()
+                            
+                            if last_remaining_scene:
+                                batch_threshold = user_settings.get("context_summary_threshold", 5)
+                                last_sequence = last_remaining_scene.sequence_number
+                                is_complete_batch = (last_sequence % batch_threshold) == 0
+                                
+                                if is_complete_batch:
+                                    # Complete batch - recalculate (will re-extract)
+                                    await entity_service.recalculate_entity_states_from_batches(
+                                        db, story_id, story.owner_id, user_settings, max_deleted_seq
+                                    )
+                                    logger.info(f"[DELETE] Recalculated entity states (complete batch) for story {story_id}")
+                                else:
+                                    # Incomplete batch - only restore, don't re-extract
+                                    entity_service.restore_from_last_complete_batch(
+                                        db, story_id, max_deleted_seq
+                                    )
+                                    logger.info(f"[DELETE] Restored entity states from last complete batch (incomplete batch remains, waiting for threshold) for story {story_id}")
+                            else:
+                                # No remaining scenes - just clear entity states
+                                from ...models import CharacterState, LocationState, ObjectState
+                                db.query(CharacterState).filter(CharacterState.story_id == story_id).delete()
+                                db.query(LocationState).filter(LocationState.story_id == story_id).delete()
+                                db.query(ObjectState).filter(ObjectState.story_id == story_id).delete()
+                                logger.info(f"[DELETE] No remaining scenes, cleared entity states for story {story_id}")
+                        else:
+                            logger.warning(f"[DELETE] No user settings found for story owner {story.owner_id}, skipping entity state restoration")
                     else:
-                        logger.warning(f"[DELETE] No user settings found for story owner {story.owner_id}, skipping entity state recalculation")
-                else:
-                    logger.warning(f"[DELETE] Story {story_id} not found, skipping entity state recalculation")
-            except Exception as e:
-                # Don't fail scene deletion if entity state recalculation fails
-                logger.warning(f"[DELETE] Failed to recalculate entity states after scene deletion: {e}")
+                        logger.warning(f"[DELETE] Story {story_id} not found, skipping entity state restoration")
+                except Exception as e:
+                    # Don't fail scene deletion if entity state restoration fails
+                    logger.warning(f"[DELETE] Failed to restore entity states after scene deletion: {e}")
+                    import traceback
+                    logger.warning(f"[DELETE] Traceback: {traceback.format_exc()}")
             
             # Commit the transaction
             db.commit()

@@ -147,3 +147,54 @@ class NPCTracking(Base):
     def __repr__(self):
         return f"<NPCTracking(story_id={self.story_id}, character_name='{self.character_name}', importance_score={self.importance_score:.2f})>"
 
+
+class NPCTrackingSnapshot(Base):
+    """
+    Stores per-scene snapshots of NPC tracking aggregated data.
+    
+    This enables fast rollback on scene deletion without recalculation.
+    Each snapshot contains the aggregated state of all NPCs up to that scene.
+    """
+    __tablename__ = "npc_tracking_snapshots"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    scene_id = Column(Integer, ForeignKey("scenes.id", ondelete="CASCADE"), nullable=False, index=True)
+    scene_sequence = Column(Integer, nullable=False, index=True)  # For quick lookup by sequence
+    story_id = Column(Integer, ForeignKey("stories.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Snapshot data: JSON object mapping character_name to aggregated values
+    # Structure: {
+    #   "character_name": {
+    #     "total_mentions": int,
+    #     "scene_count": int,
+    #     "importance_score": float,
+    #     "frequency_score": float,
+    #     "significance_score": float,
+    #     "first_appearance_scene": int,
+    #     "last_appearance_scene": int,
+    #     "has_dialogue_count": int,
+    #     "has_actions_count": int,
+    #     "crossed_threshold": bool,
+    #     "entity_type": str,
+    #     ...
+    #   }
+    # }
+    snapshot_data = Column(JSON, nullable=False)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationships
+    scene = relationship("Scene")
+    story = relationship("Story")
+    
+    # Index for efficient queries
+    __table_args__ = (
+        Index('idx_npc_snapshot_story_sequence', 'story_id', 'scene_sequence'),
+        Index('idx_npc_snapshot_scene', 'scene_id'),
+    )
+    
+    def __repr__(self):
+        npc_count = len(self.snapshot_data) if self.snapshot_data else 0
+        return f"<NPCTrackingSnapshot(scene_id={self.scene_id}, scene_sequence={self.scene_sequence}, npcs={npc_count})>"
+
