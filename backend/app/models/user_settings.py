@@ -20,6 +20,7 @@ class UserSettings(Base):
     llm_top_k = Column(Integer, nullable=True)
     llm_repetition_penalty = Column(Float, nullable=True)
     llm_max_tokens = Column(Integer, nullable=True)
+    llm_timeout_total = Column(Float, nullable=True)
     
     # LLM API Configuration
     llm_api_url = Column(String(500), nullable=True)  # No default URL - user must provide
@@ -131,6 +132,7 @@ class UserSettings(Base):
                 "top_k": self.llm_top_k if self.llm_top_k is not None else llm_defaults.get("top_k", 50),
                 "repetition_penalty": self.llm_repetition_penalty if self.llm_repetition_penalty is not None else llm_defaults.get("repetition_penalty", 1.1),
                 "max_tokens": self.llm_max_tokens if self.llm_max_tokens is not None else llm_defaults.get("max_tokens", 2048),
+                "timeout_total": self.llm_timeout_total if self.llm_timeout_total is not None else settings.llm_timeout_total,
                 "api_url": self.llm_api_url or "",
                 "api_key": self.llm_api_key or "",
                 "api_type": self.llm_api_type if self.llm_api_type is not None else llm_api_defaults.get("api_type", "openai-compatible"),

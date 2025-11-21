@@ -2,11 +2,35 @@
 
 import { getApiBaseUrl as getApiBaseUrlFromConfig, getApiBaseUrlSync as getApiBaseUrlSyncFromConfig } from './apiUrl';
 
+/**
+ * Normalize API URL by adding default port if missing
+ * @param url The API URL to normalize
+ * @returns Normalized URL with port if it was missing
+ */
+function normalizeApiUrl(url: string): string {
+  try {
+    const urlObj = new URL(url);
+    // If no port specified and it's HTTP, add default port 9876
+    if (!urlObj.port && urlObj.protocol === 'http:') {
+      urlObj.port = '9876';
+    }
+    // Remove trailing slash from origin (URL.href adds it when pathname is empty)
+    let normalized = urlObj.href;
+    if (normalized.endsWith('/')) {
+      normalized = normalized.slice(0, -1);
+    }
+    return normalized;
+  } catch {
+    // Return as-is if invalid URL (let fetch handle the error)
+    return url;
+  }
+}
+
 // Runtime API URL detection - uses config API
 async function getApiBaseUrl(): Promise<string> {
   // First check environment variable
   if (process.env.NEXT_PUBLIC_API_URL) {
-    return process.env.NEXT_PUBLIC_API_URL;
+    return normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL);
   }
   
   // Use config API to get backend port
@@ -21,7 +45,7 @@ async function getApiBaseUrl(): Promise<string> {
 // Synchronous version for backward compatibility (uses cached port)
 function getApiBaseUrlSync(): string {
   if (process.env.NEXT_PUBLIC_API_URL) {
-    return process.env.NEXT_PUBLIC_API_URL;
+    return normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL);
   }
   return getApiBaseUrlSyncFromConfig();
 }
@@ -111,8 +135,17 @@ class ApiClient {
     console.log('[API] Endpoint:', endpoint);
     console.log('[API] Headers:', Object.keys(headers));
 
+    // Add timeout to prevent infinite hanging
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
     try {
-      const response = await fetch(url, { ...options, headers });
+      const response = await fetch(url, { 
+        ...options, 
+        headers,
+        signal: controller.signal 
+      });
+      clearTimeout(timeoutId);
       console.log(`[API] Response status: ${response.status} ${response.statusText}`);
 
       if (!response.ok) {
@@ -121,12 +154,27 @@ class ApiClient {
           const refreshSuccess = await this.handleTokenRefresh();
           if (refreshSuccess) {
             console.log('[API] Token refreshed, retrying request');
-            // Retry the request with the new token
-            const retryResponse = await fetch(url, { ...options, headers: { ...headers, Authorization: `Bearer ${this.token}` } });
-            if (retryResponse.ok) {
-              const retryData = await retryResponse.json();
-              console.log('[API] Retry successful');
-              return retryData;
+            // Retry the request with the new token (with timeout)
+            const retryController = new AbortController();
+            const retryTimeoutId = setTimeout(() => retryController.abort(), 30000);
+            try {
+              const retryResponse = await fetch(url, { 
+                ...options, 
+                headers: { ...headers, Authorization: `Bearer ${this.token}` },
+                signal: retryController.signal
+              });
+              clearTimeout(retryTimeoutId);
+              if (retryResponse.ok) {
+                const retryData = await retryResponse.json();
+                console.log('[API] Retry successful');
+                return retryData;
+              }
+            } catch (retryError) {
+              clearTimeout(retryTimeoutId);
+              if (retryError instanceof Error && retryError.name === 'AbortError') {
+                throw new Error('Request timed out. Please check your connection and try again.');
+              }
+              throw retryError;
             }
           }
           
@@ -163,7 +211,13 @@ class ApiClient {
       console.log('[API] Response data received successfully');
       return data;
     } catch (error) {
+      clearTimeout(timeoutId);
       if (error instanceof Error) {
+        // Handle timeout specifically
+        if (error.name === 'AbortError') {
+          console.error('[API] Request timed out after 30 seconds');
+          throw new Error('Request timed out. Please check your connection and try again.');
+        }
         console.error('[API] Request failed:', error.message);
       } else {
         console.error('[API] Request failed with unknown error:', error);

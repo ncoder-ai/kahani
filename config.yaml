@@ -176,6 +176,7 @@ user_defaults:
     top_k: 50
     repetition_penalty: 1.1
     max_tokens: 2048
+    timeout_total: 240  # Default timeout in seconds
   llm_api:
     api_type: "openai-compatible"
     api_key: ""
@@ -273,6 +274,13 @@ service_defaults:
   llm_client:
     default_max_tokens: 2048
     default_temperature: 0.7
+    # HTTP request timeout settings (in seconds)
+    timeout_total: 240      # Total timeout for the entire request
+    timeout_connect: 30     # Timeout for establishing connection
+    timeout_read: 150       # Timeout for reading response
+    timeout_write: 150      # Timeout for writing request
+    max_retries: 3          # Maximum number of retry attempts for 504/timeout errors
+    retry_base_delay: 2.0   # Base delay in seconds for exponential backoff
   extraction_service:
     default_max_tokens: 1000
     default_temperature: 0.3

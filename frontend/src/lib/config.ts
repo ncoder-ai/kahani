@@ -33,6 +33,30 @@ let configCache: FrontendConfig | null = null;
 let configLoadPromise: Promise<FrontendConfig> | null = null;
 
 /**
+ * Normalize API URL by adding default port if missing
+ * @param url The API URL to normalize
+ * @returns Normalized URL with port if it was missing
+ */
+function normalizeApiUrl(url: string): string {
+  try {
+    const urlObj = new URL(url);
+    // If no port specified and it's HTTP, add default port 9876
+    if (!urlObj.port && urlObj.protocol === 'http:') {
+      urlObj.port = '9876';
+    }
+    // Remove trailing slash from origin (URL.href adds it when pathname is empty)
+    let normalized = urlObj.href;
+    if (normalized.endsWith('/')) {
+      normalized = normalized.slice(0, -1);
+    }
+    return normalized;
+  } catch {
+    // Return as-is if invalid URL (let fetch handle the error)
+    return url;
+  }
+}
+
+/**
  * Get API base URL for fetching config
  * Uses window.location to detect current host
  */
@@ -42,7 +66,7 @@ function getConfigApiBaseUrl(): string {
     if (!process.env.NEXT_PUBLIC_API_URL) {
       throw new Error('NEXT_PUBLIC_API_URL environment variable must be set for server-side rendering');
     }
-    return process.env.NEXT_PUBLIC_API_URL;
+    return normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL);
   }
 
   // Client-side: use window.location to build API URL
@@ -60,7 +84,7 @@ function getConfigApiBaseUrl(): string {
 
   // For direct access: check NEXT_PUBLIC_API_URL first
   if (process.env.NEXT_PUBLIC_API_URL) {
-    return process.env.NEXT_PUBLIC_API_URL;
+    return normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL);
   }
 
   // If no NEXT_PUBLIC_API_URL and not reverse proxy, we cannot determine backend URL
@@ -86,7 +110,7 @@ async function loadConfig(): Promise<FrontendConfig> {
 
   configLoadPromise = (async () => {
     try {
-      let apiBaseUrl: string;
+      let apiBaseUrl: string | undefined;
       try {
         apiBaseUrl = getConfigApiBaseUrl();
       } catch (error) {
@@ -178,6 +202,11 @@ async function loadConfig(): Promise<FrontendConfig> {
             `For reverse proxy deployments, ensure the frontend is accessed via standard ports (80/443) or set NEXT_PUBLIC_API_URL.`
           );
         }
+      }
+      
+      // Ensure apiBaseUrl is defined before using it
+      if (!apiBaseUrl) {
+        throw new Error('Failed to determine API base URL');
       }
       // Ensure apiBaseUrl is an absolute URL using URL constructor
       let configUrl: string;

@@ -80,7 +80,17 @@ export default function LoginPage() {
       
       let errorMessage = 'Login failed';
       if (err instanceof Error) {
-        errorMessage = err.message;
+        const message = err.message.toLowerCase();
+        // Check for specific error types
+        if (message.includes('timeout') || message.includes('timed out')) {
+          errorMessage = 'Connection timed out. Please check your network connection and ensure the backend server is running.';
+        } else if (message.includes('failed to fetch') || message.includes('network error') || message.includes('networkerror')) {
+          errorMessage = 'Network error. Please check your connection and ensure the backend server is accessible.';
+        } else if (message.includes('cors')) {
+          errorMessage = 'CORS error. Please check backend CORS configuration.';
+        } else {
+          errorMessage = err.message;
+        }
       } else if (typeof err === 'string') {
         errorMessage = err;
       }

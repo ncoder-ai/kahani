@@ -43,6 +43,7 @@ interface LLMSettings {
   top_k: number;
   repetition_penalty: number;
   max_tokens: number;
+  timeout_total?: number;
   api_url: string;
   api_key: string;
   api_type: string;
@@ -334,6 +335,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               top_k: settings.llm_settings.top_k ?? 40,
               repetition_penalty: settings.llm_settings.repetition_penalty ?? 1.1,
               max_tokens: settings.llm_settings.max_tokens ?? 2048,
+              timeout_total: settings.llm_settings.timeout_total,
               api_url: settings.llm_settings.api_url || '',
               api_key: settings.llm_settings.api_key || '',
               api_type: settings.llm_settings.api_type || '',
@@ -856,6 +858,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         top_k: 40,
         repetition_penalty: 1.1,
         max_tokens: 2048,
+        timeout_total: undefined,
         api_url: '',
         api_key: '',
         api_type: newEngine,
