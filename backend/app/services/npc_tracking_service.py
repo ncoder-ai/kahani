@@ -14,7 +14,7 @@ from sqlalchemy import func
 from datetime import datetime
 
 from ..models import (
-    NPCMention, NPCTracking, StoryCharacter, Character, Scene, Story
+    NPCMention, NPCTracking, NPCTrackingSnapshot, StoryCharacter, Character, Scene, Story
 )
 from ..services.llm.service import UnifiedLLMService
 from ..services.llm.extraction_service import ExtractionLLMService
@@ -172,6 +172,9 @@ class NPCTrackingService:
                     )
                     
                     total_npcs_tracked += 1
+                
+                # Create snapshot after all NPCs for this scene are processed
+                self._create_npc_tracking_snapshot(db, story_id, scene_id, scene_sequence)
             
             db.commit()
             logger.info(f"Batch extracted and stored {total_npcs_tracked} NPCs from {len(scenes)} scenes")
@@ -430,6 +433,9 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
                 )
                 
                 results["npcs_tracked"] += 1
+            
+            # Create snapshot after all NPCs for this scene are processed
+            self._create_npc_tracking_snapshot(db, story_id, scene_id, scene_sequence)
             
             db.commit()
             results["extraction_successful"] = True
@@ -822,6 +828,73 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
             
         except Exception as e:
             logger.error(f"Failed to update NPC tracking: {e}")
+            db.rollback()
+    
+    def _create_npc_tracking_snapshot(
+        self,
+        db: Session,
+        story_id: int,
+        scene_id: int,
+        scene_sequence: int
+    ):
+        """
+        Create a snapshot of all NPC tracking data for a scene.
+        This enables fast rollback on scene deletion without recalculation.
+        
+        Args:
+            db: Database session
+            story_id: Story ID
+            scene_id: Scene ID
+            scene_sequence: Scene sequence number
+        """
+        try:
+            # Get all current NPC tracking records for this story
+            all_npcs = db.query(NPCTracking).filter(
+                NPCTracking.story_id == story_id
+            ).all()
+            
+            # Build snapshot data
+            snapshot_data = {}
+            for npc in all_npcs:
+                snapshot_data[npc.character_name] = {
+                    "total_mentions": npc.total_mentions or 0,
+                    "scene_count": npc.scene_count or 0,
+                    "importance_score": npc.importance_score or 0.0,
+                    "frequency_score": npc.frequency_score or 0.0,
+                    "significance_score": npc.significance_score or 0.0,
+                    "first_appearance_scene": npc.first_appearance_scene,
+                    "last_appearance_scene": npc.last_appearance_scene,
+                    "has_dialogue_count": npc.has_dialogue_count or 0,
+                    "has_actions_count": npc.has_actions_count or 0,
+                    "crossed_threshold": npc.crossed_threshold or False,
+                    "entity_type": npc.entity_type or "CHARACTER",
+                    "user_prompted": npc.user_prompted or False,
+                    "profile_extracted": npc.profile_extracted or False,
+                    "converted_to_character": npc.converted_to_character or False,
+                    "extracted_profile": npc.extracted_profile or {}
+                }
+            
+            # Delete existing snapshot for this scene if it exists (in case of regeneration)
+            existing_snapshot = db.query(NPCTrackingSnapshot).filter(
+                NPCTrackingSnapshot.scene_id == scene_id
+            ).first()
+            if existing_snapshot:
+                db.delete(existing_snapshot)
+            
+            # Create new snapshot
+            snapshot = NPCTrackingSnapshot(
+                scene_id=scene_id,
+                scene_sequence=scene_sequence,
+                story_id=story_id,
+                snapshot_data=snapshot_data
+            )
+            db.add(snapshot)
+            db.commit()
+            
+            logger.debug(f"Created NPC tracking snapshot for scene {scene_id} (sequence {scene_sequence}) with {len(snapshot_data)} NPCs")
+            
+        except Exception as e:
+            logger.error(f"Failed to create NPC tracking snapshot for scene {scene_id}: {e}")
             db.rollback()
     
     async def _calculate_importance_score(

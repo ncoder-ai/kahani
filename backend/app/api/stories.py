@@ -106,8 +106,8 @@ class SceneVariantServiceAdapter:
     def switch_to_variant(self, story_id: int, scene_id: int, variant_id: int):
         return llm_service.switch_to_variant(self.db, story_id, scene_id, variant_id)
     
-    async def delete_scenes_from_sequence(self, story_id: int, sequence_number: int) -> bool:
-        return await llm_service.delete_scenes_from_sequence(self.db, story_id, sequence_number)
+    async def delete_scenes_from_sequence(self, story_id: int, sequence_number: int, skip_restoration: bool = False) -> bool:
+        return await llm_service.delete_scenes_from_sequence(self.db, story_id, sequence_number, skip_restoration=skip_restoration)
 
 # Temporary adapter functions for old LLM function calls
 async def generate_scene_streaming(context, user_id, user_settings):
@@ -3156,10 +3156,170 @@ async def regenerate_scene_variant_choices(
         )
 
 
+async def restore_npc_tracking_in_background(
+    story_id: int,
+    sequence_number: int
+):
+    """Background task to restore NPC tracking from snapshot after scene deletion"""
+    try:
+        import asyncio
+        # Small delay to ensure database commits from main session are visible
+        await asyncio.sleep(0.1)
+        
+        from ..database import SessionLocal
+        bg_db = SessionLocal()
+        try:
+            from ..models import Story, NPCTracking, NPCTrackingSnapshot, Scene
+            
+            # Find the last remaining scene's sequence number
+            last_remaining_scene = bg_db.query(Scene).filter(
+                Scene.story_id == story_id,
+                Scene.sequence_number < sequence_number
+            ).order_by(Scene.sequence_number.desc()).first()
+            
+            if last_remaining_scene:
+                # Get snapshot for the last remaining scene
+                snapshot = bg_db.query(NPCTrackingSnapshot).filter(
+                    NPCTrackingSnapshot.story_id == story_id,
+                    NPCTrackingSnapshot.scene_sequence == last_remaining_scene.sequence_number
+                ).first()
+                
+                if snapshot:
+                    # Restore NPCTracking from snapshot
+                    snapshot_data = snapshot.snapshot_data or {}
+                    
+                    # Delete all existing NPC tracking records for this story
+                    bg_db.query(NPCTracking).filter(
+                        NPCTracking.story_id == story_id
+                    ).delete()
+                    
+                    # Restore from snapshot
+                    for character_name, npc_data in snapshot_data.items():
+                        tracking = NPCTracking(
+                            story_id=story_id,
+                            character_name=character_name,
+                            entity_type=npc_data.get("entity_type", "CHARACTER"),
+                            total_mentions=npc_data.get("total_mentions", 0),
+                            scene_count=npc_data.get("scene_count", 0),
+                            importance_score=npc_data.get("importance_score", 0.0),
+                            frequency_score=npc_data.get("frequency_score", 0.0),
+                            significance_score=npc_data.get("significance_score", 0.0),
+                            first_appearance_scene=npc_data.get("first_appearance_scene"),
+                            last_appearance_scene=npc_data.get("last_appearance_scene"),
+                            has_dialogue_count=npc_data.get("has_dialogue_count", 0),
+                            has_actions_count=npc_data.get("has_actions_count", 0),
+                            crossed_threshold=npc_data.get("crossed_threshold", False),
+                            user_prompted=npc_data.get("user_prompted", False),
+                            profile_extracted=npc_data.get("profile_extracted", False),
+                            converted_to_character=npc_data.get("converted_to_character", False),
+                            extracted_profile=npc_data.get("extracted_profile", {})
+                        )
+                        bg_db.add(tracking)
+                    
+                    bg_db.commit()
+                    logger.info(f"[DELETE-BG] Restored NPC tracking from snapshot for scene {last_remaining_scene.sequence_number} (story {story_id})")
+                else:
+                    logger.warning(f"[DELETE-BG] No snapshot found for last remaining scene {last_remaining_scene.sequence_number}")
+            else:
+                # No remaining scenes - delete all NPC tracking
+                bg_db.query(NPCTracking).filter(
+                    NPCTracking.story_id == story_id
+                ).delete()
+                bg_db.commit()
+                logger.info(f"[DELETE-BG] No remaining scenes, deleted all NPC tracking for story {story_id}")
+        finally:
+            bg_db.close()
+    except Exception as e:
+        logger.error(f"[DELETE-BG] Failed to restore NPC tracking in background: {e}")
+        import traceback
+        logger.error(f"[DELETE-BG] Traceback: {traceback.format_exc()}")
+
+
+async def restore_entity_states_in_background(
+    story_id: int,
+    sequence_number: int,
+    min_deleted_seq: int,
+    max_deleted_seq: int,
+    user_id: int,
+    user_settings: dict
+):
+    """Background task to restore entity states after scene deletion"""
+    try:
+        import asyncio
+        # Small delay to ensure database commits from main session are visible
+        await asyncio.sleep(0.1)
+        
+        from ..database import SessionLocal
+        bg_db = SessionLocal()
+        try:
+            from ..models import Story, UserSettings, Scene
+            from ..services.entity_state_service import EntityStateService
+            
+            # Get user settings if not provided
+            if not user_settings:
+                user_settings_obj = bg_db.query(UserSettings).filter(
+                    UserSettings.user_id == user_id
+                ).first()
+                if user_settings_obj:
+                    user_settings = user_settings_obj.to_dict()
+                else:
+                    logger.warning(f"[DELETE-BG] No user settings found for user {user_id}")
+                    return
+            
+            entity_service = EntityStateService(
+                user_id=user_id,
+                user_settings=user_settings
+            )
+            
+            # Invalidate batches that overlap with deleted scenes
+            entity_service.invalidate_entity_batches_for_scenes(
+                bg_db, story_id, min_deleted_seq, max_deleted_seq
+            )
+            
+            # Check if remaining scenes form a complete batch
+            last_remaining_scene = bg_db.query(Scene).filter(
+                Scene.story_id == story_id,
+                Scene.sequence_number < sequence_number
+            ).order_by(Scene.sequence_number.desc()).first()
+            
+            if last_remaining_scene:
+                batch_threshold = user_settings.get("context_summary_threshold", 5)
+                last_sequence = last_remaining_scene.sequence_number
+                is_complete_batch = (last_sequence % batch_threshold) == 0
+                
+                if is_complete_batch:
+                    # Complete batch - recalculate (will re-extract)
+                    await entity_service.recalculate_entity_states_from_batches(
+                        bg_db, story_id, user_id, user_settings, max_deleted_seq
+                    )
+                    logger.info(f"[DELETE-BG] Recalculated entity states (complete batch) for story {story_id}")
+                else:
+                    # Incomplete batch - only restore, don't re-extract
+                    entity_service.restore_from_last_complete_batch(
+                        bg_db, story_id, max_deleted_seq
+                    )
+                    logger.info(f"[DELETE-BG] Restored entity states from last complete batch (incomplete batch remains) for story {story_id}")
+            else:
+                # No remaining scenes - just clear entity states
+                from ..models import CharacterState, LocationState, ObjectState
+                bg_db.query(CharacterState).filter(CharacterState.story_id == story_id).delete()
+                bg_db.query(LocationState).filter(LocationState.story_id == story_id).delete()
+                bg_db.query(ObjectState).filter(ObjectState.story_id == story_id).delete()
+                bg_db.commit()
+                logger.info(f"[DELETE-BG] No remaining scenes, cleared entity states for story {story_id}")
+        finally:
+            bg_db.close()
+    except Exception as e:
+        logger.error(f"[DELETE-BG] Failed to restore entity states in background: {e}")
+        import traceback
+        logger.error(f"[DELETE-BG] Traceback: {traceback.format_exc()}")
+
+
 @router.delete("/{story_id}/scenes/from/{sequence_number}")
 async def delete_scenes_from_sequence(
     story_id: int,
     sequence_number: int,
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -3176,14 +3336,48 @@ async def delete_scenes_from_sequence(
             detail="Story not found"
         )
     
+    # Get user settings for background tasks
+    user_settings_obj = db.query(UserSettings).filter(
+        UserSettings.user_id == current_user.id
+    ).first()
+    user_settings = user_settings_obj.to_dict() if user_settings_obj else {}
+    
+    # Get min/max deleted sequences for background tasks (before deletion)
+    from ..models import Scene as SceneModel
+    scenes_to_delete = db.query(SceneModel).filter(
+        SceneModel.story_id == story_id,
+        SceneModel.sequence_number >= sequence_number
+    ).all()
+    
+    min_deleted_seq = min(scene.sequence_number for scene in scenes_to_delete) if scenes_to_delete else sequence_number
+    max_deleted_seq = max(scene.sequence_number for scene in scenes_to_delete) if scenes_to_delete else sequence_number
+    
+    # Perform deletion (synchronous - fast operations only)
     service = SceneVariantService(db)
-    success = await service.delete_scenes_from_sequence(story_id, sequence_number)
+    success = await service.delete_scenes_from_sequence(story_id, sequence_number, skip_restoration=True)
     
     if not success:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Failed to delete scenes"
         )
+    
+    # Schedule restoration tasks in background
+    background_tasks.add_task(
+        restore_npc_tracking_in_background,
+        story_id=story_id,
+        sequence_number=sequence_number
+    )
+    
+    background_tasks.add_task(
+        restore_entity_states_in_background,
+        story_id=story_id,
+        sequence_number=sequence_number,
+        min_deleted_seq=min_deleted_seq,
+        max_deleted_seq=max_deleted_seq,
+        user_id=current_user.id,
+        user_settings=user_settings
+    )
     
     return {"message": f"Scenes from sequence {sequence_number} onwards deleted successfully"}
 

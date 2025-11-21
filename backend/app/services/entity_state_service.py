@@ -810,6 +810,60 @@ If no changes for a category, use empty array. Return ONLY the JSON, no other te
         
         return 0
     
+    def restore_from_last_complete_batch(
+        self,
+        db: Session,
+        story_id: int,
+        max_deleted_sequence: int
+    ) -> Dict[str, Any]:
+        """
+        Restore entity states from last complete batch without re-extraction.
+        Used when deletion leaves an incomplete batch - we restore and wait for threshold.
+        
+        Args:
+            db: Database session
+            story_id: Story ID
+            max_deleted_sequence: Maximum scene sequence that was deleted
+            
+        Returns:
+            Dictionary with restoration results
+        """
+        try:
+            # Find last valid batch before deleted scenes
+            last_valid_batch = self.get_last_valid_batch(db, story_id, max_deleted_sequence)
+            
+            # Delete all existing entity states
+            db.query(CharacterState).filter(CharacterState.story_id == story_id).delete()
+            db.query(LocationState).filter(LocationState.story_id == story_id).delete()
+            db.query(ObjectState).filter(ObjectState.story_id == story_id).delete()
+            
+            # Restore from last valid batch if exists
+            if last_valid_batch:
+                restore_results = self.restore_entity_states_from_batch(db, last_valid_batch)
+                logger.info(f"[DELETE] Restored entity states from batch {last_valid_batch.id} (scenes 1-{last_valid_batch.end_scene_sequence})")
+                return {
+                    **restore_results,
+                    "restoration_successful": True
+                }
+            else:
+                logger.info(f"[DELETE] No valid batch found, entity states cleared")
+                return {
+                    "characters_restored": 0,
+                    "locations_restored": 0,
+                    "objects_restored": 0,
+                    "restoration_successful": True
+                }
+            
+        except Exception as e:
+            logger.error(f"Failed to restore entity states from last complete batch: {e}")
+            db.rollback()
+            return {
+                "characters_restored": 0,
+                "locations_restored": 0,
+                "objects_restored": 0,
+                "restoration_successful": False
+            }
+    
     async def recalculate_entity_states_from_batches(
         self,
         db: Session,
@@ -820,6 +874,7 @@ If no changes for a category, use empty array. Return ONLY the JSON, no other te
     ) -> Dict[str, Any]:
         """
         Recalculate entity states using batch system after scene deletion.
+        Only re-extracts if remaining scenes form a complete batch.
         
         Args:
             db: Database session
@@ -866,7 +921,25 @@ If no changes for a category, use empty array. Return ONLY the JSON, no other te
                     "recalculation_successful": True
                 }
             
-            # Re-extract entity states for remaining scenes
+            # Check if remaining scenes form a complete batch
+            batch_threshold = self.user_settings.get("context_summary_threshold", 5)
+            last_remaining_sequence = remaining_scenes[-1].sequence_number
+            
+            # Check if we have a complete batch (last scene sequence is a multiple of threshold)
+            is_complete_batch = (last_remaining_sequence % batch_threshold) == 0
+            
+            if not is_complete_batch:
+                # Incomplete batch - only restore, don't re-extract
+                logger.info(f"[DELETE] Incomplete batch remaining (last scene: {last_remaining_sequence}, threshold: {batch_threshold}). Restored from batch, waiting for threshold.")
+                db.commit()
+                return {
+                    **restore_results,
+                    "scenes_processed": 0,
+                    "recalculation_successful": True,
+                    "incomplete_batch": True
+                }
+            
+            # Complete batch - re-extract entity states for remaining scenes
             scenes_processed = 0
             for scene in remaining_scenes:
                 # Get active variant content

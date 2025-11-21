@@ -118,13 +118,13 @@ story_generation:
       Story Context:
       {context}
       
-      Generate the next scene in this story. Make it engaging and immersive, {scene_length_description}.
+      Generate the next scene of the story, incorporating the IMMEDIATE SITUATION. You must incorporate the “IMMEDIATE SITUATION”  in the scene you create, do not start the scene by assuming that the immediate situation has already occured.  For example, if the immediate situation is, “Rambo enters the room, his hand on the gun at his hip”, do not start the scene from the point where he has already entered the room. Incorporate the act of entering the room in the scene, for example, "Rambo rams his shoulder onto the wooden door breaking the door from the hinges and enters the room, guns blazing." Make the scene engaging and immersive, {scene_length_description}.
       Ensure the scene flows naturally from the previous events.
       
       IMPORTANT: Write ONLY the story content. Do not include any choices, options, or questions for the reader. 
       This should be pure narrative - just tell what happens next in the story.
       
-      After completing the scene narrative, add the ###CHOICES### marker and provide the choices as as specified in the system instructions. Remember each choice must be only 1 sentence.
+      After completing the scene narrative, add the ###CHOICES### marker and provide the choices as as specified in the system instructions. Remember each choice must be only 1 short sentence, no more than 15 words.
 
   scene_guided_enhancement:
     system: |

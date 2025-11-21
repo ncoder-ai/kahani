@@ -74,6 +74,7 @@ class Story(Base):
     # NPC Tracking Relationships
     npc_mentions = relationship("NPCMention", back_populates="story", cascade="all, delete-orphan")
     npc_tracking = relationship("NPCTracking", back_populates="story", cascade="all, delete-orphan")
+    npc_tracking_snapshots = relationship("NPCTrackingSnapshot", back_populates="story", cascade="all, delete-orphan")
     
     # Entity State Batch Relationships
     entity_state_batches = relationship("EntityStateBatch", back_populates="story", cascade="all, delete-orphan", order_by="EntityStateBatch.start_scene_sequence")
