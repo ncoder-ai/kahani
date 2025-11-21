@@ -151,7 +151,7 @@ export default function SceneVariantDisplay({
   const [copySuccess, setCopySuccess] = useState(false);
 
   // Load variants for this scene
-  const loadVariants = async () => {
+  const loadVariants = async (forceSetVariantId?: number) => {
     if (isLoadingVariants) {
       console.log(`[SceneVariantDisplay] Skipping loadVariants for scene ${scene.id} - already loading`);
       return;
@@ -164,14 +164,20 @@ export default function SceneVariantDisplay({
       const response = await apiClient.getSceneVariants(storyId, scene.id);
       setVariants(response.variants);
       
-      // Set current variant ID if not set
-      if (!currentVariantId && response.variants.length > 0) {
-        const activeVariant = response.variants.find(v => v.id === scene.variant_id);
+      // Set current variant ID - prioritize scene.variant_id or forced variant ID
+      const targetVariantId = forceSetVariantId || scene.variant_id;
+      if (targetVariantId && response.variants.length > 0) {
+        const activeVariant = response.variants.find(v => v.id === targetVariantId);
         if (activeVariant) {
           setCurrentVariantId(activeVariant.id);
-        } else {
+          console.log(`[SceneVariantDisplay] Set current variant to ${activeVariant.id} (variant #${activeVariant.variant_number})`);
+        } else if (!currentVariantId) {
+          // Fallback to first variant only if we don't have a current variant
           setCurrentVariantId(response.variants[0].id);
         }
+      } else if (!currentVariantId && response.variants.length > 0) {
+        // Set to first variant if no variant_id specified and no current variant
+        setCurrentVariantId(response.variants[0].id);
       }
       
       console.log(`[SceneVariantDisplay] Completed loadVariants for scene ${scene.id}, loaded ${response.variants.length} variants`);
@@ -255,6 +261,11 @@ export default function SceneVariantDisplay({
 
   // Get available choices for the current variant
   const getAvailableChoices = (): string[] => {
+    // Hide choices when streaming a variant - old variant choices should not be shown
+    if (isStreamingVariant) {
+      return [];
+    }
+    
     const baseChoices: string[] = [];
     
     // Find current variant
@@ -313,12 +324,38 @@ export default function SceneVariantDisplay({
     return () => clearTimeout(delayTimer);
   }, [scene.id, isSceneOperationInProgress, isGenerating, isStreaming, isRegenerating]);
 
-  // Set initial variant ID from scene
+  // Set initial variant ID from scene and reload variants when variant_id changes
   useEffect(() => {
-    if (scene.variant_id && !currentVariantId) {
-      setCurrentVariantId(scene.variant_id);
+    if (scene.variant_id) {
+      // If variant_id changed or we don't have a current variant, reload variants
+      if (scene.variant_id !== currentVariantId || !currentVariantId) {
+        // Reload variants to get the updated list (including new variants)
+        // Wait for operations to complete before reloading
+        if (!isSceneOperationInProgress && !isGenerating && !isStreaming && !isRegenerating) {
+          console.log(`[SceneVariantDisplay] Variant ID changed to ${scene.variant_id}, reloading variants`);
+          // Clear the loaded flag to force reload
+          hasLoadedVariantsRef.current.delete(scene.id);
+          // Pass the variant_id to ensure it's set after loading
+          loadVariants(scene.variant_id);
+        } else {
+          // If operations are in progress, wait a bit and try again
+          // This handles the case where variant completes but isRegenerating is still true briefly
+          const timeoutId = setTimeout(() => {
+            if (!isSceneOperationInProgress && !isGenerating && !isStreaming && !isRegenerating) {
+              console.log(`[SceneVariantDisplay] Delayed reload of variants for scene ${scene.id}`);
+              hasLoadedVariantsRef.current.delete(scene.id);
+              loadVariants(scene.variant_id);
+            }
+          }, 500);
+          return () => clearTimeout(timeoutId);
+        }
+      }
+    } else if (!currentVariantId && variants.length > 0) {
+      // If no variant_id but we have variants, use the first one
+      setCurrentVariantId(variants[0].id);
     }
-  }, [scene.variant_id, currentVariantId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene.variant_id, currentVariantId, isSceneOperationInProgress, isGenerating, isStreaming, isRegenerating]);
 
   // Reload variants when scene choices change (e.g., after generating more choices)
   // This ensures we get the latest choices including newly generated "more choices"
@@ -483,17 +520,31 @@ export default function SceneVariantDisplay({
     }
   };
 
-  // Handle regeneration animation
+  // Handle regeneration animation - only for manual variant switching, not new variant generation
   useEffect(() => {
+    // Only animate if we're in modern layout and not streaming a new variant
+    // Streaming variants should appear smoothly without slide animation
+    if (isStreamingVariant || isStreaming) {
+      // Don't animate during streaming - content appears naturally
+      // Also clear any existing animation classes
+      const container = sceneContentRef.current;
+      if (container) {
+        container.classList.remove('variant-transitioning');
+        container.classList.remove('variant-slide-in');
+      }
+      return;
+    }
+    
     if (isRegenerating && layoutMode === 'modern') {
       const container = sceneContentRef.current;
       if (container) {
-        // Slide out the current scene when regeneration starts
+        // Slide out the current scene when regeneration starts (manual regeneration only)
         container.classList.remove('variant-slide-in');
         container.classList.add('variant-transitioning');
       }
     } else {
       // Slide in from right when regeneration completes or variant changes
+      // But only if we had the transitioning class (manual switch), not for new variant generation
       const container = sceneContentRef.current;
       if (container && container.classList.contains('variant-transitioning')) {
         container.classList.remove('variant-transitioning');
@@ -507,7 +558,7 @@ export default function SceneVariantDisplay({
         }, 50);
       }
     }
-  }, [isRegenerating, layoutMode, currentVariantId]);
+  }, [isRegenerating, layoutMode, currentVariantId, isStreamingVariant, isStreaming]);
 
   // Get the currently displayed variant's data
   const getCurrentVariant = (): SceneVariant | null => {
@@ -557,13 +608,25 @@ export default function SceneVariantDisplay({
   // Create a scene object with the current variant's content
   const getDisplayScene = (): Scene => {
     // If streaming a variant regeneration, show the streaming content
-    if (isStreamingVariant && streamingVariantContent) {
-      return {
-        ...scene,
-        content: streamingVariantContent,
-        title: scene.title,
-        choices: []
-      };
+    // When streaming a variant, show streaming content or hide old variant
+    if (isStreamingVariant) {
+      if (streamingVariantContent) {
+        // Show streaming content as it arrives
+        return {
+          ...scene,
+          content: streamingVariantContent,
+          title: scene.title,
+          choices: []
+        };
+      } else {
+        // Hide old variant immediately when streaming starts (before content arrives)
+        return {
+          ...scene,
+          content: '',
+          title: scene.title,
+          choices: []
+        };
+      }
     }
     
     const currentVariant = getCurrentVariant();

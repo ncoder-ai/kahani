@@ -337,3 +337,21 @@ body {
   outline: 2px solid var(--color-accentPrimary) !important;
   outline-offset: 2px !important;
 }
+
+/* Prevent iOS Safari zoom on input focus - ensure minimum 16px font size on mobile */
+@media (max-width: 768px) {
+  input,
+  textarea,
+  [contenteditable] {
+    font-size: 16px !important;
+  }
+  
+  /* Ensure textarea and contenteditable maintain readable size */
+  textarea {
+    font-size: 16px !important;
+  }
+  
+  [contenteditable] {
+    font-size: 16px !important;
+  }
+}

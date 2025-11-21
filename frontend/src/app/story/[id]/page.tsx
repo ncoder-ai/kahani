@@ -484,6 +484,34 @@ export default function StoryPage() {
     }
   };
 
+  // Refresh choices for a specific scene without reloading the entire story
+  const refreshSceneChoices = async (sceneId: number) => {
+    try {
+      // Get the full story to get updated choices for the scene
+      const storyData = await apiClient.getStory(storyId);
+      
+      // Find the scene in the new data and update only its choices in state
+      if (story && storyData.scenes) {
+        const updatedScene = storyData.scenes.find((s: Scene) => s.id === sceneId);
+        if (updatedScene) {
+          // Update only the choices for this scene, preserve everything else
+          const updatedStory = {
+            ...story,
+            scenes: story.scenes.map((s: Scene) => 
+              s.id === sceneId 
+                ? { ...s, choices: updatedScene.choices || [] }
+                : s
+            )
+          };
+          setStory(updatedStory);
+          console.log('[SCENE CHOICES] Updated choices for scene', sceneId, 'without reload');
+        }
+      }
+    } catch (err) {
+      console.error('Failed to refresh scene choices:', err);
+    }
+  };
+
   // Track scene count to detect new scenes
   useEffect(() => {
     if (story?.scenes) {
@@ -1217,12 +1245,9 @@ export default function StoryPage() {
           // Refresh chapter sidebar to update context counter
           setChapterSidebarRefreshKey(prev => prev + 1);
           
-          // Reload story to get choices from backend (they're saved to DB)
-          // Use a small delay to ensure backend has committed the choices
-          setTimeout(async () => {
-            await loadStory(false, true); // Scroll to new scene after reload
-            console.log('[SCENE COMPLETE] Story reloaded with choices from backend');
-          }, 500);
+          // Don't refresh choices - they're already in state from the streaming completion callback
+          // The scene and choices are complete and don't need backend sync
+          console.log('[SCENE COMPLETE] Scene and choices already in state, no refresh needed');
           
           // Clear operation flag with delay to let DOM settle
           setTimeout(() => setIsSceneOperationInProgress(false), 1500);
@@ -1507,6 +1532,9 @@ export default function StoryPage() {
         // Track if we already received auto_play_ready event to avoid double-connection
         let autoPlayAlreadyTriggered = false;
         
+        // Accumulate streaming content locally for use in completion callback
+        let accumulatedVariantContent = '';
+        
         // Detect iOS Safari for variant streaming
         const isIOSVariant = typeof window !== 'undefined' && 
           (/iPad|iPhone|iPod/.test(navigator.userAgent) || 
@@ -1536,6 +1564,9 @@ export default function StoryPage() {
           variantId,
           // onChunk
           (chunk: string) => {
+            // Always accumulate content for use in completion callback
+            accumulatedVariantContent += chunk;
+            
             if (isIOSVariant) {
               // Buffer chunks and flush frequently on iOS (every 50ms max, or immediately if buffer gets large)
               iosVariantChunkBuffer += chunk;
@@ -1563,16 +1594,34 @@ export default function StoryPage() {
             console.log('[VARIANT COMPLETE] Full response:', JSON.stringify(response, null, 2));
             console.log('[VARIANT COMPLETE] Has auto_play_session_id?', 'auto_play_session_id' in response);
             console.log('[VARIANT COMPLETE] auto_play_session_id value:', response.auto_play_session_id);
+            console.log('[VARIANT COMPLETE] Accumulated content length:', accumulatedVariantContent.length);
             
-            // IMMEDIATELY update choices in state
-            if (response.variant && response.variant.choices && story) {
-              const updatedScenes = story.scenes.map(s => 
-                s.id === sceneId 
-                  ? { ...s, choices: response.variant.choices.map((c: any) => c.text || c.choice_text) }
-                  : s
-              );
+            // Flush any remaining iOS chunks before using accumulated content
+            if (isIOSVariant) {
+              flushIOSVariantChunks();
+            }
+            
+            // Update the scene with the new variant content and choices directly in state
+            if (response.variant && story) {
+              const updatedScenes = story.scenes.map(s => {
+                if (s.id === sceneId) {
+                  // Update scene with new variant content and choices
+                  // Prefer response.variant.content, fall back to accumulated streaming content, then original
+                  const newContent = response.variant.content || accumulatedVariantContent || s.content;
+                  return {
+                    ...s,
+                    content: newContent,
+                    variant_id: response.variant.id,
+                    variant_number: response.variant.variant_number,
+                    choices: response.variant.choices 
+                      ? response.variant.choices.map((c: any) => c.text || c.choice_text)
+                      : s.choices
+                  };
+                }
+                return s;
+              });
               setStory({ ...story, scenes: updatedScenes });
-              console.log('[VARIANT] Choices updated immediately in state');
+              console.log('[VARIANT] Scene updated with new variant content and choices in state');
             }
             
             // Check if auto-play was triggered - but ONLY if we didn't already handle it via auto_play_ready
@@ -1585,26 +1634,21 @@ export default function StoryPage() {
               console.log('[AUTO-PLAY] NO session ID in response - auto-play will not trigger');
             }
             
+            // Clear streaming states - do this before refresh to allow variant reload
             setStreamingVariantContent('');
             setStreamingVariantSceneId(null);
             setIsStreaming(false);
+            setIsRegenerating(false); // Clear regenerating flag so variant reload can happen
             
-            // Reload story after a delay to let audio start and buffer chunks
-            // This is needed to get the full variant list for the scene
-            console.log('[VARIANT] Variant generation complete, reloading story in 2 seconds');
+            // Refresh story content after a delay to sync variant list from backend
+            // This will update the scene's variant_id, which will trigger SceneVariantDisplay to reload variants
+            console.log('[VARIANT] Variant generation complete, refreshing story content to sync variant list');
             
             setTimeout(async () => {
-              await loadStory(false, false); // Don't scroll
-              console.log('[VARIANT] Story reloaded, variant list updated');
-              
-              // Scroll to the scene
-              setTimeout(() => {
-                const sceneElement = document.querySelector(`[data-scene-id="${sceneId}"]`);
-                if (sceneElement) {
-                  sceneElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
-              }, 100);
-            }, 2000); // Wait 2 seconds for audio to start and buffer
+              await refreshStoryContent();
+              console.log('[VARIANT] Story content refreshed, variant list synced');
+              // The useEffect in SceneVariantDisplay watching scene.variant_id will handle reloading variants
+            }, 1000); // Wait 1 second for audio to start
           },
           // onError
           (error: string) => {
