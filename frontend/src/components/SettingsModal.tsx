@@ -2216,6 +2216,22 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     />
                     <p className="text-xs text-gray-400 mt-1">Penalizes repetitive text</p>
                   </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-white mb-2">
+                      Request Timeout: {llmSettings.timeout_total || 240}s
+                    </label>
+                    <input
+                      type="number"
+                      min="30"
+                      max="600"
+                      step="10"
+                      value={llmSettings.timeout_total || 240}
+                      onChange={(e) => setLlmSettings({ ...llmSettings, timeout_total: parseInt(e.target.value) || undefined })}
+                      className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
+                    />
+                    <p className="text-xs text-gray-400 mt-1">Maximum time to wait for LLM response (30-600 seconds). Default: 240s</p>
+                  </div>
                 </div>
 
           {/* Save Button */}
