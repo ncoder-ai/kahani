@@ -5,6 +5,7 @@ import { ConfigProvider } from '@/contexts/ConfigContext'
 import { GlobalTTSProvider } from '@/contexts/GlobalTTSContext'
 import { StoryProvider } from '@/contexts/StoryContext'
 import { ServiceWorkerRegistration } from '@/components/ServiceWorkerRegistration'
+import BrowserExtensionFix from '@/components/BrowserExtensionFix'
 
 // Optimized font loading with display swap for better performance
 const inter = Inter({ 
@@ -44,6 +45,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
+        <BrowserExtensionFix />
         <ServiceWorkerRegistration />
         <ConfigProvider>
           <GlobalTTSProvider apiBaseUrl={apiBaseUrl}>

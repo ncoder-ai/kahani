@@ -153,6 +153,12 @@ export default function SceneVariantDisplay({
   const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
   const [showFloatingMenu, setShowFloatingMenu] = useState(false);
+  const [isClient, setIsClient] = useState(false);
+  
+  // Only render client-side only elements after hydration
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   // Load variants for this scene
   const loadVariants = async (forceSetVariantId?: number) => {
@@ -691,36 +697,40 @@ export default function SceneVariantDisplay({
               <ArrowRightIcon className="w-5 h-5 text-gray-300" />
             </button>
             
-            {/* Mobile Arrows - Fixed position overlay */}
-            <button
-              onClick={() => {
-                if (variants.length <= 1) {
-                  loadVariants().then(() => navigateToPrevious());
-                } else {
-                  navigateToPrevious();
-                }
-              }}
-              disabled={!canNavigateToPrevious()}
-              className="md:hidden fixed left-2 top-1/2 -translate-y-1/2 w-10 h-10 items-center justify-center rounded-full bg-gray-800/80 hover:bg-gray-700/90 border border-gray-600/70 hover:border-gray-500 backdrop-blur-sm transition-all opacity-70 hover:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed z-20 flex"
-              title="Previous variant (←)"
-            >
-              <ArrowLeftIcon className="w-5 h-5 text-gray-300" />
-            </button>
-            
-            <button
-              onClick={() => {
-                if (variants.length <= 1) {
-                  loadVariants().then(() => navigateToNext());
-                } else {
-                  navigateToNext();
-                }
-              }}
-              disabled={!canNavigateToNext()}
-              className="md:hidden fixed right-2 top-1/2 -translate-y-1/2 w-10 h-10 items-center justify-center rounded-full bg-gray-800/80 hover:bg-gray-700/90 border border-gray-600/70 hover:border-gray-500 backdrop-blur-sm transition-all opacity-70 hover:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed z-20 flex"
-              title="Next variant (→)"
-            >
-              <ArrowRightIcon className="w-5 h-5 text-gray-300" />
-            </button>
+            {/* Mobile Arrows - Fixed position overlay (client-side only) */}
+            {isClient && (
+              <>
+                <button
+                  onClick={() => {
+                    if (variants.length <= 1) {
+                      loadVariants().then(() => navigateToPrevious());
+                    } else {
+                      navigateToPrevious();
+                    }
+                  }}
+                  disabled={!canNavigateToPrevious()}
+                  className="md:hidden fixed left-2 top-1/2 -translate-y-1/2 w-10 h-10 items-center justify-center rounded-full bg-gray-800/80 hover:bg-gray-700/90 border border-gray-600/70 hover:border-gray-500 backdrop-blur-sm transition-all opacity-70 hover:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed z-20 flex"
+                  title="Previous variant (←)"
+                >
+                  <ArrowLeftIcon className="w-5 h-5 text-gray-300" />
+                </button>
+                
+                <button
+                  onClick={() => {
+                    if (variants.length <= 1) {
+                      loadVariants().then(() => navigateToNext());
+                    } else {
+                      navigateToNext();
+                    }
+                  }}
+                  disabled={!canNavigateToNext()}
+                  className="md:hidden fixed right-2 top-1/2 -translate-y-1/2 w-10 h-10 items-center justify-center rounded-full bg-gray-800/80 hover:bg-gray-700/90 border border-gray-600/70 hover:border-gray-500 backdrop-blur-sm transition-all opacity-70 hover:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed z-20 flex"
+                  title="Next variant (→)"
+                >
+                  <ArrowRightIcon className="w-5 h-5 text-gray-300" />
+                </button>
+              </>
+            )}
           </>
         )}
         
@@ -871,7 +881,8 @@ export default function SceneVariantDisplay({
             )}
           </div>
           
-          {/* Mobile Floating Action Menu */}
+          {/* Mobile Floating Action Menu (client-side only) */}
+          {isClient && (
           <div className="md:hidden fixed bottom-20 right-4 z-50">
             {/* Floating Menu Items */}
             {showFloatingMenu && (
@@ -977,6 +988,7 @@ export default function SceneVariantDisplay({
               )}
             </button>
           </div>
+          )}
 
           {/* Guided Options Dropdown */}
           {showGuidedOptions && (
