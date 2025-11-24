@@ -53,8 +53,8 @@ interface AudioChunk {
  * ```tsx
  * const { generate, isGenerating, isPlaying, progress, stop } = useTTSWebSocket({
  *   sceneId: 123,
- *   onPlaybackStart: () => console.log('Started'),
- *   onPlaybackEnd: () => console.log('Finished'),
+ *   onPlaybackStart: () => ,
+ *   onPlaybackEnd: () => ,
  *   onError: (err) => console.error(err)
  * });
  * 
@@ -151,7 +151,6 @@ export const useTTSWebSocket = ({
       // Browser autoplay policy error - this is normal on first chunk
       // The audio will play after user grants permission or on subsequent chunks
       if (e.name === 'NotAllowedError') {
-        console.log('[Audio] Browser autoplay blocked - user interaction may be needed');
         // Don't set error for autoplay blocks, just skip to next chunk
         playNextChunk();
       } else {
@@ -167,12 +166,10 @@ export const useTTSWebSocket = ({
    * Queue an audio chunk for playback
    */
   const queueAudioChunk = useCallback((chunk: AudioChunk) => {
-    console.log(`[TTS] Queueing chunk ${chunk.chunk_number}, currently playing: ${isPlayingRef.current}, queue size: ${audioQueueRef.current.length}`);
     audioQueueRef.current.push(chunk);
     
     // If not currently playing, start playback IMMEDIATELY
     if (!isPlayingRef.current) {
-      console.log('[TTS] Starting playback NOW with chunk', chunk.chunk_number);
       setIsPlaying(true);
       isPlayingRef.current = true;
       onPlaybackStart?.();
@@ -189,7 +186,6 @@ export const useTTSWebSocket = ({
     try {
       const message: WebSocketMessage = JSON.parse(event.data);
       
-      console.log('[TTS WS] Received message:', message.type, message);
       
       switch (message.type) {
         case 'chunk_ready':
@@ -224,7 +220,6 @@ export const useTTSWebSocket = ({
           break;
         
         case 'complete':
-          console.log('[TTS WS] Generation complete');
           setIsGenerating(false);
           setProgress(100);
           // Playback will end naturally when queue is empty
@@ -248,17 +243,14 @@ export const useTTSWebSocket = ({
    * Generate and play audio using WebSocket
    */
   const generate = useCallback(async () => {
-    console.log('[TTS GENERATE] Function called for scene:', sceneId);
     
     try {
-      console.log('[TTS GENERATE] Setting states...');
       setIsGenerating(true);
       setError(null);
       setProgress(0);
       setChunksReceived(0);
       setTotalChunks(0);
       
-      console.log('[TTS GENERATE] Clearing audio queue...');
       // Clear audio queue
       audioQueueRef.current = [];
       
@@ -268,7 +260,6 @@ export const useTTSWebSocket = ({
         currentAudioRef.current = null;
       }
       
-      console.log('[TTS GENERATE] Establishing autoplay permission...');
       // Create a silent audio element to establish autoplay permission
       // This is triggered by user click, so browser allows it
       try {
@@ -280,19 +271,16 @@ export const useTTSWebSocket = ({
         const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 100));
         await Promise.race([playPromise, timeoutPromise]);
         silentAudio.pause();
-        console.log('[Audio] Autoplay permission established');
       } catch (e) {
         console.warn('[Audio] Could not establish autoplay permission (will continue anyway):', e);
       }
       
-      console.log('[TTS] Creating session for scene:', sceneId);
       
       // 1. Create TTS session
       const data = await api.post<TTSSessionResponse>(
         `/api/tts/generate-ws/${sceneId}`
       );
       
-      console.log('[TTS] Session created:', data.session_id);
       
       // 2. Connect to WebSocket
       // Use the same base URL as the API client (strips protocol and path)
@@ -301,13 +289,11 @@ export const useTTSWebSocket = ({
       const wsProtocol = apiUrl.startsWith('https') ? 'wss:' : 'ws:';
       const wsUrl = `${wsProtocol}//${apiHost}${data.websocket_url}`;
       
-      console.log('[TTS] Connecting to WebSocket:', wsUrl);
       
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
       
       ws.onopen = () => {
-        console.log('[TTS WS] Connected');
       };
       
       ws.onmessage = handleWebSocketMessage;
@@ -321,7 +307,6 @@ export const useTTSWebSocket = ({
       };
       
       ws.onclose = () => {
-        console.log('[TTS WS] Disconnected');
         wsRef.current = null;
       };
       
@@ -369,12 +354,10 @@ export const useTTSWebSocket = ({
   const connectToSession = useCallback(async (session_id: string) => {
     // Prevent double connection
     if (wsRef.current) {
-      console.log('[AUTO-PLAY] WebSocket already exists, skipping connection');
       return;
     }
     
     if (isGenerating) {
-      console.log('[AUTO-PLAY] Already generating, skipping connection');
       return;
     }
     
@@ -404,12 +387,10 @@ export const useTTSWebSocket = ({
         const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 100));
         await Promise.race([playPromise, timeoutPromise]);
         silentAudio.pause();
-        console.log('[AUTO-PLAY] Autoplay permission established');
       } catch (e) {
         console.warn('[AUTO-PLAY] Could not establish autoplay permission (will continue):', e);
       }
       
-      console.log('[AUTO-PLAY] Connecting to session:', session_id);
       
       // Connect to WebSocket with existing session
       const apiUrl = await getApiBaseUrl();
@@ -417,13 +398,11 @@ export const useTTSWebSocket = ({
       const wsProtocol = apiUrl.startsWith('https') ? 'wss:' : 'ws:';
       const wsUrl = `${wsProtocol}//${apiHost}/ws/tts/${session_id}`;
       
-      console.log('[AUTO-PLAY] WebSocket URL:', wsUrl);
       
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
       
       ws.onopen = () => {
-        console.log('[AUTO-PLAY] WebSocket connected');
       };
       
       ws.onmessage = handleWebSocketMessage;
@@ -437,7 +416,6 @@ export const useTTSWebSocket = ({
       };
       
       ws.onclose = () => {
-        console.log('[AUTO-PLAY] WebSocket disconnected');
         wsRef.current = null;
       };
       
@@ -461,15 +439,12 @@ export const useTTSWebSocket = ({
         connectedSessionRef.current !== pendingAutoPlay.session_id &&
         !isGenerating && 
         !wsRef.current) {
-      console.log('[AUTO-PLAY] Found pending auto-play! Connecting to session:', pendingAutoPlay.session_id, 'for scene:', sceneId);
       connectedSessionRef.current = pendingAutoPlay.session_id; // Mark this session as connected
       connectToSession(pendingAutoPlay.session_id);
       // Clear the pending auto-play
       onAutoPlayProcessed?.();
     } else if (pendingAutoPlay && pendingAutoPlay.scene_id === sceneId && connectedSessionRef.current === pendingAutoPlay.session_id) {
-      console.log('[AUTO-PLAY] Skipping connection - already connected to this session');
     } else if (pendingAutoPlay && pendingAutoPlay.scene_id === sceneId && (isGenerating || wsRef.current)) {
-      console.log('[AUTO-PLAY] Skipping connection - already generating or WebSocket exists');
     }
   }, [sceneId, pendingAutoPlay, connectToSession, onAutoPlayProcessed, isGenerating]);
   

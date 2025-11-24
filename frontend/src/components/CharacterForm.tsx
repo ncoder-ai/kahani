@@ -65,7 +65,6 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
     if (characterId && mode === 'edit') {
       loadCharacter();
     } else if (initialData) {
-      console.log('Setting initial data in CharacterForm:', initialData);
       // Pre-fill form with initial data (e.g., from Discover from Story)
       setFormData({
         name: initialData.name || '',
@@ -155,10 +154,6 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
     try {
       setGenerating(true);
       const character = await apiClient.generateCharacterWithAI(aiPrompt, storyContext);
-      console.log('Generated character:', character);
-      console.log('Personality traits:', character.personality_traits);
-      console.log('Personality traits type:', typeof character.personality_traits);
-      console.log('Is array?:', Array.isArray(character.personality_traits));
       setPreviousGeneration(generatedCharacter);
       setGeneratedCharacter(character);
     } catch (error) {
@@ -442,7 +437,6 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
                   {(() => {
                     const traits = generatedCharacter.personality_traits;
                     const hasTraits = traits && Array.isArray(traits) && traits.length > 0;
-                    console.log('Rendering personality traits:', { traits, hasTraits, type: typeof traits, isArray: Array.isArray(traits) });
                     return hasTraits ? (
                       <div className="space-y-4">
                         <h4 className="text-lg font-semibold text-white">Personality</h4>

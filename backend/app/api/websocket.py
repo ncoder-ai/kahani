@@ -12,6 +12,9 @@ from app.dependencies import get_current_user_websocket
 from app.services.tts_session_manager import tts_session_manager
 from app.models.user import User
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/ws", tags=["websocket"])
@@ -82,17 +85,13 @@ async def websocket_tts_stream(
         # Attach WebSocket to session
         tts_session_manager.attach_websocket(session_id, websocket)
         
-        print(f"[WebSocket] Client connected to TTS session: {session_id} (auto_play={session.auto_play})")
-        
         # If this is an auto-play session, flush any buffered messages first
         if session.auto_play and session.message_buffer:
-            print(f"[WebSocket] Flushing {len(session.message_buffer)} buffered messages for auto-play session")
             await tts_session_manager.flush_buffered_messages(session_id)
         
         # Check if generation has started for this auto-play session
         # For streaming scenes, generation might not have started yet (waiting for WebSocket)
         if session.auto_play and not session.is_generating:
-            print(f"[WebSocket] Auto-play session connected, starting generation now")
             from ..routers.tts import generate_and_stream_chunks
             import asyncio
             asyncio.create_task(generate_and_stream_chunks(
@@ -100,8 +99,6 @@ async def websocket_tts_stream(
                 scene_id=session.scene_id,
                 user_id=session.user_id
             ))
-        elif session.auto_play:
-            print(f"[WebSocket] Auto-play session connected, generation already running in background")
         
         # Keep connection alive and handle any client messages
         # (In current implementation, client doesn't send messages,
@@ -121,7 +118,6 @@ async def websocket_tts_stream(
                         await websocket.send_json({"type": "pong"})
                     elif message_type == "cancel":
                         # Client wants to cancel generation
-                        print(f"[WebSocket] Client requested cancellation for session: {session_id}")
                         await websocket.send_json({
                             "type": "cancelled",
                             "message": "Generation cancelled by user"
@@ -133,15 +129,13 @@ async def websocket_tts_stream(
                     pass
                     
             except WebSocketDisconnect:
-                print(f"[WebSocket] Client disconnected from session: {session_id}")
                 break
             except Exception as e:
-                print(f"[WebSocket] Error in session {session_id}: {e}")
+                logger.error(f"Error in WebSocket session {session_id}: {e}")
                 break
     
     finally:
         # Clean up session when WebSocket closes
-        print(f"[WebSocket] Cleaning up session: {session_id}")
         tts_session_manager.remove_session(session_id)
 
 
@@ -234,7 +228,7 @@ async def websocket_tts_stream_authenticated(
             except WebSocketDisconnect:
                 break
             except Exception as e:
-                print(f"[WebSocket Auth] Error: {e}")
+                logger.error(f"[WebSocket Auth] Error: {e}")
                 break
     
     finally:

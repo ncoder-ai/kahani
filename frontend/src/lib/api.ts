@@ -162,7 +162,6 @@ class ApiClient {
       if (timeoutTotal && typeof timeoutTotal === 'number' && timeoutTotal > 0) {
         // Add 10 second buffer for network overhead, convert to milliseconds
         this.cachedTimeoutMs = (timeoutTotal + 10) * 1000;
-        console.log(`[API] Using user timeout: ${timeoutTotal}s (+10s buffer = ${this.cachedTimeoutMs}ms)`);
         this.isFetchingTimeout = false;
         return this.cachedTimeoutMs;
       }
@@ -174,7 +173,6 @@ class ApiClient {
 
     // Fallback to 300 seconds (5 minutes) if settings unavailable or invalid
     this.cachedTimeoutMs = 300000; // 300 seconds in milliseconds
-    console.log('[API] Using default timeout: 300s');
     return this.cachedTimeoutMs;
   }
 
@@ -195,11 +193,6 @@ class ApiClient {
       headers.Authorization = `Bearer ${this.token}`;
     }
 
-    console.log(`[API] ${options.method || 'GET'} ${url}`);
-    console.log('[API] Base URL:', this.baseURL);
-    console.log('[API] Endpoint:', endpoint);
-    console.log('[API] Headers:', Object.keys(headers));
-
     // Get timeout from user settings (with fallback)
     const requestTimeoutMs = await this.getRequestTimeout(endpoint);
 
@@ -214,21 +207,17 @@ class ApiClient {
         signal: controller.signal 
       });
       clearTimeout(timeoutId);
-      console.log(`[API] Response status: ${response.status} ${response.statusText}`);
 
       if (!response.ok) {
         if (response.status === 401) {
           // Skip token refresh for login endpoint to avoid retry loops
           if (endpoint.includes('/api/auth/login')) {
-            console.log('[API] 401 on login endpoint - skipping token refresh');
             this.removeToken();
             throw new Error('Authentication failed. Please check your credentials.');
           }
           
-          console.log('[API] 401 Unauthorized - attempting token refresh');
           const refreshSuccess = await this.handleTokenRefresh();
           if (refreshSuccess) {
-            console.log('[API] Token refreshed, retrying request');
             // Retry the request with the new token (with timeout)
             const retryController = new AbortController();
             const retryTimeoutId = setTimeout(() => retryController.abort(), requestTimeoutMs);
@@ -241,7 +230,6 @@ class ApiClient {
               clearTimeout(retryTimeoutId);
               if (retryResponse.ok) {
                 const retryData = await retryResponse.json();
-                console.log('[API] Retry successful');
                 return retryData;
               }
             } catch (retryError) {
@@ -253,7 +241,6 @@ class ApiClient {
             }
           }
           
-          console.log('[API] Token refresh failed or not available - redirecting to login');
           this.removeToken();
           if (typeof window !== 'undefined') {
             window.location.href = '/login';
@@ -264,7 +251,6 @@ class ApiClient {
         let errorData: any;
         try {
           errorData = await response.json();
-          console.log('[API] Error response data:', errorData);
         } catch (e) {
           console.error('[API] Failed to parse error response:', e);
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -283,7 +269,6 @@ class ApiClient {
       }
 
       const data = await response.json();
-      console.log('[API] Response data received successfully');
       return data;
     } catch (error) {
       clearTimeout(timeoutId);
@@ -449,7 +434,6 @@ class ApiClient {
         while (true) {
           const { done, value } = await reader.read();
           if (done) {
-            console.log('[STREAMING] Stream ended, receivedComplete:', receivedComplete);
             if (!receivedComplete) {
               console.warn('[STREAMING] Stream closed before complete event received');
             }
@@ -466,7 +450,6 @@ class ApiClient {
             if (line.startsWith('data: ')) {
               const data = line.slice(6).trim();
               if (data === '[DONE]') {
-                console.log('[STREAMING] Received [DONE] marker');
                 clearTimeout(timeoutId);
                 return;
               }
@@ -474,7 +457,6 @@ class ApiClient {
               
               try {
                 const parsed = JSON.parse(data);
-                console.log('[STREAMING] Received event:', parsed.type);
                 
                 if (parsed.type === 'content' && onChunk) {
                   fullStreamedContent += parsed.chunk;
@@ -487,13 +469,6 @@ class ApiClient {
                 else if (parsed.type === 'complete' && onComplete) {
                   receivedComplete = true;
                   clearTimeout(timeoutId);
-                  // Log verification info
-                  console.log('=== SCENE GENERATION COMPLETE ===');
-                  console.log('Full streamed content length:', fullStreamedContent.length);
-                  console.log('Contains ###CHOICES###:', fullStreamedContent.includes('###CHOICES###'));
-                  console.log('Parsed choices count:', parsed.choices?.length || 0);
-                  console.log('Scene ID:', parsed.scene_id);
-                  console.log('================================');
                   onComplete(parsed.scene_id, parsed.choices || [], parsed.auto_play);
                   return;  // Exit after complete event
                 }
@@ -506,7 +481,6 @@ class ApiClient {
                   onExtractionStatus(parsed.status, parsed.message);
                 }
                 else if (parsed.type === 'start') {
-                  console.log('[STREAMING] Generation started, sequence:', parsed.sequence);
                 }
               } catch (parseError) {
                 // Log parse errors but continue processing

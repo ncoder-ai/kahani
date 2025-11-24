@@ -113,8 +113,6 @@ export const useTTS = ({ sceneId, onPlaybackStart, onPlaybackEnd, onError }: Use
         throw new Error('Audio element not initialized - call play() first');
       }
 
-      console.log(`[useTTS] Playing chunk ${chunkNumber}/${audioInfo.chunk_count} (attempt ${retryCount + 1})`);
-
       // Fetch audio chunk with authentication
       const url = audioInfo.progressive 
         ? `${await getApiBaseUrl()}/api/tts/audio/${sceneId}/chunk/${chunkNumber}`
@@ -136,8 +134,6 @@ export const useTTS = ({ sceneId, onPlaybackStart, onPlaybackEnd, onError }: Use
           MAX_DELAY_MS
         );
         
-        console.log(`[useTTS] Chunk ${chunkNumber} not ready yet, retrying in ${Math.round(delay)}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`);
-        
         // Wait before retrying
         await new Promise(resolve => setTimeout(resolve, delay));
         
@@ -154,7 +150,6 @@ export const useTTS = ({ sceneId, onPlaybackStart, onPlaybackEnd, onError }: Use
           
           if (statusResponse.ok) {
             const status = await statusResponse.json();
-            console.log(`[useTTS] Generation status: ${status.chunks_ready}/${status.total_chunks} chunks ready`);
           }
         } catch (statusErr) {
           // Status check failed, but continue with retry anyway
@@ -181,7 +176,6 @@ export const useTTS = ({ sceneId, onPlaybackStart, onPlaybackEnd, onError }: Use
       audioRef.current.src = audioUrl;
       await audioRef.current.play();
       
-      console.log(`[useTTS] Successfully playing chunk ${chunkNumber}`);
       
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : `Failed to play chunk ${chunkNumber}`;
@@ -190,7 +184,7 @@ export const useTTS = ({ sceneId, onPlaybackStart, onPlaybackEnd, onError }: Use
       setIsPlaying(false);
       onError?.(errorMessage);
     }
-  }, [sceneId, onError]);
+  }, [sceneId, onError, audioInfoRef, audioRef]);
 
   // Play audio (start from beginning)
   const play = useCallback(async () => {
@@ -224,7 +218,6 @@ export const useTTS = ({ sceneId, onPlaybackStart, onPlaybackEnd, onError }: Use
         audioRef.current.addEventListener('ended', async () => {
           const audioInfo = audioInfoRef.current;
           const chunkNumber = currentChunkRef.current; // Use ref to get current value
-          console.log(`[useTTS] Chunk ${chunkNumber} ended`);
           
           // Clean up current blob URL
           if (audioRef.current?.src) {
@@ -240,7 +233,6 @@ export const useTTS = ({ sceneId, onPlaybackStart, onPlaybackEnd, onError }: Use
             currentChunkRef.current = nextChunk; // Update ref
             setCurrentChunk(nextChunk); // Update state for UI
             
-            console.log(`[useTTS] Moving to chunk ${nextChunk}`);
             
             // Play next chunk
             await playChunk(nextChunk);
@@ -253,13 +245,11 @@ export const useTTS = ({ sceneId, onPlaybackStart, onPlaybackEnd, onError }: Use
             chunkStartTimeRef.current = 0;
             stopProgressTracking();
             onPlaybackEnd?.();
-            console.log('[useTTS] Playback complete');
             
             // Cleanup chunks on backend if progressive
             if (audioInfo?.progressive) {
               try {
                 await api.delete(`/api/tts/audio/${sceneId}/chunks`);
-                console.log('[useTTS] Cleaned up audio chunks on backend');
               } catch (err) {
                 console.warn('[useTTS] Failed to cleanup chunks:', err);
               }
@@ -286,7 +276,6 @@ export const useTTS = ({ sceneId, onPlaybackStart, onPlaybackEnd, onError }: Use
       chunkStartTimeRef.current = 0;
       setProgress(0);
 
-      console.log(`[useTTS] Starting playback: progressive=${audioInfo.progressive}, chunks=${audioInfo.chunk_count}`);
 
       // Start playing from chunk 0
       await playChunk(0);

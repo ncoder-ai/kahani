@@ -418,13 +418,6 @@ class CharacterAssistantService:
                 max_tokens=settings.service_defaults.get('extraction_service', {}).get('character_profile_max_tokens', 3000)
             )
             
-            # Log raw response for debugging
-            logger.debug(f"=== RAW LLM RESPONSE FOR CHARACTER DETAIL EXTRACTION ===")
-            logger.debug(f"Character: {character_name}")
-            logger.debug(f"Response length: {len(response)} characters")
-            logger.debug(f"Raw response:\n{response}")
-            logger.debug(f"=== END RAW RESPONSE ===")
-            
             # Parse JSON response
             response_clean = response.strip()
             if response_clean.startswith("```json"):
@@ -437,9 +430,6 @@ class CharacterAssistantService:
             
             # Clean common JSON errors
             response_clean = clean_llm_json(response_clean)
-            
-            # Debug logging
-            logger.debug(f"LLM response for character extraction: {response_clean[:200]}...")
             
             # Try to parse JSON, with fallback for truncated responses
             try:

@@ -62,14 +62,11 @@ export const ContextInfo: React.FC<ContextInfoProps> = ({ className = '', storyI
         
         // Fetch chapter context status for actual token usage (same as context bar)
         const activeChapter = await apiClient.getActiveChapter(storyId);
-        console.log('Active chapter:', activeChapter);
         let chapterContextData = null;
         if (activeChapter) {
           chapterContextData = await apiClient.getChapterContextStatus(storyId, activeChapter.id);
-          console.log('Chapter context data:', chapterContextData);
         }
         
-        console.log('Summary data context_info:', summaryData?.context_info);
         
         // Combine data from both sources
         if (summaryData?.context_info) {
@@ -81,7 +78,6 @@ export const ContextInfo: React.FC<ContextInfoProps> = ({ className = '', storyI
             estimatedTokens: chapterContextData?.current_tokens || 0, // Use chapter's actual token count
             usagePercentage: chapterContextData?.percentage_used || 0
           };
-          console.log('Setting combined stats:', newStats);
           setContextStats(newStats);
         } else if (chapterContextData) {
           // Fallback to chapter data only
@@ -93,7 +89,6 @@ export const ContextInfo: React.FC<ContextInfoProps> = ({ className = '', storyI
             estimatedTokens: chapterContextData.current_tokens || 0,
             usagePercentage: chapterContextData.percentage_used || 0
           };
-          console.log('Setting chapter-only stats:', newStats);
           setContextStats(newStats);
         }
       } catch (error) {

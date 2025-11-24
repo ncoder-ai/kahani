@@ -179,7 +179,6 @@ function CreateStoryContent() {
         story_id: draftStoryId || undefined,
       });
       setDraftStoryId(response.id);
-      console.log('Draft saved:', response.message);
     } catch (error) {
       console.error('Failed to save draft:', error);
     } finally {

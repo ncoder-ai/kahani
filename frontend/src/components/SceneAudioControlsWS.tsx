@@ -37,10 +37,10 @@ export const SceneAudioControlsWS: React.FC<SceneAudioControlsWSProps> = ({
     error
   } = useTTSWebSocket({ 
     sceneId,
-    onPlaybackStart: () => console.log('[Audio] Playback started'),
-    onPlaybackEnd: () => console.log('[Audio] Playback ended'),
+    onPlaybackStart: () => {},
+    onPlaybackEnd: () => {},
     onError: (err) => console.error('[Audio] Error:', err),
-    onProgress: (progress) => console.log('[Audio] Progress:', progress),
+    onProgress: (progress) => {},
     pendingAutoPlay,
     onAutoPlayProcessed
   });
@@ -51,12 +51,9 @@ export const SceneAudioControlsWS: React.FC<SceneAudioControlsWSProps> = ({
         {/* Play/Stop Button */}
         <button
           onClick={() => {
-            console.log('[TTS BUTTON] Clicked! isGenerating:', isGenerating, 'isPlaying:', isPlaying);
             if (isGenerating || isPlaying) {
-              console.log('[TTS BUTTON] Calling stop()');
               stop();
             } else {
-              console.log('[TTS BUTTON] Calling generate() for scene:', sceneId);
               generate();
             }
           }}

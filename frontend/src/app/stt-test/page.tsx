@@ -67,7 +67,6 @@ export default function STTTestPage() {
       console.error('[STT Test] Error:', error);
     },
     onStatusChange: (recording, transcribing) => {
-      console.log('[STT Test] Status:', { recording, transcribing });
     }
   });
 

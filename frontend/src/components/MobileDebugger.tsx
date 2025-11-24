@@ -21,7 +21,6 @@ export const MobileDebugger: React.FC = () => {
         // Initialize Eruda
         if ((window as any).eruda) {
           (window as any).eruda.init();
-          console.log('[MobileDebugger] Eruda console loaded - look for floating button');
         }
       };
       

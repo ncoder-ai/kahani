@@ -661,20 +661,6 @@ Return only valid JSON with all four sections: character_moments, npcs, plot_eve
                     max_tokens=max_tokens
                 )
                 elapsed_time = time.time() - start_time
-                logger.warning(f"[EXTRACTION] LLM call completed in {elapsed_time:.2f}s")
-                
-                # ALWAYS log the FULL raw response immediately after receiving it
-                logger.warning(f"[EXTRACTION] RAW LLM RESPONSE (length: {len(response)} chars):\n{response}")
-                
-                # Log response completeness indicators
-                response_stripped = response.strip()
-                ends_with_brace = response_stripped.endswith('}')
-                has_opening_brace = response_stripped.startswith('{')
-                logger.warning(f"[EXTRACTION] Response completeness: starts_with_{{={has_opening_brace}, ends_with_}}={ends_with_brace}")
-                
-                # Log first and last 500 chars for quick inspection
-                logger.warning(f"[EXTRACTION] Response preview - first 500 chars: {response[:500]}")
-                logger.warning(f"[EXTRACTION] Response preview - last 500 chars: {response[-500:]}")
                 
             except Exception as e:
                 elapsed_time = time.time() - start_time

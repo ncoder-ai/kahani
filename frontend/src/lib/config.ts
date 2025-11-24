@@ -117,7 +117,6 @@ async function loadConfig(): Promise<FrontendConfig> {
         // If error is about NEXT_PUBLIC_API_URL not being set for direct access, try common backend ports
         const errorMsg = error instanceof Error ? error.message : 'Unknown error';
         if (errorMsg.includes('NEXT_PUBLIC_API_URL') && typeof window !== 'undefined') {
-          console.log('[Config] NEXT_PUBLIC_API_URL not set, trying to auto-detect backend port...');
           
           // Extract hostname and protocol from browser URL (already available)
           const hostname = window.location.hostname;
@@ -142,23 +141,14 @@ async function loadConfig(): Promise<FrontendConfig> {
               // Fallback to string construction if URL constructor fails
               testUrl = `${protocol}//${hostname}:${port}`;
             }
-            console.log(`[Config] Trying backend at ${testUrl}...`);
-            console.log(`[Config] Protocol: "${protocol}", Hostname: "${hostname}", Port: ${port}`);
-            console.log(`[Config] Constructed URL: "${testUrl}"`);
             
             try {
               // Create abort controller for timeout
               const controller = new AbortController();
               const timeoutId = setTimeout(() => controller.abort(), 3000);
               
-              // Ensure we're using an absolute URL - verify it starts with http:// or https://
-              const fullUrl = `${testUrl}/api/config/frontend`;
-              console.log(`[Config] Fetching from absolute URL: ${fullUrl}`);
-              console.log(`[Config] URL is absolute: ${fullUrl.startsWith('http://') || fullUrl.startsWith('https://')}`);
-              
               // Use new URL() to ensure it's properly formatted
               const absoluteUrl = new URL('/api/config/frontend', testUrl).href;
-              console.log(`[Config] Using URL constructor result: ${absoluteUrl}`);
               
               const testResponse = await fetch(absoluteUrl, {
                 method: 'GET',
@@ -170,16 +160,13 @@ async function loadConfig(): Promise<FrontendConfig> {
               clearTimeout(timeoutId);
               
               if (testResponse.ok) {
-                console.log(`[Config] Successfully detected backend at ${testUrl}`);
                 apiBaseUrl = testUrl;
                 break;
               }
             } catch (fetchError) {
               // Continue to next port (timeout, network error, etc.)
               if (fetchError instanceof Error && fetchError.name === 'AbortError') {
-                console.log(`[Config] Backend at ${testUrl} did not respond within timeout, trying next port...`);
               } else {
-                console.log(`[Config] Backend not available at ${testUrl}, trying next port...`);
               }
               continue;
             }
@@ -216,8 +203,6 @@ async function loadConfig(): Promise<FrontendConfig> {
         // Fallback to string concatenation if URL constructor fails
         configUrl = `${apiBaseUrl}/api/config/frontend`;
       }
-      console.log(`[Config] Fetching config from absolute URL: ${configUrl}`);
-      console.log(`[Config] URL is absolute: ${configUrl.startsWith('http://') || configUrl.startsWith('https://')}`);
       const response = await fetch(configUrl);
 
       if (!response.ok) {

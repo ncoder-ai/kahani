@@ -56,14 +56,11 @@ export const useAuthStore = create<AuthState>()(
       refreshAccessToken: async () => {
         const { refreshToken } = get();
         if (!refreshToken) {
-          console.log('No refresh token available');
           return false;
         }
 
         try {
-          console.log('Attempting to refresh access token...');
           const response = await apiClient.refreshToken(refreshToken);
-          console.log('Token refresh successful');
           
           apiClient.setToken(response.access_token);
           set({ token: response.access_token });

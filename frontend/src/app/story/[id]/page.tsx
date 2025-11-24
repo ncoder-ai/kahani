@@ -315,7 +315,6 @@ export default function StoryPage() {
         onDeleteMode: () => setIsInDeleteMode(!isInDeleteMode),
         onExportStory: () => {
           // TODO: Implement export functionality
-          console.log('Export story functionality not yet implemented');
         },
         onEditStorySettings: () => setShowEditStoryModal(true),
         directorModeActive: directorMode,
@@ -421,15 +420,7 @@ export default function StoryPage() {
     
     // Debug log to verify only last N scenes are returned
     if (displayedScenes.length !== scenesToShow && displayedScenes.length < totalScenes) {
-      console.log('[Scene Display] Showing only last N scenes:', {
-        totalScenes,
-        scenesToShow,
-        displayedCount: displayedScenes.length,
-        displayedSceneIds: displayedScenes.map(s => s.id),
-        firstDisplayedSequence: displayedScenes[0]?.sequence_number,
-        lastDisplayedSequence: displayedScenes[displayedScenes.length - 1]?.sequence_number
-      });
-    }
+      }
     
     return displayedScenes;
   };
@@ -452,13 +443,11 @@ export default function StoryPage() {
   const loadMoreScenesAutomatically = useCallback(() => {
     // Prevent duplicate loads
     if (isAutoLoadingScenes) {
-      console.log('[Infinite Scroll] Skipping - already loading');
       return;
     }
     
     // Only load if in 'recent' mode and there are more scenes to load
     if (displayMode !== 'recent' || !story?.scenes) {
-      console.log('[Infinite Scroll] Skipping - not in recent mode or no scenes');
       return;
     }
     
@@ -470,11 +459,9 @@ export default function StoryPage() {
     const totalScenes = filteredScenes.length;
     
     if (scenesToShow >= totalScenes) {
-      console.log('[Infinite Scroll] All scenes already loaded', { scenesToShow, totalScenes });
       return;
     }
     
-    console.log('[Infinite Scroll] Loading more scenes', { scenesToShow, totalScenes });
     setIsAutoLoadingScenes(true);
     
     // Save current scroll position before loading
@@ -522,7 +509,6 @@ export default function StoryPage() {
             }
           }
           setIsAutoLoadingScenes(false);
-          console.log('[Infinite Scroll] Scenes loaded', { newScenesToShow, totalScenes });
         });
       });
     });
@@ -558,7 +544,6 @@ export default function StoryPage() {
             )
           };
           setStory(updatedStory);
-          console.log('[SCENE CHOICES] Updated choices for scene', sceneId, 'without reload');
         }
       }
     } catch (err) {
@@ -575,14 +560,6 @@ export default function StoryPage() {
 
   // Infinite scroll: detect when user scrolls to top using scroll listener
   useEffect(() => {
-    console.log('[Infinite Scroll] Effect running', {
-      displayMode,
-      hasStory: !!story,
-      scenesCount: story?.scenes?.length,
-      scenesToShow,
-      selectedChapterId
-    });
-
     let cleanupFunction: (() => void) | null = null;
     let retryTimeout: NodeJS.Timeout;
 
@@ -590,20 +567,13 @@ export default function StoryPage() {
     const setupScrollListener = () => {
       const scrollContainer = storyContentRef.current;
       if (!scrollContainer) {
-        console.log('[Infinite Scroll] Container not ready, will retry...');
         // Retry after a short delay
         retryTimeout = setTimeout(setupScrollListener, 100);
         return;
       }
 
-      console.log('[Infinite Scroll] Container found!', {
-        scrollHeight: scrollContainer.scrollHeight,
-        clientHeight: scrollContainer.clientHeight
-      });
-
       // Only enable infinite scroll in 'recent' mode
       if (displayMode !== 'recent') {
-        console.log('[Infinite Scroll] Not in recent mode, skipping');
         return;
       }
 
@@ -614,24 +584,9 @@ export default function StoryPage() {
       }
       const hasMoreScenes = filteredScenes.length > scenesToShow;
 
-      console.log('[Infinite Scroll] Scene check', {
-        filteredScenesCount: filteredScenes.length,
-        scenesToShow,
-        hasMoreScenes
-      });
-
       if (!hasMoreScenes) {
-        console.log('[Infinite Scroll] No more scenes to load');
         return;
       }
-
-      console.log('[Infinite Scroll] ✅ Setting up scroll listener');
-      console.log('[Infinite Scroll] Container info', {
-        scrollTop: scrollContainer.scrollTop,
-        scrollHeight: scrollContainer.scrollHeight,
-        clientHeight: scrollContainer.clientHeight,
-        isScrollable: scrollContainer.scrollHeight > scrollContainer.clientHeight
-      });
 
       let scrollTimeout: NodeJS.Timeout;
       let lastScrollTop = scrollContainer.scrollTop;
@@ -644,12 +599,10 @@ export default function StoryPage() {
       // Mark initial load as complete after a delay to prevent immediate triggering
       setTimeout(() => {
         isInitialLoad = false;
-        console.log('[Infinite Scroll] Initial load period complete, infinite scroll enabled');
       }, 2000); // 2 second grace period after page load
 
     // Scroll event listener for container
     const handleContainerScroll = () => {
-      console.log('[Infinite Scroll] 🔵 Container scroll event fired!');
       // Clear previous timeout
       clearTimeout(scrollTimeout);
       
@@ -658,7 +611,6 @@ export default function StoryPage() {
         // Don't trigger on initial load - wait for user to actually scroll
         if (isAutoLoadingScenes || hasTriggered || isInitialLoad) {
           if (isInitialLoad) {
-            console.log('[Infinite Scroll] Ignoring scroll during initial load period');
           }
           return;
         }
@@ -676,17 +628,6 @@ export default function StoryPage() {
         lastScrollTop = currentScrollTop;
 
         // Log every scroll for debugging
-        console.log('[Infinite Scroll] Container scroll', {
-          scrollTop: currentScrollTop,
-          scrollHeight,
-          clientHeight,
-          direction: scrollDirection,
-          isAutoLoading: isAutoLoadingScenes,
-          hasTriggered,
-          scenesToShow,
-          total: filteredScenes.length
-        });
-
         // Only trigger on scroll up
         if (scrollDirection === 'up') {
           // Calculate distance from top
@@ -702,21 +643,7 @@ export default function StoryPage() {
             scrollPercentage < 20 || 
             currentScrollTop < 50;
           
-          console.log('[Infinite Scroll] Checking trigger conditions', {
-            distanceFromTop,
-            scrollPercentage: scrollPercentage.toFixed(1),
-            shouldTrigger
-          });
-          
           if (shouldTrigger) {
-            console.log('[Infinite Scroll] ✅ TRIGGERING LOAD', {
-              scrollTop: currentScrollTop,
-              distanceFromTop,
-              scrollPercentage: scrollPercentage.toFixed(1),
-              scenesToShow,
-              total: filteredScenes.length
-            });
-            
             hasTriggered = true;
             loadMoreScenesAutomatically();
             
@@ -724,7 +651,6 @@ export default function StoryPage() {
             clearTimeout(triggerCooldown);
             triggerCooldown = setTimeout(() => {
               hasTriggered = false;
-              console.log('[Infinite Scroll] Cooldown expired, ready for next trigger');
             }, 2000);
           }
         }
@@ -733,7 +659,6 @@ export default function StoryPage() {
 
     // Also listen to window scroll in case that's what's actually scrolling
     const handleWindowScroll = () => {
-      console.log('[Infinite Scroll] 🟢 Window scroll event fired!');
       if (isAutoLoadingScenes || hasTriggered) {
         return;
       }
@@ -742,15 +667,8 @@ export default function StoryPage() {
       const scrollDirection = currentWindowScroll < lastWindowScroll ? 'up' : 'down';
       lastWindowScroll = currentWindowScroll;
 
-      console.log('[Infinite Scroll] Window scroll', {
-        pageYOffset: currentWindowScroll,
-        direction: scrollDirection,
-        containerScrollTop: scrollContainer.scrollTop
-      });
-
       // If window is scrolling up and we're near the top, trigger
       if (scrollDirection === 'up' && currentWindowScroll < 400) {
-        console.log('[Infinite Scroll] ✅ TRIGGERING LOAD (window scroll)');
         hasTriggered = true;
         loadMoreScenesAutomatically();
         clearTimeout(triggerCooldown);
@@ -773,7 +691,6 @@ export default function StoryPage() {
           const entry = entries[0];
           // Don't trigger on initial load - wait for user to actually scroll
           if (entry.isIntersecting && !isAutoLoadingScenes && !hasTriggered && !isInitialLoad) {
-            console.log('[Infinite Scroll] Sentinel visible via IntersectionObserver');
             hasTriggered = true;
             loadMoreScenesAutomatically();
             clearTimeout(triggerCooldown);
@@ -781,7 +698,6 @@ export default function StoryPage() {
               hasTriggered = false;
             }, 1500);
           } else if (entry.isIntersecting && isInitialLoad) {
-            console.log('[Infinite Scroll] Sentinel visible but ignoring (initial load period)');
           }
         },
         {
@@ -807,15 +723,8 @@ export default function StoryPage() {
     }
 
     // Test if scroll events work at all
-    console.log('[Infinite Scroll] Testing scroll detection...');
     setTimeout(() => {
-      console.log('[Infinite Scroll] Test: Container scrollable?', {
-        scrollHeight: scrollContainer.scrollHeight,
-        clientHeight: scrollContainer.clientHeight,
-        isScrollable: scrollContainer.scrollHeight > scrollContainer.clientHeight,
-        currentScrollTop: scrollContainer.scrollTop
-      });
-    }, 1000);
+      }, 1000);
 
       cleanupFunction = () => {
         clearTimeout(scrollTimeout);
@@ -844,7 +753,6 @@ export default function StoryPage() {
   }, [displayMode, loadMoreScenesAutomatically, isAutoLoadingScenes, story?.scenes, scenesToShow, selectedChapterId]);
 
   const loadStory = async (scrollToLastScene = true, scrollToNewScene = false) => {
-    console.log('� Loading story - scrollToLastScene:', scrollToLastScene);
     try {
       setIsLoading(true);
 
@@ -902,7 +810,6 @@ export default function StoryPage() {
 
       // Helper function to scroll to a scene element within the container
       const scrollToScene = (container: HTMLElement, element: HTMLElement) => {
-        console.log('🎯 Found scene element, scrolling within container');
         // Calculate scroll position to bring element to top of container
         const containerRect = container.getBoundingClientRect();
         const elementRect = element.getBoundingClientRect();
@@ -910,7 +817,6 @@ export default function StoryPage() {
         const scrollTop = container.scrollTop + relativeTop;
         
         container.scrollTo({ top: scrollTop, behavior: 'smooth' });
-        console.log('🎯 Scrolled to position:', scrollTop);
       };
 
       // Scroll to bottom only on initial page load OR when explicitly requested for new scenes
@@ -922,7 +828,6 @@ export default function StoryPage() {
             setTimeout(() => {
               const container = storyContentRef.current;
               if (!container) {
-                console.log('🎯 Container not found for scrolling');
                 return;
               }
 
@@ -940,13 +845,6 @@ export default function StoryPage() {
               const displayedScenes = sortedScenes.slice(startIndex);
               const targetScene = displayedScenes[displayedScenes.length - 1]; // Last scene in displayed list
               
-              console.log('🎯 Attempting to scroll to last displayed scene:', {
-                targetSceneId: targetScene.id,
-                totalScenes,
-                displayedScenesCount: displayedScenes.length,
-                scenesToShow
-              });
-              
               // Try to find the scene element - wait a bit more if not found
               let targetSceneElement = container.querySelector(`[data-scene-id="${targetScene.id}"]`) as HTMLElement;
               
@@ -958,7 +856,6 @@ export default function StoryPage() {
                     scrollToScene(container, targetSceneElement);
                   } else {
                     // Final fallback: scroll container to bottom
-                    console.log('🎯 Scene element not found after retry, scrolling container to bottom');
                     container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
                   }
                 }, 200);
@@ -1028,12 +925,10 @@ export default function StoryPage() {
   };
 
   const handleCloseStory = () => {
-    console.log('[CLOSE] Navigating back to dashboard');
     router.push('/dashboard');
   };
 
   const handleGenerateAISummary = async () => {
-    console.log('[SUMMARY] Generating AI summary for story:', storyId);
     setIsGeneratingAISummary(true);
     setAiSummary(null);
     
@@ -1042,11 +937,9 @@ export default function StoryPage() {
       const activeChapter = await apiClient.getActiveChapter(storyId);
       
       if (activeChapter) {
-        console.log('[SUMMARY] Generating chapter summary for chapter:', activeChapter.id);
         const summary = await apiClient.generateChapterSummary(storyId, activeChapter.id);
         
         if (summary && summary.auto_summary) {
-          console.log('[SUMMARY] Chapter summary generated:', summary.auto_summary.length, 'chars');
           setAiSummary(summary.auto_summary);
           return;
         }
@@ -1054,7 +947,6 @@ export default function StoryPage() {
       
       // Fallback to old regenerate-summary endpoint
       const url = `${await getApiBaseUrl()}/api/stories/${storyId}/regenerate-summary`;
-      console.log('[SUMMARY] Calling fallback API:', url);
       
       const response = await fetch(url, {
         method: 'POST',
@@ -1064,12 +956,9 @@ export default function StoryPage() {
         },
       });
       
-      console.log('[SUMMARY] Response status:', response.status);
       
       if (response.ok) {
         const summaryData = await response.json();
-        console.log('[SUMMARY] Received response:', summaryData);
-        console.log('[SUMMARY] Summary content:', summaryData.summary);
         setAiSummary(summaryData.summary);
       } else {
         const errorText = await response.text();
@@ -1086,7 +975,6 @@ export default function StoryPage() {
 
   const generateNewScene = async (prompt?: string) => {
     if (!story) return;
-    console.log('generateNewScene called', { storyId: story.id, prompt });
     
     setError('');
     setIsGenerating(true);
@@ -1117,7 +1005,6 @@ export default function StoryPage() {
         userContent,
         contentMode
       );
-      console.log('generateNewScene response', response);
       
       // End timing
       const endTime = Date.now();
@@ -1127,7 +1014,6 @@ export default function StoryPage() {
 
       // AUTO-PLAY TTS if enabled and session provided
       if (response.auto_play && response.auto_play.session_id) {
-        console.log('[AUTO-PLAY] Connecting to global TTS for scene', response.auto_play);
         globalTTS.connectToSession(response.auto_play.session_id, response.auto_play.scene_id);
       }
 
@@ -1160,7 +1046,6 @@ export default function StoryPage() {
 
   const generateNewSceneStreaming = async (prompt?: string) => {
     if (!story) return;
-    console.log('generateNewSceneStreaming called', { storyId: story.id, prompt });
     
     setError('');
     setIsStreaming(true);
@@ -1242,8 +1127,6 @@ export default function StoryPage() {
         },
         // onComplete
         async (sceneId: number, choices: any[], autoPlay?: { enabled: boolean; session_id: string; scene_id: number }) => {
-          console.log('[SCENE COMPLETE] Event received', { sceneId, choicesCount: choices?.length || 0, autoPlay });
-          console.log('[SCENE COMPLETE] Accumulated content length:', accumulatedContent.length);
           
           // Flush any remaining buffered chunks on iOS
           if (isIOS) {
@@ -1270,13 +1153,11 @@ export default function StoryPage() {
           // This is a fallback in case onAutoPlayReady wasn't called
           // (Global TTS will ignore duplicate connections to same session)
           if (autoPlay && autoPlay.session_id) {
-            console.log('[AUTO-PLAY] Connecting to global TTS from complete event (fallback)', autoPlay);
             globalTTS.connectToSession(autoPlay.session_id, autoPlay.scene_id);
           }
 
           // ADD the new scene to the story
           // This is a NEW scene, not updating an existing one
-          console.log('[SCENE COMPLETE] Adding new scene to story');
           
           if (story && accumulatedContent) {
             const newScene = {
@@ -1297,23 +1178,19 @@ export default function StoryPage() {
             
             // Check if choices were received
             if (choices && choices.length > 0) {
-              console.log('[SCENE COMPLETE] New scene added with choices:', choices.length);
               setIsGeneratingChoices(false);
               setWaitingForChoicesSceneId(null);
             } else {
               // No choices received - start retry mechanism
-              console.log('[SCENE COMPLETE] No choices received, starting retry mechanism');
               setIsGeneratingChoices(true);
               setWaitingForChoicesSceneId(sceneId);
               
               // Retry fetching scene data after 2 seconds
               setTimeout(async () => {
-                console.log('[CHOICES RETRY] Fetching scene data for sceneId:', sceneId);
                 try {
                   const storyData = await apiClient.getStory(storyId);
                   const updatedScene = storyData.scenes.find((s: Scene) => s.id === sceneId);
                   if (updatedScene && updatedScene.choices && updatedScene.choices.length > 0) {
-                    console.log('[CHOICES RETRY] Found choices:', updatedScene.choices.length);
                     // Update the scene in state with choices
                     setStory((prevStory) => {
                       if (!prevStory) return prevStory;
@@ -1328,13 +1205,11 @@ export default function StoryPage() {
                     setWaitingForChoicesSceneId(null);
                   } else {
                     // Still no choices, retry again after 3 more seconds
-                    console.log('[CHOICES RETRY] Still no choices, retrying again...');
                     setTimeout(async () => {
                       try {
                         const storyData2 = await apiClient.getStory(storyId);
                         const updatedScene2 = storyData2.scenes.find((s: Scene) => s.id === sceneId);
                         if (updatedScene2 && updatedScene2.choices && updatedScene2.choices.length > 0) {
-                          console.log('[CHOICES RETRY] Found choices on second retry:', updatedScene2.choices.length);
                           setStory((prevStory) => {
                             if (!prevStory) return prevStory;
                             return {
@@ -1396,13 +1271,10 @@ export default function StoryPage() {
         },
         // onAutoPlayReady - Connect to global TTS session immediately
         (sessionId: string, sceneId: number) => {
-          console.log('[AUTO-PLAY-READY] Received session ID:', sessionId, 'for scene:', sceneId);
-          console.log('[AUTO-PLAY-READY] Connecting to global TTS widget');
           globalTTS.connectToSession(sessionId, sceneId);
         },
         // onExtractionStatus - Handle extraction status updates
         (status: 'extracting' | 'complete' | 'error', message: string) => {
-          console.log('[EXTRACTION] Status:', status, message);
           setExtractionStatus({ status, message });
           if (status === 'complete' || status === 'error') {
             // Clear extraction status after a short delay
@@ -1614,7 +1486,6 @@ export default function StoryPage() {
       await loadStory(false, true); // Scroll to updated last scene after regeneration
       
       // Show success message or handle the new variant
-      console.log('Scene regenerated:', response.variant);
       
     } catch (error) {
       console.error('Failed to regenerate scene:', error);
@@ -1636,14 +1507,12 @@ export default function StoryPage() {
     // Navigate forward in linear scene progression
     if (story && story.scenes.length > 0) {
       // For now, this could scroll to the next scene or enable "continue story" functionality
-      console.log('Go to next scene - to be implemented');
     }
   };
 
   const createNewVariant = async (sceneId: number, customPrompt?: string, variantId?: number) => {
     if (!story) return;
     
-    console.log('createNewVariant called', { sceneId, customPrompt, useStreaming });
     
     try {
       setIsRegenerating(true);
@@ -1716,11 +1585,6 @@ export default function StoryPage() {
               flushIOSVariantChunks();
             }
             
-            console.log('[VARIANT COMPLETE] Full response:', JSON.stringify(response, null, 2));
-            console.log('[VARIANT COMPLETE] Has auto_play_session_id?', 'auto_play_session_id' in response);
-            console.log('[VARIANT COMPLETE] auto_play_session_id value:', response.auto_play_session_id);
-            console.log('[VARIANT COMPLETE] Accumulated content length:', accumulatedVariantContent.length);
-            
             // Flush any remaining iOS chunks before using accumulated content
             if (isIOSVariant) {
               flushIOSVariantChunks();
@@ -1738,6 +1602,7 @@ export default function StoryPage() {
                     content: newContent,
                     variant_id: response.variant.id,
                     variant_number: response.variant.variant_number,
+                    has_multiple_variants: true,  // Set flag to show navigation arrows
                     choices: response.variant.choices 
                       ? response.variant.choices.map((c: any) => c.text || c.choice_text)
                       : s.choices
@@ -1746,34 +1611,23 @@ export default function StoryPage() {
                 return s;
               });
               setStory({ ...story, scenes: updatedScenes });
-              console.log('[VARIANT] Scene updated with new variant content and choices in state');
             }
             
             // Check if auto-play was triggered - but ONLY if we didn't already handle it via auto_play_ready
             if (response.auto_play_session_id && !autoPlayAlreadyTriggered) {
-              console.log('[AUTO-PLAY] Connecting to global TTS from COMPLETE event:', response.auto_play_session_id, 'for scene:', sceneId);
               globalTTS.connectToSession(response.auto_play_session_id, sceneId);
             } else if (autoPlayAlreadyTriggered) {
-              console.log('[AUTO-PLAY] Skipping auto-play setup - already triggered via auto_play_ready event');
             } else {
-              console.log('[AUTO-PLAY] NO session ID in response - auto-play will not trigger');
             }
             
-            // Clear streaming states - do this before refresh to allow variant reload
+            // Clear streaming states
             setStreamingVariantContent('');
             setStreamingVariantSceneId(null);
             setIsStreaming(false);
-            setIsRegenerating(false); // Clear regenerating flag so variant reload can happen
+            setIsRegenerating(false);
             
-            // Refresh story content after a delay to sync variant list from backend
-            // This will update the scene's variant_id, which will trigger SceneVariantDisplay to reload variants
-            console.log('[VARIANT] Variant generation complete, refreshing story content to sync variant list');
-            
-            setTimeout(async () => {
-              await refreshStoryContent();
-              console.log('[VARIANT] Story content refreshed, variant list synced');
-              // The useEffect in SceneVariantDisplay watching scene.variant_id will handle reloading variants
-            }, 1000); // Wait 1 second for audio to start
+            // No need to reload story - state is already updated with new variant
+            // SceneVariantDisplay will detect has_multiple_variants flag and load variants automatically
           },
           // onError
           (error: string) => {
@@ -1785,8 +1639,6 @@ export default function StoryPage() {
           },
           // onAutoPlayReady - Connect to global TTS immediately when ready
           (sessionId: string) => {
-            console.log('[AUTO-PLAY-READY] Received session ID immediately:', sessionId, 'for scene:', sceneId);
-            console.log('[AUTO-PLAY-READY] Connecting to global TTS NOW (before choices are generated)');
             autoPlayAlreadyTriggered = true; // Mark that we handled auto-play
             globalTTS.connectToSession(sessionId, sceneId);
           }
@@ -1795,30 +1647,33 @@ export default function StoryPage() {
         // Non-streaming variant creation
         const response = await apiClient.createSceneVariant(story.id, sceneId, customPrompt);
         
-        console.log('New variant created:', response.variant);
-        
         // Check if auto-play was triggered
         if (response.auto_play_session_id) {
-          console.log('[AUTO-PLAY] Connecting to global TTS:', response.auto_play_session_id, 'for scene:', sceneId);
           globalTTS.connectToSession(response.auto_play_session_id, sceneId);
         }
         
-        // Preserve current scroll position for variant operations
-        const currentScrollPosition = window.pageYOffset;
+        // Update the scene with the new variant content and choices directly in state
+        if (response.variant && story) {
+          const updatedScenes = story.scenes.map(s => {
+            if (s.id === sceneId) {
+              return {
+                ...s,
+                content: response.variant.content || s.content,
+                variant_id: response.variant.id,
+                variant_number: response.variant.variant_number,
+                has_multiple_variants: true,  // Set flag to show navigation arrows
+                choices: response.variant.choices 
+                  ? response.variant.choices.map((c: any) => c.text || c.choice_text)
+                  : s.choices
+              };
+            }
+            return s;
+          });
+          setStory({ ...story, scenes: updatedScenes });
+        }
         
-        // Reload story to show new variant
-        await loadStory(false, false); // Don't auto-scroll for variants
-        
-        // Restore scroll position to stay at the scene being worked on
-        setTimeout(() => {
-          window.scrollTo({ top: currentScrollPosition, behavior: 'instant' });
-          
-          // Then smoothly scroll to the specific scene that was modified
-          const sceneElement = document.querySelector(`[data-scene-id="${sceneId}"]`);
-          if (sceneElement) {
-            sceneElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }
-        }, 50);
+        // Clear regenerating flag
+        setIsRegenerating(false);
       }
       
     } catch (error) {
@@ -1833,7 +1688,6 @@ export default function StoryPage() {
   const continueScene = async (sceneId: number, customPrompt?: string) => {
     if (!story) return;
     
-    console.log('continueScene called', { sceneId, customPrompt });
     
     try {
       setIsRegenerating(true);
@@ -1896,9 +1750,6 @@ export default function StoryPage() {
               flushIOSContinuationChunks();
             }
             
-            console.log('🎬 Scene continuation complete', { completedSceneId, newContent: newContent.substring(0, 50) + '...' });
-            console.log('📍 Scroll position before loadStory:', window.pageYOffset);
-            
             // Preserve current scroll position
             const currentScrollPosition = window.pageYOffset;
             
@@ -1916,14 +1767,12 @@ export default function StoryPage() {
               }
             }, 50);
             
-            console.log('📍 Scroll position after loadStory:', window.pageYOffset);
             
             // Then clear streaming states after story is loaded
             setIsStreamingContinuation(false);
             setStreamingContinuation('');
             setStreamingContinuationSceneId(null);
             
-            console.log('✅ Scene continued successfully, final scroll position:', window.pageYOffset);
           },
           // onError
           (error: string) => {
@@ -1940,7 +1789,6 @@ export default function StoryPage() {
         // Reload story to show updated scene
         await loadStory(false, true); // Scroll to updated last scene after continuing
         
-        console.log('Scene continued:', response.scene);
       }
       
     } catch (error) {
@@ -1974,7 +1822,6 @@ export default function StoryPage() {
     setSelectedChoice(null);
     setShowChoicesDuringGeneration(true);
     
-    console.log('Generation stopped by user');
   };
 
   const toggleDeleteMode = () => {
@@ -2034,12 +1881,10 @@ export default function StoryPage() {
         if (event.key === 'ArrowRight') {
           event.preventDefault();
           // Right arrow: Navigate to next variant of last scene
-          console.log('Right arrow: Next variant navigation handled by SceneVariantDisplay');
           // This will be handled by the SceneVariantDisplay component
         } else if (event.key === 'ArrowLeft') {
           event.preventDefault();
           // Left arrow: Navigate to previous variant of last scene
-          console.log('Left arrow: Previous variant navigation handled by SceneVariantDisplay');
           // This will be handled by the SceneVariantDisplay component
         }
       }
@@ -2646,13 +2491,7 @@ export default function StoryPage() {
                     const scenesToRender = getScenesToDisplay();
                     // Debug: Log what's being rendered
                     if (scenesToRender.length > 0) {
-                      console.log('[Scene Rendering] Rendering scenes:', {
-                        count: scenesToRender.length,
-                        mode: displayMode,
-                        sceneIds: scenesToRender.map(s => s.id),
-                        totalScenesInStory: story.scenes.length
-                      });
-                    }
+                      }
                     return scenesToRender.map((scene, displayIndex) => {
                       // Calculate the actual scene number in the full story
                       const actualSceneNumber = story.scenes.findIndex(s => s.id === scene.id) + 1;
@@ -3098,7 +2937,6 @@ export default function StoryPage() {
         onClose={() => setShowTTSSettings(false)}
         onSaved={() => {
           // Optionally refresh story or show success message
-          console.log('TTS settings saved');
         }}
       />
       

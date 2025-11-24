@@ -3,7 +3,10 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from .config import settings
 import os
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # Ensure data directory exists
 try:
@@ -14,8 +17,8 @@ try:
         f.write('test')
     os.remove(test_file)
 except (PermissionError, OSError) as e:
-    print(f"⚠️  Warning: Cannot write to data directory {settings.data_dir}: {e}")
-    print("   Database operations may fail. Check directory permissions.")
+    logger.warning(f"Cannot write to data directory {settings.data_dir}: {e}")
+    logger.warning("Database operations may fail. Check directory permissions.")
 
 # Convert relative database URL to absolute path if it's SQLite
 database_url = settings.database_url
@@ -25,7 +28,6 @@ if "sqlite:///" in database_url and not database_url.startswith("sqlite:////"):
     relative_path = database_url.replace("sqlite:///", "")
     absolute_path = (backend_dir / relative_path).resolve()
     database_url = f"sqlite:///{absolute_path}"
-    print(f"[DATABASE] Using absolute path: {database_url}")
 
 # Create SQLAlchemy engine
 engine = create_engine(

@@ -21,17 +21,13 @@ export default function LoginPage() {
     setError('');
 
     try {
-      console.log('Attempting login with:', { email, password: '***' });
       const response = await apiClient.login(email, password);
-      console.log('Login response:', response);
       
       // Set token in API client immediately
       apiClient.setToken(response.access_token);
-      console.log('Token set in API client');
       
       // Update auth store
       login(response.user, response.access_token);
-      console.log('Auth store updated, redirecting to dashboard');
       
       // Use router.push instead of window.location.href for proper React navigation
       router.push('/dashboard');
