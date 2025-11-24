@@ -402,6 +402,7 @@ class ApiClient {
     onExtractionStatus?: (status: 'extracting' | 'complete' | 'error', message: string) => void
   ) {
     let fullStreamedContent = '';  // Track all streamed content for verification
+    let receivedComplete = false;  // Track if we received the complete event
     const formData = new FormData();
     formData.append('custom_prompt', customPrompt);
     if (userContent) {
@@ -411,23 +412,70 @@ class ApiClient {
     const headers: Record<string, string> = {};
     if (this.token) headers.Authorization = `Bearer ${this.token}`;
     try {
-      const response = await fetch(`${this.baseURL}/api/stories/${storyId}/scenes/stream`, { method: 'POST', headers, body: formData });
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      if (!response.body) throw new Error('No response body');
+      // Get timeout from user settings (with generous buffer for streaming)
+      const requestTimeoutMs = await this.getRequestTimeout(`/api/stories/${storyId}/scenes/stream`);
+      // Add extra buffer for streaming (double the timeout for streaming endpoints)
+      const streamingTimeoutMs = requestTimeoutMs * 2;
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        if (!receivedComplete) {
+          console.warn('[STREAMING] Timeout reached but complete event not received yet');
+          controller.abort();
+        }
+      }, streamingTimeoutMs);
+      
+      const response = await fetch(`${this.baseURL}/api/stories/${storyId}/scenes/stream`, { 
+        method: 'POST', 
+        headers, 
+        body: formData,
+        signal: controller.signal
+      });
+      
+      if (!response.ok) {
+        clearTimeout(timeoutId);
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      if (!response.body) {
+        clearTimeout(timeoutId);
+        throw new Error('No response body');
+      }
+      
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
+      let buffer = '';  // Buffer for incomplete lines
+      
       try {
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n');
+          if (done) {
+            console.log('[STREAMING] Stream ended, receivedComplete:', receivedComplete);
+            if (!receivedComplete) {
+              console.warn('[STREAMING] Stream closed before complete event received');
+            }
+            break;
+          }
+          
+          // Decode and add to buffer
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          // Keep the last incomplete line in buffer
+          buffer = lines.pop() || '';
+          
           for (const line of lines) {
             if (line.startsWith('data: ')) {
-              const data = line.slice(6);
-              if (data === '[DONE]') return;
+              const data = line.slice(6).trim();
+              if (data === '[DONE]') {
+                console.log('[STREAMING] Received [DONE] marker');
+                clearTimeout(timeoutId);
+                return;
+              }
+              if (!data) continue;  // Skip empty lines
+              
               try {
                 const parsed = JSON.parse(data);
+                console.log('[STREAMING] Received event:', parsed.type);
+                
                 if (parsed.type === 'content' && onChunk) {
                   fullStreamedContent += parsed.chunk;
                   onChunk(parsed.chunk);
@@ -437,27 +485,51 @@ class ApiClient {
                   onAutoPlayReady(parsed.auto_play_session_id, parsed.scene_id);
                 }
                 else if (parsed.type === 'complete' && onComplete) {
+                  receivedComplete = true;
+                  clearTimeout(timeoutId);
                   // Log verification info
                   console.log('=== SCENE GENERATION COMPLETE ===');
-                  console.log('Full streamed content:', fullStreamedContent);
+                  console.log('Full streamed content length:', fullStreamedContent.length);
                   console.log('Contains ###CHOICES###:', fullStreamedContent.includes('###CHOICES###'));
-                  console.log('Parsed choices:', parsed.choices);
+                  console.log('Parsed choices count:', parsed.choices?.length || 0);
+                  console.log('Scene ID:', parsed.scene_id);
                   console.log('================================');
-                  onComplete(parsed.scene_id, parsed.choices, parsed.auto_play);
+                  onComplete(parsed.scene_id, parsed.choices || [], parsed.auto_play);
+                  return;  // Exit after complete event
                 }
-                else if (parsed.type === 'error' && onError) onError(parsed.message);
+                else if (parsed.type === 'error' && onError) {
+                  clearTimeout(timeoutId);
+                  onError(parsed.message);
+                  return;
+                }
                 else if (parsed.type === 'extraction_status' && onExtractionStatus) {
                   onExtractionStatus(parsed.status, parsed.message);
                 }
-              } catch {}
+                else if (parsed.type === 'start') {
+                  console.log('[STREAMING] Generation started, sequence:', parsed.sequence);
+                }
+              } catch (parseError) {
+                // Log parse errors but continue processing
+                console.warn('[STREAMING] Failed to parse line:', line.substring(0, 100), parseError);
+              }
             }
           }
         }
       } finally {
+        clearTimeout(timeoutId);
         reader.releaseLock();
       }
     } catch (error) {
-      if (onError) onError(error instanceof Error ? error.message : 'Unknown error');
+      if (error instanceof Error && error.name === 'AbortError') {
+        const errorMsg = receivedComplete 
+          ? 'Stream timeout after completion' 
+          : 'Stream timeout - generation may still be in progress';
+        console.error('[STREAMING]', errorMsg);
+        if (onError) onError(errorMsg);
+      } else {
+        console.error('[STREAMING] Error:', error);
+        if (onError) onError(error instanceof Error ? error.message : 'Unknown error');
+      }
       throw error;
     }
   }

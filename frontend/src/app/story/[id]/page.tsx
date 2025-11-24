@@ -165,7 +165,14 @@ export default function StoryPage() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
   const [streamingSceneNumber, setStreamingSceneNumber] = useState<number | null>(null);
-  const [useStreaming, setUseStreaming] = useState(true); // Enable streaming by default
+  // Load streaming preference from localStorage as initial value, default to true
+  const [useStreaming, setUseStreaming] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('enable_streaming');
+      return saved !== null ? saved === 'true' : true;
+    }
+    return true;
+  });
   
   // Variant regeneration streaming states
   const [streamingVariantSceneId, setStreamingVariantSceneId] = useState<number | null>(null);
@@ -229,6 +236,8 @@ export default function StoryPage() {
   const [extractionStatus, setExtractionStatus] = useState<{ status: 'extracting' | 'complete' | 'error'; message: string } | null>(null);
   const [showContextWarning, setShowContextWarning] = useState(false);
   const [hasShownContextWarning, setHasShownContextWarning] = useState(false);
+  const [isGeneratingChoices, setIsGeneratingChoices] = useState(false);
+  const [waitingForChoicesSceneId, setWaitingForChoicesSceneId] = useState<number | null>(null);
   
   const storyContentRef = useRef<HTMLDivElement>(null);
   
@@ -254,10 +263,30 @@ export default function StoryPage() {
     try {
       const settings = await apiClient.getUserSettings();
       setUserSettings(settings.settings);
+      
+      // Update streaming preference from settings
+      const enableStreaming = settings.settings?.generation_preferences?.enable_streaming !== false;
+      setUseStreaming(enableStreaming);
+      
+      // Also save to localStorage as fallback
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('enable_streaming', String(enableStreaming));
+      }
     } catch (err) {
       console.error('Failed to load user settings:', err);
     }
   };
+  
+  // Sync streaming preference when userSettings change
+  useEffect(() => {
+    if (userSettings?.generation_preferences?.enable_streaming !== undefined) {
+      const enableStreaming = userSettings.generation_preferences.enable_streaming !== false;
+      setUseStreaming(enableStreaming);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('enable_streaming', String(enableStreaming));
+      }
+    }
+  }, [userSettings?.generation_preferences?.enable_streaming]);
 
   // Set up story actions for the PersistentBanner menu
   useEffect(() => {
@@ -1181,7 +1210,7 @@ export default function StoryPage() {
         },
         // onComplete
         async (sceneId: number, choices: any[], autoPlay?: { enabled: boolean; session_id: string; scene_id: number }) => {
-          console.log('Scene generation complete', { sceneId, choices, autoPlay });
+          console.log('[SCENE COMPLETE] Event received', { sceneId, choicesCount: choices?.length || 0, autoPlay });
           console.log('[SCENE COMPLETE] Accumulated content length:', accumulatedContent.length);
           
           // Flush any remaining buffered chunks on iOS
@@ -1233,7 +1262,75 @@ export default function StoryPage() {
               scenes: [...story.scenes, newScene]
             };
             setStory(updatedStory);
-            console.log('[SCENE COMPLETE] New scene added with choices, audio continues playing');
+            
+            // Check if choices were received
+            if (choices && choices.length > 0) {
+              console.log('[SCENE COMPLETE] New scene added with choices:', choices.length);
+              setIsGeneratingChoices(false);
+              setWaitingForChoicesSceneId(null);
+            } else {
+              // No choices received - start retry mechanism
+              console.log('[SCENE COMPLETE] No choices received, starting retry mechanism');
+              setIsGeneratingChoices(true);
+              setWaitingForChoicesSceneId(sceneId);
+              
+              // Retry fetching scene data after 2 seconds
+              setTimeout(async () => {
+                console.log('[CHOICES RETRY] Fetching scene data for sceneId:', sceneId);
+                try {
+                  const storyData = await apiClient.getStory(storyId);
+                  const updatedScene = storyData.scenes.find((s: Scene) => s.id === sceneId);
+                  if (updatedScene && updatedScene.choices && updatedScene.choices.length > 0) {
+                    console.log('[CHOICES RETRY] Found choices:', updatedScene.choices.length);
+                    // Update the scene in state with choices
+                    setStory((prevStory) => {
+                      if (!prevStory) return prevStory;
+                      return {
+                        ...prevStory,
+                        scenes: prevStory.scenes.map((s: Scene) =>
+                          s.id === sceneId ? { ...s, choices: updatedScene.choices } : s
+                        )
+                      };
+                    });
+                    setIsGeneratingChoices(false);
+                    setWaitingForChoicesSceneId(null);
+                  } else {
+                    // Still no choices, retry again after 3 more seconds
+                    console.log('[CHOICES RETRY] Still no choices, retrying again...');
+                    setTimeout(async () => {
+                      try {
+                        const storyData2 = await apiClient.getStory(storyId);
+                        const updatedScene2 = storyData2.scenes.find((s: Scene) => s.id === sceneId);
+                        if (updatedScene2 && updatedScene2.choices && updatedScene2.choices.length > 0) {
+                          console.log('[CHOICES RETRY] Found choices on second retry:', updatedScene2.choices.length);
+                          setStory((prevStory) => {
+                            if (!prevStory) return prevStory;
+                            return {
+                              ...prevStory,
+                              scenes: prevStory.scenes.map((s: Scene) =>
+                                s.id === sceneId ? { ...s, choices: updatedScene2.choices } : s
+                              )
+                            };
+                          });
+                        } else {
+                          console.warn('[CHOICES RETRY] No choices found after multiple retries');
+                        }
+                        setIsGeneratingChoices(false);
+                        setWaitingForChoicesSceneId(null);
+                      } catch (err) {
+                        console.error('[CHOICES RETRY] Error on second retry:', err);
+                        setIsGeneratingChoices(false);
+                        setWaitingForChoicesSceneId(null);
+                      }
+                    }, 3000);
+                  }
+                } catch (err) {
+                  console.error('[CHOICES RETRY] Error fetching scene data:', err);
+                  setIsGeneratingChoices(false);
+                  setWaitingForChoicesSceneId(null);
+                }
+              }, 2000);
+            }
           } else {
             console.error('[SCENE COMPLETE] Failed to add scene - story:', !!story, 'content length:', accumulatedContent?.length || 0);
           }
@@ -1244,10 +1341,6 @@ export default function StoryPage() {
           
           // Refresh chapter sidebar to update context counter
           setChapterSidebarRefreshKey(prev => prev + 1);
-          
-          // Don't refresh choices - they're already in state from the streaming completion callback
-          // The scene and choices are complete and don't need backend sync
-          console.log('[SCENE COMPLETE] Scene and choices already in state, no refresh needed');
           
           // Clear operation flag with delay to let DOM settle
           setTimeout(() => setIsSceneOperationInProgress(false), 1500);
@@ -1990,7 +2083,7 @@ export default function StoryPage() {
   const currentScene = story.scenes?.[currentChapterIndex];
 
   return (
-    <div className="min-h-screen theme-bg-primary text-white pt-16">
+    <div className="min-h-screen theme-bg-primary text-white">
       {/* Context Usage Progress Bar - Fixed at top */}
       <div className="fixed top-0 left-0 right-0 z-50 h-1 bg-gray-800">
         <div 
@@ -2385,70 +2478,62 @@ export default function StoryPage() {
         currentChapterId={selectedChapterId ?? undefined}
       />
       
-      {/* Navigation Header - Simplified */}
-      <div className="bg-gray-800/95 backdrop-blur-md border-b border-gray-700">
-        <div className="max-w-4xl mx-auto px-4 md:px-6 py-3 md:py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2 md:space-x-4">
-              <div className="text-gray-300 text-sm md:text-base font-medium truncate">
-                {story?.title}
-              </div>
-              <div className="hidden sm:flex items-center space-x-2 text-gray-500 text-xs md:text-sm">
-                <span>•</span>
-                <span>{story?.scenes?.length || 0} scenes</span>
-                {storyCharacters.length > 0 && (
-                  <>
-                    <span>•</span>
-                    <span className="text-purple-400">{storyCharacters.length} characters</span>
-                  </>
+      {/* Compact Combined Header */}
+      <div className="bg-gray-800/95 backdrop-blur-md border-b border-gray-700 sticky top-0 z-40">
+        <div className="max-w-4xl mx-auto px-3 md:px-4 py-1.5 md:py-2">
+          <div className="flex items-center justify-between gap-2">
+            {/* Left: Back button + Story title */}
+            <div className="flex items-center gap-2 md:gap-3 min-w-0 flex-1">
+              <button
+                onClick={handleCloseStory}
+                className="flex-shrink-0 p-1.5 md:p-2 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded transition-colors"
+                title="Close story and return to dashboard"
+              >
+                <X className="w-4 h-4 md:w-5 md:h-5" />
+              </button>
+              <div className="min-w-0 flex-1">
+                <div className="text-gray-200 text-xs md:text-sm font-medium truncate">
+                  {story?.title}
+                </div>
+                {/* Chapter indicator - compact */}
+                {currentChapterInfo && (
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="text-gray-500 text-[10px] md:text-xs">
+                      {currentChapterInfo.title || `Chapter ${currentChapterInfo.number}`}
+                    </span>
+                    {selectedChapterId !== null && (
+                      <button
+                        onClick={() => setSelectedChapterId(null)}
+                        className="text-gray-500 hover:text-gray-300 text-[10px] md:text-xs transition-colors"
+                        title="Return to active chapter"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
             
-            {/* Chapter Indicator */}
-            {currentChapterInfo && (
-              <div className="flex items-center gap-2">
-                <div className="px-3 py-1 bg-purple-600/20 border border-purple-500/30 rounded-full text-xs font-medium text-purple-300">
-                  {currentChapterInfo.title || `Chapter ${currentChapterInfo.number}`}
-                </div>
-                <button
-                  onClick={() => setSelectedChapterId(null)}
-                  className="px-2 py-1 text-xs text-gray-400 hover:text-white hover:bg-slate-700 rounded transition-colors"
-                  title="Return to active chapter"
-                >
-                  ✕
-                </button>
-              </div>
-            )}
+            {/* Right: Scene count (hidden on mobile) */}
+            <div className="hidden sm:flex items-center space-x-1.5 text-gray-500 text-[10px] md:text-xs">
+              <span>{story?.scenes?.length || 0} scenes</span>
+              {storyCharacters.length > 0 && (
+                <>
+                  <span>•</span>
+                  <span className="text-purple-400">{storyCharacters.length} chars</span>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
       {/* Main Story Container */}
-      <div className="max-w-4xl mx-auto flex flex-col" style={{ height: 'calc(100vh - 80px)' }}>
+      <div className="max-w-4xl mx-auto flex flex-col" style={{ height: 'calc(100vh - 40px)' }}>
         {/* Story Content Area */}
-        <div className="flex-1 p-6 overflow-y-auto" ref={storyContentRef}>
+        <div className="flex-1 p-4 md:p-6 overflow-y-auto" ref={storyContentRef}>
           <div className="min-h-full">
-            {/* Chapter Header */}
-            <div className="flex items-center justify-between mb-8">
-              <div className="flex items-center space-x-3">
-                <span className="text-gray-400 text-sm">
-                  {currentChapterInfo 
-                    ? (currentChapterInfo.title || `Chapter ${currentChapterInfo.number}`)
-                    : 'Chapter 1'
-                  }
-                </span>
-                <ArrowDownIcon className="w-4 h-4 text-gray-400" />
-              </div>
-              <button className="text-gray-400 hover:text-white">
-                <DocumentDuplicateIcon className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Story Title */}
-            <h1 className="text-2xl font-bold text-white mb-8 leading-relaxed">
-              {story?.title}
-            </h1>
 
             {/* Character Display */}
             {storyCharacters.length > 0 && (
@@ -2623,6 +2708,7 @@ export default function StoryPage() {
                               console.error('Failed to copy text:', error);
                             }
                           }}
+                          isGeneratingChoices={isGeneratingChoices && waitingForChoicesSceneId === scene.id}
                         />
                       </div>
                     );

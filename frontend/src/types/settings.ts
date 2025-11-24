@@ -24,6 +24,7 @@ export interface GenerationPreferences {
   scene_length: string;
   auto_choices: boolean;
   choices_count: number;
+  enable_streaming?: boolean;
 }
 
 export interface ExportSettings {
