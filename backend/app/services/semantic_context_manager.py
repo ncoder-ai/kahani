@@ -1099,13 +1099,16 @@ class SemanticContextManager(ContextManager):
             if base_context.get("previous_chapter_summary"):
                 base_tokens += self.count_tokens(f"Previous Chapter Summary:\n{base_context['previous_chapter_summary']}")
             
+            # Add chapter-specific metadata tokens
+            if base_context.get("chapter_location"):
+                base_tokens += self.count_tokens(f"Chapter Location: {base_context['chapter_location']}")
+            if base_context.get("chapter_time_period"):
+                base_tokens += self.count_tokens(f"Chapter Time Period: {base_context['chapter_time_period']}")
+            if base_context.get("chapter_scenario"):
+                base_tokens += self.count_tokens(f"Chapter Scenario: {base_context['chapter_scenario']}")
+            
             # Available tokens for scene history
             available_tokens = self.effective_max_tokens - base_tokens - 500  # Safety buffer
-            
-            if available_tokens <= 0:
-                logger.warning(f"Base context too large for story {story_id}, chapter {chapter_id}")
-                formatted_context = self._format_context_for_counting(base_context)
-                return self.count_tokens(formatted_context)
             
             # Get ONLY scenes from the current chapter (not previous chapters)
             current_chapter_scenes = db.query(Scene).filter(
@@ -1114,9 +1117,22 @@ class SemanticContextManager(ContextManager):
             ).order_by(Scene.sequence_number).all()
             
             if not current_chapter_scenes:
-                # No scenes in current chapter yet
+                # No scenes in current chapter yet - still count base context
                 formatted_context = self._format_context_for_counting(base_context)
-                return self.count_tokens(formatted_context)
+                token_count = self.count_tokens(formatted_context)
+                # Ensure we return at least base context tokens
+                if token_count == 0 and base_tokens > 0:
+                    token_count = base_tokens
+                logger.info(f"[CONTEXT SIZE] Calculated actual context size for chapter {chapter_id} (semantic, no scenes): {token_count} tokens")
+                return token_count
+            
+            if available_tokens <= 0:
+                logger.warning(f"Base context too large for story {story_id}, chapter {chapter_id}")
+                formatted_context = self._format_context_for_counting(base_context)
+                token_count = self.count_tokens(formatted_context)
+                if token_count == 0 and base_tokens > 0:
+                    token_count = base_tokens
+                return token_count
             
             # Build scene context with only current chapter scenes
             # For semantic context manager, we still use hybrid strategy but only with current chapter scenes
@@ -1140,13 +1156,22 @@ class SemanticContextManager(ContextManager):
             # Count tokens of the formatted context
             token_count = self.count_tokens(formatted_context)
             
-            logger.info(f"[CONTEXT SIZE] Calculated actual context size for chapter {chapter_id} (semantic): {token_count} tokens (only current chapter scenes)")
+            # Ensure we return at least base context tokens (should never be 0 if story exists)
+            if token_count == 0 and base_tokens > 0:
+                logger.warning(f"[CONTEXT SIZE] Token count is 0 but base_tokens is {base_tokens}, using base_tokens")
+                token_count = base_tokens
+            
+            logger.info(f"[CONTEXT SIZE] Calculated actual context size for chapter {chapter_id} (semantic): {token_count} tokens (base: {base_tokens}, scenes: {len(current_chapter_scenes)})")
             return token_count
             
         except Exception as e:
-            logger.error(f"Failed to calculate actual context size for chapter {chapter_id}: {e}")
+            logger.error(f"Failed to calculate actual context size for chapter {chapter_id}: {e}", exc_info=True)
             # Fallback to parent method
-            return await super().calculate_actual_context_size(story_id, chapter_id, db)
+            try:
+                return await super().calculate_actual_context_size(story_id, chapter_id, db)
+            except Exception as e2:
+                logger.error(f"Parent method also failed: {e2}")
+                return 0
     
     async def _add_recent_scenes_dynamically(
         self,
