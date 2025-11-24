@@ -13,9 +13,10 @@ export default function BrowserExtensionFix() {
 
     // Safely handle window.ethereum access from browser extensions
     try {
-      if (window.ethereum && typeof (window.ethereum as any).selectedAddress === 'undefined') {
+      const ethereum = (window as any).ethereum;
+      if (ethereum && typeof ethereum.selectedAddress === 'undefined') {
         // Define a safe getter that returns null instead of undefined
-        Object.defineProperty(window.ethereum, 'selectedAddress', {
+        Object.defineProperty(ethereum, 'selectedAddress', {
           get: function() { 
             return null; 
           },
