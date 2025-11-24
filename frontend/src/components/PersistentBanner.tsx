@@ -102,15 +102,15 @@ export default function PersistentBanner() {
   return (
     <>
       {/* Top Banner */}
-      <div className="fixed top-0 left-0 right-0 z-50 theme-banner backdrop-blur-md border-b border-white/20 shadow-lg" suppressHydrationWarning>
-        <div className="max-w-7xl mx-auto px-4 py-1 md:py-1.5">
+      <div className="fixed top-0 left-0 right-0 z-50 theme-banner backdrop-blur-md border-b border-white/20 shadow-sm" suppressHydrationWarning>
+        <div className="max-w-7xl mx-auto px-4 py-0.5 md:py-1">
           <div className="flex justify-between items-center">
             {/* Left side - App name, story title, and user info */}
             <div className="flex items-center space-x-2 md:space-x-4 min-w-0 flex-1" suppressHydrationWarning>
               {isClient && canGoBack && (
                 <button
                   onClick={handleBack}
-                  className="flex items-center text-white/80 hover:text-white hover:bg-white/10 px-1.5 py-1 rounded-lg transition-all duration-200 flex-shrink-0"
+                  className="flex items-center text-white/80 hover:text-white hover:bg-white/10 px-1.5 py-0.5 rounded-lg transition-all duration-200 flex-shrink-0"
                   title="Go back"
                 >
                   <ArrowLeftIcon className="w-3.5 h-3.5 md:w-4 md:h-4" />
@@ -118,21 +118,21 @@ export default function PersistentBanner() {
               )}
               <button
                 onClick={handleHome}
-                className="flex items-center space-x-2 text-white hover:text-purple-200 transition-colors flex-shrink-0"
+                className="flex items-center space-x-2 text-white hover:text-purple-200 transition-colors flex-shrink-0 leading-none"
               >
-                <span className="text-sm md:text-base font-bold">✨ Kahani</span>
+                <span className="text-sm md:text-base font-bold leading-none">✨ Kahani</span>
               </button>
               {isClient && pathname?.startsWith('/story/') && storyActions?.storyTitle ? (
                 <>
-                  <span className="text-white/60 hidden sm:inline flex-shrink-0">•</span>
-                  <span className="text-white/90 text-sm md:text-base font-medium truncate min-w-0" title={storyActions.storyTitle}>
+                  <span className="text-white/60 hidden sm:inline flex-shrink-0 leading-none">•</span>
+                  <span className="text-white/90 text-sm md:text-base font-medium truncate min-w-0 leading-none" title={storyActions.storyTitle}>
                     {storyActions.storyTitle}
                   </span>
                 </>
               ) : isClient && !pathname?.startsWith('/story/') ? (
                 <>
-                  <span className="text-white/60 hidden sm:inline flex-shrink-0">•</span>
-                  <span className="text-white/80 text-sm hidden sm:inline">
+                  <span className="text-white/60 hidden sm:inline flex-shrink-0 leading-none">•</span>
+                  <span className="text-white/80 text-sm hidden sm:inline leading-none">
                     Welcome, <span className="text-white font-medium">{user.display_name}</span>
                   </span>
                 </>
@@ -178,7 +178,7 @@ export default function PersistentBanner() {
               {/* Menu Button */}
               <button
                 onClick={() => setShowUnifiedMenu(true)}
-                className="flex items-center justify-center w-7 h-7 md:w-8 md:h-8 rounded-lg transition-all hover:bg-white/10 text-white/80 hover:text-white"
+                className="flex items-center justify-center w-7 h-7 md:w-8 md:h-8 rounded-lg transition-all hover:bg-white/10 text-white/80 hover:text-white leading-none"
                 aria-label="Open menu"
               >
                 <MenuIcon className="w-3.5 h-3.5 md:w-4 md:h-4" />
@@ -188,7 +188,7 @@ export default function PersistentBanner() {
               {isMobile && (
                 <button
                   onClick={handleEnableTTS}
-                  className={`flex items-center justify-center p-1 rounded-lg transition-all duration-200 ${
+                  className={`flex items-center justify-center p-0.5 rounded-lg transition-all duration-200 leading-none ${
                     needsPermission
                       ? 'text-orange-400 hover:bg-orange-600/30 animate-pulse'
                       : 'text-green-400 hover:bg-green-600/30'
