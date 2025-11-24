@@ -165,14 +165,9 @@ export default function StoryPage() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
   const [streamingSceneNumber, setStreamingSceneNumber] = useState<number | null>(null);
-  // Load streaming preference from localStorage as initial value, default to true
-  const [useStreaming, setUseStreaming] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('enable_streaming');
-      return saved !== null ? saved === 'true' : true;
-    }
-    return true;
-  });
+  // Load streaming preference - default to true, will be updated from settings
+  // Don't use localStorage in initializer to avoid hydration mismatch
+  const [useStreaming, setUseStreaming] = useState(true);
   
   // Variant regeneration streaming states
   const [streamingVariantSceneId, setStreamingVariantSceneId] = useState<number | null>(null);
@@ -268,12 +263,28 @@ export default function StoryPage() {
       const enableStreaming = settings.settings?.generation_preferences?.enable_streaming !== false;
       setUseStreaming(enableStreaming);
       
-      // Also save to localStorage as fallback
+      // Also save to localStorage as fallback (client-side only)
       if (typeof window !== 'undefined') {
-        localStorage.setItem('enable_streaming', String(enableStreaming));
+        try {
+          localStorage.setItem('enable_streaming', String(enableStreaming));
+        } catch (e) {
+          // Ignore localStorage errors (e.g., in private browsing)
+          console.warn('Failed to save streaming preference to localStorage:', e);
+        }
       }
     } catch (err) {
       console.error('Failed to load user settings:', err);
+      // Fallback to localStorage if settings load fails (client-side only)
+      if (typeof window !== 'undefined') {
+        try {
+          const saved = localStorage.getItem('enable_streaming');
+          if (saved !== null) {
+            setUseStreaming(saved === 'true');
+          }
+        } catch (e) {
+          // Ignore localStorage errors
+        }
+      }
     }
   };
   
@@ -283,7 +294,12 @@ export default function StoryPage() {
       const enableStreaming = userSettings.generation_preferences.enable_streaming !== false;
       setUseStreaming(enableStreaming);
       if (typeof window !== 'undefined') {
-        localStorage.setItem('enable_streaming', String(enableStreaming));
+        try {
+          localStorage.setItem('enable_streaming', String(enableStreaming));
+        } catch (e) {
+          // Ignore localStorage errors
+          console.warn('Failed to save streaming preference to localStorage:', e);
+        }
       }
     }
   }, [userSettings?.generation_preferences?.enable_streaming]);
@@ -352,8 +368,15 @@ export default function StoryPage() {
             title: chapter.title,
             isActive: chapter.status === 'active'
           });
-          // Save to localStorage for persistence
-          localStorage.setItem(`lastChapter_${storyId}`, selectedChapterId.toString());
+          // Save to localStorage for persistence (client-side only)
+          if (typeof window !== 'undefined') {
+            try {
+              localStorage.setItem(`lastChapter_${storyId}`, selectedChapterId.toString());
+            } catch (e) {
+              // Ignore localStorage errors
+              console.warn('Failed to save last chapter to localStorage:', e);
+            }
+          }
         } else {
           // Load the active chapter info
           const chapters = await apiClient.getChapters(storyId);
@@ -826,10 +849,17 @@ export default function StoryPage() {
       const storyData = await apiClient.getStory(storyId);
       setStory(storyData);
 
-      // Auto-select last viewed chapter if available
-      const lastChapterId = localStorage.getItem(`lastChapter_${storyId}`);
-      if (lastChapterId && selectedChapterId === null) {
-        setSelectedChapterId(parseInt(lastChapterId));
+      // Auto-select last viewed chapter if available (client-side only)
+      if (typeof window !== 'undefined') {
+        try {
+          const lastChapterId = localStorage.getItem(`lastChapter_${storyId}`);
+          if (lastChapterId && selectedChapterId === null) {
+            setSelectedChapterId(parseInt(lastChapterId));
+          }
+        } catch (e) {
+          // Ignore localStorage errors
+          console.warn('Failed to load last chapter from localStorage:', e);
+        }
       }
 
       // Check if chapter setup is needed
@@ -2479,7 +2509,7 @@ export default function StoryPage() {
       />
       
       {/* Compact Combined Header */}
-      <div className="bg-gray-800/95 backdrop-blur-md border-b border-gray-700 sticky top-0 z-40">
+      <div className="bg-gray-800/95 backdrop-blur-md border-b border-gray-700 sticky top-0 z-40" suppressHydrationWarning>
         <div className="max-w-4xl mx-auto px-3 md:px-4 py-1.5 md:py-2">
           <div className="flex items-center justify-between gap-2">
             {/* Left: Back button + Story title */}
