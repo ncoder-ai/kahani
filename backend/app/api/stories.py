@@ -124,7 +124,7 @@ async def generate_scene_continuation_streaming(context, user_id, user_settings,
 def SceneVariantService(db: Session):
     """Temporary adapter to maintain compatibility during migration"""
     return SceneVariantServiceAdapter(db)
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -2771,7 +2771,7 @@ async def continue_scene(
         
         # Update the scene variant with the new content
         current_variant.content = new_content
-        current_variant.updated_at = datetime.utcnow()
+        current_variant.updated_at = datetime.now(timezone.utc)
         db.commit()
         
         # Invalidate chapter summary batches if this scene was summarized
@@ -2881,7 +2881,7 @@ async def continue_scene_streaming(
             # Update the variant with the new content
             new_content = current_variant.content + "\n\n" + continuation_content
             current_variant.content = new_content
-            current_variant.updated_at = datetime.utcnow()
+            current_variant.updated_at = datetime.now(timezone.utc)
             db.commit()
             
             # Invalidate chapter summary batches if this scene was summarized
@@ -2997,13 +2997,13 @@ async def update_scene_variant(
         # Update variant content
         variant.content = request.content
         variant.user_edited = True
-        variant.updated_at = datetime.utcnow()
+        variant.updated_at = datetime.now(timezone.utc)
         
         # Update edit history
         if not variant.edit_history:
             variant.edit_history = []
         variant.edit_history.append({
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "content_length": len(request.content)
         })
         

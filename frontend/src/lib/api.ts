@@ -54,6 +54,7 @@ class ApiClient {
   private baseURL: string;
   private token: string | null = null;
   private cachedTimeoutMs: number | null = null; // Cache user timeout in milliseconds
+  private isFetchingTimeout: boolean = false; // Flag to prevent recursion
 
   constructor(baseURL?: string) {
     // Don't require baseURL immediately - allow lazy initialization
@@ -119,14 +120,41 @@ class ApiClient {
   /**
    * Get request timeout in milliseconds based on user settings
    * Fetches user settings if not cached, with fallback to 300 seconds (5 minutes)
+   * For unauthenticated requests (login, register), uses a shorter default timeout
+   * Prevents recursion when called from within getUserSettings()
    */
-  private async getRequestTimeout(): Promise<number> {
+  private async getRequestTimeout(endpoint?: string): Promise<number> {
+    // For unauthenticated endpoints, use a shorter default timeout
+    const isAuthEndpoint = endpoint && (endpoint.includes('/api/auth/login') || endpoint.includes('/api/auth/register'));
+    
+    if (isAuthEndpoint) {
+      // Use 30 seconds for login/register (no need to fetch settings)
+      return 30000; // 30 seconds in milliseconds
+    }
+
     // Return cached value if available
     if (this.cachedTimeoutMs !== null) {
       return this.cachedTimeoutMs;
     }
 
+    // Only try to fetch user settings if we have a token
+    if (!this.token) {
+      // No token - use default timeout for unauthenticated requests
+      return 30000; // 30 seconds in milliseconds
+    }
+
+    // Prevent recursion: if we're already fetching timeout (from within getUserSettings), use default
+    if (this.isFetchingTimeout) {
+      return 300000; // 300 seconds in milliseconds (default)
+    }
+
+    // Prevent recursion: if this is a settings endpoint, use default timeout
+    if (endpoint && endpoint.includes('/api/settings')) {
+      return 300000; // 300 seconds in milliseconds (default)
+    }
+
     // Try to fetch user settings to get timeout_total
+    this.isFetchingTimeout = true;
     try {
       const settingsResponse = await this.getUserSettings();
       const timeoutTotal = settingsResponse?.settings?.llm_settings?.timeout_total;
@@ -135,10 +163,13 @@ class ApiClient {
         // Add 10 second buffer for network overhead, convert to milliseconds
         this.cachedTimeoutMs = (timeoutTotal + 10) * 1000;
         console.log(`[API] Using user timeout: ${timeoutTotal}s (+10s buffer = ${this.cachedTimeoutMs}ms)`);
+        this.isFetchingTimeout = false;
         return this.cachedTimeoutMs;
       }
     } catch (error) {
       console.warn('[API] Failed to fetch user settings for timeout, using default:', error);
+    } finally {
+      this.isFetchingTimeout = false;
     }
 
     // Fallback to 300 seconds (5 minutes) if settings unavailable or invalid
@@ -170,7 +201,7 @@ class ApiClient {
     console.log('[API] Headers:', Object.keys(headers));
 
     // Get timeout from user settings (with fallback)
-    const requestTimeoutMs = await this.getRequestTimeout();
+    const requestTimeoutMs = await this.getRequestTimeout(endpoint);
 
     // Add timeout to prevent infinite hanging
     const controller = new AbortController();
@@ -187,6 +218,13 @@ class ApiClient {
 
       if (!response.ok) {
         if (response.status === 401) {
+          // Skip token refresh for login endpoint to avoid retry loops
+          if (endpoint.includes('/api/auth/login')) {
+            console.log('[API] 401 on login endpoint - skipping token refresh');
+            this.removeToken();
+            throw new Error('Authentication failed. Please check your credentials.');
+          }
+          
           console.log('[API] 401 Unauthorized - attempting token refresh');
           const refreshSuccess = await this.handleTokenRefresh();
           if (refreshSuccess) {

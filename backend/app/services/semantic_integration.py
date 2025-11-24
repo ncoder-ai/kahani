@@ -404,6 +404,19 @@ For ENTITY STATE CHANGES:
 - Maximum 15 total state changes across all scenes (prioritize most important)
 - Include only entities that have meaningful state changes
 
+CRITICAL INSTRUCTIONS FOR OBJECT EXTRACTION:
+- Only extract objects that are PLOT-RELEVANT:
+  * Used in actions by characters
+  * Possessed/carried by characters
+  * Mentioned 2+ times across scenes
+  * Central to plot events (not trivial items unless central to action)
+- Maximum 3-5 objects total across all scenes (prioritize most plot-relevant)
+- For "condition": Provide ONLY factual, observable physical condition (damaged, intact, locked, open, broken, pristine, etc.)
+  * NO interpretive descriptions like "silent confirmation" or symbolic meanings
+- For "significance": Provide ONLY factual role (used by X, mentioned in Y, carried by Z)
+  * NO symbolic interpretations or narrative importance descriptions
+  * Examples: "used by Rambo to call backup", "carried by Sarah", "mentioned in conversation"
+
 Return ONLY valid JSON in this exact format:
 {{
   "character_moments": [
@@ -464,8 +477,8 @@ Return ONLY valid JSON in this exact format:
         "name": "object name",
         "location": "where it is",
         "owner": "who has it or null",
-        "condition": "its condition or null",
-        "significance": "why it matters or null"
+        "condition": "factual physical condition only (damaged, intact, locked, etc.) or null",
+        "significance": "factual role in scene only (used by X, mentioned in Y) or null"
       }}
     ]
   }}
