@@ -851,18 +851,45 @@ async def get_chapter_context_status(
     if not chapter:
         raise HTTPException(status_code=404, detail="Chapter not found")
     
-    # Get user settings for max tokens
+    # Get user settings for max tokens and context manager
     from ..models import UserSettings
-    user_settings = db.query(UserSettings).filter(
+    user_settings_model = db.query(UserSettings).filter(
         UserSettings.user_id == current_user.id
     ).first()
     
+    # Convert user settings to dict format for context manager
+    user_settings = {}
+    if user_settings_model:
+        if user_settings_model.context_settings:
+            user_settings['context_settings'] = user_settings_model.context_settings
+    
     user_defaults = settings.user_defaults.get('context_settings', {})
-    max_tokens = user_settings.context_max_tokens if user_settings else user_defaults.get('max_tokens', 4000)
+    max_tokens = user_settings_model.context_max_tokens if user_settings_model else user_defaults.get('max_tokens', 4000)
     threshold_percentage = settings.chapter_context_threshold_percentage
     
+    # Recalculate actual context size to ensure accuracy
+    # This ensures we're counting only the current chapter's context, not previous chapters
+    from ..services.semantic_integration import get_context_manager_for_user
+    context_manager = get_context_manager_for_user(user_settings, current_user.id)
+    
+    try:
+        # Calculate actual context size that would be sent to LLM for this chapter
+        actual_context_size = await context_manager.calculate_actual_context_size(
+            story_id, chapter_id, db
+        )
+        # Update stored value for consistency (optional, but helps keep DB in sync)
+        chapter.context_tokens_used = actual_context_size
+        db.commit()
+        current_tokens = actual_context_size
+        logger.info(f"[CONTEXT STATUS] Recalculated context size for chapter {chapter_id}: {actual_context_size} tokens")
+    except Exception as e:
+        logger.error(f"[CONTEXT STATUS] Failed to recalculate context size for chapter {chapter_id}: {e}")
+        # Fallback to stored value if calculation fails
+        current_tokens = chapter.context_tokens_used
+        logger.warning(f"[CONTEXT STATUS] Using stored context_tokens_used value: {current_tokens}")
+    
     # Calculate percentage
-    percentage_used = (chapter.context_tokens_used / max_tokens) * 100 if max_tokens > 0 else 0
+    percentage_used = (current_tokens / max_tokens) * 100 if max_tokens > 0 else 0
     
     # Determine if new chapter should be created
     should_create_new = False
@@ -881,7 +908,7 @@ async def get_chapter_context_status(
     
     return ChapterContextStatus(
         chapter_id=chapter_id,
-        current_tokens=chapter.context_tokens_used,
+        current_tokens=current_tokens,
         max_tokens=max_tokens,
         percentage_used=round(percentage_used, 2),
         should_create_new_chapter=should_create_new,

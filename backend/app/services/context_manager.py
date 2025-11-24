@@ -884,5 +884,263 @@ Appearance: {char.get('appearance', '')}
         
         return context
 
+    async def calculate_actual_context_size(self, story_id: int, chapter_id: int, db: Session) -> int:
+        """
+        Calculate the actual context size that would be sent to the LLM for the current chapter.
+        
+        This method builds the actual context (including base context, chapter summaries,
+        entity states, and only recent scenes from the current chapter), formats it the same
+        way it would be sent to the LLM, and counts the tokens.
+        
+        IMPORTANT: Only counts scenes from the current chapter, not previous chapters.
+        
+        Args:
+            story_id: Story ID
+            chapter_id: Chapter ID (ensures only current chapter context is included)
+            db: Database session
+            
+        Returns:
+            Total token count of the actual context that would be sent to the LLM
+        """
+        try:
+            # Build the actual context for this chapter
+            # We need to ensure only current chapter's scenes are included
+            # First, get the chapter to check its scenes
+            from ..models import Chapter
+            chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+            if not chapter:
+                logger.error(f"Chapter {chapter_id} not found")
+                return 0
+            
+            # Build context with chapter_id - this will include base context and chapter summaries
+            context = await self.build_story_context(story_id, db, chapter_id=chapter_id)
+            
+            # CRITICAL: Filter scenes to only those in the current chapter
+            # The build_story_context may include all scenes for continuity, but for size calculation
+            # we only want current chapter scenes
+            if context.get("previous_scenes"):
+                # Get all scenes from the current chapter only
+                current_chapter_scenes = db.query(Scene).filter(
+                    Scene.story_id == story_id,
+                    Scene.chapter_id == chapter_id
+                ).order_by(Scene.sequence_number).all()
+                
+                if current_chapter_scenes:
+                    # Rebuild the scene context with only current chapter scenes
+                    # Calculate base context tokens first
+                    base_tokens = self._calculate_base_context_tokens({
+                        "genre": context.get("genre", ""),
+                        "tone": context.get("tone", ""),
+                        "world_setting": context.get("world_setting", ""),
+                        "initial_premise": context.get("initial_premise", ""),
+                        "scenario": context.get("scenario", ""),
+                        "characters": context.get("characters", [])
+                    })
+                    
+                    # Add chapter summary tokens
+                    if context.get("story_so_far"):
+                        base_tokens += self.count_tokens(f"Story So Far:\n{context['story_so_far']}")
+                    if context.get("previous_chapter_summary"):
+                        base_tokens += self.count_tokens(f"Previous Chapter Summary:\n{context['previous_chapter_summary']}")
+                    
+                    # Available tokens for scene history
+                    available_tokens = self.effective_max_tokens - base_tokens - 500  # Reserve 500 for safety
+                    
+                    if available_tokens > 0:
+                        # Build scene context with only current chapter scenes
+                        scene_context = await self._build_scene_context(current_chapter_scenes, available_tokens, db)
+                        # Update context with filtered scene context
+                        context["previous_scenes"] = scene_context.get("previous_scenes", "")
+                        context["recent_scenes"] = scene_context.get("recent_scenes", "")
+                        context["scene_summary"] = scene_context.get("scene_summary", "")
+                    else:
+                        # Base context too large, no room for scenes
+                        context["previous_scenes"] = ""
+                        context["recent_scenes"] = ""
+                        context["scene_summary"] = ""
+                else:
+                    # No scenes in current chapter yet
+                    context["previous_scenes"] = ""
+                    context["recent_scenes"] = ""
+                    context["scene_summary"] = ""
+            
+            # Format the context the same way it would be sent to the LLM
+            # This matches the formatting in UnifiedLLMService._format_context_for_scene()
+            formatted_context = self._format_context_for_counting(context)
+            
+            # Count tokens of the formatted context
+            token_count = self.count_tokens(formatted_context)
+            
+            logger.info(f"[CONTEXT SIZE] Calculated actual context size for chapter {chapter_id}: {token_count} tokens (only current chapter scenes)")
+            return token_count
+            
+        except Exception as e:
+            logger.error(f"Failed to calculate actual context size for chapter {chapter_id}: {e}")
+            # Fallback: return 0 to avoid breaking the system
+            return 0
+    
+    def _format_context_for_counting(self, context: Dict[str, Any]) -> str:
+        """
+        Format context for token counting - matches the format used in LLM service.
+        This ensures we count tokens the same way they would be sent to the LLM.
+        """
+        context_parts = []
+        
+        if context.get("genre"):
+            context_parts.append(f"Genre: {context['genre']}")
+        
+        if context.get("tone"):
+            context_parts.append(f"Tone: {context['tone']}")
+        
+        if context.get("world_setting"):
+            context_parts.append(f"Setting: {context['world_setting']}")
+        
+        if context.get("scenario"):
+            context_parts.append(f"Story Scenario: {context['scenario']}")
+        
+        if context.get("initial_premise"):
+            context_parts.append(f"Initial Premise: {context['initial_premise']}")
+        
+        # Handle characters - check if we have active/inactive separation
+        characters = context.get("characters")
+        if characters:
+            if isinstance(characters, dict) and "active_characters" in characters:
+                # Format active and inactive characters separately
+                active_chars = characters.get("active_characters", [])
+                inactive_chars = characters.get("inactive_characters", [])
+                
+                char_descriptions = []
+                
+                # Active characters - full details
+                if active_chars:
+                    char_descriptions.append("Active Characters (in this chapter):")
+                    for char in active_chars:
+                        char_desc = f"- {char.get('name', 'Unknown')}"
+                        if char.get('role'):
+                            char_desc += f" ({char['role']})"
+                        char_desc += f": {char.get('description', 'No description')}"
+                        if char.get('personality'):
+                            char_desc += f". Personality: {char['personality']}"
+                        if char.get('background'):
+                            char_desc += f". Background: {char['background']}"
+                        if char.get('goals'):
+                            char_desc += f". Goals: {char['goals']}"
+                        if char.get('fears'):
+                            char_desc += f". Fears & Weaknesses: {char['fears']}"
+                        if char.get('appearance'):
+                            char_desc += f". Appearance: {char['appearance']}"
+                        char_descriptions.append(char_desc)
+                
+                # Inactive characters - brief format
+                if inactive_chars:
+                    char_descriptions.append("\nInactive Characters (available for reference):")
+                    for char in inactive_chars:
+                        char_desc = f"- {char.get('name', 'Unknown')}"
+                        if char.get('role'):
+                            char_desc += f" ({char['role']})"
+                        char_descriptions.append(char_desc)
+                
+                if char_descriptions:
+                    context_parts.append(f"Characters:\n{chr(10).join(char_descriptions)}")
+            else:
+                # Legacy format - all characters are active
+                char_descriptions = []
+                for char in characters:
+                    char_desc = f"- {char.get('name', 'Unknown')}"
+                    if char.get('role'):
+                        char_desc += f" ({char['role']})"
+                    char_desc += f": {char.get('description', 'No description')}"
+                    if char.get('personality'):
+                        char_desc += f". Personality: {char['personality']}"
+                    if char.get('background'):
+                        char_desc += f". Background: {char['background']}"
+                    if char.get('goals'):
+                        char_desc += f". Goals: {char['goals']}"
+                    if char.get('fears'):
+                        char_desc += f". Fears & Weaknesses: {char['fears']}"
+                    if char.get('appearance'):
+                        char_desc += f". Appearance: {char['appearance']}"
+                    char_descriptions.append(char_desc)
+                context_parts.append(f"Characters:\n{chr(10).join(char_descriptions)}")
+        
+        # Add chapter-specific context if available
+        if context.get("chapter_location"):
+            context_parts.append(f"Chapter Location: {context['chapter_location']}")
+        if context.get("chapter_time_period"):
+            context_parts.append(f"Chapter Time Period: {context['chapter_time_period']}")
+        if context.get("chapter_scenario"):
+            context_parts.append(f"Chapter Scenario: {context['chapter_scenario']}")
+        
+        # Add story_so_far if available (summary of all previous chapters)
+        story_so_far = context.get("story_so_far")
+        if story_so_far:
+            context_parts.append(f"Story So Far:\n{story_so_far}")
+        
+        # Add previous chapter summary if available
+        previous_chapter_summary = context.get("previous_chapter_summary")
+        if previous_chapter_summary:
+            context_parts.append(f"Previous Chapter Summary:\n{previous_chapter_summary}")
+        
+        # Add previous_scenes (this includes recent scenes, semantic scenes, entity states, etc.)
+        if context.get("previous_scenes"):
+            previous_scenes_text = context['previous_scenes']
+            
+            # Parse and organize previous_scenes into clear sections (matching LLM service format)
+            import re
+            
+            # Extract Current Chapter Summary (if present)
+            current_chapter_summary_match = re.search(r'Current Chapter Summary[^:]*:\s*(.*?)(?=\n\n(?:Recent Scenes|Relevant Past Events|CURRENT CHARACTER STATES|CURRENT LOCATIONS|IMPORTANT OBJECTS)|$)', previous_scenes_text, re.DOTALL)
+            current_chapter_summary = current_chapter_summary_match.group(1).strip() if current_chapter_summary_match else None
+            
+            # Extract Recent Scenes section
+            recent_scenes_match = re.search(r'Recent Scenes:\s*(.*?)(?=\n\n(?:Relevant Past Events|CURRENT CHARACTER STATES|CURRENT LOCATIONS|IMPORTANT OBJECTS)|$)', previous_scenes_text, re.DOTALL)
+            recent_scenes_content = recent_scenes_match.group(1).strip() if recent_scenes_match else None
+            
+            # Extract Relevant Past Events (semantic search results)
+            relevant_events_match = re.search(r'Relevant Past Events:\s*(.*?)(?=\n\n(?:Recent Scenes|CURRENT CHARACTER STATES|CURRENT LOCATIONS|IMPORTANT OBJECTS)|$)', previous_scenes_text, re.DOTALL)
+            relevant_events_content = relevant_events_match.group(1).strip() if relevant_events_match else None
+            
+            # Extract Entity States sections
+            entity_states_match = re.search(r'(CURRENT CHARACTER STATES:.*?)(?=\n\n(?:CURRENT LOCATIONS|IMPORTANT OBJECTS|Recent Scenes|Relevant Past Events)|$)', previous_scenes_text, re.DOTALL)
+            entity_states_content = entity_states_match.group(1).strip() if entity_states_match else None
+            
+            locations_match = re.search(r'CURRENT LOCATIONS:\s*(.*?)(?=\n\n(?:IMPORTANT OBJECTS|Recent Scenes|Relevant Past Events|CURRENT CHARACTER STATES)|$)', previous_scenes_text, re.DOTALL)
+            locations_content = locations_match.group(1).strip() if locations_match else None
+            
+            objects_match = re.search(r'IMPORTANT OBJECTS:\s*(.*?)(?=\n\n(?:Recent Scenes|Relevant Past Events|CURRENT CHARACTER STATES|CURRENT LOCATIONS)|$)', previous_scenes_text, re.DOTALL)
+            objects_content = objects_match.group(1).strip() if objects_match else None
+            
+            # Build organized context sections
+            if current_chapter_summary or recent_scenes_content or relevant_events_content:
+                context_parts.append("Current Chapter Progress:")
+                
+                if current_chapter_summary:
+                    context_parts.append(f"  Current Chapter Summary:\n  {current_chapter_summary.replace(chr(10), chr(10) + '  ')}")
+                
+                if recent_scenes_content:
+                    context_parts.append(f"\n  Recent Scenes:\n  {recent_scenes_content.replace(chr(10), chr(10) + '  ')}")
+                
+                if relevant_events_content:
+                    context_parts.append(f"\n  Relevant Past Events (from semantic search):\n  {relevant_events_content.replace(chr(10), chr(10) + '  ')}")
+            
+            # Add Current State section if we have entity states
+            if entity_states_content or locations_content or objects_content:
+                context_parts.append("\nCurrent State:")
+                
+                if entity_states_content:
+                    context_parts.append(f"  {entity_states_content.replace(chr(10), chr(10) + '  ')}")
+                
+                if locations_content:
+                    context_parts.append(f"\n  CURRENT LOCATIONS:\n  {locations_content.replace(chr(10), chr(10) + '  ')}")
+                
+                if objects_content:
+                    context_parts.append(f"\n  IMPORTANT OBJECTS:\n  {objects_content.replace(chr(10), chr(10) + '  ')}")
+            
+            # If parsing failed, fall back to original format
+            if not (current_chapter_summary or recent_scenes_content or relevant_events_content or entity_states_content):
+                context_parts.append(f"Previous Events:\n{previous_scenes_text}")
+        
+        return "\n\n".join(context_parts)
+
 # Global instance
 context_manager = ContextManager()

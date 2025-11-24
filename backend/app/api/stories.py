@@ -1295,9 +1295,21 @@ async def generate_scene_streaming_endpoint(
                 scene.chapter_id = active_chapter.id
                 db.flush()  # Flush to ensure chapter_id is set before counting scenes
                 
-                # Update chapter token tracking
-                scene_tokens = context_manager.count_tokens(full_content.strip())
-                active_chapter.context_tokens_used += scene_tokens
+                # Update chapter token tracking - calculate actual context size that would be sent to LLM
+                # This includes base context, chapter summaries, entity states, and only recent scenes from current chapter
+                try:
+                    actual_context_size = await context_manager.calculate_actual_context_size(
+                        story_id, active_chapter.id, db
+                    )
+                    active_chapter.context_tokens_used = actual_context_size
+                    logger.info(f"[CHAPTER] Calculated actual context size for chapter {active_chapter.id}: {actual_context_size} tokens")
+                except Exception as e:
+                    logger.error(f"[CHAPTER] Failed to calculate actual context size for chapter {active_chapter.id}: {e}")
+                    # Fallback: use scene tokens as before (but log the issue)
+                    scene_tokens = context_manager.count_tokens(full_content.strip())
+                    active_chapter.context_tokens_used += scene_tokens
+                    logger.warning(f"[CHAPTER] Using fallback token accumulation: {scene_tokens} tokens added")
+                
                 # Recalculate scenes_count from active StoryFlow instead of incrementing
                 active_chapter.scenes_count = llm_service.get_active_scene_count(db, story_id, active_chapter.id)
                 
