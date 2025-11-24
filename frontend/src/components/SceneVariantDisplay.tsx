@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { ArrowLeftIcon, ArrowRightIcon, PlayIcon, ArrowPathIcon, PlusCircleIcon, StopIcon, SparklesIcon, TrashIcon, ClipboardIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import SceneDisplay from './SceneDisplay';
 import { SceneTTSButton } from './SceneTTSButton';
@@ -154,11 +154,54 @@ export default function SceneVariantDisplay({
   const [copySuccess, setCopySuccess] = useState(false);
   const [showFloatingMenu, setShowFloatingMenu] = useState(false);
   const [isClient, setIsClient] = useState(false);
+  const [isMenuVisible, setIsMenuVisible] = useState(true);
+  const menuTimerRef = useRef<NodeJS.Timeout | null>(null);
   
   // Only render client-side only elements after hydration
   useEffect(() => {
     setIsClient(true);
   }, []);
+
+  // Auto-hide menu timer functions
+  const resetMenuTimer = useCallback(() => {
+    if (menuTimerRef.current) {
+      clearTimeout(menuTimerRef.current);
+    }
+    setIsMenuVisible(true);
+    menuTimerRef.current = setTimeout(() => {
+      setIsMenuVisible(false);
+    }, 3000); // 3 seconds
+  }, []);
+
+  const hideMenu = useCallback(() => {
+    setIsMenuVisible(false);
+  }, []);
+
+  // Initialize timer on mount and clean up on unmount
+  useEffect(() => {
+    if (isClient) {
+      resetMenuTimer();
+    }
+    return () => {
+      if (menuTimerRef.current) {
+        clearTimeout(menuTimerRef.current);
+      }
+    };
+  }, [isClient, resetMenuTimer]);
+
+  // Keep menu visible when floating menu is open
+  useEffect(() => {
+    if (showFloatingMenu) {
+      // Cancel any pending hide timer
+      if (menuTimerRef.current) {
+        clearTimeout(menuTimerRef.current);
+      }
+      setIsMenuVisible(true);
+    } else {
+      // Start timer when menu closes
+      resetMenuTimer();
+    }
+  }, [showFloatingMenu, resetMenuTimer]);
 
   // Load variants for this scene
   const loadVariants = async (forceSetVariantId?: number) => {
@@ -655,7 +698,7 @@ export default function SceneVariantDisplay({
 
   return (
     <div ref={sceneContentRef} className="scene-variant-container">
-      <div className={`relative ${isStreamingVariant ? 'streaming-variant' : ''}`}>
+      <div className={`relative ${isStreamingVariant ? 'streaming-variant' : ''}`} suppressHydrationWarning>
         {isStreamingVariant && (
           <div className="absolute top-0 right-0 bg-pink-600 text-white text-xs px-2 py-1 rounded-full animate-pulse z-10">
             Generating...
@@ -768,58 +811,58 @@ export default function SceneVariantDisplay({
       )}
       
       {/* Quick Action Buttons - Floating buttons in top-right */}
-      <div className="absolute -top-2 -right-2 z-10 flex items-center gap-1.5">
-        {/* Copy Button */}
-        <button
-          onClick={handleCopyScene}
-          className={`
-            w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200
-            backdrop-blur-sm border shadow-lg flex-shrink-0
-            ${copySuccess 
-              ? 'bg-green-500/90 text-white border-green-400/50' 
-              : 'bg-gray-700/90 hover:bg-gray-600/90 text-gray-200 border-gray-500/50'
-            }
-          `}
-          title={copySuccess ? 'Copied!' : 'Copy scene text'}
-        >
-          {copySuccess ? (
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-            </svg>
-          ) : (
-            <ClipboardIcon className="w-4 h-4" />
-          )}
-        </button>
+      {isClient && (
+        <div className="absolute -top-4 -right-4 md:-top-2 md:-right-2 z-10 flex items-center gap-1">
+          {/* Copy Button */}
+          <button
+            onClick={handleCopyScene}
+            className={`
+              flex items-center justify-center transition-all duration-200 flex-shrink-0
+              ${copySuccess 
+                ? 'text-green-400 hover:text-green-300' 
+                : 'text-gray-400 hover:text-gray-300 hover:bg-gray-800/50 rounded p-1'
+              }
+            `}
+            title={copySuccess ? 'Copied!' : 'Copy scene text'}
+          >
+            {copySuccess ? (
+              <svg className="w-3.5 h-3.5 md:w-4 md:h-4" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+              </svg>
+            ) : (
+              <ClipboardIcon className="w-3.5 h-3.5 md:w-4 md:h-4" />
+            )}
+          </button>
 
-        {/* Delete Button - Always visible */}
-        <button
-          onClick={handleDeleteClick}
-          className={`
-            w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200
-            backdrop-blur-sm border shadow-lg flex-shrink-0
-            ${isInDeleteMode && isSceneSelectedForDeletion
-              ? 'bg-red-500/90 hover:bg-red-600/90 text-white border-red-400/50'
-              : isInDeleteMode
-              ? 'bg-gray-700/90 hover:bg-gray-600/90 text-gray-200 border-gray-500/50'
-              : 'bg-gray-700/90 hover:bg-red-600/90 text-gray-200 border-gray-500/50 hover:border-red-400/50'
+          {/* Delete Button - Always visible */}
+          <button
+            onClick={handleDeleteClick}
+            className={`
+              flex items-center justify-center transition-all duration-200 flex-shrink-0
+              ${isInDeleteMode && isSceneSelectedForDeletion
+                ? 'text-red-400 hover:text-red-300'
+                : isInDeleteMode
+                ? 'text-gray-400 hover:text-gray-300 hover:bg-gray-800/50 rounded p-1'
+                : 'text-gray-400 hover:text-red-400 hover:bg-gray-800/50 rounded p-1'
+              }
+            `}
+            title={
+              isInDeleteMode 
+                ? (isSceneSelectedForDeletion 
+                    ? 'Cancel delete mode' 
+                    : 'Delete from this scene onwards instead')
+                : 'Delete from this scene onwards'
             }
-          `}
-          title={
-            isInDeleteMode 
-              ? (isSceneSelectedForDeletion 
-                  ? 'Cancel delete mode' 
-                  : 'Delete from this scene onwards instead')
-              : 'Delete from this scene onwards'
-          }
-        >
-          <TrashIcon className="w-4 h-4" />
-        </button>
+          >
+            <TrashIcon className="w-3.5 h-3.5 md:w-4 md:h-4" />
+          </button>
 
-        {/* Audio Controls - Floating speaker button */}
-        <div className="flex-shrink-0">
-          <SceneTTSButton sceneId={scene.id} className="relative" />
+          {/* Audio Controls - Floating speaker button */}
+          <div className="flex-shrink-0">
+            <SceneTTSButton sceneId={scene.id} className="relative" />
+          </div>
         </div>
-      </div>
+      )}
       </div>
       
       {/* Scene Management - Only show for last scene */}
@@ -883,14 +926,24 @@ export default function SceneVariantDisplay({
           
           {/* Mobile Floating Action Menu (client-side only) */}
           {isClient && (
-          <div className="md:hidden fixed bottom-20 right-4 z-50">
+          <div 
+            className="md:hidden fixed right-0 top-1/2 -translate-y-1/2 z-50"
+            onMouseEnter={resetMenuTimer}
+            onMouseLeave={() => {
+              if (!showFloatingMenu) {
+                hideMenu();
+              }
+            }}
+            onTouchStart={resetMenuTimer}
+          >
             {/* Floating Menu Items */}
             {showFloatingMenu && (
-              <div className="absolute bottom-16 right-0 mb-2 space-y-2 animate-fade-in">
+              <div className="absolute right-16 top-1/2 -translate-y-1/2 space-y-2 animate-fade-in">
                 {/* Regenerate */}
                 <button
                   onClick={() => {
                     setShowFloatingMenu(false);
+                    resetMenuTimer();
                     onCreateVariant(scene.id, undefined, currentVariantId || undefined);
                   }}
                   disabled={isGenerating || isStreaming || isRegenerating}
@@ -905,6 +958,7 @@ export default function SceneVariantDisplay({
                 <button
                   onClick={() => {
                     setShowFloatingMenu(false);
+                    resetMenuTimer();
                     if (onContinueScene) {
                       onContinueScene(scene.id, "Continue this scene with more details and development, adding to the existing content.");
                     } else {
@@ -925,6 +979,7 @@ export default function SceneVariantDisplay({
                     setShowGuidedOptions(!showGuidedOptions);
                     if (!showGuidedOptions) {
                       setShowFloatingMenu(false);
+                      resetMenuTimer();
                     }
                   }}
                   disabled={isGenerating || isStreaming || isRegenerating}
@@ -941,6 +996,7 @@ export default function SceneVariantDisplay({
                 <button
                   onClick={() => {
                     setShowFloatingMenu(false);
+                    resetMenuTimer();
                     handleDeleteClick();
                   }}
                   className={`flex items-center gap-2 w-full px-4 py-2 rounded-lg shadow-lg transition-all backdrop-blur-sm ${
@@ -963,6 +1019,7 @@ export default function SceneVariantDisplay({
                   <button
                     onClick={() => {
                       setShowFloatingMenu(false);
+                      resetMenuTimer();
                       onStopGeneration();
                     }}
                     className="flex items-center gap-2 w-full px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg shadow-lg transition-all backdrop-blur-sm"
@@ -975,16 +1032,26 @@ export default function SceneVariantDisplay({
               </div>
             )}
             
-            {/* FAB Button */}
+            {/* Edge Tab Button */}
             <button
-              onClick={() => setShowFloatingMenu(!showFloatingMenu)}
-              className="w-14 h-14 rounded-full bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-700 hover:to-purple-700 shadow-lg flex items-center justify-center transition-all backdrop-blur-sm border border-white/20"
+              onClick={() => {
+                setShowFloatingMenu(!showFloatingMenu);
+                resetMenuTimer();
+              }}
+              onMouseEnter={resetMenuTimer}
+              className={`
+                w-8 h-20 rounded-l-xl bg-gradient-to-r from-pink-600 to-purple-600 
+                hover:from-pink-700 hover:to-purple-700 shadow-lg 
+                flex items-center justify-center transition-all backdrop-blur-sm 
+                border-l border-t border-b border-white/20
+                ${showFloatingMenu || isMenuVisible ? 'translate-x-0 opacity-100' : 'translate-x-6 opacity-30 hover:translate-x-0 hover:opacity-100'}
+              `}
               title="Scene actions"
             >
               {showFloatingMenu ? (
-                <XMarkIcon className="w-6 h-6 text-white" />
+                <XMarkIcon className="w-5 h-5 text-white" />
               ) : (
-                <SparklesIcon className="w-6 h-6 text-white" />
+                <SparklesIcon className="w-5 h-5 text-white" />
               )}
             </button>
           </div>
@@ -1009,6 +1076,7 @@ export default function SceneVariantDisplay({
                   key={index}
                   onClick={() => {
                     setShowGuidedOptions(false);
+                    resetMenuTimer();
                     onCreateVariant?.(scene.id, option.prompt, currentVariantId || undefined);
                   }}
                   disabled={isGenerating || isStreaming || isRegenerating}

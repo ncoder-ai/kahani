@@ -19,6 +19,8 @@ export interface StoryActions {
   lastGenerationTime?: number | null;
   generationStartTime?: number | null;
   extractionStatus?: { status: 'extracting' | 'complete' | 'error'; message: string } | null;
+  // Story title for banner display
+  storyTitle?: string;
 }
 
 interface StoryContextType {

@@ -326,6 +326,8 @@ export default function StoryPage() {
         lastGenerationTime,
         generationStartTime,
         extractionStatus,
+        // Story title for banner display
+        storyTitle: story.title,
       });
     } else {
       setStoryActions(undefined);

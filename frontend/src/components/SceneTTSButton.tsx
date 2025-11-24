@@ -37,13 +37,12 @@ export const SceneTTSButton: React.FC<SceneTTSButtonProps> = ({ sceneId, classNa
       <button
         onClick={handleClick}
         className={`
-          w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200
-          backdrop-blur-sm border shadow-lg
+          flex items-center justify-center transition-all duration-200
           ${isThisSceneError
-            ? 'bg-red-500/90 hover:bg-red-600/90 text-white border-red-400/50'
+            ? 'text-red-400 hover:text-red-300 hover:bg-gray-800/50 rounded p-1'
             : isThisScenePlaying || isThisSceneGenerating
-            ? 'bg-blue-500/90 hover:bg-blue-600/90 text-white border-blue-400/50' 
-            : 'bg-gray-700/90 hover:bg-gray-600/90 text-gray-200 border-gray-500/50'
+            ? 'text-blue-400 hover:text-blue-300 hover:bg-gray-800/50 rounded p-1' 
+            : 'text-gray-400 hover:text-gray-300 hover:bg-gray-800/50 rounded p-1'
           }
         `}
         title={
@@ -54,11 +53,11 @@ export const SceneTTSButton: React.FC<SceneTTSButtonProps> = ({ sceneId, classNa
         }
       >
         {isThisSceneError ? (
-          <SpeakerWaveIcon className="w-4 h-4" />
+          <SpeakerWaveIcon className="w-3.5 h-3.5 md:w-4 md:h-4" />
         ) : isThisScenePlaying || isThisSceneGenerating ? (
-          <StopIcon className="w-4 h-4" />
+          <StopIcon className="w-3.5 h-3.5 md:w-4 md:h-4" />
         ) : (
-          <SpeakerWaveIcon className="w-4 h-4" />
+          <SpeakerWaveIcon className="w-3.5 h-3.5 md:w-4 md:h-4" />
         )}
       </button>
       
