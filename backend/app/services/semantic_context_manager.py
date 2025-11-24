@@ -219,7 +219,8 @@ class SemanticContextManager(ContextManager):
         scenes: List[Scene],
         available_tokens: int,
         db: Session,
-        chapter_id: Optional[int] = None
+        chapter_id: Optional[int] = None,
+        limit_semantic_to_chapter: bool = False
     ) -> Dict[str, Any]:
         """
         Build scene context using hybrid retrieval strategy
@@ -280,8 +281,11 @@ class SemanticContextManager(ContextManager):
         
         # Get semantically relevant scenes first (top N from user settings)
         # Pass complete exclusion list so we don't duplicate scenes already in Recent Scenes
+        # If limit_semantic_to_chapter is True, only search within current chapter (for context size calculation)
         semantic_content = await self._get_semantic_scenes(
-            story_id, recent_scenes, semantic_tokens, db, exclude_all_recent_sequences=all_recent_scene_sequences
+            story_id, recent_scenes, semantic_tokens, db, 
+            exclude_all_recent_sequences=all_recent_scene_sequences,
+            limit_to_chapter_id=chapter_id if limit_semantic_to_chapter else None
         )
         semantic_used_tokens = self.count_tokens(semantic_content) if semantic_content else 0
         
@@ -556,7 +560,8 @@ class SemanticContextManager(ContextManager):
         recent_scenes: List[Scene],
         token_budget: int,
         db: Session,
-        exclude_all_recent_sequences: Optional[List[int]] = None
+        exclude_all_recent_sequences: Optional[List[int]] = None,
+        limit_to_chapter_id: Optional[int] = None
     ) -> Optional[str]:
         """
         Get semantically relevant scenes from the past
@@ -608,7 +613,9 @@ class SemanticContextManager(ContextManager):
                 exclude_sequences = [s.sequence_number for s in recent_scenes]
                 logger.debug(f"[SEMANTIC SEARCH] Using fallback exclusion list: {len(exclude_sequences)} scenes")
             
-            # Search for similar scenes across entire story (not just current chapter)
+            # Search for similar scenes
+            # If limit_to_chapter_id is provided, only search within that chapter (for context size calculation)
+            # Otherwise, search across entire story (normal behavior)
             # Request more results than needed so we can filter by similarity threshold
             search_top_k = self.semantic_top_k * 2  # Get 2x results to filter
             
@@ -617,7 +624,7 @@ class SemanticContextManager(ContextManager):
                 story_id=story_id,
                 top_k=search_top_k,
                 exclude_sequences=exclude_sequences,
-                chapter_id=None  # Search entire story, not just current chapter
+                chapter_id=limit_to_chapter_id  # Limit to chapter if specified, otherwise None (entire story)
             )
             
             if not similar_scenes:
@@ -1056,6 +1063,91 @@ class SemanticContextManager(ContextManager):
             logger.warning(f"Failed to get proper scene content for scene {scene.id}: {e}")
             return f"Scene {scene.sequence_number}: {scene.content}"
 
+    async def calculate_actual_context_size(self, story_id: int, chapter_id: int, db: Session) -> int:
+        """
+        Calculate the actual context size for semantic context manager.
+        
+        This overrides the parent method to ensure semantic context is properly included
+        in the token count calculation, but only counts scenes from the current chapter.
+        
+        IMPORTANT: For context size calculation, we only count current chapter's context,
+        not semantic search results from previous chapters.
+        
+        Args:
+            story_id: Story ID
+            chapter_id: Chapter ID (ensures only current chapter context is included)
+            db: Database session
+            
+        Returns:
+            Total token count of the actual context that would be sent to the LLM
+        """
+        try:
+            # Get the chapter to verify it exists
+            from ..models import Chapter
+            chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+            if not chapter:
+                logger.error(f"Chapter {chapter_id} not found")
+                return 0
+            
+            # Build base context (includes chapter summaries)
+            base_context = await self._get_base_context(story_id, db, chapter_id=chapter_id)
+            base_tokens = self._calculate_base_context_tokens(base_context)
+            
+            # Add chapter summary tokens
+            if base_context.get("story_so_far"):
+                base_tokens += self.count_tokens(f"Story So Far:\n{base_context['story_so_far']}")
+            if base_context.get("previous_chapter_summary"):
+                base_tokens += self.count_tokens(f"Previous Chapter Summary:\n{base_context['previous_chapter_summary']}")
+            
+            # Available tokens for scene history
+            available_tokens = self.effective_max_tokens - base_tokens - 500  # Safety buffer
+            
+            if available_tokens <= 0:
+                logger.warning(f"Base context too large for story {story_id}, chapter {chapter_id}")
+                formatted_context = self._format_context_for_counting(base_context)
+                return self.count_tokens(formatted_context)
+            
+            # Get ONLY scenes from the current chapter (not previous chapters)
+            current_chapter_scenes = db.query(Scene).filter(
+                Scene.story_id == story_id,
+                Scene.chapter_id == chapter_id
+            ).order_by(Scene.sequence_number).all()
+            
+            if not current_chapter_scenes:
+                # No scenes in current chapter yet
+                formatted_context = self._format_context_for_counting(base_context)
+                return self.count_tokens(formatted_context)
+            
+            # Build scene context with only current chapter scenes
+            # For semantic context manager, we still use hybrid strategy but only with current chapter scenes
+            # Set limit_semantic_to_chapter=True to ensure semantic search only finds scenes from current chapter
+            if self.enable_semantic and self.context_strategy != "linear":
+                scene_context = await self._build_hybrid_scene_context(
+                    story_id, current_chapter_scenes, available_tokens, db, 
+                    chapter_id=chapter_id,
+                    limit_semantic_to_chapter=True  # Only search within current chapter for context size
+                )
+            else:
+                # Use parent's linear scene context building
+                scene_context = await self._build_scene_context(current_chapter_scenes, available_tokens, db)
+            
+            # Merge contexts
+            full_context = {**base_context, **scene_context}
+            
+            # Format the context the same way it would be sent to the LLM
+            formatted_context = self._format_context_for_counting(full_context)
+            
+            # Count tokens of the formatted context
+            token_count = self.count_tokens(formatted_context)
+            
+            logger.info(f"[CONTEXT SIZE] Calculated actual context size for chapter {chapter_id} (semantic): {token_count} tokens (only current chapter scenes)")
+            return token_count
+            
+        except Exception as e:
+            logger.error(f"Failed to calculate actual context size for chapter {chapter_id}: {e}")
+            # Fallback to parent method
+            return await super().calculate_actual_context_size(story_id, chapter_id, db)
+    
     async def _add_recent_scenes_dynamically(
         self,
         scenes: List[Scene],
