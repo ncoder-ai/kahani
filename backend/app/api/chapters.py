@@ -858,10 +858,10 @@ async def get_chapter_context_status(
     ).first()
     
     # Convert user settings to dict format for context manager
-    user_settings = {}
-    if user_settings_model:
-        if user_settings_model.context_settings:
-            user_settings['context_settings'] = user_settings_model.context_settings
+    # UserSettings model doesn't have context_settings attribute directly,
+    # need to use to_dict() method or get from stories.py helper
+    from ..api.stories import get_or_create_user_settings
+    user_settings = get_or_create_user_settings(current_user.id, db, current_user)
     
     user_defaults = settings.user_defaults.get('context_settings', {})
     max_tokens = user_settings_model.context_max_tokens if user_settings_model else user_defaults.get('max_tokens', 4000)
@@ -877,16 +877,34 @@ async def get_chapter_context_status(
         actual_context_size = await context_manager.calculate_actual_context_size(
             story_id, chapter_id, db
         )
-        # Update stored value for consistency (optional, but helps keep DB in sync)
-        chapter.context_tokens_used = actual_context_size
-        db.commit()
-        current_tokens = actual_context_size
-        logger.info(f"[CONTEXT STATUS] Recalculated context size for chapter {chapter_id}: {actual_context_size} tokens")
+        
+        # Only update stored value if calculation succeeded and returned a valid value (> 0)
+        # If calculation returns 0, it might be an error (should at least have base context)
+        # Don't overwrite a valid stored value with 0
+        if actual_context_size > 0:
+            chapter.context_tokens_used = actual_context_size
+            db.commit()
+            current_tokens = actual_context_size
+            logger.info(f"[CONTEXT STATUS] Recalculated context size for chapter {chapter_id}: {actual_context_size} tokens")
+        else:
+            # Calculation returned 0, which might be an error
+            # Use stored value if it exists and is > 0, otherwise use 0
+            if chapter.context_tokens_used and chapter.context_tokens_used > 0:
+                current_tokens = chapter.context_tokens_used
+                logger.warning(f"[CONTEXT STATUS] Calculation returned 0 for chapter {chapter_id}, using stored value: {current_tokens} tokens")
+            else:
+                # Both calculation and stored value are 0/None - might be a new chapter with no scenes yet
+                current_tokens = 0
+                logger.info(f"[CONTEXT STATUS] Chapter {chapter_id} has no context tokens yet (new chapter or no scenes)")
     except Exception as e:
-        logger.error(f"[CONTEXT STATUS] Failed to recalculate context size for chapter {chapter_id}: {e}")
+        logger.error(f"[CONTEXT STATUS] Failed to recalculate context size for chapter {chapter_id}: {e}", exc_info=True)
         # Fallback to stored value if calculation fails
-        current_tokens = chapter.context_tokens_used
-        logger.warning(f"[CONTEXT STATUS] Using stored context_tokens_used value: {current_tokens}")
+        if chapter.context_tokens_used and chapter.context_tokens_used > 0:
+            current_tokens = chapter.context_tokens_used
+            logger.warning(f"[CONTEXT STATUS] Using stored context_tokens_used value: {current_tokens}")
+        else:
+            current_tokens = 0
+            logger.warning(f"[CONTEXT STATUS] No valid stored value, using 0")
     
     # Calculate percentage
     percentage_used = (current_tokens / max_tokens) * 100 if max_tokens > 0 else 0

@@ -915,54 +915,59 @@ Appearance: {char.get('appearance', '')}
             # Build context with chapter_id - this will include base context and chapter summaries
             context = await self.build_story_context(story_id, db, chapter_id=chapter_id)
             
-            # CRITICAL: Filter scenes to only those in the current chapter
-            # The build_story_context may include all scenes for continuity, but for size calculation
-            # we only want current chapter scenes
-            if context.get("previous_scenes"):
-                # Get all scenes from the current chapter only
-                current_chapter_scenes = db.query(Scene).filter(
-                    Scene.story_id == story_id,
-                    Scene.chapter_id == chapter_id
-                ).order_by(Scene.sequence_number).all()
+            # Get all scenes from the current chapter only (regardless of what build_story_context returned)
+            current_chapter_scenes = db.query(Scene).filter(
+                Scene.story_id == story_id,
+                Scene.chapter_id == chapter_id
+            ).order_by(Scene.sequence_number).all()
+            
+            # Calculate base context tokens (always included)
+            base_context_dict = {
+                "genre": context.get("genre", ""),
+                "tone": context.get("tone", ""),
+                "world_setting": context.get("world_setting", ""),
+                "initial_premise": context.get("initial_premise", ""),
+                "scenario": context.get("scenario", ""),
+                "characters": context.get("characters", [])
+            }
+            base_tokens = self._calculate_base_context_tokens(base_context_dict)
+            
+            # Add chapter summary tokens
+            if context.get("story_so_far"):
+                base_tokens += self.count_tokens(f"Story So Far:\n{context['story_so_far']}")
+            if context.get("previous_chapter_summary"):
+                base_tokens += self.count_tokens(f"Previous Chapter Summary:\n{context['previous_chapter_summary']}")
+            
+            # Add chapter-specific metadata tokens
+            if context.get("chapter_location"):
+                base_tokens += self.count_tokens(f"Chapter Location: {context['chapter_location']}")
+            if context.get("chapter_time_period"):
+                base_tokens += self.count_tokens(f"Chapter Time Period: {context['chapter_time_period']}")
+            if context.get("chapter_scenario"):
+                base_tokens += self.count_tokens(f"Chapter Scenario: {context['chapter_scenario']}")
+            
+            # Now handle scene context - only from current chapter
+            if current_chapter_scenes:
+                # Available tokens for scene history
+                available_tokens = self.effective_max_tokens - base_tokens - 500  # Reserve 500 for safety
                 
-                if current_chapter_scenes:
-                    # Rebuild the scene context with only current chapter scenes
-                    # Calculate base context tokens first
-                    base_tokens = self._calculate_base_context_tokens({
-                        "genre": context.get("genre", ""),
-                        "tone": context.get("tone", ""),
-                        "world_setting": context.get("world_setting", ""),
-                        "initial_premise": context.get("initial_premise", ""),
-                        "scenario": context.get("scenario", ""),
-                        "characters": context.get("characters", [])
-                    })
-                    
-                    # Add chapter summary tokens
-                    if context.get("story_so_far"):
-                        base_tokens += self.count_tokens(f"Story So Far:\n{context['story_so_far']}")
-                    if context.get("previous_chapter_summary"):
-                        base_tokens += self.count_tokens(f"Previous Chapter Summary:\n{context['previous_chapter_summary']}")
-                    
-                    # Available tokens for scene history
-                    available_tokens = self.effective_max_tokens - base_tokens - 500  # Reserve 500 for safety
-                    
-                    if available_tokens > 0:
-                        # Build scene context with only current chapter scenes
-                        scene_context = await self._build_scene_context(current_chapter_scenes, available_tokens, db)
-                        # Update context with filtered scene context
-                        context["previous_scenes"] = scene_context.get("previous_scenes", "")
-                        context["recent_scenes"] = scene_context.get("recent_scenes", "")
-                        context["scene_summary"] = scene_context.get("scene_summary", "")
-                    else:
-                        # Base context too large, no room for scenes
-                        context["previous_scenes"] = ""
-                        context["recent_scenes"] = ""
-                        context["scene_summary"] = ""
+                if available_tokens > 0:
+                    # Build scene context with only current chapter scenes
+                    scene_context = await self._build_scene_context(current_chapter_scenes, available_tokens, db)
+                    # Update context with filtered scene context
+                    context["previous_scenes"] = scene_context.get("previous_scenes", "")
+                    context["recent_scenes"] = scene_context.get("recent_scenes", "")
+                    context["scene_summary"] = scene_context.get("scene_summary", "")
                 else:
-                    # No scenes in current chapter yet
+                    # Base context too large, no room for scenes
                     context["previous_scenes"] = ""
                     context["recent_scenes"] = ""
                     context["scene_summary"] = ""
+            else:
+                # No scenes in current chapter yet - still count base context
+                context["previous_scenes"] = ""
+                context["recent_scenes"] = ""
+                context["scene_summary"] = ""
             
             # Format the context the same way it would be sent to the LLM
             # This matches the formatting in UnifiedLLMService._format_context_for_scene()
@@ -971,12 +976,36 @@ Appearance: {char.get('appearance', '')}
             # Count tokens of the formatted context
             token_count = self.count_tokens(formatted_context)
             
-            logger.info(f"[CONTEXT SIZE] Calculated actual context size for chapter {chapter_id}: {token_count} tokens (only current chapter scenes)")
+            # Ensure we return at least base context tokens (should never be 0 if story exists)
+            if token_count == 0 and base_tokens > 0:
+                logger.warning(f"[CONTEXT SIZE] Token count is 0 but base_tokens is {base_tokens}, using base_tokens")
+                token_count = base_tokens
+            
+            logger.info(f"[CONTEXT SIZE] Calculated actual context size for chapter {chapter_id}: {token_count} tokens (base: {base_tokens}, scenes: {len(current_chapter_scenes)})")
             return token_count
             
         except Exception as e:
-            logger.error(f"Failed to calculate actual context size for chapter {chapter_id}: {e}")
-            # Fallback: return 0 to avoid breaking the system
+            logger.error(f"Failed to calculate actual context size for chapter {chapter_id}: {e}", exc_info=True)
+            # Don't return 0 on error - try to calculate at least base context
+            try:
+                # Try to get at least base context tokens
+                story = db.query(Story).filter(Story.id == story_id).first()
+                if story:
+                    base_context_dict = {
+                        "genre": story.genre or "",
+                        "tone": story.tone or "",
+                        "world_setting": story.world_setting or "",
+                        "initial_premise": story.initial_premise or "",
+                        "scenario": story.scenario or "",
+                        "characters": []
+                    }
+                    base_tokens = self._calculate_base_context_tokens(base_context_dict)
+                    logger.warning(f"[CONTEXT SIZE] Error occurred, returning base context tokens: {base_tokens}")
+                    return base_tokens
+            except Exception as e2:
+                logger.error(f"Failed to calculate even base context: {e2}")
+            
+            # Last resort: return 0 (caller should handle this)
             return 0
     
     def _format_context_for_counting(self, context: Dict[str, Any]) -> str:
