@@ -589,10 +589,32 @@ chapter_conclusion:
     1. Brings the current chapter to a natural and satisfying end
     2. Ties up loose threads and provides closure for the chapter's main events
     3. Sets up anticipation for what might come next (without resolving the overall story)
-    4. Maintains consistency with established story elements, characters, and world-building
+    4. Maintains strict consistency with established story elements, characters, and world-building
     5. Creates a sense of completion for this chapter while leaving the larger story open
     6. Uses vivid, descriptive language appropriate to the genre and tone
     7. Ends at a natural chapter break point
+    
+    CRITICAL SPECIFICITY REQUIREMENTS:
+    - Use SPECIFIC details from the story context (character names, places, events, relationships)
+    - Reference previous scenes and established plot points directly
+    - Maintain the established genre, tone, and writing style of the story
+    - Build on existing character development and relationships
+    - Advance specific plot threads that have been introduced
+    - Use the story's unique world-building elements and setting details
+    - AVOID generic scenarios - every detail should feel unique to THIS story
+    
+    FORMATTING REQUIREMENTS:
+    - Use standard quotation marks for dialogue: "Hello," she said.
+    - Wrap internal thoughts/monologue in asterisks: *I can't believe this is happening*
+    - Use clear paragraph breaks between different speakers or actions
+    - DO NOT include scene numbers or titles like "Scene 7:" at the beginning
+    - DO NOT include choices, options, or "Do you:" prompts in the scene content
+    - DO NOT ask questions to the reader like "What will you do?" or "What's your choice?"
+    - DO NOT include phrases like "Choose your response:" or "The decision is yours"
+    - Start directly with the narrative content
+    - End with narrative action, dialogue, or description that feels like a chapter ending
+    
+    Write in third person ("He/She/They/Them") to maintain story like immersion. Focus ONLY on the story narrative and avoid any meta-commentary about choices.
     
     CRITICAL: This is a CHAPTER ending, not a STORY ending. The conclusion should:
     - Provide closure for the chapter's specific events and character arcs
@@ -600,33 +622,38 @@ chapter_conclusion:
     - Create a satisfying pause point that feels like a natural chapter break
     - Set up intrigue or anticipation for the next chapter
     - NOT resolve the main story conflict or bring the entire narrative to a close
-    
-    FORMATTING REQUIREMENTS:
-    - Use standard quotation marks for dialogue: "Hello," she said.
-    - Wrap internal thoughts/monologue in asterisks: *I can't believe this is happening*
-    - Use clear paragraph breaks
-    - DO NOT include scene numbers or titles
-    - DO NOT include choices, options, or "Do you:" prompts
-    - Start directly with the narrative content
-    - End with narrative action, dialogue, or description that feels like a chapter ending
   
   user: |
-    Based on the story context below, create a chapter conclusion that brings Chapter {chapter_number} to a natural and satisfying end.
-    
+    Story Context:
     {context}
     
     Chapter Information:
+    - Chapter Number: {chapter_number}
     - Title: {chapter_title}
     - Location: {chapter_location}
     - Time Period: {chapter_time_period}
     - Scenario: {chapter_scenario}
     
-    Create a conclusion that:
-    - Provides closure for this chapter's events
-    - Ties up chapter-specific plot threads
-    - Sets up anticipation for the next chapter
-    - Maintains the established genre, tone, and writing style
-    - Feels like a natural chapter ending, not a story ending
+    CRITICAL INSTRUCTIONS FOR CHAPTER CONCLUSION:
+    
+    Create a chapter conclusion that brings Chapter {chapter_number} to a natural and satisfying end. The conclusion should:
+    1. Provide closure for this chapter's specific events and character arcs
+    2. Tie up chapter-specific plot threads
+    3. Set up anticipation for the next chapter (without resolving the overall story)
+    4. Maintain the established genre, tone, and writing style
+    5. Feel like a natural chapter ending, not a story ending
+    6. Use vivid, descriptive language that draws readers into the specific world of this story
+    7. End at a natural chapter break point that leaves readers wanting to continue
+    
+    IMPORTANT: This is a CHAPTER ending, not a STORY ending. The conclusion should:
+    - Provide closure for the chapter's specific events and character arcs
+    - Leave the overall story plot open and unresolved
+    - Create a satisfying pause point that feels like a natural chapter break
+    - Set up intrigue or anticipation for the next chapter
+    - NOT resolve the main story conflict or bring the entire narrative to a close
+    
+    Write ONLY the narrative content. Do not include any choices, options, or questions for the reader. 
+    This should be pure narrative - a compelling conclusion to this chapter.
     
     Chapter Conclusion:
 
