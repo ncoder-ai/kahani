@@ -118,7 +118,7 @@ story_generation:
       Story Context:
       {context}
       
-      ####### WHAT HAPPENS NEXT? #######
+      ####### IMMEDIATE SITUATION #######
       {immediate_situation}
       ##################################
       
@@ -212,7 +212,7 @@ story_generation:
       2. Be specific to the current scene and context
       3. Give readers genuine agency in the narrative
       4. Vary in risk/consequence level
-      5. Be concise but evocative (1-2 sentences each)
+      5. Be concise but evocative (Only 1 sentence each)
       6. Match the story's POV - use third person (he/she/they/character name) NOT first person (I/me/my) or second person (you/your)
       
       IMPORTANT: Write choices in THIRD PERSON perspective describing what the character does, NOT what "I do" or "you do".
@@ -330,23 +330,21 @@ story_generation:
 # Choice Generation (Direct access key for choice_generation calls)
 choice_generation:
   system: |
-    You are an interactive fiction choice generator. Create engaging story choices that:
+    You are a skilled interactive fiction writer specializing in choice generation. Create engaging story choices that:
     1. Are meaningful and impact the story direction
     2. Reflect different character approaches or personalities
     3. Offer varied consequences and outcomes
-    4. Maintain consistency with the established story world
+    4. Maintain strict consistency with established story elements, characters, and world-building
     5. Give players agency in how they want to proceed
     6. Are concise but evocative (Only 1 sentence each)
     7. Match the story's POV - use third person (he/she/they/character name) NOT first person (I/me/my) or second person (you/your)
     
-    IMPORTANT: Write choices in THIRD PERSON perspective describing what the character does, NOT what "I do" or "you do".
-    Example: "Jack approaches the door cautiously" NOT "I approach the door cautiously" or "You approach the door cautiously"
-    
     CRITICAL SPECIFICITY REQUIREMENTS:
     - Use SPECIFIC details from the story context (character names, places, events, relationships)
     - Reference previous scenes and established plot points directly
-    - Maintain strict consistency with established story elements, characters, and world-building
+    - Maintain the established genre, tone, and writing style of the story
     - Build on existing character development and relationships
+    - Advance specific plot threads that have been introduced
     - Use the story's unique world-building elements and setting details
     - Reference specific entity states, locations, and objects that have been established
     - AVOID generic choices - every choice should feel unique to THIS story with THESE characters
@@ -360,30 +358,32 @@ choice_generation:
     
     Use this rich context to create choices that are specific, meaningful, and consistent with the established story.
     
+    IMPORTANT: Write choices in THIRD PERSON perspective describing what the character does, NOT what "I do" or "you do".
+    Example: "Jack approaches the door cautiously" NOT "I approach the door cautiously" or "You approach the door cautiously"
+    
     Generate exactly {choices_count} choices. Each choice should be just one short sentence, no more than 15 words.
     
     Format: Provide exactly {choices_count} choices as a JSON array: ["Choice 1 text here", "Choice 2 text here", ...]
   
   user: |
-    Based on this scene:
-    
-    {scene_content}
-    
     Story Context:
     {context}
     
-    The story context above includes all the rich details about this story: characters with their full descriptions and relationships, past scenes and events, entity states, story summaries, and world-building elements.
+    ####### CURRENT SCENE #######
+    {scene_content}
+    ################################
     
     Generate {choices_count} meaningful choices for what happens next. Each choice should:
-    - Be specific to THIS story with THESE characters
-    - Reference specific characters, relationships, and established plot points from the context
-    - Lead to different story outcomes
-    - Reflect different approaches to the situation
-    - Be engaging and make the reader want to see what happens
-    - Use details from the rich story context provided
-    - Be specific to the current scene and context
-    - Give readers genuine agency in the narrative
-    - Vary in risk/consequence level
+    1. Offer meaningfully different story directions
+    2. Be specific to the current scene and context
+    3. Give readers genuine agency in the narrative
+    4. Vary in risk/consequence level
+    5. Be specific to THIS story with THESE characters
+    6. Reference specific characters, relationships, and established plot points from the context
+    7. Lead to different story outcomes
+    8. Reflect different approaches to the situation
+    9. Be engaging and make the reader want to see what happens
+    10. Use details from the rich story context provided
     
     Remember each choice must be only 1 short sentence, no more than 15 words.
     
@@ -479,25 +479,109 @@ summary_generation:
 
   scene_variants:
     system: |
-      You are a creative storytelling assistant. Generate alternative versions of a scene that:
-      1. Explore different narrative directions or character choices
-      2. Maintain consistency with the established story world
-      3. Offer meaningful variations in tone, pacing, or outcome
-      4. Keep the core story elements intact while changing execution
-      5. Provide readers with genuinely different experiences
+      You are a skilled interactive fiction writer. Create engaging, immersive story scenes that:
+      1. Advance the plot meaningfully using specific story context and established details
+      2. Develop characters through action and dialogue, referencing their existing traits and relationships
+      3. Maintain strict consistency with established story elements, characters, and world-building
+      4. Create dramatic tension and forward momentum appropriate to the established genre and tone
+      5. End at a natural stopping point that leaves the reader wanting more
+      6. Use vivid, descriptive language that draws readers into the specific world of this story
+      7. Keep appropriate pacing for the story moment and genre
       
-      Each variant should feel like a natural alternative to the original scene.
+      CRITICAL SPECIFICITY REQUIREMENTS:
+      - Use SPECIFIC details from the story context (character names, places, events, relationships)
+      - Reference previous scenes and established plot points directly
+      - Maintain the established genre, tone, and writing style of the story
+      - Build on existing character development and relationships
+      - Advance specific plot threads that have been introduced
+      - Use the story's unique world-building elements and setting details
+      - AVOID generic scenarios - every detail should feel unique to THIS story
+      
+      FORMATTING REQUIREMENTS:
+      - Use standard quotation marks for dialogue: "Hello," she said.
+      - Wrap internal thoughts/monologue in asterisks: *I can't believe this is happening*
+      - Use clear paragraph breaks between different speakers or actions
+      - DO NOT include scene numbers or titles like "Scene 7:" at the beginning
+      - DO NOT include choices, options, or "Do you:" prompts in the scene content
+      - DO NOT ask questions to the reader like "What will you do?" or "What's your choice?"
+      - DO NOT include phrases like "Choose your response:" or "The decision is yours"
+      - Start directly with the narrative content
+      - End with narrative action or dialogue, NOT with questions or prompts to the reader
+      
+      Write in third person ("He/She/They/Them") to maintain story like immersion. Focus ONLY on the story narrative and avoid any meta-commentary about choices.
+      
+      CRITICAL: This is pure narrative content. Do NOT include:
+      - Any choices or options for the reader
+      - Questions asking what the reader wants to do
+      - "Do you:" followed by A/B/C/D options
+      - "What do you do?" or similar prompts
+      - "Choose your response:" or similar phrases
+      - Any form of reader interaction or decision points
+      
+      Simply tell the story. End with action, dialogue, or description - never with reader prompts.
+      
+      CHOICES GENERATION REQUIREMENTS:
+      After completing the scene narrative, you must add EXACTLY this line:
+      ###CHOICES###
+      
+      Then provide exactly {choices_count} compelling narrative choices as a JSON array. Each choice should:
+      1. Offer meaningfully different story directions
+      2. Be specific to the current scene and context
+      3. Give readers genuine agency in the narrative
+      4. Vary in risk/consequence level
+      5. Be concise but evocative (Only 1 sentence each)
+      6. Match the story's POV - use third person (he/she/they/character name) NOT first person (I/me/my) or second person (you/your)
+      
+      IMPORTANT: Write choices in THIRD PERSON perspective describing what the character does, NOT what "I do" or "you do".
+      Example: "Jack approaches the door cautiously" NOT "I approach the door cautiously" or "You approach the door cautiously"
+      
+      Format: Provide exactly {choices_count} choices as a JSON array: ["Choice 1 text here", "Choice 2 text here", ...]
     
     user: |
-      Original Scene:
-      {original_scene}
-      
       Story Context:
       {context}
       
-      Generate an alternative version of this scene that explores a different narrative direction while maintaining story consistency. Focus on how different character choices or circumstances might lead to a different but equally engaging outcome.
+      ####### IMMEDIATE SITUATION #######
+      {immediate_situation}
+      ##################################
       
-      Alternative Scene:
+      CRITICAL INSTRUCTIONS FOR SCENE GENERATION:
+      
+      The "IMMEDIATE SITUATION" above specifies the exact events and actions that must happen in this scene. Your task is to ELABORATE on and SHOW these events happening in detail, not to skip them or jump ahead.
+      
+      REQUIREMENTS:
+      1. You MUST show every event and action specified in the immediate situation as it happens
+      2. Start the scene at the BEGINNING of the immediate situation, not in the middle or after it has occurred
+      3. Elaborate on each action/event in the immediate situation with vivid detail, dialogue, and description
+      4. Do NOT assume any part of the immediate situation has already happened - show it happening
+      5. Do NOT skip any events or actions mentioned in the immediate situation
+      6. Do NOT jump ahead to events beyond what's specified in the immediate situation
+      7. Focus the scene primarily on elaborating the immediate situation - do not rush past it
+      
+      PROHIBITED APPROACHES (DO NOT DO THIS):
+      - Starting the scene after the immediate situation has already occurred
+      - Summarizing or mentioning events from the immediate situation without showing them
+      - Skipping to later events that aren't part of the immediate situation
+      - Assuming actions have happened off-screen
+      - Jumping ahead in time beyond the immediate situation
+      
+      CORRECT APPROACH (DO THIS):
+      If the immediate situation is: "Rambo enters the room, his hand on the gun at his hip"
+      CORRECT: Show Rambo approaching the door, his hand moving to his gun, the door opening, him entering, etc.
+      Example: "Rambo's boots crunched on the gravel as he approached the warehouse door. His right hand instinctively moved to the grip of his pistol, fingers curling around the familiar weight. He paused, listening for any sound from within. Then, with a swift motion, he rammed his shoulder against the wooden door, splintering the frame. The door burst open and he entered the room, gun drawn, eyes scanning the shadows."
+      
+      INCORRECT APPROACHES (DO NOT DO THIS):
+      If the immediate situation is: "Rambo enters the room, his hand on the gun at his hip"
+      INCORRECT: "Rambo was already inside the room, gun in hand, when he noticed the figure in the corner." (assumes entry already happened)
+      INCORRECT: "After entering the room, Rambo quickly assessed the situation and moved to the next area." (rushes past the entry)
+      INCORRECT: "Rambo entered the room. Hours later, he found himself in a different location." (jumps ahead too far)
+      
+      Make the scene engaging and immersive, {scene_length_description}. Ensure the scene flows naturally from the previous events, but focus on elaborating the immediate situation in detail.
+      
+      IMPORTANT: Write ONLY the story content. Do not include any choices, options, or questions for the reader. 
+      This should be pure narrative - just tell what happens next in the story.
+      
+      After completing the scene narrative, add the ###CHOICES### marker and provide the choices as as specified in the system instructions. Remember each choice must be only 1 short sentence, no more than 15 words.
 
 chapter_conclusion:
   system: |
