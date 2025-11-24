@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { ArrowLeftIcon, ArrowRightIcon, PlayIcon, ArrowPathIcon, PlusCircleIcon, StopIcon, SparklesIcon, TrashIcon, ClipboardIcon } from '@heroicons/react/24/outline';
+import { ArrowLeftIcon, ArrowRightIcon, PlayIcon, ArrowPathIcon, PlusCircleIcon, StopIcon, SparklesIcon, TrashIcon, ClipboardIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import SceneDisplay from './SceneDisplay';
 import { SceneTTSButton } from './SceneTTSButton';
 import MicrophoneButton from './MicrophoneButton';
@@ -94,6 +94,8 @@ interface SceneVariantDisplayProps {
   onDeactivateDeleteMode?: () => void;
   // Copy functionality
   onCopySceneText?: (content: string) => void;
+  // Choices generation loading state
+  isGeneratingChoices?: boolean;
 }
 
 export default function SceneVariantDisplay({
@@ -138,7 +140,8 @@ export default function SceneVariantDisplay({
   onToggleSceneDeletion,
   onActivateDeleteMode,
   onDeactivateDeleteMode,
-  onCopySceneText
+  onCopySceneText,
+  isGeneratingChoices = false
 }: SceneVariantDisplayProps) {
   const [variants, setVariants] = useState<SceneVariant[]>([]);
   const [currentVariantId, setCurrentVariantId] = useState<number | null>(null);
@@ -149,6 +152,7 @@ export default function SceneVariantDisplay({
   const hasLoadedVariantsRef = useRef<Set<number>>(new Set());
   const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
+  const [showFloatingMenu, setShowFloatingMenu] = useState(false);
 
   // Load variants for this scene
   const loadVariants = async (forceSetVariantId?: number) => {
@@ -651,6 +655,75 @@ export default function SceneVariantDisplay({
             Generating...
           </div>
         )}
+        
+        {/* Variant Navigation Arrows - Only for last scene */}
+        {isLastScene && shouldShowNavigation() && (
+          <>
+            {/* Left Arrow */}
+            <button
+              onClick={() => {
+                if (variants.length <= 1) {
+                  loadVariants().then(() => navigateToPrevious());
+                } else {
+                  navigateToPrevious();
+                }
+              }}
+              disabled={!canNavigateToPrevious()}
+              className="hidden md:flex absolute left-0 top-1/2 -translate-x-12 -translate-y-1/2 w-10 h-10 items-center justify-center rounded-full bg-gray-800/60 hover:bg-gray-700/80 border border-gray-600/50 hover:border-gray-500 transition-all opacity-60 hover:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed z-10"
+              title="Previous variant (←)"
+            >
+              <ArrowLeftIcon className="w-5 h-5 text-gray-300" />
+            </button>
+            
+            {/* Right Arrow */}
+            <button
+              onClick={() => {
+                if (variants.length <= 1) {
+                  loadVariants().then(() => navigateToNext());
+                } else {
+                  navigateToNext();
+                }
+              }}
+              disabled={!canNavigateToNext()}
+              className="hidden md:flex absolute right-0 top-1/2 translate-x-12 -translate-y-1/2 w-10 h-10 items-center justify-center rounded-full bg-gray-800/60 hover:bg-gray-700/80 border border-gray-600/50 hover:border-gray-500 transition-all opacity-60 hover:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed z-10"
+              title="Next variant (→)"
+            >
+              <ArrowRightIcon className="w-5 h-5 text-gray-300" />
+            </button>
+            
+            {/* Mobile Arrows - Fixed position overlay */}
+            <button
+              onClick={() => {
+                if (variants.length <= 1) {
+                  loadVariants().then(() => navigateToPrevious());
+                } else {
+                  navigateToPrevious();
+                }
+              }}
+              disabled={!canNavigateToPrevious()}
+              className="md:hidden fixed left-2 top-1/2 -translate-y-1/2 w-10 h-10 items-center justify-center rounded-full bg-gray-800/80 hover:bg-gray-700/90 border border-gray-600/70 hover:border-gray-500 backdrop-blur-sm transition-all opacity-70 hover:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed z-20 flex"
+              title="Previous variant (←)"
+            >
+              <ArrowLeftIcon className="w-5 h-5 text-gray-300" />
+            </button>
+            
+            <button
+              onClick={() => {
+                if (variants.length <= 1) {
+                  loadVariants().then(() => navigateToNext());
+                } else {
+                  navigateToNext();
+                }
+              }}
+              disabled={!canNavigateToNext()}
+              className="md:hidden fixed right-2 top-1/2 -translate-y-1/2 w-10 h-10 items-center justify-center rounded-full bg-gray-800/80 hover:bg-gray-700/90 border border-gray-600/70 hover:border-gray-500 backdrop-blur-sm transition-all opacity-70 hover:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed z-20 flex"
+              title="Next variant (→)"
+            >
+              <ArrowRightIcon className="w-5 h-5 text-gray-300" />
+            </button>
+          </>
+        )}
+        
         <SceneDisplay
           scene={getDisplayScene()}
           sceneNumber={sceneNumber}
@@ -672,6 +745,17 @@ export default function SceneVariantDisplay({
         isStreamingVariant={isStreamingVariant}
         userSettings={userSettings}
       />
+      
+      {/* Variant Indicator - Below scene content */}
+      {isLastScene && shouldShowNavigation() && (
+        <div className="text-center mt-2 mb-4">
+          <span className="text-xs text-gray-500">
+            {variants.length > 0
+              ? `${getCurrentVariantIndex() + 1} of ${variants.length}`
+              : isLoadingVariants ? 'Loading...' : '1 of ?'}
+          </span>
+        </div>
+      )}
       
       {/* Quick Action Buttons - Floating buttons in top-right */}
       <div className="absolute -top-2 -right-2 z-10 flex items-center gap-1.5">
@@ -731,51 +815,9 @@ export default function SceneVariantDisplay({
       {/* Scene Management - Only show for last scene */}
       {isLastScene && (
         <div className="space-y-4 mt-6 pt-4 border-t border-gray-600/30">
-          {/* Variant Navigation */}
-          {shouldShowNavigation() && (
-            <div className={`variant-navigation ${layoutMode === 'modern' ? 'modern-variant-nav' : ''}`}>
-              <button
-                onClick={() => {
-                  if (variants.length <= 1) {
-                    loadVariants().then(() => navigateToPrevious());
-                  } else {
-                    navigateToPrevious();
-                  }
-                }}
-                disabled={!canNavigateToPrevious()}
-                className="variant-nav-button"
-                title="Previous variant (←)"
-              >
-                <ArrowLeftIcon className="w-4 h-4" />
-                <span>Prev</span>
-              </button>
-
-              <div className="text-sm text-gray-300 px-3 font-medium">
-                {variants.length > 0
-                  ? `Variant ${getCurrentVariantIndex() + 1} of ${variants.length}`
-                  : isLoadingVariants ? 'Loading...' : 'Variant 1 of ?'}
-              </div>
-
-              <button
-                onClick={() => {
-                  if (variants.length <= 1) {
-                    loadVariants().then(() => navigateToNext());
-                  } else {
-                    navigateToNext();
-                  }
-                }}
-                disabled={!canNavigateToNext()}
-                className="variant-nav-button"
-                title="Next variant (→)"
-              >
-                <span>Next</span>
-                <ArrowRightIcon className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-          
-          {/* Action Buttons - Regenerate, Continue, Guided Regen, Stop */}
-          <div className="flex justify-center items-center space-x-2">
+          {/* Action Buttons - Desktop: Show buttons, Mobile: Show FAB */}
+          {/* Desktop Action Buttons */}
+          <div className="hidden md:flex justify-center items-center space-x-2">
             {/* Regenerate Button */}
             <button
               onClick={() => onCreateVariant(scene.id, undefined, currentVariantId || undefined)}
@@ -828,6 +870,113 @@ export default function SceneVariantDisplay({
               </button>
             )}
           </div>
+          
+          {/* Mobile Floating Action Menu */}
+          <div className="md:hidden fixed bottom-20 right-4 z-50">
+            {/* Floating Menu Items */}
+            {showFloatingMenu && (
+              <div className="absolute bottom-16 right-0 mb-2 space-y-2 animate-fade-in">
+                {/* Regenerate */}
+                <button
+                  onClick={() => {
+                    setShowFloatingMenu(false);
+                    onCreateVariant(scene.id, undefined, currentVariantId || undefined);
+                  }}
+                  disabled={isGenerating || isStreaming || isRegenerating}
+                  className="flex items-center gap-2 w-full px-4 py-2 bg-pink-600 hover:bg-pink-700 disabled:bg-pink-800 disabled:opacity-50 text-white rounded-lg shadow-lg transition-all backdrop-blur-sm"
+                  title="Regenerate current scene"
+                >
+                  <ArrowPathIcon className="w-5 h-5" />
+                  <span className="text-sm font-medium">Regenerate</span>
+                </button>
+                
+                {/* Continue */}
+                <button
+                  onClick={() => {
+                    setShowFloatingMenu(false);
+                    if (onContinueScene) {
+                      onContinueScene(scene.id, "Continue this scene with more details and development, adding to the existing content.");
+                    } else {
+                      onCreateVariant?.(scene.id, "Continue this scene with more details and development, adding to the existing content rather than replacing it.", currentVariantId || undefined);
+                    }
+                  }}
+                  disabled={isGenerating || isStreaming || isRegenerating}
+                  className="flex items-center gap-2 w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:opacity-50 text-white rounded-lg shadow-lg transition-all backdrop-blur-sm"
+                  title="Continue current scene"
+                >
+                  <PlusCircleIcon className="w-5 h-5" />
+                  <span className="text-sm font-medium">Continue</span>
+                </button>
+                
+                {/* Guided */}
+                <button
+                  onClick={() => {
+                    setShowGuidedOptions(!showGuidedOptions);
+                    if (!showGuidedOptions) {
+                      setShowFloatingMenu(false);
+                    }
+                  }}
+                  disabled={isGenerating || isStreaming || isRegenerating}
+                  className={`flex items-center gap-2 w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 disabled:opacity-50 text-white rounded-lg shadow-lg transition-all backdrop-blur-sm ${
+                    showGuidedOptions ? 'ring-2 ring-purple-400' : ''
+                  }`}
+                  title="Guided regeneration options"
+                >
+                  <SparklesIcon className="w-5 h-5" />
+                  <span className="text-sm font-medium">Guided</span>
+                </button>
+                
+                {/* Delete Mode Toggle */}
+                <button
+                  onClick={() => {
+                    setShowFloatingMenu(false);
+                    handleDeleteClick();
+                  }}
+                  className={`flex items-center gap-2 w-full px-4 py-2 rounded-lg shadow-lg transition-all backdrop-blur-sm ${
+                    isInDeleteMode && isSceneSelectedForDeletion
+                      ? 'bg-red-600 hover:bg-red-700 text-white'
+                      : isInDeleteMode
+                      ? 'bg-gray-700 hover:bg-gray-600 text-gray-200'
+                      : 'bg-gray-700 hover:bg-red-600 text-gray-200'
+                  }`}
+                  title={isInDeleteMode ? 'Cancel delete mode' : 'Delete from this scene onwards'}
+                >
+                  <TrashIcon className="w-5 h-5" />
+                  <span className="text-sm font-medium">
+                    {isInDeleteMode ? 'Cancel Delete' : 'Delete'}
+                  </span>
+                </button>
+                
+                {/* Stop Generation - Only show when generating */}
+                {(isGenerating || isStreaming || isRegenerating || isStreamingContinuation) && onStopGeneration && (
+                  <button
+                    onClick={() => {
+                      setShowFloatingMenu(false);
+                      onStopGeneration();
+                    }}
+                    className="flex items-center gap-2 w-full px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg shadow-lg transition-all backdrop-blur-sm"
+                    title="Stop generation"
+                  >
+                    <StopIcon className="w-5 h-5" />
+                    <span className="text-sm font-medium">Stop</span>
+                  </button>
+                )}
+              </div>
+            )}
+            
+            {/* FAB Button */}
+            <button
+              onClick={() => setShowFloatingMenu(!showFloatingMenu)}
+              className="w-14 h-14 rounded-full bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-700 hover:to-purple-700 shadow-lg flex items-center justify-center transition-all backdrop-blur-sm border border-white/20"
+              title="Scene actions"
+            >
+              {showFloatingMenu ? (
+                <XMarkIcon className="w-6 h-6 text-white" />
+              ) : (
+                <SparklesIcon className="w-6 h-6 text-white" />
+              )}
+            </button>
+          </div>
 
           {/* Guided Options Dropdown */}
           {showGuidedOptions && (
@@ -868,34 +1017,43 @@ export default function SceneVariantDisplay({
         <div className="mt-6">
           {/* Choice Buttons - Keep in DOM but hide with opacity to prevent layout shifts */}
           {showChoices && !directorMode && (
-            <div className={`space-y-2 mb-4 transition-opacity duration-200 ${
+            <div className={`space-y-1.5 mb-4 transition-opacity duration-200 ${
               showChoicesDuringGeneration 
                 ? 'opacity-100 pointer-events-auto' 
                 : 'opacity-30 pointer-events-none'
             }`}>
               {getAvailableChoices().length > 0 ? (
-                getAvailableChoices().map((choice, index) => (
-                  <button
-                    key={index}
-                    onClick={() => {
-                      setSelectedChoice?.(choice);
-                      setShowChoicesDuringGeneration?.(false);
-                      onGenerateScene?.(choice);
-                    }}
-                    disabled={!showChoicesDuringGeneration || isGenerating || isStreaming}
-                    className={`w-full text-left p-3 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed group modern-choice-button compact ${
-                      layoutMode === 'modern' ? 'rounded-lg' : 'theme-btn-secondary hover:opacity-80 border border-gray-600 rounded-lg'
-                    } ${selectedChoice === choice ? 'ring-2 ring-pink-500 bg-pink-900/20' : ''}`}
-                  >
-                    <div className="flex items-center justify-between relative z-10">
-                      <span className="text-gray-200 text-sm">{choice}</span>
-                      <PlayIcon className="w-4 h-4 text-pink-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-                    </div>
-                  </button>
-                ))
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+                  {getAvailableChoices().map((choice, index) => (
+                    <button
+                      key={index}
+                      onClick={() => {
+                        setSelectedChoice?.(choice);
+                        setShowChoicesDuringGeneration?.(false);
+                        onGenerateScene?.(choice);
+                      }}
+                      disabled={!showChoicesDuringGeneration || isGenerating || isStreaming}
+                      className={`w-full text-left p-2 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed group modern-choice-button compact ${
+                        layoutMode === 'modern' ? 'rounded-lg' : 'theme-btn-secondary hover:opacity-80 border border-gray-600 rounded-lg'
+                      } ${selectedChoice === choice ? 'ring-2 ring-pink-500 bg-pink-900/20' : ''}`}
+                    >
+                      <div className="flex items-center justify-between relative z-10">
+                        <span className="text-gray-200 text-xs leading-tight">{choice}</span>
+                        <PlayIcon className="w-3.5 h-3.5 text-pink-500 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 ml-2" />
+                      </div>
+                    </button>
+                  ))}
+                </div>
               ) : (
                 <div className="text-center text-gray-400 py-4">
-                  <div className="animate-pulse">Loading story choices...</div>
+                  {isGeneratingChoices ? (
+                    <div className="flex items-center justify-center space-x-2">
+                      <div className="w-4 h-4 border-2 border-pink-500 border-t-transparent rounded-full animate-spin"></div>
+                      <span className="text-sm">Generating choices...</span>
+                    </div>
+                  ) : (
+                    <div className="animate-pulse">Loading story choices...</div>
+                  )}
                 </div>
               )}
             </div>

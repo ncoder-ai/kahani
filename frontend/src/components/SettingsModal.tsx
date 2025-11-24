@@ -219,6 +219,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     scene_length: 'medium',
     auto_choices: true,
     choices_count: 4,
+    enable_streaming: true,
   });
   
   // TTS Settings
@@ -380,6 +381,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             scene_length: settings.generation_preferences.scene_length || 'medium',
             auto_choices: settings.generation_preferences.auto_choices !== false,
             choices_count: settings.generation_preferences.choices_count ?? 4,
+            enable_streaming: settings.generation_preferences.enable_streaming !== false, // Default to true
           });
         }
 
@@ -2851,6 +2853,17 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       className="w-4 h-4 rounded"
                     />
                     <span className="text-sm text-white">Auto-generate choices after each scene</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={generationPrefs.enable_streaming !== false}
+                      onChange={(e) => setGenerationPrefs({ ...generationPrefs, enable_streaming: e.target.checked })}
+                      className="w-4 h-4 rounded"
+                    />
+                    <span className="text-sm text-white">Enable streaming generation</span>
+                    <span className="text-xs text-gray-400">(Shows content as it's generated)</span>
                   </label>
 
                   <div>

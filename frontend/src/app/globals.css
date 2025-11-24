@@ -207,13 +207,14 @@ body {
 
 /* Compact choice buttons */
 .modern-choice-button.compact {
-  padding: 0.75rem 1rem !important; /* Smaller padding */
-  font-size: 0.875rem; /* Smaller font size */
+  padding: 0.5rem 0.75rem !important; /* Even smaller padding */
+  font-size: 0.75rem; /* Smaller font size */
+  min-height: 44px; /* Ensure minimum touch target on mobile */
 }
 
 .modern-choice-button.compact span {
-  font-size: 0.875rem;
-  line-height: 1.25;
+  font-size: 0.75rem;
+  line-height: 1.3;
 }
 
 /* Continue and guided regeneration buttons */
@@ -353,5 +354,91 @@ body {
   
   [contenteditable] {
     font-size: 16px !important;
+  }
+  
+  /* Ensure all interactive elements have minimum 44px touch targets */
+  button,
+  a,
+  [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* Compact header on mobile */
+  .compact-header {
+    padding: 0.375rem 0.75rem !important;
+    font-size: 0.75rem !important;
+  }
+}
+
+/* FAB positioning and animation */
+.floating-action-menu {
+  position: fixed;
+  bottom: 5rem;
+  right: 1rem;
+  z-index: 50;
+}
+
+.floating-action-menu-items {
+  animation: slideUpFade 0.2s ease-out;
+}
+
+@keyframes slideUpFade {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Variant navigation arrows - responsive positioning */
+.variant-nav-arrow {
+  transition: all 0.2s ease;
+}
+
+.variant-nav-arrow:hover {
+  transform: scale(1.1);
+}
+
+/* Smooth transitions for all layout changes */
+.scene-variant-container,
+.scene-container,
+.modern-choice-button,
+.variant-nav-arrow,
+.floating-action-menu {
+  transition: all 0.3s ease;
+}
+
+/* Mobile-specific adjustments */
+@media (max-width: 768px) {
+  /* Reduce spacing on mobile */
+  .scene-variant-container {
+    margin-bottom: 1rem;
+  }
+  
+  /* Ensure FAB doesn't overlap with content */
+  .floating-action-menu {
+    bottom: 5rem;
+  }
+  
+  /* Compact variant indicator */
+  .variant-indicator {
+    font-size: 0.625rem;
+    margin-top: 0.5rem;
+  }
+}
+
+/* Desktop-specific adjustments */
+@media (min-width: 769px) {
+  /* Margin arrows positioning */
+  .variant-nav-arrow-left {
+    left: -3rem;
+  }
+  
+  .variant-nav-arrow-right {
+    right: -3rem;
   }
 }
