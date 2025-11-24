@@ -287,7 +287,7 @@ class UnifiedLLMService:
                 # Fallback to direct HTTP for LM Studio and TabbyAPI
                 if client.api_type in ["lm_studio", "openai_compatible"]:
                     logger.info(f"Attempting direct HTTP fallback for {client.api_type}")
-                    return await self._direct_http_fallback(client, messages, max_tokens, temperature, False)
+                    return await self._direct_http_fallback(client, messages, max_tokens, temperature, False, user_settings)
                 else:
                     logger.error(f"LLM generation failed for user {user_id}: {error_msg}")
                     raise ValueError(f"LLM generation failed: {error_msg}")
@@ -368,7 +368,7 @@ class UnifiedLLMService:
         # and use direct HTTP to ensure correct /v1/completions endpoint is called
         if client.api_type in ["lm_studio", "openai_compatible", "openai-compatible", "tabbyapi", "koboldcpp"]:
             logger.info(f"Using direct HTTP for text completion with {client.api_type}")
-            return await self._direct_http_text_completion_fallback(client, rendered_prompt, max_tokens, temperature, False)
+            return await self._direct_http_text_completion_fallback(client, rendered_prompt, max_tokens, temperature, False, user_settings)
         
         # For other providers, try LiteLLM
         try:
@@ -397,11 +397,18 @@ class UnifiedLLMService:
             logger.error(f"Text completion failed for user {user_id}: {error_msg}")
             raise ValueError(f"Text completion failed: {error_msg}")
     
-    async def _direct_http_fallback(self, client, messages, max_tokens, temperature, stream):
+    async def _direct_http_fallback(self, client, messages, max_tokens, temperature, stream, user_settings: Optional[Dict[str, Any]] = None):
         """Direct HTTP fallback for LM Studio when LiteLLM fails"""
+        # Get timeout from user settings or fallback to system default
+        user_timeout = None
+        if user_settings:
+            llm_settings = user_settings.get('llm_settings', {})
+            user_timeout = llm_settings.get('timeout_total')
+        timeout_total = user_timeout if user_timeout is not None else settings.llm_timeout_total
+        
         # Configure timeout from settings
         timeout = httpx.Timeout(
-            settings.llm_timeout_total,
+            timeout_total,
             connect=settings.llm_timeout_connect,
             read=settings.llm_timeout_read,
             write=settings.llm_timeout_write
@@ -565,11 +572,18 @@ class UnifiedLLMService:
             else:
                 raise ValueError("LLM generation failed: Unknown error")
     
-    async def _direct_http_text_completion_fallback(self, client, prompt, max_tokens, temperature, stream):
+    async def _direct_http_text_completion_fallback(self, client, prompt, max_tokens, temperature, stream, user_settings: Optional[Dict[str, Any]] = None):
         """Direct HTTP call to /v1/completions endpoint for text completion"""
+        # Get timeout from user settings or fallback to system default
+        user_timeout = None
+        if user_settings:
+            llm_settings = user_settings.get('llm_settings', {})
+            user_timeout = llm_settings.get('timeout_total')
+        timeout_total = user_timeout if user_timeout is not None else settings.llm_timeout_total
+        
         # Configure timeout from settings
         timeout = httpx.Timeout(
-            settings.llm_timeout_total,
+            timeout_total,
             connect=settings.llm_timeout_connect,
             read=settings.llm_timeout_read,
             write=settings.llm_timeout_write
@@ -975,7 +989,7 @@ class UnifiedLLMService:
         # and use direct HTTP to ensure correct /v1/completions endpoint is called
         if client.api_type in ["lm_studio", "openai_compatible", "openai-compatible", "tabbyapi", "koboldcpp"]:
             logger.info(f"Using direct HTTP streaming for text completion with {client.api_type}")
-            async for chunk in await self._direct_http_text_completion_fallback(client, rendered_prompt, max_tokens, temperature, True):
+            async for chunk in await self._direct_http_text_completion_fallback(client, rendered_prompt, max_tokens, temperature, True, user_settings):
                 yield chunk
             return
         
@@ -1047,7 +1061,7 @@ class UnifiedLLMService:
             # Fallback to direct HTTP for LM Studio and TabbyAPI
             if client.api_type in ["lm_studio", "openai_compatible"]:
                 logger.info(f"Attempting direct HTTP streaming text completion fallback for {client.api_type}")
-                async for chunk in await self._direct_http_text_completion_fallback(client, rendered_prompt, max_tokens, temperature, True):
+                async for chunk in await self._direct_http_text_completion_fallback(client, rendered_prompt, max_tokens, temperature, True, user_settings):
                     yield chunk
             else:
                 logger.error(f"Streaming text completion failed for user {user_id}: {error_msg}")
