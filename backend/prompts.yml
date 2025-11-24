@@ -118,8 +118,42 @@ story_generation:
       Story Context:
       {context}
       
-      Generate the next scene of the story, incorporating the IMMEDIATE SITUATION. You must incorporate the “IMMEDIATE SITUATION”  in the scene you create, do not start the scene by assuming that the immediate situation has already occured.  For example, if the immediate situation is, “Rambo enters the room, his hand on the gun at his hip”, do not start the scene from the point where he has already entered the room. Incorporate the act of entering the room in the scene, for example, "Rambo rams his shoulder onto the wooden door breaking the door from the hinges and enters the room, guns blazing." Make the scene engaging and immersive, {scene_length_description}.
-      Ensure the scene flows naturally from the previous events.
+      ####### WHAT HAPPENS NEXT? #######
+      {immediate_situation}
+      ##################################
+      
+      CRITICAL INSTRUCTIONS FOR SCENE GENERATION:
+      
+      The "IMMEDIATE SITUATION" above specifies the exact events and actions that must happen in this scene. Your task is to ELABORATE on and SHOW these events happening in detail, not to skip them or jump ahead.
+      
+      REQUIREMENTS:
+      1. You MUST show every event and action specified in the immediate situation as it happens
+      2. Start the scene at the BEGINNING of the immediate situation, not in the middle or after it has occurred
+      3. Elaborate on each action/event in the immediate situation with vivid detail, dialogue, and description
+      4. Do NOT assume any part of the immediate situation has already happened - show it happening
+      5. Do NOT skip any events or actions mentioned in the immediate situation
+      6. Do NOT jump ahead to events beyond what's specified in the immediate situation
+      7. Focus the scene primarily on elaborating the immediate situation - do not rush past it
+      
+      PROHIBITED APPROACHES (DO NOT DO THIS):
+      - Starting the scene after the immediate situation has already occurred
+      - Summarizing or mentioning events from the immediate situation without showing them
+      - Skipping to later events that aren't part of the immediate situation
+      - Assuming actions have happened off-screen
+      - Jumping ahead in time beyond the immediate situation
+      
+      CORRECT APPROACH (DO THIS):
+      If the immediate situation is: "Rambo enters the room, his hand on the gun at his hip"
+      CORRECT: Show Rambo approaching the door, his hand moving to his gun, the door opening, him entering, etc.
+      Example: "Rambo's boots crunched on the gravel as he approached the warehouse door. His right hand instinctively moved to the grip of his pistol, fingers curling around the familiar weight. He paused, listening for any sound from within. Then, with a swift motion, he rammed his shoulder against the wooden door, splintering the frame. The door burst open and he entered the room, gun drawn, eyes scanning the shadows."
+      
+      INCORRECT APPROACHES (DO NOT DO THIS):
+      If the immediate situation is: "Rambo enters the room, his hand on the gun at his hip"
+      INCORRECT: "Rambo was already inside the room, gun in hand, when he noticed the figure in the corner." (assumes entry already happened)
+      INCORRECT: "After entering the room, Rambo quickly assessed the situation and moved to the next area." (rushes past the entry)
+      INCORRECT: "Rambo entered the room. Hours later, he found himself in a different location." (jumps ahead too far)
+      
+      Make the scene engaging and immersive, {scene_length_description}. Ensure the scene flows naturally from the previous events, but focus on elaborating the immediate situation in detail.
       
       IMPORTANT: Write ONLY the story content. Do not include any choices, options, or questions for the reader. 
       This should be pure narrative - just tell what happens next in the story.

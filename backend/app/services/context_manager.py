@@ -784,19 +784,22 @@ Appearance: {char.get('appearance', '')}
         total_scenes = full_context.get("total_scenes", 0)
         is_first_scene = total_scenes == 0
         
-        # Add custom prompt if provided
-        if custom_prompt:
+        # Add custom prompt if provided (continuation option text)
+        if custom_prompt and custom_prompt.strip():
             if is_variant_generation:
                 # Variant generation with guided enhancement - only set enhancement_guidance
                 # Don't set current_situation to avoid "IMMEDIATE SITUATION" formatting
-                full_context["enhancement_guidance"] = custom_prompt
+                full_context["enhancement_guidance"] = custom_prompt.strip()
             else:
                 # New scene generation with continue option - set current_situation
                 # This triggers "IMMEDIATE SITUATION" formatting
-                full_context["current_situation"] = custom_prompt
+                full_context["current_situation"] = custom_prompt.strip()
+                logger.info(f"[CONTEXT_MANAGER] Set current_situation from custom_prompt: '{full_context['current_situation']}'")
                 if is_first_scene:
                     full_context["is_first_scene"] = True
                     full_context["user_prompt_provided"] = True
+        else:
+            logger.warning(f"[CONTEXT_MANAGER] custom_prompt is empty or whitespace only: '{custom_prompt}'")
         
         # Optimize for scene generation (focus on recent events and character state)
         # Use "previous_scenes" which contains full context (including semantic scenes for SemanticContextManager)
