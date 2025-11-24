@@ -2354,57 +2354,6 @@ export default function StoryPage() {
         }}
         currentChapterId={selectedChapterId ?? undefined}
       />
-      
-      {/* Compact Combined Header */}
-      <div className="bg-gray-800/95 backdrop-blur-md border-b border-gray-700 sticky top-0 z-40" suppressHydrationWarning>
-        <div className="max-w-4xl mx-auto px-3 md:px-4 py-1.5 md:py-2">
-          <div className="flex items-center justify-between gap-2">
-            {/* Left: Back button + Story title */}
-            <div className="flex items-center gap-2 md:gap-3 min-w-0 flex-1">
-              <button
-                onClick={handleCloseStory}
-                className="flex-shrink-0 p-1.5 md:p-2 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded transition-colors"
-                title="Close story and return to dashboard"
-              >
-                <X className="w-4 h-4 md:w-5 md:h-5" />
-              </button>
-              <div className="min-w-0 flex-1">
-                <div className="text-gray-200 text-xs md:text-sm font-medium truncate">
-                  {story?.title}
-                </div>
-                {/* Chapter indicator - compact */}
-                {currentChapterInfo && (
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    <span className="text-gray-500 text-[10px] md:text-xs">
-                      {currentChapterInfo.title || `Chapter ${currentChapterInfo.number}`}
-                    </span>
-                    {selectedChapterId !== null && (
-                      <button
-                        onClick={() => setSelectedChapterId(null)}
-                        className="text-gray-500 hover:text-gray-300 text-[10px] md:text-xs transition-colors"
-                        title="Return to active chapter"
-                      >
-                        ✕
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-            
-            {/* Right: Scene count (hidden on mobile) */}
-            <div className="hidden sm:flex items-center space-x-1.5 text-gray-500 text-[10px] md:text-xs">
-              <span>{story?.scenes?.length || 0} scenes</span>
-              {storyCharacters.length > 0 && (
-                <>
-                  <span>•</span>
-                  <span className="text-purple-400">{storyCharacters.length} chars</span>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
 
       {/* Main Story Container */}
       <div className="max-w-4xl mx-auto flex flex-col" style={{ height: 'calc(100vh - 40px)' }}>

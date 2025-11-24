@@ -122,3 +122,4 @@ python3 backup_database.py create --reason "before_important_change"
 
 **Remember**: Regular backups are essential! Set up automated backups to prevent data loss.
 
+
