@@ -39,3 +39,4 @@ def downgrade():
     op.drop_index('ix_npc_tracking_snapshots_id', table_name='npc_tracking_snapshots')
     op.drop_table('npc_tracking_snapshots')
 
+

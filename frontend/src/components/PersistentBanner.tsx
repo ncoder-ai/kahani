@@ -103,24 +103,24 @@ export default function PersistentBanner() {
     <>
       {/* Top Banner */}
       <div className="fixed top-0 left-0 right-0 z-50 theme-banner backdrop-blur-md border-b border-white/20 shadow-lg" suppressHydrationWarning>
-        <div className="max-w-7xl mx-auto px-4 py-1.5 md:py-2">
+        <div className="max-w-7xl mx-auto px-4 py-1 md:py-1.5">
           <div className="flex justify-between items-center">
             {/* Left side - App name, story title, and user info */}
             <div className="flex items-center space-x-2 md:space-x-4 min-w-0 flex-1" suppressHydrationWarning>
               {isClient && canGoBack && (
                 <button
                   onClick={handleBack}
-                  className="flex items-center text-white/80 hover:text-white hover:bg-white/10 px-2 py-2 rounded-lg transition-all duration-200 flex-shrink-0"
+                  className="flex items-center text-white/80 hover:text-white hover:bg-white/10 px-1.5 py-1 rounded-lg transition-all duration-200 flex-shrink-0"
                   title="Go back"
                 >
-                  <ArrowLeftIcon className="w-4 h-4 md:w-5 md:h-5" />
+                  <ArrowLeftIcon className="w-3.5 h-3.5 md:w-4 md:h-4" />
                 </button>
               )}
               <button
                 onClick={handleHome}
                 className="flex items-center space-x-2 text-white hover:text-purple-200 transition-colors flex-shrink-0"
               >
-                <span className="text-base md:text-xl font-bold">✨ Kahani</span>
+                <span className="text-sm md:text-base font-bold">✨ Kahani</span>
               </button>
               {isClient && pathname?.startsWith('/story/') && storyActions?.storyTitle ? (
                 <>
@@ -178,24 +178,24 @@ export default function PersistentBanner() {
               {/* Menu Button */}
               <button
                 onClick={() => setShowUnifiedMenu(true)}
-                className="flex items-center justify-center w-8 h-8 md:w-10 md:h-10 rounded-lg transition-all hover:bg-white/10 theme-btn-primary hover:opacity-90"
+                className="flex items-center justify-center w-7 h-7 md:w-8 md:h-8 rounded-lg transition-all hover:bg-white/10 text-white/80 hover:text-white"
                 aria-label="Open menu"
               >
-                <MenuIcon className="w-4 h-4 md:w-5 md:h-5" />
+                <MenuIcon className="w-3.5 h-3.5 md:w-4 md:h-4" />
               </button>
 
               {/* TTS Permission Button - Mobile Only */}
               {isMobile && (
                 <button
                   onClick={handleEnableTTS}
-                  className={`flex items-center justify-center p-1.5 rounded-lg transition-all duration-200 ${
+                  className={`flex items-center justify-center p-1 rounded-lg transition-all duration-200 ${
                     needsPermission
-                      ? 'bg-orange-600/20 text-orange-400 hover:bg-orange-600/30 animate-pulse'
-                      : 'bg-green-600/20 text-green-400 hover:bg-green-600/30'
+                      ? 'text-orange-400 hover:bg-orange-600/30 animate-pulse'
+                      : 'text-green-400 hover:bg-green-600/30'
                   }`}
                   title={needsPermission ? 'Click to enable TTS' : 'TTS Ready'}
                 >
-                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
                     <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
                     <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
                   </svg>
