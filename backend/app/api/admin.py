@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from typing import List, Optional
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ..database import get_db
 from ..models import User, SystemSettings, Story, Scene
@@ -311,7 +311,7 @@ async def update_user(
     if updates.is_approved is not None:
         user.is_approved = updates.is_approved
         if updates.is_approved:
-            user.approved_at = datetime.utcnow()
+            user.approved_at = datetime.now(timezone.utc)
             user.approved_by_id = current_user.id
         logger.info(f"Admin {current_user.id} set user {user_id} approval status to {updates.is_approved}")
     
@@ -400,7 +400,7 @@ async def approve_user(
         }
     
     user.is_approved = True
-    user.approved_at = datetime.utcnow()
+    user.approved_at = datetime.now(timezone.utc)
     user.approved_by_id = current_user.id
     
     db.commit()
@@ -550,7 +550,7 @@ async def create_user(
         hashed_password=hashed_password,
         is_admin=user_data.is_admin,
         is_approved=user_data.is_approved,
-        approved_at=datetime.utcnow() if user_data.is_approved else None,
+        approved_at=datetime.now(timezone.utc) if user_data.is_approved else None,
         approved_by_id=current_user.id if user_data.is_approved else None,
     )
     
@@ -691,7 +691,7 @@ async def update_settings(
         settings.registration_requires_approval = updates.registration_requires_approval
     
     # Update metadata
-    settings.updated_at = datetime.utcnow()
+    settings.updated_at = datetime.now(timezone.utc)
     settings.updated_by_id = current_user.id
     
     db.commit()

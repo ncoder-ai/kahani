@@ -8,7 +8,7 @@ from ..models import User, SystemSettings
 from ..utils.security import verify_password, get_password_hash, create_access_token, create_refresh_token, verify_token
 from ..config import settings
 from ..dependencies import get_current_user
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, timezone
 import logging
 
 logger = logging.getLogger(__name__)
@@ -105,7 +105,7 @@ async def register(
         # First user becomes admin and is auto-approved
         is_admin=is_first_user,
         is_approved=is_first_user,
-        approved_at=datetime.utcnow() if is_first_user else None,
+        approved_at=datetime.now(timezone.utc) if is_first_user else None,
         # Apply permissions based on whether this is first user (admin) or regular user
         allow_nsfw=True if is_first_user else system_settings.default_allow_nsfw,
         can_change_llm_provider=system_settings.default_can_change_llm_provider,

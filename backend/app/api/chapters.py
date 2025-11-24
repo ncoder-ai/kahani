@@ -9,7 +9,7 @@ from ..models.chapter import chapter_characters
 from ..dependencies import get_current_user
 from ..services.llm.service import UnifiedLLMService
 from ..config import settings
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 import json
 
@@ -226,7 +226,7 @@ async def create_chapter(
                 yield f"data: {json.dumps({'type': 'status', 'message': 'Completing previous chapter...', 'step': 'completing_previous'})}\n\n"
                 
                 active_chapter.status = ChapterStatus.COMPLETED
-                active_chapter.completed_at = datetime.utcnow()
+                active_chapter.completed_at = datetime.now(timezone.utc)
                 logger.info(f"[CHAPTER] Marked chapter {active_chapter.id} as completed")
                 
                 # ALWAYS regenerate summary for the completed chapter to include all scenes
@@ -533,7 +533,7 @@ async def complete_chapter(
     
     # Mark as completed
     chapter.status = ChapterStatus.COMPLETED
-    chapter.completed_at = datetime.utcnow()
+    chapter.completed_at = datetime.now(timezone.utc)
     
     db.commit()
     db.refresh(chapter)

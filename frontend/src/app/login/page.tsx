@@ -18,6 +18,9 @@ export default function LoginPage() {
   const { login } = useAuthStore();
 
   useEffect(() => {
+    // Clear any stale tokens when landing on login page
+    const { logout } = useAuthStore.getState();
+    logout();
     // Apply default theme for login page
     applyTheme('pure-dark');
   }, []);

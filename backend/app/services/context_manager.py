@@ -1118,43 +1118,39 @@ Appearance: {char.get('appearance', '')}
             import re
             
             # Extract Current Chapter Summary (if present)
-            current_chapter_summary_match = re.search(r'Current Chapter Summary[^:]*:\s*(.*?)(?=\n\n(?:Recent Scenes|Relevant Past Events|CURRENT CHARACTER STATES|CURRENT LOCATIONS|IMPORTANT OBJECTS)|$)', previous_scenes_text, re.DOTALL)
+            # Support both old "IMPORTANT OBJECTS:" and new "Notable Objects:" for backward compatibility
+            # Note: Sections may have leading newlines, so we match them flexibly
+            current_chapter_summary_match = re.search(r'Current Chapter Summary[^:]*:\s*(.*?)(?=\n+(?:Recent Scenes|Relevant Past Events|CURRENT CHARACTER STATES|CURRENT LOCATIONS|IMPORTANT OBJECTS|Notable Objects)|$)', previous_scenes_text, re.DOTALL)
             current_chapter_summary = current_chapter_summary_match.group(1).strip() if current_chapter_summary_match else None
             
             # Extract Recent Scenes section
-            recent_scenes_match = re.search(r'Recent Scenes:\s*(.*?)(?=\n\n(?:Relevant Past Events|CURRENT CHARACTER STATES|CURRENT LOCATIONS|IMPORTANT OBJECTS)|$)', previous_scenes_text, re.DOTALL)
+            recent_scenes_match = re.search(r'Recent Scenes:\s*(.*?)(?=\n+(?:Relevant Past Events|CURRENT CHARACTER STATES|CURRENT LOCATIONS|IMPORTANT OBJECTS|Notable Objects)|$)', previous_scenes_text, re.DOTALL)
             recent_scenes_content = recent_scenes_match.group(1).strip() if recent_scenes_match else None
             
             # Extract Relevant Past Events (semantic search results)
-            relevant_events_match = re.search(r'Relevant Past Events:\s*(.*?)(?=\n\n(?:Recent Scenes|CURRENT CHARACTER STATES|CURRENT LOCATIONS|IMPORTANT OBJECTS)|$)', previous_scenes_text, re.DOTALL)
+            relevant_events_match = re.search(r'Relevant Past Events:\s*(.*?)(?=\n+(?:Recent Scenes|CURRENT CHARACTER STATES|CURRENT LOCATIONS|IMPORTANT OBJECTS|Notable Objects)|$)', previous_scenes_text, re.DOTALL)
             relevant_events_content = relevant_events_match.group(1).strip() if relevant_events_match else None
             
-            # Extract Entity States sections
-            entity_states_match = re.search(r'(CURRENT CHARACTER STATES:.*?)(?=\n\n(?:CURRENT LOCATIONS|IMPORTANT OBJECTS|Recent Scenes|Relevant Past Events)|$)', previous_scenes_text, re.DOTALL)
+            # Extract Entity States sections (may have leading newlines)
+            entity_states_match = re.search(r'\n*(CURRENT CHARACTER STATES:.*?)(?=\n+(?:CURRENT LOCATIONS|IMPORTANT OBJECTS|Notable Objects|Recent Scenes|Relevant Past Events)|$)', previous_scenes_text, re.DOTALL)
             entity_states_content = entity_states_match.group(1).strip() if entity_states_match else None
             
-            locations_match = re.search(r'CURRENT LOCATIONS:\s*(.*?)(?=\n\n(?:IMPORTANT OBJECTS|Recent Scenes|Relevant Past Events|CURRENT CHARACTER STATES)|$)', previous_scenes_text, re.DOTALL)
+            locations_match = re.search(r'\n*CURRENT LOCATIONS:\s*(.*?)(?=\n+(?:IMPORTANT OBJECTS|Notable Objects|Recent Scenes|Relevant Past Events|CURRENT CHARACTER STATES)|$)', previous_scenes_text, re.DOTALL)
             locations_content = locations_match.group(1).strip() if locations_match else None
             
-            objects_match = re.search(r'IMPORTANT OBJECTS:\s*(.*?)(?=\n\n(?:Recent Scenes|Relevant Past Events|CURRENT CHARACTER STATES|CURRENT LOCATIONS)|$)', previous_scenes_text, re.DOTALL)
+            # Support both old and new object header names (may have leading newlines)
+            # Try new format first, then fall back to old format
+            objects_match = re.search(r'\n*Notable Objects:\s*(.*?)(?=\n+(?:Recent Scenes|Relevant Past Events|CURRENT CHARACTER STATES|CURRENT LOCATIONS)|$)', previous_scenes_text, re.DOTALL)
+            if not objects_match:
+                objects_match = re.search(r'\n*IMPORTANT OBJECTS:\s*(.*?)(?=\n+(?:Recent Scenes|Relevant Past Events|CURRENT CHARACTER STATES|CURRENT LOCATIONS)|$)', previous_scenes_text, re.DOTALL)
             objects_content = objects_match.group(1).strip() if objects_match else None
             
             # Build organized context sections
-            if current_chapter_summary or recent_scenes_content or relevant_events_content:
-                context_parts.append("Current Chapter Progress:")
-                
-                if current_chapter_summary:
-                    context_parts.append(f"  Current Chapter Summary:\n  {current_chapter_summary.replace(chr(10), chr(10) + '  ')}")
-                
-                if recent_scenes_content:
-                    context_parts.append(f"\n  Recent Scenes:\n  {recent_scenes_content.replace(chr(10), chr(10) + '  ')}")
-                
-                if relevant_events_content:
-                    context_parts.append(f"\n  Relevant Past Events (from semantic search):\n  {relevant_events_content.replace(chr(10), chr(10) + '  ')}")
+            # NEW ORDER: Entity states come BEFORE chapter progress and scenes (reduces recency bias)
             
-            # Add Current State section if we have entity states
+            # Add Current State section if we have entity states (positioned early as reference material)
             if entity_states_content or locations_content or objects_content:
-                context_parts.append("\nCurrent State:")
+                context_parts.append("Current State:")
                 
                 if entity_states_content:
                     context_parts.append(f"  {entity_states_content.replace(chr(10), chr(10) + '  ')}")
@@ -1163,7 +1159,20 @@ Appearance: {char.get('appearance', '')}
                     context_parts.append(f"\n  CURRENT LOCATIONS:\n  {locations_content.replace(chr(10), chr(10) + '  ')}")
                 
                 if objects_content:
-                    context_parts.append(f"\n  IMPORTANT OBJECTS:\n  {objects_content.replace(chr(10), chr(10) + '  ')}")
+                    context_parts.append(f"\n  Notable Objects:\n  {objects_content.replace(chr(10), chr(10) + '  ')}")
+            
+            # Add Current Chapter Progress (positioned after entity states, before scenes)
+            if current_chapter_summary or recent_scenes_content or relevant_events_content:
+                context_parts.append("\nCurrent Chapter Progress:")
+                
+                if current_chapter_summary:
+                    context_parts.append(f"  Current Chapter Summary:\n  {current_chapter_summary.replace(chr(10), chr(10) + '  ')}")
+                
+                if relevant_events_content:
+                    context_parts.append(f"\n  Relevant Past Events (from semantic search):\n  {relevant_events_content.replace(chr(10), chr(10) + '  ')}")
+                
+                if recent_scenes_content:
+                    context_parts.append(f"\n  Recent Scenes:\n  {recent_scenes_content.replace(chr(10), chr(10) + '  ')}")
             
             # If parsing failed, fall back to original format
             if not (current_chapter_summary or recent_scenes_content or relevant_events_content or entity_states_content):

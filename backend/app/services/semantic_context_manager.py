@@ -961,7 +961,7 @@ class SemanticContextManager(ContextManager):
                 if filtered_locations:
                     # Separate current vs recent for clarity
                     if current_locations:
-                        entity_parts.append("\n\nCURRENT LOCATION:")
+                        entity_parts.append("\n\nCURRENT LOCATIONS:")
                         for loc_state in current_locations[:1]:  # Show only the PRIMARY current location
                             loc_text = f"\n{loc_state.location_name}:"
                             
@@ -1006,26 +1006,58 @@ class SemanticContextManager(ContextManager):
                             used_tokens += loc_tokens
             
             # Object States (if tokens available)
+            # Filter to only show CURRENT objects (recently updated or possessed by characters)
             if object_states and used_tokens < token_budget * 0.9:
-                entity_parts.append("\n\nIMPORTANT OBJECTS:")
-                for obj_state in object_states[:3]:  # Limit to 3 most important objects
-                    obj_text = f"\n{obj_state.object_name}:"
+                # Filter objects by recency and current ownership
+                filtered_objects = []
+                
+                for obj_state in object_states:
+                    include = False
                     
-                    if obj_state.current_location:
-                        obj_text += f"\n  Location: {obj_state.current_location}"
+                    # Check if object was updated recently (within recency window)
+                    if current_scene_sequence is not None and obj_state.last_updated_scene is not None:
+                        scene_age = current_scene_sequence - obj_state.last_updated_scene
+                        if scene_age <= self.location_recency_window:
+                            include = True
                     
-                    if obj_state.condition:
-                        obj_text += f"\n  Condition: {obj_state.condition}"
+                    # Always include if possessed by a character (active object)
+                    if obj_state.current_owner_id:
+                        include = True
                     
-                    if obj_state.significance:
-                        obj_text += f"\n  Significance: {obj_state.significance}"
-                    
-                    obj_tokens = self.count_tokens(obj_text)
-                    if used_tokens + obj_tokens > token_budget:
-                        break
-                    
-                    entity_parts.append(obj_text)
-                    used_tokens += obj_tokens
+                    if include:
+                        filtered_objects.append(obj_state)
+                
+                # Limit to 2-3 most recently relevant objects
+                filtered_objects = filtered_objects[:3]
+                
+                if filtered_objects:
+                    entity_parts.append("\n\nNotable Objects:")
+                    for obj_state in filtered_objects:
+                        obj_text = f"\n{obj_state.object_name}:"
+                        
+                        if obj_state.current_location:
+                            obj_text += f"\n  Location: {obj_state.current_location}"
+                        
+                        # Include owner if available
+                        if obj_state.current_owner_id and db:
+                            try:
+                                from ..models import Character
+                                owner = db.query(Character).filter(Character.id == obj_state.current_owner_id).first()
+                                if owner:
+                                    obj_text += f"\n  Owner: {owner.name}"
+                            except Exception as e:
+                                logger.warning(f"Failed to fetch owner for object {obj_state.object_name}: {e}")
+                                # Continue without owner name
+                        
+                        # NOTE: condition and significance are intentionally excluded from context
+                        # to prevent interpretive/hallucinated descriptions from influencing scene generation
+                        
+                        obj_tokens = self.count_tokens(obj_text)
+                        if used_tokens + obj_tokens > token_budget:
+                            break
+                        
+                        entity_parts.append(obj_text)
+                        used_tokens += obj_tokens
             
             if len(entity_parts) > 0:
                 return "\n".join(entity_parts)
