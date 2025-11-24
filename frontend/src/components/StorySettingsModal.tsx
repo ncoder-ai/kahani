@@ -37,7 +37,7 @@ export default function StorySettingsModal({ isOpen, onClose, storyId, onSaved }
     setError(null);
     try {
       const story = await apiClient.getStory(storyId);
-      console.log('Loaded story data:', story); // Debug log
+      // Debug log
       setFormData({
         title: story.title || '',
         description: story.description ?? '',

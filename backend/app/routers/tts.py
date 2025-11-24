@@ -785,9 +785,6 @@ async def generate_scene_audio_websocket(
         )
     
     try:
-        print(f"\n{'='*60}")
-        print(f"[MANUAL TTS] Step 1: Received request for scene {scene_id}, user {current_user.id}")
-        print(f"{'='*60}\n")
         logger.info(f"[MANUAL TTS] Step 1: Received request for scene {scene_id}, user {current_user.id}")
         
         # Create TTS session
@@ -796,9 +793,7 @@ async def generate_scene_audio_websocket(
             user_id=current_user.id
         )
         
-        print(f"[MANUAL TTS] Step 2: Created TTS session {session_id}")
         logger.info(f"[MANUAL TTS] Step 2: Created TTS session {session_id}")
-        print(f"[MANUAL TTS] Step 3: Adding background task for generation")
         logger.info(f"[MANUAL TTS] Step 3: Adding background task for generation")
         
         # Trigger background generation task
@@ -810,7 +805,6 @@ async def generate_scene_audio_websocket(
             user_id=current_user.id
         )
         
-        print(f"[MANUAL TTS] Step 4: Background task added, returning session info")
         logger.info(f"[MANUAL TTS] Step 4: Background task added, returning session info")
         
         # Return session info

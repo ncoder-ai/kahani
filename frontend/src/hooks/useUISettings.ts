@@ -5,7 +5,6 @@ import { UIPreferences } from '@/types/settings';
 
 export const useUISettings = (settings: UIPreferences | null) => {
   useEffect(() => {
-    console.log('useUISettings called with:', settings);
     if (!settings || typeof window === 'undefined') return;
 
     // Apply color theme
@@ -23,7 +22,6 @@ export const useUISettings = (settings: UIPreferences | null) => {
       notifications: settings.notifications,
     };
 
-    console.log('useUISettings setting window.kahaniUISettings:', window.kahaniUISettings);
 
     // Dispatch custom event for other components to listen to
     window.dispatchEvent(new CustomEvent('kahaniUISettingsChanged', {

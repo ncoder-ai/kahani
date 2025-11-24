@@ -7,10 +7,13 @@ and coordinates audio chunk streaming.
 
 import uuid
 import asyncio
+import logging
 from typing import Dict, Optional
 from datetime import datetime, timedelta
 from fastapi import WebSocket
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 
 class TTSSession(BaseModel):
@@ -143,13 +146,12 @@ class TTSSessionManager:
                 await session.websocket.send_json(message)
                 return True
             except Exception as e:
-                print(f"Error sending message to session {session_id}: {e}")
+                logger.error(f"Error sending message to session {session_id}: {e}")
                 return False
         
         # If no WebSocket yet (auto-play), buffer the message
         if session.auto_play:
             session.message_buffer.append(message)
-            print(f"[AUTO-PLAY] Buffered message for session {session_id} (buffer size: {len(session.message_buffer)})")
             return True
         
         return False
@@ -172,15 +174,11 @@ class TTSSessionManager:
             return False
         
         if not session.message_buffer:
-            print(f"[AUTO-PLAY] No buffered messages for session {session_id}")
             return True
-        
-        print(f"[AUTO-PLAY] Flushing {len(session.message_buffer)} buffered messages for session {session_id}")
         
         try:
             for i, message in enumerate(session.message_buffer):
                 await session.websocket.send_json(message)
-                print(f"[AUTO-PLAY] Flushed message {i+1}/{len(session.message_buffer)}: {message.get('type', 'unknown')}")
                 
                 # Add tiny delay after first chunk to ensure it's processed before next one
                 # This helps frontend start playback faster
@@ -189,11 +187,10 @@ class TTSSessionManager:
             
             # Clear buffer after sending
             session.message_buffer = []
-            print(f"[AUTO-PLAY] Successfully flushed all messages for session {session_id}")
             return True
         
         except Exception as e:
-            print(f"Error flushing buffered messages for session {session_id}: {e}")
+            logger.error(f"Error flushing buffered messages for session {session_id}: {e}")
             return False
     
     def remove_session(self, session_id: str):
@@ -209,7 +206,6 @@ class TTSSessionManager:
         ]
         
         for session_id in expired:
-            print(f"Cleaning up expired session: {session_id}")
             self.remove_session(session_id)
     
     async def start_cleanup_task(self):

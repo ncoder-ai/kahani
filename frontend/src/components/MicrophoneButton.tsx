@@ -41,8 +41,6 @@ export default function MicrophoneButton({
     isReady
   } = useRealtimeSTT({
     onTranscript: (text, isPartial) => {
-      console.log('[MicrophoneButton] Transcript received:', { text: text.substring(0, 50), isPartial });
-      
       if (isPartial) {
         // Partial transcript - update parent in real-time
         setPreviewText(text);
@@ -60,11 +58,9 @@ export default function MicrophoneButton({
       setError(error);
     },
     onStatusChange: (recording, transcribing) => {
-      console.log('[MicrophoneButton] Status change:', { recording, transcribing, currentIsRecording: isRecording });
       
       // When recording stops, send the final transcript
       if (!recording && transcript && transcript.trim()) {
-        console.log('[MicrophoneButton] Recording stopped, sending final transcript:', transcript.substring(0, 50));
         onTranscriptComplete(transcript);
         setPreviewText('');
         clearTranscript();
@@ -79,7 +75,6 @@ export default function MicrophoneButton({
         // Get auth token from localStorage or auth store
         const token = localStorage.getItem('auth_token') || '';
         
-        console.log('[MicrophoneButton] Checking STT settings with token:', token ? 'present' : 'missing');
         
         const response = await fetch(`${await getApiBaseUrl()}/api/settings/`, {
           headers: {
@@ -87,14 +82,11 @@ export default function MicrophoneButton({
           }
         });
         
-        console.log('[MicrophoneButton] STT settings response:', response.status);
         
         if (response.ok) {
           const data = await response.json();
-          console.log('[MicrophoneButton] STT settings data:', data);
           const sttSettings = data.settings?.stt_settings;
           const enabled = sttSettings?.enabled ?? true;
-          console.log('[MicrophoneButton] STT enabled:', enabled);
           setIsSTTEnabled(enabled);
         } else {
           console.warn('[MicrophoneButton] Failed to fetch STT settings, defaulting to enabled');
@@ -112,14 +104,11 @@ export default function MicrophoneButton({
   const handleToggleRecording = useCallback(async () => {
     if (disabled || !isSTTEnabled) return;
     
-    console.log('[MicrophoneButton] Toggle recording - current state:', { isRecording, isConnected });
     
     if (isRecording) {
-      console.log('[MicrophoneButton] Stopping recording...');
       stopTranscription();
       setPreviewText('');
     } else {
-      console.log('[MicrophoneButton] Starting recording...');
       setError(null);
       clearTranscript();
       await startTranscription();

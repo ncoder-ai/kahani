@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowLeftIcon, ArrowRightIcon, PlayIcon, ArrowPathIcon, PlusCircleIcon, StopIcon, SparklesIcon, TrashIcon, ClipboardIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { PlayIcon, ArrowPathIcon, PlusCircleIcon, StopIcon, SparklesIcon, TrashIcon, ClipboardIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import SceneDisplay from './SceneDisplay';
 import { SceneTTSButton } from './SceneTTSButton';
 import MicrophoneButton from './MicrophoneButton';
@@ -206,11 +206,8 @@ export default function SceneVariantDisplay({
   // Load variants for this scene
   const loadVariants = async (forceSetVariantId?: number) => {
     if (isLoadingVariants) {
-      console.log(`[SceneVariantDisplay] Skipping loadVariants for scene ${scene.id} - already loading`);
       return;
     }
-    
-    console.log(`[SceneVariantDisplay] Starting loadVariants for scene ${scene.id}`);
     
     setIsLoadingVariants(true);
     try {
@@ -223,7 +220,6 @@ export default function SceneVariantDisplay({
         const activeVariant = response.variants.find(v => v.id === targetVariantId);
         if (activeVariant) {
           setCurrentVariantId(activeVariant.id);
-          console.log(`[SceneVariantDisplay] Set current variant to ${activeVariant.id} (variant #${activeVariant.variant_number})`);
         } else if (!currentVariantId) {
           // Fallback to first variant only if we don't have a current variant
           setCurrentVariantId(response.variants[0].id);
@@ -233,7 +229,6 @@ export default function SceneVariantDisplay({
         setCurrentVariantId(response.variants[0].id);
       }
       
-      console.log(`[SceneVariantDisplay] Completed loadVariants for scene ${scene.id}, loaded ${response.variants.length} variants`);
       
     } catch (error) {
       console.error('Failed to load scene variants:', error);
@@ -351,31 +346,23 @@ export default function SceneVariantDisplay({
 
     // Load variants on mount if scene has multiple variants
   useEffect(() => {
-    // Don't load variants during any scene operations to prevent scroll issues
-    if (isSceneOperationInProgress || isGenerating || isStreaming || isRegenerating) {
-      console.log(`[SceneVariantDisplay] Skipping loadVariants for scene ${scene.id} - operation in progress`);
-      return;
-    }
-
-    // Add longer delay to let everything settle completely
-    const delayTimer = setTimeout(() => {
-      // Only load variants if we don't already have them loaded for this scene
-      const shouldLoadVariants = (scene.has_multiple_variants || isLastScene) && 
-                                variants.length === 0 && 
-                                !isLoadingVariants &&
-                                !hasLoadedVariantsRef.current.has(scene.id);
+    // Load variants if scene has multiple variants and we haven't loaded yet
+    // OR if has_multiple_variants is true but variants array is empty/outdated
+    if ((scene.has_multiple_variants || isLastScene) && !isLoadingVariants) {
+      // If has_multiple_variants is true but we have 1 or fewer variants, force reload
+      if (scene.has_multiple_variants && variants.length <= 1) {
+        hasLoadedVariantsRef.current.delete(scene.id);
+      }
       
-      if (shouldLoadVariants) {
-        console.log(`[SceneVariantDisplay] Loading variants for scene ${scene.id} (has_multiple: ${scene.has_multiple_variants}, isLast: ${isLastScene})`);
+      const shouldLoad = variants.length === 0 || 
+                        (scene.has_multiple_variants && !hasLoadedVariantsRef.current.has(scene.id));
+      
+      if (shouldLoad) {
         hasLoadedVariantsRef.current.add(scene.id);
         loadVariants();
-      } else if (hasLoadedVariantsRef.current.has(scene.id)) {
-        console.log(`[SceneVariantDisplay] Skipping loadVariants for scene ${scene.id} - already loaded previously`);
       }
-    }, 500); // Longer delay to ensure everything has settled
-
-    return () => clearTimeout(delayTimer);
-  }, [scene.id, isSceneOperationInProgress, isGenerating, isStreaming, isRegenerating]);
+    }
+  }, [scene.id, scene.has_multiple_variants, isLastScene, isLoadingVariants, variants.length]);
 
   // Set initial variant ID from scene and reload variants when variant_id changes
   useEffect(() => {
@@ -385,7 +372,6 @@ export default function SceneVariantDisplay({
         // Reload variants to get the updated list (including new variants)
         // Wait for operations to complete before reloading
         if (!isSceneOperationInProgress && !isGenerating && !isStreaming && !isRegenerating) {
-          console.log(`[SceneVariantDisplay] Variant ID changed to ${scene.variant_id}, reloading variants`);
           // Clear the loaded flag to force reload
           hasLoadedVariantsRef.current.delete(scene.id);
           // Pass the variant_id to ensure it's set after loading
@@ -395,7 +381,6 @@ export default function SceneVariantDisplay({
           // This handles the case where variant completes but isRegenerating is still true briefly
           const timeoutId = setTimeout(() => {
             if (!isSceneOperationInProgress && !isGenerating && !isStreaming && !isRegenerating) {
-              console.log(`[SceneVariantDisplay] Delayed reload of variants for scene ${scene.id}`);
               hasLoadedVariantsRef.current.delete(scene.id);
               loadVariants(scene.variant_id);
             }
@@ -430,12 +415,6 @@ export default function SceneVariantDisplay({
         !isLoadingVariants &&
         (currentChoicesKey !== sceneChoicesKeyRef.current || currentChoicesCount > previousChoicesCountRef.current)) {
       
-      console.log(`[SceneVariantDisplay] Scene choices changed, reloading variants for scene ${scene.id}`, {
-        previousCount: previousChoicesCountRef.current,
-        currentCount: currentChoicesCount,
-        previousKey: sceneChoicesKeyRef.current.substring(0, 50),
-        currentKey: currentChoicesKey.substring(0, 50)
-      });
       
       hasLoadedVariantsRef.current.delete(scene.id); // Allow reload
       loadVariants();
@@ -635,13 +614,10 @@ export default function SceneVariantDisplay({
       return;
     }
     
-    console.log(`[RegenerateChoices] Regenerating choices for variant ${currentVariantId} (variant #${currentVariant.variant_number})`);
-    
     setIsRegeneratingChoices(true);
     try {
       const response = await apiClient.regenerateSceneVariantChoices(storyId, scene.id, currentVariantId);
       
-      console.log(`[RegenerateChoices] Successfully regenerated ${response.choices.length} choices for variant ${currentVariantId}`);
       
       // Reload variants to get updated choices
       await loadVariants();
@@ -698,83 +674,11 @@ export default function SceneVariantDisplay({
 
   return (
     <div ref={sceneContentRef} className="scene-variant-container">
-      <div className={`relative ${isStreamingVariant ? 'streaming-variant' : ''}`} suppressHydrationWarning>
+      <div className={isStreamingVariant ? 'relative streaming-variant' : 'relative'} suppressHydrationWarning>
         {isStreamingVariant && (
           <div className="absolute top-0 right-0 bg-pink-600 text-white text-xs px-2 py-1 rounded-full animate-pulse z-10">
             Generating...
           </div>
-        )}
-        
-        {/* Variant Navigation Arrows - Only for last scene */}
-        {isLastScene && shouldShowNavigation() && (
-          <>
-            {/* Left Arrow */}
-            <button
-              onClick={() => {
-                if (variants.length <= 1) {
-                  loadVariants().then(() => navigateToPrevious());
-                } else {
-                  navigateToPrevious();
-                }
-              }}
-              disabled={!canNavigateToPrevious()}
-              className="hidden md:flex absolute left-0 top-1/2 -translate-x-12 -translate-y-1/2 w-10 h-10 items-center justify-center rounded-full bg-gray-800/60 hover:bg-gray-700/80 border border-gray-600/50 hover:border-gray-500 transition-all opacity-60 hover:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed z-10"
-              title="Previous variant (←)"
-            >
-              <ArrowLeftIcon className="w-5 h-5 text-gray-300" />
-            </button>
-            
-            {/* Right Arrow */}
-            <button
-              onClick={() => {
-                if (variants.length <= 1) {
-                  loadVariants().then(() => navigateToNext());
-                } else {
-                  navigateToNext();
-                }
-              }}
-              disabled={!canNavigateToNext()}
-              className="hidden md:flex absolute right-0 top-1/2 translate-x-12 -translate-y-1/2 w-10 h-10 items-center justify-center rounded-full bg-gray-800/60 hover:bg-gray-700/80 border border-gray-600/50 hover:border-gray-500 transition-all opacity-60 hover:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed z-10"
-              title="Next variant (→)"
-            >
-              <ArrowRightIcon className="w-5 h-5 text-gray-300" />
-            </button>
-            
-            {/* Mobile Arrows - Fixed position overlay (client-side only) */}
-            {isClient && (
-              <>
-                <button
-                  onClick={() => {
-                    if (variants.length <= 1) {
-                      loadVariants().then(() => navigateToPrevious());
-                    } else {
-                      navigateToPrevious();
-                    }
-                  }}
-                  disabled={!canNavigateToPrevious()}
-                  className="md:hidden fixed left-2 top-1/2 -translate-y-1/2 w-10 h-10 items-center justify-center rounded-full bg-gray-800/80 hover:bg-gray-700/90 border border-gray-600/70 hover:border-gray-500 backdrop-blur-sm transition-all opacity-70 hover:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed z-20 flex"
-                  title="Previous variant (←)"
-                >
-                  <ArrowLeftIcon className="w-5 h-5 text-gray-300" />
-                </button>
-                
-                <button
-                  onClick={() => {
-                    if (variants.length <= 1) {
-                      loadVariants().then(() => navigateToNext());
-                    } else {
-                      navigateToNext();
-                    }
-                  }}
-                  disabled={!canNavigateToNext()}
-                  className="md:hidden fixed right-2 top-1/2 -translate-y-1/2 w-10 h-10 items-center justify-center rounded-full bg-gray-800/80 hover:bg-gray-700/90 border border-gray-600/70 hover:border-gray-500 backdrop-blur-sm transition-all opacity-70 hover:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed z-20 flex"
-                  title="Next variant (→)"
-                >
-                  <ArrowRightIcon className="w-5 h-5 text-gray-300" />
-                </button>
-              </>
-            )}
-          </>
         )}
         
         <SceneDisplay
@@ -801,12 +705,45 @@ export default function SceneVariantDisplay({
       
       {/* Variant Indicator - Below scene content */}
       {isLastScene && shouldShowNavigation() && (
-        <div className="text-center mt-2 mb-4">
-          <span className="text-xs text-gray-500">
+        <div className="flex items-center justify-center gap-3 mt-2 mb-4">
+          {/* Left Arrow */}
+          <button
+            onClick={() => {
+              if (variants.length <= 1) {
+                loadVariants().then(() => navigateToPrevious());
+              } else {
+                navigateToPrevious();
+              }
+            }}
+            disabled={!canNavigateToPrevious()}
+            className="flex items-center justify-center transition-all opacity-70 hover:opacity-100 active:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed text-white hover:text-gray-200 active:text-gray-200 text-2xl font-light px-2 py-1 min-w-[44px] min-h-[44px] touch-manipulation"
+            title="Previous variant (←)"
+          >
+            &lt;
+          </button>
+          
+          {/* Variant count text */}
+          <span className="text-xs text-gray-500 whitespace-nowrap">
             {variants.length > 0
-              ? `${getCurrentVariantIndex() + 1} of ${variants.length}`
+              ? (getCurrentVariantIndex() + 1) + ' of ' + variants.length
               : isLoadingVariants ? 'Loading...' : '1 of ?'}
           </span>
+          
+          {/* Right Arrow */}
+          <button
+            onClick={() => {
+              if (variants.length <= 1) {
+                loadVariants().then(() => navigateToNext());
+              } else {
+                navigateToNext();
+              }
+            }}
+            disabled={!canNavigateToNext()}
+            className="flex items-center justify-center transition-all opacity-70 hover:opacity-100 active:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed text-white hover:text-gray-200 active:text-gray-200 text-2xl font-light px-2 py-1 min-w-[44px] min-h-[44px] touch-manipulation"
+            title="Next variant (→)"
+          >
+            &gt;
+          </button>
         </div>
       )}
       
@@ -816,13 +753,12 @@ export default function SceneVariantDisplay({
           {/* Copy Button */}
           <button
             onClick={handleCopyScene}
-            className={`
-              flex items-center justify-center transition-all duration-200 flex-shrink-0
-              ${copySuccess 
+            className={
+              'flex items-center justify-center transition-all duration-200 flex-shrink-0 ' +
+              (copySuccess 
                 ? 'text-green-400 hover:text-green-300' 
-                : 'text-gray-400 hover:text-gray-300 hover:bg-gray-800/50 rounded p-1'
-              }
-            `}
+                : 'text-gray-400 hover:text-gray-300 hover:bg-gray-800/50 rounded p-1')
+            }
             title={copySuccess ? 'Copied!' : 'Copy scene text'}
           >
             {copySuccess ? (
@@ -837,15 +773,14 @@ export default function SceneVariantDisplay({
           {/* Delete Button - Always visible */}
           <button
             onClick={handleDeleteClick}
-            className={`
-              flex items-center justify-center transition-all duration-200 flex-shrink-0
-              ${isInDeleteMode && isSceneSelectedForDeletion
+            className={
+              'flex items-center justify-center transition-all duration-200 flex-shrink-0 ' +
+              (isInDeleteMode && isSceneSelectedForDeletion
                 ? 'text-red-400 hover:text-red-300'
                 : isInDeleteMode
                 ? 'text-gray-400 hover:text-gray-300 hover:bg-gray-800/50 rounded p-1'
-                : 'text-gray-400 hover:text-red-400 hover:bg-gray-800/50 rounded p-1'
-              }
-            `}
+                : 'text-gray-400 hover:text-red-400 hover:bg-gray-800/50 rounded p-1')
+            }
             title={
               isInDeleteMode 
                 ? (isSceneSelectedForDeletion 
@@ -904,9 +839,7 @@ export default function SceneVariantDisplay({
             <button
               onClick={() => setShowGuidedOptions(!showGuidedOptions)}
               disabled={isGenerating || isStreaming || isRegenerating}
-              className={`flex items-center justify-center w-10 h-10 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 disabled:opacity-50 rounded-lg transition-colors ${
-                showGuidedOptions ? 'ring-2 ring-purple-400' : ''
-              }`}
+              className={'flex items-center justify-center w-10 h-10 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 disabled:opacity-50 rounded-lg transition-colors ' + (showGuidedOptions ? 'ring-2 ring-purple-400' : '')}
               title="Guided regeneration options"
             >
               <SparklesIcon className="w-5 h-5" />
@@ -983,9 +916,7 @@ export default function SceneVariantDisplay({
                     }
                   }}
                   disabled={isGenerating || isStreaming || isRegenerating}
-                  className={`flex items-center gap-2 w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 disabled:opacity-50 text-white rounded-lg shadow-lg transition-all backdrop-blur-sm ${
-                    showGuidedOptions ? 'ring-2 ring-purple-400' : ''
-                  }`}
+                  className={'flex items-center gap-2 w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 disabled:opacity-50 text-white rounded-lg shadow-lg transition-all backdrop-blur-sm ' + (showGuidedOptions ? 'ring-2 ring-purple-400' : '')}
                   title="Guided regeneration options"
                 >
                   <SparklesIcon className="w-5 h-5" />
@@ -999,13 +930,11 @@ export default function SceneVariantDisplay({
                     resetMenuTimer();
                     handleDeleteClick();
                   }}
-                  className={`flex items-center gap-2 w-full px-4 py-2 rounded-lg shadow-lg transition-all backdrop-blur-sm ${
-                    isInDeleteMode && isSceneSelectedForDeletion
+                  className={'flex items-center gap-2 w-full px-4 py-2 rounded-lg shadow-lg transition-all backdrop-blur-sm ' + (isInDeleteMode && isSceneSelectedForDeletion
                       ? 'bg-red-600 hover:bg-red-700 text-white'
                       : isInDeleteMode
                       ? 'bg-gray-700 hover:bg-gray-600 text-gray-200'
-                      : 'bg-gray-700 hover:bg-red-600 text-gray-200'
-                  }`}
+                      : 'bg-gray-700 hover:bg-red-600 text-gray-200')}
                   title={isInDeleteMode ? 'Cancel delete mode' : 'Delete from this scene onwards'}
                 >
                   <TrashIcon className="w-5 h-5" />
@@ -1039,13 +968,13 @@ export default function SceneVariantDisplay({
                 resetMenuTimer();
               }}
               onMouseEnter={resetMenuTimer}
-              className={`
-                w-8 h-20 rounded-l-xl bg-gradient-to-r from-pink-600 to-purple-600 
-                hover:from-pink-700 hover:to-purple-700 shadow-lg 
-                flex items-center justify-center transition-all backdrop-blur-sm 
-                border-l border-t border-b border-white/20
-                ${showFloatingMenu || isMenuVisible ? 'translate-x-0 opacity-100' : 'translate-x-6 opacity-30 hover:translate-x-0 hover:opacity-100'}
-              `}
+              className={
+                'w-8 h-20 rounded-l-xl bg-gradient-to-r from-pink-600 to-purple-600 ' +
+                'hover:from-pink-700 hover:to-purple-700 shadow-lg ' +
+                'flex items-center justify-center transition-all backdrop-blur-sm ' +
+                'border-l border-t border-b border-white/20 ' +
+                (showFloatingMenu || isMenuVisible ? 'translate-x-0 opacity-100' : 'translate-x-6 opacity-30 hover:translate-x-0 hover:opacity-100')
+              }
               title="Scene actions"
             >
               {showFloatingMenu ? (
@@ -1059,11 +988,9 @@ export default function SceneVariantDisplay({
 
           {/* Guided Options Dropdown */}
           {showGuidedOptions && (
-            <div className={`mt-4 space-y-2 ${
-              layoutMode === 'modern' 
+            <div className={'mt-4 space-y-2 ' + (layoutMode === 'modern' 
                 ? 'theme-bg-secondary/30 backdrop-filter backdrop-blur-sm rounded-lg p-3 border border-gray-600/30' 
-                : 'theme-bg-secondary rounded-lg p-3 border border-gray-600'
-            }`}>
+                : 'theme-bg-secondary rounded-lg p-3 border border-gray-600')}>
               {[
                 { label: "Add More Dialogue", prompt: "Regenerate this scene with more dialogue and character interactions." },
                 { label: "Include Internal Thoughts", prompt: "Regenerate this scene with more internal thoughts and character emotions." },
@@ -1080,9 +1007,7 @@ export default function SceneVariantDisplay({
                     onCreateVariant?.(scene.id, option.prompt, currentVariantId || undefined);
                   }}
                   disabled={isGenerating || isStreaming || isRegenerating}
-                  className={`w-full text-left p-2 text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-700/50 rounded ${
-                    layoutMode === 'modern' ? 'text-gray-300 hover:text-white' : 'text-gray-400 hover:text-gray-200'
-                  }`}
+                  className={'w-full text-left p-2 text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-700/50 rounded ' + (layoutMode === 'modern' ? 'text-gray-300 hover:text-white' : 'text-gray-400 hover:text-gray-200')}
                 >
                   {option.label}
                 </button>
@@ -1097,11 +1022,9 @@ export default function SceneVariantDisplay({
         <div className="mt-6">
           {/* Choice Buttons - Keep in DOM but hide with opacity to prevent layout shifts */}
           {showChoices && !directorMode && (
-            <div className={`space-y-1.5 mb-4 transition-opacity duration-200 ${
-              showChoicesDuringGeneration 
+            <div className={'space-y-1.5 mb-4 transition-opacity duration-200 ' + (showChoicesDuringGeneration 
                 ? 'opacity-100 pointer-events-auto' 
-                : 'opacity-30 pointer-events-none'
-            }`}>
+                : 'opacity-30 pointer-events-none')}>
               {getAvailableChoices().length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
                   {getAvailableChoices().map((choice, index) => (
@@ -1113,9 +1036,7 @@ export default function SceneVariantDisplay({
                         onGenerateScene?.(choice);
                       }}
                       disabled={!showChoicesDuringGeneration || isGenerating || isStreaming}
-                      className={`w-full text-left p-2 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed group modern-choice-button compact ${
-                        layoutMode === 'modern' ? 'rounded-lg' : 'theme-btn-secondary hover:opacity-80 border border-gray-600 rounded-lg'
-                      } ${selectedChoice === choice ? 'ring-2 ring-pink-500 bg-pink-900/20' : ''}`}
+                      className={'w-full text-left p-2 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed group modern-choice-button compact ' + (layoutMode === 'modern' ? 'rounded-lg' : 'theme-btn-secondary hover:opacity-80 border border-gray-600 rounded-lg') + ' ' + (selectedChoice === choice ? 'ring-2 ring-pink-500 bg-pink-900/20' : '')}
                     >
                       <div className="flex items-center justify-between relative z-10">
                         <span className="text-gray-200 text-xs leading-tight">{choice}</span>
@@ -1174,15 +1095,11 @@ export default function SceneVariantDisplay({
 
           {/* Continue Input - Keep in DOM but hide with opacity to prevent layout shifts */}
           {!directorMode && (
-            <div className={`${
-              layoutMode === 'modern'
+            <div className={(layoutMode === 'modern'
                 ? 'modern-input-container'
-                : 'theme-bg-secondary rounded-xl border border-gray-600'
-            } p-4 transition-opacity duration-200 ${
-              showChoicesDuringGeneration && !isGenerating && !isStreaming && !isRegenerating && !isStreamingContinuation
+                : 'theme-bg-secondary rounded-xl border border-gray-600') + ' p-4 transition-opacity duration-200 ' + (showChoicesDuringGeneration && !isGenerating && !isStreaming && !isRegenerating && !isStreamingContinuation
                 ? 'opacity-100 pointer-events-auto'
-                : 'opacity-30 pointer-events-none'
-            }`}>
+                : 'opacity-30 pointer-events-none')}>
               <div className="flex items-center justify-between">
                 <input
                   type="text"
@@ -1215,11 +1132,9 @@ export default function SceneVariantDisplay({
                 <button
                   onClick={() => onGenerateScene?.(customPrompt)}
                   disabled={!showChoicesDuringGeneration || isGenerating || isStreaming || !customPrompt.trim() || isRegenerating || isStreamingContinuation}
-                  className={`ml-3 rounded-lg p-2 transition-colors ${
-                    layoutMode === 'modern'
+                  className={'ml-3 rounded-lg p-2 transition-colors ' + (layoutMode === 'modern'
                       ? 'bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-700 hover:to-purple-700 disabled:from-gray-600 disabled:to-gray-600'
-                      : 'bg-pink-600 hover:bg-pink-700 disabled:bg-gray-600'
-                  }`}
+                      : 'bg-pink-600 hover:bg-pink-700 disabled:bg-gray-600')}
                 >
                   <PlayIcon className="w-5 h-5 text-white" />
                 </button>

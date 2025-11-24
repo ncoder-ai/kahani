@@ -165,17 +165,14 @@ export default function SettingsPage() {
 
   const loadSettings = async () => {
     try {
-      console.log('Loading settings with token:', token ? 'exists' : 'missing');
       const response = await fetch(`${await getApiBaseUrl()}/api/settings/`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
       });
 
-      console.log('Settings response status:', response.status);
       if (response.ok) {
         const data = await response.json();
-        console.log('Settings data:', data);
         // Ensure all settings categories are present with defaults if missing
         const loadedSettings = data.settings;
         if (loadedSettings) {

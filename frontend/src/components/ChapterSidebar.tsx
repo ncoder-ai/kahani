@@ -459,7 +459,6 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
       
       const data = await response.json();
       
-      console.log('[CHAPTER SUMMARY] Generated:', data);
       
       // Reload chapters to get updated summaries
       await loadChapters();
@@ -503,7 +502,6 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
       
       const data = await response.json();
       
-      console.log('[STORY SO FAR] Regenerated:', data);
       
       // Reload chapters to get updated story_so_far
       await loadChapters();

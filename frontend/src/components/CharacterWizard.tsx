@@ -80,9 +80,7 @@ export default function CharacterWizard({ storyId, chapterId, onCharacterCreated
     try {
       setLoading(true);
       setError(null);
-      console.log('Analyzing character:', character.name);
       const details = await apiClient.analyzeCharacterDetails(storyId, character.name);
-      console.log('Character details received:', details);
       setCharacterDetails(details);
       setSelectedRole(details.suggested_role);
       // Show CharacterForm with analyzed data

@@ -169,7 +169,6 @@ class UnifiedLLMService:
                     content = response.choices[0].message.content
                     f.write(content)
                 f.write("\n\n" + "=" * 80 + "\n")
-            logger.debug(f"Full raw LLM response written to {raw_response_file} for {operation_name}")
         except Exception as e:
             logger.error(f"Failed to write full raw response to file: {e}")
     
@@ -201,8 +200,6 @@ class UnifiedLLMService:
         # Check if NSFW filter should be injected
         from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
         user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
-        logger.debug(f"NSFW check for user {user_id} (_generate): user_settings keys={list(user_settings.keys()) if user_settings else None}, allow_nsfw value={user_settings.get('allow_nsfw') if user_settings else None}, user_allow_nsfw={user_allow_nsfw}, type={type(user_allow_nsfw)}")
-        
         messages = []
         if system_prompt and system_prompt.strip():
             # Inject NSFW filter if user doesn't have NSFW permissions (unless explicitly skipped)
@@ -234,28 +231,13 @@ class UnifiedLLMService:
         timeout_value = user_timeout if user_timeout is not None else settings.llm_timeout_total
         gen_params["timeout"] = timeout_value
         
-        # Log complete prompt being sent to LLM
+        # Get prompts for file logging (only if prompt_debug is enabled)
         system_prompt_log = next((msg["content"] for msg in messages if msg.get("role") == "system"), "")
         user_prompt_log = next((msg["content"] for msg in messages if msg.get("role") == "user"), "")
-        logger.debug("=" * 80)
-        logger.debug("COMPLETE PROMPT BEING SENT TO LLM")
-        logger.debug("=" * 80)
-        logger.debug(f"SYSTEM PROMPT:\n{system_prompt_log}")
-        logger.debug("-" * 80)
-        logger.debug(f"USER PROMPT:\n{user_prompt_log}")
-        logger.debug("-" * 80)
-        logger.info(f"GENERATION PARAMETERS: max_tokens={gen_params.get('max_tokens')}, temperature={gen_params.get('temperature')}, model={client.model_string}")
-        logger.info(f"LLM timeout configured: {settings.llm_timeout_total}s (total), {settings.llm_timeout_read}s (read)")
-        logger.info("=" * 80)
         
         try:
-            logger.debug(f"Generating with {client.model_string} for user {user_id}")
-            
             response = await acompletion(**gen_params)
-            
             content = response.choices[0].message.content
-            logger.debug(f"Generated {len(content)} characters for user {user_id}")
-            
             return content
             
         except Exception as e:
@@ -309,8 +291,6 @@ class UnifiedLLMService:
         # Check if NSFW filter should be injected
         from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
         user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
-        logger.debug(f"NSFW check for user {user_id} (_generate_text_completion): user_settings keys={list(user_settings.keys()) if user_settings else None}, allow_nsfw value={user_settings.get('allow_nsfw') if user_settings else None}, user_allow_nsfw={user_allow_nsfw}, type={type(user_allow_nsfw)}")
-        
         # Inject NSFW filter into system prompt if needed (unless explicitly skipped)
         if system_prompt and system_prompt.strip():
             if not skip_nsfw_filter and should_inject_nsfw_filter(user_allow_nsfw):
@@ -837,19 +817,9 @@ class UnifiedLLMService:
         timeout_value = user_timeout if user_timeout is not None else settings.llm_timeout_total
         gen_params["timeout"] = timeout_value
         
-        # Log complete prompt being sent to LLM
+        # Get prompts for file logging (only if prompt_debug is enabled)
         system_prompt_log = next((msg["content"] for msg in messages if msg.get("role") == "system"), "")
         user_prompt_log = next((msg["content"] for msg in messages if msg.get("role") == "user"), "")
-        logger.debug("=" * 80)
-        logger.debug("COMPLETE PROMPT BEING SENT TO LLM (STREAMING)")
-        logger.debug("=" * 80)
-        logger.debug(f"SYSTEM PROMPT:\n{system_prompt_log}")
-        logger.debug("-" * 80)
-        logger.debug(f"USER PROMPT:\n{user_prompt_log}")
-        logger.info("-" * 80)
-        logger.info(f"GENERATION PARAMETERS: max_tokens={gen_params.get('max_tokens')}, temperature={gen_params.get('temperature')}, model={client.model_string}")
-        logger.info(f"LLM timeout configured: {settings.llm_timeout_total}s (total), {settings.llm_timeout_read}s (read)")
-        logger.info("=" * 80)
         
         # Write prompt to file for streaming generation (only if prompt_debug is enabled)
         if settings.prompt_debug:
@@ -874,11 +844,9 @@ class UnifiedLLMService:
                     f.write("\n")
                     f.write("=" * 80 + "\n")
             except Exception as e:
-                logger.debug(f"Failed to write prompt to file: {e}")
+                pass  # Silently fail if file writing fails
         
         try:
-            logger.debug(f"Streaming generation with {client.model_string} for user {user_id}")
-            
             response = await acompletion(**gen_params)
             
             async for chunk in response:
@@ -1193,11 +1161,6 @@ class UnifiedLLMService:
         immediate_situation = context.get("current_situation") or ""
         immediate_situation = str(immediate_situation) if immediate_situation else ""
         
-        logger.info(f"[GENERATE_SCENE] Extracted immediate_situation from context: '{immediate_situation}' (length: {len(immediate_situation)})")
-        logger.info(f"[GENERATE_SCENE] Context keys: {list(context.keys())}")
-        logger.info(f"[GENERATE_SCENE] current_situation in context: {'current_situation' in context}")
-        if 'current_situation' in context:
-            logger.info(f"[GENERATE_SCENE] context['current_situation'] value: '{context['current_situation']}'")
         
         formatted_context = self._format_context_for_scene(context)
         
@@ -1219,12 +1182,6 @@ class UnifiedLLMService:
             logger.error(f"  - User prompt preview: {user_prompt[:500]}")
         
         # Log the complete prompt for debugging
-        logger.debug("=" * 80)
-        logger.debug("SCENE GENERATION PROMPT")
-        logger.debug("=" * 80)
-        logger.debug(f"SYSTEM PROMPT:\n{system_prompt}")
-        logger.debug("-" * 80)
-        logger.debug(f"USER PROMPT:\n{user_prompt}")
         logger.debug("=" * 80)
         
         max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
@@ -1308,15 +1265,6 @@ class UnifiedLLMService:
         )
         
         # Log exact input prompts sent to LLM
-        logger.info(f"[SCENE GENERATION INPUT] {'='*80}")
-        logger.info(f"[SCENE GENERATION INPUT] SYSTEM PROMPT ({len(system_prompt)} chars):")
-        logger.info(f"[SCENE GENERATION INPUT] {'='*80}")
-        logger.info(f"[SCENE GENERATION INPUT] {system_prompt}")
-        logger.info(f"[SCENE GENERATION INPUT] {'='*80}")
-        logger.info(f"[SCENE GENERATION INPUT] USER PROMPT ({len(user_prompt)} chars):")
-        logger.info(f"[SCENE GENERATION INPUT] {'='*80}")
-        logger.info(f"[SCENE GENERATION INPUT] {user_prompt}")
-        logger.info(f"[SCENE GENERATION INPUT] {'='*80}")
         
         max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
         
@@ -1333,12 +1281,6 @@ class UnifiedLLMService:
             )
             cleaned_response = self._clean_scene_numbers(response_text)
             
-            # Log complete raw response received from LLM (text completion mode)
-            logger.info(f"[SCENE GENERATION OUTPUT] {'='*80}")
-            logger.info(f"[SCENE GENERATION OUTPUT] RAW LLM RESPONSE ({len(response_text)} chars, cleaned: {len(cleaned_response)} chars):")
-            logger.info(f"[SCENE GENERATION OUTPUT] {'='*80}")
-            logger.info(f"[SCENE GENERATION OUTPUT] {response_text}")
-            logger.info(f"[SCENE GENERATION OUTPUT] {'='*80}")
         else:
             # Chat completion mode - build messages and call LLM directly
             from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
@@ -1376,28 +1318,14 @@ class UnifiedLLMService:
             response_text = response.choices[0].message.content
             cleaned_response = self._clean_scene_numbers(response_text)
         
-        # Log complete raw response received from LLM
-        logger.info(f"[SCENE GENERATION OUTPUT] {'='*80}")
-        logger.info(f"[SCENE GENERATION OUTPUT] RAW LLM RESPONSE ({len(response_text)} chars, cleaned: {len(cleaned_response)} chars):")
-        logger.info(f"[SCENE GENERATION OUTPUT] {'='*80}")
-        logger.info(f"[SCENE GENERATION OUTPUT] {response_text}")
-        logger.info(f"[SCENE GENERATION OUTPUT] {'='*80}")
-        
-        # Log response info for debugging
-        logger.info(f"[CHOICES] Response length: {len(cleaned_response)} chars, max_tokens: {max_tokens}")
-        
         # Split scene and choices
         if CHOICES_MARKER in cleaned_response:
-            logger.info(f"[CHOICES] Marker found in response")
             parts = cleaned_response.split(CHOICES_MARKER, 1)
             scene_content = parts[0].strip()
             choices_text = parts[1].strip() if len(parts) > 1 else ""
-            logger.info(f"[CHOICES] Choices text length: {len(choices_text)} chars")
-            logger.debug(f"[CHOICES] Choices text preview: {choices_text[:300]}")
             
             parsed_choices = self._parse_choices_from_json(choices_text)
             if parsed_choices:
-                logger.info(f"[CHOICES] Successfully parsed {len(parsed_choices)} choices")
                 return (scene_content, parsed_choices)
             else:
                 logger.warning(f"[CHOICES] Marker found but parsing failed. Choices text: {choices_text[:200]}")
@@ -1405,11 +1333,6 @@ class UnifiedLLMService:
         else:
             # No marker found, return scene without choices
             logger.warning(f"[CHOICES] Marker NOT found in response. Response length: {len(cleaned_response)} chars")
-            logger.warning(f"[CHOICES] Full LLM response received:")
-            logger.warning(f"[CHOICES] {'='*80}")
-            logger.warning(f"[CHOICES] {cleaned_response}")
-            logger.warning(f"[CHOICES] {'='*80}")
-            logger.debug(f"[CHOICES] Response preview (last 500 chars): {cleaned_response[-500:]}")
             return (cleaned_response, None)
     
     async def generate_scene_streaming(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> AsyncGenerator[str, None]:
@@ -1426,15 +1349,9 @@ class UnifiedLLMService:
         immediate_situation = context.get("current_situation") or ""
         immediate_situation = str(immediate_situation) if immediate_situation else ""
         
-        logger.info(f"[GENERATE_SCENE_STREAMING] Extracted immediate_situation from context: '{immediate_situation}' (length: {len(immediate_situation)})")
-        logger.info(f"[GENERATE_SCENE_STREAMING] Context keys: {list(context.keys())}")
-        logger.info(f"[GENERATE_SCENE_STREAMING] current_situation in context: {'current_situation' in context}")
-        if 'current_situation' in context:
-            logger.info(f"[GENERATE_SCENE_STREAMING] context['current_situation'] value: '{context['current_situation']}'")
         
         formatted_context = self._format_context_for_scene(context)
         
-        logger.info(f"[GENERATE_SCENE_STREAMING] About to call get_prompt_pair with immediate_situation='{immediate_situation}'")
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "scene_generation", "scene_generation",
             context=formatted_context,
@@ -1442,7 +1359,6 @@ class UnifiedLLMService:
             choices_count=choices_count,
             immediate_situation=immediate_situation
         )
-        logger.info(f"[GENERATE_SCENE_STREAMING] After get_prompt_pair call")
         
         # Debug: Check if variables were substituted
         if "{immediate_situation}" in user_prompt or "{scene_length_description}" in user_prompt:
@@ -1718,7 +1634,6 @@ class UnifiedLLMService:
             
             if json_match:
                 json_str = json_match.group(0)
-                logger.debug(f"[CHOICES PARSE] Found JSON array: {json_str[:200]}")
                 
                 try:
                     choices = json.loads(json_str)
@@ -1742,13 +1657,8 @@ class UnifiedLLMService:
                             cleaned = choice.strip()
                             if len(cleaned) > 5:  # Minimum reasonable choice length
                                 cleaned_choices.append(cleaned)
-                            else:
-                                logger.debug(f"[CHOICES PARSE] Skipping choice {i+1} (too short): {cleaned}")
-                        else:
-                            logger.debug(f"[CHOICES PARSE] Skipping choice {i+1} (not a string): {type(choice)}")
                     
                     if len(cleaned_choices) >= 2:
-                        logger.info(f"[CHOICES PARSE] Successfully parsed {len(cleaned_choices)} valid choices from {len(choices)} total")
                         return cleaned_choices
                     else:
                         logger.warning(f"[CHOICES PARSE] Not enough valid choices: {len(cleaned_choices)} < 2")
@@ -1800,16 +1710,6 @@ class UnifiedLLMService:
             immediate_situation=immediate_situation
         )
         
-        # Log exact input prompts sent to LLM
-        logger.info(f"[SCENE GENERATION STREAMING INPUT] {'='*80}")
-        logger.info(f"[SCENE GENERATION STREAMING INPUT] SYSTEM PROMPT ({len(system_prompt)} chars):")
-        logger.info(f"[SCENE GENERATION STREAMING INPUT] {'='*80}")
-        logger.info(f"[SCENE GENERATION STREAMING INPUT] {system_prompt}")
-        logger.info(f"[SCENE GENERATION STREAMING INPUT] {'='*80}")
-        logger.info(f"[SCENE GENERATION STREAMING INPUT] USER PROMPT ({len(user_prompt)} chars):")
-        logger.info(f"[SCENE GENERATION STREAMING INPUT] {'='*80}")
-        logger.info(f"[SCENE GENERATION STREAMING INPUT] {user_prompt}")
-        logger.info(f"[SCENE GENERATION STREAMING INPUT] {'='*80}")
         
         max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
         
@@ -1839,7 +1739,6 @@ class UnifiedLLMService:
                 
                 # Check if marker is in rolling buffer
                 if CHOICES_MARKER in rolling_buffer:
-                    logger.info(f"[CHOICES STREAMING] Found marker at chunk {total_chunks}")
                     # Split: before marker goes to scene, after to choices
                     parts = rolling_buffer.split(CHOICES_MARKER, 1)
                     scene_part = parts[0]  # Everything before marker - guaranteed to be new content
@@ -1855,7 +1754,6 @@ class UnifiedLLMService:
                     # Buffer the choices part - DO NOT YIELD
                     if choices_part:
                         choices_buffer.append(choices_part)
-                        logger.debug(f"[CHOICES STREAMING] Buffered initial choices part: {choices_part[:100]}")
                     
                     found_marker = True
                     rolling_buffer = ""  # Clear rolling buffer
@@ -1884,16 +1782,6 @@ class UnifiedLLMService:
         full_response = full_scene_content + (''.join(choices_buffer) if choices_buffer else '')
         raw_full_response = ''.join(raw_chunks)  # Combined raw chunks before cleaning
         
-        # Log complete raw response received from LLM (combined, not chunked)
-        logger.info(f"[SCENE GENERATION STREAMING OUTPUT] {'='*80}")
-        logger.info(f"[SCENE GENERATION STREAMING OUTPUT] RAW LLM RESPONSE (combined from {total_chunks} chunks, {len(raw_full_response)} chars):")
-        logger.info(f"[SCENE GENERATION STREAMING OUTPUT] {'='*80}")
-        logger.info(f"[SCENE GENERATION STREAMING OUTPUT] {raw_full_response}")
-        logger.info(f"[SCENE GENERATION STREAMING OUTPUT] {'='*80}")
-        logger.info(f"[SCENE GENERATION STREAMING OUTPUT] CLEANED RESPONSE ({len(full_response)} chars):")
-        logger.info(f"[SCENE GENERATION STREAMING OUTPUT] {'='*80}")
-        logger.info(f"[SCENE GENERATION STREAMING OUTPUT] {full_response}")
-        logger.info(f"[SCENE GENERATION STREAMING OUTPUT] {'='*80}")
         
         # Write raw response to file (using raw chunks before cleaning, only if prompt_debug is enabled)
         if settings.prompt_debug:
@@ -1914,22 +1802,12 @@ class UnifiedLLMService:
         parsed_choices = None
         if found_marker and choices_buffer:
             choices_text = ''.join(choices_buffer).strip()
-            logger.info(f"[CHOICES STREAMING] Marker found, choices buffer length: {len(choices_text)} chars")
-            logger.debug(f"[CHOICES STREAMING] Choices buffer preview: {choices_text[:300]}")
             parsed_choices = self._parse_choices_from_json(choices_text)
-            if parsed_choices:
-                logger.info(f"[CHOICES STREAMING] Successfully parsed {len(parsed_choices)} choices")
-            else:
+            if not parsed_choices:
                 logger.warning(f"[CHOICES STREAMING] Marker found but parsing failed. Choices text: {choices_text[:200]}")
         else:
             if not found_marker:
                 logger.warning(f"[CHOICES STREAMING] ERROR: ###CHOICES### marker not found after {total_chunks} chunks")
-                logger.warning(f"[CHOICES STREAMING] Scene buffer length: {len(full_scene_content)} chars")
-                logger.warning(f"[CHOICES STREAMING] Full LLM response received ({len(full_response)} chars):")
-                logger.warning(f"[CHOICES STREAMING] {'='*80}")
-                logger.warning(f"[CHOICES STREAMING] {full_response}")
-                logger.warning(f"[CHOICES STREAMING] {'='*80}")
-                logger.debug(f"[CHOICES STREAMING] Scene buffer preview (last 500 chars): {full_scene_content[-500:]}")
             else:
                 logger.warning(f"[CHOICES STREAMING] Marker found but choices_buffer is empty")
         
@@ -1997,8 +1875,6 @@ class UnifiedLLMService:
             )
         
         # Log prompts for debugging
-        logger.debug(f"Variant generation - system_prompt length: {len(system_prompt) if system_prompt else 0}")
-        logger.debug(f"Variant generation - user_prompt length: {len(user_prompt) if user_prompt else 0}")
         
         if not user_prompt or not user_prompt.strip():
             logger.error("Empty user prompt generated for variant generation")
@@ -2030,7 +1906,6 @@ class UnifiedLLMService:
                 
                 # Check if marker is in rolling buffer
                 if CHOICES_MARKER in rolling_buffer:
-                    logger.info(f"[CHOICES VARIANT] Found marker at chunk {total_chunks}")
                     # Split: before marker goes to scene, after to choices
                     parts = rolling_buffer.split(CHOICES_MARKER, 1)
                     scene_part = parts[0]  # Everything before marker - guaranteed to be new content
@@ -2046,7 +1921,6 @@ class UnifiedLLMService:
                     # Buffer the choices part - DO NOT YIELD
                     if choices_part:
                         choices_buffer.append(choices_part)
-                        logger.debug(f"[CHOICES VARIANT] Buffered initial choices part: {choices_part[:100]}")
                     
                     found_marker = True
                     rolling_buffer = ""  # Clear rolling buffer
@@ -2072,18 +1946,13 @@ class UnifiedLLMService:
         parsed_choices = None
         if found_marker and choices_buffer:
             choices_text = ''.join(choices_buffer).strip()
-            logger.info(f"[CHOICES VARIANT] Marker found, choices buffer length: {len(choices_text)} chars")
-            logger.debug(f"[CHOICES VARIANT] Choices buffer preview: {choices_text[:300]}")
             parsed_choices = self._parse_choices_from_json(choices_text)
-            if parsed_choices:
-                logger.info(f"[CHOICES VARIANT] Successfully parsed {len(parsed_choices)} choices")
-            else:
+            if not parsed_choices:
                 logger.warning(f"[CHOICES VARIANT] Marker found but parsing failed. Choices text: {choices_text[:200]}")
         else:
             if not found_marker:
                 logger.warning(f"[CHOICES VARIANT] ERROR: ###CHOICES### marker not found after {total_chunks} chunks")
                 logger.warning(f"[CHOICES VARIANT] Scene buffer length: {len(''.join(scene_buffer))} chars")
-                logger.debug(f"[CHOICES VARIANT] Scene buffer preview (last 500 chars): {''.join(scene_buffer)[-500:]}")
             else:
                 logger.warning(f"[CHOICES VARIANT] Marker found but choices_buffer is empty")
         
@@ -2149,7 +2018,6 @@ class UnifiedLLMService:
                 
                 # Check if marker is in rolling buffer
                 if CHOICES_MARKER in rolling_buffer:
-                    logger.info(f"[CHOICES CONTINUATION] Found marker")
                     # Split: before marker goes to scene, after to choices
                     parts = rolling_buffer.split(CHOICES_MARKER, 1)
                     scene_part = parts[0]  # Everything before marker - guaranteed to be new content
@@ -2165,7 +2033,6 @@ class UnifiedLLMService:
                     # Buffer the choices part - DO NOT YIELD
                     if choices_part:
                         choices_buffer.append(choices_part)
-                        logger.debug(f"[CHOICES CONTINUATION] Buffered initial choices part: {choices_part[:100]}")
                     
                     found_marker = True
                     rolling_buffer = ""  # Clear rolling buffer
@@ -2190,12 +2057,8 @@ class UnifiedLLMService:
         parsed_choices = None
         if found_marker and choices_buffer:
             choices_text = ''.join(choices_buffer).strip()
-            logger.info(f"[CHOICES CONTINUATION] Marker found, choices buffer length: {len(choices_text)} chars")
-            logger.debug(f"[CHOICES CONTINUATION] Choices buffer preview: {choices_text[:300]}")
             parsed_choices = self._parse_choices_from_json(choices_text)
-            if parsed_choices:
-                logger.info(f"[CHOICES CONTINUATION] Successfully parsed {len(parsed_choices)} choices")
-            else:
+            if not parsed_choices:
                 logger.warning(f"[CHOICES CONTINUATION] Marker found but parsing failed. Choices text: {choices_text[:200]}")
         else:
             if not found_marker:

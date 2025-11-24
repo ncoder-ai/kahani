@@ -34,7 +34,6 @@ export default function RouteProtection({
   useEffect(() => {
     // Wait for store to hydrate before checking authentication
     if (!hasHydrated) {
-      console.log('[RouteProtection] Waiting for store hydration...');
       return;
     }
 
@@ -45,26 +44,22 @@ export default function RouteProtection({
 
     // Check authentication
     if (!isAuthenticated || !user) {
-      console.log('[RouteProtection] User not authenticated, redirecting to login');
       router.push(`/login?redirect=${encodeURIComponent(pathname)}`);
       return;
     }
 
     // Check admin requirement
     if (requireAdmin && !user.is_admin) {
-      console.log('[RouteProtection] User is not admin, access denied');
       router.push('/dashboard');
       return;
     }
 
     // Check approval requirement (skip for admins)
     if (requireApproval && !user.is_approved && !user.is_admin) {
-      console.log('[RouteProtection] User not approved, redirecting to pending approval page');
       router.push('/pending-approval');
       return;
     }
 
-    console.log('[RouteProtection] Access granted');
   }, [hasHydrated, isAuthenticated, user, requireAuth, requireApproval, requireAdmin, router, pathname]);
 
   // Don't render anything if requirements not met

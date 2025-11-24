@@ -20,7 +20,6 @@ class AudioContextManager {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       if (AudioContextClass) {
         this.context = new AudioContextClass();
-        console.log('[AudioContext] Created, initial state:', this.context.state);
       } else {
         console.error('[AudioContext] Web Audio API not supported');
       }
@@ -37,12 +36,10 @@ class AudioContextManager {
       return false;
     }
     
-    console.log('[AudioContext] Current state:', this.context.state);
     
     if (this.context.state === 'suspended') {
       try {
         await this.context.resume();
-        console.log('[AudioContext] Resumed, new state:', this.context.state);
         
         // Play a silent buffer to confirm the context is truly active
         // This is a recommended practice to handle edge cases
@@ -53,10 +50,6 @@ class AudioContextManager {
         source.start();
         
         this.isUnlocked = true;
-        console.log('[AudioContext] ✅ Unlocked successfully!');
-        console.log('[AudioContext] Sample rate:', this.context.sampleRate);
-        console.log('[AudioContext] Base latency:', this.context.baseLatency);
-        console.log('[AudioContext] Output latency:', (this.context as any).outputLatency);
         return true;
       } catch (err) {
         console.error('[AudioContext] ❌ Failed to unlock:', err);
@@ -67,7 +60,6 @@ class AudioContextManager {
     // Already running
     if (this.context.state === 'running') {
       this.isUnlocked = true;
-      console.log('[AudioContext] Already unlocked');
       return true;
     }
     
@@ -108,7 +100,6 @@ class AudioContextManager {
       return;
     }
     
-    console.log('[AudioContext] Playing test beep...');
     
     // Create a 440Hz tone (A note) for 0.5 seconds
     const oscillator = this.context.createOscillator();
@@ -125,7 +116,6 @@ class AudioContextManager {
     oscillator.start();
     oscillator.stop(this.context.currentTime + 0.5);
     
-    console.log('[AudioContext] Test beep should be playing now');
   }
 }
 

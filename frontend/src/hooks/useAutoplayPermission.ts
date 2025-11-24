@@ -27,7 +27,6 @@ export const useAutoplayPermission = () => {
     const newState = !isEnabled;
     setIsEnabled(newState);
     localStorage.setItem(AUTOPLAY_ENABLED_KEY, newState.toString());
-    console.log('[Autoplay] Toggled to:', newState);
   }, [isEnabled]);
 
   /**

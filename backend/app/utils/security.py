@@ -2,13 +2,16 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+import logging
 from ..config import settings
+
+logger = logging.getLogger(__name__)
 
 # Password hashing with fallback for bcrypt issues
 try:
     pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 except Exception as e:
-    print(f"Warning: bcrypt initialization failed: {e}")
+    logger.warning(f"bcrypt initialization failed: {e}")
     # Fallback to a simpler scheme if bcrypt fails
     pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
@@ -28,7 +31,7 @@ def get_password_hash(password: str) -> str:
         truncated = password[:72]
         return pwd_context.hash(truncated)
     except Exception as e:
-        print(f"Error hashing password: {e}")
+        logger.error(f"Error hashing password: {e}")
         # Fallback to a simple hash if bcrypt fails
         import hashlib
         return hashlib.sha256(truncated.encode()).hexdigest()

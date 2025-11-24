@@ -11,7 +11,6 @@ export default function STTDebugPage() {
   const [wsStatus, setWsStatus] = useState<string>('disconnected');
 
   const addLog = (message: string) => {
-    console.log(message);
     setLogs(prev => [...prev, `${new Date().toLocaleTimeString()}: ${message}`]);
   };
 

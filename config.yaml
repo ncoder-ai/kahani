@@ -163,7 +163,7 @@ logging:
 # DEBUG
 # ----------------------------------------------------------------------------
 debug:
-  prompt_debug: true  # Save prompts and raw LLM responses to files
+  prompt_debug: false  # Save prompts and raw LLM responses to files
 
 # ----------------------------------------------------------------------------
 # USER DEFAULTS

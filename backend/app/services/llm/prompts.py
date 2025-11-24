@@ -502,24 +502,14 @@ Chapter Conclusion:"""
             return prompt_text
         
         try:
-            # Log what variables we're substituting (truncate long content)
-            log_vars = {k: (v[:100] + '...' if isinstance(v, str) and len(v) > 100 else v) for k, v in template_vars.items()}
-            logger.info(f"[SUBSTITUTE] Substituting variables: {log_vars}")
-            logger.debug(f"[SUBSTITUTE] Prompt text length before: {len(prompt_text)}")
-            logger.debug(f"[SUBSTITUTE] Prompt text preview (first 200 chars): {prompt_text[:200]}")
-            
             # Check which variables are in the template
             import re
             template_vars_in_text = re.findall(r'\{(\w+)\}', prompt_text)
-            logger.debug(f"[SUBSTITUTE] Variables found in template: {set(template_vars_in_text)}")
-            logger.debug(f"[SUBSTITUTE] Variables provided: {set(template_vars.keys())}")
             missing_vars = set(template_vars_in_text) - set(template_vars.keys())
             if missing_vars:
                 logger.warning(f"[SUBSTITUTE] Template requires variables not provided: {missing_vars}")
             
             result = prompt_text.format(**template_vars)
-            logger.info(f"[SUBSTITUTE] Substituted prompt length: {len(result)} characters")
-            logger.debug(f"[SUBSTITUTE] Prompt text preview after (first 200 chars): {result[:200]}")
             
             # Check if any variables remain unsubstituted
             remaining_vars = re.findall(r'\{(\w+)\}', result)

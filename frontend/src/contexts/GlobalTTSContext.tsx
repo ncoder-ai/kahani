@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import { audioContextManager } from '@/utils/audioContextManager';
+import { getApiBaseUrl } from '@/lib/api';
 
 interface TTSMessage {
   type: string;
@@ -77,7 +78,12 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
       // For direct access: get backend port from config
       // Note: This requires config to be loaded first
       // In practice, apiBaseUrl should already have the correct port from config
-      return apiBaseUrl;
+      if (apiBaseUrl && apiBaseUrl.trim() !== '') {
+        return apiBaseUrl;
+      }
+      // Fallback to default backend port if config not loaded yet
+      console.warn('[Global TTS] Config not loaded, using fallback port 9876');
+      return `${protocol}//${hostname}:9876`;
     }
     
     // Server-side fallback
@@ -102,7 +108,6 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
     const timestamp = new Date().toLocaleTimeString();
     const logEntry = `${timestamp}: ${message}`;
     setDebugLogs(prev => [...prev.slice(-19), logEntry]); // Keep last 20 logs
-    console.log('[Global TTS]', message);
   }, []);
   
   // Refs
@@ -150,7 +155,6 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
     }
     
     const chunk = audioQueueRef.current.shift()!;
-    console.log('[Global TTS] Playing chunk', chunk.chunk_number);
     
     const context = audioContextManager.getContext();
     
@@ -177,7 +181,6 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
           throw new Error(`Failed to resume AudioContext, state: ${context.state}`);
         }
         
-        console.log('[Global TTS] ✅ AudioContext resumed successfully');
         addDebugLog('✅ AudioContext resumed');
       } catch (err) {
         console.error('[Global TTS] ❌ Cannot resume AudioContext:', err);
@@ -208,16 +211,9 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
     // Decode audio from blob and play through AudioContext
     chunk.audio_blob.arrayBuffer()
       .then(arrayBuffer => {
-        console.log('[Global TTS] Decoding audio buffer, size:', arrayBuffer.byteLength);
         return context.decodeAudioData(arrayBuffer);
       })
       .then(audioBuffer => {
-        console.log('[Global TTS] AudioBuffer decoded:', {
-          duration: audioBuffer.duration,
-          sampleRate: audioBuffer.sampleRate,
-          numberOfChannels: audioBuffer.numberOfChannels,
-          contextState: context.state
-        });
         addDebugLog(`✅ Chunk ${chunk.chunk_number} decoded (${audioBuffer.duration.toFixed(2)}s)`);
         
         // Verify context is still running before creating nodes
@@ -240,7 +236,6 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
         
         // Handle end of playback
         source.onended = () => {
-          console.log('[Global TTS] Chunk', chunk.chunk_number, 'ended');
           addDebugLog(`✓ Chunk ${chunk.chunk_number} playback completed`);
           URL.revokeObjectURL(chunk.audio_url);
           currentAudioSourceRef.current = null;
@@ -251,8 +246,6 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
         // Start playback
         try {
           source.start(0);
-          console.log('[Global TTS] Chunk', chunk.chunk_number, 'playing via AudioContext at full volume');
-          console.log('[Global TTS] AudioContext state:', context.state);
           addDebugLog(`▶️ Playing chunk ${chunk.chunk_number}`);
           setIsPlaying(true);
           isPlayingRef.current = true;
@@ -278,7 +271,6 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
    * Handle WebSocket messages
    */
   const handleWebSocketMessage = useCallback((message: TTSMessage) => {
-    console.log('[Global TTS] Received message:', message.type);
     
     switch (message.type) {
       case 'chunk_ready':
@@ -313,13 +305,21 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
         break;
         
       case 'complete':
-        console.log('[Global TTS] Generation complete');
         setIsGenerating(false);
         break;
         
       case 'error':
-        console.error('[Global TTS] Error:', message.message);
-        setError(message.message || 'Unknown error');
+        console.error('[Global TTS] WebSocket error:', message.message);
+        // Provide more helpful error messages
+        let errorMsg = message.message || 'Unknown error';
+        if (errorMsg.includes('Failed to generate chunk')) {
+          errorMsg = 'TTS generation failed - please check your TTS provider settings in Settings > Voice Settings';
+        } else if (errorMsg.includes('timeout') || errorMsg.includes('Timeout')) {
+          errorMsg = 'TTS generation timed out - please try again or check your TTS provider connection';
+        } else if (errorMsg.includes('API key') || errorMsg.includes('authentication')) {
+          errorMsg = 'TTS authentication failed - please check your TTS provider API key in Settings > Voice Settings';
+        }
+        setError(errorMsg);
         setIsGenerating(false);
         break;
     }
@@ -329,23 +329,19 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
    * Connect to existing TTS session (for auto-play or manual)
    */
   const connectToSession = useCallback(async (sessionId: string, sceneId: number) => {
-    console.log('[Global TTS] Connecting to session:', sessionId, 'for scene:', sceneId);
     
     // If already connected to this session, don't reconnect
     if (currentSessionIdRef.current === sessionId && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      console.log('[Global TTS] Already connected to session:', sessionId, '- skipping reconnect');
       return;
     }
     
     // If already playing or generating this scene, don't reconnect
     if (currentSceneId === sceneId && (isPlaying || isGenerating)) {
-      console.log('[Global TTS] Already playing/generating scene:', sceneId, '- skipping reconnect');
       return;
     }
     
     // Close existing connection if connecting to different session
     if (wsRef.current && currentSessionIdRef.current !== sessionId) {
-      console.log('[Global TTS] Closing previous session:', currentSessionIdRef.current);
       wsRef.current.close();
     }
     
@@ -371,22 +367,33 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
       const playPromise = silentAudio.play();
       if (playPromise !== undefined) {
         await playPromise;
-        console.log('[Global TTS] Autoplay permission established');
       }
     } catch (err) {
       console.warn('[Global TTS] Autoplay permission may be blocked:', err);
       // Continue anyway - user might have already granted permission
     }
     
+    // Get API URL with proper port (like settings modal does)
+    let apiUrl: string;
+    try {
+      apiUrl = await getApiBaseUrl();
+    } catch (error) {
+      const errorMsg = 'Failed to get API URL for WebSocket connection';
+      console.error('[Global TTS]', errorMsg, error);
+      setError(errorMsg);
+      setIsGenerating(false);
+      return;
+    }
+    
     // Connect WebSocket
-    const wsProtocol = actualApiUrl.startsWith('https') ? 'wss' : 'ws';
-    const wsHost = actualApiUrl.replace(/^https?:\/\//, '');
+    const wsProtocol = apiUrl.startsWith('https') ? 'wss' : 'ws';
+    const wsHost = apiUrl.replace(/^https?:\/\//, '');
     
     // Validate hostname before creating WebSocket URL
     if (!wsHost || wsHost.trim() === '') {
       const errorMsg = 'Invalid API hostname - cannot create WebSocket connection';
       console.error('[Global TTS]', errorMsg);
-      console.error('[Global TTS] actualApiUrl:', actualApiUrl);
+      console.error('[Global TTS] apiUrl:', apiUrl);
       setError(errorMsg);
       setIsGenerating(false);
       return;
@@ -401,10 +408,6 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
     }
     
     const wsUrl = `${wsProtocol}://${wsHost}/ws/tts/${sessionId}`;
-    console.log('[Global TTS] WebSocket URL:', wsUrl);
-    console.log('[Global TTS] Base API URL:', actualApiUrl);
-    console.log('[Global TTS] Session ID:', sessionId);
-    console.log('[Global TTS] WebSocket Host:', wsHost);
     
     // Validate WebSocket URL before connecting
     if (!wsUrl || (!wsUrl.startsWith('ws://') && !wsUrl.startsWith('wss://'))) {
@@ -438,7 +441,6 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
     }, 10000); // 10 second timeout
     
     ws.onopen = () => {
-      console.log('[Global TTS] WebSocket connected successfully');
       clearTimeout(connectionTimeout);
     };
     
@@ -474,7 +476,6 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
     };
     
     ws.onclose = (event) => {
-      console.log('[Global TTS] WebSocket disconnected. Code:', event.code, 'Reason:', event.reason);
       
       // Handle different close codes
       if (event.code === 1008 || event.code === 1011 || event.reason?.includes('not found') || event.reason?.includes('expired')) {
@@ -490,14 +491,30 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
       
       setIsGenerating(false);
     };
-  }, [actualApiUrl, handleWebSocketMessage, currentSceneId, isPlaying, isGenerating]);
+  }, [handleWebSocketMessage, currentSceneId, isPlaying, isGenerating]);
   
   /**
    * Start manual TTS generation for a scene
    */
   const playScene = useCallback(async (sceneId: number) => {
     addDebugLog(`▶️ Starting TTS for scene ${sceneId}`);
-    console.log('[Global TTS] Starting manual TTS for scene:', sceneId);
+    
+    // Get API URL with proper port (like settings modal does)
+    let apiUrl: string;
+    try {
+      apiUrl = await getApiBaseUrl();
+    } catch (error) {
+      const errorMsg = 'TTS service initializing - please wait a moment and try again';
+      console.warn('[Global TTS] Failed to get API URL:', error);
+      addDebugLog(`❌ ${errorMsg}`);
+      setError(errorMsg);
+      setIsGenerating(false);
+      return;
+    }
+    
+    // Construct full URL and check auth token (declare before try for error logging)
+    const fullUrl = `${apiUrl}/api/tts/generate-ws/${sceneId}`;
+    const authToken = localStorage.getItem('auth_token');
     
     try {
       // FIRST: Stop any existing playback/generation
@@ -509,7 +526,6 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
       // AUTO-UNLOCK: For manual play, automatically unlock AudioContext
       if (!audioContextManager.isAudioUnlocked()) {
         addDebugLog('🔓 Auto-unlocking AudioContext for manual play...');
-        console.log('[Global TTS] Auto-unlocking AudioContext for manual play');
         const unlockSuccess = await audioContextManager.unlock();
         if (!unlockSuccess) {
           addDebugLog('❌ Failed to unlock AudioContext');
@@ -536,12 +552,22 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
       setError(null);
       setIsGenerating(true);
       
+      // Comprehensive logging for debugging
+      console.log('[Global TTS] ===== TTS Request Details =====');
+      console.log('[Global TTS] Full URL:', fullUrl);
+      console.log('[Global TTS] apiUrl (from getApiBaseUrl):', apiUrl);
+      console.log('[Global TTS] sceneId:', sceneId);
+      console.log('[Global TTS] Auth token exists:', !!authToken);
+      console.log('[Global TTS] Auth token length:', authToken ? authToken.length : 0);
+      console.log('[Global TTS] URL is absolute:', fullUrl.startsWith('http://') || fullUrl.startsWith('https://'));
+      addDebugLog(`📡 Calling: ${fullUrl}`);
+      
       // Create TTS session (use WebSocket endpoint)
-      const response = await fetch(`${actualApiUrl}/api/tts/generate-ws/${sceneId}`, {
+      const response = await fetch(fullUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+          'Authorization': `Bearer ${authToken}`
         }
       });
       
@@ -585,20 +611,44 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
       // Connect to the session (manual TTS)
       await connectToSession(data.session_id, sceneId);
     } catch (err) {
-      console.error('[Global TTS] TTS failed:', err);
+      // Comprehensive error logging for debugging
+      console.error('[Global TTS] ===== TTS Error Details =====');
+      console.error('[Global TTS] Error object:', err);
+      console.error('[Global TTS] Error type:', err instanceof Error ? err.constructor.name : typeof err);
+      console.error('[Global TTS] Error message:', err instanceof Error ? err.message : String(err));
+      console.error('[Global TTS] Error name:', err instanceof Error ? err.name : 'Unknown');
+      if (err instanceof Error && err.stack) {
+        console.error('[Global TTS] Error stack:', err.stack);
+      }
+      console.error('[Global TTS] Full URL that failed:', fullUrl);
+      console.error('[Global TTS] apiUrl (from getApiBaseUrl):', apiUrl);
+      console.error('[Global TTS] sceneId:', sceneId);
+      console.error('[Global TTS] Has auth token:', !!authToken);
+      console.error('[Global TTS] ===============================');
       
       setIsGenerating(false);
-      const errorMessage = err instanceof Error ? err.message : 'Failed to start TTS';
+      let errorMessage = 'Failed to start TTS';
+      
+      if (err instanceof TypeError) {
+        // Network errors (Load failed, Failed to fetch, etc.)
+        if (err.message.includes('Load failed') || err.message.includes('Failed to fetch')) {
+          errorMessage = 'Network error - unable to connect to TTS service. Please check your connection.';
+        } else {
+          errorMessage = `Network error: ${err.message}`;
+        }
+      } else if (err instanceof Error) {
+        errorMessage = err.message;
+      }
+      
       setError(errorMessage);
       addDebugLog(`❌ FAILED: ${errorMessage}`);
     }
-  }, [actualApiUrl, connectToSession, addDebugLog]);
+  }, [connectToSession, addDebugLog]);
   
   /**
    * Stop playback
    */
   const stop = useCallback(() => {
-    console.log('[Global TTS] Stopping playback');
     
     // Stop current audio source
     if (currentAudioSourceRef.current) {
@@ -640,7 +690,6 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
    * We'll just stop for now
    */
   const pause = useCallback(() => {
-    console.log('[Global TTS] Pause requested - stopping playback');
     stop();
   }, [stop]);
   
@@ -650,7 +699,6 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children, 
    * User will need to restart playback
    */
   const resume = useCallback(() => {
-    console.log('[Global TTS] Resume not supported with AudioContext - user must restart');
     // No-op for now
   }, []);
   

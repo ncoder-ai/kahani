@@ -30,12 +30,10 @@ function DashboardContent() {
     if (!hasHydrated) return; 
     
     if (!user) {
-      console.log('No user found, redirecting to login');
       router.push('/login');
       return;
     }
     
-    console.log('User found, loading stories:', user);
     loadStories();
     loadUserSettings();
   }, [user, hasHydrated, router]);
@@ -55,7 +53,6 @@ function DashboardContent() {
       
       // Get fresh token from auth store
       const { token } = useAuthStore.getState();
-      console.log('Dashboard loadStories - checking token:', token ? 'exists' : 'missing');
       
       if (!token) {
         console.error('No token available for stories request');
@@ -72,7 +69,6 @@ function DashboardContent() {
         },
       });
       
-      console.log('Stories response status:', response.status);
       
       if (!response.ok) {
         if (response.status === 401) {
@@ -84,7 +80,6 @@ function DashboardContent() {
       }
       
       const storiesData = await response.json();
-      console.log('Stories loaded successfully:', storiesData);
       setStories(storiesData);
     } catch (error) {
       console.error('Failed to load stories:', error);
@@ -113,14 +108,12 @@ function DashboardContent() {
   };
 
   const handleViewSummary = async (storyId: number) => {
-    console.log('[SUMMARY] Loading summary for story:', storyId);
     setLoadingSummary(true);
     setShowSummaryModal(true);
     
     try {
       const { token } = useAuthStore.getState();
       const url = `${await getApiBaseUrl()}/api/stories/${storyId}/summary`;
-      console.log('[SUMMARY] Fetching from:', url);
       
       const response = await fetch(url, {
         headers: {
@@ -129,12 +122,9 @@ function DashboardContent() {
         },
       });
 
-      console.log('[SUMMARY] Initial load response status:', response.status);
       
       if (response.ok) {
         const summaryData = await response.json();
-        console.log('[SUMMARY] Initial summary data:', summaryData);
-        console.log('[SUMMARY] Summary content:', summaryData.summary);
         setStorySummary(summaryData);
         setSelectedStory(stories.find(s => s.id === storyId));
       } else {
@@ -198,7 +188,6 @@ function DashboardContent() {
       return;
     }
 
-    console.log('[DELETE] Deleting story:', storyId);
     
     try {
       const { token } = useAuthStore.getState();
@@ -212,7 +201,6 @@ function DashboardContent() {
 
       if (response.ok) {
         const data = await response.json();
-        console.log('[DELETE] Story deleted:', data);
         
         // Refresh the stories list
         const storiesData = await fetch(`${await getApiBaseUrl()}/api/stories`, {
@@ -509,8 +497,6 @@ function DashboardContent() {
                     <p className="text-gray-800 whitespace-pre-wrap">
                       {(() => {
                         const summaryText = storySummary.summary || 'No summary available';
-                        console.log('[SUMMARY] Displaying summary:', summaryText);
-                        console.log('[SUMMARY] Summary object:', storySummary);
                         return summaryText;
                       })()}
                     </p>
@@ -539,13 +525,10 @@ function DashboardContent() {
               <div className="p-6 border-t bg-gray-50">
                 <button
                   onClick={async () => {
-                    console.log('[SUMMARY] Regenerate button clicked');
-                    console.log('[SUMMARY] Selected story:', selectedStory);
                     setLoadingSummary(true);
                     try {
                       const { token } = useAuthStore.getState();
                       const url = `${await getApiBaseUrl()}/api/stories/${selectedStory.id}/regenerate-summary`;
-                      console.log('[SUMMARY] Calling API:', url);
                       
                       const response = await fetch(url, {
                         method: 'POST',
@@ -555,13 +538,9 @@ function DashboardContent() {
                         },
                       });
 
-                      console.log('[SUMMARY] Response status:', response.status);
                       
                       if (response.ok) {
                         const updatedSummary = await response.json();
-                        console.log('[SUMMARY] Received response:', updatedSummary);
-                        console.log('[SUMMARY] Summary content:', updatedSummary.summary);
-                        console.log('[SUMMARY] Summary length:', updatedSummary.summary?.length);
                         setStorySummary(updatedSummary);
                       } else {
                         const errorText = await response.text();

@@ -134,7 +134,6 @@ export class AudioRecorder {
           this.state.isRecording = true;
           this.state.error = null;
           this.options.onStart?.();
-          console.log('[AudioRecorder] Recording started (PCM mode)');
         },
         stop: () => {
           this.state.isRecording = false;
@@ -142,7 +141,6 @@ export class AudioRecorder {
           source.disconnect();
           audioContext.close();
           this.options.onStop?.();
-          console.log('[AudioRecorder] Recording stopped (PCM mode)');
         },
         state: 'inactive',
         ondataavailable: null,
@@ -202,7 +200,6 @@ export class AudioRecorder {
 
     for (const type of types) {
       if (MediaRecorder.isTypeSupported(type)) {
-        console.log(`[AudioRecorder] Using MIME type: ${type}`);
         return type;
       }
     }

@@ -271,7 +271,6 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         loadWritingPrompts();
       }
       if (activeTab === 'voice') {
-        console.log('Loading Voice data for tab');
         loadTTSProviders();
         loadCurrentTTSSettings();
         loadSTTSettings();
@@ -934,17 +933,14 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       
       if (response.ok) {
         const data = await response.json();
-        console.log('TTS Providers loaded:', data);
         setTtsProviders(data || DEFAULT_TTS_PROVIDERS);
       } else {
         console.error('Failed to load TTS providers:', response.status, response.statusText);
-        console.log('Using default TTS providers');
         setTtsProviders(DEFAULT_TTS_PROVIDERS);
         showMessage('Using default TTS providers', 'error');
       }
     } catch (error) {
       console.error('Error loading TTS providers:', error);
-      console.log('Using default TTS providers due to error');
       setTtsProviders(DEFAULT_TTS_PROVIDERS);
       showMessage('Using default TTS providers', 'error');
     } finally {
@@ -1528,7 +1524,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`flex-1 py-3 px-4 text-sm font-medium transition-colors whitespace-nowrap ${
+              className={`flex-shrink-0 py-3 px-4 text-sm font-medium transition-colors whitespace-nowrap ${
                 activeTab === tab.id
                   ? 'theme-btn-primary border-b-2 theme-border-accent'
                   : 'text-gray-400 hover:text-white hover:bg-white/5'

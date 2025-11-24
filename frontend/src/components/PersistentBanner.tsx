@@ -70,13 +70,10 @@ export default function PersistentBanner() {
   const needsPermission = audioPermissionBlocked || !ttsPermissionEnabled;
   
   const handleEnableTTS = async () => {
-    console.log('[TTS Permission] Unlocking AudioContext...');
-    
     const success = await audioContextManager.unlock();
     
     if (success) {
       setTtsPermissionEnabled(true);
-      console.log('[TTS Permission] ✅ AudioContext unlocked! All TTS will now work.');
       // NO ALERT - just visual feedback
     } else {
       console.error('[TTS Permission] ❌ Failed to unlock AudioContext');

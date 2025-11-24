@@ -105,13 +105,11 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
       optionsRef.current.onError?.(error.message);
     },
     onStart: () => {
-      console.log('[useRealtimeSTT] Audio recorder started, setting isRecording=true');
       audioRecorderControllingState.current = true;
       setState(prev => ({ ...prev, isRecording: true, error: null }));
       optionsRef.current.onStatusChange?.(true, false);
     },
     onStop: () => {
-      console.log('[useRealtimeSTT] Audio recorder stopped, setting isRecording=false');
       audioRecorderControllingState.current = false;
       setState(prev => ({ ...prev, isRecording: false }));
       optionsRef.current.onStatusChange?.(false, false);
@@ -157,23 +155,18 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
   const connect = useCallback(async () => {
     // Prevent multiple simultaneous connections
     if (isConnectingRef.current) {
-      console.log('[STT] Connection already in progress');
       return;
     }
     
     if (wsRef.current?.readyState === WebSocket.OPEN || 
         wsRef.current?.readyState === WebSocket.CONNECTING) {
-      console.log('[STT] Already connected or connecting');
       return;
     }
 
     isConnectingRef.current = true;
-    console.log('[STT] Starting connection process...');
     try {
       // Create session
-      console.log('[STT] Creating session...');
       const sessionId = await createSession();
-      console.log('[STT] Session created:', sessionId);
       sessionIdRef.current = sessionId;
 
       // Get WebSocket URL (connect to backend)
@@ -183,14 +176,12 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
       const sttPath = await config.getSTTWebSocketPath();
       const wsUrl = `${protocol}//${hostname}:${backendPort}${sttPath}/${sessionId}`;
 
-      console.log('[STT] Connecting to WebSocket:', wsUrl);
 
       // Create WebSocket connection
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
-        console.log('[STT] WebSocket connected');
         isConnectingRef.current = false;
         setState(prev => ({ ...prev, isConnected: true, error: null }));
       };
@@ -205,7 +196,6 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
       };
 
       ws.onclose = (event) => {
-        console.log('[STT] WebSocket closed:', event.code, event.reason);
         setState(prev => ({ ...prev, isConnected: false, isRecording: false, isTranscribing: false }));
         
         // Don't auto-reconnect - let user click mic button to reconnect
@@ -230,18 +220,11 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
    * Handle WebSocket messages
    */
   const handleWebSocketMessage = useCallback((message: STTMessage) => {
-    console.log('[STT] Received message:', message.type, message.text?.substring(0, 50));
-    
     switch (message.type) {
       case 'partial':
         if (message.text) {
           // Backend sends the full accumulated sentence
           fullTranscriptRef.current = message.text;
-          
-          console.log('[STT] Partial transcript (full accumulated):', {
-            text: message.text.substring(0, 100),
-            length: message.text.length
-          });
           
           setState(prev => ({ 
             ...prev, 
@@ -299,7 +282,6 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
         break;
 
       case 'complete':
-        console.log('[STT] Transcription complete');
         break;
     }
   }, []); // No dependencies - use refs for everything
@@ -337,7 +319,6 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
    * Stop recording and transcription
    */
   const stopTranscription = useCallback(() => {
-    console.log('[useRealtimeSTT] Stopping transcription...');
     audioRecorderControllingState.current = false;
     stopRecording();
     startTimeRef.current = null;
