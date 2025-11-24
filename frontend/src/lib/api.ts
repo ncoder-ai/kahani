@@ -53,6 +53,7 @@ function getApiBaseUrlSync(): string {
 class ApiClient {
   private baseURL: string;
   private token: string | null = null;
+  private cachedTimeoutMs: number | null = null; // Cache user timeout in milliseconds
 
   constructor(baseURL?: string) {
     // Don't require baseURL immediately - allow lazy initialization
@@ -111,6 +112,39 @@ class ApiClient {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('auth_token');
     }
+    // Clear cached timeout when token is removed
+    this.cachedTimeoutMs = null;
+  }
+
+  /**
+   * Get request timeout in milliseconds based on user settings
+   * Fetches user settings if not cached, with fallback to 300 seconds (5 minutes)
+   */
+  private async getRequestTimeout(): Promise<number> {
+    // Return cached value if available
+    if (this.cachedTimeoutMs !== null) {
+      return this.cachedTimeoutMs;
+    }
+
+    // Try to fetch user settings to get timeout_total
+    try {
+      const settingsResponse = await this.getUserSettings();
+      const timeoutTotal = settingsResponse?.settings?.llm_settings?.timeout_total;
+      
+      if (timeoutTotal && typeof timeoutTotal === 'number' && timeoutTotal > 0) {
+        // Add 10 second buffer for network overhead, convert to milliseconds
+        this.cachedTimeoutMs = (timeoutTotal + 10) * 1000;
+        console.log(`[API] Using user timeout: ${timeoutTotal}s (+10s buffer = ${this.cachedTimeoutMs}ms)`);
+        return this.cachedTimeoutMs;
+      }
+    } catch (error) {
+      console.warn('[API] Failed to fetch user settings for timeout, using default:', error);
+    }
+
+    // Fallback to 300 seconds (5 minutes) if settings unavailable or invalid
+    this.cachedTimeoutMs = 300000; // 300 seconds in milliseconds
+    console.log('[API] Using default timeout: 300s');
+    return this.cachedTimeoutMs;
   }
 
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
@@ -135,9 +169,12 @@ class ApiClient {
     console.log('[API] Endpoint:', endpoint);
     console.log('[API] Headers:', Object.keys(headers));
 
+    // Get timeout from user settings (with fallback)
+    const requestTimeoutMs = await this.getRequestTimeout();
+
     // Add timeout to prevent infinite hanging
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), requestTimeoutMs);
 
     try {
       const response = await fetch(url, { 
@@ -156,7 +193,7 @@ class ApiClient {
             console.log('[API] Token refreshed, retrying request');
             // Retry the request with the new token (with timeout)
             const retryController = new AbortController();
-            const retryTimeoutId = setTimeout(() => retryController.abort(), 30000);
+            const retryTimeoutId = setTimeout(() => retryController.abort(), requestTimeoutMs);
             try {
               const retryResponse = await fetch(url, { 
                 ...options, 
@@ -215,8 +252,9 @@ class ApiClient {
       if (error instanceof Error) {
         // Handle timeout specifically
         if (error.name === 'AbortError') {
-          console.error('[API] Request timed out after 30 seconds');
-          throw new Error('Request timed out. Please check your connection and try again.');
+          const timeoutSeconds = Math.round(requestTimeoutMs / 1000);
+          console.error(`[API] Request timed out after ${timeoutSeconds} seconds`);
+          throw new Error(`Request timed out after ${timeoutSeconds} seconds. Please check your connection and try again.`);
         }
         console.error('[API] Request failed:', error.message);
       } else {
