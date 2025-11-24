@@ -1174,14 +1174,35 @@ class UnifiedLLMService:
         choices_count = generation_prefs.get("choices_count", 4)
         scene_length_description = self._get_scene_length_description(scene_length)
         
+        # Extract immediate_situation from context for template variable
+        # This should contain the continuation option text when a choice is made
+        immediate_situation = context.get("current_situation") or ""
+        immediate_situation = str(immediate_situation) if immediate_situation else ""
+        
+        logger.info(f"[GENERATE_SCENE] Extracted immediate_situation from context: '{immediate_situation}' (length: {len(immediate_situation)})")
+        logger.info(f"[GENERATE_SCENE] Context keys: {list(context.keys())}")
+        logger.info(f"[GENERATE_SCENE] current_situation in context: {'current_situation' in context}")
+        if 'current_situation' in context:
+            logger.info(f"[GENERATE_SCENE] context['current_situation'] value: '{context['current_situation']}'")
+        
+        formatted_context = self._format_context_for_scene(context)
+        
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "scene_generation", "scene_generation",
             user_id=user_id,
             db=db,
-            context=self._format_context_for_scene(context),
+            context=formatted_context,
             scene_length_description=scene_length_description,
-            choices_count=choices_count
+            choices_count=choices_count,
+            immediate_situation=immediate_situation
         )
+        
+        # Debug: Check if variables were substituted
+        if "{immediate_situation}" in user_prompt or "{scene_length_description}" in user_prompt:
+            logger.error(f"[SCENE GENERATION] VARIABLES NOT SUBSTITUTED! User prompt still contains unsubstituted variables:")
+            logger.error(f"  - Has {{immediate_situation}}: {'{immediate_situation}' in user_prompt}")
+            logger.error(f"  - Has {{scene_length_description}}: {'{scene_length_description}' in user_prompt}")
+            logger.error(f"  - User prompt preview: {user_prompt[:500]}")
         
         # Log the complete prompt for debugging
         logger.debug("=" * 80)
@@ -1257,13 +1278,19 @@ class UnifiedLLMService:
         choices_count = generation_prefs.get("choices_count", 4)
         scene_length_description = self._get_scene_length_description(scene_length)
         
+        # Extract immediate_situation from context for template variable
+        # This should contain the continuation option text when a choice is made
+        immediate_situation = context.get("current_situation") or ""
+        immediate_situation = str(immediate_situation) if immediate_situation else ""
+        
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "scene_generation", "scene_generation",
             user_id=user_id,
             db=db,
             context=self._format_context_for_scene(context),
             scene_length_description=scene_length_description,
-            choices_count=choices_count
+            choices_count=choices_count,
+            immediate_situation=immediate_situation
         )
         
         # Log exact input prompts sent to LLM
@@ -1380,12 +1407,35 @@ class UnifiedLLMService:
         choices_count = generation_prefs.get("choices_count", 4)
         scene_length_description = self._get_scene_length_description(scene_length)
         
+        # Extract immediate_situation from context for template variable
+        # This should contain the continuation option text when a choice is made
+        immediate_situation = context.get("current_situation") or ""
+        immediate_situation = str(immediate_situation) if immediate_situation else ""
+        
+        logger.info(f"[GENERATE_SCENE_STREAMING] Extracted immediate_situation from context: '{immediate_situation}' (length: {len(immediate_situation)})")
+        logger.info(f"[GENERATE_SCENE_STREAMING] Context keys: {list(context.keys())}")
+        logger.info(f"[GENERATE_SCENE_STREAMING] current_situation in context: {'current_situation' in context}")
+        if 'current_situation' in context:
+            logger.info(f"[GENERATE_SCENE_STREAMING] context['current_situation'] value: '{context['current_situation']}'")
+        
+        formatted_context = self._format_context_for_scene(context)
+        
+        logger.info(f"[GENERATE_SCENE_STREAMING] About to call get_prompt_pair with immediate_situation='{immediate_situation}'")
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "scene_generation", "scene_generation",
-            context=self._format_context_for_scene(context),
+            context=formatted_context,
             scene_length_description=scene_length_description,
-            choices_count=choices_count
+            choices_count=choices_count,
+            immediate_situation=immediate_situation
         )
+        logger.info(f"[GENERATE_SCENE_STREAMING] After get_prompt_pair call")
+        
+        # Debug: Check if variables were substituted
+        if "{immediate_situation}" in user_prompt or "{scene_length_description}" in user_prompt:
+            logger.error(f"[SCENE GENERATION STREAMING] VARIABLES NOT SUBSTITUTED! User prompt still contains unsubstituted variables:")
+            logger.error(f"  - Has {{immediate_situation}}: {'{immediate_situation}' in user_prompt}")
+            logger.error(f"  - Has {{scene_length_description}}: {'{scene_length_description}' in user_prompt}")
+            logger.error(f"  - User prompt preview: {user_prompt[:500]}")
         
         # Log the complete prompt for debugging
         logger.debug("=" * 80)
@@ -1721,13 +1771,19 @@ class UnifiedLLMService:
         choices_count = generation_prefs.get("choices_count", 4)
         scene_length_description = self._get_scene_length_description(scene_length)
         
+        # Extract immediate_situation from context for template variable
+        # This should contain the continuation option text when a choice is made
+        immediate_situation = context.get("current_situation") or ""
+        immediate_situation = str(immediate_situation) if immediate_situation else ""
+        
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "scene_generation", "scene_generation",
             user_id=user_id,
             db=db,
             context=self._format_context_for_scene(context),
             scene_length_description=scene_length_description,
-            choices_count=choices_count
+            choices_count=choices_count,
+            immediate_situation=immediate_situation
         )
         
         # Log exact input prompts sent to LLM
@@ -1912,13 +1968,18 @@ class UnifiedLLMService:
             logger.warning(f"[GUIDED ENHANCEMENT] Prompt contains scene_length_description: {'scene_length_description' in user_prompt or scene_length_description in user_prompt}")
         else:
             # Simple variant: use the same prompt template as new scene generation
+            # Extract immediate_situation from context for template variable
+            immediate_situation = context.get("current_situation") or ""
+            immediate_situation = str(immediate_situation) if immediate_situation else ""
+            
             system_prompt, user_prompt = prompt_manager.get_prompt_pair(
                 "scene_generation", "scene_generation",
                 user_id=user_id,
                 db=db,
                 context=self._format_context_for_scene(context, exclude_last_scene=False),
                 scene_length_description=scene_length_description,
-                choices_count=choices_count
+                choices_count=choices_count,
+                immediate_situation=immediate_situation
             )
         
         # Log prompts for debugging
@@ -2378,10 +2439,6 @@ class UnifiedLLMService:
         user_prompt_provided = context.get("user_prompt_provided", False)
         enhancement_guidance = context.get("enhancement_guidance", "")
         
-        # Store current_situation separately to add at the end with emphasis
-        # Skip if this is guided enhancement (enhancement_guidance present)
-        current_situation = None
-        
         if context.get("genre"):
             context_parts.append(f"Genre: {context['genre']}")
         
@@ -2394,16 +2451,12 @@ class UnifiedLLMService:
         # For first scene with user prompt, prioritize user prompt over scenario
         if is_first_scene and user_prompt_provided and context.get("current_situation"):
             # User prompt takes precedence for first scene
-            current_situation = context['current_situation']  # Store for later emphasis
             if context.get("scenario"):
                 context_parts.append(f"Story Scenario (for reference): {context['scenario']}")
         else:
             # Normal order: scenario first
             if context.get("scenario"):
                 context_parts.append(f"Story Scenario: {context['scenario']}")
-            # Store current_situation for emphasis at the end (not first scene or not user prompt)
-            if context.get("current_situation"):
-                current_situation = context['current_situation']
         
         if context.get("initial_premise"):
             context_parts.append(f"Initial Premise: {context['initial_premise']}")
@@ -2584,19 +2637,6 @@ class UnifiedLLMService:
             # If parsing failed, fall back to original format
             if not (current_chapter_summary or recent_scenes_content or relevant_events_content or entity_states_content):
                 context_parts.append(f"Previous Events:\n{previous_scenes_text}")
-        
-        # Add current_situation at the END with maximum emphasis (Option C)
-        # Skip this for guided enhancement - enhancement_guidance is handled in the prompt template
-        if current_situation and not enhancement_guidance:
-            context_parts.append(
-                f"\n{'='*50}\n"
-                f"IMMEDIATE SITUATION - FOCUS HERE\n"
-                f"{'='*50}\n"
-                f"{current_situation}\n\n"
-                f"→ The next scene MUST directly dramatize this situation.\n"
-                f"→ Show what is happening RIGHT NOW.\n"
-                f"→ Do not skip ahead or summarize."
-            )
         
         return "\n\n".join(context_parts)
     

@@ -195,13 +195,29 @@ class PromptManager:
             # Priority 1: YAML file (locked)
             prompt_text = self._get_yaml_prompt(template_key, "user")
             if prompt_text:
-                logger.debug(f"Using YAML user prompt for template {template_key}")
+                logger.info(f"[GET_PROMPT] Using YAML user prompt for template {template_key}")
+                logger.info(f"[GET_PROMPT] Prompt text length: {len(prompt_text)}")
+                logger.info(f"[GET_PROMPT] Template vars provided: {list(template_vars.keys())}")
+                # Check if prompt contains the variables we're trying to substitute
+                if "{immediate_situation}" in prompt_text:
+                    logger.info(f"[GET_PROMPT] Prompt contains {{immediate_situation}} variable")
+                    # Ensure immediate_situation is in template_vars if the prompt needs it
+                    if "immediate_situation" not in template_vars:
+                        logger.error(f"[GET_PROMPT] CRITICAL: Prompt requires immediate_situation but it's not in template_vars!")
+                        logger.error(f"[GET_PROMPT] Available template_vars: {list(template_vars.keys())}")
+                        # Add it as empty string to prevent KeyError
+                        template_vars["immediate_situation"] = ""
+                    else:
+                        logger.info(f"[GET_PROMPT] immediate_situation is in template_vars, value: '{template_vars.get('immediate_situation', 'NOT FOUND')}'")
+                if "{scene_length_description}" in prompt_text:
+                    logger.info(f"[GET_PROMPT] Prompt contains {{scene_length_description}} variable")
+                logger.info(f"[GET_PROMPT] About to call _substitute_variables with keys: {list(template_vars.keys())}")
                 return self._substitute_variables(prompt_text, **template_vars)
             
             # Priority 2: Built-in fallback
             prompt_text = self._get_fallback_prompt(template_key, "user")
             if prompt_text:
-                logger.debug(f"Using fallback user prompt for template {template_key}")
+                logger.debug(f"[GET_PROMPT] Using fallback user prompt for template {template_key}")
                 return self._substitute_variables(prompt_text, **template_vars)
         
         logger.warning(f"No prompt found for template_key: {template_key}, prompt_type: {prompt_type}")
@@ -343,6 +359,13 @@ class PromptManager:
                 prompt = self._prompts_cache.get(category, {}).get(function, {}).get(prompt_type, "").strip()
                 if prompt:
                     logger.debug(f"[PROMPTS] Found YAML prompt for {template_key}.{prompt_type} (length: {len(prompt)})")
+                    # Check for key variables in the prompt
+                    if "{immediate_situation}" in prompt:
+                        logger.debug(f"[PROMPTS] Prompt contains {{immediate_situation}} variable")
+                    if "{scene_length_description}" in prompt:
+                        logger.debug(f"[PROMPTS] Prompt contains {{scene_length_description}} variable")
+                    if "{context}" in prompt:
+                        logger.debug(f"[PROMPTS] Prompt contains {{context}} variable")
                 else:
                     logger.warning(f"[PROMPTS] YAML prompt for {template_key}.{prompt_type} is empty. Path: {category}.{function}.{prompt_type}")
                 return prompt
@@ -475,21 +498,41 @@ Chapter Conclusion:"""
     def _substitute_variables(self, prompt_text: str, **template_vars) -> str:
         """Substitute variables in prompt text"""
         if not prompt_text or not template_vars:
+            logger.warning(f"[SUBSTITUTE] No prompt_text or template_vars provided. prompt_text: {bool(prompt_text)}, template_vars: {bool(template_vars)}")
             return prompt_text
         
         try:
             # Log what variables we're substituting (truncate long content)
             log_vars = {k: (v[:100] + '...' if isinstance(v, str) and len(v) > 100 else v) for k, v in template_vars.items()}
-            logger.info(f"Substituting variables: {log_vars}")
+            logger.info(f"[SUBSTITUTE] Substituting variables: {log_vars}")
+            logger.debug(f"[SUBSTITUTE] Prompt text length before: {len(prompt_text)}")
+            logger.debug(f"[SUBSTITUTE] Prompt text preview (first 200 chars): {prompt_text[:200]}")
+            
+            # Check which variables are in the template
+            import re
+            template_vars_in_text = re.findall(r'\{(\w+)\}', prompt_text)
+            logger.debug(f"[SUBSTITUTE] Variables found in template: {set(template_vars_in_text)}")
+            logger.debug(f"[SUBSTITUTE] Variables provided: {set(template_vars.keys())}")
+            missing_vars = set(template_vars_in_text) - set(template_vars.keys())
+            if missing_vars:
+                logger.warning(f"[SUBSTITUTE] Template requires variables not provided: {missing_vars}")
             
             result = prompt_text.format(**template_vars)
-            logger.info(f"Substituted prompt length: {len(result)} characters")
+            logger.info(f"[SUBSTITUTE] Substituted prompt length: {len(result)} characters")
+            logger.debug(f"[SUBSTITUTE] Prompt text preview after (first 200 chars): {result[:200]}")
+            
+            # Check if any variables remain unsubstituted
+            remaining_vars = re.findall(r'\{(\w+)\}', result)
+            if remaining_vars:
+                logger.error(f"[SUBSTITUTE] Variables still unsubstituted after format(): {set(remaining_vars)}")
+            
             return result
         except KeyError as e:
-            logger.warning(f"Missing variable {e} in prompt template")
+            logger.error(f"[SUBSTITUTE] Missing variable {e} in prompt template. Available vars: {list(template_vars.keys())}")
+            logger.error(f"[SUBSTITUTE] Prompt text: {prompt_text[:500]}")
             return prompt_text
         except Exception as e:
-            logger.error(f"Error substituting variables in prompt: {e}")
+            logger.error(f"[SUBSTITUTE] Error substituting variables in prompt: {e}", exc_info=True)
             return prompt_text
     
     def get_prompt_with_variables(
@@ -647,6 +690,13 @@ Chapter Conclusion:"""
         Returns:
             Tuple of (system_prompt, user_prompt)
         """
+        logger.info(f"[GET_PROMPT_PAIR] Received template_vars keys: {list(template_vars.keys())}")
+        logger.info(f"[GET_PROMPT_PAIR] immediate_situation in template_vars: {'immediate_situation' in template_vars}")
+        if 'immediate_situation' in template_vars:
+            logger.info(f"[GET_PROMPT_PAIR] immediate_situation value: '{template_vars['immediate_situation']}'")
+        else:
+            logger.error(f"[GET_PROMPT_PAIR] CRITICAL: immediate_situation NOT in template_vars! Available keys: {list(template_vars.keys())}")
+        
         system_prompt = self.get_prompt(
             template_key, 
             "system", 
@@ -655,6 +705,8 @@ Chapter Conclusion:"""
             **template_vars
         )
         
+        logger.info(f"[GET_PROMPT_PAIR] Calling get_prompt for user prompt with template_vars keys: {list(template_vars.keys())}")
+        logger.info(f"[GET_PROMPT_PAIR] immediate_situation still in template_vars before get_prompt: {'immediate_situation' in template_vars}")
         user_prompt = self.get_prompt(
             user_prompt_key, 
             "user", 
