@@ -84,6 +84,8 @@ story_generation:
       - One sentence each, max 15 words
       - Meaningfully different story directions
       - Specific to current scene and context
+      
+      CRITICAL: You MUST complete the choices section. Do not stop mid-response. The choices JSON array is required and must be fully included.
     
     user: |
       Story Context:
@@ -107,7 +109,7 @@ story_generation:
       
       Write an engaging scene ({scene_length_description}) that elaborates on the above.
       
-      After the scene, add ###CHOICES### and provide {choices_count} choices as a JSON array.
+      CRITICAL: After completing the scene, you MUST add ###CHOICES### and provide exactly {choices_count} choices as a complete JSON array: ["Choice 1", "Choice 2", ...]. Do not stop before completing the choices section.
   
   # Template for scenes WITHOUT immediate situation (first scene or "Generate Scene")
   scene_without_immediate:
@@ -139,6 +141,8 @@ story_generation:
       - One sentence each, max 15 words
       - Meaningfully different story directions
       - Specific to current scene and context
+      
+      CRITICAL: You MUST complete the choices section. Do not stop mid-response. The choices JSON array is required and must be fully included.
     
     user: |
       Story Context:
@@ -146,7 +150,7 @@ story_generation:
       
       Write an engaging scene ({scene_length_description}) that continues naturally from the previous events. If this is the first scene, establish the story world and introduce the characters naturally.
       
-      IMPORTANT: After completing the scene, add ###CHOICES### and provide {choices_count} choices as a JSON array.
+      CRITICAL: After completing the scene, you MUST add ###CHOICES### and provide exactly {choices_count} choices as a complete JSON array: ["Choice 1", "Choice 2", ...]. Do not stop before completing the choices section.
 
   scene_guided_enhancement:
     system: |

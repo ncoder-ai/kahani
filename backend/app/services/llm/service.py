@@ -1275,7 +1275,10 @@ class UnifiedLLMService:
         
         # Log exact input prompts sent to LLM
         
-        max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
+        # Add buffer for choices section when generating scene with choices
+        base_max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
+        max_tokens = base_max_tokens + 300  # Extra tokens for choices section
+        logger.info(f"[SCENE WITH CHOICES] Using max_tokens: {max_tokens} (base: {base_max_tokens} + 300 buffer for choices)")
         
         # For scene generation with choices, we need to capture the full response object for logging
         # So we call the LLM directly instead of using _generate()
@@ -1325,6 +1328,15 @@ class UnifiedLLMService:
             
             # Extract content
             response_text = response.choices[0].message.content
+            
+            # Print raw LLM response to console for scene generation with choices
+            logger.info("=" * 80)
+            logger.info("RAW LLM RESPONSE - SCENE GENERATION WITH CHOICES")
+            logger.info("=" * 80)
+            logger.info(f"Full response text ({len(response_text)} chars):")
+            logger.info(response_text)
+            logger.info("=" * 80)
+            
             cleaned_response = self._clean_scene_numbers(response_text)
         
         # Split scene and choices
@@ -1335,9 +1347,14 @@ class UnifiedLLMService:
             
             parsed_choices = self._parse_choices_from_json(choices_text)
             if parsed_choices:
+                logger.info(f"[CHOICES] Successfully parsed {len(parsed_choices)} choices")
                 return (scene_content, parsed_choices)
             else:
-                logger.warning(f"[CHOICES] Marker found but parsing failed. Choices text: {choices_text[:200]}")
+                # Check if response might have been truncated
+                if len(choices_text) < 50:
+                    logger.warning(f"[CHOICES] Marker found but choices text is very short ({len(choices_text)} chars). Response may have been truncated. Choices text: {choices_text}")
+                else:
+                    logger.warning(f"[CHOICES] Marker found but parsing failed. Choices text length: {len(choices_text)}, preview: {choices_text[:200]}")
                 return (scene_content, None)
         else:
             # No marker found, return scene without choices
@@ -1683,7 +1700,13 @@ class UnifiedLLMService:
                 else:
                     logger.warning(f"[CHOICES PARSE] Invalid format: got {type(choices)}, length: {len(choices) if isinstance(choices, list) else 'N/A'}")
             else:
-                logger.warning(f"[CHOICES PARSE] No JSON array found in text. Text preview: {text[:200]}")
+                # Check if text looks like it was cut off (incomplete JSON)
+                if text.strip().startswith('[') and not text.strip().endswith(']'):
+                    logger.warning(f"[CHOICES PARSE] Incomplete JSON array detected (starts with '[' but doesn't end with ']'). Text may have been truncated. Text preview: {text[:200]}")
+                elif '```json' in text.lower() or '```' in text:
+                    logger.warning(f"[CHOICES PARSE] Markdown code block found but no valid JSON array inside. Text preview: {text[:200]}")
+                else:
+                    logger.warning(f"[CHOICES PARSE] No JSON array found in text. Text preview: {text[:200]}")
             
             return None
         except (json.JSONDecodeError, ValueError, AttributeError, Exception) as e:
@@ -1737,7 +1760,10 @@ class UnifiedLLMService:
         )
         
         
-        max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
+        # Add buffer for choices section when generating scene with choices
+        base_max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
+        max_tokens = base_max_tokens + 300  # Extra tokens for choices section
+        logger.info(f"[SCENE WITH CHOICES STREAMING] Using max_tokens: {max_tokens} (base: {base_max_tokens} + 300 buffer for choices)")
         
         scene_buffer = []
         choices_buffer = []
@@ -1808,6 +1834,13 @@ class UnifiedLLMService:
         full_response = full_scene_content + (''.join(choices_buffer) if choices_buffer else '')
         raw_full_response = ''.join(raw_chunks)  # Combined raw chunks before cleaning
         
+        # Print raw LLM response to console for scene generation with choices (streaming)
+        logger.info("=" * 80)
+        logger.info("RAW LLM RESPONSE - SCENE GENERATION WITH CHOICES (STREAMING)")
+        logger.info("=" * 80)
+        logger.info(f"Full response text ({len(raw_full_response)} chars, {total_chunks} chunks):")
+        logger.info(raw_full_response)
+        logger.info("=" * 80)
         
         # Write raw response to file (using raw chunks before cleaning, only if prompt_debug is enabled)
         if settings.prompt_debug:
@@ -1829,11 +1862,17 @@ class UnifiedLLMService:
         if found_marker and choices_buffer:
             choices_text = ''.join(choices_buffer).strip()
             parsed_choices = self._parse_choices_from_json(choices_text)
-            if not parsed_choices:
-                logger.warning(f"[CHOICES STREAMING] Marker found but parsing failed. Choices text: {choices_text[:200]}")
+            if parsed_choices:
+                logger.info(f"[CHOICES STREAMING] Successfully parsed {len(parsed_choices)} choices")
+            else:
+                # Check if response might have been truncated
+                if len(choices_text) < 50:
+                    logger.warning(f"[CHOICES STREAMING] Marker found but choices text is very short ({len(choices_text)} chars). Response may have been truncated. Choices text: {choices_text}")
+                else:
+                    logger.warning(f"[CHOICES STREAMING] Marker found but parsing failed. Choices text length: {len(choices_text)}, preview: {choices_text[:200]}")
         else:
             if not found_marker:
-                logger.warning(f"[CHOICES STREAMING] ERROR: ###CHOICES### marker not found after {total_chunks} chunks")
+                logger.warning(f"[CHOICES STREAMING] ERROR: ###CHOICES### marker not found after {total_chunks} chunks. Full response length: {len(full_response)} chars")
             else:
                 logger.warning(f"[CHOICES STREAMING] Marker found but choices_buffer is empty")
         
@@ -2126,7 +2165,7 @@ class UnifiedLLMService:
         # Default to third person
         return 'third'
     
-    async def generate_choices(self, scene_content: str, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> List[str]:
+    async def generate_choices(self, scene_content: str, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], db: Optional[Session] = None) -> List[str]:
         """Generate narrative choices for the given scene"""
         
         # Detect POV from scene content
@@ -2158,6 +2197,8 @@ class UnifiedLLMService:
         
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "choice_generation", "choice_generation",
+            user_id=user_id,
+            db=db,
             scene_content=scene_content[-800:],  # Last 800 chars for backward compatibility with prompt template
             context=formatted_context,
             choices_count=choices_count
