@@ -1254,14 +1254,22 @@ class UnifiedLLMService:
         immediate_situation = context.get("current_situation") or ""
         immediate_situation = str(immediate_situation) if immediate_situation else ""
         
+        # Choose template based on whether we have immediate_situation
+        if immediate_situation and immediate_situation.strip():
+            template_key = "scene_with_immediate"
+            logger.info(f"[SCENE GENERATION] Using scene_with_immediate template (has immediate_situation)")
+        else:
+            template_key = "scene_without_immediate"
+            logger.info(f"[SCENE GENERATION] Using scene_without_immediate template (no immediate_situation)")
+        
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-            "scene_generation", "scene_generation",
+            "scene_generation", template_key,  # Use dynamic template_key
             user_id=user_id,
             db=db,
             context=self._format_context_for_scene(context),
             scene_length_description=scene_length_description,
             choices_count=choices_count,
-            immediate_situation=immediate_situation
+            immediate_situation=immediate_situation  # Only used by scene_with_immediate
         )
         
         # Log exact input prompts sent to LLM
@@ -1349,15 +1357,22 @@ class UnifiedLLMService:
         immediate_situation = context.get("current_situation") or ""
         immediate_situation = str(immediate_situation) if immediate_situation else ""
         
+        # Choose template based on whether we have immediate_situation
+        if immediate_situation and immediate_situation.strip():
+            template_key = "scene_with_immediate"
+            logger.info(f"[SCENE GENERATION STREAMING] Using scene_with_immediate template (has immediate_situation)")
+        else:
+            template_key = "scene_without_immediate"
+            logger.info(f"[SCENE GENERATION STREAMING] Using scene_without_immediate template (no immediate_situation)")
         
         formatted_context = self._format_context_for_scene(context)
         
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-            "scene_generation", "scene_generation",
+            "scene_generation", template_key,  # Use dynamic template_key
             context=formatted_context,
             scene_length_description=scene_length_description,
             choices_count=choices_count,
-            immediate_situation=immediate_situation
+            immediate_situation=immediate_situation  # Only used by scene_with_immediate
         )
         
         # Debug: Check if variables were substituted
