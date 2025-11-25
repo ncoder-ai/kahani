@@ -917,7 +917,7 @@ async def generate_scene(
                 logger.warning("Choice parsing failed, using fallback generation")
                 # Reuse the existing scene generation context - don't rebuild it
                 # The scene_content will be added to context as current_situation in generate_choices()
-                parsed_choices = await llm_service.generate_choices(scene_content, context, current_user.id, user_settings)
+                parsed_choices = await llm_service.generate_choices(scene_content, context, current_user.id, user_settings, db)
         except Exception as e:
             logger.error(f"Failed to generate scene for story {story_id}: {e}")
             raise HTTPException(
@@ -1243,7 +1243,7 @@ async def generate_scene_streaming_endpoint(
                     logger.warning("Choice parsing failed or no choices found, using fallback generation")
                     # Reuse the existing scene generation context - don't create minimal dict
                     # The scene_content will be added to context as current_situation in generate_choices()
-                    choices = await llm_service.generate_choices(full_content, context, current_user.id, user_settings)
+                    choices = await llm_service.generate_choices(full_content, context, current_user.id, user_settings, db)
                 
                 # Format and save choices
                 for i, choice_text in enumerate(choices):
@@ -1681,7 +1681,8 @@ async def generate_more_choices(
             variant.content, 
             choice_context, 
             current_user.id,
-            user_settings
+            user_settings,
+            db
         )
         
         # Get existing choices for this variant to determine next order number
@@ -2308,7 +2309,8 @@ async def create_scene_variant(
                 variant.content, 
                 choice_context, 
                 current_user.id, 
-                user_settings
+                user_settings,
+                db
             )
             
             # Create choice records for the variant
@@ -2605,7 +2607,8 @@ async def create_scene_variant_streaming(
                         variant_content, 
                         context, 
                         current_user.id, 
-                        user_settings
+                        user_settings,
+                        db
                     )
                 
                 # Create choice records for the variant
@@ -3109,7 +3112,8 @@ async def regenerate_scene_variant_choices(
             variant.content, 
             choice_context, 
             current_user.id, 
-            user_settings
+            user_settings,
+            db
         )
         
         # Delete existing choices for this specific variant (using variant_id to ensure we target the correct one)

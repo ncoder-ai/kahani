@@ -686,11 +686,6 @@ Chapter Conclusion:"""
             Tuple of (system_prompt, user_prompt)
         """
         logger.info(f"[GET_PROMPT_PAIR] Received template_vars keys: {list(template_vars.keys())}")
-        logger.info(f"[GET_PROMPT_PAIR] immediate_situation in template_vars: {'immediate_situation' in template_vars}")
-        if 'immediate_situation' in template_vars:
-            logger.info(f"[GET_PROMPT_PAIR] immediate_situation value: '{template_vars['immediate_situation']}'")
-        else:
-            logger.error(f"[GET_PROMPT_PAIR] CRITICAL: immediate_situation NOT in template_vars! Available keys: {list(template_vars.keys())}")
         
         system_prompt = self.get_prompt(
             template_key, 
@@ -701,7 +696,6 @@ Chapter Conclusion:"""
         )
         
         logger.info(f"[GET_PROMPT_PAIR] Calling get_prompt for user prompt with template_vars keys: {list(template_vars.keys())}")
-        logger.info(f"[GET_PROMPT_PAIR] immediate_situation still in template_vars before get_prompt: {'immediate_situation' in template_vars}")
         user_prompt = self.get_prompt(
             user_prompt_key, 
             "user", 
