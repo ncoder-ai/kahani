@@ -133,40 +133,16 @@ class ContextManager:
                     Scene.story_id == story_id
                 ).order_by(Scene.sequence_number).all()
         # Get all scenes ordered by sequence
-        # For new chapters that don't continue from previous, filter out scenes from previous chapters
+        # Always filter to current chapter only when chapter_id is provided
         elif chapter_id:
-            from ..models import Chapter
-            chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
-            if chapter:
-                # Check if this is a new chapter that doesn't continue from previous
-                if chapter.scenes_count == 0 and not getattr(chapter, 'continues_from_previous', True):
-                    # First scene of new chapter that doesn't continue - exclude scenes from previous chapters
-                    # Get all previous chapter IDs
-                    previous_chapters = db.query(Chapter).filter(
-                        Chapter.story_id == story_id,
-                        Chapter.chapter_number < chapter.chapter_number
-                    ).all()
-                    previous_chapter_ids = [c.id for c in previous_chapters]
-                    
-                    if previous_chapter_ids:
-                        scenes = db.query(Scene).filter(
-                            Scene.story_id == story_id,
-                            ~Scene.chapter_id.in_(previous_chapter_ids)  # Exclude previous chapters
-                        ).order_by(Scene.sequence_number).all()
-                    else:
-                        # No previous chapters, get all scenes
-                        scenes = db.query(Scene).filter(
-                            Scene.story_id == story_id
-                        ).order_by(Scene.sequence_number).all()
-                else:
-                    # Chapter continues from previous or has scenes - include all scenes
-                    scenes = db.query(Scene).filter(
-                        Scene.story_id == story_id
-                    ).order_by(Scene.sequence_number).all()
-            else:
-                scenes = db.query(Scene).filter(
-                    Scene.story_id == story_id
-                ).order_by(Scene.sequence_number).all()
+            # Always filter to current chapter only when chapter_id is provided
+            scenes = db.query(Scene).filter(
+                Scene.story_id == story_id,
+                Scene.chapter_id == chapter_id
+            ).order_by(Scene.sequence_number).all()
+            
+            # Note: continues_from_previous controls whether story_so_far and 
+            # previous_chapter_summary are included (handled in base context building below)
         else:
             scenes = db.query(Scene).filter(
                 Scene.story_id == story_id
@@ -270,15 +246,20 @@ class ContextManager:
             base_context["chapter_time_period"] = chapter.time_period
             base_context["chapter_scenario"] = chapter.scenario
             
-            # Include story_so_far if it exists (not None)
-            if chapter.story_so_far:
-                logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: Found story_so_far ({len(chapter.story_so_far)} chars)")
+            # Check if chapter continues from previous (controls summary inclusion)
+            continues_from_previous = getattr(chapter, 'continues_from_previous', True)
+            
+            # Include story_so_far if it exists AND chapter continues from previous
+            if chapter.story_so_far and continues_from_previous:
+                logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: Including story_so_far ({len(chapter.story_so_far)} chars)")
                 base_context["story_so_far"] = chapter.story_so_far
+            elif chapter.story_so_far and not continues_from_previous:
+                logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: Excluding story_so_far (continues_from_previous=False)")
             else:
                 logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: story_so_far is None")
             
-            # Include previous chapter's summary if available
-            if chapter.chapter_number > 1:
+            # Include previous chapter's summary if available AND chapter continues from previous
+            if chapter.chapter_number > 1 and continues_from_previous:
                 from ..models import Chapter as ChapterModel, ChapterStatus
                 previous_chapter = db.query(ChapterModel).filter(
                     ChapterModel.story_id == story_id,
@@ -290,6 +271,8 @@ class ContextManager:
                     base_context["previous_chapter_summary"] = previous_chapter.auto_summary
                 else:
                     logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: No previous chapter summary found (previous_chapter={previous_chapter is not None}, has_auto_summary={previous_chapter.auto_summary if previous_chapter else 'N/A'})")
+            elif chapter.chapter_number > 1 and not continues_from_previous:
+                logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: Excluding previous_chapter_summary (continues_from_previous=False)")
             else:
                 logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: First chapter, no previous chapter summary")
         
