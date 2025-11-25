@@ -221,9 +221,15 @@ class SemanticMemoryService:
             query_embedding = self.generate_embedding(query_text)
             
             # Build where filter
-            where_filter = {"story_id": story_id}
             if chapter_id is not None:
-                where_filter["chapter_id"] = chapter_id
+                where_filter = {
+                    "$and": [
+                        {"story_id": {"$eq": story_id}},
+                        {"chapter_id": {"$eq": chapter_id}}
+                    ]
+                }
+            else:
+                where_filter = {"story_id": {"$eq": story_id}}
             
             # Query collection
             results = self.scenes_collection.query(
@@ -407,12 +413,14 @@ class SemanticMemoryService:
             query_embedding = self.generate_embedding(query_text)
             
             # Build where filter
-            where_filter = {
-                "character_id": character_id,
-                "story_id": story_id
-            }
+            conditions = [
+                {"character_id": {"$eq": character_id}},
+                {"story_id": {"$eq": story_id}}
+            ]
             if moment_type:
-                where_filter["moment_type"] = moment_type
+                conditions.append({"moment_type": {"$eq": moment_type}})
+            
+            where_filter = {"$and": conditions} if len(conditions) > 1 else conditions[0]
             
             # Query collection
             results = self.character_moments_collection.query(
@@ -502,8 +510,10 @@ class SemanticMemoryService:
             # Get all moments for this character
             results = self.character_moments_collection.get(
                 where={
-                    "character_id": character_id,
-                    "story_id": story_id
+                    "$and": [
+                        {"character_id": {"$eq": character_id}},
+                        {"story_id": {"$eq": story_id}}
+                    ]
                 }
             )
             
@@ -617,9 +627,11 @@ class SemanticMemoryService:
             query_embedding = self.generate_embedding(query_text)
             
             # Build where filter
-            where_filter = {"story_id": story_id}
+            conditions = [{"story_id": {"$eq": story_id}}]
             if only_unresolved:
-                where_filter["is_resolved"] = False
+                conditions.append({"is_resolved": {"$eq": False}})
+            
+            where_filter = {"$and": conditions} if len(conditions) > 1 else conditions[0]
             
             # Query collection
             results = self.plot_events_collection.query(
@@ -703,17 +715,17 @@ class SemanticMemoryService:
         try:
             # Delete from scenes collection
             self.scenes_collection.delete(
-                where={"story_id": story_id}
+                where={"story_id": {"$eq": story_id}}
             )
             
             # Delete from character moments collection
             self.character_moments_collection.delete(
-                where={"story_id": story_id}
+                where={"story_id": {"$eq": story_id}}
             )
             
             # Delete from plot events collection
             self.plot_events_collection.delete(
-                where={"story_id": story_id}
+                where={"story_id": {"$eq": story_id}}
             )
             
             logger.info(f"Deleted all embeddings for story {story_id}")
