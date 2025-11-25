@@ -1262,8 +1262,9 @@ class UnifiedLLMService:
             template_key = "scene_without_immediate"
             logger.info(f"[SCENE GENERATION] Using scene_without_immediate template (no immediate_situation)")
         
+        # Use the same template_key for both system and user prompts since they're under the same YAML key
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-            "scene_generation", template_key,  # Use dynamic template_key
+            template_key, template_key,  # Use same key for both system and user
             user_id=user_id,
             db=db,
             context=self._format_context_for_scene(context),
@@ -1367,8 +1368,9 @@ class UnifiedLLMService:
         
         formatted_context = self._format_context_for_scene(context)
         
+        # Use the same template_key for both system and user prompts since they're under the same YAML key
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-            "scene_generation", template_key,  # Use dynamic template_key
+            template_key, template_key,  # Use same key for both system and user
             context=formatted_context,
             scene_length_description=scene_length_description,
             choices_count=choices_count,
