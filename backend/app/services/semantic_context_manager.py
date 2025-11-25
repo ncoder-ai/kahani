@@ -138,9 +138,14 @@ class SemanticContextManager(ContextManager):
                 # Get Scene objects from the flow entries
                 scene_ids = [flow.scene_id for flow in flow_entries]
                 if scene_ids:
-                    scenes = db.query(Scene).filter(
-                        Scene.id.in_(scene_ids)
-                    ).order_by(Scene.sequence_number).all()
+                    scene_query = db.query(Scene).filter(Scene.id.in_(scene_ids))
+                    
+                    # Filter by chapter_id if provided
+                    if chapter_id:
+                        scene_query = scene_query.filter(Scene.chapter_id == chapter_id)
+                        logger.info(f"[SEMANTIC CONTEXT BUILD] Filtering to chapter {chapter_id} (with exclude_scene_id)")
+                    
+                    scenes = scene_query.order_by(Scene.sequence_number).all()
                 else:
                     scenes = []
                 logger.info(f"[SEMANTIC CONTEXT BUILD] Excluding scene {exclude_scene_id} (sequence {excluded_scene.sequence_number}), using {len(scenes)} scenes from StoryFlow")
