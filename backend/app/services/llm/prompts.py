@@ -91,7 +91,9 @@ class PromptManager:
             # Define which generation types should use user writing presets
             # These are the core story writing operations that should respect user's writing style
             user_preset_enabled_types = {
-                "scene_generation",           # Main story scenes
+                "scene_generation",           # Main story scenes (legacy)
+                "scene_with_immediate",       # Scenes with continue choice
+                "scene_without_immediate",    # Scenes without continue choice
                 "scene_continuation",          # Scene continuations
                 "scene_variants",              # Scene variants
                 "scene_variants_streaming",    # Scene variants streaming (uses same prompts as scene_variants)
@@ -158,7 +160,8 @@ class PromptManager:
             yaml_full_prompt = self._get_yaml_prompt(template_key, "system")
             if yaml_full_prompt:
                 templates_with_tech_requirements = {
-                    "scene_generation", "scene_guided_enhancement", "scene_continuation",
+                    "scene_generation", "scene_with_immediate", "scene_without_immediate",
+                    "scene_guided_enhancement", "scene_continuation",
                     "scene_variants", "scene_variants_streaming"
                 }
                 
@@ -329,7 +332,9 @@ class PromptManager:
         
         # Map template keys to YAML structure
         yaml_mapping = {
-            "scene_generation": ("story_generation", "scene"),
+            "scene_generation": ("story_generation", "scene"),  # Legacy - kept for backward compatibility
+            "scene_with_immediate": ("story_generation", "scene_with_immediate"),
+            "scene_without_immediate": ("story_generation", "scene_without_immediate"),
             "scene_guided_enhancement": ("story_generation", "scene_guided_enhancement"),
             "story_summary": ("summary_generation", "story_summary"),
             "choice_generation": ("choice_generation", ""),
