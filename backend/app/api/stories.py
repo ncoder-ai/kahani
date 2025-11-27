@@ -1844,6 +1844,13 @@ async def generate_more_choices(
             db
         )
         
+        # Check if choice generation failed
+        if not generated_choices or len(generated_choices) < 2:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="AI failed to generate choices. Please try regenerating or use the custom prompt field to specify your continuation."
+            )
+        
         # Get existing choices for this variant to determine next order number
         existing_choices = db.query(SceneChoice).filter(
             SceneChoice.scene_variant_id == variant_id
@@ -1886,6 +1893,10 @@ async def generate_more_choices(
             "choices": stored_choices
         }
         
+    except HTTPException:
+        # Re-raise HTTPExceptions (like our choice generation failure message)
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         logger.error(f"Failed to generate more choices for variant {variant_id}: {e}")
@@ -3327,6 +3338,13 @@ async def regenerate_scene_variant_choices(
             db
         )
         
+        # Check if choice generation failed
+        if not generated_choices or len(generated_choices) < 2:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="AI failed to generate choices. Please try regenerating or use the custom prompt field to specify your continuation."
+            )
+        
         # Delete existing choices for this specific variant (using variant_id to ensure we target the correct one)
         deleted_count = db.query(SceneChoice).filter(
             SceneChoice.scene_variant_id == variant_id
@@ -3374,6 +3392,10 @@ async def regenerate_scene_variant_choices(
             "choices": choices_data
         }
         
+    except HTTPException:
+        # Re-raise HTTPExceptions (like our choice generation failure message)
+        db.rollback()
+        raise
     except Exception as e:
         logger.error(f"Failed to regenerate choices for variant {variant_id}: {e}")
         db.rollback()
