@@ -109,7 +109,7 @@ story_generation:
       
       Write an engaging scene ({scene_length_description}) that elaborates on the above.
       
-      CRITICAL: After completing the scene, you MUST add ###CHOICES### and provide exactly {choices_count} choices as a complete JSON array: ["Choice 1", "Choice 2", ...]. Do not stop before completing the choices section.
+      CRITICAL: After completing the scene, you MUST add ###CHOICES### and provide exactly {choices_count} choices {pov_instruction} as a complete JSON array: ["Choice 1", "Choice 2", ...]. Do not stop before completing the choices section.
   
   # Template for scenes WITHOUT immediate situation (first scene or "Generate Scene")
   scene_without_immediate:
@@ -150,7 +150,7 @@ story_generation:
       
       Write an engaging scene ({scene_length_description}) that continues naturally from the previous events. If this is the first scene, establish the story world and introduce the characters naturally.
       
-      CRITICAL: After completing the scene, you MUST add ###CHOICES### and provide exactly {choices_count} choices as a complete JSON array: ["Choice 1", "Choice 2", ...]. Do not stop before completing the choices section.
+      CRITICAL: After completing the scene, you MUST add ###CHOICES### and provide exactly {choices_count} choices {pov_instruction} as a complete JSON array: ["Choice 1", "Choice 2", ...]. Do not stop before completing the choices section.
 
   scene_guided_enhancement:
     system: |
@@ -234,7 +234,7 @@ story_generation:
       IMPORTANT: Write ONLY the story content. Do not include any choices, options, or questions for the reader. 
       This should be pure narrative - just tell what happens in the enhanced scene.
       
-      After completing the scene narrative, add the ###CHOICES### marker and provide the choices as specified in the system instructions.
+      After completing the scene narrative, add the ###CHOICES### marker and provide the choices {pov_instruction} as specified in the system instructions.
 
   scene_continuation:
     system: |
@@ -268,16 +268,12 @@ story_generation:
       After completing the continuation, add EXACTLY this line:
       ###CHOICES###
       
-      Then provide exactly {choices_count} compelling narrative choices as a JSON array. Each choice should:
+      Then provide exactly {choices_count} compelling narrative choices {pov_instruction} as a JSON array. Each choice should:
       1. Offer meaningfully different story directions
       2. Be specific to the current scene and context
       3. Give readers genuine agency in the narrative
       4. Vary in risk/consequence level
       5. Be concise but evocative (1-2 sentences each)
-      6. Match the story's POV - use third person (he/she/they/character name) NOT first person (I/me/my) or second person (you/your)
-      
-      IMPORTANT: Write choices in THIRD PERSON perspective describing what the character does, NOT what "I do" or "you do".
-      Example: "Jack approaches the door cautiously" NOT "I approach the door cautiously" or "You approach the door cautiously"
       
       Format: Provide exactly {choices_count} choices as a JSON array: ["Choice 1 text here", "Choice 2 text here", ...]
 
@@ -604,8 +600,8 @@ settings:
     titles: 150
     scene: 2048
     scene_continuation: 400
-    choices: 600
-    choice_generation: 800
+    choices: 800
+    choice_generation: 1000
     complete_plot: 800
     single_plot_point: 200
     story_summary: 500

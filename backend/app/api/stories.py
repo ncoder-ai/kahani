@@ -3092,7 +3092,7 @@ async def continue_scene_streaming(
             continuation_content = ""
             parsed_choices = None
             async for chunk, scene_complete, choices in llm_service.generate_continuation_with_choices_streaming(
-                context, current_user.id, user_settings
+                context, current_user.id, user_settings, db
             ):
                 if not scene_complete:
                     # Still streaming continuation content
