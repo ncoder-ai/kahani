@@ -88,6 +88,10 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
   const [isGeneratingStorySummary, setIsGeneratingStorySummary] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [storySummaryError, setStorySummaryError] = useState<string | null>(null);
+  
+  // Chapter activation state
+  const [chapterToActivate, setChapterToActivate] = useState<Chapter | null>(null);
+  const [isActivatingChapter, setIsActivatingChapter] = useState(false);
 
   useEffect(() => {
     loadChapters();
@@ -275,6 +279,47 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
     }
   };
 
+  const handleChapterClick = (chapter: Chapter) => {
+    // If clicking the active chapter, do nothing (it's already active)
+    if (chapter.id === activeChapter?.id) {
+      return;
+    }
+    
+    // Show confirmation dialog to switch active chapter
+    setChapterToActivate(chapter);
+  };
+
+  const handleConfirmActivateChapter = async () => {
+    if (!chapterToActivate) return;
+    
+    setIsActivatingChapter(true);
+    try {
+      await apiClient.setActiveChapter(storyId, chapterToActivate.id);
+      
+      // Reload chapters to get updated statuses
+      await loadChapters();
+      
+      // Notify parent component to reload story
+      if (onChapterChange) {
+        onChapterChange();
+      }
+      
+      // Clear the dialog
+      setChapterToActivate(null);
+      
+      alert(`Chapter ${chapterToActivate.chapter_number} is now active!`);
+    } catch (err) {
+      console.error('Failed to activate chapter:', err);
+      alert('Failed to switch active chapter. Please try again.');
+    } finally {
+      setIsActivatingChapter(false);
+    }
+  };
+
+  const handleCancelActivateChapter = () => {
+    setChapterToActivate(null);
+  };
+
   const handleChapterWizardComplete = async (
     chapterData: {
       title?: string;
@@ -351,14 +396,6 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
           onChapterChange();
         }
         
-        // Switch to the new chapter (after onChapterChange to override any reset)
-        // Use a small timeout to ensure selection happens after async operations
-        if (onChapterSelect && newChapter) {
-          setTimeout(() => {
-            onChapterSelect(newChapter.id);
-          }, 100);
-        }
-        
         // Close wizard
         setShowChapterWizard(false);
         setIsCreatingChapter(false);
@@ -409,13 +446,6 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
       // Notify parent component to reload story
       if (onChapterChange) {
         onChapterChange();
-      }
-      
-      // Switch to the new chapter
-      if (onChapterSelect && newChapter) {
-        setTimeout(() => {
-          onChapterSelect(newChapter.id);
-        }, 100);
       }
       
       // Close modal
@@ -861,11 +891,7 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
                 {chapters.map((chapter) => (
                   <button
                     key={chapter.id}
-                    onClick={() => {
-                      if (onChapterSelect) {
-                        onChapterSelect(chapter.id);
-                      }
-                    }}
+                    onClick={() => handleChapterClick(chapter)}
                     className={`w-full text-left p-3 rounded-lg border transition-all ${
                       currentChapterId === chapter.id
                         ? 'border-2 ring-2'
@@ -1263,6 +1289,37 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
                     Create Chapter
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Dialog for Switching Active Chapter */}
+      {chapterToActivate && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-slate-800 rounded-lg border border-slate-700 p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold text-white mb-2">
+              Switch Active Chapter?
+            </h3>
+            <p className="text-gray-300 mb-4">
+              Are you sure you want to make <strong>Chapter {chapterToActivate.chapter_number}</strong> the active chapter? 
+              This will make it the chapter where new scenes are generated and will update the context for scene generation.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={handleCancelActivateChapter}
+                disabled={isActivatingChapter}
+                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmActivateChapter}
+                disabled={isActivatingChapter}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
+              >
+                {isActivatingChapter ? 'Switching...' : 'Switch Chapter'}
               </button>
             </div>
           </div>

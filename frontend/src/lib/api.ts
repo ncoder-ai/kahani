@@ -1266,6 +1266,37 @@ class ApiClient {
     });
   }
 
+  async setActiveChapter(storyId: number, chapterId: number) {
+    return this.request<Array<{
+      id: number;
+      story_id: number;
+      chapter_number: number;
+      title: string | null;
+      description: string | null;
+      plot_point: string | null;
+      plot_point_index: number | null;
+      story_so_far: string | null;
+      auto_summary: string | null;
+      status: 'draft' | 'active' | 'completed';
+      context_tokens_used: number;
+      scenes_count: number;
+      last_summary_scene_count: number;
+      created_at: string;
+      updated_at: string | null;
+      characters?: Array<{
+        id: number;
+        name: string;
+        role: string | null;
+        description: string | null;
+      }>;
+      location_name?: string | null;
+      time_period?: string | null;
+      scenario?: string | null;
+    }>>(`/api/stories/${storyId}/chapters/${chapterId}/activate`, {
+      method: 'PUT',
+    });
+  }
+
   async addCharacterToChapter(storyId: number, chapterId: number, characterId?: number, storyCharacterId?: number) {
     return this.request<{
       id: number;
