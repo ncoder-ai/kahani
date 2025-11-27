@@ -198,7 +198,7 @@ export default function StoryPage() {
   const [isChapterSidebarOpen, setIsChapterSidebarOpen] = useState(false); // Start closed
   
   const [chapterSidebarRefreshKey, setChapterSidebarRefreshKey] = useState(0);
-  const [selectedChapterId, setSelectedChapterId] = useState<number | null>(null); // For viewing specific chapter
+  const [activeChapterId, setActiveChapterId] = useState<number | null>(null); // Active chapter from backend
   const [currentChapterInfo, setCurrentChapterInfo] = useState<{id: number, number: number, title: string | null, isActive: boolean} | null>(null);
   
   // Main menu modal state
@@ -356,33 +356,25 @@ export default function StoryPage() {
     }
   }, [contextUsagePercent, hasShownContextWarning]);
 
-  // Load chapter info when a chapter is selected OR on initial load
+  // Load chapter info when active chapter changes
   useEffect(() => {
     const loadChapterInfo = async () => {
       try {
-        if (selectedChapterId) {
-          // Load the specific selected chapter
-          const chapter = await apiClient.getChapter(storyId, selectedChapterId);
+        if (activeChapterId) {
+          // Load the active chapter info
+          const chapter = await apiClient.getChapter(storyId, activeChapterId);
           setCurrentChapterInfo({
             id: chapter.id,
             number: chapter.chapter_number,
             title: chapter.title,
             isActive: chapter.status === 'active'
           });
-          // Save to localStorage for persistence (client-side only)
-          if (typeof window !== 'undefined') {
-            try {
-              localStorage.setItem(`lastChapter_${storyId}`, selectedChapterId.toString());
-            } catch (e) {
-              // Ignore localStorage errors
-              console.warn('Failed to save last chapter to localStorage:', e);
-            }
-          }
         } else {
-          // Load the active chapter info
+          // Try to find active chapter from chapters list
           const chapters = await apiClient.getChapters(storyId);
           const activeChapter = chapters.find((ch: any) => ch.status === 'active');
           if (activeChapter) {
+            setActiveChapterId(activeChapter.id);
             setCurrentChapterInfo({
               id: activeChapter.id,
               number: activeChapter.chapter_number,
@@ -396,16 +388,16 @@ export default function StoryPage() {
       }
     };
     loadChapterInfo();
-  }, [selectedChapterId, storyId]);
+  }, [activeChapterId, storyId]);
 
-  // Get scenes to display based on current mode and selected chapter
+  // Get scenes to display based on current mode and active chapter
   const getScenesToDisplay = (): Scene[] => {
     if (!story?.scenes || story.scenes.length === 0) return [];
     
-    // Filter by selected chapter if one is selected
+    // Filter by active chapter - always show only active chapter's scenes
     let filteredScenes = story.scenes;
-    if (selectedChapterId !== null) {
-      filteredScenes = story.scenes.filter(scene => scene.chapter_id === selectedChapterId);
+    if (activeChapterId !== null) {
+      filteredScenes = story.scenes.filter(scene => scene.chapter_id === activeChapterId);
     }
     
     if (displayMode === 'all') {
@@ -453,8 +445,8 @@ export default function StoryPage() {
     
     // Get filtered scenes count (accounting for chapter filtering)
     let filteredScenes = story.scenes;
-    if (selectedChapterId !== null) {
-      filteredScenes = story.scenes.filter(scene => scene.chapter_id === selectedChapterId);
+    if (activeChapterId !== null) {
+      filteredScenes = story.scenes.filter(scene => scene.chapter_id === activeChapterId);
     }
     const totalScenes = filteredScenes.length;
     
@@ -512,7 +504,7 @@ export default function StoryPage() {
         });
       });
     });
-  }, [displayMode, story?.scenes, scenesToShow, isAutoLoadingScenes, selectedChapterId]);
+  }, [displayMode, story?.scenes, scenesToShow, isAutoLoadingScenes, activeChapterId]);
 
   // Targeted story refresh that doesn't cause scrolling
   const refreshStoryContent = async () => {
@@ -579,8 +571,8 @@ export default function StoryPage() {
 
       // Get filtered scenes count to check if there are more to load
       let filteredScenes = story?.scenes || [];
-      if (selectedChapterId !== null && story?.scenes) {
-        filteredScenes = story.scenes.filter(scene => scene.chapter_id === selectedChapterId);
+      if (activeChapterId !== null && story?.scenes) {
+        filteredScenes = story.scenes.filter(scene => scene.chapter_id === activeChapterId);
       }
       const hasMoreScenes = filteredScenes.length > scenesToShow;
 
@@ -750,7 +742,7 @@ export default function StoryPage() {
         cleanupFunction();
       }
     };
-  }, [displayMode, loadMoreScenesAutomatically, isAutoLoadingScenes, story?.scenes, scenesToShow, selectedChapterId]);
+  }, [displayMode, loadMoreScenesAutomatically, isAutoLoadingScenes, story?.scenes, scenesToShow, activeChapterId]);
 
   const loadStory = async (scrollToLastScene = true, scrollToNewScene = false) => {
     try {
@@ -759,26 +751,15 @@ export default function StoryPage() {
       const storyData = await apiClient.getStory(storyId);
       setStory(storyData);
 
-      // Auto-select last viewed chapter if available (client-side only)
-      if (typeof window !== 'undefined') {
-        try {
-          const lastChapterId = localStorage.getItem(`lastChapter_${storyId}`);
-          if (lastChapterId && selectedChapterId === null) {
-            setSelectedChapterId(parseInt(lastChapterId));
-          }
-        } catch (e) {
-          // Ignore localStorage errors
-          console.warn('Failed to load last chapter from localStorage:', e);
-        }
-      }
-
       // Check if chapter setup is needed
       const setupChapter = searchParams?.get('setup_chapter') === 'true';
       
-      // Try to load active chapter - may not exist for new stories
+      // Load active chapter - may not exist for new stories
       try {
         const activeChapterData = await apiClient.getActiveChapter(storyId);
         setActiveChapter(activeChapterData);
+        // Set active chapter ID for scene filtering
+        setActiveChapterId(activeChapterData.id);
         
         // Always show wizard when coming from story creation
         if (setupChapter) {
@@ -834,8 +815,8 @@ export default function StoryPage() {
               // Get the last scene that will actually be displayed (based on getScenesToDisplay logic)
               // This matches the logic in getScenesToDisplay()
               let filteredScenes = storyData.scenes;
-              if (selectedChapterId !== null) {
-                filteredScenes = storyData.scenes.filter((s: Scene) => s.chapter_id === selectedChapterId);
+              if (activeChapterId !== null) {
+                filteredScenes = storyData.scenes.filter((s: Scene) => s.chapter_id === activeChapterId);
               }
               
               // In 'recent' mode, only the last N scenes are displayed
@@ -2344,15 +2325,13 @@ export default function StoryPage() {
           loadStory(false, false);
           // Update context status
           loadContextStatus();
-          // Reset chapter selection when new chapter is created
-          setSelectedChapterId(null);
+          // Active chapter will be reloaded from backend
         }}
         onChapterSelect={(chapterId) => {
-          setSelectedChapterId(chapterId);
-          // Scroll to top when switching chapters
-          window.scrollTo({ top: 0, behavior: 'smooth' });
+          // This will trigger the switch active chapter flow with confirmation
+          // The actual switching happens in ChapterSidebar component
         }}
-        currentChapterId={selectedChapterId ?? undefined}
+        currentChapterId={activeChapterId ?? undefined}
       />
 
       {/* Main Story Container */}
@@ -2388,8 +2367,8 @@ export default function StoryPage() {
                   {displayMode === 'recent' && (() => {
                     // Get filtered scenes count (accounting for chapter filtering)
                     let filteredScenes = story.scenes;
-                    if (selectedChapterId !== null) {
-                      filteredScenes = story.scenes.filter(scene => scene.chapter_id === selectedChapterId);
+                    if (activeChapterId !== null) {
+                      filteredScenes = story.scenes.filter(scene => scene.chapter_id === activeChapterId);
                     }
                     const hasMoreScenes = filteredScenes.length > scenesToShow;
                     
@@ -2538,7 +2517,7 @@ export default function StoryPage() {
                 </div>
               ) : (
                 <div className="text-center py-12">
-                  {selectedChapterId !== null && currentChapterInfo && !currentChapterInfo.isActive ? (
+                  {activeChapterId !== null && currentChapterInfo && !currentChapterInfo.isActive ? (
                     // Viewing a COMPLETED chapter with no scenes (rare case)
                     <>
                       <BookOpen className="w-16 h-16 text-gray-600 mx-auto mb-4" />
@@ -2549,7 +2528,10 @@ export default function StoryPage() {
                         This chapter is completed. Return to the active chapter to continue writing.
                       </p>
                       <button
-                        onClick={() => setSelectedChapterId(null)}
+                        onClick={() => {
+                          // Reload story to get the active chapter
+                          loadStory(false, false);
+                        }}
                         className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg font-medium"
                       >
                         Return to Active Chapter

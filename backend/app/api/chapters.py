@@ -698,19 +698,19 @@ async def conclude_chapter(
         conclusion_scene.chapter_id = chapter_id
         db.commit()
         
-        # Note: Chapter remains ACTIVE after conclusion
-        # It will only be marked as COMPLETED when the next chapter is created
-        # This ensures users go through the chapter wizard to set up the next chapter
-        
-        # Generate summary for the chapter (even though it's still active)
-        if not chapter.auto_summary:
-            await generate_chapter_summary(chapter_id, db, current_user.id)
+        # Generate summary for the chapter before marking as completed
+        if not chapter.auto_summary or chapter.last_summary_scene_count < chapter.scenes_count:
+            await generate_chapter_summary_incremental(chapter_id, db, current_user.id)
             await generate_story_so_far(chapter_id, db, current_user.id)
+        
+        # Mark chapter as COMPLETED after generating conclusion scene
+        chapter.status = ChapterStatus.COMPLETED
+        chapter.completed_at = datetime.now(timezone.utc)
         
         db.commit()
         db.refresh(chapter)
         
-        logger.info(f"[CHAPTER] Chapter {chapter_id} concluded with scene {conclusion_scene.id}. Chapter remains ACTIVE until next chapter is created.")
+        logger.info(f"[CHAPTER] Chapter {chapter_id} concluded with scene {conclusion_scene.id}. Chapter marked as COMPLETED.")
         
     except Exception as e:
         logger.error(f"[CHAPTER] Failed to conclude chapter {chapter_id}: {e}")
@@ -721,6 +721,69 @@ async def conclude_chapter(
         )
     
     return build_chapter_response(chapter, db)
+
+
+@router.put("/{story_id}/chapters/{chapter_id}/activate", response_model=List[ChapterResponse])
+async def activate_chapter(
+    story_id: int,
+    chapter_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Set a chapter as active. All other chapters will be marked as COMPLETED (if they have scenes) or DRAFT (if empty)."""
+    
+    logger.info(f"[CHAPTER] Activating chapter {chapter_id} for story {story_id}")
+    
+    # Verify story ownership
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    
+    # Verify chapter belongs to story
+    chapter = db.query(Chapter).filter(
+        Chapter.id == chapter_id,
+        Chapter.story_id == story_id
+    ).first()
+    
+    if not chapter:
+        raise HTTPException(status_code=404, detail="Chapter not found")
+    
+    # Get all chapters for this story
+    all_chapters = db.query(Chapter).filter(
+        Chapter.story_id == story_id
+    ).all()
+    
+    # Set all other chapters to COMPLETED (if they have scenes) or DRAFT (if empty)
+    for ch in all_chapters:
+        if ch.id == chapter_id:
+            # Set target chapter as ACTIVE
+            ch.status = ChapterStatus.ACTIVE
+            logger.info(f"[CHAPTER] Set chapter {ch.id} (Chapter {ch.chapter_number}) as ACTIVE")
+        else:
+            # Set other chapters based on whether they have scenes
+            if ch.scenes_count > 0:
+                ch.status = ChapterStatus.COMPLETED
+                if not ch.completed_at:
+                    ch.completed_at = datetime.now(timezone.utc)
+                logger.info(f"[CHAPTER] Set chapter {ch.id} (Chapter {ch.chapter_number}) as COMPLETED (has {ch.scenes_count} scenes)")
+            else:
+                ch.status = ChapterStatus.DRAFT
+                logger.info(f"[CHAPTER] Set chapter {ch.id} (Chapter {ch.chapter_number}) as DRAFT (no scenes)")
+    
+    db.commit()
+    
+    # Refresh all chapters and return updated list
+    db.refresh(chapter)
+    for ch in all_chapters:
+        db.refresh(ch)
+    
+    logger.info(f"[CHAPTER] Successfully activated chapter {chapter_id}. All chapters updated.")
+    
+    return [build_chapter_response(ch, db) for ch in all_chapters]
 
 
 @router.post("/{story_id}/chapters/{chapter_id}/characters", response_model=ChapterResponse)

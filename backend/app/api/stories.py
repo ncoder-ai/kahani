@@ -964,35 +964,85 @@ async def generate_scene(
         # Format choices for response (already in correct format)
         formatted_choices = choices_data
         
-        # AUTO-GENERATE SUMMARIES if enabled and threshold reached
-        from ..models import Chapter
-        active_chapter = db.query(Chapter).filter(
-            Chapter.story_id == story_id,
-            Chapter.status.in_(["active", "in_progress"])
-        ).order_by(Chapter.chapter_number.desc()).first()
-        
-        if active_chapter and user_settings:
-            # Check if we should auto-generate summaries
-            auto_generate = user_settings.get("auto_generate_summaries", True)
-            threshold = user_settings.get("context_summary_threshold", 5)
+        # Chapter integration - link scene to active chapter
+        from ..models import Chapter, ChapterStatus
+        active_chapter = None
+        try:
+            # Get or create active chapter for this story
+            active_chapter = db.query(Chapter).filter(
+                Chapter.story_id == story_id,
+                Chapter.status == ChapterStatus.ACTIVE
+            ).order_by(Chapter.chapter_number.desc()).first()
             
-            if auto_generate:
-                # Calculate scenes since last summary
-                scenes_since_summary = active_chapter.scenes_count - (active_chapter.last_summary_scene_count or 0)
+            if not active_chapter:
+                # Create first chapter if none exists
+                active_chapter = Chapter(
+                    story_id=story_id,
+                    chapter_number=1,
+                    title="Chapter 1",
+                    status=ChapterStatus.ACTIVE,
+                    context_tokens_used=0,
+                    scenes_count=0,
+                    last_summary_scene_count=0
+                )
+                db.add(active_chapter)
+                db.flush()
+                logger.info(f"[CHAPTER] Created first chapter {active_chapter.id} for story {story_id}")
+            
+            # Link scene to active chapter
+            scene.chapter_id = active_chapter.id
+            db.flush()  # Flush to ensure chapter_id is set before counting scenes
+            
+            # Update chapter token tracking - calculate actual context size that would be sent to LLM
+            # This includes base context, chapter summaries, entity states, and only recent scenes from current chapter
+            try:
+                actual_context_size = await context_manager.calculate_actual_context_size(
+                    story_id, active_chapter.id, db
+                )
+                active_chapter.context_tokens_used = actual_context_size
+                logger.info(f"[CHAPTER] Calculated actual context size for chapter {active_chapter.id}: {actual_context_size} tokens")
+            except Exception as e:
+                logger.error(f"[CHAPTER] Failed to calculate actual context size for chapter {active_chapter.id}: {e}")
+                # Fallback: use scene tokens as before (but log the issue)
+                scene_tokens = context_manager.count_tokens(scene_content.strip())
+                active_chapter.context_tokens_used += scene_tokens
+                logger.warning(f"[CHAPTER] Using fallback token accumulation: {scene_tokens} tokens added")
+            
+            # Recalculate scenes_count from active StoryFlow instead of incrementing
+            active_chapter.scenes_count = llm_service.get_active_scene_count(db, story_id, active_chapter.id)
+            
+            db.commit()
+            logger.info(f"[CHAPTER] Linked scene {scene.id} to chapter {active_chapter.id} ({active_chapter.scenes_count} scenes, {active_chapter.context_tokens_used} tokens)")
+            
+            # AUTO-GENERATE SUMMARIES if enabled and threshold reached
+            if active_chapter and user_settings:
+                # Check if we should auto-generate summaries
+                auto_generate = user_settings.get("auto_generate_summaries", True)
+                threshold = user_settings.get("context_summary_threshold", 5)
                 
-                if scenes_since_summary >= threshold:
-                    logger.info(f"[AUTO-SUMMARY] Threshold reached ({scenes_since_summary}/{threshold}) for chapter {active_chapter.id}")
+                if auto_generate:
+                    # Calculate scenes since last summary
+                    scenes_since_summary = active_chapter.scenes_count - (active_chapter.last_summary_scene_count or 0)
                     
-                    # Generate chapter summary with context from previous chapters
-                    from ..api.chapters import generate_chapter_summary_incremental
-                    try:
-                        await generate_chapter_summary_incremental(active_chapter.id, db, current_user.id)
-                        # Note: story_so_far is NOT regenerated here because it only includes previous chapters,
-                        # not the current chapter, so updating current chapter's summary doesn't affect it
-                        logger.info(f"[AUTO-SUMMARY] Generated chapter summary for chapter {active_chapter.id}")
-                    except Exception as e:
-                        logger.error(f"[AUTO-SUMMARY] Failed to auto-generate summaries: {e}")
-                        # Don't fail the scene creation if summary fails
+                    if scenes_since_summary >= threshold:
+                        logger.info(f"[AUTO-SUMMARY] Threshold reached ({scenes_since_summary}/{threshold}) for chapter {active_chapter.id}")
+                        
+                        # Generate chapter summary with context from previous chapters
+                        from ..api.chapters import generate_chapter_summary_incremental
+                        try:
+                            await generate_chapter_summary_incremental(active_chapter.id, db, current_user.id)
+                            # Note: story_so_far is NOT regenerated here because it only includes previous chapters,
+                            # not the current chapter, so updating current chapter's summary doesn't affect it
+                            logger.info(f"[AUTO-SUMMARY] Generated chapter summary for chapter {active_chapter.id}")
+                        except Exception as e:
+                            logger.error(f"[AUTO-SUMMARY] Failed to auto-generate summaries: {e}")
+                            # Don't fail the scene creation if summary fails
+        except Exception as e:
+            logger.error(f"[CHAPTER] Failed to link scene to chapter: {e}")
+            # Don't fail scene creation if chapter linking fails, but log the error
+            db.rollback()
+            # Try to commit just the scene without chapter linking
+            db.commit()
         
     except Exception as e:
         logger.error(f"Failed to create scene with variant: {e}")

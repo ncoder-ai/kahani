@@ -138,13 +138,27 @@ class ContextManager:
                     Scene.story_id == story_id
                 ).order_by(Scene.sequence_number).all()
         # Get all scenes ordered by sequence
-        # Always filter to current chapter only when chapter_id is provided
+        # When chapter_id is provided, include scenes from ALL chapters up to and including that chapter
         elif chapter_id:
-            # Always filter to current chapter only when chapter_id is provided
-            scenes = db.query(Scene).filter(
-                Scene.story_id == story_id,
-                Scene.chapter_id == chapter_id
-            ).order_by(Scene.sequence_number).all()
+            # Get the chapter to find its chapter_number
+            from ..models import Chapter
+            active_chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+            
+            if active_chapter:
+                # Include scenes from all chapters with chapter_number <= active chapter's chapter_number
+                # This ensures we include previous chapters but exclude future chapters
+                scenes = db.query(Scene).join(Chapter).filter(
+                    Scene.story_id == story_id,
+                    Chapter.chapter_number <= active_chapter.chapter_number
+                ).order_by(Scene.sequence_number).all()
+                logger.info(f"[CONTEXT BUILD] Chapter {chapter_id} (Chapter {active_chapter.chapter_number}): Including scenes from chapters 1-{active_chapter.chapter_number} ({len(scenes)} scenes)")
+            else:
+                # Fallback: if chapter not found, only get scenes from that chapter_id
+                scenes = db.query(Scene).filter(
+                    Scene.story_id == story_id,
+                    Scene.chapter_id == chapter_id
+                ).order_by(Scene.sequence_number).all()
+                logger.warning(f"[CONTEXT BUILD] Chapter {chapter_id} not found, falling back to chapter_id filter only")
             
             # Note: continues_from_previous controls whether story_so_far and 
             # previous_chapter_summary are included (handled in base context building below)
