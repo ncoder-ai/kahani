@@ -237,6 +237,16 @@ class UnifiedLLMService:
         
         try:
             response = await acompletion(**gen_params)
+            
+            # Check finish_reason for truncation
+            if hasattr(response, 'choices') and len(response.choices) > 0:
+                finish_reason = getattr(response.choices[0], 'finish_reason', None)
+                if finish_reason == 'length':
+                    logger.warning(f"[TRUNCATION] Response truncated due to token limit! max_tokens={max_tokens}")
+                    logger.warning(f"[TRUNCATION] Consider increasing max_tokens or reducing prompt size")
+                elif finish_reason:
+                    logger.debug(f"[GENERATION] Finish reason: {finish_reason}")
+            
             content = response.choices[0].message.content
             return content
             
@@ -360,6 +370,15 @@ class UnifiedLLMService:
             import asyncio
             
             response = await asyncio.to_thread(text_completion, **gen_params)
+            
+            # Check finish_reason for truncation
+            if hasattr(response, 'choices') and len(response.choices) > 0:
+                finish_reason = getattr(response.choices[0], 'finish_reason', None)
+                if finish_reason == 'length':
+                    logger.warning(f"[TRUNCATION] Text completion truncated due to token limit! max_tokens={max_tokens}")
+                    logger.warning(f"[TRUNCATION] Consider increasing max_tokens or reducing prompt size")
+                elif finish_reason:
+                    logger.debug(f"[TEXT COMPLETION] Finish reason: {finish_reason}")
             
             content = response.choices[0].text if hasattr(response.choices[0], 'text') else response.choices[0].message.content
             logger.info(f"Generated {len(content)} characters for user {user_id}")
@@ -1629,6 +1648,87 @@ class UnifiedLLMService:
             if cleaned_chunk:  # Only yield non-empty chunks
                 yield cleaned_chunk
     
+    def _fix_incomplete_json_array(self, json_str: str) -> Optional[str]:
+        """
+        Attempt to fix an incomplete JSON array by extracting valid complete entries.
+        Returns fixed JSON string or None if fixing is not possible.
+        """
+        if not json_str or not json_str.strip().startswith('['):
+            return None
+        
+        try:
+            # Remove the opening bracket
+            content = json_str.lstrip('[').strip()
+            
+            # Try to extract complete string entries
+            # Pattern: "..." followed by comma or end
+            entries = []
+            current_pos = 0
+            in_string = False
+            escaped = False
+            start_pos = None
+            
+            i = 0
+            while i < len(content):
+                char = content[i]
+                
+                if escaped:
+                    escaped = False
+                    i += 1
+                    continue
+                
+                if char == '\\':
+                    escaped = True
+                    i += 1
+                    continue
+                
+                if char == '"':
+                    if not in_string:
+                        # Start of a new string
+                        in_string = True
+                        start_pos = i
+                    else:
+                        # End of string - check if it's followed by comma or whitespace
+                        end_pos = i + 1
+                        # Look ahead for comma or end of content
+                        remaining = content[end_pos:].lstrip()
+                        if not remaining or remaining.startswith(',') or remaining.startswith(']'):
+                            # This is a complete string entry
+                            entry = content[start_pos:end_pos]
+                            entries.append(entry)
+                            in_string = False
+                            # Skip past comma if present
+                            if remaining.startswith(','):
+                                i = end_pos + remaining.find(',') + 1
+                                continue
+                            elif remaining.startswith(']'):
+                                break
+                    i += 1
+                    continue
+                
+                i += 1
+            
+            # If we found any complete entries, reconstruct the JSON array
+            if entries:
+                fixed_json = '[' + ', '.join(entries) + ']'
+                logger.info(f"[CHOICES PARSE] Fixed incomplete JSON: extracted {len(entries)} complete entries")
+                return fixed_json
+            
+            # Fallback: try to close the last incomplete string if we're in one
+            if in_string and start_pos is not None:
+                # Close the current string
+                incomplete_entry = content[start_pos:] + '"'
+                # Remove trailing comma if present
+                incomplete_entry = re.sub(r',\s*$', '', incomplete_entry)
+                fixed_json = '[' + incomplete_entry + ']'
+                logger.info(f"[CHOICES PARSE] Fixed incomplete JSON: closed last string")
+                return fixed_json
+            
+            return None
+        except Exception as e:
+            logger.warning(f"[CHOICES PARSE] Error fixing incomplete JSON: {e}")
+            return None
+    
     def _parse_choices_from_json(self, text: str) -> Optional[List[str]]:
         """
         Parse choices from JSON array string.
@@ -1645,45 +1745,43 @@ class UnifiedLLMService:
             text = text.strip()
             
             # Handle markdown code blocks (```json ... ``` or ``` ... ```)
+            # Improved markdown removal that handles various formats
             if '```' in text:
-                # Remove markdown code block markers
-                lines = text.split('\n')
-                filtered_lines = []
-                skip_code_block = False
-                for line in lines:
-                    stripped = line.strip()
-                    if stripped.startswith('```'):
-                        skip_code_block = not skip_code_block
-                        continue  # Skip the marker line
-                    if not skip_code_block:
-                        filtered_lines.append(line)
-                text = '\n'.join(filtered_lines).strip()
-                logger.debug(f"[CHOICES PARSE] Removed markdown code blocks, text length: {len(text)}")
-            
-            # Try to find JSON array - look for pattern like ["choice1", "choice2"]
-            # Use non-greedy match first, then try greedy if that fails
-            json_match = re.search(r'\[.*?\]', text, re.DOTALL)
-            if not json_match:
-                # Try greedy match in case array spans multiple lines
-                json_match = re.search(r'\[.*\]', text, re.DOTALL)
-            
-            if json_match:
-                json_str = json_match.group(0)
+                # Strategy 1: Use regex to extract content between code block markers
+                # This handles both ```json and ``` markers
+                code_block_match = re.search(r'```(?:json)?\s*\n(.*?)\n```', text, re.DOTALL)
+                if code_block_match:
+                    # Extract content from inside code blocks
+                    cleaned_text = code_block_match.group(1).strip()
+                    logger.debug(f"[CHOICES PARSE] Extracted content from markdown code block, length: {len(cleaned_text)}")
+                else:
+                    # Fallback: Remove lines that are just ``` markers
+                    lines = text.split('\n')
+                    filtered_lines = []
+                    inside_code_block = False
+                    for line in lines:
+                        stripped = line.strip()
+                        if stripped.startswith('```'):
+                            inside_code_block = not inside_code_block
+                            continue  # Skip the marker line
+                        # Add line if we're inside a code block (content) or outside (no code blocks)
+                        # But if we're inside, we want the content
+                        if inside_code_block or not any('```' in l for l in lines):
+                            filtered_lines.append(line)
+                    cleaned_text = '\n'.join(filtered_lines).strip()
+                    
+                    # Strategy 2: If that didn't work, try regex removal of markers
+                    if '```' in cleaned_text:
+                        # Remove any remaining ``` markers
+                        cleaned_text = re.sub(r'```[a-z]*\s*\n?', '', cleaned_text, flags=re.IGNORECASE)
+                        cleaned_text = cleaned_text.strip()
                 
-                try:
-                    choices = json.loads(json_str)
-                except json.JSONDecodeError as e:
-                    logger.warning(f"[CHOICES PARSE] JSON decode error: {e}, JSON string: {json_str[:200]}")
-                    # Try to fix common JSON issues
-                    # Remove trailing commas
-                    json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
-                    try:
-                        choices = json.loads(json_str)
-                    except json.JSONDecodeError as e2:
-                        logger.warning(f"[CHOICES PARSE] Still failed after cleanup: {e2}")
-                        return None
-                
-                # Validate we got a list of strings
+                text = cleaned_text
+                logger.debug(f"[CHOICES PARSE] Removed markdown code blocks, final text length: {len(text)}")
+            
+            # Helper function to validate and return choices
+            def validate_and_return_choices(choices: Any) -> Optional[List[str]]:
+                """Validate parsed choices and return cleaned list"""
                 if isinstance(choices, list) and len(choices) >= 2:
                     # Clean and validate each choice
                     cleaned_choices = []
@@ -1692,25 +1790,99 @@ class UnifiedLLMService:
                             cleaned = choice.strip()
                             if len(cleaned) > 5:  # Minimum reasonable choice length
                                 cleaned_choices.append(cleaned)
+                            else:
+                                logger.debug(f"[CHOICES PARSE] Choice {i+1} too short: {len(cleaned)} chars")
+                        else:
+                            logger.debug(f"[CHOICES PARSE] Choice {i+1} not a string: {type(choice)}")
                     
                     if len(cleaned_choices) >= 2:
+                        logger.info(f"[CHOICES PARSE] Successfully parsed {len(cleaned_choices)} choices")
                         return cleaned_choices
                     else:
                         logger.warning(f"[CHOICES PARSE] Not enough valid choices: {len(cleaned_choices)} < 2")
                 else:
                     logger.warning(f"[CHOICES PARSE] Invalid format: got {type(choices)}, length: {len(choices) if isinstance(choices, list) else 'N/A'}")
+                return None
+            
+            # Try to find JSON array - look for pattern like ["choice1", "choice2"]
+            # First check if we have an incomplete array (starts with [ but doesn't end with ])
+            incomplete_match = None
+            if text.strip().startswith('[') and not text.strip().endswith(']'):
+                # Try to find the opening bracket and extract everything after it
+                bracket_pos = text.find('[')
+                if bracket_pos != -1:
+                    incomplete_match = text[bracket_pos:]
+            
+            # Use non-greedy match first, then try greedy if that fails
+            json_match = re.search(r'\[.*?\]', text, re.DOTALL)
+            if not json_match:
+                # Try greedy match in case array spans multiple lines
+                json_match = re.search(r'\[.*\]', text, re.DOTALL)
+            
+            # If we found a complete match, use it
+            if json_match:
+                json_str = json_match.group(0)
+                
+                try:
+                    choices = json.loads(json_str)
+                    # CRITICAL FIX: Validate and return here - this was missing!
+                    return validate_and_return_choices(choices)
+                except json.JSONDecodeError as e:
+                    logger.warning(f"[CHOICES PARSE] JSON decode error: {e}, JSON string: {json_str[:200]}")
+                    # Try to fix common JSON issues
+                    # Remove trailing commas
+                    json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
+                    try:
+                        choices = json.loads(json_str)
+                        return validate_and_return_choices(choices)
+                    except json.JSONDecodeError as e2:
+                        logger.warning(f"[CHOICES PARSE] Still failed after cleanup: {e2}")
+                        # Try to fix incomplete JSON
+                        json_str = self._fix_incomplete_json_array(json_str)
+                        if json_str:
+                            try:
+                                choices = json.loads(json_str)
+                                return validate_and_return_choices(choices)
+                            except json.JSONDecodeError:
+                                pass
+                        # Fallback: try parsing the raw text directly
+                        logger.debug(f"[CHOICES PARSE] Trying fallback: parse raw text directly")
+                        try:
+                            choices = json.loads(text.strip())
+                            return validate_and_return_choices(choices)
+                        except json.JSONDecodeError:
+                            pass
+            elif incomplete_match:
+                # We have an incomplete array, try to fix it
+                logger.warning(f"[CHOICES PARSE] Incomplete JSON array detected, attempting to fix. Text preview: {incomplete_match[:200]}")
+                fixed_json = self._fix_incomplete_json_array(incomplete_match)
+                if fixed_json:
+                    try:
+                        choices = json.loads(fixed_json)
+                        return validate_and_return_choices(choices)
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"[CHOICES PARSE] Failed to parse fixed incomplete JSON: {e}")
+            
+            # Final fallback: try parsing the entire text as JSON (might be plain JSON without markdown)
+            logger.debug(f"[CHOICES PARSE] Trying final fallback: parse entire text as JSON")
+            try:
+                choices = json.loads(text.strip())
+                return validate_and_return_choices(choices)
+            except json.JSONDecodeError:
+                pass
+            
+            # If we get here, all parsing attempts failed
+            # Check if text looks like it was cut off (incomplete JSON)
+            if text.strip().startswith('[') and not text.strip().endswith(']'):
+                logger.warning(f"[CHOICES PARSE] Incomplete JSON array detected (starts with '[' but doesn't end with ']'). Text may have been truncated. Text preview: {text[:200]}")
+            elif '```json' in text.lower() or '```' in text:
+                logger.warning(f"[CHOICES PARSE] Markdown code block found but no valid JSON array inside. Text preview: {text[:200]}")
             else:
-                # Check if text looks like it was cut off (incomplete JSON)
-                if text.strip().startswith('[') and not text.strip().endswith(']'):
-                    logger.warning(f"[CHOICES PARSE] Incomplete JSON array detected (starts with '[' but doesn't end with ']'). Text may have been truncated. Text preview: {text[:200]}")
-                elif '```json' in text.lower() or '```' in text:
-                    logger.warning(f"[CHOICES PARSE] Markdown code block found but no valid JSON array inside. Text preview: {text[:200]}")
-                else:
-                    logger.warning(f"[CHOICES PARSE] No JSON array found in text. Text preview: {text[:200]}")
+                logger.warning(f"[CHOICES PARSE] No JSON array found in text. Text preview: {text[:200]}")
             
             return None
         except (json.JSONDecodeError, ValueError, AttributeError, Exception) as e:
-            logger.warning(f"[CHOICES PARSE] Failed to parse choices from JSON: {e}, text preview: {text[:200] if text else 'empty'}")
+            logger.warning(f"[CHOICES PARSE] Failed to parse choices from JSON: {e}, text preview: {text[:200] if 'text' in locals() and text else 'empty'}")
             return None
     
     async def generate_scene_with_choices_streaming(
@@ -1749,6 +1921,25 @@ class UnifiedLLMService:
             template_key = "scene_without_immediate"
             logger.info(f"[SCENE GEN STREAMING] Using scene_without_immediate template")
         
+        # Get POV from writing preset (default to third person)
+        pov = 'third'
+        if db and user_id:
+            from ...models.writing_style_preset import WritingStylePreset
+            active_preset = db.query(WritingStylePreset).filter(
+                WritingStylePreset.user_id == user_id,
+                WritingStylePreset.is_active == True
+            ).first()
+            if active_preset and hasattr(active_preset, 'pov') and active_preset.pov:
+                pov = active_preset.pov
+        
+        # Create POV instruction for template
+        if pov == 'first':
+            pov_instruction = "in first person (I/me/my)"
+        elif pov == 'second':
+            pov_instruction = "in second person (you/your)"
+        else:
+            pov_instruction = "in third person (he/she/they/character names)"
+        
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             template_key, template_key,  # Use dynamic template key
             user_id=user_id,
@@ -1756,14 +1947,22 @@ class UnifiedLLMService:
             context=self._format_context_for_scene(context),
             scene_length_description=scene_length_description,
             choices_count=choices_count,
-            immediate_situation=immediate_situation
+            immediate_situation=immediate_situation,
+            pov_instruction=pov_instruction
         )
         
+        # Enhance system prompt with POV instruction for choices
+        if pov == 'first':
+            system_prompt += "\n\nIMPORTANT: Write all choices in first person perspective (using 'I', 'me', 'my'). The choices should match the story's first-person narrative style."
+        else:
+            system_prompt += "\n\nIMPORTANT: Write all choices in third person perspective (using 'he', 'she', 'they', character names). The choices should match the story's third-person narrative style."
         
         # Add buffer for choices section when generating scene with choices
+        # Buffer should be dynamic based on choices_count (estimate ~50 tokens per choice)
         base_max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
-        max_tokens = base_max_tokens + 300  # Extra tokens for choices section
-        logger.info(f"[SCENE WITH CHOICES STREAMING] Using max_tokens: {max_tokens} (base: {base_max_tokens} + 300 buffer for choices)")
+        choices_buffer_tokens = max(300, choices_count * 50)  # At least 300, or 50 per choice
+        max_tokens = base_max_tokens + choices_buffer_tokens
+        logger.info(f"[SCENE WITH CHOICES STREAMING] Using max_tokens: {max_tokens} (base: {base_max_tokens} + {choices_buffer_tokens} buffer for {choices_count} choices)")
         
         scene_buffer = []
         choices_buffer = []
@@ -1905,6 +2104,25 @@ class UnifiedLLMService:
         # Check if this is guided enhancement (has enhancement_guidance) or simple variant
         enhancement_guidance = context.get("enhancement_guidance", "")
         
+        # Get POV from writing preset (default to third person)
+        pov = 'third'
+        if db and user_id:
+            from ...models.writing_style_preset import WritingStylePreset
+            active_preset = db.query(WritingStylePreset).filter(
+                WritingStylePreset.user_id == user_id,
+                WritingStylePreset.is_active == True
+            ).first()
+            if active_preset and hasattr(active_preset, 'pov') and active_preset.pov:
+                pov = active_preset.pov
+        
+        # Create POV instruction for template
+        if pov == 'first':
+            pov_instruction = "in first person (I/me/my)"
+        elif pov == 'second':
+            pov_instruction = "in second person (you/your)"
+        else:
+            pov_instruction = "in third person (he/she/they/character names)"
+        
         if enhancement_guidance:
             # Guided enhancement: use scene_guided_enhancement template with original scene
             # Exclude last scene from previous events to avoid duplication
@@ -1919,7 +2137,8 @@ class UnifiedLLMService:
                 original_scene=original_scene,
                 enhancement_guidance=enhancement_guidance,
                 scene_length_description=scene_length_description,
-                choices_count=choices_count
+                choices_count=choices_count,
+                pov_instruction=pov_instruction
             )
             logger.warning(f"[GUIDED ENHANCEMENT] Prompt length: {len(user_prompt)} chars")
             logger.warning(f"[GUIDED ENHANCEMENT] Prompt contains scene_length_description: {'scene_length_description' in user_prompt or scene_length_description in user_prompt}")
@@ -1936,8 +2155,15 @@ class UnifiedLLMService:
                 context=self._format_context_for_scene(context, exclude_last_scene=False),
                 scene_length_description=scene_length_description,
                 choices_count=choices_count,
-                immediate_situation=immediate_situation
+                immediate_situation=immediate_situation,
+                pov_instruction=pov_instruction
             )
+        
+        # Enhance system prompt with POV instruction for choices
+        if pov == 'first':
+            system_prompt += "\n\nIMPORTANT: Write all choices in first person perspective (using 'I', 'me', 'my'). The choices should match the story's first-person narrative style."
+        else:
+            system_prompt += "\n\nIMPORTANT: Write all choices in third person perspective (using 'he', 'she', 'they', character names). The choices should match the story's third-person narrative style."
         
         # Log prompts for debugging
         
@@ -1945,7 +2171,11 @@ class UnifiedLLMService:
             logger.error("Empty user prompt generated for variant generation")
             raise ValueError("Generated empty user prompt for variant generation")
         
-        max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
+        # Add buffer for choices section - dynamic based on choices_count
+        base_max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
+        choices_buffer_tokens = max(300, choices_count * 50)  # At least 300, or 50 per choice
+        max_tokens = base_max_tokens + choices_buffer_tokens
+        logger.info(f"[VARIANT WITH CHOICES STREAMING] Using max_tokens: {max_tokens} (base: {base_max_tokens} + {choices_buffer_tokens} buffer for {choices_count} choices)")
         
         scene_buffer = []
         choices_buffer = []
@@ -2027,7 +2257,8 @@ class UnifiedLLMService:
         self,
         context: Dict[str, Any],
         user_id: int,
-        user_settings: Dict[str, Any]
+        user_settings: Dict[str, Any],
+        db: Optional[Session] = None
     ) -> AsyncGenerator[Tuple[str, bool, Optional[List[str]]], None]:
         """
         Generate scene continuation and choices in a single streaming call.
@@ -2035,14 +2266,37 @@ class UnifiedLLMService:
         """
         CHOICES_MARKER = "###CHOICES###"
         
-        # Detect POV
-        current_content = context.get("current_content", "") or context.get("current_scene_content", "")
-        previous_scenes = context.get("previous_scenes", "")
-        pov = self._detect_pov(current_content)
-        if previous_scenes:
-            previous_pov = self._detect_pov(previous_scenes)
-            if previous_pov != 'third' or pov == 'third':
-                pov = previous_pov
+        # Get POV from writing preset first (default to third person)
+        pov = 'third'
+        if db and user_id:
+            from ...models.writing_style_preset import WritingStylePreset
+            active_preset = db.query(WritingStylePreset).filter(
+                WritingStylePreset.user_id == user_id,
+                WritingStylePreset.is_active == True
+            ).first()
+            if active_preset and hasattr(active_preset, 'pov') and active_preset.pov:
+                pov = active_preset.pov
+        
+        # If no preset POV, detect from content
+        if pov == 'third':
+            current_content = context.get("current_content", "") or context.get("current_scene_content", "")
+            previous_scenes = context.get("previous_scenes", "")
+            detected_pov = self._detect_pov(current_content)
+            if previous_scenes:
+                previous_pov = self._detect_pov(previous_scenes)
+                if previous_pov != 'third' or detected_pov == 'third':
+                    detected_pov = previous_pov
+            # Only use detected POV if preset didn't override it
+            if not (db and user_id):
+                pov = detected_pov
+        
+        # Create POV instruction for template
+        if pov == 'first':
+            pov_instruction = "in first person (I/me/my)"
+        elif pov == 'second':
+            pov_instruction = "in second person (you/your)"
+        else:
+            pov_instruction = "in third person (he/she/they/character names)"
         
         # Get choices count from user settings
         generation_prefs = user_settings.get("generation_preferences", {})
@@ -2051,15 +2305,27 @@ class UnifiedLLMService:
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "story_generation", "scene_continuation",
             context=self._format_context_for_continuation(context),
-            choices_count=choices_count
+            choices_count=choices_count,
+            pov_instruction=pov_instruction
         )
         
+        # Enhance system prompt with POV instruction for scene content
         if pov == 'first':
             system_prompt += "\n\nIMPORTANT: Continue the story in first person perspective (using 'I', 'me', 'my'). Maintain consistency with the established first-person narrative style."
         else:
             system_prompt += "\n\nIMPORTANT: Continue the story in third person perspective (using 'he', 'she', 'they', character names). Maintain consistency with the established third-person narrative style."
         
-        max_tokens = prompt_manager.get_max_tokens("scene_continuation", user_settings)
+        # Enhance system prompt with POV instruction for choices
+        if pov == 'first':
+            system_prompt += "\n\nIMPORTANT: Write all choices in first person perspective (using 'I', 'me', 'my'). The choices should match the story's first-person narrative style."
+        else:
+            system_prompt += "\n\nIMPORTANT: Write all choices in third person perspective (using 'he', 'she', 'they', character names). The choices should match the story's third-person narrative style."
+        
+        # Add buffer for choices section - dynamic based on choices_count
+        base_max_tokens = prompt_manager.get_max_tokens("scene_continuation", user_settings)
+        choices_buffer_tokens = max(300, choices_count * 50)  # At least 300, or 50 per choice
+        max_tokens = base_max_tokens + choices_buffer_tokens
+        logger.info(f"[CONTINUATION WITH CHOICES STREAMING] Using max_tokens: {max_tokens} (base: {base_max_tokens} + {choices_buffer_tokens} buffer for {choices_count} choices)")
         
         scene_buffer = []
         choices_buffer = []
@@ -2210,7 +2476,13 @@ class UnifiedLLMService:
         else:
             system_prompt += "\n\nIMPORTANT: Write all choices in third person perspective (using 'he', 'she', 'they', character names). The choices should match the story's third-person narrative style."
         
-        max_tokens = prompt_manager.get_max_tokens("choices")
+        # Use "choice_generation" to match the template key (800 tokens) instead of "choices" (600 tokens)
+        # Also make it dynamic based on choices_count to ensure enough tokens
+        base_max_tokens = prompt_manager.get_max_tokens("choice_generation", user_settings)
+        # Ensure we have enough tokens: estimate ~50 tokens per choice, minimum 800
+        dynamic_max_tokens = max(base_max_tokens, choices_count * 50)
+        max_tokens = dynamic_max_tokens
+        logger.info(f"[CHOICES] Using max_tokens: {max_tokens} (base: {base_max_tokens}, dynamic: {dynamic_max_tokens} for {choices_count} choices)")
         
         response = await self._generate(
             prompt=user_prompt,
