@@ -23,6 +23,7 @@ interface SceneVariant {
     text: string;
     description?: string;
     order: number;
+    is_user_created?: boolean;
   }>;
 }
 
@@ -42,6 +43,7 @@ interface Scene {
     text: string;
     description?: string;
     order: number;
+    is_user_created?: boolean;
   }>;
 }
 
@@ -96,6 +98,8 @@ interface SceneVariantDisplayProps {
   onCopySceneText?: (content: string) => void;
   // Choices generation loading state
   isGeneratingChoices?: boolean;
+  // Variant reload trigger from parent
+  variantReloadTrigger?: number;
 }
 
 export default function SceneVariantDisplay({
@@ -141,16 +145,19 @@ export default function SceneVariantDisplay({
   onActivateDeleteMode,
   onDeactivateDeleteMode,
   onCopySceneText,
-  isGeneratingChoices = false
+  isGeneratingChoices = false,
+  variantReloadTrigger
 }: SceneVariantDisplayProps) {
   const [variants, setVariants] = useState<SceneVariant[]>([]);
   const [currentVariantId, setCurrentVariantId] = useState<number | null>(null);
   const [isLoadingVariants, setIsLoadingVariants] = useState(false);
   const [isRegeneratingChoices, setIsRegeneratingChoices] = useState(false);
+  const [choicesVersion, setChoicesVersion] = useState(0);
   const [showGuidedOptions, setShowGuidedOptions] = useState(false);
   const sceneContentRef = useRef<HTMLDivElement>(null);
   const hasLoadedVariantsRef = useRef<Set<number>>(new Set());
   const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  const lastTriggerRef = useRef<number>(0);
   const [copySuccess, setCopySuccess] = useState(false);
   const [showFloatingMenu, setShowFloatingMenu] = useState(false);
   const [isClient, setIsClient] = useState(false);
@@ -206,13 +213,24 @@ export default function SceneVariantDisplay({
   // Load variants for this scene
   const loadVariants = async (forceSetVariantId?: number) => {
     if (isLoadingVariants) {
+      console.log('[VARIANT RELOAD] Already loading, skipping');
       return;
     }
     
+    console.log('[VARIANT RELOAD] Starting variant load for scene', scene.id);
     setIsLoadingVariants(true);
     try {
       const response = await apiClient.getSceneVariants(storyId, scene.id);
+      console.log('[VARIANT RELOAD] Loaded', response.variants.length, 'variants');
+      
+      // Log choices for current variant
+      const currentVar = response.variants.find(v => v.id === currentVariantId);
+      if (currentVar) {
+        console.log('[VARIANT RELOAD] Current variant has', currentVar.choices?.length || 0, 'choices');
+      }
+      
       setVariants(response.variants);
+      setChoicesVersion(prev => prev + 1); // Force re-render
       
       // Set current variant ID - prioritize scene.variant_id or forced variant ID
       const targetVariantId = forceSetVariantId || scene.variant_id;
@@ -231,7 +249,7 @@ export default function SceneVariantDisplay({
       
       
     } catch (error) {
-      console.error('Failed to load scene variants:', error);
+      console.error('[VARIANT RELOAD] Failed to load variants:', error);
     } finally {
       setIsLoadingVariants(false);
     }
@@ -308,7 +326,7 @@ export default function SceneVariantDisplay({
   };
 
   // Get available choices for the current variant
-  const getAvailableChoices = (): string[] => {
+  const getAvailableChoices = useCallback((): string[] => {
     // Hide choices when streaming a variant - old variant choices should not be shown
     if (isStreamingVariant) {
       return [];
@@ -342,7 +360,21 @@ export default function SceneVariantDisplay({
     
     // All choices now come from variant data (including "more choices" stored in DB)
     return baseChoices;
-  };
+  }, [variants, currentVariantId, isStreamingVariant, scene.choices, isGenerating, isStreaming, choicesVersion]);
+
+  // Get manual choice from current variant
+  const getManualChoice = useCallback((): string => {
+    // Find current variant
+    const currentVariant = variants.find(v => v.id === currentVariantId);
+    
+    // Find the user-created choice
+    if (currentVariant?.choices) {
+      const manualChoice = currentVariant.choices.find(c => c.is_user_created);
+      return manualChoice?.text || '';
+    }
+    
+    return '';
+  }, [variants, currentVariantId]);
 
     // Load variants on mount if scene has multiple variants
   useEffect(() => {
@@ -395,35 +427,100 @@ export default function SceneVariantDisplay({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene.variant_id, currentVariantId, isSceneOperationInProgress, isGenerating, isStreaming, isRegenerating]);
 
+  // Watch for scene object changes (e.g., after refreshStoryContent) and reload variants if needed
+  // This ensures variants are reloaded when choices are updated via story refresh
+  const previousSceneRef = useRef<Scene | null>(null);
+  const sceneReloadInProgressRef = useRef<boolean>(false);
+  useEffect(() => {
+    // If scene object changed and we have variants loaded, check if we need to reload
+    if (previousSceneRef.current && 
+        previousSceneRef.current.id === scene.id && 
+        hasLoadedVariantsRef.current.has(scene.id) &&
+        variants.length > 0 &&
+        !isLoadingVariants &&
+        !isSceneOperationInProgress &&
+        !sceneReloadInProgressRef.current) {
+      
+      // Check if choices count increased (new choices were added)
+      const prevChoicesCount = previousSceneRef.current.choices?.length || 0;
+      const currentChoicesCount = scene.choices?.length || 0;
+      
+      if (currentChoicesCount > prevChoicesCount) {
+        // New choices were added, reload variants to get them
+        console.log('[VARIANT RELOAD] Scene choices increased, reloading variants');
+        sceneReloadInProgressRef.current = true;
+        hasLoadedVariantsRef.current.delete(scene.id);
+        loadVariants().finally(() => {
+          sceneReloadInProgressRef.current = false;
+        });
+      }
+    }
+    
+    previousSceneRef.current = scene;
+  }, [scene, isLoadingVariants, isSceneOperationInProgress]);
+
+  // Watch for variant reload trigger from parent (e.g., after generating more choices)
+  useEffect(() => {
+    // When trigger changes and we have a current variant, reload variants
+    // Only process if trigger value has actually changed
+    if (variantReloadTrigger && 
+        variantReloadTrigger > 0 && 
+        variantReloadTrigger !== lastTriggerRef.current &&
+        currentVariantId && 
+        !isLoadingVariants) {
+      
+      console.log('[VARIANT RELOAD] Triggered by parent, reloading variants. Trigger value:', variantReloadTrigger);
+      lastTriggerRef.current = variantReloadTrigger;
+      hasLoadedVariantsRef.current.delete(scene.id);
+      loadVariants();
+    }
+  }, [variantReloadTrigger, currentVariantId, isLoadingVariants, scene.id]);
+
   // Reload variants when scene choices change (e.g., after generating more choices)
   // This ensures we get the latest choices including newly generated "more choices"
   const previousChoicesCountRef = useRef<number>(0);
   const sceneChoicesKeyRef = useRef<string>('');
+  const choicesReloadInProgressRef = useRef<boolean>(false);
   
   useEffect(() => {
+    // Skip if already processing a reload to prevent loops
+    if (choicesReloadInProgressRef.current || sceneReloadInProgressRef.current) {
+      return;
+    }
+    
     // Create a key from choices to detect changes (not just count)
     const currentChoicesKey = JSON.stringify(scene.choices?.map(c => ({ id: c.id, text: c.text, order: c.order })) || []);
     const currentChoicesCount = scene.choices?.length || 0;
     
-    // Reload variants if:
-    // 1. Variants have been loaded for this scene
-    // 2. Choices have actually changed (different key or increased count)
-    // 3. We're not in the middle of loading
+    // For NEW scenes (no variants loaded yet), trigger initial load when choices appear
+    if (variants.length === 0 && currentChoicesCount > 0 && !isLoadingVariants) {
+      hasLoadedVariantsRef.current.delete(scene.id);
+      loadVariants();
+      previousChoicesCountRef.current = currentChoicesCount;
+      sceneChoicesKeyRef.current = currentChoicesKey;
+      return;
+    }
+    
+    // For existing scenes, reload when choices change or count increases
+    // This handles both choice updates and new choices being added
     if (hasLoadedVariantsRef.current.has(scene.id) && 
         variants.length > 0 && 
         currentVariantId &&
         !isLoadingVariants &&
         (currentChoicesKey !== sceneChoicesKeyRef.current || currentChoicesCount > previousChoicesCountRef.current)) {
       
-      
+      console.log('[VARIANT RELOAD] Choices changed, reloading variants');
+      choicesReloadInProgressRef.current = true;
       hasLoadedVariantsRef.current.delete(scene.id); // Allow reload
-      loadVariants();
+      loadVariants().finally(() => {
+        choicesReloadInProgressRef.current = false;
+      });
     }
     
     // Update refs for next comparison
     previousChoicesCountRef.current = currentChoicesCount;
     sceneChoicesKeyRef.current = currentChoicesKey;
-  }, [scene.choices, scene.id, currentVariantId, variants.length, isLoadingVariants]);
+  }, [scene.choices, scene.id, currentVariantId, isLoadingVariants]);
 
   // Keyboard navigation for variants (only for last scene)
   useEffect(() => {
@@ -618,13 +715,13 @@ export default function SceneVariantDisplay({
     try {
       const response = await apiClient.regenerateSceneVariantChoices(storyId, scene.id, currentVariantId);
       
-      
-      // Reload variants to get updated choices
+      // Force reload variants to get updated choices
+      hasLoadedVariantsRef.current.delete(scene.id);
       await loadVariants();
       
       // Notify parent to refresh story content
       if (onVariantChanged) {
-        onVariantChanged();
+        await onVariantChanged();
       }
     } catch (error) {
       console.error('[RegenerateChoices] Failed to regenerate choices:', error);
@@ -1103,14 +1200,19 @@ export default function SceneVariantDisplay({
               <div className="flex items-center justify-between">
                 <input
                   type="text"
-                  value={customPrompt}
+                  value={isLastScene ? (customPrompt || getManualChoice()) : customPrompt}
                   onChange={(e) => onCustomPromptChange?.(e.target.value)}
                   placeholder="Write what happens next..."
                   className="flex-1 bg-transparent outline-none theme-placeholder"
                   style={{ color: 'var(--color-textPrimary)' }}
                   onKeyPress={(e) => {
-                    if (e.key === 'Enter' && customPrompt.trim()) {
-                      onGenerateScene?.(customPrompt);
+                    const currentValue = isLastScene ? (customPrompt || getManualChoice()) : customPrompt;
+                    if (e.key === 'Enter' && currentValue.trim()) {
+                      // Use the current value from the input, not customPrompt state
+                      const inputValue = (e.target as HTMLInputElement).value;
+                      if (inputValue.trim()) {
+                        onGenerateScene?.(inputValue);
+                      }
                     }
                   }}
                   disabled={!showChoicesDuringGeneration || isGenerating || isStreaming || isRegenerating || isStreamingContinuation}
@@ -1130,7 +1232,12 @@ export default function SceneVariantDisplay({
                   showPreview={true}
                 />
                 <button
-                  onClick={() => onGenerateScene?.(customPrompt)}
+                  onClick={() => {
+                    const currentValue = isLastScene ? (customPrompt || getManualChoice()) : customPrompt;
+                    if (currentValue.trim()) {
+                      onGenerateScene?.(currentValue);
+                    }
+                  }}
                   disabled={!showChoicesDuringGeneration || isGenerating || isStreaming || !customPrompt.trim() || isRegenerating || isStreamingContinuation}
                   className={'ml-3 rounded-lg p-2 transition-colors ' + (layoutMode === 'modern'
                       ? 'bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-700 hover:to-purple-700 disabled:from-gray-600 disabled:to-gray-600'

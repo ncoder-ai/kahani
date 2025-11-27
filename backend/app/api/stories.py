@@ -1051,6 +1051,60 @@ async def generate_scene(
             detail=f"Failed to create scene: {str(e)}"
         )
     
+    # Save manual choice if custom_prompt was provided
+    if custom_prompt and custom_prompt.strip():
+        try:
+            # Get the previous scene (parent of the newly created scene)
+            previous_scenes = db.query(Scene).filter(
+                Scene.story_id == story_id,
+                Scene.sequence_number == next_sequence - 1
+            ).all()
+            
+            if previous_scenes:
+                previous_scene = previous_scenes[0]
+                
+                # Get the active variant for the previous scene
+                # Use StoryFlow to find the active variant
+                previous_flow = db.query(StoryFlow).filter(
+                    StoryFlow.story_id == story_id,
+                    StoryFlow.scene_id == previous_scene.id
+                ).order_by(StoryFlow.sequence_number.desc()).first()
+                
+                if previous_flow and previous_flow.scene_variant_id:
+                    # Check if this manual choice already exists
+                    existing_manual_choice = db.query(SceneChoice).filter(
+                        SceneChoice.scene_variant_id == previous_flow.scene_variant_id,
+                        SceneChoice.is_user_created == True
+                    ).first()
+                    
+                    if existing_manual_choice:
+                        # Update existing manual choice
+                        existing_manual_choice.choice_text = custom_prompt.strip()
+                        existing_manual_choice.leads_to_scene_id = scene.id
+                    else:
+                        # Create new manual choice
+                        # Get max order for this variant to append at end
+                        max_order = db.query(func.max(SceneChoice.choice_order)).filter(
+                            SceneChoice.scene_variant_id == previous_flow.scene_variant_id
+                        ).scalar() or 0
+                        
+                        manual_choice = SceneChoice(
+                            scene_id=previous_scene.id,
+                            scene_variant_id=previous_flow.scene_variant_id,
+                            choice_text=custom_prompt.strip(),
+                            choice_order=max_order + 1,
+                            is_user_created=True,
+                            leads_to_scene_id=scene.id
+                        )
+                        db.add(manual_choice)
+                    
+                    db.commit()
+                    logger.info(f"Saved manual choice for scene {previous_scene.id}, variant {previous_flow.scene_variant_id}")
+        except Exception as e:
+            logger.error(f"Failed to save manual choice: {e}")
+            # Don't fail the scene creation if manual choice saving fails
+            db.rollback()
+    
     # AUTO-PLAY TTS if enabled
     from ..models.tts_settings import TTSSettings
     tts_settings = db.query(TTSSettings).filter(
@@ -1411,10 +1465,65 @@ async def generate_scene_streaming_endpoint(
                 active_chapter = None  # Set to None so we don't try summary generation
                 logger.info(f"[SCENE GENERATION] Scene {next_sequence} created (no active chapter)")
             
+            # Save manual choice if custom_prompt was provided
+            if custom_prompt and custom_prompt.strip():
+                try:
+                    # Get the previous scene (parent of the newly created scene)
+                    previous_scenes = db.query(Scene).filter(
+                        Scene.story_id == story_id,
+                        Scene.sequence_number == next_sequence - 1
+                    ).all()
+                    
+                    if previous_scenes:
+                        previous_scene = previous_scenes[0]
+                        
+                        # Get the active variant for the previous scene
+                        # Use StoryFlow to find the active variant
+                        previous_flow = db.query(StoryFlow).filter(
+                            StoryFlow.story_id == story_id,
+                            StoryFlow.scene_id == previous_scene.id
+                        ).order_by(StoryFlow.sequence_number.desc()).first()
+                        
+                        if previous_flow and previous_flow.scene_variant_id:
+                            # Check if this manual choice already exists
+                            existing_manual_choice = db.query(SceneChoice).filter(
+                                SceneChoice.scene_variant_id == previous_flow.scene_variant_id,
+                                SceneChoice.is_user_created == True
+                            ).first()
+                            
+                            if existing_manual_choice:
+                                # Update existing manual choice
+                                existing_manual_choice.choice_text = custom_prompt.strip()
+                                existing_manual_choice.leads_to_scene_id = scene.id
+                            else:
+                                # Create new manual choice
+                                # Get max order for this variant to append at end
+                                max_order = db.query(func.max(SceneChoice.choice_order)).filter(
+                                    SceneChoice.scene_variant_id == previous_flow.scene_variant_id
+                                ).scalar() or 0
+                                
+                                manual_choice = SceneChoice(
+                                    scene_id=previous_scene.id,
+                                    scene_variant_id=previous_flow.scene_variant_id,
+                                    choice_text=custom_prompt.strip(),
+                                    choice_order=max_order + 1,
+                                    is_user_created=True,
+                                    leads_to_scene_id=scene.id
+                                )
+                                db.add(manual_choice)
+                            
+                            db.commit()
+                            logger.info(f"Saved manual choice for scene {previous_scene.id}, variant {previous_flow.scene_variant_id}")
+                except Exception as e:
+                    logger.error(f"Failed to save manual choice: {e}")
+                    # Don't fail the scene creation if manual choice saving fails
+                    db.rollback()
+            
             # PRIORITY: Send completion data with choices IMMEDIATELY (before any background tasks)
             complete_data = {
                 'type': 'complete',
                 'scene_id': scene.id,
+                'variant_id': variant.id,
                 'choices': choices_data
             }
             
@@ -2096,6 +2205,57 @@ async def get_story_flow(
         "total_scenes": len(flow)
     }
 
+@router.put("/{story_id}/variants/{variant_id}/manual-choice")
+async def update_manual_choice(
+    story_id: int,
+    variant_id: int,
+    choice_text: str = Form(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update the user-created manual choice for a variant"""
+    
+    # Verify story ownership
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    
+    # Find the manual choice for this variant
+    manual_choice = db.query(SceneChoice).filter(
+        SceneChoice.scene_variant_id == variant_id,
+        SceneChoice.is_user_created == True
+    ).first()
+    
+    if manual_choice:
+        # Update existing
+        manual_choice.choice_text = choice_text.strip()
+    else:
+        # Create new if doesn't exist
+        variant = db.query(SceneVariant).filter(SceneVariant.id == variant_id).first()
+        if not variant:
+            raise HTTPException(status_code=404, detail="Variant not found")
+        
+        max_order = db.query(func.max(SceneChoice.choice_order)).filter(
+            SceneChoice.scene_variant_id == variant_id
+        ).scalar() or 0
+        
+        manual_choice = SceneChoice(
+            scene_id=variant.scene_id,
+            scene_variant_id=variant_id,
+            choice_text=choice_text.strip(),
+            choice_order=max_order + 1,
+            is_user_created=True
+        )
+        db.add(manual_choice)
+    
+    db.commit()
+    
+    return {"message": "Manual choice updated", "choice_id": manual_choice.id}
+
 @router.get("/{story_id}/scenes/{scene_id}/variants")
 async def get_scene_variants(
     story_id: int,
@@ -2154,6 +2314,7 @@ async def get_scene_variants(
                     'text': choice.choice_text,
                     'description': choice.choice_description,
                     'order': choice.choice_order,
+                    'is_user_created': choice.is_user_created
                 }
                 for choice in choices
             ]

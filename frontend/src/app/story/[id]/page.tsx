@@ -79,6 +79,7 @@ interface Scene {
     text: string;
     description?: string;
     order: number;
+    is_user_created?: boolean;
   }>;
 }
 
@@ -235,6 +236,8 @@ export default function StoryPage() {
   const [waitingForChoicesSceneId, setWaitingForChoicesSceneId] = useState<number | null>(null);
   
   const storyContentRef = useRef<HTMLDivElement>(null);
+  const variantReloadTriggerRef = useRef<number>(0);
+  const manualChoiceUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   // Apply UI settings (theme, font size, etc.)
   useUISettings(userSettings?.ui_preferences || null);
@@ -1107,7 +1110,7 @@ export default function StoryPage() {
           }
         },
         // onComplete
-        async (sceneId: number, choices: any[], autoPlay?: { enabled: boolean; session_id: string; scene_id: number }) => {
+        async (sceneId: number, variantId: number, choices: any[], autoPlay?: { enabled: boolean; session_id: string; scene_id: number }) => {
           
           // Flush any remaining buffered chunks on iOS
           if (isIOS) {
@@ -1148,7 +1151,10 @@ export default function StoryPage() {
               content: accumulatedContent,
               location: '',
               characters_present: [],
-              choices: choices || []
+              choices: choices || [],
+              variant_id: variantId,
+              has_multiple_variants: false,
+              chapter_id: activeChapterId || undefined
             };
             
             const updatedStory = {
@@ -1435,20 +1441,70 @@ export default function StoryPage() {
     setShowCharacterBanner(false);
   };
 
+  const updateManualChoice = async (variantId: number, newChoiceText: string) => {
+    try {
+      await apiClient.updateManualChoice(storyId, variantId, newChoiceText);
+    } catch (error) {
+      console.error('Failed to update manual choice:', error);
+    }
+  };
+
+  const handleCustomPromptChange = useCallback((newValue: string) => {
+    setCustomPrompt(newValue);
+    
+    // If this is the last scene and we're editing an existing manual choice
+    if (story && story.scenes.length > 0) {
+      const lastScene = story.scenes[story.scenes.length - 1];
+      if (lastScene.variant_id !== undefined) {
+        // Clear existing timeout
+        if (manualChoiceUpdateTimeoutRef.current) {
+          clearTimeout(manualChoiceUpdateTimeoutRef.current);
+        }
+        
+        // Debounce the update to avoid too many API calls
+        // Update after 1 second of no typing
+        manualChoiceUpdateTimeoutRef.current = setTimeout(() => {
+          if (newValue.trim() && lastScene.variant_id !== undefined) {
+            updateManualChoice(lastScene.variant_id, newValue);
+          }
+        }, 1000);
+      }
+    }
+  }, [story, storyId]);
+
   const generateMoreOptions = async (variantId: number) => {
     if (!story || !story.scenes.length || isGeneratingMoreOptions || !variantId) return;
     
     setIsGeneratingMoreOptions(true);
     try {
-      // Generate fresh choices using the LLM for the specific variant
-      await apiClient.generateMoreChoices(storyId, variantId);
+      // Generate choices
+      const response = await apiClient.generateMoreChoices(storyId, variantId);
       
-      // Refresh story data to load new choices from database
+      // Immediately update local state with new choices
+      const sceneWithVariant = story.scenes.find(s => s.variant_id === variantId);
+      if (sceneWithVariant && response.choices) {
+        setStory(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            scenes: prev.scenes.map(s => 
+              s.id === sceneWithVariant.id 
+                ? { 
+                    ...s, 
+                    choices: [...(s.choices || []), ...response.choices]
+                  }
+                : s
+            )
+          };
+        });
+      }
+      
+      // Also refresh from backend to ensure consistency
       await refreshStoryContent();
       
-      // Small delay to ensure state updates propagate, then force a re-render
-      // This helps SceneVariantDisplay detect the changes and reload variants
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Trigger variant reload by incrementing counter
+      variantReloadTriggerRef.current += 1;
+      
     } catch (error) {
       console.error('Failed to generate more options:', error);
     } finally {
@@ -2482,7 +2538,7 @@ export default function StoryPage() {
                           showChoices={showChoices}
                           directorMode={directorMode}
                           customPrompt={customPrompt}
-                          onCustomPromptChange={setCustomPrompt}
+                          onCustomPromptChange={handleCustomPromptChange}
                           onGenerateScene={generateScene}
                           layoutMode={sceneLayoutMode}
                           onNewSceneAdded={() => setIsNewSceneAdded(true)}
@@ -2490,6 +2546,7 @@ export default function StoryPage() {
                           showChoicesDuringGeneration={showChoicesDuringGeneration}
                           setShowChoicesDuringGeneration={setShowChoicesDuringGeneration}
                           setSelectedChoice={setSelectedChoice}
+                          variantReloadTrigger={variantReloadTriggerRef.current}
                           streamingContinuation={streamingContinuationSceneId === scene.id ? streamingContinuation : ''}
                           isStreamingContinuation={streamingContinuationSceneId === scene.id && isStreamingContinuation}
                           isSceneOperationInProgress={isSceneOperationInProgress}
@@ -2770,7 +2827,11 @@ export default function StoryPage() {
                     }
                   }}
                   disabled={isGeneratingMoreOptions || isGenerating || isStreaming || isRegenerating || isStreamingContinuation}
-                  className="text-sm transition-colors disabled:opacity-50 text-gray-400 hover:text-white"
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
+                    isGeneratingMoreOptions 
+                      ? 'bg-gray-600 text-gray-400 cursor-not-allowed opacity-50' 
+                      : 'bg-blue-600 hover:bg-blue-700 text-white'
+                  }`}
                 >
                   {isGeneratingMoreOptions ? (
                     <>

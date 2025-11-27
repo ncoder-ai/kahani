@@ -381,7 +381,7 @@ class ApiClient {
     userContent?: string,
     contentMode: 'ai_generate' | 'user_scene' | 'user_prompt' = 'ai_generate',
     onChunk?: (chunk: string) => void,
-    onComplete?: (sceneId: number, choices: any[], autoPlay?: { enabled: boolean; session_id: string; scene_id: number }) => void,
+    onComplete?: (sceneId: number, variantId: number, choices: any[], autoPlay?: { enabled: boolean; session_id: string; scene_id: number }) => void,
     onError?: (error: string) => void,
     onAutoPlayReady?: (sessionId: string, sceneId: number) => void,
     onExtractionStatus?: (status: 'extracting' | 'complete' | 'error', message: string) => void
@@ -469,7 +469,7 @@ class ApiClient {
                 else if (parsed.type === 'complete' && onComplete) {
                   receivedComplete = true;
                   clearTimeout(timeoutId);
-                  onComplete(parsed.scene_id, parsed.choices || [], parsed.auto_play);
+                  onComplete(parsed.scene_id, parsed.variant_id, parsed.choices || [], parsed.auto_play);
                   return;  // Exit after complete event
                 }
                 else if (parsed.type === 'error' && onError) {
@@ -671,6 +671,32 @@ class ApiClient {
       method: 'PUT',
       body: JSON.stringify({ content }),
     });
+  }
+
+  async updateManualChoice(storyId: number, variantId: number, choiceText: string) {
+    const formData = new FormData();
+    formData.append('choice_text', choiceText);
+    
+    const token = this.getToken();
+    const headers: HeadersInit = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    const response = await fetch(
+      `${this.baseURL}/api/stories/${storyId}/variants/${variantId}/manual-choice`,
+      {
+        method: 'PUT',
+        headers,
+        body: formData
+      }
+    );
+    
+    if (!response.ok) {
+      throw new Error('Failed to update manual choice');
+    }
+    
+    return response.json();
   }
 
   async regenerateSceneVariantChoices(storyId: number, sceneId: number, variantId: number) {

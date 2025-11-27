@@ -604,8 +604,8 @@ settings:
     titles: 150
     scene: 2048
     scene_continuation: 400
-    choices: 300
-    choice_generation: 300
+    choices: 600
+    choice_generation: 800
     complete_plot: 800
     single_plot_point: 200
     story_summary: 500
