@@ -2223,15 +2223,11 @@ class UnifiedLLMService:
         # Parse choices from response using JSON format
         choices = self._parse_choices_from_json(response)
         
-        # Ensure we have at least some choices
+        # If parsing failed or we don't have enough choices, return empty list
+        # This signals to the API layer that choice generation failed
         if not choices or len(choices) < 2:
-            logger.warning(f"[CHOICES] Failed to parse choices from JSON, using fallback. Response: {response[:200]}")
-            choices = [
-                "Continue forward cautiously",
-                "Take a different approach", 
-                "Investigate further",
-                "Make a bold decision"
-            ]
+            logger.warning(f"[CHOICES] Failed to parse choices from JSON. Response: {response[:200]}")
+            return []
         
         return choices  # Return all parsed choices
     

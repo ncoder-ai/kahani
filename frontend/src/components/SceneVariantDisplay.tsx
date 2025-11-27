@@ -349,14 +349,7 @@ export default function SceneVariantDisplay({
         .sort((a, b) => a.order - b.order)
         .map(choice => choice.text));
     }
-    // Fallback choices
-    else if (!isGenerating && !isStreaming) {
-      baseChoices.push(
-        "Continue this naturally",
-        "Add dialogue between characters", 
-        "Introduce a plot twist"
-      );
-    }
+    // No fallback choices - return empty array if no choices available
     
     // All choices now come from variant data (including "more choices" stored in DB)
     return baseChoices;
@@ -725,7 +718,11 @@ export default function SceneVariantDisplay({
       }
     } catch (error) {
       console.error('[RegenerateChoices] Failed to regenerate choices:', error);
-      alert('Failed to regenerate choices. Please try again.');
+      // Extract error message - API client already extracts detail/message from backend
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : 'Failed to regenerate choices. Please try again or use the custom prompt field to specify your continuation.';
+      alert(errorMessage);
     } finally {
       setIsRegeneratingChoices(false);
     }
@@ -1143,22 +1140,28 @@ export default function SceneVariantDisplay({
                   ))}
                 </div>
               ) : (
-                <div className="text-center text-gray-400 py-4">
+                <div className="text-center py-4">
                   {isGeneratingChoices ? (
                     <div className="flex items-center justify-center space-x-2">
                       <div className="w-4 h-4 border-2 border-pink-500 border-t-transparent rounded-full animate-spin"></div>
-                      <span className="text-sm">Generating choices...</span>
+                      <span className="text-sm text-gray-400">Generating choices...</span>
+                    </div>
+                  ) : !isGenerating && !isStreaming ? (
+                    <div className="bg-blue-900/20 border border-blue-700/50 rounded-lg p-4 text-left">
+                      <p className="text-sm text-blue-300 mb-2">
+                        AI failed to generate choices. You can regenerate choices using the button below, or specify your own continuation in the custom prompt field.
+                      </p>
                     </div>
                   ) : (
-                    <div className="animate-pulse">Loading story choices...</div>
+                    <div className="animate-pulse text-gray-400">Loading story choices...</div>
                   )}
                 </div>
               )}
             </div>
           )}
 
-          {/* Regenerate Choices Button - Show for last scene if variant has been manually edited */}
-          {isLastScene && getCurrentVariant()?.user_edited && (
+          {/* Regenerate Choices Button - Show for last scene if variant has been manually edited OR if no choices available */}
+          {isLastScene && (getCurrentVariant()?.user_edited || getAvailableChoices().length === 0) && (
             <div className="mb-4 flex justify-center">
               <button
                 onClick={handleRegenerateChoices}

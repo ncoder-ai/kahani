@@ -1507,6 +1507,18 @@ export default function StoryPage() {
       
     } catch (error) {
       console.error('Failed to generate more options:', error);
+      // Extract error message from the error response
+      // The API client already extracts the detail/message from the backend response
+      let errorMessage = 'Failed to generate choices. Please try again.';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === 'object' && error !== null && 'message' in error) {
+        errorMessage = String(error.message);
+      }
+      // Show user-friendly error message
+      setError(errorMessage);
+      // Clear error after 8 seconds to give user time to read
+      setTimeout(() => setError(''), 8000);
     } finally {
       setIsGeneratingMoreOptions(false);
     }
