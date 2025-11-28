@@ -7,7 +7,6 @@ import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useGlobalTTS } from '@/contexts/GlobalTTSContext';
 import { useStoryActions } from '@/contexts/StoryContext';
-import { audioContextManager } from '@/utils/audioContextManager';
 
 // Lazy load heavy modals - only load when opened
 const UnifiedMenu = dynamic(() => import('./UnifiedMenu'), {
@@ -28,56 +27,32 @@ const TTSSettingsModal = dynamic(() => import('./TTSSettingsModal'), {
 export default function PersistentBanner() {
   const router = useRouter();
   const { user } = useAuthStore();
-  const { audioPermissionBlocked } = useGlobalTTS();
   const { storyActions } = useStoryActions();
   const pathname = usePathname();
   const [canGoBack, setCanGoBack] = useState(false);
   const [showUnifiedMenu, setShowUnifiedMenu] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showTTSSettings, setShowTTSSettings] = useState(false);
-  const [ttsPermissionEnabled, setTtsPermissionEnabled] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [isClient, setIsClient] = useState(false);
   
   // Mark as client-side only after hydration
   useEffect(() => {
     setIsClient(true);
-  }, []);
-
-  // Sync with AudioContext state
-  useEffect(() => {
-    // Only run on client side to prevent hydration mismatch
-    if (typeof window === 'undefined') return;
-    
-    const checkAudioState = () => {
-      const isUnlocked = audioContextManager.isAudioUnlocked();
-      setTtsPermissionEnabled(isUnlocked);
-    };
     
     // Check if mobile device (client-side only)
-    setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent));
-    
-    // Check immediately
-    checkAudioState();
-    
-    // Check periodically to sync with manual unlocks
-    const interval = setInterval(checkAudioState, 1000);
-    
-    return () => clearInterval(interval);
+    if (typeof window !== 'undefined') {
+      setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent));
+    }
   }, []);
   
-  // Compute actual permission state
-  const needsPermission = audioPermissionBlocked || !ttsPermissionEnabled;
+  // TTS permission is handled automatically via silent audio trick in connectToSession
+  // No manual unlock needed for HTMLAudioElement
+  const needsPermission = false;
   
   const handleEnableTTS = async () => {
-    const success = await audioContextManager.unlock();
-    
-    if (success) {
-      setTtsPermissionEnabled(true);
-      // NO ALERT - just visual feedback
-    } else {
-      console.error('[TTS Permission] ❌ Failed to unlock AudioContext');
-    }
+    // No-op - permission is handled automatically when TTS starts
+    console.log('[TTS Permission] Permission will be requested automatically when TTS starts');
   };
 
   useEffect(() => {

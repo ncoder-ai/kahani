@@ -5,7 +5,7 @@ import { useGlobalTTS } from '@/contexts/GlobalTTSContext';
 import { audioContextManager } from '@/utils/audioContextManager';
 
 export const TTSDebugPanel: React.FC = () => {
-  const { currentSceneId, isPlaying, isGenerating, error, debugLogs } = useGlobalTTS();
+  const { currentSceneId, isPlaying, isGenerating, error } = useGlobalTTS();
   const [isVisible, setIsVisible] = useState(false);
   
   // Only show on mobile devices
@@ -84,15 +84,7 @@ export const TTSDebugPanel: React.FC = () => {
       <div className="border-t border-gray-700 pt-3">
         <div className="font-semibold mb-2 text-[11px] text-gray-300">Recent Activity:</div>
         <div className="space-y-1 max-h-40 overflow-y-auto">
-          {debugLogs && debugLogs.length > 0 ? (
-            debugLogs.map((log, i) => (
-              <div key={i} className="text-[10px] font-mono text-gray-300 leading-relaxed">
-                {log}
-              </div>
-            ))
-          ) : (
-            <div className="text-[10px] text-gray-500 italic">No activity yet...</div>
-          )}
+          <div className="text-[10px] text-gray-500 italic">Check browser console for TTS logs</div>
         </div>
       </div>
       
