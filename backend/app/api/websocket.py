@@ -69,7 +69,16 @@ async def websocket_tts_stream(
         "chunk_number": 3
     }
     """
-    await websocket.accept()
+    # Log connection attempt
+    client_host = websocket.client.host if websocket.client else "unknown"
+    logger.info(f"[WebSocket] Connection attempt for session {session_id} from {client_host}")
+    
+    try:
+        await websocket.accept()
+        logger.info(f"[WebSocket] Connection accepted for session {session_id}")
+    except Exception as e:
+        logger.error(f"[WebSocket] Failed to accept connection for session {session_id}: {e}")
+        raise
     
     try:
         # Get session

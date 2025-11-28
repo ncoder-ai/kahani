@@ -35,7 +35,9 @@ async function getApiBaseUrl(): Promise<string> {
   
   // Use config API to get backend port
   try {
-    return await getApiBaseUrlFromConfig();
+    const url = await getApiBaseUrlFromConfig();
+    // Always normalize to ensure port is added if missing
+    return normalizeApiUrl(url);
   } catch (error) {
     // If config API unavailable, this is a critical error
     throw new Error(`Unable to determine API URL: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -47,7 +49,9 @@ function getApiBaseUrlSync(): string {
   if (process.env.NEXT_PUBLIC_API_URL) {
     return normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL);
   }
-  return getApiBaseUrlSyncFromConfig();
+  const url = getApiBaseUrlSyncFromConfig();
+  // Always normalize to ensure port is added if missing
+  return normalizeApiUrl(url);
 }
 
 class ApiClient {

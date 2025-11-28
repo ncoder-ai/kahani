@@ -6,6 +6,11 @@ import { getBackendPort } from './config';
 
 let cachedBackendPort: number | null = null;
 
+// Export cached port for synchronous access
+export function getCachedBackendPort(): number | null {
+  return cachedBackendPort;
+}
+
 // Global variable to store config from React context
 // This is set by ConfigProvider when it loads config
 let contextConfig: { backendPort: number } | null = null;

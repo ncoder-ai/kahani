@@ -32,23 +32,13 @@ export default function RootLayout({
 }: {
   children: React.ReactNode
 }) {
-  // NEXT_PUBLIC_API_URL must be set via environment variable for SSR
-  // No hardcoded default - must be configured
-  // GlobalTTSProvider will handle client-side URL detection to prevent hydration mismatches
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || '';
-  if (!process.env.NEXT_PUBLIC_API_URL) {
-    // For SSR, we need an API URL. Client-side will load from config API.
-    // Use empty string - ClientGlobalTTSProvider will load from config API
-    console.warn('NEXT_PUBLIC_API_URL not set. Client-side will load from config API.');
-  }
-  
   return (
     <html lang="en">
       <body className={inter.className}>
         <BrowserExtensionFix />
         <ServiceWorkerRegistration />
         <ConfigProvider>
-          <GlobalTTSProvider apiBaseUrl={apiBaseUrl}>
+          <GlobalTTSProvider>
             <StoryProvider>
               <PersistentBanner />
               {children}
