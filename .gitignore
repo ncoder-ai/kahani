@@ -205,7 +205,9 @@ dist
 
 # Gatsby files
 .cache/
-public
+# Note: Next.js public/ folder should be tracked, so we don't ignore it
+# Only ignore Gatsby's public folder (if using Gatsby)
+# public
 
 # Storybook build outputs
 .out
