@@ -26,6 +26,134 @@ function normalizeApiUrl(url: string): string {
   }
 }
 
+/**
+ * Simple Circuit Breaker to prevent hammering an unresponsive backend
+ */
+class CircuitBreaker {
+  private failures = 0;
+  private lastFailureTime = 0;
+  private isOpen = false;
+  
+  // Configuration
+  private readonly failureThreshold = 5;  // Open circuit after 5 consecutive failures
+  private readonly resetTimeMs = 30000;   // Try again after 30 seconds
+  
+  /**
+   * Check if circuit is open (should skip request)
+   */
+  shouldBlock(): boolean {
+    if (!this.isOpen) return false;
+    
+    // Check if enough time has passed to try again
+    if (Date.now() - this.lastFailureTime > this.resetTimeMs) {
+      this.isOpen = false;
+      this.failures = 0;
+      console.log('[CircuitBreaker] Circuit closed, allowing requests');
+      return false;
+    }
+    
+    return true;
+  }
+  
+  /**
+   * Record a successful request
+   */
+  recordSuccess(): void {
+    this.failures = 0;
+    if (this.isOpen) {
+      this.isOpen = false;
+      console.log('[CircuitBreaker] Circuit closed after successful request');
+    }
+  }
+  
+  /**
+   * Record a failed request
+   */
+  recordFailure(): void {
+    this.failures++;
+    this.lastFailureTime = Date.now();
+    
+    if (this.failures >= this.failureThreshold && !this.isOpen) {
+      this.isOpen = true;
+      console.warn(`[CircuitBreaker] Circuit opened after ${this.failures} failures. Will retry in ${this.resetTimeMs / 1000}s`);
+    }
+  }
+  
+  /**
+   * Get time until circuit resets (for user feedback)
+   */
+  getTimeUntilReset(): number {
+    if (!this.isOpen) return 0;
+    const elapsed = Date.now() - this.lastFailureTime;
+    return Math.max(0, this.resetTimeMs - elapsed);
+  }
+}
+
+// Global circuit breaker instance
+const circuitBreaker = new CircuitBreaker();
+
+/**
+ * Error types for better error handling
+ */
+export enum ApiErrorType {
+  NETWORK_ERROR = 'NETWORK_ERROR',
+  TIMEOUT = 'TIMEOUT',
+  SERVER_ERROR = 'SERVER_ERROR',
+  AUTH_ERROR = 'AUTH_ERROR',
+  VALIDATION_ERROR = 'VALIDATION_ERROR',
+  CIRCUIT_OPEN = 'CIRCUIT_OPEN',
+  UNKNOWN = 'UNKNOWN'
+}
+
+/**
+ * Custom API Error with additional context
+ */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly type: ApiErrorType,
+    public readonly statusCode?: number,
+    public readonly retryable: boolean = false
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+/**
+ * Sleep utility for retry delays
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Check if an error is retryable
+ */
+function isRetryableError(error: unknown, statusCode?: number): boolean {
+  // Network errors are retryable
+  if (error instanceof TypeError && error.message === 'Load failed') {
+    return true;
+  }
+  
+  // Timeout errors are retryable
+  if (error instanceof Error && error.name === 'AbortError') {
+    return true;
+  }
+  
+  // 5xx server errors are retryable
+  if (statusCode && statusCode >= 500) {
+    return true;
+  }
+  
+  // 429 Too Many Requests is retryable
+  if (statusCode === 429) {
+    return true;
+  }
+  
+  return false;
+}
+
 // Runtime API URL detection - uses config API
 async function getApiBaseUrl(): Promise<string> {
   // First check environment variable
@@ -180,7 +308,21 @@ class ApiClient {
     return this.cachedTimeoutMs;
   }
 
-  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  private async request<T>(endpoint: string, options: RequestInit = {}, retryCount = 0): Promise<T> {
+    const maxRetries = 3;
+    const baseDelayMs = 1000;
+    
+    // Check circuit breaker first
+    if (circuitBreaker.shouldBlock()) {
+      const resetTime = Math.ceil(circuitBreaker.getTimeUntilReset() / 1000);
+      throw new ApiError(
+        `Server temporarily unavailable. Please try again in ${resetTime} seconds.`,
+        ApiErrorType.CIRCUIT_OPEN,
+        undefined,
+        false
+      );
+    }
+    
     // Ensure baseURL is initialized before making request
     if (!this.baseURL) {
       await this.initialize();
@@ -217,7 +359,12 @@ class ApiClient {
           // Skip token refresh for login endpoint to avoid retry loops
           if (endpoint.includes('/api/auth/login')) {
             this.removeToken();
-            throw new Error('Authentication failed. Please check your credentials.');
+            throw new ApiError(
+              'Authentication failed. Please check your credentials.',
+              ApiErrorType.AUTH_ERROR,
+              401,
+              false
+            );
           }
           
           const refreshSuccess = await this.handleTokenRefresh();
@@ -233,13 +380,19 @@ class ApiClient {
               });
               clearTimeout(retryTimeoutId);
               if (retryResponse.ok) {
+                circuitBreaker.recordSuccess();
                 const retryData = await retryResponse.json();
                 return retryData;
               }
             } catch (retryError) {
               clearTimeout(retryTimeoutId);
               if (retryError instanceof Error && retryError.name === 'AbortError') {
-                throw new Error('Request timed out. Please check your connection and try again.');
+                throw new ApiError(
+                  'Request timed out. Please check your connection and try again.',
+                  ApiErrorType.TIMEOUT,
+                  undefined,
+                  true
+                );
               }
               throw retryError;
             }
@@ -249,7 +402,16 @@ class ApiClient {
           if (typeof window !== 'undefined') {
             window.location.href = '/login';
           }
-          throw new Error('Authentication required');
+          throw new ApiError('Authentication required', ApiErrorType.AUTH_ERROR, 401, false);
+        }
+
+        // Check if error is retryable (5xx errors)
+        if (isRetryableError(null, response.status) && retryCount < maxRetries) {
+          circuitBreaker.recordFailure();
+          const delay = baseDelayMs * Math.pow(2, retryCount);
+          console.warn(`[API] Server error ${response.status}, retrying in ${delay}ms (attempt ${retryCount + 1}/${maxRetries})`);
+          await sleep(delay);
+          return this.request<T>(endpoint, options, retryCount + 1);
         }
 
         let errorData: any;
@@ -257,7 +419,13 @@ class ApiClient {
           errorData = await response.json();
         } catch (e) {
           console.error('[API] Failed to parse error response:', e);
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          circuitBreaker.recordFailure();
+          throw new ApiError(
+            `Server error (${response.status}). Please try again later.`,
+            ApiErrorType.SERVER_ERROR,
+            response.status,
+            response.status >= 500
+          );
         }
 
         if (errorData.detail && Array.isArray(errorData.detail)) {
@@ -265,29 +433,81 @@ class ApiClient {
             const location = err.loc ? err.loc.slice(1).join(' -> ') : 'Field';
             return `${location}: ${err.msg}`;
           }).join(', ');
-          throw new Error(errorMessages);
+          throw new ApiError(errorMessages, ApiErrorType.VALIDATION_ERROR, response.status, false);
         }
 
         const errorMessage = errorData.detail || errorData.message || `HTTP ${response.status}: ${response.statusText}`;
-        throw new Error(typeof errorMessage === 'string' ? errorMessage : JSON.stringify(errorMessage));
+        const errorType = response.status >= 500 ? ApiErrorType.SERVER_ERROR : ApiErrorType.UNKNOWN;
+        throw new ApiError(
+          typeof errorMessage === 'string' ? errorMessage : JSON.stringify(errorMessage),
+          errorType,
+          response.status,
+          response.status >= 500
+        );
       }
 
+      // Success - record it and return data
+      circuitBreaker.recordSuccess();
       const data = await response.json();
       return data;
     } catch (error) {
       clearTimeout(timeoutId);
+      
+      // If it's already an ApiError, just rethrow
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      
       if (error instanceof Error) {
         // Handle timeout specifically
         if (error.name === 'AbortError') {
+          circuitBreaker.recordFailure();
           const timeoutSeconds = Math.round(requestTimeoutMs / 1000);
           console.error(`[API] Request timed out after ${timeoutSeconds} seconds`);
-          throw new Error(`Request timed out after ${timeoutSeconds} seconds. Please check your connection and try again.`);
+          
+          // Retry timeout errors
+          if (retryCount < maxRetries) {
+            const delay = baseDelayMs * Math.pow(2, retryCount);
+            console.warn(`[API] Retrying after timeout in ${delay}ms (attempt ${retryCount + 1}/${maxRetries})`);
+            await sleep(delay);
+            return this.request<T>(endpoint, options, retryCount + 1);
+          }
+          
+          throw new ApiError(
+            `Request timed out after ${timeoutSeconds} seconds. The server may be busy or unresponsive.`,
+            ApiErrorType.TIMEOUT,
+            undefined,
+            true
+          );
         }
+        
+        // Handle network errors ("Load failed" in Safari, "Failed to fetch" in Chrome)
+        if (error.message === 'Load failed' || error.message === 'Failed to fetch' || error instanceof TypeError) {
+          circuitBreaker.recordFailure();
+          console.error('[API] Network error:', error.message);
+          
+          // Retry network errors
+          if (retryCount < maxRetries) {
+            const delay = baseDelayMs * Math.pow(2, retryCount);
+            console.warn(`[API] Retrying after network error in ${delay}ms (attempt ${retryCount + 1}/${maxRetries})`);
+            await sleep(delay);
+            return this.request<T>(endpoint, options, retryCount + 1);
+          }
+          
+          throw new ApiError(
+            'Unable to connect to the server. Please check your connection and try again.',
+            ApiErrorType.NETWORK_ERROR,
+            undefined,
+            true
+          );
+        }
+        
         console.error('[API] Request failed:', error.message);
-      } else {
-        console.error('[API] Request failed with unknown error:', error);
+        throw new ApiError(error.message, ApiErrorType.UNKNOWN, undefined, false);
       }
-      throw error;
+      
+      console.error('[API] Request failed with unknown error:', error);
+      throw new ApiError('An unexpected error occurred', ApiErrorType.UNKNOWN, undefined, false);
     }
   }
 

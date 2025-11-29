@@ -6,6 +6,7 @@ enabling intelligent context retrieval beyond simple recency-based selection.
 """
 
 import logging
+import asyncio
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 import os
@@ -31,6 +32,9 @@ class SemanticMemoryService:
     - Character moment embeddings for character consistency
     - Plot event embeddings for thread tracking
     - Efficient similarity search with metadata filtering
+    
+    Note: All blocking operations (model inference, ChromaDB I/O) are wrapped
+    in asyncio.to_thread() to prevent blocking the event loop.
     """
     
     def __init__(self, persist_directory: str = "./data/chromadb", embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2", reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"):
@@ -92,28 +96,41 @@ class SemanticMemoryService:
         
         logger.info("ChromaDB collections initialized successfully")
     
-    def _ensure_model_loaded(self):
-        """Lazy-load the embedding model on first use"""
+    def _load_embedding_model_sync(self):
+        """Synchronous model loading - to be called via asyncio.to_thread()"""
+        from sentence_transformers import SentenceTransformer
+        self.embedding_model = SentenceTransformer(self.embedding_model_name)
+        self._embedding_dimension = self.embedding_model.get_sentence_embedding_dimension()
+    
+    async def _ensure_model_loaded(self):
+        """Lazy-load the embedding model on first use (async)"""
         if self.embedding_model is None:
             logger.info(f"Loading embedding model: {self.embedding_model_name}")
-            # Import SentenceTransformer only when actually needed to avoid blocking startup
-            from sentence_transformers import SentenceTransformer
-            self.embedding_model = SentenceTransformer(self.embedding_model_name)
-            self._embedding_dimension = self.embedding_model.get_sentence_embedding_dimension()
+            # Run blocking model loading in thread pool
+            await asyncio.to_thread(self._load_embedding_model_sync)
             logger.info(f"Embedding model loaded successfully. Dimension: {self._embedding_dimension}")
     
-    def _ensure_reranker_loaded(self):
-        """Lazy-load the reranker model on first use"""
+    def _load_reranker_model_sync(self):
+        """Synchronous reranker loading - to be called via asyncio.to_thread()"""
+        from sentence_transformers import CrossEncoder
+        self.reranker = CrossEncoder(self.reranker_model_name)
+    
+    async def _ensure_reranker_loaded(self):
+        """Lazy-load the reranker model on first use (async)"""
         if self.reranker is None and self.enable_reranking:
             logger.info(f"Loading reranker model: {self.reranker_model_name}")
-            # Import CrossEncoder only when actually needed
-            from sentence_transformers import CrossEncoder
-            self.reranker = CrossEncoder(self.reranker_model_name)
+            # Run blocking model loading in thread pool
+            await asyncio.to_thread(self._load_reranker_model_sync)
             logger.info(f"Reranker model loaded successfully")
     
-    def generate_embedding(self, text: str) -> List[float]:
+    def _generate_embedding_sync(self, text: str) -> List[float]:
+        """Synchronous embedding generation - to be called via asyncio.to_thread()"""
+        embedding = self.embedding_model.encode(text, convert_to_numpy=True)
+        return embedding.tolist()
+    
+    async def generate_embedding(self, text: str) -> List[float]:
         """
-        Generate embedding vector for text
+        Generate embedding vector for text (async)
         
         Args:
             text: Text to embed
@@ -122,9 +139,10 @@ class SemanticMemoryService:
             List of floats representing the embedding
         """
         try:
-            self._ensure_model_loaded()
-            embedding = self.embedding_model.encode(text, convert_to_numpy=True)
-            return embedding.tolist()
+            await self._ensure_model_loaded()
+            # Run CPU-intensive encoding in thread pool
+            embedding = await asyncio.to_thread(self._generate_embedding_sync, text)
+            return embedding
         except Exception as e:
             logger.error(f"Failed to generate embedding: {e}")
             raise
@@ -155,8 +173,8 @@ class SemanticMemoryService:
         try:
             embedding_id = f"scene_{scene_id}_v{variant_id}"
             
-            # Generate embedding
-            embedding = self.generate_embedding(content)
+            # Generate embedding (async)
+            embedding = await self.generate_embedding(content)
             
             # Prepare metadata
             meta = {
@@ -170,8 +188,9 @@ class SemanticMemoryService:
                 "content_length": len(content)
             }
             
-            # Add to collection (upsert behavior)
-            self.scenes_collection.upsert(
+            # Add to collection (upsert behavior) - run in thread pool
+            await asyncio.to_thread(
+                self.scenes_collection.upsert,
                 ids=[embedding_id],
                 embeddings=[embedding],
                 documents=[content[:1000]],  # Store first 1000 chars for reference
@@ -217,8 +236,8 @@ class SemanticMemoryService:
             # Get more candidates for reranking (3x oversample)
             retrieval_k = top_k * 3 if (use_reranking and self.enable_reranking) else top_k * 2
             
-            # Generate query embedding
-            query_embedding = self.generate_embedding(query_text)
+            # Generate query embedding (async)
+            query_embedding = await self.generate_embedding(query_text)
             
             # Build where filter
             if chapter_id is not None:
@@ -231,8 +250,9 @@ class SemanticMemoryService:
             else:
                 where_filter = {"story_id": {"$eq": story_id}}
             
-            # Query collection
-            results = self.scenes_collection.query(
+            # Query collection - run in thread pool
+            results = await asyncio.to_thread(
+                self.scenes_collection.query,
                 query_embeddings=[query_embedding],
                 n_results=retrieval_k,
                 where=where_filter,
@@ -278,13 +298,13 @@ class SemanticMemoryService:
             # Stage 2: Cross-encoder reranking (if enabled)
             if use_reranking and self.enable_reranking and len(candidates) > top_k:
                 try:
-                    self._ensure_reranker_loaded()
+                    await self._ensure_reranker_loaded()
                     
                     # Prepare query-document pairs
                     pairs = [[query_text, candidate['document_text']] for candidate in candidates]
                     
-                    # Get reranking scores
-                    rerank_scores = self.reranker.predict(pairs)
+                    # Get reranking scores - run in thread pool
+                    rerank_scores = await asyncio.to_thread(self.reranker.predict, pairs)
                     
                     # Update candidates with reranked scores
                     for candidate, rerank_score in zip(candidates, rerank_scores):
@@ -353,8 +373,8 @@ class SemanticMemoryService:
             content_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()[:8]
             embedding_id = f"char_{character_id}_scene_{scene_id}_{moment_type}_{content_hash}"
             
-            # Generate embedding
-            embedding = self.generate_embedding(content)
+            # Generate embedding (async)
+            embedding = await self.generate_embedding(content)
             
             # Prepare metadata
             meta = {
@@ -367,8 +387,9 @@ class SemanticMemoryService:
                 "timestamp": metadata.get("timestamp", datetime.utcnow().isoformat())
             }
             
-            # Add to collection
-            self.character_moments_collection.upsert(
+            # Add to collection - run in thread pool
+            await asyncio.to_thread(
+                self.character_moments_collection.upsert,
                 ids=[embedding_id],
                 embeddings=[embedding],
                 documents=[content[:500]],
@@ -409,8 +430,8 @@ class SemanticMemoryService:
             # Get more candidates if reranking
             retrieval_k = top_k * 3 if (use_reranking and self.enable_reranking) else top_k * 2
             
-            # Generate query embedding
-            query_embedding = self.generate_embedding(query_text)
+            # Generate query embedding (async)
+            query_embedding = await self.generate_embedding(query_text)
             
             # Build where filter
             conditions = [
@@ -422,8 +443,9 @@ class SemanticMemoryService:
             
             where_filter = {"$and": conditions} if len(conditions) > 1 else conditions[0]
             
-            # Query collection
-            results = self.character_moments_collection.query(
+            # Query collection - run in thread pool
+            results = await asyncio.to_thread(
+                self.character_moments_collection.query,
                 query_embeddings=[query_embedding],
                 n_results=retrieval_k,
                 where=where_filter,
@@ -459,9 +481,10 @@ class SemanticMemoryService:
             # Apply reranking if enabled
             if use_reranking and self.enable_reranking and len(candidates) > top_k:
                 try:
-                    self._ensure_reranker_loaded()
+                    await self._ensure_reranker_loaded()
                     pairs = [[query_text, c['document_text']] for c in candidates]
-                    rerank_scores = self.reranker.predict(pairs)
+                    # Run reranking in thread pool
+                    rerank_scores = await asyncio.to_thread(self.reranker.predict, pairs)
                     
                     for candidate, score in zip(candidates, rerank_scores):
                         candidate['similarity_score'] = float(score)
@@ -507,8 +530,9 @@ class SemanticMemoryService:
             List of character moments in chronological order
         """
         try:
-            # Get all moments for this character
-            results = self.character_moments_collection.get(
+            # Get all moments for this character - run in thread pool
+            results = await asyncio.to_thread(
+                self.character_moments_collection.get,
                 where={
                     "$and": [
                         {"character_id": {"$eq": character_id}},
@@ -568,8 +592,8 @@ class SemanticMemoryService:
         try:
             embedding_id = f"plot_{event_id}"
             
-            # Generate embedding
-            embedding = self.generate_embedding(description)
+            # Generate embedding (async)
+            embedding = await self.generate_embedding(description)
             
             # Prepare metadata
             meta = {
@@ -583,8 +607,9 @@ class SemanticMemoryService:
                 "timestamp": metadata.get("timestamp", datetime.utcnow().isoformat())
             }
             
-            # Add to collection
-            self.plot_events_collection.upsert(
+            # Add to collection - run in thread pool
+            await asyncio.to_thread(
+                self.plot_events_collection.upsert,
                 ids=[embedding_id],
                 embeddings=[embedding],
                 documents=[description[:500]],
@@ -623,8 +648,8 @@ class SemanticMemoryService:
             # Get more candidates if reranking
             retrieval_k = top_k * 3 if (use_reranking and self.enable_reranking) else top_k * 2
             
-            # Generate query embedding
-            query_embedding = self.generate_embedding(query_text)
+            # Generate query embedding (async)
+            query_embedding = await self.generate_embedding(query_text)
             
             # Build where filter
             conditions = [{"story_id": {"$eq": story_id}}]
@@ -633,8 +658,9 @@ class SemanticMemoryService:
             
             where_filter = {"$and": conditions} if len(conditions) > 1 else conditions[0]
             
-            # Query collection
-            results = self.plot_events_collection.query(
+            # Query collection - run in thread pool
+            results = await asyncio.to_thread(
+                self.plot_events_collection.query,
                 query_embeddings=[query_embedding],
                 n_results=retrieval_k,
                 where=where_filter,
@@ -671,9 +697,10 @@ class SemanticMemoryService:
             # Apply reranking if enabled
             if use_reranking and self.enable_reranking and len(candidates) > top_k:
                 try:
-                    self._ensure_reranker_loaded()
+                    await self._ensure_reranker_loaded()
                     pairs = [[query_text, c['document_text']] for c in candidates]
-                    rerank_scores = self.reranker.predict(pairs)
+                    # Run reranking in thread pool
+                    rerank_scores = await asyncio.to_thread(self.reranker.predict, pairs)
                     
                     for candidate, score in zip(candidates, rerank_scores):
                         candidate['similarity_score'] = float(score)
@@ -705,26 +732,29 @@ class SemanticMemoryService:
     
     # Utility Methods
     
-    def delete_story_embeddings(self, story_id: int):
+    async def delete_story_embeddings(self, story_id: int):
         """
-        Delete all embeddings for a story
+        Delete all embeddings for a story (async)
         
         Args:
             story_id: Story ID to delete
         """
         try:
-            # Delete from scenes collection
-            self.scenes_collection.delete(
+            # Delete from scenes collection - run in thread pool
+            await asyncio.to_thread(
+                self.scenes_collection.delete,
                 where={"story_id": {"$eq": story_id}}
             )
             
-            # Delete from character moments collection
-            self.character_moments_collection.delete(
+            # Delete from character moments collection - run in thread pool
+            await asyncio.to_thread(
+                self.character_moments_collection.delete,
                 where={"story_id": {"$eq": story_id}}
             )
             
-            # Delete from plot events collection
-            self.plot_events_collection.delete(
+            # Delete from plot events collection - run in thread pool
+            await asyncio.to_thread(
+                self.plot_events_collection.delete,
                 where={"story_id": {"$eq": story_id}}
             )
             
@@ -733,9 +763,9 @@ class SemanticMemoryService:
         except Exception as e:
             logger.error(f"Failed to delete story embeddings: {e}")
     
-    def delete_scene_embedding(self, scene_id: int, variant_id: int):
+    async def delete_scene_embedding(self, scene_id: int, variant_id: int):
         """
-        Delete a specific scene embedding
+        Delete a specific scene embedding (async)
         
         Args:
             scene_id: Scene ID
@@ -743,34 +773,40 @@ class SemanticMemoryService:
         """
         try:
             embedding_id = f"scene_{scene_id}_v{variant_id}"
-            self.scenes_collection.delete(ids=[embedding_id])
+            # Run in thread pool
+            await asyncio.to_thread(self.scenes_collection.delete, ids=[embedding_id])
             logger.info(f"Deleted scene embedding: {embedding_id}")
         except Exception as e:
             logger.error(f"Failed to delete scene embedding: {e}")
     
-    def get_collection_stats(self) -> Dict[str, int]:
+    async def get_collection_stats(self) -> Dict[str, int]:
         """
-        Get statistics about collection sizes
+        Get statistics about collection sizes (async)
         
         Returns:
             Dictionary with collection names and counts
         """
         try:
+            # Run counts in thread pool
+            scenes_count = await asyncio.to_thread(self.scenes_collection.count)
+            moments_count = await asyncio.to_thread(self.character_moments_collection.count)
+            events_count = await asyncio.to_thread(self.plot_events_collection.count)
+            
             return {
-                "scenes": self.scenes_collection.count(),
-                "character_moments": self.character_moments_collection.count(),
-                "plot_events": self.plot_events_collection.count()
+                "scenes": scenes_count,
+                "character_moments": moments_count,
+                "plot_events": events_count
             }
         except Exception as e:
             logger.error(f"Failed to get collection stats: {e}")
             return {"scenes": 0, "character_moments": 0, "plot_events": 0}
     
-    def reset_all_collections(self):
+    async def reset_all_collections(self):
         """
-        Reset all collections (use with caution!)
+        Reset all collections (use with caution!) (async)
         """
         logger.warning("Resetting all semantic memory collections!")
-        self.client.reset()
+        await asyncio.to_thread(self.client.reset)
         self._init_collections()
 
 
@@ -803,4 +839,3 @@ def initialize_semantic_memory_service(persist_directory: str, embedding_model: 
     )
     logger.info("Semantic memory service initialized successfully")
     return semantic_memory_service
-

@@ -96,6 +96,57 @@ function getConfigApiBaseUrl(): string {
 }
 
 /**
+ * Sleep utility for retry delays
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Fetch config with retry logic
+ */
+async function fetchConfigWithRetry(configUrl: string, maxRetries: number = 3): Promise<FrontendConfig> {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+      
+      const response = await fetch(configUrl, {
+        signal: controller.signal,
+        mode: 'cors'
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to load config: ${response.status} ${response.statusText}`);
+      }
+      
+      const config = await response.json();
+      return config;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error('Unknown error');
+      
+      // Don't retry on non-retryable errors
+      if (lastError.message.includes('404') || lastError.message.includes('403')) {
+        throw lastError;
+      }
+      
+      // Wait before retrying (exponential backoff)
+      if (attempt < maxRetries - 1) {
+        const delay = 1000 * Math.pow(2, attempt);
+        console.warn(`[Config] Retry ${attempt + 1}/${maxRetries} in ${delay}ms: ${lastError.message}`);
+        await sleep(delay);
+      }
+    }
+  }
+  
+  throw lastError || new Error('Failed to load config after retries');
+}
+
+/**
  * Load configuration from backend API
  */
 async function loadConfig(): Promise<FrontendConfig> {
@@ -165,9 +216,6 @@ async function loadConfig(): Promise<FrontendConfig> {
               }
             } catch (fetchError) {
               // Continue to next port (timeout, network error, etc.)
-              if (fetchError instanceof Error && fetchError.name === 'AbortError') {
-              } else {
-              }
               continue;
             }
           }
@@ -203,19 +251,16 @@ async function loadConfig(): Promise<FrontendConfig> {
         // Fallback to string concatenation if URL constructor fails
         configUrl = `${apiBaseUrl}/api/config/frontend`;
       }
-      const response = await fetch(configUrl);
-
-      if (!response.ok) {
-        throw new Error(`Failed to load config: ${response.status} ${response.statusText}`);
-      }
-
-      const config = await response.json();
+      
+      // Fetch config with retry logic
+      const config = await fetchConfigWithRetry(configUrl);
       configCache = config;
       return config;
     } catch (error) {
       console.error('Failed to load frontend config:', error);
-      // Return empty config object - caller should handle this
-      throw new Error(`Configuration API unavailable: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      // Provide a more helpful error message
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      throw new Error(`Configuration API unavailable: ${errorMsg}. Please ensure the backend server is running.`);
     } finally {
       configLoadPromise = null;
     }
