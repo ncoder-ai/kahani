@@ -29,43 +29,84 @@ class AudioContextManager {
   private pendingSourceCount: number = 0;
   
   constructor() {
-    if (typeof window !== 'undefined') {
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      if (AudioContextClass) {
-        this.context = new AudioContextClass();
-        console.log('[AudioContext] Created with sample rate:', this.context.sampleRate);
-      } else {
-        console.error('[AudioContext] Web Audio API not supported');
-      }
+    // Don't create AudioContext here - iOS requires it to be created during a user gesture
+    // The context will be created lazily in unlock() or getOrCreateContext()
+    console.log('[AudioContext] Manager initialized (context will be created on first user interaction)');
+  }
+  
+  /**
+   * Get or create the AudioContext
+   * Should only be called during a user gesture on iOS
+   */
+  private getOrCreateContext(): AudioContext | null {
+    if (this.context) {
+      return this.context;
     }
+    
+    if (typeof window === 'undefined') {
+      return null;
+    }
+    
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) {
+      console.error('[AudioContext] Web Audio API not supported');
+      return null;
+    }
+    
+    this.context = new AudioContextClass();
+    console.log('[AudioContext] Created with sample rate:', this.context.sampleRate);
+    return this.context;
   }
   
   /**
    * Unlock the AudioContext - MUST be called from a user interaction (click/tap)
    * This is the "one-time unlock" that enables all subsequent audio
+   * On iOS, this also creates the AudioContext if it doesn't exist
+   * 
+   * IMPORTANT: On iOS, we first play through HTMLAudioElement to switch
+   * the audio session to "media playback" mode, which ignores the silent switch.
    */
   async unlock(): Promise<boolean> {
-    if (!this.context) {
-      console.error('[AudioContext] No context available');
+    console.log('[AudioContext] Unlock requested');
+    
+    // Step 1: Play through HTMLAudioElement to switch iOS audio session to media mode
+    // This makes audio play even when the silent switch is on
+    try {
+      await this.unlockMediaSession();
+    } catch (err) {
+      console.warn('[AudioContext] Media session unlock failed (continuing):', err);
+    }
+    
+    // Step 2: Create context during user gesture if it doesn't exist
+    const context = this.getOrCreateContext();
+    if (!context) {
+      console.error('[AudioContext] Failed to create context');
       return false;
     }
     
-    console.log('[AudioContext] Attempting to unlock, current state:', this.context.state);
+    console.log('[AudioContext] Attempting to unlock, current state:', context.state);
     
-    if (this.context.state === 'suspended') {
+    if (context.state === 'suspended') {
       try {
-        await this.context.resume();
+        await context.resume();
         
-        // Play a silent buffer to confirm the context is truly active
-        // This is a recommended practice to handle edge cases on iOS
-        const buffer = this.context.createBuffer(1, 1, this.context.sampleRate);
-        const source = this.context.createBufferSource();
-        source.buffer = buffer;
-        source.connect(this.context.destination);
-        source.start();
+        // Play a short actual tone to TRULY unlock on iOS
+        // Silent buffers sometimes don't fully unlock the audio session
+        const oscillator = context.createOscillator();
+        const gainNode = context.createGain();
+        
+        oscillator.frequency.value = 1; // Very low frequency (inaudible)
+        oscillator.type = 'sine';
+        gainNode.gain.value = 0.001; // Nearly silent
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(context.destination);
+        
+        oscillator.start();
+        oscillator.stop(context.currentTime + 0.1);
         
         this.isUnlocked = true;
-        console.log('[AudioContext] ✓ Unlocked successfully');
+        console.log('[AudioContext] ✓ Unlocked successfully, state:', context.state);
         return true;
       } catch (err) {
         console.error('[AudioContext] ❌ Failed to unlock:', err);
@@ -74,7 +115,7 @@ class AudioContextManager {
     }
     
     // Already running
-    if (this.context.state === 'running') {
+    if (context.state === 'running') {
       this.isUnlocked = true;
       console.log('[AudioContext] Already running');
       return true;
@@ -84,12 +125,71 @@ class AudioContextManager {
   }
   
   /**
+   * Play a brief audio through HTMLAudioElement to switch iOS audio session
+   * from "ambient" (respects silent switch) to "playback" (ignores silent switch)
+   * This is the trick that makes Web Audio work like Spotify/YouTube on iOS
+   */
+  private async unlockMediaSession(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      try {
+        // Create a short silent MP3 data URL
+        // This is a valid MP3 file that's essentially silent
+        const silentMp3 = 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7v////////////////////////////////////////////////////////////////////////////////////////////////AAAABUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7v////////////////////////////////////////////////////////////////////////////////////////////////AAAABUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV';
+        
+        const audio = new Audio(silentMp3);
+        
+        // These attributes help with iOS
+        audio.setAttribute('playsinline', 'true');
+        audio.setAttribute('webkit-playsinline', 'true');
+        
+        audio.volume = 0.01; // Very quiet but not silent (silent might not work)
+        
+        const cleanup = () => {
+          audio.remove();
+        };
+        
+        audio.onended = () => {
+          console.log('[AudioContext] Media session unlocked via HTMLAudioElement');
+          cleanup();
+          resolve();
+        };
+        
+        audio.onerror = (e) => {
+          console.warn('[AudioContext] HTMLAudioElement error:', e);
+          cleanup();
+          reject(e);
+        };
+        
+        // Set a timeout in case play() hangs
+        const timeout = setTimeout(() => {
+          console.log('[AudioContext] Media session unlock timed out (continuing)');
+          cleanup();
+          resolve();
+        }, 500);
+        
+        audio.play().then(() => {
+          console.log('[AudioContext] HTMLAudioElement playing');
+        }).catch((err) => {
+          clearTimeout(timeout);
+          console.warn('[AudioContext] HTMLAudioElement play failed:', err);
+          cleanup();
+          reject(err);
+        });
+        
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
+  
+  /**
    * Ensure context is ready for playback (resume if suspended)
    * Call this before any playback operation
+   * Note: This will NOT create the context - use unlock() first
    */
   async ensureReady(): Promise<boolean> {
     if (!this.context) {
-      console.error('[AudioContext] No context available');
+      console.error('[AudioContext] No context available - call unlock() first during a user gesture');
       return false;
     }
     
@@ -97,7 +197,7 @@ class AudioContextManager {
       console.log('[AudioContext] Context suspended, attempting to resume...');
       try {
         await this.context.resume();
-        console.log('[AudioContext] Resumed successfully');
+        console.log('[AudioContext] Resumed successfully, state:', this.context.state);
         return true;
       } catch (err) {
         console.error('[AudioContext] Failed to resume:', err);
@@ -199,8 +299,10 @@ class AudioContextManager {
    */
   async queueBuffer(audioData: ArrayBuffer): Promise<{ duration: number; startTime: number }> {
     if (!this.context) {
-      throw new Error('[AudioContext] No context available');
+      throw new Error('[AudioContext] No context available - call unlock() first');
     }
+    
+    console.log(`[AudioContext] queueBuffer called, data size: ${audioData.byteLength} bytes, context state: ${this.context.state}`);
     
     // Ensure context is ready
     if (!(await this.ensureReady())) {
@@ -208,7 +310,19 @@ class AudioContextManager {
     }
     
     // Decode the audio data (use slice to avoid detached buffer issues)
-    const audioBuffer = await this.context.decodeAudioData(audioData.slice(0));
+    let audioBuffer: AudioBuffer;
+    try {
+      audioBuffer = await this.context.decodeAudioData(audioData.slice(0));
+      console.log(`[AudioContext] Decoded audio: duration=${audioBuffer.duration.toFixed(2)}s, channels=${audioBuffer.numberOfChannels}, sampleRate=${audioBuffer.sampleRate}`);
+    } catch (decodeError) {
+      console.error('[AudioContext] Failed to decode audio data:', decodeError);
+      throw new Error(`Failed to decode audio: ${decodeError}`);
+    }
+    
+    // Check if buffer has actual content
+    if (audioBuffer.duration === 0) {
+      console.warn('[AudioContext] Warning: decoded audio has 0 duration');
+    }
     
     const source = this.context.createBufferSource();
     source.buffer = audioBuffer;
@@ -216,7 +330,7 @@ class AudioContextManager {
     
     // Calculate start time for gapless playback
     const currentTime = this.context.currentTime;
-    const startTime = Math.max(currentTime + 0.01, this.nextStartTime); // Small buffer to prevent overlap issues
+    const startTime = Math.max(currentTime + 0.05, this.nextStartTime); // Small buffer to prevent overlap issues
     
     // Update next start time
     this.nextStartTime = startTime + audioBuffer.duration;
@@ -228,6 +342,7 @@ class AudioContextManager {
     
     // Clean up when done
     source.onended = () => {
+      console.log('[AudioContext] Source ended');
       this.activeSources.delete(source);
       this.pendingSourceCount--;
       
@@ -243,7 +358,7 @@ class AudioContextManager {
     
     // Schedule playback
     source.start(startTime);
-    console.log(`[AudioContext] Queued buffer: duration=${audioBuffer.duration.toFixed(2)}s, startTime=${startTime.toFixed(2)}s`);
+    console.log(`[AudioContext] ▶ Scheduled: now=${currentTime.toFixed(2)}s, start=${startTime.toFixed(2)}s, duration=${audioBuffer.duration.toFixed(2)}s`);
     
     return { duration: audioBuffer.duration, startTime };
   }

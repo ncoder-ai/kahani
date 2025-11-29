@@ -222,13 +222,17 @@ export const useTTSWebSocket = ({
       // Stop any current playback
       audioContextManager.stopAll();
       
-      // Ensure AudioContext is unlocked
-      // This should already be done via the banner button, but try anyway
-      const isReady = await audioContextManager.ensureReady();
-      if (!isReady) {
-        console.warn('[TTS WS] AudioContext not ready - user may need to tap unlock button');
-        // Continue anyway - queueBuffer will handle the error
+      // Unlock AudioContext during this user gesture
+      // This is critical for iOS - the context must be created/resumed during a tap
+      const isUnlocked = await audioContextManager.unlock();
+      if (!isUnlocked) {
+        console.error('[TTS WS] Failed to unlock AudioContext');
+        setError('Failed to enable audio. Please try again.');
+        setIsGenerating(false);
+        onError?.('Failed to enable audio');
+        return;
       }
+      console.log('[TTS WS] AudioContext unlocked successfully');
       
       // Reset the queue for fresh playback
       audioContextManager.resetQueue();

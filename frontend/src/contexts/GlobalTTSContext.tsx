@@ -216,10 +216,14 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children }
     hasStartedPlayback.current = false;
     generationCompleteRef.current = false;
     
-    // Ensure AudioContext is ready
-    const isReady = await audioContextManager.ensureReady();
-    if (!isReady) {
-      console.warn('[Global TTS] AudioContext not ready - user may need to tap unlock button');
+    // Unlock AudioContext - critical for iOS
+    // Note: This might not be in a user gesture context if called from auto-play
+    const isUnlocked = await audioContextManager.unlock();
+    if (!isUnlocked) {
+      console.warn('[Global TTS] AudioContext not unlocked - audio may not play');
+      // Don't error out - continue and let queueBuffer handle it
+    } else {
+      console.log('[Global TTS] AudioContext unlocked');
     }
     
     // Reset the queue for fresh playback
