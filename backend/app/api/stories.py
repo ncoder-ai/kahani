@@ -2627,6 +2627,14 @@ async def create_scene_variant_streaming(
                 yield f"data: {json.dumps({'type': 'error', 'message': 'Scene not found'})}\n\n"
                 return
             
+            # Get active chapter for character separation (same as new scene generation)
+            # This ensures context is identical between new scene and variant generation
+            active_chapter = db.query(Chapter).filter(
+                Chapter.story_id == story_id,
+                Chapter.status == ChapterStatus.ACTIVE
+            ).first()
+            chapter_id = active_chapter.id if active_chapter else None
+            
             # Get original variant content for variant generation
             variant_service = SceneVariantService(db)
             
@@ -2672,7 +2680,8 @@ async def create_scene_variant_streaming(
                 # GUIDED ENHANCEMENT: Has custom prompt from user
                 logger.warning(f"[VARIANT] Mode: GUIDED ENHANCEMENT")
                 context = await context_manager.build_scene_generation_context(
-                    story_id, db, custom_prompt, is_variant_generation=True, exclude_scene_id=scene_id
+                    story_id, db, custom_prompt, is_variant_generation=True, 
+                    exclude_scene_id=scene_id, chapter_id=chapter_id
                 )
                 
                 # Use guided enhancement function
@@ -2696,8 +2705,10 @@ async def create_scene_variant_streaming(
                 logger.warning(f"[VARIANT] Using original continue option: '{original_continue_option}'")
                 
                 # Build context with original continue option (triggers IMMEDIATE SITUATION)
+                # chapter_id ensures context is identical to new scene generation for cache hits
                 context = await context_manager.build_scene_generation_context(
-                    story_id, db, original_continue_option, is_variant_generation=False, exclude_scene_id=scene_id
+                    story_id, db, original_continue_option, is_variant_generation=False, 
+                    exclude_scene_id=scene_id, chapter_id=chapter_id
                 )
                 
                 # Use the SAME function as new scene generation
