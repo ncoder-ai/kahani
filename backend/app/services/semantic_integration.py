@@ -1359,7 +1359,7 @@ async def cleanup_scene_embeddings(scene_id: int, db: Session):
                 parts = embedding.embedding_id.split('_')
                 if len(parts) >= 3:
                     variant_id = int(parts[-1].replace('v', ''))
-                    semantic_memory.delete_scene_embedding(scene_id, variant_id)
+                    await semantic_memory.delete_scene_embedding(scene_id, variant_id)
                     embeddings_deleted += 1
                     logger.debug(f"[CLEANUP] Deleted scene embedding {embedding.embedding_id} from ChromaDB")
             except Exception as e:
