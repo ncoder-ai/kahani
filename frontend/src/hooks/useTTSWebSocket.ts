@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import api, { getApiBaseUrl } from '@/lib/api';
+import { audioContextManager } from '@/utils/audioContextManager';
 
 interface UseTTSWebSocketOptions {
   sceneId: number;
@@ -31,30 +32,24 @@ interface WebSocketMessage {
   message?: string;
 }
 
-interface AudioChunk {
-  chunk_number: number;
-  audio_blob: Blob;
-  audio_url: string;
-  duration?: number;
-}
-
 /**
  * WebSocket-based TTS Hook
  * 
+ * Uses Web Audio API (AudioContext) for reliable iOS playback.
  * Eliminates polling by using WebSocket for real-time audio chunk delivery.
  * 
- * Benefits over polling:
+ * Benefits:
+ * - Reliable iOS audio playback via AudioContext
+ * - Gapless chunk playback with precise scheduling
  * - 5-10× faster to first audio
- * - 11× fewer network requests
  * - Real-time progress updates
- * - No retry logic needed
  * 
  * Usage:
  * ```tsx
  * const { generate, isGenerating, isPlaying, progress, stop } = useTTSWebSocket({
  *   sceneId: 123,
- *   onPlaybackStart: () => ,
- *   onPlaybackEnd: () => ,
+ *   onPlaybackStart: () => console.log('Started'),
+ *   onPlaybackEnd: () => console.log('Ended'),
  *   onError: (err) => console.error(err)
  * });
  * 
@@ -80,104 +75,62 @@ export const useTTSWebSocket = ({
   
   // Refs
   const wsRef = useRef<WebSocket | null>(null);
-  const audioQueueRef = useRef<AudioChunk[]>([]);
-  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const isPlayingRef = useRef(false);
-  const connectedSessionRef = useRef<string | null>(null); // Track connected session to prevent duplicate connections
+  const connectedSessionRef = useRef<string | null>(null);
+  const hasStartedPlayback = useRef(false);
+  const generationCompleteRef = useRef(false);
   
   /**
-   * Convert base64 string to Blob
+   * Handle playback end - called when all queued audio finishes
    */
-  const base64ToBlob = useCallback((base64: string, mimeType: string = 'audio/mp3'): Blob => {
-    // Remove data URL prefix if present
-    const base64Data = base64.includes(',') ? base64.split(',')[1] : base64;
-    
-    // Decode base64
-    const binaryString = window.atob(base64Data);
-    const bytes = new Uint8Array(binaryString.length);
-    
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
-    
-    return new Blob([bytes], { type: mimeType });
-  }, []);
+  const handlePlaybackEnd = useCallback(() => {
+    console.log('[TTS WS] Playback ended');
+    setIsPlaying(false);
+    isPlayingRef.current = false;
+    onPlaybackEnd?.();
+  }, [onPlaybackEnd]);
   
   /**
-   * Play the next chunk in the queue
+   * Queue an audio chunk for playback using AudioContext
    */
-  const playNextChunk = useCallback(() => {
-    if (audioQueueRef.current.length === 0) {
-      // No more chunks to play
-      if (!isGenerating) {
-        // Generation is complete and queue is empty
-        setIsPlaying(false);
-        isPlayingRef.current = false;
-        onPlaybackEnd?.();
+  const queueAudioChunk = useCallback(async (audioBase64: string, chunkNumber: number) => {
+    try {
+      // Convert base64 to ArrayBuffer
+      const arrayBuffer = audioContextManager.base64ToArrayBuffer(audioBase64);
+      
+      // Queue for gapless playback
+      const result = await audioContextManager.queueBuffer(arrayBuffer);
+      console.log(`[TTS WS] Queued chunk ${chunkNumber}, duration: ${result.duration.toFixed(2)}s`);
+      
+      // Start playback tracking if this is the first chunk
+      if (!isPlayingRef.current) {
+        setIsPlaying(true);
+        isPlayingRef.current = true;
+        hasStartedPlayback.current = true;
+        onPlaybackStart?.();
+        
+        // Set up callback for when all audio finishes
+        audioContextManager.setOnPlaybackEnd(() => {
+          // Only trigger end if generation is complete
+          if (generationCompleteRef.current) {
+            handlePlaybackEnd();
+          }
+        });
       }
-      return;
-    }
-    
-    // Get next chunk
-    const chunk = audioQueueRef.current.shift()!;
-    
-    // Create audio element
-    const audio = new Audio(chunk.audio_url);
-    currentAudioRef.current = audio;
-    
-    // Set up event handlers
-    audio.onended = () => {
-      // Clean up blob URL
-      URL.revokeObjectURL(chunk.audio_url);
       
-      // Play next chunk
-      playNextChunk();
-    };
-    
-    audio.onerror = (e) => {
-      console.error('Audio playback error:', e);
-      const errorMsg = 'Failed to play audio chunk';
-      setError(errorMsg);
-      onError?.(errorMsg);
+    } catch (err) {
+      console.error('[TTS WS] Failed to queue audio chunk:', err);
+      const errorMsg = err instanceof Error ? err.message : 'Failed to play audio chunk';
       
-      // Try to play next chunk
-      playNextChunk();
-    };
-    
-    // Start playback
-    audio.play().catch((e) => {
-      console.error('Failed to start audio playback:', e);
-      
-      // Browser autoplay policy error - this is normal on first chunk
-      // The audio will play after user grants permission or on subsequent chunks
-      if (e.name === 'NotAllowedError') {
-        // Don't set error for autoplay blocks, just skip to next chunk
-        playNextChunk();
+      // Check if this is an AudioContext permission issue
+      if (errorMsg.includes('user gesture') || errorMsg.includes('not ready')) {
+        setError('Audio not enabled. Please tap the audio button to enable TTS.');
       } else {
-        const errorMsg = 'Failed to start audio playback';
         setError(errorMsg);
-        onError?.(errorMsg);
       }
-    });
-    
-  }, [isGenerating, onPlaybackEnd, onError]);
-  
-  /**
-   * Queue an audio chunk for playback
-   */
-  const queueAudioChunk = useCallback((chunk: AudioChunk) => {
-    audioQueueRef.current.push(chunk);
-    
-    // If not currently playing, start playback IMMEDIATELY
-    if (!isPlayingRef.current) {
-      setIsPlaying(true);
-      isPlayingRef.current = true;
-      onPlaybackStart?.();
-      
-      // Use setTimeout to ensure state updates, then play
-      setTimeout(() => playNextChunk(), 0);
+      onError?.(errorMsg);
     }
-  }, [playNextChunk, onPlaybackStart]);
+  }, [onPlaybackStart, onError, handlePlaybackEnd]);
   
   /**
    * Handle incoming WebSocket messages
@@ -185,24 +138,13 @@ export const useTTSWebSocket = ({
   const handleWebSocketMessage = useCallback((event: MessageEvent) => {
     try {
       const message: WebSocketMessage = JSON.parse(event.data);
-      
+      console.log('[TTS WS] Received:', message.type);
       
       switch (message.type) {
         case 'chunk_ready':
           if (message.audio_base64 && message.chunk_number) {
-            // Convert base64 to blob
-            const audioBlob = base64ToBlob(message.audio_base64);
-            const audioUrl = URL.createObjectURL(audioBlob);
-            
-            // Queue for playback
-            const chunk: AudioChunk = {
-              chunk_number: message.chunk_number,
-              audio_blob: audioBlob,
-              audio_url: audioUrl,
-              duration: message.duration
-            };
-            
-            queueAudioChunk(chunk);
+            // Queue for playback via AudioContext
+            queueAudioChunk(message.audio_base64, message.chunk_number);
             
             // Update state
             setChunksReceived(prev => prev + 1);
@@ -220,29 +162,53 @@ export const useTTSWebSocket = ({
           break;
         
         case 'complete':
+          console.log('[TTS WS] Generation complete');
           setIsGenerating(false);
           setProgress(100);
-          // Playback will end naturally when queue is empty
+          generationCompleteRef.current = true;
+          
+          // If no chunks were received or playback already ended, trigger end now
+          if (!hasStartedPlayback.current) {
+            handlePlaybackEnd();
+          }
+          // Otherwise, playback will end naturally via AudioContext callback
           break;
         
         case 'error':
           const errorMsg = message.message || 'TTS generation failed';
           console.error('[TTS WS] Error:', errorMsg);
-          setError(errorMsg);
-          setIsGenerating(false);
-          setIsPlaying(false);
-          onError?.(errorMsg);
+          
+          // Check if this is a chunk-specific error or a fatal error
+          const isChunkError = errorMsg.toLowerCase().includes('chunk');
+          
+          if (isChunkError) {
+            // For chunk errors, log but don't stop - continue with other chunks
+            console.warn('[TTS WS] Chunk error (continuing):', errorMsg);
+            // Only set error state if we haven't received any successful chunks
+            if (!hasStartedPlayback.current) {
+              setError(errorMsg);
+              onError?.(errorMsg);
+            }
+          } else {
+            // For fatal errors, stop everything
+            setError(errorMsg);
+            setIsGenerating(false);
+            setIsPlaying(false);
+            isPlayingRef.current = false;
+            onError?.(errorMsg);
+          }
           break;
       }
     } catch (e) {
       console.error('[TTS WS] Failed to parse message:', e);
     }
-  }, [base64ToBlob, queueAudioChunk, onProgress, onError]);
+  }, [queueAudioChunk, onProgress, onError, handlePlaybackEnd]);
   
   /**
    * Generate and play audio using WebSocket
    */
   const generate = useCallback(async () => {
+    console.log('[TTS WS] Starting generation for scene:', sceneId);
     
     try {
       setIsGenerating(true);
@@ -250,56 +216,47 @@ export const useTTSWebSocket = ({
       setProgress(0);
       setChunksReceived(0);
       setTotalChunks(0);
+      hasStartedPlayback.current = false;
+      generationCompleteRef.current = false;
       
-      // Clear audio queue
-      audioQueueRef.current = [];
+      // Stop any current playback
+      audioContextManager.stopAll();
       
-      // Stop current playback
-      if (currentAudioRef.current) {
-        currentAudioRef.current.pause();
-        currentAudioRef.current = null;
+      // Ensure AudioContext is unlocked
+      // This should already be done via the banner button, but try anyway
+      const isReady = await audioContextManager.ensureReady();
+      if (!isReady) {
+        console.warn('[TTS WS] AudioContext not ready - user may need to tap unlock button');
+        // Continue anyway - queueBuffer will handle the error
       }
       
-      // Create a silent audio element to establish autoplay permission
-      // This is triggered by user click, so browser allows it
-      try {
-        const silentAudio = new Audio();
-        silentAudio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAAABmYWN0BAAAAAAAAABkYXRhAAAAAA==';
-        
-        // Use a timeout to avoid hanging
-        const playPromise = silentAudio.play();
-        const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 100));
-        await Promise.race([playPromise, timeoutPromise]);
-        silentAudio.pause();
-      } catch (e) {
-        console.warn('[Audio] Could not establish autoplay permission (will continue anyway):', e);
-      }
+      // Reset the queue for fresh playback
+      audioContextManager.resetQueue();
       
-      
-      // 1. Create TTS session
+      // Create TTS session
       const data = await api.post<TTSSessionResponse>(
         `/api/tts/generate-ws/${sceneId}`
       );
+      console.log('[TTS WS] Session created:', data.session_id);
       
-      
-      // 2. Connect to WebSocket
-      // Use the same base URL as the API client (strips protocol and path)
+      // Connect to WebSocket
       const apiUrl = await getApiBaseUrl();
-      const apiHost = apiUrl.replace(/^https?:\/\//, ''); // Remove protocol
+      const apiHost = apiUrl.replace(/^https?:\/\//, '');
       const wsProtocol = apiUrl.startsWith('https') ? 'wss:' : 'ws:';
       const wsUrl = `${wsProtocol}//${apiHost}${data.websocket_url}`;
-      
+      console.log('[TTS WS] Connecting to:', wsUrl);
       
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
       
       ws.onopen = () => {
+        console.log('[TTS WS] Connected');
       };
       
       ws.onmessage = handleWebSocketMessage;
       
       ws.onerror = (error) => {
-        console.error('[TTS WS] Error:', error);
+        console.error('[TTS WS] WebSocket error:', error);
         const errorMsg = 'WebSocket connection failed';
         setError(errorMsg);
         setIsGenerating(false);
@@ -307,11 +264,12 @@ export const useTTSWebSocket = ({
       };
       
       ws.onclose = () => {
+        console.log('[TTS WS] Disconnected');
         wsRef.current = null;
       };
       
     } catch (err: any) {
-      console.error('[TTS] Generation failed:', err);
+      console.error('[TTS WS] Generation failed:', err);
       const errorMsg = err.response?.data?.detail || err.message || 'Failed to generate audio';
       setError(errorMsg);
       setIsGenerating(false);
@@ -323,29 +281,25 @@ export const useTTSWebSocket = ({
    * Stop playback and generation
    */
   const stop = useCallback(() => {
+    console.log('[TTS WS] Stopping');
+    
     // Close WebSocket
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
     }
     
-    // Stop current audio
-    if (currentAudioRef.current) {
-      currentAudioRef.current.pause();
-      currentAudioRef.current = null;
-    }
-    
-    // Clear queue and revoke blob URLs
-    audioQueueRef.current.forEach(chunk => {
-      URL.revokeObjectURL(chunk.audio_url);
-    });
-    audioQueueRef.current = [];
+    // Stop all AudioContext playback
+    audioContextManager.stopAll();
+    audioContextManager.setOnPlaybackEnd(null);
     
     // Reset state
     setIsGenerating(false);
     setIsPlaying(false);
     setProgress(0);
     isPlayingRef.current = false;
+    hasStartedPlayback.current = false;
+    generationCompleteRef.current = false;
   }, []);
   
   /**
@@ -354,12 +308,16 @@ export const useTTSWebSocket = ({
   const connectToSession = useCallback(async (session_id: string) => {
     // Prevent double connection
     if (wsRef.current) {
+      console.log('[TTS WS] Already connected, skipping');
       return;
     }
     
     if (isGenerating) {
+      console.log('[TTS WS] Already generating, skipping');
       return;
     }
+    
+    console.log('[TTS WS] Connecting to existing session:', session_id);
     
     try {
       setIsGenerating(true);
@@ -367,48 +325,39 @@ export const useTTSWebSocket = ({
       setProgress(0);
       setChunksReceived(0);
       setTotalChunks(0);
+      hasStartedPlayback.current = false;
+      generationCompleteRef.current = false;
       
-      // Clear audio queue
-      audioQueueRef.current = [];
+      // Stop any current playback
+      audioContextManager.stopAll();
       
-      // Stop current playback
-      if (currentAudioRef.current) {
-        currentAudioRef.current.pause();
-        currentAudioRef.current = null;
+      // Ensure AudioContext is unlocked
+      const isReady = await audioContextManager.ensureReady();
+      if (!isReady) {
+        console.warn('[TTS WS] AudioContext not ready for auto-play');
       }
       
-      // Play silent audio to establish permission (with timeout)
-      try {
-        const silentAudio = new Audio();
-        silentAudio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAAABmYWN0BAAAAAAAAABkYXRhAAAAAA==';
-        
-        // Use timeout to avoid hanging
-        const playPromise = silentAudio.play();
-        const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 100));
-        await Promise.race([playPromise, timeoutPromise]);
-        silentAudio.pause();
-      } catch (e) {
-        console.warn('[AUTO-PLAY] Could not establish autoplay permission (will continue):', e);
-      }
-      
+      // Reset the queue
+      audioContextManager.resetQueue();
       
       // Connect to WebSocket with existing session
       const apiUrl = await getApiBaseUrl();
       const apiHost = apiUrl.replace(/^https?:\/\//, '');
       const wsProtocol = apiUrl.startsWith('https') ? 'wss:' : 'ws:';
       const wsUrl = `${wsProtocol}//${apiHost}/ws/tts/${session_id}`;
-      
+      console.log('[TTS WS] Auto-play connecting to:', wsUrl);
       
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
       
       ws.onopen = () => {
+        console.log('[TTS WS] Auto-play connected');
       };
       
       ws.onmessage = handleWebSocketMessage;
       
       ws.onerror = (error) => {
-        console.error('[AUTO-PLAY] WebSocket error:', error);
+        console.error('[TTS WS] Auto-play error:', error);
         const errorMsg = 'Auto-play connection failed';
         setError(errorMsg);
         setIsGenerating(false);
@@ -416,17 +365,18 @@ export const useTTSWebSocket = ({
       };
       
       ws.onclose = () => {
+        console.log('[TTS WS] Auto-play disconnected');
         wsRef.current = null;
       };
       
     } catch (err: any) {
-      console.error('[AUTO-PLAY] Failed to connect:', err);
+      console.error('[TTS WS] Auto-play failed:', err);
       const errorMsg = err.message || 'Failed to start auto-play';
       setError(errorMsg);
       setIsGenerating(false);
       onError?.(errorMsg);
     }
-  }, [handleWebSocketMessage, onError]);
+  }, [handleWebSocketMessage, onError, isGenerating]);
   
   /**
    * Check for pending auto-play on mount and when pendingAutoPlay changes
@@ -439,12 +389,9 @@ export const useTTSWebSocket = ({
         connectedSessionRef.current !== pendingAutoPlay.session_id &&
         !isGenerating && 
         !wsRef.current) {
-      connectedSessionRef.current = pendingAutoPlay.session_id; // Mark this session as connected
+      connectedSessionRef.current = pendingAutoPlay.session_id;
       connectToSession(pendingAutoPlay.session_id);
-      // Clear the pending auto-play
       onAutoPlayProcessed?.();
-    } else if (pendingAutoPlay && pendingAutoPlay.scene_id === sceneId && connectedSessionRef.current === pendingAutoPlay.session_id) {
-    } else if (pendingAutoPlay && pendingAutoPlay.scene_id === sceneId && (isGenerating || wsRef.current)) {
     }
   }, [sceneId, pendingAutoPlay, connectToSession, onAutoPlayProcessed, isGenerating]);
   

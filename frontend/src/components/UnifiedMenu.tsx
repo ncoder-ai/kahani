@@ -4,7 +4,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/store';
 import { useGlobalTTS } from '@/contexts/GlobalTTSContext';
 import { audioContextManager } from '@/utils/audioContextManager';
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { 
   X, Settings, LogOut, User, Home, PlusCircle, BookOpen, 
   ChevronRight, Film, Trash2, Shield, FileText, Edit, Bug
@@ -41,11 +41,52 @@ export default function UnifiedMenu({
   const router = useRouter();
   const pathname = usePathname();
   const { user, logout } = useAuthStore();
-  const { currentSceneId, isPlaying, isGenerating, error } = useGlobalTTS();
+  const { currentSceneId, isPlaying, isGenerating, error, progress, chunksReceived, totalChunks } = useGlobalTTS();
   const [showDebug, setShowDebug] = useState(false);
+  const [audioState, setAudioState] = useState<string>('unknown');
+  const [isUnlocking, setIsUnlocking] = useState(false);
   
   // Only show debug option on mobile
   const isMobile = typeof window !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  
+  // Update AudioContext state periodically when debug panel is open
+  useEffect(() => {
+    if (!showDebug) return;
+    
+    const updateState = () => {
+      setAudioState(audioContextManager.getState());
+    };
+    
+    updateState();
+    const interval = setInterval(updateState, 500);
+    
+    return () => clearInterval(interval);
+  }, [showDebug]);
+  
+  // Handle unlock button click
+  const handleUnlockAudio = useCallback(async () => {
+    setIsUnlocking(true);
+    console.log('[TTS Debug Menu] Attempting to unlock AudioContext...');
+    
+    const success = await audioContextManager.unlock();
+    
+    if (success) {
+      console.log('[TTS Debug Menu] ✓ AudioContext unlocked');
+      setAudioState(audioContextManager.getState());
+    } else {
+      console.error('[TTS Debug Menu] ✗ Failed to unlock AudioContext');
+    }
+    
+    setIsUnlocking(false);
+  }, []);
+  
+  // Handle test audio button click
+  const handleTestAudio = useCallback(async () => {
+    console.log('[TTS Debug Menu] Testing audio playback...');
+    await audioContextManager.testAudio();
+  }, []);
+  
+  const isAudioReady = audioState === 'running';
 
   if (!isOpen) return null;
 
@@ -358,11 +399,49 @@ export default function UnifiedMenu({
                       </div>
                     </div>
                     
+                    {/* AudioContext Status - Prominent */}
+                    <div className={`mb-3 p-2 rounded border ${
+                      isAudioReady 
+                        ? 'bg-green-500/20 border-green-500/50' 
+                        : 'bg-orange-500/20 border-orange-500/50'
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full ${isAudioReady ? 'bg-green-400' : 'bg-orange-400 animate-pulse'}`}></span>
+                          <span className="text-[11px] font-semibold text-white">
+                            Audio: <span className="font-mono">{audioState}</span>
+                          </span>
+                        </div>
+                        {!isAudioReady && (
+                          <button
+                            onClick={handleUnlockAudio}
+                            disabled={isUnlocking}
+                            className="px-2 py-1 bg-orange-500 hover:bg-orange-600 disabled:bg-gray-600 text-white text-[10px] rounded transition-colors"
+                          >
+                            {isUnlocking ? '...' : 'Unlock'}
+                          </button>
+                        )}
+                      </div>
+                      {!isAudioReady && (
+                        <p className="text-[10px] text-orange-300 mt-1">
+                          Tap Unlock to enable TTS playback
+                        </p>
+                      )}
+                    </div>
+                    
                     {/* Status Info */}
                     <div className="mb-3 space-y-1 text-[11px]">
                       <div className="flex justify-between">
                         <span className="text-gray-400">Scene:</span>
                         <span className="font-mono text-white">{currentSceneId || 'None'}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-400">Progress:</span>
+                        <span className="font-mono text-white">{progress}%</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-400">Chunks:</span>
+                        <span className="font-mono text-white">{chunksReceived} / {totalChunks || '?'}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-400">Online:</span>
@@ -376,12 +455,6 @@ export default function UnifiedMenu({
                           {typeof window !== 'undefined' && localStorage.getItem('auth_token') ? '✓ Present' : '✗ Missing'}
                         </span>
                       </div>
-                      {typeof window !== 'undefined' && (
-                        <div className="flex justify-between">
-                          <span className="text-gray-400">AudioContext:</span>
-                          <span className="text-white font-mono">{audioContextManager.getState()}</span>
-                        </div>
-                      )}
                     </div>
                     
                     {/* Error Display */}
@@ -392,17 +465,9 @@ export default function UnifiedMenu({
                       </div>
                     )}
                     
-                    {/* Debug Log */}
-                    <div className="border-t border-gray-700 pt-3">
-                      <div className="font-semibold mb-2 text-[11px] text-gray-300">Recent Activity:</div>
-                      <div className="space-y-1 max-h-40 overflow-y-auto">
-                        <div className="text-[10px] text-gray-500 italic">Check browser console for TTS logs</div>
-                      </div>
-                    </div>
-                    
                     {/* Device Info */}
                     {typeof window !== 'undefined' && (
-                      <div className="mt-3 pt-3 border-t border-gray-700 text-[10px] text-gray-500">
+                      <div className="pt-3 border-t border-gray-700 text-[10px] text-gray-500">
                         <div>Device: {/iPhone|iPad|iPod/i.test(navigator.userAgent) ? 'iOS' : 
                                       /Android/i.test(navigator.userAgent) ? 'Android' : 'Desktop'}</div>
                         <div>Screen: {window.innerWidth}×{window.innerHeight}</div>
@@ -412,11 +477,21 @@ export default function UnifiedMenu({
                     {/* Test Audio Button */}
                     <div className="mt-3 pt-3 border-t border-gray-700">
                       <button
-                        onClick={() => audioContextManager.testAudio()}
-                        className="w-full bg-yellow-600 hover:bg-yellow-700 text-white text-xs py-2 px-3 rounded transition-colors"
+                        onClick={handleTestAudio}
+                        disabled={!isAudioReady}
+                        className={`w-full text-white text-xs py-2 px-3 rounded transition-colors ${
+                          isAudioReady 
+                            ? 'bg-yellow-600 hover:bg-yellow-700' 
+                            : 'bg-gray-600 cursor-not-allowed'
+                        }`}
                       >
                         🔊 Test Audio (Beep)
                       </button>
+                      {!isAudioReady && (
+                        <p className="text-[10px] text-gray-500 mt-1 text-center">
+                          Unlock audio first
+                        </p>
+                      )}
                     </div>
                   </div>
                 )}
