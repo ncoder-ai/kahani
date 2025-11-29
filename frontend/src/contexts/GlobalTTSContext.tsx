@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react';
 import { getApiBaseUrl } from '@/lib/api';
+import { audioContextManager } from '@/utils/audioContextManager';
 
 interface TTSMessage {
   type: string;
@@ -12,12 +13,6 @@ interface TTSMessage {
   progress_percent?: number;
   chunks_ready?: number;
   message?: string;
-}
-
-interface AudioChunk {
-  chunk_number: number;
-  audio_blob: Blob;
-  audio_url: string;
 }
 
 interface GlobalTTSContextType {
@@ -53,6 +48,12 @@ interface GlobalTTSProviderProps {
   children: React.ReactNode;
 }
 
+/**
+ * Global TTS Context Provider
+ * 
+ * Uses Web Audio API (AudioContext) for reliable iOS playback.
+ * Manages TTS state and WebSocket connections globally.
+ */
 export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children }) => {
   // State
   const [isPlaying, setIsPlaying] = useState(false);
@@ -66,64 +67,59 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children }
   
   // Refs
   const wsRef = useRef<WebSocket | null>(null);
-  const audioQueueRef = useRef<AudioChunk[]>([]);
-  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const isPlayingRef = useRef(false);
   const currentSessionIdRef = useRef<string | null>(null);
+  const hasStartedPlayback = useRef(false);
+  const generationCompleteRef = useRef(false);
   
   /**
-   * Convert base64 to Blob
+   * Handle playback end - called when all queued audio finishes
    */
-  const base64ToBlob = useCallback((base64: string, mimeType: string = 'audio/mp3'): Blob => {
-    const base64Data = base64.includes(',') ? base64.split(',')[1] : base64;
-    const binaryString = window.atob(base64Data);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
-    return new Blob([bytes], { type: mimeType });
+  const handlePlaybackEnd = useCallback(() => {
+    console.log('[Global TTS] All playback ended');
+    setIsPlaying(false);
+    isPlayingRef.current = false;
   }, []);
   
   /**
-   * Play next chunk in queue
+   * Queue an audio chunk for playback using AudioContext
    */
-  const playNextChunk = useCallback(() => {
-    if (audioQueueRef.current.length === 0) {
-      isPlayingRef.current = false;
-      setIsPlaying(false);
-      return;
+  const queueAudioChunk = useCallback(async (audioBase64: string, chunkNumber: number) => {
+    try {
+      // Convert base64 to ArrayBuffer
+      const arrayBuffer = audioContextManager.base64ToArrayBuffer(audioBase64);
+      
+      // Queue for gapless playback
+      const result = await audioContextManager.queueBuffer(arrayBuffer);
+      console.log(`[Global TTS] Queued chunk ${chunkNumber}, duration: ${result.duration.toFixed(2)}s`);
+      
+      // Start playback tracking if this is the first chunk
+      if (!isPlayingRef.current) {
+        setIsPlaying(true);
+        isPlayingRef.current = true;
+        hasStartedPlayback.current = true;
+        
+        // Set up callback for when all audio finishes
+        audioContextManager.setOnPlaybackEnd(() => {
+          // Only trigger end if generation is complete
+          if (generationCompleteRef.current) {
+            handlePlaybackEnd();
+          }
+        });
+      }
+      
+    } catch (err) {
+      console.error('[Global TTS] Failed to queue audio chunk:', err);
+      const errorMsg = err instanceof Error ? err.message : 'Failed to play audio chunk';
+      
+      // Check if this is an AudioContext permission issue
+      if (errorMsg.includes('user gesture') || errorMsg.includes('not ready')) {
+        setError('Audio not enabled. Please tap the audio button to enable TTS.');
+      } else {
+        setError(errorMsg);
+      }
     }
-    
-    const chunk = audioQueueRef.current.shift()!;
-    console.log('[Global TTS] Playing chunk', chunk.chunk_number);
-    
-    const audio = new Audio(chunk.audio_url);
-    currentAudioRef.current = audio;
-    
-    audio.onended = () => {
-      console.log('[Global TTS] Chunk', chunk.chunk_number, 'ended');
-      URL.revokeObjectURL(chunk.audio_url);
-      playNextChunk();
-    };
-    
-    audio.onerror = (e) => {
-      console.error('[Global TTS] Audio playback error:', e);
-      setError('Audio playback failed');
-      isPlayingRef.current = false;
-      setIsPlaying(false);
-    };
-    
-    audio.play().then(() => {
-      console.log('[Global TTS] Chunk', chunk.chunk_number, 'playing');
-      setIsPlaying(true);
-      isPlayingRef.current = true;
-    }).catch(err => {
-      console.error('[Global TTS] Failed to play chunk:', err);
-      setError('Failed to play audio chunk');
-      isPlayingRef.current = false;
-      setIsPlaying(false);
-    });
-  }, []);
+  }, [handlePlaybackEnd]);
   
   /**
    * Handle WebSocket messages
@@ -134,22 +130,9 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children }
     switch (message.type) {
       case 'chunk_ready':
         if (message.audio_base64 && message.chunk_number) {
-          const blob = base64ToBlob(message.audio_base64);
-          const url = URL.createObjectURL(blob);
-          
-          const chunk: AudioChunk = {
-            chunk_number: message.chunk_number,
-            audio_blob: blob,
-            audio_url: url
-          };
-          
-          audioQueueRef.current.push(chunk);
+          // Queue for playback via AudioContext
+          queueAudioChunk(message.audio_base64, message.chunk_number);
           setChunksReceived(prev => prev + 1);
-          
-          // Start playing if not already playing
-          if (!isPlayingRef.current) {
-            playNextChunk();
-          }
         }
         
         if (message.total_chunks) {
@@ -166,15 +149,39 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children }
       case 'complete':
         console.log('[Global TTS] Generation complete');
         setIsGenerating(false);
+        setProgress(100);
+        generationCompleteRef.current = true;
+        
+        // If no chunks were received, trigger end now
+        if (!hasStartedPlayback.current) {
+          handlePlaybackEnd();
+        }
+        // Otherwise, playback will end via AudioContext callback
         break;
         
       case 'error':
         console.error('[Global TTS] Error:', message.message);
-        setError(message.message || 'Unknown error');
-        setIsGenerating(false);
+        // Check if this is a chunk-specific error or a fatal error
+        const errorMsg = message.message || 'Unknown error';
+        const isChunkError = errorMsg.toLowerCase().includes('chunk');
+        
+        if (isChunkError) {
+          // For chunk errors, log but don't stop - continue with other chunks
+          console.warn('[Global TTS] Chunk error (continuing):', errorMsg);
+          // Only set error state if we haven't received any successful chunks
+          if (!hasStartedPlayback.current) {
+            setError(errorMsg);
+          }
+        } else {
+          // For fatal errors, stop everything
+          setError(errorMsg);
+          setIsGenerating(false);
+          setIsPlaying(false);
+          isPlayingRef.current = false;
+        }
         break;
     }
-  }, [base64ToBlob, playNextChunk]);
+  }, [queueAudioChunk, handlePlaybackEnd]);
   
   /**
    * Connect to existing TTS session (for auto-play or manual)
@@ -194,34 +201,35 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children }
       wsRef.current.close();
     }
     
+    // Stop any current AudioContext playback
+    audioContextManager.stopAll();
+    
     // Clear state
-    audioQueueRef.current = [];
     setError(null);
     setProgress(0);
     setChunksReceived(0);
     setTotalChunks(0);
     setCurrentSceneId(sceneId);
     setCurrentSessionId(sessionId);
-    currentSessionIdRef.current = sessionId; // Update ref
+    currentSessionIdRef.current = sessionId;
     setIsGenerating(true);
+    hasStartedPlayback.current = false;
+    generationCompleteRef.current = false;
     
-    // Establish autoplay permission
-    try {
-      const silentAudio = new Audio('data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAADhAC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7///////////////////////////////////////////////////////////////////////////AAAA5TEFNRTMuMTAwBK8AAAAAAAAAABUgJAU9QgAAgAAABITMLqMCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//sQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAETEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV');
-      const playPromise = silentAudio.play();
-      const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 100));
-      await Promise.race([playPromise, timeoutPromise]);
-      console.log('[Global TTS] Autoplay permission established');
-    } catch (err) {
-      console.warn('[Global TTS] Autoplay permission may be blocked:', err);
-      // Continue anyway - user might have already granted permission
+    // Ensure AudioContext is ready
+    const isReady = await audioContextManager.ensureReady();
+    if (!isReady) {
+      console.warn('[Global TTS] AudioContext not ready - user may need to tap unlock button');
     }
     
-    // Get API URL using the same function as rest of app
-    const apiUrl = await getApiBaseUrl();
-    console.log('[Global TTS] API URL from getApiBaseUrl():', apiUrl);
+    // Reset the queue for fresh playback
+    audioContextManager.resetQueue();
     
-    // Connect WebSocket - simple URL construction
+    // Get API URL
+    const apiUrl = await getApiBaseUrl();
+    console.log('[Global TTS] API URL:', apiUrl);
+    
+    // Connect WebSocket
     const wsUrl = `${apiUrl.replace('http', 'ws')}/ws/tts/${sessionId}`;
     console.log('[Global TTS] WebSocket URL:', wsUrl);
     
@@ -250,15 +258,12 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children }
     ws.onclose = (event) => {
       console.log('[Global TTS] WebSocket disconnected. Code:', event.code, 'Reason:', event.reason);
       
-      // Handle session not found/expired (code 1008 or 1011 typically)
+      // Handle session not found/expired
       if (event.code === 1008 || event.code === 1011 || event.reason?.includes('not found') || event.reason?.includes('expired')) {
         setError('TTS session expired or not found');
-        console.warn('[Global TTS] Session expired or not found');
       } else if (event.code === 1006) {
-        // Abnormal closure - often network issues
         setError('Connection lost - check your network');
       } else if (event.code !== 1000) {
-        // Normal closure is 1000, anything else is an error
         setError(`Connection closed (${event.code}) - please try again`);
       }
       
@@ -273,9 +278,9 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children }
     console.log('[Global TTS] Starting manual TTS for scene:', sceneId);
     
     try {
-      // Get API URL using the same function as rest of app
+      // Get API URL
       const apiUrl = await getApiBaseUrl();
-      console.log('[Global TTS] API URL from getApiBaseUrl():', apiUrl);
+      console.log('[Global TTS] API URL:', apiUrl);
       
       // Create TTS session
       const response = await fetch(`${apiUrl}/api/tts/generate-ws/${sceneId}`, {
@@ -308,15 +313,9 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children }
   const stop = useCallback(() => {
     console.log('[Global TTS] Stopping playback');
     
-    // Stop current audio
-    if (currentAudioRef.current) {
-      currentAudioRef.current.pause();
-      currentAudioRef.current = null;
-    }
-    
-    // Clear queue
-    audioQueueRef.current.forEach(chunk => URL.revokeObjectURL(chunk.audio_url));
-    audioQueueRef.current = [];
+    // Stop AudioContext playback
+    audioContextManager.stopAll();
+    audioContextManager.setOnPlaybackEnd(null);
     
     // Close WebSocket
     if (wsRef.current) {
@@ -333,29 +332,33 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children }
     setTotalChunks(0);
     setCurrentSceneId(null);
     setCurrentSessionId(null);
-    currentSessionIdRef.current = null; // Clear ref
+    currentSessionIdRef.current = null;
+    hasStartedPlayback.current = false;
+    generationCompleteRef.current = false;
   }, []);
   
   /**
    * Pause playback
+   * Note: With AudioContext scheduled buffers, true pause isn't possible.
+   * This effectively stops playback. Use stop() and re-generate to restart.
    */
   const pause = useCallback(() => {
-    if (currentAudioRef.current) {
-      currentAudioRef.current.pause();
-      setIsPlaying(false);
-      isPlayingRef.current = false;
-    }
+    console.log('[Global TTS] Pause requested (stopping AudioContext playback)');
+    // AudioContext scheduled buffers can't be paused, only stopped
+    audioContextManager.stopAll();
+    setIsPlaying(false);
+    isPlayingRef.current = false;
   }, []);
   
   /**
    * Resume playback
+   * Note: With AudioContext, we can't resume from where we paused.
+   * User needs to regenerate audio to continue.
    */
   const resume = useCallback(() => {
-    if (currentAudioRef.current) {
-      currentAudioRef.current.play();
-      setIsPlaying(true);
-      isPlayingRef.current = true;
-    }
+    console.log('[Global TTS] Resume not supported with AudioContext - please regenerate audio');
+    // Can't resume scheduled AudioContext buffers
+    // Would need to track position and re-queue remaining chunks
   }, []);
   
   // Cleanup on unmount
