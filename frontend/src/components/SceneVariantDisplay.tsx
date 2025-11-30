@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { PlayIcon, ArrowPathIcon, PlusCircleIcon, StopIcon, SparklesIcon, TrashIcon, ClipboardIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { PlayIcon, ArrowPathIcon, PlusCircleIcon, StopIcon, SparklesIcon, TrashIcon, ClipboardIcon, XMarkIcon, FlagIcon } from '@heroicons/react/24/outline';
 import SceneDisplay from './SceneDisplay';
 import { SceneTTSButton } from './SceneTTSButton';
 import MicrophoneButton from './MicrophoneButton';
@@ -70,7 +70,7 @@ interface SceneVariantDisplayProps {
   directorMode?: boolean;
   customPrompt?: string;
   onCustomPromptChange?: (prompt: string) => void;
-  onGenerateScene?: (prompt?: string) => void;
+  onGenerateScene?: (prompt?: string, isConcluding?: boolean) => void;
   layoutMode?: 'stacked' | 'modern';
   onNewSceneAdded?: () => void;
   selectedChoice?: string | null;
@@ -939,6 +939,16 @@ export default function SceneVariantDisplay({
               <SparklesIcon className="w-5 h-5" />
             </button>
 
+            {/* Write Concluding Scene Button */}
+            <button
+              onClick={() => onGenerateScene?.(undefined, true)}
+              disabled={isGenerating || isStreaming || isRegenerating}
+              className="flex items-center justify-center w-10 h-10 bg-amber-600 hover:bg-amber-700 disabled:bg-amber-800 disabled:opacity-50 rounded-lg transition-colors"
+              title="Write concluding scene for this chapter"
+            >
+              <FlagIcon className="w-5 h-5" />
+            </button>
+
             {/* Stop Generation Button - Only show when generating */}
             {(isGenerating || isStreaming || isRegenerating || isStreamingContinuation) && onStopGeneration && (
               <button
@@ -1017,6 +1027,21 @@ export default function SceneVariantDisplay({
                   <span className="text-sm font-medium">Guided</span>
                 </button>
                 
+                {/* Conclude */}
+                <button
+                  onClick={() => {
+                    setShowFloatingMenu(false);
+                    resetMenuTimer();
+                    onGenerateScene?.(undefined, true);
+                  }}
+                  disabled={isGenerating || isStreaming || isRegenerating}
+                  className="flex items-center gap-2 w-full px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-amber-800 disabled:opacity-50 text-white rounded-lg shadow-lg transition-all backdrop-blur-sm"
+                  title="Write concluding scene for this chapter"
+                >
+                  <FlagIcon className="w-5 h-5" />
+                  <span className="text-sm font-medium">Conclude</span>
+                </button>
+                
                 {/* Delete Mode Toggle */}
                 <button
                   onClick={() => {
@@ -1055,6 +1080,48 @@ export default function SceneVariantDisplay({
               </div>
             )}
             
+            {/* Mobile Guided Options Panel */}
+            {showGuidedOptions && (
+              <div className="absolute right-16 top-1/2 -translate-y-1/2 w-52 animate-fade-in">
+                <div className="bg-gray-900/95 backdrop-blur-md rounded-xl border border-purple-500/30 shadow-2xl overflow-hidden">
+                  {/* Header */}
+                  <div className="flex items-center justify-between px-3 py-2 bg-gradient-to-r from-purple-600/30 to-pink-600/30 border-b border-purple-500/20">
+                    <span className="text-xs font-semibold text-purple-200">Guided Options</span>
+                    <button
+                      onClick={() => setShowGuidedOptions(false)}
+                      className="p-1 hover:bg-white/10 rounded transition-colors"
+                    >
+                      <XMarkIcon className="w-4 h-4 text-purple-200" />
+                    </button>
+                  </div>
+                  {/* Options */}
+                  <div className="p-2 space-y-1 max-h-[60vh] overflow-y-auto">
+                    {[
+                      { label: "More Dialogue", prompt: "Regenerate this scene with more dialogue and character interactions." },
+                      { label: "Internal Thoughts", prompt: "Regenerate this scene with more internal thoughts and character emotions." },
+                      { label: "Describe Setting", prompt: "Regenerate this scene with more detailed descriptions of the environment and atmosphere." },
+                      { label: "Action/Movement", prompt: "Regenerate this scene with more action and character movements." },
+                      { label: "Build Tension", prompt: "Regenerate this scene with more tension and dramatic elements." },
+                      { label: "Character Growth", prompt: "Regenerate this scene focusing more on character growth and development." }
+                    ].map((option, index) => (
+                      <button
+                        key={index}
+                        onClick={() => {
+                          setShowGuidedOptions(false);
+                          resetMenuTimer();
+                          onCreateVariant?.(scene.id, option.prompt, currentVariantId || undefined);
+                        }}
+                        disabled={isGenerating || isStreaming || isRegenerating}
+                        className="w-full text-left px-3 py-2.5 text-sm text-gray-200 hover:text-white hover:bg-purple-600/30 rounded-lg transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+            
             {/* Edge Tab Button */}
             <button
               onClick={() => {
@@ -1080,9 +1147,9 @@ export default function SceneVariantDisplay({
           </div>
           )}
 
-          {/* Guided Options Dropdown */}
+          {/* Guided Options Dropdown - Desktop only (mobile shows in floating menu) */}
           {showGuidedOptions && (
-            <div className={'mt-4 space-y-2 ' + (layoutMode === 'modern' 
+            <div className={'hidden md:block mt-4 space-y-2 ' + (layoutMode === 'modern' 
                 ? 'theme-bg-secondary/30 backdrop-filter backdrop-blur-sm rounded-lg p-3 border border-gray-600/30' 
                 : 'theme-bg-secondary rounded-lg p-3 border border-gray-600')}>
               {[
