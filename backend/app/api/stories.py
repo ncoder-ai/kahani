@@ -3495,6 +3495,40 @@ async def restore_npc_tracking_in_background(
         logger.error(f"[DELETE-BG] Traceback: {traceback.format_exc()}")
 
 
+async def cleanup_semantic_data_in_background(
+    scene_ids: list,
+    story_id: int
+):
+    """Background task to clean up semantic data for deleted scenes"""
+    try:
+        import asyncio
+        # Small delay to ensure database commits from main session are visible
+        await asyncio.sleep(0.1)
+        
+        from ..database import SessionLocal
+        bg_db = SessionLocal()
+        try:
+            from ..services.semantic_integration import cleanup_scene_embeddings
+            
+            logger.info(f"[DELETE-BG] Starting semantic cleanup for {len(scene_ids)} scenes (story {story_id})")
+            
+            for scene_id in scene_ids:
+                try:
+                    await cleanup_scene_embeddings(scene_id, bg_db)
+                    logger.debug(f"[DELETE-BG] Cleaned up semantic data for scene {scene_id}")
+                except Exception as e:
+                    logger.warning(f"[DELETE-BG] Failed to cleanup semantic data for scene {scene_id}: {e}")
+                    # Continue with other scenes even if one fails
+            
+            logger.info(f"[DELETE-BG] Completed semantic cleanup for {len(scene_ids)} scenes (story {story_id})")
+        finally:
+            bg_db.close()
+    except Exception as e:
+        logger.error(f"[DELETE-BG] Failed to cleanup semantic data in background: {e}")
+        import traceback
+        logger.error(f"[DELETE-BG] Traceback: {traceback.format_exc()}")
+
+
 async def restore_entity_states_in_background(
     story_id: int,
     sequence_number: int,
@@ -3602,17 +3636,19 @@ async def delete_scenes_from_sequence(
     ).first()
     user_settings = user_settings_obj.to_dict() if user_settings_obj else {}
     
-    # Get min/max deleted sequences for background tasks (before deletion)
+    # Get scene info for background tasks BEFORE deletion
     from ..models import Scene as SceneModel
     scenes_to_delete = db.query(SceneModel).filter(
         SceneModel.story_id == story_id,
         SceneModel.sequence_number >= sequence_number
     ).all()
     
+    # Collect scene IDs for semantic cleanup (before scenes are deleted)
+    scene_ids_to_cleanup = [scene.id for scene in scenes_to_delete]
     min_deleted_seq = min(scene.sequence_number for scene in scenes_to_delete) if scenes_to_delete else sequence_number
     max_deleted_seq = max(scene.sequence_number for scene in scenes_to_delete) if scenes_to_delete else sequence_number
     
-    # Perform deletion (synchronous - fast operations only)
+    # Perform deletion (fast database operations only - semantic cleanup in background)
     service = SceneVariantService(db)
     success = await service.delete_scenes_from_sequence(story_id, sequence_number, skip_restoration=True)
     
@@ -3622,13 +3658,23 @@ async def delete_scenes_from_sequence(
             detail="Failed to delete scenes"
         )
     
-    # Schedule restoration tasks in background
+    # Schedule ALL cleanup/restoration tasks in background for fast response
+    # 1. Semantic cleanup (embeddings, character moments, plot events)
+    if scene_ids_to_cleanup:
+        background_tasks.add_task(
+            cleanup_semantic_data_in_background,
+            scene_ids=scene_ids_to_cleanup,
+            story_id=story_id
+        )
+    
+    # 2. NPC tracking restoration
     background_tasks.add_task(
         restore_npc_tracking_in_background,
         story_id=story_id,
         sequence_number=sequence_number
     )
     
+    # 3. Entity states restoration
     background_tasks.add_task(
         restore_entity_states_in_background,
         story_id=story_id,

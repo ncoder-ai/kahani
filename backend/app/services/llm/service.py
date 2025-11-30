@@ -3594,18 +3594,10 @@ class UnifiedLLMService:
                 Scene.sequence_number >= sequence_number
             ).all()
             
-            # Clean up semantic data for each scene before deleting
-            from ...services.semantic_integration import cleanup_scene_embeddings
-            logger.info(f"[DELETE] Cleaning up semantic data for {len(scenes_to_delete)} scenes (sequence {sequence_number} onwards)")
-            for scene in scenes_to_delete:
-                try:
-                    logger.info(f"[DELETE] Cleaning up semantic data for scene {scene.id} (sequence {scene.sequence_number})")
-                    await cleanup_scene_embeddings(scene.id, db)
-                    logger.info(f"[DELETE] Successfully cleaned up scene {scene.id}")
-                except Exception as e:
-                    logger.warning(f"[DELETE] Failed to cleanup semantic data for scene {scene.id}: {e}")
-                    # Continue with deletion even if cleanup fails
-            logger.info(f"[DELETE] Completed cleanup for all {len(scenes_to_delete)} scenes")
+            # NOTE: Semantic cleanup (embeddings, character moments, plot events) is now handled
+            # as a background task by the API endpoint to avoid blocking the response.
+            # This method only handles fast database deletions.
+            logger.info(f"[DELETE] Will delete {len(scenes_to_delete)} scenes (sequence {sequence_number} onwards)")
             
             # Restore NPCTracking from snapshot after scene deletion (skip if doing in background)
             if not skip_restoration:
