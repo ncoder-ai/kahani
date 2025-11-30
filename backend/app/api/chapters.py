@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -1611,6 +1611,7 @@ async def regenerate_story_so_far_endpoint(
 async def delete_chapter_content(
     story_id: int,
     chapter_id: int,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -1639,14 +1640,8 @@ async def delete_chapter_content(
     scenes = db.query(Scene).filter(Scene.chapter_id == chapter_id).all()
     scene_count = len(scenes)
     
-    # Clean up semantic data for each scene before deleting
-    from ..services.semantic_integration import cleanup_scene_embeddings
-    for scene in scenes:
-        try:
-            await cleanup_scene_embeddings(scene.id, db)
-        except Exception as e:
-            logger.warning(f"Failed to cleanup semantic data for scene {scene.id}: {e}")
-            # Continue with deletion even if cleanup fails
+    # Collect scene IDs for background semantic cleanup BEFORE deleting
+    scene_ids_to_cleanup = [scene.id for scene in scenes]
     
     # Delete scenes (CASCADE will handle related database records)
     for scene in scenes:
@@ -1671,12 +1666,51 @@ async def delete_chapter_content(
     
     db.commit()
     
+    # Schedule semantic cleanup in background (don't block response)
+    if scene_ids_to_cleanup:
+        background_tasks.add_task(
+            cleanup_semantic_data_in_background,
+            scene_ids=scene_ids_to_cleanup,
+            story_id=story_id
+        )
+    
     logger.info(f"[CHAPTER] Deleted {scene_count} scenes from chapter {chapter_id}")
     
     return {
         "message": "Chapter content deleted successfully",
         "scenes_deleted": scene_count
     }
+
+
+async def cleanup_semantic_data_in_background(scene_ids: list, story_id: int):
+    """Background task to clean up semantic data for deleted scenes"""
+    try:
+        import asyncio
+        # Small delay to ensure database commits from main session are visible
+        await asyncio.sleep(0.1)
+        
+        from ..database import SessionLocal
+        bg_db = SessionLocal()
+        try:
+            from ..services.semantic_integration import cleanup_scene_embeddings
+            
+            logger.info(f"[CHAPTER-BG] Starting semantic cleanup for {len(scene_ids)} scenes (story {story_id})")
+            
+            for scene_id in scene_ids:
+                try:
+                    await cleanup_scene_embeddings(scene_id, bg_db)
+                    logger.debug(f"[CHAPTER-BG] Cleaned up semantic data for scene {scene_id}")
+                except Exception as e:
+                    logger.warning(f"[CHAPTER-BG] Failed to cleanup semantic data for scene {scene_id}: {e}")
+                    # Continue with other scenes even if one fails
+            
+            logger.info(f"[CHAPTER-BG] Completed semantic cleanup for {len(scene_ids)} scenes (story {story_id})")
+        finally:
+            bg_db.close()
+    except Exception as e:
+        logger.error(f"[CHAPTER-BG] Failed to cleanup semantic data in background: {e}")
+        import traceback
+        logger.error(f"[CHAPTER-BG] Traceback: {traceback.format_exc()}")
 
 
 @router.get("/{story_id}/available-characters")
