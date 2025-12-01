@@ -1082,10 +1082,10 @@ export default function SceneVariantDisplay({
             
             {/* Mobile Guided Options Panel */}
             {showGuidedOptions && (
-              <div className="absolute right-16 top-20 w-52 animate-fade-in">
-                <div className="bg-gray-900/95 backdrop-blur-md rounded-xl border border-purple-500/30 shadow-2xl overflow-hidden">
+              <div className="absolute right-16 top-4 w-52 animate-fade-in max-h-[calc(100vh-2rem)]">
+                <div className="bg-gray-900/95 backdrop-blur-md rounded-xl border border-purple-500/30 shadow-2xl overflow-hidden h-full flex flex-col">
                   {/* Header */}
-                  <div className="flex items-center justify-between px-3 py-2 bg-gradient-to-r from-purple-600/30 to-pink-600/30 border-b border-purple-500/20">
+                  <div className="flex items-center justify-between px-3 py-2 bg-gradient-to-r from-purple-600/30 to-pink-600/30 border-b border-purple-500/20 flex-shrink-0">
                     <span className="text-xs font-semibold text-purple-200">Guided Options</span>
                     <button
                       onClick={() => setShowGuidedOptions(false)}
@@ -1095,7 +1095,7 @@ export default function SceneVariantDisplay({
                     </button>
                   </div>
                   {/* Options */}
-                  <div className="p-2 space-y-1 max-h-[60vh] overflow-y-auto">
+                  <div className="p-2 space-y-1 overflow-y-auto flex-1">
                     {[
                       { label: "More Dialogue", prompt: "Regenerate this scene with more dialogue and character interactions." },
                       { label: "Internal Thoughts", prompt: "Regenerate this scene with more internal thoughts and character emotions." },
