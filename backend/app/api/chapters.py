@@ -1157,18 +1157,27 @@ Summary:"""
 
 def combine_chapter_batches(chapter_id: int, db: Session) -> Optional[str]:
     """
-    Combine all valid batches for a chapter into the final auto_summary.
+    Get the latest chapter summary from batches.
+    
+    Each batch stores the complete cumulative summary up to that point
+    (the LLM combines existing summary + new scenes). So we just need
+    the latest batch's summary, not a concatenation of all batches.
+    
+    This preserves the batch rollback feature - if a scene is deleted,
+    the affected batch is invalidated, and the previous batch (which has
+    the complete summary up to that point) becomes the latest.
+    
     Returns None if no batches exist.
     """
-    batches = db.query(ChapterSummaryBatch).filter(
+    # Get the latest batch (highest end_scene_sequence)
+    latest_batch = db.query(ChapterSummaryBatch).filter(
         ChapterSummaryBatch.chapter_id == chapter_id
-    ).order_by(ChapterSummaryBatch.start_scene_sequence).all()
+    ).order_by(ChapterSummaryBatch.end_scene_sequence.desc()).first()
     
-    if not batches:
+    if not latest_batch:
         return None
     
-    combined = "\n\n".join([b.summary for b in batches])
-    return combined
+    return latest_batch.summary
 
 
 def update_chapter_summary_from_batches(chapter_id: int, db: Session) -> None:
