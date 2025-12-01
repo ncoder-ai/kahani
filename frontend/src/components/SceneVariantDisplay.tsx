@@ -1270,13 +1270,13 @@ export default function SceneVariantDisplay({
               <div className="flex items-center justify-between">
                 <input
                   type="text"
-                  value={isLastScene ? (customPrompt || getManualChoice()) : customPrompt}
+                  value={customPrompt}
                   onChange={(e) => onCustomPromptChange?.(e.target.value)}
                   placeholder="Write what happens next..."
                   className="flex-1 bg-transparent outline-none theme-placeholder"
                   style={{ color: 'var(--color-textPrimary)' }}
                   onKeyPress={(e) => {
-                    const currentValue = isLastScene ? (customPrompt || getManualChoice()) : customPrompt;
+                    const currentValue = customPrompt;
                     if (e.key === 'Enter' && currentValue.trim()) {
                       // Use the current value from the input, not customPrompt state
                       const inputValue = (e.target as HTMLInputElement).value;
@@ -1303,7 +1303,7 @@ export default function SceneVariantDisplay({
                 />
                 <button
                   onClick={() => {
-                    const currentValue = isLastScene ? (customPrompt || getManualChoice()) : customPrompt;
+                    const currentValue = customPrompt;
                     if (currentValue.trim()) {
                       onGenerateScene?.(currentValue);
                     }
