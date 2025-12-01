@@ -272,6 +272,9 @@ backend/data/audio/
 test_*.py
 test_*.html
 debug_*.py
+verify_*.py
+backend/scripts/prompt_outputs/
+backend/scripts/TEST_RESULTS.md
 
 # Whisper and Silero-VAD models
 backend/data/whisper_models/
