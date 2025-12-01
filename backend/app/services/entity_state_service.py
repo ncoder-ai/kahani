@@ -16,6 +16,7 @@ from ..models import (
 )
 from ..services.llm.service import UnifiedLLMService
 from ..services.llm.extraction_service import ExtractionLLMService
+from ..services.llm.prompts import prompt_manager
 from ..config import settings
 
 logger = logging.getLogger(__name__)
@@ -241,73 +242,20 @@ class EntityStateService:
         try:
             logger.info(f"Using main LLM for entity state extraction (user {self.user_id})")
             
-            prompt = f"""Analyze this story scene and extract entity state changes.
-
-Scene (Sequence #{scene_sequence}):
-{scene_content}
-
-Known Characters: {', '.join(character_names)}
-
-Extract the following as JSON:
-1. Character state changes (location, emotional state, possessions, knowledge, relationships)
-2. Location information (name, condition, atmosphere, occupants)
-3. Important objects (name, location, owner, condition)
-
-CRITICAL INSTRUCTIONS FOR OBJECT EXTRACTION:
-- Only extract objects that are PLOT-RELEVANT:
-  * Used in actions by characters (e.g., "Rambo drew his gun")
-  * Possessed/carried by characters (e.g., "Sarah's phone")
-  * Mentioned 2+ times in the scene
-  * Central to plot events (not trivial items like phones, keys unless central to action)
-- DO NOT extract everyday items unless they are actively used or central to the scene
-- For "condition": Provide ONLY factual, observable physical condition (damaged, intact, locked, open, broken, pristine, etc.)
-  * BAD: "Silent confirmation of a rendezvous" (interpretive)
-  * GOOD: "intact", "damaged", "locked"
-- For "significance": Provide ONLY factual role in the scene (used by X, mentioned in Y, carried by Z)
-  * BAD: "A symbol of active planning and intention" (interpretive/symbolic)
-  * GOOD: "used by Rambo to call for backup", "carried by Sarah", "mentioned in conversation"
-- NO interpretive, symbolic, or narrative importance descriptions
-
-Return ONLY valid JSON in this exact format:
-{{
-  "characters": [
-    {{
-      "name": "character name",
-      "location": "current location or null",
-      "emotional_state": "brief emotional state or null",
-      "physical_condition": "condition or null",
-      "possessions_gained": ["item1", "item2"],
-      "possessions_lost": ["item3"],
-      "knowledge_gained": ["fact1", "fact2"],
-      "relationship_changes": {{"other_char": "relationship description"}}
-    }}
-  ],
-  "locations": [
-    {{
-      "name": "location name",
-      "condition": "condition description or null",
-      "atmosphere": "atmosphere description or null",
-      "occupants": ["character1", "character2"]
-    }}
-  ],
-  "objects": [
-    {{
-      "name": "object name",
-      "location": "where it is",
-      "owner": "who has it or null",
-      "condition": "factual physical condition only (damaged, intact, locked, etc.) or null",
-      "significance": "factual role in scene only (used by X, mentioned in Y) or null"
-    }}
-  ]
-}}
-
-If no changes for a category, use empty array. Return ONLY the JSON, no other text."""
+            # Get prompts from centralized prompts.yml
+            system_prompt = prompt_manager.get_prompt("entity_state_extraction.single", "system")
+            user_prompt = prompt_manager.get_prompt(
+                "entity_state_extraction.single", "user",
+                scene_sequence=scene_sequence,
+                scene_content=scene_content,
+                character_names=', '.join(character_names)
+            )
 
             response = await self.llm_service.generate(
-                prompt=prompt,
+                prompt=user_prompt,
                 user_id=self.user_id,
                 user_settings=self.user_settings,
-                system_prompt="You are a precise story analysis assistant. Extract entity state changes and return only valid JSON.",
+                system_prompt=system_prompt,
                 max_tokens=1000
             )
             
@@ -435,6 +383,9 @@ If no changes for a category, use empty array. Return ONLY the JSON, no other te
             
             if char_update.get("physical_condition"):
                 char_state.physical_condition = char_update["physical_condition"]
+            
+            if char_update.get("current_attire"):
+                char_state.appearance = char_update["current_attire"]
             
             # Update possessions
             if char_update.get("possessions_gained"):

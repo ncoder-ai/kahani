@@ -424,7 +424,9 @@ class PromptManager:
             "chapter_conclusion": ("chapter_conclusion", ""),
             "character_assistant.extraction": ("character_assistant", "extraction"),
             "character_assistant.detection": ("character_assistant", "detection"),
-            "character_assistant.generation": ("character_assistant", "generation")
+            "character_assistant.generation": ("character_assistant", "generation"),
+            "entity_state_extraction.single": ("entity_state_extraction", "single"),
+            "entity_state_extraction.batch": ("entity_state_extraction", "batch")
         }
         
         if template_key not in yaml_mapping:

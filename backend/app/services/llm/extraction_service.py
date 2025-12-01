@@ -12,6 +12,7 @@ import time
 import json
 import aiohttp
 from aiohttp import ClientTimeout
+from .prompts import prompt_manager
 
 logger = logging.getLogger(__name__)
 
@@ -995,122 +996,24 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             thread_section = f"\n\nActive plot threads to consider:{thread_context}" if thread_context else ""
             
             # Calculate dynamic limits based on batch size
-            max_moments_per_char = 5
             max_npcs_total = 10
             max_events_total = 8
             
-            prompt = f"""Analyze the following scenes and extract FOUR types of information in a single response:
-
-1. CHARACTER MOMENTS (for explicit characters only: {character_names_str})
-2. NPCs and ENTITIES (NOT in the explicit character list: {explicit_names_str})
-3. PLOT EVENTS (significant story events){thread_section}
-4. ENTITY STATE CHANGES (characters, locations, objects)
-
-Scenes:
-{batch_content}
-
-IMPORTANT: Extract only the MOST IMPORTANT/SIGNIFICANT items. Quality over quantity.
-
-For CHARACTER MOMENTS:
-- Focus on explicit characters: {character_names_str}
-- Extract only significant moments (confidence >= 70)
-- Maximum 5 moments per character per scene
-- Moment types: "action", "dialogue", "development", "relationship"
-
-For NPCs:
-- Extract named entities NOT in explicit character list: {character_names_str}
-- Classify each as "CHARACTER" (sentient beings) or "ENTITY" (locations, objects, organizations)
-- Focus on entities with dialogue, actions, or relationships
-- Maximum {max_npcs_total} total NPCs across all scenes
-- Prioritize: has_dialogue OR has_actions OR mention_count >= 2
-
-For PLOT EVENTS:
-- Extract significant plot events only
-- Importance >= 60 AND confidence >= 70
-- Maximum {max_events_total} total events across all scenes
-- Event types: "introduction", "complication", "revelation", "resolution"
-
-For ENTITY STATE CHANGES:
-- Extract state changes for characters, locations, and objects
-- Focus on significant changes (location, emotional state, possessions, condition)
-- Maximum 15 total state changes across all scenes (prioritize most important)
-- Include only entities that have meaningful state changes
-
-Return ONLY valid JSON in this exact format:
-{{
-  "character_moments": [
-    {{
-      "character_name": "Character Name",
-      "moment_type": "action",
-      "content": "Description of the moment",
-      "confidence": 85
-    }}
-  ],
-  "npcs": [
-    {{
-      "name": "NPC name",
-      "entity_type": "CHARACTER",
-      "mention_count": 3,
-      "has_dialogue": true,
-      "has_actions": true,
-      "has_relationships": true,
-      "context_snippets": ["snippet 1", "snippet 2"],
-      "properties": {{
-        "role": "role description",
-        "description": "brief description"
-      }}
-    }}
-  ],
-  "plot_events": [
-    {{
-      "event_type": "complication",
-      "description": "Description of the event",
-      "importance": 85,
-      "confidence": 95,
-      "involved_characters": ["Character1", "Character2"]
-    }}
-  ],
-  "entity_states": {{
-    "characters": [
-      {{
-        "name": "character name",
-        "location": "current location or null",
-        "emotional_state": "brief emotional state or null",
-        "physical_condition": "condition or null",
-        "possessions_gained": ["item1"],
-        "possessions_lost": [],
-        "knowledge_gained": ["fact1"],
-        "relationship_changes": {{"other_char": "relationship description"}}
-      }}
-    ],
-    "locations": [
-      {{
-        "name": "location name",
-        "condition": "condition description or null",
-        "atmosphere": "atmosphere description or null",
-        "occupants": ["character1"]
-      }}
-    ],
-    "objects": [
-      {{
-        "name": "object name",
-        "location": "where it is",
-        "owner": "who has it or null",
-        "condition": "its condition or null",
-        "significance": "why it matters or null"
-      }}
-    ]
-  }}
-}}
-
-If no items found for a category, return empty array [] or empty object {{}}. Return ONLY the JSON, no other text or markdown."""
+            # Get prompts from centralized prompts.yml
+            system_prompt = prompt_manager.get_prompt("entity_state_extraction.batch", "system")
+            user_prompt = prompt_manager.get_prompt(
+                "entity_state_extraction.batch", "user",
+                character_names=character_names_str,
+                explicit_names=explicit_names_str,
+                thread_section=thread_section,
+                batch_content=batch_content,
+                max_npcs_total=max_npcs_total,
+                max_events_total=max_events_total
+            )
             
             # Calculate dynamic timeout and max_tokens
             timeout_seconds = self._calculate_batch_timeout(num_scenes)
             max_tokens = self._calculate_batch_max_tokens(num_scenes)
-            
-            system_prompt = """You are an expert story analysis assistant. Analyze scenes and extract character moments, NPCs, plot events, and entity state changes. 
-Return only valid JSON with all four sections: character_moments, npcs, plot_events, and entity_states. Focus on the most important items only."""
             
             params = self._get_generation_params(max_tokens=max_tokens)
             logger.info(f"Starting combined extraction: {num_scenes} scenes, timeout={timeout_seconds}s, max_tokens={max_tokens}")
@@ -1119,7 +1022,7 @@ Return only valid JSON with all four sections: character_moments, npcs, plot_eve
                 **params,
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt}
+                    {"role": "user", "content": user_prompt}
                 ],
                 timeout=timeout_seconds
             )
