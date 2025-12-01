@@ -2810,6 +2810,14 @@ class UnifiedLLMService:
         else:
             logger.info("[CONTEXT FORMAT] previous_chapter_summary is None or empty, not including")
         
+        # Add current chapter summary if available (summary of this chapter's progress so far)
+        current_chapter_summary = context.get("current_chapter_summary")
+        if current_chapter_summary:
+            logger.info(f"[CONTEXT FORMAT] Including current_chapter_summary ({len(current_chapter_summary)} chars)")
+            context_parts.append(f"Current Chapter Summary:\n{current_chapter_summary}")
+        else:
+            logger.info("[CONTEXT FORMAT] current_chapter_summary is None or empty, not including")
+        
         # Parse and organize previous_scenes into clear sections
         if context.get("previous_scenes"):
             previous_scenes_text = context['previous_scenes']

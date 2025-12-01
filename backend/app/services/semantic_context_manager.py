@@ -522,6 +522,13 @@ class SemanticContextManager(ContextManager):
                 logger.info(f"[SEMANTIC CONTEXT BUILD] Chapter {chapter.chapter_number}: Excluding previous_chapter_summary (continues_from_previous=False)")
             else:
                 logger.info(f"[SEMANTIC CONTEXT BUILD] Chapter {chapter.chapter_number}: First chapter, no previous chapter summary")
+            
+            # Include current chapter's auto_summary for context on this chapter's progress
+            if chapter.auto_summary:
+                logger.info(f"[SEMANTIC CONTEXT BUILD] Chapter {chapter.chapter_number}: Including current_chapter_summary ({len(chapter.auto_summary)} chars)")
+                base_context["current_chapter_summary"] = chapter.auto_summary
+            else:
+                logger.info(f"[SEMANTIC CONTEXT BUILD] Chapter {chapter.chapter_number}: current_chapter_summary is None")
         
         return base_context
     

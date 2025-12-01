@@ -826,15 +826,18 @@ Appearance: {char.get('appearance', '')}
             "chapter_scenario": full_context.get("chapter_scenario"),  # Chapter-specific scenario
             # Add chapter summaries
             "story_so_far": full_context.get("story_so_far"),
-            "previous_chapter_summary": full_context.get("previous_chapter_summary")
+            "previous_chapter_summary": full_context.get("previous_chapter_summary"),
+            "current_chapter_summary": full_context.get("current_chapter_summary")
         }
         
         # Log what's in the context
-        logger.info(f"[CONTEXT BUILD] Scene generation context - story_so_far: {'present' if scene_context.get('story_so_far') else 'None'}, previous_chapter_summary: {'present' if scene_context.get('previous_chapter_summary') else 'None'}")
+        logger.info(f"[CONTEXT BUILD] Scene generation context - story_so_far: {'present' if scene_context.get('story_so_far') else 'None'}, previous_chapter_summary: {'present' if scene_context.get('previous_chapter_summary') else 'None'}, current_chapter_summary: {'present' if scene_context.get('current_chapter_summary') else 'None'}")
         if scene_context.get("story_so_far"):
             logger.info(f"[CONTEXT BUILD] story_so_far length: {len(scene_context['story_so_far'])} chars")
         if scene_context.get("previous_chapter_summary"):
             logger.info(f"[CONTEXT BUILD] previous_chapter_summary length: {len(scene_context['previous_chapter_summary'])} chars")
+        if scene_context.get("current_chapter_summary"):
+            logger.info(f"[CONTEXT BUILD] current_chapter_summary length: {len(scene_context['current_chapter_summary'])} chars")
         
         return scene_context
 
