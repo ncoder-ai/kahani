@@ -964,7 +964,7 @@ export default function SceneVariantDisplay({
           {/* Mobile Floating Action Menu (client-side only) */}
           {isClient && (
           <div 
-            className="md:hidden fixed right-0 top-1/2 -translate-y-1/2 z-50"
+            className="md:hidden fixed right-0 bottom-24 z-50"
             onMouseEnter={resetMenuTimer}
             onMouseLeave={() => {
               if (!showFloatingMenu) {
@@ -975,7 +975,7 @@ export default function SceneVariantDisplay({
           >
             {/* Floating Menu Items */}
             {showFloatingMenu && (
-              <div className="absolute right-16 top-1/2 -translate-y-1/2 space-y-2 animate-fade-in">
+              <div className="absolute right-16 bottom-0 space-y-2 animate-fade-in">
                 {/* Regenerate */}
                 <button
                   onClick={() => {
@@ -1082,8 +1082,8 @@ export default function SceneVariantDisplay({
             
             {/* Mobile Guided Options Panel */}
             {showGuidedOptions && (
-              <div className="absolute right-16 top-4 w-52 animate-fade-in max-h-[calc(100vh-2rem)]">
-                <div className="bg-gray-900/95 backdrop-blur-md rounded-xl border border-purple-500/30 shadow-2xl overflow-hidden h-full flex flex-col">
+              <div className="fixed right-16 top-16 bottom-4 w-52 animate-fade-in z-50">
+                <div className="bg-gray-900/95 backdrop-blur-md rounded-xl border border-purple-500/30 shadow-2xl overflow-hidden h-auto max-h-full flex flex-col">
                   {/* Header */}
                   <div className="flex items-center justify-between px-3 py-2 bg-gradient-to-r from-purple-600/30 to-pink-600/30 border-b border-purple-500/20 flex-shrink-0">
                     <span className="text-xs font-semibold text-purple-200">Guided Options</span>
