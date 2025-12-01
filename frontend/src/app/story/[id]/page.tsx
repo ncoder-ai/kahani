@@ -238,6 +238,7 @@ export default function StoryPage() {
   const storyContentRef = useRef<HTMLDivElement>(null);
   const variantReloadTriggerRef = useRef<number>(0);
   const manualChoiceUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const visibleSceneIdRef = useRef<number | null>(null);
   
   // Apply UI settings (theme, font size, etc.)
   useUISettings(userSettings?.ui_preferences || null);
@@ -358,6 +359,57 @@ export default function StoryPage() {
       setHasShownContextWarning(true);
     }
   }, [contextUsagePercent, hasShownContextWarning]);
+
+  // Preserve scroll position on resize/orientation change
+  useEffect(() => {
+    const container = storyContentRef.current;
+    if (!container) return;
+
+    // Function to find which scene is currently at the top of viewport
+    const getVisibleSceneId = () => {
+      const sceneElements = container.querySelectorAll('[data-scene-id]');
+      for (const element of sceneElements) {
+        const rect = element.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+        // Scene is visible if its top is within the container viewport
+        if (rect.top >= containerRect.top && rect.top <= containerRect.bottom) {
+          return parseInt(element.getAttribute('data-scene-id') || '0');
+        }
+      }
+      return null;
+    };
+
+    // Save visible scene before resize
+    const handleResizeStart = () => {
+      visibleSceneIdRef.current = getVisibleSceneId();
+    };
+
+    // Restore visible scene after resize
+    const handleResizeEnd = () => {
+      if (visibleSceneIdRef.current) {
+        const element = container.querySelector(
+          `[data-scene-id="${visibleSceneIdRef.current}"]`
+        );
+        if (element) {
+          element.scrollIntoView({ behavior: 'instant', block: 'start' });
+        }
+      }
+    };
+
+    // Debounce resize handling
+    let resizeTimeout: NodeJS.Timeout;
+    const handleResize = () => {
+      if (!resizeTimeout) handleResizeStart();
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(handleResizeEnd, 150);
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      clearTimeout(resizeTimeout);
+    };
+  }, [story?.scenes]);
 
   // Load chapter info when active chapter changes
   useEffect(() => {
