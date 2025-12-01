@@ -906,6 +906,9 @@ class SemanticContextManager(ContextManager):
                         if char_state.physical_condition:
                             char_text += f"\n  Physical Condition: {char_state.physical_condition}"
                         
+                        if char_state.appearance:
+                            char_text += f"\n  Current Attire: {char_state.appearance}"
+                        
                         if char_state.current_goal:
                             char_text += f"\n  Current Goal: {char_state.current_goal}"
                         

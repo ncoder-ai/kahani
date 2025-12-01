@@ -3767,6 +3767,24 @@ class UnifiedLLMService:
                         
                         # Recalculate summary from remaining batches
                         update_chapter_summary_from_batches(chapter_id, db)
+                    
+                    # Update last_extraction_scene_count to max remaining sequence
+                    # This prevents extraction from being skipped due to negative scene counts
+                    remaining_scenes = db.query(Scene).filter(
+                        Scene.story_id == story_id,
+                        Scene.chapter_id == chapter_id,
+                        Scene.is_deleted == False
+                    ).all()
+                    
+                    if remaining_scenes:
+                        max_remaining_seq = max(s.sequence_number for s in remaining_scenes)
+                        # Only lower it, never raise it (scenes were deleted, not added)
+                        if chapter.last_extraction_scene_count and chapter.last_extraction_scene_count > max_remaining_seq:
+                            chapter.last_extraction_scene_count = max_remaining_seq
+                            logger.info(f"[DELETE] Updated chapter {chapter_id} last_extraction_scene_count to {max_remaining_seq}")
+                    else:
+                        chapter.last_extraction_scene_count = 0
+                        logger.info(f"[DELETE] Reset chapter {chapter_id} last_extraction_scene_count to 0 (no remaining scenes)")
             
             # Invalidate and restore entity states using batch system (skip if doing in background)
             if not skip_restoration:

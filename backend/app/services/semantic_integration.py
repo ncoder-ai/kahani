@@ -15,6 +15,7 @@ from .context_manager import ContextManager
 from .semantic_memory import get_semantic_memory_service
 from .character_memory_service import get_character_memory_service
 from .plot_thread_service import get_plot_thread_service
+from .llm.prompts import prompt_manager
 from ..config import settings
 from ..models import Scene, SceneVariant, Story, Chapter
 
@@ -359,135 +360,24 @@ async def _try_combined_extraction(
         
         num_scenes = len(scenes_data)
         
-        # Build the combined extraction prompt (same for both extraction model and main LLM)
+        # Build the combined extraction prompt using centralized prompts.yml
         explicit_names_str = ", ".join(explicit_character_names) if explicit_character_names else "None"
         character_names_str = ", ".join(character_names) if character_names else "None"
         thread_section = f"\n\nActive plot threads to consider:{thread_context}" if thread_context else ""
-        max_moments_per_char = 5
         max_npcs_total = 10
         max_events_total = 8
         
-        prompt = f"""Analyze the following scenes and extract FOUR types of information in a single response:
-
-1. CHARACTER MOMENTS (for explicit characters only: {character_names_str})
-2. NPCs and ENTITIES (NOT in the explicit character list: {explicit_names_str})
-3. PLOT EVENTS (significant story events){thread_section}
-4. ENTITY STATE CHANGES (characters, locations, objects)
-
-Scenes:
-{batch_content}
-
-IMPORTANT: Extract only the MOST IMPORTANT/SIGNIFICANT items. Quality over quantity.
-
-For CHARACTER MOMENTS:
-- Focus on explicit characters: {character_names_str}
-- Extract only significant moments (confidence >= 70)
-- Maximum 5 moments per character per scene
-- Moment types: "action", "dialogue", "development", "relationship"
-
-For NPCs:
-- Extract named entities NOT in explicit character list: {character_names_str}
-- Classify each as "CHARACTER" (sentient beings) or "ENTITY" (locations, objects, organizations)
-- Focus on entities with dialogue, actions, or relationships
-- Maximum {max_npcs_total} total NPCs across all scenes
-- Prioritize: has_dialogue OR has_actions OR mention_count >= 2
-
-For PLOT EVENTS:
-- Extract significant plot events only
-- Importance >= 60 AND confidence >= 70
-- Maximum {max_events_total} total events across all scenes
-- Event types: "introduction", "complication", "revelation", "resolution"
-
-For ENTITY STATE CHANGES:
-- Extract state changes for characters, locations, and objects
-- Focus on significant changes (location, emotional state, possessions, condition)
-- Maximum 15 total state changes across all scenes (prioritize most important)
-- Include only entities that have meaningful state changes
-
-CRITICAL INSTRUCTIONS FOR OBJECT EXTRACTION:
-- Only extract objects that are PLOT-RELEVANT:
-  * Used in actions by characters
-  * Possessed/carried by characters
-  * Mentioned 2+ times across scenes
-  * Central to plot events (not trivial items unless central to action)
-- Maximum 3-5 objects total across all scenes (prioritize most plot-relevant)
-- For "condition": Provide ONLY factual, observable physical condition (damaged, intact, locked, open, broken, pristine, etc.)
-  * NO interpretive descriptions like "silent confirmation" or symbolic meanings
-- For "significance": Provide ONLY factual role (used by X, mentioned in Y, carried by Z)
-  * NO symbolic interpretations or narrative importance descriptions
-  * Examples: "used by Rambo to call backup", "carried by Sarah", "mentioned in conversation"
-
-Return ONLY valid JSON in this exact format:
-{{
-  "character_moments": [
-    {{
-      "character_name": "Character Name",
-      "moment_type": "action",
-      "content": "Description of the moment",
-      "confidence": 85
-    }}
-  ],
-  "npcs": [
-    {{
-      "name": "NPC name",
-      "entity_type": "CHARACTER",
-      "mention_count": 3,
-      "has_dialogue": true,
-      "has_actions": true,
-      "has_relationships": true,
-      "context_snippets": ["snippet 1", "snippet 2"],
-      "properties": {{
-        "role": "role description",
-        "description": "brief description"
-      }}
-    }}
-  ],
-  "plot_events": [
-    {{
-      "event_type": "complication",
-      "description": "Description of the event",
-      "importance": 85,
-      "confidence": 95,
-      "involved_characters": ["Character1", "Character2"]
-    }}
-  ],
-  "entity_states": {{
-    "characters": [
-      {{
-        "name": "character name",
-        "location": "current location or null",
-        "emotional_state": "brief emotional state or null",
-        "physical_condition": "condition or null",
-        "possessions_gained": ["item1"],
-        "possessions_lost": [],
-        "knowledge_gained": ["fact1"],
-        "relationship_changes": {{"other_char": "relationship description"}}
-      }}
-    ],
-    "locations": [
-      {{
-        "name": "location name",
-        "condition": "condition description or null",
-        "atmosphere": "atmosphere description or null",
-        "occupants": ["character1"]
-      }}
-    ],
-    "objects": [
-      {{
-        "name": "object name",
-        "location": "where it is",
-        "owner": "who has it or null",
-        "condition": "factual physical condition only (damaged, intact, locked, etc.) or null",
-        "significance": "factual role in scene only (used by X, mentioned in Y) or null"
-      }}
-    ]
-  }}
-}}
-
-If no items found for a category, return empty array [] or empty object {{}}. Return ONLY the JSON, no other text or markdown."""
-        
-        system_prompt = """You are an expert story analysis assistant. Analyze scenes and extract character moments, NPCs, plot events, and entity state changes. 
-Return only valid JSON with all four sections: character_moments, npcs, plot_events, and entity_states. Focus on the most important items only."""
+        # Get prompts from centralized prompts.yml
+        system_prompt = prompt_manager.get_prompt("entity_state_extraction.batch", "system")
+        prompt = prompt_manager.get_prompt(
+            "entity_state_extraction.batch", "user",
+            character_names=character_names_str,
+            explicit_names=explicit_names_str,
+            thread_section=thread_section,
+            batch_content=batch_content,
+            max_npcs_total=max_npcs_total,
+            max_events_total=max_events_total
+        )
         
         # Helper function to parse combined JSON response (same logic as ExtractionLLMService)
         def _parse_combined_json_response(content: str) -> Dict[str, Any]:
