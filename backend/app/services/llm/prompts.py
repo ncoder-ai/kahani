@@ -91,15 +91,13 @@ class PromptManager:
             # Define which generation types should use user writing presets
             # These are the core story writing operations that should respect user's writing style
             user_preset_enabled_types = {
-                "scene_generation",           # Main story scenes (legacy)
                 "scene_with_immediate",       # Scenes with continue choice
                 "scene_without_immediate",    # Scenes without continue choice
                 "scene_continuation",          # Scene continuations
-                "scene_variants",              # Scene variants
-                "scene_variants_streaming",    # Scene variants streaming (uses same prompts as scene_variants)
                 "scene_guided_enhancement",   # Scene guided enhancement
                 "story_summary",               # Story summaries (uses summary_system_prompt)
                 "scenario_generation"          # Story scenario/premise generation
+                # NOTE: scene_variants removed - now uses scene_with/without_immediate
             }
             
             # Only use user presets for enabled generation types
@@ -160,9 +158,9 @@ class PromptManager:
             yaml_full_prompt = self._get_yaml_prompt(template_key, "system")
             if yaml_full_prompt:
                 templates_with_tech_requirements = {
-                    "scene_generation", "scene_with_immediate", "scene_without_immediate",
-                    "scene_guided_enhancement", "scene_continuation",
-                    "scene_variants", "scene_variants_streaming"
+                    "scene_with_immediate", "scene_without_immediate",
+                    "scene_guided_enhancement", "scene_continuation"
+                    # NOTE: scene_variants removed - now uses scene_with/without_immediate
                 }
                 
                 if template_key in templates_with_tech_requirements:
@@ -324,15 +322,70 @@ class PromptManager:
         # If no technical markers found, return empty (no technical requirements)
         return ""
     
+    def _compose_scene_system_prompt(self, template_key: str) -> str:
+        """
+        Compose a scene system prompt from base components.
+        
+        For scene types that use the composable structure, this combines:
+        - scene_base.system (core writing instructions)
+        - scene_base.formatting (standard formatting rules)
+        - scene_base.choices (choices generation instructions)
+        
+        Args:
+            template_key: The scene template key
+            
+        Returns:
+            Composed system prompt or empty string if not a composable scene type
+        """
+        # Scene types that use composable base components
+        # NOTE: scene_variants removed - now uses scene_with/without_immediate
+        composable_scene_types = {
+            "scene_with_immediate",
+            "scene_without_immediate"
+        }
+        
+        if template_key not in composable_scene_types:
+            return ""
+        
+        if not self._prompts_cache:
+            return ""
+        
+        scene_base = self._prompts_cache.get("scene_base", {})
+        if not scene_base:
+            logger.debug(f"[PROMPTS] No scene_base found in YAML, falling back to individual prompt")
+            return ""
+        
+        base_system = scene_base.get("system", "").strip()
+        formatting = scene_base.get("formatting", "").strip()
+        choices = scene_base.get("choices", "").strip()
+        
+        if not base_system:
+            return ""
+        
+        # Compose the full system prompt
+        composed = base_system
+        if formatting:
+            composed += "\n\n" + formatting
+        if choices:
+            composed += "\n\n" + choices
+        
+        logger.debug(f"[PROMPTS] Composed scene system prompt for {template_key} (length: {len(composed)})")
+        return composed
+    
     def _get_yaml_prompt(self, template_key: str, prompt_type: str) -> str:
         """Get prompt from YAML file"""
         if not self._prompts_cache:
             logger.warning(f"[PROMPTS] YAML cache is empty, cannot retrieve {template_key}.{prompt_type}")
             return ""
         
+        # For system prompts of composable scene types, try to compose from base first
+        if prompt_type == "system":
+            composed = self._compose_scene_system_prompt(template_key)
+            if composed:
+                return composed
+        
         # Map template keys to YAML structure
         yaml_mapping = {
-            "scene_generation": ("story_generation", "scene"),  # Legacy - kept for backward compatibility
             "scene_with_immediate": ("story_generation", "scene_with_immediate"),
             "scene_without_immediate": ("story_generation", "scene_without_immediate"),
             "scene_guided_enhancement": ("story_generation", "scene_guided_enhancement"),
@@ -343,8 +396,7 @@ class PromptManager:
             "scene_continuation": ("story_generation", "scene_continuation"),
             "complete_plot": ("plot_generation", "complete_plot"),
             "single_plot_point": ("plot_generation", "single_plot_point"),
-            "scene_variants": ("summary_generation", "scene_variants"),
-            "scene_variants_streaming": ("summary_generation", "scene_variants"),  # Use same prompts as scene_variants
+            # NOTE: scene_variants and scene_variants_streaming removed - now uses scene_with/without_immediate
             "story_chapters": ("summary_generation", "story_chapters"),
             "chapter_conclusion": ("chapter_conclusion", ""),
             "character_assistant.extraction": ("character_assistant", "extraction"),
@@ -399,7 +451,11 @@ class PromptManager:
     def _get_fallback_prompt(self, template_key: str, prompt_type: str) -> str:
         """Get built-in fallback prompt"""
         fallback_prompts = {
-            "scene_generation": {
+            "scene_with_immediate": {
+                "system": """You are a creative storytelling assistant. Generate engaging narrative scenes that maintain consistency, develop characters, and advance the plot meaningfully. Write in an immersive style that draws readers in.""",
+                "user": """Continue the story naturally based on what happens next. Create an engaging scene that advances the plot and develops the characters."""
+            },
+            "scene_without_immediate": {
                 "system": """You are a creative storytelling assistant. Generate engaging narrative scenes that maintain consistency, develop characters, and advance the plot meaningfully. Write in an immersive style that draws readers in.""",
                 "user": """Continue the story naturally from where it left off. Create an engaging scene that advances the plot and develops the characters."""
             },
@@ -593,9 +649,10 @@ Chapter Conclusion:"""
             Max tokens value to use for generation
         """
         # Check user settings first for scene generation types
+        # NOTE: scene_variants removed - now uses scene_with/without_immediate
         scene_generation_types = {
-            "scene_generation", "scene", "scene_continuation", 
-            "scene_variants", "scene_variants_streaming"
+            "scene_with_immediate", "scene_without_immediate", "scene", 
+            "scene_continuation"
         }
         
         if user_settings and template_key in scene_generation_types:
@@ -613,8 +670,10 @@ Chapter Conclusion:"""
         
         try:
             # Map template keys to YAML function names for max_tokens lookup
+            # NOTE: scene_variants removed - now uses scene_with/without_immediate (mapped to "scene")
             function_mapping = {
-                "scene_generation": "scene",
+                "scene_with_immediate": "scene",
+                "scene_without_immediate": "scene",
                 "story_summary": "story_summary",
                 "choice_generation": "choices",
                 "title_generation": "titles",
@@ -622,7 +681,6 @@ Chapter Conclusion:"""
                 "scene_continuation": "scene_continuation",
                 "complete_plot": "complete_plot",
                 "single_plot_point": "single_plot_point",
-                "scene_variants": "scene_variants",
                 "story_chapters": "story_chapters"
             }
             
@@ -632,10 +690,10 @@ Chapter Conclusion:"""
                 logger.debug(f"Using YAML max_tokens setting: {yaml_max_tokens} for {template_key}")
                 return yaml_max_tokens
             # Fallback to config.yaml service defaults
-            from ..config import settings
+            from ...config import settings
             return settings.service_defaults.get('prompts', {}).get('default_max_tokens', 2048)
         except (KeyError, TypeError):
-            from ..config import settings
+            from ...config import settings
             return settings.service_defaults.get('prompts', {}).get('default_max_tokens', 2048)
     
     def get_temperature(self, temp_type: str = "default") -> float:
@@ -658,9 +716,13 @@ Chapter Conclusion:"""
         return {
             "yaml_prompts": self._prompts_cache or {},
             "supported_template_keys": [
-                "scene_generation", "story_summary", "choice_generation", 
-                "title_generation", "scenario_generation", "scene_continuation",
-                "complete_plot", "single_plot_point", "scene_variants", "story_chapters"
+                "scene_with_immediate", "scene_without_immediate", "story_summary", 
+                "choice_generation", "title_generation", "scenario_generation", 
+                "scene_continuation", "scene_guided_enhancement",
+                "complete_plot", "single_plot_point", "story_chapters",
+                "chapter_conclusion", "character_assistant.extraction", 
+                "character_assistant.detection", "character_assistant.generation"
+                # NOTE: scene_variants removed - now uses scene_with/without_immediate
             ]
         }
     

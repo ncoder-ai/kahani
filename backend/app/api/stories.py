@@ -449,6 +449,7 @@ class TitleGenerateRequest(BaseModel):
 class VariantGenerateRequest(BaseModel):
     custom_prompt: Optional[str] = ""
     variant_id: Optional[int] = None  # Specific variant to enhance, if None uses active variant
+    is_concluding: Optional[bool] = False  # If True, generate a chapter-concluding scene (no choices)
 
 class ContinuationRequest(BaseModel):
     custom_prompt: Optional[str] = ""
@@ -1154,6 +1155,7 @@ async def generate_scene_streaming_endpoint(
     custom_prompt: str = Form(""),
     user_content: str = Form(""),
     content_mode: str = Form("ai_generate"),
+    is_concluding: str = Form("false"),
     background_tasks: BackgroundTasks = BackgroundTasks(),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -1164,6 +1166,8 @@ async def generate_scene_streaming_endpoint(
     - "ai_generate": AI generates scene from scratch (default, streams tokens)
     - "user_prompt": Use user_content as prompt for AI generation (streams tokens)
     - "user_scene": Use user_content directly as scene content, AI generates choices (sends content immediately, then streams choices)
+    
+    is_concluding: If "true", generates a chapter-concluding scene (no choices)
     """
     
     story = db.query(Story).filter(
@@ -1180,9 +1184,12 @@ async def generate_scene_streaming_endpoint(
     # Get user settings
     user_settings = get_or_create_user_settings(current_user.id, db, current_user)
     
+    # Parse is_concluding (form data comes as string)
+    is_concluding_bool = is_concluding.lower() == "true"
+    
     # Handle different content modes
     effective_custom_prompt = custom_prompt
-    generation_method = "auto"
+    generation_method = "concluding_scene" if is_concluding_bool else "auto"
     user_provided_content = None
     
     if content_mode == "user_scene":
@@ -1250,6 +1257,7 @@ async def generate_scene_streaming_endpoint(
     next_sequence = current_scene_count + 1
     
     async def generate_stream():
+        nonlocal active_chapter  # Use outer scope's active_chapter variable
         try:
             full_content = ""
             
@@ -1262,6 +1270,31 @@ async def generate_scene_streaming_endpoint(
                 full_content = user_provided_content
                 yield f"data: {json.dumps({'type': 'content', 'chunk': user_provided_content})}\n\n"
                 parsed_choices = None  # User-provided scenes need separate choice generation
+            elif is_concluding_bool:
+                # Generate concluding scene (no choices)
+                logger.info(f"[SCENE STREAM] Generating concluding scene for story {story_id}")
+                
+                # Get chapter info for the concluding prompt
+                chapter_info = {
+                    "chapter_number": active_chapter.chapter_number if active_chapter else 1,
+                    "chapter_title": active_chapter.title if active_chapter else "Untitled",
+                    "chapter_location": active_chapter.location_name if active_chapter else "Unknown",
+                    "chapter_time_period": active_chapter.time_period if active_chapter else "Unknown",
+                    "chapter_scenario": active_chapter.scenario if active_chapter else "None"
+                }
+                
+                async for chunk in llm_service.generate_concluding_scene_streaming(
+                    context,
+                    chapter_info,
+                    current_user.id,
+                    user_settings,
+                    db
+                ):
+                    full_content += chunk
+                    yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                
+                # Concluding scenes don't have choices
+                parsed_choices = None
             else:
                 # Use combined scene + choices generation
                 scene_context = context.copy() if isinstance(context, dict) else {"story_context": context}
@@ -2671,12 +2704,47 @@ async def create_scene_variant_streaming(
             # Get custom_prompt from proper request model
             custom_prompt = request.custom_prompt or ""
             logger.warning(f"[VARIANT] Custom prompt from request: '{custom_prompt}'")
+            
+            # Check if this should be a concluding scene
+            # Either explicitly requested OR regenerating an existing concluding scene
+            is_concluding = request.is_concluding or (original_variant.generation_method == "concluding_scene")
+            logger.warning(f"[VARIANT] is_concluding: {is_concluding} (request: {request.is_concluding}, variant method: {original_variant.generation_method})")
 
             # Stream variant generation with combined choices
             variant_content = ""
             parsed_choices = None
             
-            if custom_prompt:
+            if is_concluding:
+                # CONCLUDING SCENE: Generate chapter-ending scene without choices
+                logger.warning(f"[VARIANT] Mode: CONCLUDING SCENE")
+                context = await context_manager.build_scene_generation_context(
+                    story_id, db, "", is_variant_generation=False, 
+                    exclude_scene_id=scene_id, chapter_id=chapter_id
+                )
+                
+                # Get chapter info for the concluding prompt
+                chapter_info = {
+                    "chapter_number": active_chapter.chapter_number if active_chapter else 1,
+                    "chapter_title": active_chapter.title if active_chapter else "Untitled",
+                    "chapter_location": active_chapter.location_name if active_chapter else "Unknown",
+                    "chapter_time_period": active_chapter.time_period if active_chapter else "Unknown",
+                    "chapter_scenario": active_chapter.scenario if active_chapter else "None"
+                }
+                
+                # Use concluding scene function (no choices generated)
+                async for chunk in llm_service.generate_concluding_scene_streaming(
+                    context,
+                    chapter_info,
+                    current_user.id,
+                    user_settings,
+                    db
+                ):
+                    variant_content += chunk
+                    yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                
+                # Concluding scenes don't have choices
+                parsed_choices = None
+            elif custom_prompt:
                 # GUIDED ENHANCEMENT: Has custom prompt from user
                 logger.warning(f"[VARIANT] Mode: GUIDED ENHANCEMENT")
                 context = await context_manager.build_scene_generation_context(
@@ -2749,8 +2817,14 @@ async def create_scene_variant_streaming(
             # Determine what to save as generation_prompt
             # For guided enhancement: save the custom_prompt (enhancement instructions)
             # For simple variant: save the original_continue_option (the continue option that was used)
-            prompt_to_save = custom_prompt if custom_prompt else (variant_to_regenerate_from.generation_prompt or "")
-            logger.warning(f"[VARIANT] Saving generation_prompt: '{prompt_to_save}' (custom_prompt: '{custom_prompt}', from variant: '{variant_to_regenerate_from.generation_prompt}')")
+            # For concluding scene: save empty prompt (uses chapter_conclusion prompt)
+            if is_concluding:
+                prompt_to_save = ""
+                generation_method = "concluding_scene"
+            else:
+                prompt_to_save = custom_prompt if custom_prompt else (variant_to_regenerate_from.generation_prompt or "")
+                generation_method = "regeneration"
+            logger.warning(f"[VARIANT] Saving generation_prompt: '{prompt_to_save}' (is_concluding: {is_concluding}, custom_prompt: '{custom_prompt}', from variant: '{variant_to_regenerate_from.generation_prompt}')")
             
             # Create the new variant
             variant = SceneVariant(
@@ -2761,7 +2835,7 @@ async def create_scene_variant_streaming(
                 title=scene.title,
                 original_content=original_variant.content if original_variant else variant_content,
                 generation_prompt=prompt_to_save,
-                generation_method="regeneration"
+                generation_method=generation_method
             )
             
             db.add(variant)

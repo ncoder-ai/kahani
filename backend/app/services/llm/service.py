@@ -1180,11 +1180,18 @@ class UnifiedLLMService:
         immediate_situation = context.get("current_situation") or ""
         immediate_situation = str(immediate_situation) if immediate_situation else ""
         
+        # Choose template based on whether we have immediate_situation
+        if immediate_situation and immediate_situation.strip():
+            template_key = "scene_with_immediate"
+            logger.info(f"[SCENE GENERATION] Using scene_with_immediate template (has immediate_situation)")
+        else:
+            template_key = "scene_without_immediate"
+            logger.info(f"[SCENE GENERATION] Using scene_without_immediate template (no immediate_situation)")
         
         formatted_context = self._format_context_for_scene(context)
         
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-            "scene_generation", "scene_generation",
+            template_key, template_key,
             user_id=user_id,
             db=db,
             context=formatted_context,
@@ -1465,7 +1472,7 @@ class UnifiedLLMService:
                 logger.error(f"Failed to write raw response to file: {e}")
     
     async def generate_scene_variants(self, original_scene: str, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], db: Optional[Session] = None) -> str:
-        """Generate alternative versions of a scene"""
+        """Generate alternative versions of a scene (non-streaming, legacy endpoint)"""
         
         # Check if this is guided enhancement (has enhancement_guidance) or simple variant
         enhancement_guidance = context.get("enhancement_guidance", "")
@@ -1473,7 +1480,15 @@ class UnifiedLLMService:
         # Get scene length and choices count from user settings
         generation_prefs = user_settings.get("generation_preferences", {})
         scene_length = generation_prefs.get("scene_length", "medium")
+        choices_count = generation_prefs.get("choices_count", 4)
         scene_length_description = self._get_scene_length_description(scene_length)
+        
+        # Extract immediate_situation from context for template variable
+        immediate_situation = context.get("current_situation") or ""
+        immediate_situation = str(immediate_situation) if immediate_situation else ""
+        
+        # POV instruction (default third person)
+        pov_instruction = "in third person (he/she/they/character names)"
         
         if enhancement_guidance:
             # Guided enhancement: use scene_guided_enhancement template with original scene
@@ -1486,19 +1501,29 @@ class UnifiedLLMService:
                 original_scene=original_scene,
                 enhancement_guidance=enhancement_guidance,
                 scene_length_description=scene_length_description,
-                choices_count=4  # Default for non-streaming
+                choices_count=choices_count,
+                pov_instruction=pov_instruction
             )
         else:
-            # Simple variant: use the old scene_variants template
+            # Simple variant: use same templates as new scene generation for cache optimization
+            # Choose template based on whether we have immediate_situation
+            if immediate_situation and immediate_situation.strip():
+                template_key = "scene_with_immediate"
+            else:
+                template_key = "scene_without_immediate"
+            
             system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-                "summary_generation", "scene_variants",
+                template_key, template_key,
                 user_id=user_id,
                 db=db,
-                original_scene=original_scene,
-                context=self._format_context_for_scene(context, exclude_last_scene=False)
+                context=self._format_context_for_scene(context, exclude_last_scene=False),
+                scene_length_description=scene_length_description,
+                choices_count=choices_count,
+                immediate_situation=immediate_situation,
+                pov_instruction=pov_instruction
             )
         
-        max_tokens = prompt_manager.get_max_tokens("scene_variants", user_settings)
+        max_tokens = prompt_manager.get_max_tokens("scene_with_immediate", user_settings)
         
         response = await self._generate(
             prompt=user_prompt,
@@ -1510,52 +1535,8 @@ class UnifiedLLMService:
         
         return self._clean_scene_numbers(response)
     
-    async def generate_scene_variants_streaming(self, original_scene: str, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], db: Optional[Session] = None) -> AsyncGenerator[str, None]:
-        """Generate alternative versions of a scene with streaming"""
-        
-        # Check if this is guided enhancement (has enhancement_guidance) or simple variant
-        enhancement_guidance = context.get("enhancement_guidance", "")
-        
-        # Get scene length from user settings
-        generation_prefs = user_settings.get("generation_preferences", {})
-        scene_length = generation_prefs.get("scene_length", "medium")
-        scene_length_description = self._get_scene_length_description(scene_length)
-        
-        if enhancement_guidance:
-            # Guided enhancement: use scene_guided_enhancement template with original scene
-            # Exclude last scene from previous events to avoid duplication
-            system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-                "scene_guided_enhancement", "scene_guided_enhancement",
-                user_id=user_id,
-                db=db,
-                context=self._format_context_for_scene(context, exclude_last_scene=True),
-                original_scene=original_scene,
-                enhancement_guidance=enhancement_guidance,
-                scene_length_description=scene_length_description,
-                choices_count=4  # Default for non-streaming variants
-            )
-        else:
-            # Simple variant: use scene_variants template (same as non-streaming)
-            system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-                "scene_variants", "scene_variants",
-                user_id=user_id,
-                db=db,
-                original_scene=original_scene,
-                context=self._format_context_for_scene(context, exclude_last_scene=False)
-            )
-        
-        max_tokens = prompt_manager.get_max_tokens("scene_variants", user_settings)
-        
-        async for chunk in self._generate_stream(
-            prompt=user_prompt,
-            user_id=user_id,
-            user_settings=user_settings,
-            system_prompt=system_prompt,
-            max_tokens=max_tokens
-        ):
-            cleaned_chunk = self._clean_scene_numbers_chunk(chunk)
-            if cleaned_chunk:  # Only yield non-empty chunks
-                yield cleaned_chunk
+    # NOTE: generate_scene_variants_streaming was removed - it was dead code (never called)
+    # Use generate_variant_with_choices_streaming instead for streaming variant generation
     
     async def generate_scene_continuation(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], db: Optional[Session] = None) -> str:
         """Generate continuation content for an existing scene"""
@@ -2148,8 +2129,14 @@ class UnifiedLLMService:
             immediate_situation = context.get("current_situation") or ""
             immediate_situation = str(immediate_situation) if immediate_situation else ""
             
+            # Choose template based on whether we have immediate_situation
+            if immediate_situation and immediate_situation.strip():
+                template_key = "scene_with_immediate"
+            else:
+                template_key = "scene_without_immediate"
+            
             system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-                "scene_generation", "scene_generation",
+                template_key, template_key,
                 user_id=user_id,
                 db=db,
                 context=self._format_context_for_scene(context, exclude_last_scene=False),
@@ -2398,6 +2385,69 @@ class UnifiedLLMService:
                 logger.warning(f"[CHOICES CONTINUATION] Marker found but choices_buffer is empty")
         
         yield ("", True, parsed_choices)
+    
+    async def generate_concluding_scene_streaming(
+        self,
+        context: Dict[str, Any],
+        chapter_info: Dict[str, Any],
+        user_id: int,
+        user_settings: Dict[str, Any],
+        db: Optional[Session] = None
+    ) -> AsyncGenerator[str, None]:
+        """
+        Generate a chapter-concluding scene in a streaming fashion.
+        Unlike other scene generation methods, this does NOT generate choices
+        as chapter endings are meant to conclude rather than branch.
+        
+        Args:
+            context: Scene generation context from context_manager
+            chapter_info: Dictionary with chapter_number, chapter_title, chapter_location, 
+                         chapter_time_period, chapter_scenario
+            user_id: User ID for LLM settings
+            user_settings: User settings dictionary
+            db: Database session for prompt templates
+            
+        Yields:
+            str: Scene content chunks as they're generated
+        """
+        # Format context for prompt
+        formatted_context = self._format_context_for_scene(context)
+        
+        # Get chapter conclusion prompts from prompt_manager
+        system_prompt, user_prompt = prompt_manager.get_prompt_pair(
+            "chapter_conclusion", "chapter_conclusion",
+            user_id=user_id,
+            db=db,
+            context=formatted_context,
+            chapter_number=chapter_info.get("chapter_number", 1),
+            chapter_title=chapter_info.get("chapter_title", "Untitled"),
+            chapter_location=chapter_info.get("chapter_location", "Unknown"),
+            chapter_time_period=chapter_info.get("chapter_time_period", "Unknown"),
+            chapter_scenario=chapter_info.get("chapter_scenario", "None")
+        )
+        
+        if not system_prompt or not system_prompt.strip():
+            logger.error("[CONCLUDING SCENE] System prompt is empty for chapter_conclusion")
+            raise ValueError("Failed to load system prompt for chapter conclusion")
+        if not user_prompt or not user_prompt.strip():
+            logger.error("[CONCLUDING SCENE] User prompt is empty for chapter_conclusion")
+            raise ValueError("Failed to load user prompt for chapter conclusion")
+        
+        max_tokens = prompt_manager.get_max_tokens("chapter_conclusion")
+        logger.info(f"[CONCLUDING SCENE STREAMING] Starting generation with max_tokens: {max_tokens}")
+        
+        async for chunk in self._generate_stream(
+            prompt=user_prompt,
+            user_id=user_id,
+            user_settings=user_settings,
+            system_prompt=system_prompt,
+            max_tokens=max_tokens
+        ):
+            cleaned_chunk = self._clean_scene_numbers_chunk(chunk)
+            if cleaned_chunk:
+                yield cleaned_chunk
+        
+        logger.info("[CONCLUDING SCENE STREAMING] Generation complete")
     
     def _detect_pov(self, text: str) -> str:
         """

@@ -1028,7 +1028,7 @@ export default function StoryPage() {
     }
   };
 
-  const generateNewSceneStreaming = async (prompt?: string) => {
+  const generateNewSceneStreaming = async (prompt?: string, isConcluding?: boolean) => {
     if (!story) return;
     
     setError('');
@@ -1267,7 +1267,9 @@ export default function StoryPage() {
             // Clear extraction status after a short delay
             setTimeout(() => setExtractionStatus(null), 2000);
           }
-        }
+        },
+        // isConcluding - Generate a chapter-concluding scene
+        isConcluding
       );
 
       // Check for new important characters
@@ -1289,13 +1291,13 @@ export default function StoryPage() {
   };
 
   // Wrapper function to choose between streaming and regular generation
-  const generateScene = async (prompt?: string) => {
+  const generateScene = async (prompt?: string, isConcluding?: boolean) => {
     // Set the selected choice for UI feedback
     setSelectedChoice(prompt || null);
     setShowChoicesDuringGeneration(false);
 
     if (useStreaming) {
-      return generateNewSceneStreaming(prompt);
+      return generateNewSceneStreaming(prompt, isConcluding);
     } else {
       return generateNewScene(prompt);
     }
