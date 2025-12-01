@@ -331,17 +331,22 @@ class PromptManager:
         - scene_base.formatting (standard formatting rules)
         - scene_base.choices (choices generation instructions)
         
+        Note: {pov_instruction} placeholder is left intact for later substitution
+        by _substitute_variables() with the actual POV from template vars.
+        
         Args:
             template_key: The scene template key
             
         Returns:
             Composed system prompt or empty string if not a composable scene type
         """
-        # Scene types that use composable base components
-        # NOTE: scene_variants removed - now uses scene_with/without_immediate
+        # ALL scene types that generate choices use composable base components
+        # This ensures consistent choice generation instructions across all scene types
         composable_scene_types = {
             "scene_with_immediate",
-            "scene_without_immediate"
+            "scene_without_immediate",
+            "scene_guided_enhancement",
+            "scene_continuation"
         }
         
         if template_key not in composable_scene_types:
@@ -363,6 +368,8 @@ class PromptManager:
             return ""
         
         # Compose the full system prompt
+        # Note: {pov_instruction} and {choices_count} placeholders are preserved
+        # for later substitution by _substitute_variables()
         composed = base_system
         if formatting:
             composed += "\n\n" + formatting
@@ -372,14 +379,30 @@ class PromptManager:
         logger.debug(f"[PROMPTS] Composed scene system prompt for {template_key} (length: {len(composed)})")
         return composed
     
+    def _get_user_choices_reminder(self) -> str:
+        """Get the user choices reminder from scene_base for appending to scene user prompts"""
+        if not self._prompts_cache:
+            return ""
+        
+        scene_base = self._prompts_cache.get("scene_base", {})
+        return scene_base.get("user_choices_reminder", "").strip()
+    
     def _get_yaml_prompt(self, template_key: str, prompt_type: str) -> str:
         """Get prompt from YAML file"""
         if not self._prompts_cache:
             logger.warning(f"[PROMPTS] YAML cache is empty, cannot retrieve {template_key}.{prompt_type}")
             return ""
         
-        # For system prompts of composable scene types, try to compose from base first
-        if prompt_type == "system":
+        # Scene types that use composable base components
+        composable_scene_types = {
+            "scene_with_immediate",
+            "scene_without_immediate",
+            "scene_guided_enhancement",
+            "scene_continuation"
+        }
+        
+        # For system prompts of composable scene types, compose from base
+        if prompt_type == "system" and template_key in composable_scene_types:
             composed = self._compose_scene_system_prompt(template_key)
             if composed:
                 return composed
@@ -425,6 +448,14 @@ class PromptManager:
                         logger.debug(f"[PROMPTS] Prompt contains {{context}} variable")
                 else:
                     logger.warning(f"[PROMPTS] YAML prompt for {template_key}.{prompt_type} is empty. Path: {category}.{function}.{prompt_type}")
+                
+                # For user prompts of composable scene types, append the choices reminder
+                if prompt and prompt_type == "user" and template_key in composable_scene_types:
+                    user_choices_reminder = self._get_user_choices_reminder()
+                    if user_choices_reminder:
+                        prompt = prompt + "\n\n" + user_choices_reminder
+                        logger.debug(f"[PROMPTS] Appended user_choices_reminder to {template_key} user prompt")
+                
                 return prompt
             else:
                 # Direct access to category (for choice_generation, chapter_conclusion)

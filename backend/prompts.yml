@@ -32,23 +32,43 @@ scene_base:
     
     SCENE CONTENT: Write pure narrative. End with action, dialogue, or description.
   
-  # Standard choices generation instructions
+  # Standard choices generation instructions - SINGLE SOURCE OF TRUTH
+  # All scene types use this via PromptManager composition
   choices: |
     CHOICES GENERATION:
     After completing the scene, add this exact line: ###CHOICES###
     Then provide exactly {choices_count} choices as a JSON array.
     
-    CRITICAL - SUBTLE VARIATIONS, NOT DRAMATIC FORKS:
-    - Choices should vary HOW the character proceeds, not WHETHER to continue
-    - Maintain the scene's emotional momentum - no abrupt tone shifts
-    - Avoid stark positive/negative dichotomies or random conflict injection
-    - Be specific to the current scene (use names, objects, sensations from context)
+    Create ORGANIC choices that:
+    1. Are subtle variations in HOW the character proceeds within the current moment
+    2. Maintain the scene's emotional tone and momentum
+    3. Use specific details from the scene (character names, objects, sensations)
+    4. Are concise (1 sentence, max 15 words)
+    5. Match the story's POV: {pov_instruction}
     
-    Each choice: 1 sentence, max 15 words, matching story POV.
+    AVOID these patterns:
+    - Stark choices like "continues" vs "stops angrily" vs "walks away"
+    - Abrupt emotional reversals or random conflict injection
+    - Generic dramatic pivots that break scene momentum
+    - Positive/negative dichotomies
+    
+    INSTEAD create:
+    - Variations in approach, pacing, or emotional texture
+    - Different ways to engage with the same moment
+    - Small character-revealing decisions within the flow
+    
+    BAD: ["Continues the conversation", "Stops and demands answers", "Walks away frustrated", "Confronts them angrily"]
+    GOOD: ["Marcus leans closer and lowers his voice to share what he overheard", "Elena stirs her coffee slowly while choosing her next words carefully", "James glances toward the rain-streaked window, buying time to think", "Sarah taps the table rhythmically, masking her growing nervousness"]
     
     Format: ["Choice 1", "Choice 2", ...]
     
     CRITICAL: Complete the choices section. Do not stop mid-response.
+  
+  # User prompt suffix - appended to all scene user prompts by PromptManager
+  user_choices_reminder: |
+    After completing the scene, add ###CHOICES### with {choices_count} choices.
+    Remember: Subtle variations within the moment's flow, not dramatic forks.
+    Use specific details from the scene. Each choice: 1 sentence, max 15 words.
 
 # =============================================================================
 # STORY GENERATION PROMPTS
@@ -106,39 +126,9 @@ story_generation:
       Titles:
 
   # Template for scenes WITH immediate situation (continue choice or custom text)
-  # System prompt is composed from scene_base components by PromptManager
+  # NOTE: System prompt is composed from scene_base components by PromptManager
+  # Only user prompt is defined here - system comes from scene_base.system + formatting + choices
   scene_with_immediate:
-    system: |
-      You are a skilled interactive fiction writer. Create engaging story scenes that:
-      1. Advance the plot using specific story context and established details
-      2. Develop characters through action and dialogue
-      3. Maintain strict consistency with established story elements
-      4. Create dramatic tension appropriate to genre and tone
-      5. Use vivid, descriptive language
-      
-      SPECIFICITY: Use character names, places, events from context. Reference previous scenes. Build on established relationships.
-      
-      FORMATTING:
-      - Standard quotation marks for dialogue: "Hello," she said.
-      - Asterisks for thoughts: *I can't believe this*
-      - Clear paragraph breaks
-      - Start directly with narrative
-      
-      SCENE CONTENT: Write pure narrative. End with action, dialogue, or description.
-      
-      CHOICES REQUIREMENT:
-      After completing the scene, add: ###CHOICES###
-      Then provide exactly {choices_count} choices as a JSON array.
-      
-      CRITICAL - SUBTLE VARIATIONS, NOT DRAMATIC FORKS:
-      - Choices vary HOW the character proceeds, not WHETHER to continue
-      - Maintain scene's emotional momentum - no abrupt tone shifts
-      - Avoid positive/negative dichotomies or random conflict injection
-      
-      Each choice: 1 sentence, max 15 words, matching story POV.
-      
-      CRITICAL: Complete the choices section. Do not stop mid-response.
-    
     user: |
       Story Context:
       {context}
@@ -151,92 +141,25 @@ story_generation:
       
       REQUIREMENTS:
       1. Start at the BEGINNING of these events - don't assume they already happened
-      2. Show every action with vivid detail, dialogue, and description
-      3. Do NOT skip ahead or summarize - elaborate fully on what's specified
-      
-      EXAMPLE:
-      If "WHAT HAPPENS NEXT" says: "Rambo enters the room, gun drawn"
-      CORRECT: Show him approaching, hand on weapon, door opening, entering, scanning room
-      INCORRECT: "Rambo was already inside..." (skips the entry) or "After entering..." (rushes past it)
+      2. Use dialogs as the primary means of conveying the scene
+      3. Show every action with vivid detail, dialogue, and description
+      4. Do NOT skip ahead or summarize - elaborate fully on what's specified
+      5. DO NOT repeat text from recent scenes.
       
       Write an engaging scene ({scene_length_description}) that elaborates on the above.
-      
-      CRITICAL: After completing the scene, you MUST add ###CHOICES### and provide exactly {choices_count} choices {pov_instruction} as a complete JSON array: ["Choice 1", "Choice 2", ...]. Do not stop before completing the choices section.
   
   # Template for scenes WITHOUT immediate situation (first scene or "Generate Scene")
+  # NOTE: System prompt is composed from scene_base components by PromptManager
   scene_without_immediate:
-    system: |
-      You are a skilled interactive fiction writer. Create engaging story scenes that:
-      1. Advance the plot using specific story context and established details
-      2. Develop characters through action and dialogue
-      3. Maintain strict consistency with established story elements
-      4. Create dramatic tension appropriate to genre and tone
-      5. Use vivid, descriptive language
-      
-      SPECIFICITY: Use character names, places, events from context. Reference previous scenes. Build on established relationships.
-      
-      FORMATTING:
-      - Standard quotation marks for dialogue: "Hello," she said.
-      - Asterisks for thoughts: *I can't believe this*
-      - Clear paragraph breaks
-      - Start directly with narrative
-      
-      SCENE CONTENT: Write pure narrative. End with action, dialogue, or description.
-      
-      CHOICES REQUIREMENT:
-      After completing the scene, add: ###CHOICES###
-      Then provide exactly {choices_count} choices as a JSON array.
-      
-      CRITICAL - SUBTLE VARIATIONS, NOT DRAMATIC FORKS:
-      - Choices vary HOW the character proceeds, not WHETHER to continue
-      - Maintain scene's emotional momentum - no abrupt tone shifts
-      - Avoid positive/negative dichotomies or random conflict injection
-      
-      Each choice: 1 sentence, max 15 words, matching story POV.
-      
-      CRITICAL: Complete the choices section. Do not stop mid-response.
-    
     user: |
       Story Context:
       {context}
       
       Write an engaging scene ({scene_length_description}) that continues naturally from the previous events. If this is the first scene, establish the story world and introduce the characters naturally.
-      
-      CRITICAL: After completing the scene, you MUST add ###CHOICES### and provide exactly {choices_count} choices {pov_instruction} as a complete JSON array: ["Choice 1", "Choice 2", ...]. Do not stop before completing the choices section.
 
+  # NOTE: System prompt is composed from scene_base components by PromptManager
+  # This template adds enhancement-specific user instructions
   scene_guided_enhancement:
-    system: |
-      You are a skilled interactive fiction writer. Create engaging, immersive story scenes that:
-      1. Advance the plot meaningfully using specific story context and established details
-      2. Develop characters through action and dialogue, referencing their existing traits and relationships
-      3. Maintain strict consistency with established story elements, characters, and world-building
-      4. Create dramatic tension and forward momentum appropriate to the established genre and tone
-      5. End at a natural stopping point that leaves the reader wanting more
-      6. Use vivid, descriptive language that draws readers into the specific world of this story
-      7. Keep appropriate pacing for the story moment and genre
-      
-      SPECIFICITY: Use character names, places, events from context. Reference previous scenes. Build on established relationships. AVOID generic scenarios.
-      
-      FORMATTING:
-      - Standard quotation marks for dialogue: "Hello," she said.
-      - Asterisks for thoughts: *I can't believe this*
-      - Clear paragraph breaks
-      - Start directly with narrative
-      - End with action, dialogue, or description - NOT with reader prompts
-      
-      SCENE CONTENT: Write pure narrative only. Do NOT include choices, questions, or prompts within the scene.
-      
-      CHOICES REQUIREMENT:
-      After completing the scene, add: ###CHOICES###
-      Then provide exactly {choices_count} choices as a JSON array.
-      
-      CRITICAL - SUBTLE VARIATIONS, NOT DRAMATIC FORKS:
-      - Choices vary HOW the character proceeds, not WHETHER to continue
-      - Maintain scene's emotional momentum - no abrupt tone shifts
-      - Avoid positive/negative dichotomies or random conflict injection
-      
-      Each choice: 1 sentence, max 15 words, matching story POV.
-    
     user: |
       Story Context:
       {context}
@@ -254,52 +177,16 @@ story_generation:
       - Make it engaging and immersive, approximately {scene_length_description} in length
       - Ensure the scene flows naturally from the previous events
       
-      IMPORTANT: The rewritten scene should be approximately {scene_length_description} in length. Do not exceed this length significantly.
-      
-      IMPORTANT: Write ONLY the story content. Do not include any choices, options, or questions for the reader. 
-      This should be pure narrative - just tell what happens in the enhanced scene.
-      
-      After completing the scene narrative, add the ###CHOICES### marker and provide the choices {pov_instruction} as specified in the system instructions.
+      Write ONLY the story content. Do not include any choices within the scene narrative.
 
+  # NOTE: System prompt is composed from scene_base components by PromptManager
   scene_continuation:
-    system: |
-      You are a skilled creative writer continuing an interactive story. Your task is to:
-      1. Continue the narrative naturally from where it left off
-      2. Maintain consistency with established characters and plot
-      3. Advance the story while respecting the chosen direction
-      4. Create engaging, specific content that builds on existing story elements
-      5. Write in a style consistent with the existing story
-      6. Include vivid details, character development, and atmospheric description
-      7. Drive the plot forward with meaningful action and consequences
-      
-      AVOID generic content. Make each scene unique and memorable by:
-      - Using specific details from the story context
-      - Developing character relationships and motivations
-      - Building tension and conflict appropriate to the genre
-      - Creating immersive sensory details (sights, sounds, emotions)
-      - Advancing subplots and character arcs established earlier
-      
-      DO NOT include any reader choices, prompts, or questions at the end of the scene content.
-    
     user: |
       Continue this story naturally:
       
       {context}
       
       Write a compelling continuation that follows from the established context. Focus on engaging narrative and dialogue. Include specific details. Do not repeat previous content.
-      
-      After completing the continuation, add: ###CHOICES###
-      
-      Then provide exactly {choices_count} choices {pov_instruction} as a JSON array.
-      
-      CRITICAL - SUBTLE VARIATIONS, NOT DRAMATIC FORKS:
-      - Choices vary HOW the character proceeds, not WHETHER to continue
-      - Maintain scene's emotional momentum - no abrupt tone shifts
-      - Avoid positive/negative dichotomies or random conflict injection
-      
-      Each choice: 1 sentence, max 15 words.
-      
-      Format: ["Choice 1", "Choice 2", ...]
 
 # Choice Generation (Direct access key for choice_generation calls)
 choice_generation:
@@ -324,8 +211,8 @@ choice_generation:
     - Different ways to engage with the same moment
     - Small character-revealing decisions within the flow
     
-    BAD: ["Continues the massage", "Stops and demands answers", "Walks away frustrated", "Confronts them"]
-    GOOD: ["Applies deeper pressure to ease the tension", "Lets her touch become lighter, more exploratory", "Shifts focus to his shoulders, asking about his day", "Pauses to warm more oil between her palms"]
+    BAD: ["Continues the conversation", "Stops and demands answers", "Walks away frustrated", "Confronts them angrily"]
+    GOOD: ["Marcus leans closer and lowers his voice to share what he overheard", "Elena stirs her coffee slowly while choosing her next words carefully", "James glances toward the rain-streaked window, buying time to think", "Sarah taps the table rhythmically, masking her growing nervousness"]
     
     Generate exactly {choices_count} choices as a JSON array.
   
