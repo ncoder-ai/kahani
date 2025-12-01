@@ -1082,7 +1082,7 @@ export default function SceneVariantDisplay({
             
             {/* Mobile Guided Options Panel */}
             {showGuidedOptions && (
-              <div className="absolute right-16 top-1/2 -translate-y-1/2 w-52 animate-fade-in">
+              <div className="absolute right-16 top-20 w-52 animate-fade-in">
                 <div className="bg-gray-900/95 backdrop-blur-md rounded-xl border border-purple-500/30 shadow-2xl overflow-hidden">
                   {/* Header */}
                   <div className="flex items-center justify-between px-3 py-2 bg-gradient-to-r from-purple-600/30 to-pink-600/30 border-b border-purple-500/20">

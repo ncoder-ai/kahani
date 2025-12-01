@@ -608,7 +608,8 @@ class ApiClient {
     onComplete?: (sceneId: number, variantId: number, choices: any[], autoPlay?: { enabled: boolean; session_id: string; scene_id: number }) => void,
     onError?: (error: string) => void,
     onAutoPlayReady?: (sessionId: string, sceneId: number) => void,
-    onExtractionStatus?: (status: 'extracting' | 'complete' | 'error', message: string) => void
+    onExtractionStatus?: (status: 'extracting' | 'complete' | 'error', message: string) => void,
+    isConcluding?: boolean
   ) {
     let fullStreamedContent = '';  // Track all streamed content for verification
     let receivedComplete = false;  // Track if we received the complete event
@@ -618,6 +619,7 @@ class ApiClient {
       formData.append('user_content', userContent);
     }
     formData.append('content_mode', contentMode);
+    formData.append('is_concluding', isConcluding ? 'true' : 'false');
     const headers: Record<string, string> = {};
     if (this.token) headers.Authorization = `Bearer ${this.token}`;
     try {
@@ -818,7 +820,8 @@ class ApiClient {
     onChunk?: (chunk: string) => void,
     onComplete?: (variant: any) => void,
     onError?: (error: string) => void,
-    onAutoPlayReady?: (sessionId: string) => void
+    onAutoPlayReady?: (sessionId: string) => void,
+    isConcluding?: boolean
   ) {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json'
@@ -831,7 +834,8 @@ class ApiClient {
         headers,
         body: JSON.stringify({ 
           custom_prompt: customPrompt,
-          variant_id: variantId
+          variant_id: variantId,
+          is_concluding: isConcluding || false
         })
       });
       
