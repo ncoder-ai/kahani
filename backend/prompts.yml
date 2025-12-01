@@ -627,6 +627,20 @@ entity_state_extraction:
       2. Location information (name, condition, atmosphere, occupants)
       3. Important objects (name, location, owner, condition)
       
+      CRITICAL INSTRUCTIONS FOR CURRENT_ATTIRE EXTRACTION:
+      - Extract ONLY what is explicitly mentioned in the scene text about clothing, attire, or state of dress
+      - DO NOT infer, assume, or make up clothing details
+      - DO NOT use generic descriptions like "standard field gear" unless that exact phrase appears in the text
+      - Only extract if clothing/attire is specifically described (e.g., "wearing a red jacket", "dressed in black", "removed his shirt", "naked", "in uniform")
+      - If no clothing is mentioned, use null
+      - For "current_attire": Provide ONLY factual, observable clothing description from the text
+        * BAD: "dressed in standard field gear" (if text doesn't say this)
+        * BAD: "wearing appropriate clothing" (too generic/inferred)
+        * GOOD: "wearing a torn red jacket" (if text says this)
+        * GOOD: "shirtless" (if text explicitly mentions this)
+        * GOOD: null (if no clothing is mentioned)
+      - NO inferred, generic, or assumed clothing descriptions
+      
       CRITICAL INSTRUCTIONS FOR OBJECT EXTRACTION:
       - Only extract objects that are PLOT-RELEVANT:
         * Used in actions by characters (e.g., "Rambo drew his gun")
@@ -650,7 +664,7 @@ entity_state_extraction:
             "location": "current location or null",
             "emotional_state": "brief emotional state or null",
             "physical_condition": "condition or null",
-            "current_attire": "current clothing/state of dress or null",
+            "current_attire": "factual clothing/attire description from text only, or null if not mentioned",
             "possessions_gained": ["item1", "item2"],
             "possessions_lost": ["item3"],
             "knowledge_gained": ["fact1", "fact2"],
@@ -722,6 +736,20 @@ entity_state_extraction:
       - Maximum 15 total state changes across all scenes (prioritize most important)
       - Include only entities that have meaningful state changes
       
+      CRITICAL INSTRUCTIONS FOR CURRENT_ATTIRE EXTRACTION:
+      - Extract ONLY what is explicitly mentioned in the scene text about clothing, attire, or state of dress
+      - DO NOT infer, assume, or make up clothing details
+      - DO NOT use generic descriptions like "standard field gear" unless that exact phrase appears in the text
+      - Only extract if clothing/attire is specifically described (e.g., "wearing a red jacket", "dressed in black", "removed his shirt", "naked", "in uniform")
+      - If no clothing is mentioned, use null
+      - For "current_attire": Provide ONLY factual, observable clothing description from the text
+        * BAD: "dressed in standard field gear" (if text doesn't say this)
+        * BAD: "wearing appropriate clothing" (too generic/inferred)
+        * GOOD: "wearing a torn red jacket" (if text says this)
+        * GOOD: "shirtless" (if text explicitly mentions this)
+        * GOOD: null (if no clothing is mentioned)
+      - NO inferred, generic, or assumed clothing descriptions
+      
       CRITICAL INSTRUCTIONS FOR OBJECT EXTRACTION:
       - Only extract objects that are PLOT-RELEVANT:
         * Used in actions by characters
@@ -776,7 +804,7 @@ entity_state_extraction:
               "location": "current location or null",
               "emotional_state": "brief emotional state or null",
               "physical_condition": "condition or null",
-              "current_attire": "current clothing/state of dress or null",
+              "current_attire": "factual clothing/attire description from text only, or null if not mentioned",
               "possessions_gained": ["item1"],
               "possessions_lost": [],
               "knowledge_gained": ["fact1"],
