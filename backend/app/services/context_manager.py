@@ -43,12 +43,15 @@ class ContextManager:
             self.summary_threshold_tokens = ctx_settings.get("summary_threshold_tokens", 
                                                            getattr(settings, "context_summary_threshold_tokens", 10000))
             self.enable_summarization = ctx_settings.get("enable_summarization", True)
+            # Scene batch size for LLM cache optimization
+            self.scene_batch_size = ctx_settings.get("scene_batch_size", 10)
         else:
             self.max_tokens = max_tokens or settings.context_max_tokens
             self.keep_recent_scenes = settings.context_keep_recent_scenes
             self.summary_threshold = settings.context_summary_threshold
             self.summary_threshold_tokens = getattr(settings, "context_summary_threshold_tokens", 10000)
             self.enable_summarization = True
+            self.scene_batch_size = 10  # Default batch size for scene caching
         
         # Ensure max_tokens has a valid default (4000 from config.yaml)
         # This can be None if user_settings.context_max_tokens is explicitly set to None
@@ -433,45 +436,117 @@ Appearance: {char.get('appearance', '')}
     
     async def _fill_scenes_dynamically(self, scenes: List[Scene], available_tokens: int, db: Session = None) -> Dict[str, Any]:
         """
-        Dynamically fill available tokens with as many scenes as possible.
-        Prioritizes recent scenes going backwards.
-        Uses actual token counts from database when available.
+        Dynamically fill available tokens with scenes using batch-aligned selection.
+        
+        This method selects scenes in complete batch units (aligned to scene_batch_size)
+        to maximize LLM cache hit rates. Working backward from the most recent scene:
+        1. First, include the active batch (current incomplete batch)
+        2. Then add complete batches (e.g., 51-60, 41-50) until token budget exhausted
+        
+        A batch is only included if ALL its scenes fit. We allow slight overage (~5%)
+        to leverage the 10% buffer from token_buffer setting.
         """
         total_scenes = len(scenes)
+        batch_size = self.scene_batch_size
+        
+        if total_scenes == 0:
+            return {
+                "previous_scenes": "",
+                "recent_scenes": "",
+                "scene_summary": "No scenes",
+                "total_scenes": 0,
+                "context_strategy": "empty"
+            }
+        
+        # Build a map of scene sequence numbers to scenes and their token counts
+        scene_map: Dict[int, Tuple[Scene, str, int]] = {}
+        for scene in scenes:
+            scene_content = await self._get_scene_content_proper(scene, db)
+            scene_tokens = self.count_tokens(scene_content)
+            scene_map[scene.sequence_number] = (scene, scene_content, scene_tokens)
+        
+        # Get the highest scene number (most recent)
+        max_scene_num = max(scene_map.keys())
+        
+        # Calculate batch boundaries
+        # Active batch: the batch containing the most recent scene
+        active_batch_num = (max_scene_num - 1) // batch_size
+        active_batch_start = active_batch_num * batch_size + 1
+        active_batch_end = active_batch_start + batch_size - 1
+        
+        # Step 1: Always include the active batch (partial, changes each scene)
         included_scenes = []
         used_tokens = 0
         
-        # Start with most recent scenes and work backwards
-        for i in range(len(scenes) - 1, -1, -1):
-            scene = scenes[i]
+        for seq_num in range(active_batch_start, max_scene_num + 1):
+            if seq_num in scene_map:
+                scene, content, tokens = scene_map[seq_num]
+                included_scenes.append(scene)
+                used_tokens += tokens
+        
+        logger.debug(f"[BATCH FILL] Active batch {active_batch_num} (scenes {active_batch_start}-{max_scene_num}): {len(included_scenes)} scenes, {used_tokens} tokens")
+        
+        # Step 2: Work backward through complete batches
+        # Allow slight overage (5%) to leverage the 10% buffer from token_buffer
+        overage_allowance = int(available_tokens * 0.05)
+        effective_limit = available_tokens + overage_allowance
+        
+        current_batch_num = active_batch_num - 1
+        
+        while current_batch_num >= 0:
+            batch_start = current_batch_num * batch_size + 1
+            batch_end = batch_start + batch_size - 1
             
-            # Get proper scene content from active variant
-            scene_content = await self._get_scene_content_proper(scene, db)
-            scene_tokens = self.count_tokens(scene_content)
+            # Get all scenes in this batch that exist
+            batch_scenes = []
+            batch_tokens = 0
+            batch_complete = True
             
-            if used_tokens + scene_tokens <= available_tokens:
-                included_scenes.insert(0, scene)  # Insert at beginning to maintain order
-                used_tokens += scene_tokens
+            for seq_num in range(batch_start, batch_end + 1):
+                if seq_num in scene_map:
+                    scene, content, tokens = scene_map[seq_num]
+                    batch_scenes.append(scene)
+                    batch_tokens += tokens
+                else:
+                    # Scene doesn't exist in our context - batch is incomplete
+                    batch_complete = False
+            
+            # Only include complete batches (all scenes from batch_start to batch_end present)
+            # A batch is complete if it has exactly batch_size scenes
+            if not batch_complete or len(batch_scenes) != batch_size:
+                logger.debug(f"[BATCH FILL] Batch {current_batch_num} (scenes {batch_start}-{batch_end}): incomplete ({len(batch_scenes)}/{batch_size} scenes), stopping")
+                break
+            
+            # Check if adding this complete batch fits within our limit
+            if used_tokens + batch_tokens <= effective_limit:
+                # Insert at the beginning to maintain order
+                included_scenes = batch_scenes + included_scenes
+                used_tokens += batch_tokens
+                logger.debug(f"[BATCH FILL] Batch {current_batch_num} (scenes {batch_start}-{batch_end}): included, {batch_tokens} tokens, total now {used_tokens}")
+                current_batch_num -= 1
             else:
+                logger.debug(f"[BATCH FILL] Batch {current_batch_num} (scenes {batch_start}-{batch_end}): would exceed limit ({used_tokens} + {batch_tokens} > {effective_limit}), stopping")
                 break
         
         if not included_scenes:
             # Emergency fallback - just the last scene
             last_scene = scenes[-1]
-            included_scenes = [last_scene]
             last_content = await self._get_scene_content_proper(last_scene, db)
+            included_scenes = [last_scene]
             used_tokens = self.count_tokens(last_content)
         
         # Build content using proper scene content
         included_content_parts = []
         for scene in included_scenes:
-            content = await self._get_scene_content_proper(scene, db)
-            included_content_parts.append(content)
+            if scene.sequence_number in scene_map:
+                _, content, _ = scene_map[scene.sequence_number]
+                included_content_parts.append(content)
         
         included_content = "\n\n".join(included_content_parts)
         
         # Check if we have excluded scenes that need summarization
-        excluded_scenes = [s for s in scenes if s not in included_scenes]
+        included_set = set(s.sequence_number for s in included_scenes)
+        excluded_scenes = [s for s in scenes if s.sequence_number not in included_set]
         
         if excluded_scenes and used_tokens < available_tokens - 200:  # Leave room for summary
             remaining_tokens = available_tokens - used_tokens
@@ -480,20 +555,24 @@ Appearance: {char.get('appearance', '')}
             
             if summary_tokens <= remaining_tokens:
                 full_content = f"{summary}\n\n{included_content}"
-                strategy = "dynamic_with_summary"
+                strategy = "batch_aligned_with_summary"
             else:
                 full_content = included_content
-                strategy = "dynamic_recent_only"
+                strategy = "batch_aligned"
         else:
             full_content = included_content
-            strategy = "dynamic_recent_only"
+            strategy = "batch_aligned"
         
-        logger.info(f"Dynamic filling: {len(included_scenes)}/{total_scenes} scenes, {used_tokens}/{available_tokens} tokens")
+        # Log batch alignment info
+        if included_scenes:
+            first_seq = min(s.sequence_number for s in included_scenes)
+            last_seq = max(s.sequence_number for s in included_scenes)
+            logger.info(f"[BATCH FILL] Final: scenes {first_seq}-{last_seq} ({len(included_scenes)}/{total_scenes} scenes), {used_tokens}/{available_tokens} tokens, batch_size={batch_size}")
         
         return {
             "previous_scenes": full_content,
             "recent_scenes": included_content,
-            "scene_summary": f"Dynamic context: {len(included_scenes)} scenes included",
+            "scene_summary": f"Batch-aligned context: {len(included_scenes)} scenes included",
             "total_scenes": total_scenes,
             "context_strategy": strategy
         }

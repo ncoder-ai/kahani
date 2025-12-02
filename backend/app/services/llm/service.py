@@ -3106,8 +3106,12 @@ class UnifiedLLMService:
         """
         Parse scenes and group them into batch-aligned messages for optimal caching.
         
-        Completed batches (e.g., scenes 1-10, 11-20) remain stable and cacheable.
-        Only the active batch (current extraction window) changes per scene.
+        Context manager now provides batch-aligned scenes, so:
+        - All batches except the last are complete (have all scenes from batch_start to batch_end)
+        - The last batch is the "active" batch that changes each scene
+        
+        Complete batches use fixed headers (=== SCENES 41-50 ===) for stable caching.
+        Active batch uses dynamic headers (=== RECENT SCENES 61-65 ===).
         
         Args:
             scenes_text: Raw text containing scenes in format "Scene XX: content"
@@ -3152,14 +3156,12 @@ class UnifiedLLMService:
         
         # Sort batches by batch number
         sorted_batch_nums = sorted(batches.keys())
-        max_batch_num = sorted_batch_nums[-1]
         
-        # Get the highest scene number to determine which batch is "active"
-        all_scene_nums = [scene_num for batch in batches.values() for scene_num, _ in batch]
-        max_scene_num = max(all_scene_nums) if all_scene_nums else 0
-        active_batch_num = (max_scene_num - 1) // batch_size
+        # The last batch in sorted order is the active batch (changes each scene)
+        # All other batches are complete and stable (context_manager guarantees this)
+        last_batch_idx = len(sorted_batch_nums) - 1
         
-        for batch_num in sorted_batch_nums:
+        for idx, batch_num in enumerate(sorted_batch_nums):
             scenes_in_batch = batches[batch_num]
             # Sort scenes within batch by scene number
             scenes_in_batch.sort(key=lambda x: x[0])
@@ -3181,22 +3183,16 @@ class UnifiedLLMService:
             
             batch_content = "\n\n".join(formatted_scenes)
             
-            # Determine if this batch is complete (has all scenes from batch_start to batch_end)
-            # A batch is complete if it has exactly batch_size scenes AND starts at batch_start
-            is_complete_batch = (len(scenes_in_batch) == batch_size and actual_start == batch_start)
+            # Last batch is always the active batch (changes each scene)
+            # All other batches are complete and stable (context_manager guarantees this)
+            is_active_batch = (idx == last_batch_idx)
             
-            # Active batch = the one containing the highest scene number
-            is_active_batch = (batch_num == active_batch_num)
-            
-            # A batch is stable/cacheable only if it's complete AND not the active batch
-            is_stable = is_complete_batch and not is_active_batch
-            
-            if is_stable:
+            if is_active_batch:
+                # Active batch - use actual scene range, marked as recent/changing
+                header = f"=== RECENT SCENES {actual_start}-{actual_end} ==="
+            else:
                 # Complete batch - use FIXED batch boundaries for stable caching
                 header = f"=== SCENES {batch_start}-{batch_end} ==="
-            else:
-                # Incomplete or active batch - use actual scene range, marked as recent/changing
-                header = f"=== RECENT SCENES {actual_start}-{actual_end} ==="
             
             messages.append({
                 "role": "user",
