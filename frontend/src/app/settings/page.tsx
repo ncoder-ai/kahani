@@ -46,6 +46,7 @@ interface ContextSettings {
   summary_threshold_tokens: number;
   enable_summarization: boolean;
   character_extraction_threshold?: number;
+  scene_batch_size?: number;
   // Semantic Memory Settings
   enable_semantic_memory?: boolean;
   context_strategy?: string;
@@ -1136,7 +1137,7 @@ export default function SettingsPage() {
                     <input
                       type="range"
                       min="3"
-                      max="20"
+                      max="50"
                       step="1"
                       value={settings.context_settings.summary_threshold || 5}
                       onChange={(e) => updateContextSetting('summary_threshold', parseInt(e.target.value))}
@@ -1155,7 +1156,7 @@ export default function SettingsPage() {
                     <input
                       type="range"
                       min="3"
-                      max="20"
+                      max="50"
                       step="1"
                       value={settings.context_settings.character_extraction_threshold || 5}
                       onChange={(e) => updateContextSetting('character_extraction_threshold', parseInt(e.target.value))}
@@ -1163,6 +1164,25 @@ export default function SettingsPage() {
                     />
                     <div className="text-xs text-gray-300 mt-1">
                       Run character/NPC extraction after this many scenes since last extraction. Batch processes all scenes since last extraction.
+                    </div>
+                  </div>
+
+                  {/* Scene Batch Size */}
+                  <div>
+                    <label className="block text-sm font-medium mb-2">
+                      Scene Batch Size: {settings.context_settings.scene_batch_size || 10} scenes
+                    </label>
+                    <input
+                      type="range"
+                      min="3"
+                      max="50"
+                      step="1"
+                      value={settings.context_settings.scene_batch_size || 10}
+                      onChange={(e) => updateContextSetting('scene_batch_size', parseInt(e.target.value))}
+                      className="w-full"
+                    />
+                    <div className="text-xs text-gray-400 mt-1">
+                      Scenes are grouped into batches of this size for better LLM cache hit rates. Aligns with extraction/summary boundaries.
                     </div>
                   </div>
 

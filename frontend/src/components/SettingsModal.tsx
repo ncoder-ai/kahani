@@ -60,6 +60,7 @@ interface ContextSettings {
   summary_threshold_tokens: number;
   enable_summarization: boolean;
   character_extraction_threshold?: number;
+  scene_batch_size?: number;
   enable_semantic_memory?: boolean;
   context_strategy?: string;
   semantic_search_top_k?: number;
@@ -185,6 +186,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     summary_threshold_tokens: 4000,
     enable_summarization: true,
     character_extraction_threshold: 5,
+    scene_batch_size: 10,
     enable_semantic_memory: false,
     context_strategy: 'linear',
     semantic_search_top_k: 5,
@@ -220,6 +222,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     auto_choices: true,
     choices_count: 4,
     enable_streaming: true,
+    alert_on_high_context: true,
   });
   
   // TTS Settings
@@ -360,6 +363,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             summary_threshold_tokens: settings.context_settings.summary_threshold_tokens ?? 4000,
             enable_summarization: settings.context_settings.enable_summarization !== false,
             character_extraction_threshold: settings.context_settings.character_extraction_threshold ?? 5,
+            scene_batch_size: settings.context_settings.scene_batch_size ?? 10,
             enable_semantic_memory: settings.context_settings.enable_semantic_memory || false,
             context_strategy: settings.context_settings.context_strategy || 'linear',
             semantic_search_top_k: settings.context_settings.semantic_search_top_k ?? 5,
@@ -381,6 +385,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             auto_choices: settings.generation_preferences.auto_choices !== false,
             choices_count: settings.generation_preferences.choices_count ?? 4,
             enable_streaming: settings.generation_preferences.enable_streaming !== false, // Default to true
+            alert_on_high_context: settings.generation_preferences.alert_on_high_context !== false, // Default to true
           });
         }
 
@@ -1812,26 +1817,26 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       </button>
                       {showPromptInfo && (
                         <div className="mt-4 text-sm text-blue-200 space-y-2">
-                          <p className="font-medium">Your writing style prompt is combined with technical requirements:</p>
+                          <p className="font-medium text-white">Your writing style prompt is combined with technical requirements:</p>
                           <div className="bg-gray-800 rounded p-3 space-y-1 text-xs">
                             <div className="flex items-start gap-2">
                               <span className="font-semibold text-green-400">✓ Your Style:</span>
-                              <span>The writing style prompt you define below (tone, pacing, character development, etc.)</span>
+                              <span className="text-gray-300">The writing style prompt you define below (tone, pacing, character development, etc.)</span>
                             </div>
                             <div className="flex items-start gap-2">
                               <span className="font-semibold text-blue-400">+ POV:</span>
-                              <span>Point of view selection (First/Second/Third person) - see below</span>
+                              <span className="text-gray-300">Point of view selection (First/Second/Third person) - see below</span>
                             </div>
                             <div className="flex items-start gap-2">
                               <span className="font-semibold text-purple-400">+ Formatting Rules:</span>
-                              <span>Automatically added from system defaults (dialogue format, structure, etc.)</span>
+                              <span className="text-gray-300">Automatically added from system defaults (dialogue format, structure, etc.)</span>
                             </div>
                             <div className="flex items-start gap-2">
                               <span className="font-semibold text-orange-400">+ Choices Rules:</span>
-                              <span>Automatically added from system defaults (JSON format, marker placement, etc.)</span>
+                              <span className="text-gray-300">Automatically added from system defaults (JSON format, marker placement, etc.)</span>
                             </div>
                           </div>
-                          <p className="text-xs italic">You only need to customize the writing style - technical requirements are handled automatically.</p>
+                          <p className="text-xs italic text-gray-300">You only need to customize the writing style - technical requirements are handled automatically.</p>
                         </div>
                       )}
                     </div>
@@ -2267,7 +2272,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         onChange={(e) => setContextSettings({ ...contextSettings, enable_summarization: e.target.checked })}
                         className="mr-2"
                       />
-                      Enable intelligent context summarization
+                      <span className="text-sm text-white">Enable intelligent context summarization</span>
                     </label>
                     <div className="text-xs text-gray-400 mt-1">
                       Automatically summarize older scenes for long stories
@@ -2340,7 +2345,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     <input
                       type="range"
                       min="3"
-                      max="20"
+                      max="50"
                       step="1"
                       value={contextSettings.summary_threshold || 5}
                       onChange={(e) => setContextSettings({ ...contextSettings, summary_threshold: parseInt(e.target.value) })}
@@ -2359,7 +2364,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     <input
                       type="range"
                       min="3"
-                      max="20"
+                      max="50"
                       step="1"
                       value={contextSettings.character_extraction_threshold || 5}
                       onChange={(e) => setContextSettings({ ...contextSettings, character_extraction_threshold: parseInt(e.target.value) })}
@@ -2367,6 +2372,25 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     />
                     <div className="text-xs text-gray-400 mt-1">
                       Run character/NPC extraction after this many scenes since last extraction. Batch processes all scenes since last extraction.
+                    </div>
+                  </div>
+
+                  {/* Scene Batch Size */}
+                  <div>
+                    <label className="block text-sm font-medium text-white mb-2">
+                      Scene Batch Size: {contextSettings.scene_batch_size || 10} scenes
+                    </label>
+                    <input
+                      type="range"
+                      min="3"
+                      max="50"
+                      step="1"
+                      value={contextSettings.scene_batch_size || 10}
+                      onChange={(e) => setContextSettings({ ...contextSettings, scene_batch_size: parseInt(e.target.value) })}
+                      className="w-full"
+                    />
+                    <div className="text-xs text-gray-400 mt-1">
+                      Scenes are grouped into batches of this size for better LLM cache hit rates. Aligns with extraction/summary boundaries.
                     </div>
                   </div>
 
@@ -2409,6 +2433,22 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     </div>
                   </div>
 
+                  {/* Alert on High Context */}
+                  <div>
+                    <label className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={generationPrefs.alert_on_high_context !== false}
+                        onChange={(e) => setGenerationPrefs({ ...generationPrefs, alert_on_high_context: e.target.checked })}
+                        className="mr-2"
+                      />
+                      <span className="text-sm text-white">Alert when context usage is high</span>
+                    </label>
+                    <div className="text-xs text-gray-400 mt-1">
+                      Show a pop-up warning when chapter context reaches 80%, suggesting to create a new chapter
+                    </div>
+                  </div>
+
                   {/* Semantic Memory Section */}
                   <div className="border-t border-gray-700 pt-6 mt-6">
                     <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
@@ -2425,7 +2465,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                           onChange={(e) => setContextSettings({ ...contextSettings, enable_semantic_memory: e.target.checked })}
                           className="mr-2"
                         />
-                        Enable Semantic Memory
+                        <span className="text-sm text-white">Enable Semantic Memory</span>
                       </label>
                       <div className="text-xs text-gray-400 mt-1">
                         Use vector embeddings to find semantically relevant past scenes, not just recent ones
@@ -2542,7 +2582,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                 onChange={(e) => setContextSettings({ ...contextSettings, auto_extract_character_moments: e.target.checked })}
                                 className="mr-2"
                               />
-                              Auto-extract character moments
+                              <span className="text-sm text-white">Auto-extract character moments</span>
                             </label>
                             <div className="text-xs text-gray-400 mt-1 ml-6">
                               Automatically identify and save character development moments
@@ -2557,7 +2597,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                 onChange={(e) => setContextSettings({ ...contextSettings, auto_extract_plot_events: e.target.checked })}
                                 className="mr-2"
                               />
-                              Auto-extract plot events
+                              <span className="text-sm text-white">Auto-extract plot events</span>
                             </label>
                             <div className="text-xs text-gray-400 mt-1 ml-6">
                               Automatically identify and save significant plot points
