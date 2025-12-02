@@ -2498,8 +2498,66 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   Configure context management and generation preferences
                 </p>
 
+                {/* Generation Preferences */}
+                <div className="space-y-4 mb-8">
+                  <h4 className="text-md font-semibold text-white mb-3">Generation Preferences</h4>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-white mb-2">
+                      Preferred Scene Length
+                    </label>
+                    <select
+                      value={generationPrefs.scene_length}
+                      onChange={(e) => setGenerationPrefs({ ...generationPrefs, scene_length: e.target.value })}
+                      className="w-full px-3 py-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
+                    >
+                      <option value="short">Short (100-150 words)</option>
+                      <option value="medium">Medium (200-300 words)</option>
+                      <option value="long">Long (400-500 words)</option>
+                    </select>
+                    <p className="text-xs text-gray-400 mt-1">Target length for generated scenes</p>
+                  </div>
+                  
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={generationPrefs.auto_choices}
+                      onChange={(e) => setGenerationPrefs({ ...generationPrefs, auto_choices: e.target.checked })}
+                      className="w-4 h-4 rounded"
+                    />
+                    <span className="text-sm text-white">Auto-generate choices after each scene</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={generationPrefs.enable_streaming !== false}
+                      onChange={(e) => setGenerationPrefs({ ...generationPrefs, enable_streaming: e.target.checked })}
+                      className="w-4 h-4 rounded"
+                    />
+                    <span className="text-sm text-white">Enable streaming generation</span>
+                    <span className="text-xs text-gray-400">(Shows content as it's generated)</span>
+                  </label>
+
+                  <div>
+                    <label className="block text-sm font-medium text-white mb-2">
+                      Number of Choices: {generationPrefs.choices_count}
+                    </label>
+                    <input
+                      type="range"
+                      min="2"
+                      max="6"
+                      step="1"
+                      value={generationPrefs.choices_count}
+                      onChange={(e) => setGenerationPrefs({ ...generationPrefs, choices_count: parseInt(e.target.value) })}
+                      className="w-full"
+                    />
+                    <p className="text-xs text-gray-400 mt-1">Number of choices to generate</p>
+                  </div>
+                </div>
+
                 {/* Context Management */}
-                <div className="space-y-6 mb-8">
+                <div className="space-y-6 mb-8 pt-6 border-t border-gray-700">
                   <h4 className="text-md font-semibold text-white mb-3">Context Management</h4>
                   
                   {/* Enable Summarization */}
@@ -2864,64 +2922,6 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         </div>
                       </div>
                     )}
-                  </div>
-                </div>
-
-                {/* Generation Preferences */}
-                <div className="space-y-4">
-                  <h4 className="text-md font-semibold text-white mb-3">Generation Preferences</h4>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-white mb-2">
-                      Preferred Scene Length
-                    </label>
-                    <select
-                      value={generationPrefs.scene_length}
-                      onChange={(e) => setGenerationPrefs({ ...generationPrefs, scene_length: e.target.value })}
-                      className="w-full px-3 py-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
-                    >
-                      <option value="short">Short (100-150 words)</option>
-                      <option value="medium">Medium (200-300 words)</option>
-                      <option value="long">Long (400-500 words)</option>
-                    </select>
-                    <p className="text-xs text-gray-400 mt-1">Target length for generated scenes</p>
-                  </div>
-                  
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={generationPrefs.auto_choices}
-                      onChange={(e) => setGenerationPrefs({ ...generationPrefs, auto_choices: e.target.checked })}
-                      className="w-4 h-4 rounded"
-                    />
-                    <span className="text-sm text-white">Auto-generate choices after each scene</span>
-                  </label>
-
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={generationPrefs.enable_streaming !== false}
-                      onChange={(e) => setGenerationPrefs({ ...generationPrefs, enable_streaming: e.target.checked })}
-                      className="w-4 h-4 rounded"
-                    />
-                    <span className="text-sm text-white">Enable streaming generation</span>
-                    <span className="text-xs text-gray-400">(Shows content as it's generated)</span>
-                  </label>
-
-                  <div>
-                    <label className="block text-sm font-medium text-white mb-2">
-                      Number of Choices: {generationPrefs.choices_count}
-                    </label>
-                    <input
-                      type="range"
-                      min="2"
-                      max="6"
-                      step="1"
-                      value={generationPrefs.choices_count}
-                      onChange={(e) => setGenerationPrefs({ ...generationPrefs, choices_count: parseInt(e.target.value) })}
-                      className="w-full"
-                    />
-                    <p className="text-xs text-gray-400 mt-1">Number of choices to generate</p>
                   </div>
                 </div>
 
