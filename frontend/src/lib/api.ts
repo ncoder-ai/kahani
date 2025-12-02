@@ -609,7 +609,8 @@ class ApiClient {
     onError?: (error: string) => void,
     onAutoPlayReady?: (sessionId: string, sceneId: number) => void,
     onExtractionStatus?: (status: 'extracting' | 'complete' | 'error', message: string) => void,
-    isConcluding?: boolean
+    isConcluding?: boolean,
+    abortSignal?: AbortSignal
   ) {
     let fullStreamedContent = '';  // Track all streamed content for verification
     let receivedComplete = false;  // Track if we received the complete event
@@ -628,19 +629,48 @@ class ApiClient {
       // Add extra buffer for streaming (double the timeout for streaming endpoints)
       const streamingTimeoutMs = requestTimeoutMs * 2;
       
-      const controller = new AbortController();
+      const timeoutController = new AbortController();
       const timeoutId = setTimeout(() => {
         if (!receivedComplete) {
           console.warn('[STREAMING] Timeout reached but complete event not received yet');
-          controller.abort();
+          timeoutController.abort();
         }
       }, streamingTimeoutMs);
+      
+      // Combine external abort signal with timeout signal
+      let combinedSignal: AbortSignal;
+      if (abortSignal) {
+        // If both signals exist, create a combined signal that aborts when either does
+        const combinedController = new AbortController();
+        
+        // Listen to external abort signal
+        if (abortSignal.aborted) {
+          combinedController.abort();
+        } else {
+          abortSignal.addEventListener('abort', () => {
+            combinedController.abort();
+          });
+        }
+        
+        // Listen to timeout signal
+        if (timeoutController.signal.aborted) {
+          combinedController.abort();
+        } else {
+          timeoutController.signal.addEventListener('abort', () => {
+            combinedController.abort();
+          });
+        }
+        
+        combinedSignal = combinedController.signal;
+      } else {
+        combinedSignal = timeoutController.signal;
+      }
       
       const response = await fetch(`${this.baseURL}/api/stories/${storyId}/scenes/stream`, { 
         method: 'POST', 
         headers, 
         body: formData,
-        signal: controller.signal
+        signal: combinedSignal
       });
       
       if (!response.ok) {
@@ -721,11 +751,19 @@ class ApiClient {
       }
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        const errorMsg = receivedComplete 
-          ? 'Stream timeout after completion' 
-          : 'Stream timeout - generation may still be in progress';
-        console.error('[STREAMING]', errorMsg);
-        if (onError) onError(errorMsg);
+        // Check if abort was user-initiated (external signal) or timeout
+        if (abortSignal?.aborted) {
+          // User clicked stop - silently handle, don't show error
+          console.log('[STREAMING] Generation stopped by user');
+          return; // Exit silently without calling onError
+        } else {
+          // Timeout occurred
+          const errorMsg = receivedComplete 
+            ? 'Stream timeout after completion' 
+            : 'Stream timeout - generation may still be in progress';
+          console.error('[STREAMING]', errorMsg);
+          if (onError) onError(errorMsg);
+        }
       } else {
         console.error('[STREAMING] Error:', error);
         if (onError) onError(error instanceof Error ? error.message : 'Unknown error');
@@ -821,7 +859,8 @@ class ApiClient {
     onComplete?: (variant: any) => void,
     onError?: (error: string) => void,
     onAutoPlayReady?: (sessionId: string) => void,
-    isConcluding?: boolean
+    isConcluding?: boolean,
+    abortSignal?: AbortSignal
   ) {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json'
@@ -836,7 +875,8 @@ class ApiClient {
           custom_prompt: customPrompt,
           variant_id: variantId,
           is_concluding: isConcluding || false
-        })
+        }),
+        signal: abortSignal
       });
       
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
@@ -879,6 +919,12 @@ class ApiClient {
         reader.releaseLock();
       }
     } catch (error) {
+      // Check if abort was user-initiated
+      if (error instanceof Error && error.name === 'AbortError' && abortSignal?.aborted) {
+        // User clicked stop - silently handle, don't show error
+        console.log('[STREAMING] Variant generation stopped by user');
+        return; // Exit silently without calling onError
+      }
       console.error('Streaming variant creation failed:', error);
       if (onError) onError(error instanceof Error ? error.message : 'Unknown error');
     }
@@ -948,7 +994,8 @@ class ApiClient {
     customPrompt = '',
     onChunk?: (chunk: string) => void,
     onComplete?: (sceneId: number, newContent: string) => void,
-    onError?: (error: string) => void
+    onError?: (error: string) => void,
+    abortSignal?: AbortSignal
   ) {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (this.token) headers.Authorization = `Bearer ${this.token}`;
@@ -957,6 +1004,7 @@ class ApiClient {
         method: 'POST',
         headers,
         body: JSON.stringify({ custom_prompt: customPrompt }),
+        signal: abortSignal
       });
 
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
@@ -984,6 +1032,12 @@ class ApiClient {
         }
       }
     } catch (error) {
+      // Check if abort was user-initiated
+      if (error instanceof Error && error.name === 'AbortError' && abortSignal?.aborted) {
+        // User clicked stop - silently handle, don't show error
+        console.log('[STREAMING] Scene continuation stopped by user');
+        return; // Exit silently without calling onError
+      }
       if (onError) onError(error instanceof Error ? error.message : 'Unknown error');
     }
   }

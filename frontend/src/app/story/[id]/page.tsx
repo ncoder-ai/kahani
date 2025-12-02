@@ -240,6 +240,11 @@ export default function StoryPage() {
   const manualChoiceUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const visibleSceneIdRef = useRef<number | null>(null);
   
+  // AbortControllers for streaming operations
+  const sceneGenerationAbortControllerRef = useRef<AbortController | null>(null);
+  const variantGenerationAbortControllerRef = useRef<AbortController | null>(null);
+  const continuationAbortControllerRef = useRef<AbortController | null>(null);
+  
   // Apply UI settings (theme, font size, etc.)
   useUISettings(userSettings?.ui_preferences || null);
 
@@ -1136,6 +1141,10 @@ export default function StoryPage() {
         }
       };
       
+      // Create AbortController for this streaming operation
+      const abortController = new AbortController();
+      sceneGenerationAbortControllerRef.current = abortController;
+      
       await apiClient.generateSceneStreaming(
         story.id,
         prompt || customPrompt,
@@ -1290,6 +1299,9 @@ export default function StoryPage() {
           
           // Clear operation flag with delay to let DOM settle
           setTimeout(() => setIsSceneOperationInProgress(false), 1500);
+          
+          // Clear abort controller reference after completion
+          sceneGenerationAbortControllerRef.current = null;
         },
         // onError
         (error: string) => {
@@ -1307,6 +1319,9 @@ export default function StoryPage() {
           
           // Clear operation flag
           setIsSceneOperationInProgress(false);
+          
+          // Clear abort controller reference on error
+          sceneGenerationAbortControllerRef.current = null;
         },
         // onAutoPlayReady - Connect to global TTS session immediately
         (sessionId: string, sceneId: number) => {
@@ -1321,7 +1336,9 @@ export default function StoryPage() {
           }
         },
         // isConcluding - Generate a chapter-concluding scene
-        isConcluding
+        isConcluding,
+        // abortSignal - Allow cancellation
+        abortController.signal
       );
 
       // Check for new important characters
@@ -1339,6 +1356,9 @@ export default function StoryPage() {
       setIsStreaming(false);
       setGenerationStartTime(null);
       setIsSceneOperationInProgress(false);
+      
+      // Clear abort controller reference on error
+      sceneGenerationAbortControllerRef.current = null;
     }
   };
 
@@ -1654,6 +1674,10 @@ export default function StoryPage() {
           }
         };
         
+        // Create AbortController for this streaming operation
+        const abortController = new AbortController();
+        variantGenerationAbortControllerRef.current = abortController;
+        
         await apiClient.createSceneVariantStreaming(
           story.id,
           sceneId,
@@ -1729,6 +1753,9 @@ export default function StoryPage() {
             setIsStreaming(false);
             setIsRegenerating(false);
             
+            // Clear abort controller reference after completion
+            variantGenerationAbortControllerRef.current = null;
+            
             // No need to reload story - state is already updated with new variant
             // SceneVariantDisplay will detect has_multiple_variants flag and load variants automatically
           },
@@ -1739,13 +1766,23 @@ export default function StoryPage() {
             setStreamingVariantSceneId(null);
             setIsStreaming(false);
             alert(`Failed to create variant: ${error}`);
+            
+            // Clear abort controller reference on error
+            variantGenerationAbortControllerRef.current = null;
           },
           // onAutoPlayReady - Connect to global TTS immediately when ready
           (sessionId: string) => {
             autoPlayAlreadyTriggered = true; // Mark that we handled auto-play
             globalTTS.connectToSession(sessionId, sceneId);
-          }
+          },
+          // isConcluding - not used for variants
+          undefined,
+          // abortSignal - Allow cancellation
+          abortController.signal
         );
+        
+        // Clear abort controller reference after completion
+        variantGenerationAbortControllerRef.current = null;
       } else {
         // Non-streaming variant creation
         const response = await apiClient.createSceneVariant(story.id, sceneId, customPrompt);
@@ -1783,6 +1820,9 @@ export default function StoryPage() {
       console.error('Failed to create variant:', error);
       setError(error instanceof Error ? error.message : 'Failed to create variant');
       setIsStreaming(false);
+      
+      // Clear abort controller reference on error
+      variantGenerationAbortControllerRef.current = null;
     } finally {
       setIsRegenerating(false);
     }
@@ -1822,6 +1862,10 @@ export default function StoryPage() {
             iosContinuationFlushTimer = null;
           }
         };
+        
+        // Create AbortController for this streaming operation
+        const abortController = new AbortController();
+        continuationAbortControllerRef.current = abortController;
         
         await apiClient.continueSceneStreaming(
           story.id,
@@ -1876,6 +1920,8 @@ export default function StoryPage() {
             setStreamingContinuation('');
             setStreamingContinuationSceneId(null);
             
+            // Clear abort controller reference after completion
+            continuationAbortControllerRef.current = null;
           },
           // onError
           (error: string) => {
@@ -1883,8 +1929,16 @@ export default function StoryPage() {
             setStreamingContinuation('');
             setStreamingContinuationSceneId(null);
             setError(error);
-          }
+            
+            // Clear abort controller reference on error
+            continuationAbortControllerRef.current = null;
+          },
+          // abortSignal - Allow cancellation
+          abortController.signal
         );
+        
+        // Clear abort controller reference after completion
+        continuationAbortControllerRef.current = null;
       } else {
         // Use non-streaming continuation
         const response = await apiClient.continueScene(story.id, sceneId, customPrompt);
@@ -1905,12 +1959,29 @@ export default function StoryPage() {
       setIsStreamingContinuation(false);
       setStreamingContinuation('');
       setStreamingContinuationSceneId(null);
+      
+      // Clear abort controller reference on error
+      continuationAbortControllerRef.current = null;
     } finally {
       setIsRegenerating(false);
     }
   };
 
   const stopGeneration = () => {
+    // Abort all active streaming operations
+    if (sceneGenerationAbortControllerRef.current) {
+      sceneGenerationAbortControllerRef.current.abort();
+      sceneGenerationAbortControllerRef.current = null;
+    }
+    if (variantGenerationAbortControllerRef.current) {
+      variantGenerationAbortControllerRef.current.abort();
+      variantGenerationAbortControllerRef.current = null;
+    }
+    if (continuationAbortControllerRef.current) {
+      continuationAbortControllerRef.current.abort();
+      continuationAbortControllerRef.current = null;
+    }
+    
     // Stop all streaming states
     setIsStreaming(false);
     setStreamingContent('');
@@ -1920,6 +1991,8 @@ export default function StoryPage() {
     setStreamingContinuationSceneId(null);
     setIsGenerating(false);
     setIsRegenerating(false);
+    setStreamingVariantContent('');
+    setStreamingVariantSceneId(null);
     
     // Reset UI states
     setSelectedChoice(null);
