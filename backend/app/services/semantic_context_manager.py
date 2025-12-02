@@ -1225,52 +1225,126 @@ class SemanticContextManager(ContextManager):
         db: Session
     ) -> Tuple[str, List[Scene]]:
         """
-        Add as many recent scenes as possible within token budget.
-        Starts after min_recent_count (to avoid duplicates with already-included recent scenes),
-        then adds more going BACKWARDS from start_index to get the most recent scenes possible.
-        Final output is in chronological order (oldest → newest).
+        Add recent scenes using batch-aligned selection for LLM cache optimization.
+        
+        Selects scenes in complete batch units (aligned to scene_batch_size) to maximize
+        LLM cache hit rates. Working backward from the most recent scene:
+        1. First, include the active batch (current incomplete batch)
+        2. Then add complete batches until token budget exhausted
+        
+        A batch is only included if ALL its scenes fit. We allow slight overage (~5%)
+        to leverage the 10% buffer from token_buffer setting.
+        
+        Args:
+            scenes: All scenes in chronological order
+            min_recent_count: Number of most recent scenes already included (to avoid duplicates)
+            available_tokens: Token budget for additional scenes
+            db: Database session
+            
+        Returns:
+            Tuple of (formatted content string, list of included Scene objects)
         """
         if not scenes or available_tokens <= 0:
             return "", []
         
-        included_scenes = []
-        scene_contents = []  # Store retrieved content for each scene
-        used_tokens = 0
+        batch_size = self.scene_batch_size
         
-        # Start from the scene BEFORE the min_recent_count most recent scenes
+        # Build a map of scene sequence numbers to (scene, content, tokens)
+        # Only include scenes BEFORE the min_recent_count most recent ones
         # (to avoid duplicating scenes already in recent_scenes)
-        # If min_recent_count is 3, start_index = len(scenes)-4 (the 4th from the end)
-        # scenes list is already chronological (oldest → newest) from database query
-        start_index = len(scenes) - 1 - min_recent_count
+        scene_map: Dict[int, Tuple[Scene, str, int]] = {}
         
-        # Iterate BACKWARDS from start_index to 0 to get the most recent scenes possible
-        # This ensures we fill token budget with scenes closest to the current scene
-        # We'll reverse the list at the end to maintain chronological order
-        for i in range(start_index, -1, -1):
-            scene = scenes[i]
-            # Use proper scene content retrieval
+        # scenes list is chronological (oldest → newest)
+        # Exclude the last min_recent_count scenes
+        scenes_to_consider = scenes[:-min_recent_count] if min_recent_count > 0 else scenes
+        
+        if not scenes_to_consider:
+            return "", []
+        
+        for scene in scenes_to_consider:
             scene_content = await self._get_scene_content_proper(scene, db)
             scene_tokens = self.count_tokens(scene_content)
+            scene_map[scene.sequence_number] = (scene, scene_content, scene_tokens)
+        
+        if not scene_map:
+            return "", []
+        
+        # Get the highest scene number we're considering (most recent, excluding min_recent_count)
+        max_scene_num = max(scene_map.keys())
+        
+        # Calculate batch boundaries
+        # Active batch: the batch containing the most recent scene we're considering
+        active_batch_num = (max_scene_num - 1) // batch_size
+        active_batch_start = active_batch_num * batch_size + 1
+        
+        # Step 1: Include scenes from the active batch (partial, changes each scene)
+        included_scenes = []
+        scene_contents = []
+        used_tokens = 0
+        
+        for seq_num in range(active_batch_start, max_scene_num + 1):
+            if seq_num in scene_map:
+                scene, content, tokens = scene_map[seq_num]
+                included_scenes.append(scene)
+                scene_contents.append(content)
+                used_tokens += tokens
+        
+        logger.debug(f"[SEMANTIC BATCH FILL] Active batch {active_batch_num} (scenes {active_batch_start}-{max_scene_num}): {len(included_scenes)} scenes, {used_tokens} tokens")
+        
+        # Step 2: Work backward through complete batches
+        # Allow slight overage (5%) to leverage the 10% buffer from token_buffer
+        overage_allowance = int(available_tokens * 0.05)
+        effective_limit = available_tokens + overage_allowance
+        
+        current_batch_num = active_batch_num - 1
+        
+        while current_batch_num >= 0:
+            batch_start = current_batch_num * batch_size + 1
+            batch_end = batch_start + batch_size - 1
             
-            if used_tokens + scene_tokens <= available_tokens:
-                included_scenes.append(scene)  # Append (will reverse later for chronological order)
-                scene_contents.append(scene_content)  # Append (will reverse later)
-                used_tokens += scene_tokens
+            # Get all scenes in this batch that exist in our map
+            batch_scenes = []
+            batch_contents = []
+            batch_tokens = 0
+            batch_complete = True
+            
+            for seq_num in range(batch_start, batch_end + 1):
+                if seq_num in scene_map:
+                    scene, content, tokens = scene_map[seq_num]
+                    batch_scenes.append(scene)
+                    batch_contents.append(content)
+                    batch_tokens += tokens
+                else:
+                    # Scene doesn't exist in our map - batch is incomplete
+                    batch_complete = False
+            
+            # Only include complete batches (all scenes from batch_start to batch_end present)
+            if not batch_complete or len(batch_scenes) != batch_size:
+                logger.debug(f"[SEMANTIC BATCH FILL] Batch {current_batch_num} (scenes {batch_start}-{batch_end}): incomplete ({len(batch_scenes)}/{batch_size} scenes), stopping")
+                break
+            
+            # Check if adding this complete batch fits within our limit
+            if used_tokens + batch_tokens <= effective_limit:
+                # Insert at the beginning to maintain chronological order
+                included_scenes = batch_scenes + included_scenes
+                scene_contents = batch_contents + scene_contents
+                used_tokens += batch_tokens
+                logger.debug(f"[SEMANTIC BATCH FILL] Batch {current_batch_num} (scenes {batch_start}-{batch_end}): included, {batch_tokens} tokens, total now {used_tokens}")
+                current_batch_num -= 1
             else:
+                logger.debug(f"[SEMANTIC BATCH FILL] Batch {current_batch_num} (scenes {batch_start}-{batch_end}): would exceed limit ({used_tokens} + {batch_tokens} > {effective_limit}), stopping")
                 break
         
-        # Reverse to maintain chronological order (oldest → newest)
-        # Since we iterated backwards, we collected newest-first, so reverse to get oldest-first
-        included_scenes.reverse()
-        scene_contents.reverse()
+        # Build content from scene_contents (already in chronological order)
+        content = "\n\n".join(scene_contents)
         
-        # Build content using the retrieved scene contents in chronological order
-        content = "\n\n".join([
-            scene_content  # Use the properly retrieved content
-            for scene_content in scene_contents
-        ])
-        
-        logger.info(f"Dynamic recent scenes: {len(included_scenes)} scenes, {used_tokens}/{available_tokens} tokens")
+        # Log batch alignment info
+        if included_scenes:
+            first_seq = min(s.sequence_number for s in included_scenes)
+            last_seq = max(s.sequence_number for s in included_scenes)
+            logger.info(f"[SEMANTIC BATCH FILL] Final: scenes {first_seq}-{last_seq} ({len(included_scenes)} scenes), {used_tokens}/{available_tokens} tokens, batch_size={batch_size}")
+        else:
+            logger.info(f"[SEMANTIC BATCH FILL] No additional scenes included (available_tokens={available_tokens})")
         
         return content, included_scenes
 
