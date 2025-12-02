@@ -1167,7 +1167,15 @@ class UnifiedLLMService:
         return chapters[:chapter_count]
     
     async def generate_scene(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], db: Optional[Session] = None) -> str:
-        """Generate a story scene"""
+        """
+        Generate a story scene using multi-message structure for better cache utilization.
+        
+        The context is split into multiple user messages to maximize LLM cache hits:
+        - Story Foundation (stable per story)
+        - Chapter Context (stable per chapter)
+        - Entity States (changes every N scenes)
+        - Story Progress + Task (changes every scene)
+        """
         
         # Get scene length and choices count from user settings
         generation_prefs = user_settings.get("generation_preferences", {})
@@ -1188,56 +1196,65 @@ class UnifiedLLMService:
             template_key = "scene_without_immediate"
             logger.info(f"[SCENE GENERATION] Using scene_without_immediate template (no immediate_situation)")
         
-        formatted_context = self._format_context_for_scene(context)
-        
-        system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-            template_key, template_key,
+        # Get system prompt from template (user prompt will be built from multi-message structure)
+        system_prompt = prompt_manager.get_prompt(
+            template_key, "system",
             user_id=user_id,
             db=db,
-            context=formatted_context,
             scene_length_description=scene_length_description,
-            choices_count=choices_count,
-            immediate_situation=immediate_situation
+            choices_count=choices_count
         )
-        
-        # Debug: Check if variables were substituted
-        if "{immediate_situation}" in user_prompt or "{scene_length_description}" in user_prompt:
-            logger.error(f"[SCENE GENERATION] VARIABLES NOT SUBSTITUTED! User prompt still contains unsubstituted variables:")
-            logger.error(f"  - Has {{immediate_situation}}: {'{immediate_situation}' in user_prompt}")
-            logger.error(f"  - Has {{scene_length_description}}: {'{scene_length_description}' in user_prompt}")
-            logger.error(f"  - User prompt preview: {user_prompt[:500]}")
-        
-        # Log the complete prompt for debugging
-        logger.debug("=" * 80)
         
         max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
         
-        # For scene generation, we need to capture the full response object for logging
-        # So we call the LLM directly instead of using _generate()
+        # Check completion mode - multi-message only works with chat completion
         client = self.get_user_client(user_id, user_settings)
-        
-        # Check completion mode and branch accordingly
         completion_mode = client.completion_mode
+        
         if completion_mode == "text":
-            # Text completion mode - use _generate_text_completion
+            # Text completion mode - fall back to single prompt approach
+            formatted_context = self._format_context_for_scene(context)
+            _, user_prompt = prompt_manager.get_prompt_pair(
+                template_key, template_key,
+                user_id=user_id,
+                db=db,
+                context=formatted_context,
+                scene_length_description=scene_length_description,
+                choices_count=choices_count,
+                immediate_situation=immediate_situation
+            )
             response_text = await self._generate_text_completion(
                 user_prompt, user_id, user_settings, system_prompt, max_tokens, None, False
             )
             return self._clean_scene_numbers(response_text)
         
-        # Chat completion mode - build messages and call LLM directly
+        # === MULTI-MESSAGE STRUCTURE FOR BETTER CACHING ===
+        # Build messages array with context split into stable/dynamic parts
+        
+        messages = [{"role": "system", "content": system_prompt.strip()}]
+        
+        # Add context as multiple user messages (most stable → most dynamic)
+        context_messages = self._format_context_as_messages(context)
+        messages.extend(context_messages)
+        
+        # Add the final task message from prompts.yml (most dynamic - changes every scene)
+        has_immediate = bool(immediate_situation and immediate_situation.strip())
+        task_content = prompt_manager.get_task_instruction(
+            has_immediate=has_immediate,
+            immediate_situation=immediate_situation or "",
+            scene_length_description=scene_length_description
+        )
+        
+        messages.append({"role": "user", "content": task_content})
+        
+        logger.info(f"[SCENE GENERATION] Using multi-message structure: {len(messages)} messages (1 system + {len(context_messages)} context + 1 task)")
+        
+        # Call LLM with multi-message structure
         from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
         user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
         
-        messages = []
-        if system_prompt and system_prompt.strip():
-            if should_inject_nsfw_filter(user_allow_nsfw):
-                system_prompt = system_prompt.strip() + "\n\n" + get_nsfw_prevention_prompt()
-            messages.append({"role": "system", "content": system_prompt.strip()})
-        elif should_inject_nsfw_filter(user_allow_nsfw):
-            messages.append({"role": "system", "content": get_nsfw_prevention_prompt()})
-        
-        messages.append({"role": "user", "content": user_prompt.strip()})
+        if should_inject_nsfw_filter(user_allow_nsfw):
+            messages[0]["content"] = messages[0]["content"].strip() + "\n\n" + get_nsfw_prevention_prompt()
         
         # Get generation parameters
         gen_params = client.get_generation_params(max_tokens, None)
@@ -1255,7 +1272,7 @@ class UnifiedLLMService:
         response = await acompletion(**gen_params)
         
         # Log raw response for scene generation debugging
-        self._log_raw_response(response, "New Scene Generation")
+        self._log_raw_response(response, "New Scene Generation (Multi-Message)")
         
         # Extract content
         response_text = response.choices[0].message.content
@@ -1265,6 +1282,7 @@ class UnifiedLLMService:
     async def generate_scene_with_choices(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], db: Optional[Session] = None) -> Tuple[str, Optional[List[str]]]:
         """
         Generate scene content and choices in a single non-streaming call.
+        Uses multi-message structure for better cache utilization.
         Returns (scene_content, parsed_choices)
         """
         CHOICES_MARKER = "###CHOICES###"
@@ -1276,63 +1294,81 @@ class UnifiedLLMService:
         scene_length_description = self._get_scene_length_description(scene_length)
         
         # Extract immediate_situation from context for template variable
-        # This should contain the continuation option text when a choice is made
         immediate_situation = context.get("current_situation") or ""
         immediate_situation = str(immediate_situation) if immediate_situation else ""
         
         # Choose template based on whether we have immediate_situation
         if immediate_situation and immediate_situation.strip():
             template_key = "scene_with_immediate"
-            logger.info(f"[SCENE GENERATION] Using scene_with_immediate template (has immediate_situation)")
+            logger.info(f"[SCENE WITH CHOICES] Using scene_with_immediate template (has immediate_situation)")
         else:
             template_key = "scene_without_immediate"
-            logger.info(f"[SCENE GENERATION] Using scene_without_immediate template (no immediate_situation)")
+            logger.info(f"[SCENE WITH CHOICES] Using scene_without_immediate template (no immediate_situation)")
         
-        # Use the same template_key for both system and user prompts since they're under the same YAML key
-        system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-            template_key, template_key,  # Use same key for both system and user
+        # Get system prompt from template
+        system_prompt = prompt_manager.get_prompt(
+            template_key, "system",
             user_id=user_id,
             db=db,
-            context=self._format_context_for_scene(context),
             scene_length_description=scene_length_description,
-            choices_count=choices_count,
-            immediate_situation=immediate_situation  # Only used by scene_with_immediate
+            choices_count=choices_count
         )
-        
-        # Log exact input prompts sent to LLM
         
         # Add buffer for choices section when generating scene with choices
         base_max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
         max_tokens = base_max_tokens + 300  # Extra tokens for choices section
         logger.info(f"[SCENE WITH CHOICES] Using max_tokens: {max_tokens} (base: {base_max_tokens} + 300 buffer for choices)")
         
-        # For scene generation with choices, we need to capture the full response object for logging
-        # So we call the LLM directly instead of using _generate()
         client = self.get_user_client(user_id, user_settings)
-        
-        # Check completion mode and branch accordingly
         completion_mode = client.completion_mode
+        
         if completion_mode == "text":
-            # Text completion mode - use _generate_text_completion
+            # Text completion mode - fall back to single prompt approach
+            formatted_context = self._format_context_for_scene(context)
+            _, user_prompt = prompt_manager.get_prompt_pair(
+                template_key, template_key,
+                user_id=user_id,
+                db=db,
+                context=formatted_context,
+                scene_length_description=scene_length_description,
+                choices_count=choices_count,
+                immediate_situation=immediate_situation
+            )
             response_text = await self._generate_text_completion(
                 user_prompt, user_id, user_settings, system_prompt, max_tokens, None, False
             )
             cleaned_response = self._clean_scene_numbers(response_text)
             
         else:
-            # Chat completion mode - build messages and call LLM directly
+            # === MULTI-MESSAGE STRUCTURE FOR BETTER CACHING ===
+            messages = [{"role": "system", "content": system_prompt.strip()}]
+            
+            # Add context as multiple user messages (most stable → most dynamic)
+            context_messages = self._format_context_as_messages(context)
+            messages.extend(context_messages)
+            
+            # Get task instruction and choices reminder from prompts.yml
+            has_immediate = bool(immediate_situation and immediate_situation.strip())
+            task_content = prompt_manager.get_task_instruction(
+                has_immediate=has_immediate,
+                immediate_situation=immediate_situation or "",
+                scene_length_description=scene_length_description
+            )
+            
+            choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
+            if choices_reminder:
+                task_content = task_content + "\n\n" + choices_reminder
+            
+            messages.append({"role": "user", "content": task_content})
+            
+            logger.info(f"[SCENE WITH CHOICES] Using multi-message structure: {len(messages)} messages")
+            
+            # Apply NSFW filter
             from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
             user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
             
-            messages = []
-            if system_prompt and system_prompt.strip():
-                if should_inject_nsfw_filter(user_allow_nsfw):
-                    system_prompt = system_prompt.strip() + "\n\n" + get_nsfw_prevention_prompt()
-                messages.append({"role": "system", "content": system_prompt.strip()})
-            elif should_inject_nsfw_filter(user_allow_nsfw):
-                messages.append({"role": "system", "content": get_nsfw_prevention_prompt()})
-            
-            messages.append({"role": "user", "content": user_prompt.strip()})
+            if should_inject_nsfw_filter(user_allow_nsfw):
+                messages[0]["content"] = messages[0]["content"].strip() + "\n\n" + get_nsfw_prevention_prompt()
             
             # Get generation parameters
             gen_params = client.get_generation_params(max_tokens, None)
@@ -1350,14 +1386,14 @@ class UnifiedLLMService:
             response = await acompletion(**gen_params)
             
             # Log raw response for scene generation debugging
-            self._log_raw_response(response, "New Scene Generation (with Choices)")
+            self._log_raw_response(response, "New Scene Generation with Choices (Multi-Message)")
             
             # Extract content
             response_text = response.choices[0].message.content
             
             # Print raw LLM response to console for scene generation with choices
             logger.info("=" * 80)
-            logger.info("RAW LLM RESPONSE - SCENE GENERATION WITH CHOICES")
+            logger.info("RAW LLM RESPONSE - SCENE GENERATION WITH CHOICES (MULTI-MESSAGE)")
             logger.info("=" * 80)
             logger.info(f"Full response text ({len(response_text)} chars):")
             logger.info(response_text)
@@ -1388,7 +1424,9 @@ class UnifiedLLMService:
             return (cleaned_response, None)
     
     async def generate_scene_streaming(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> AsyncGenerator[str, None]:
-        """Generate a story scene with streaming"""
+        """
+        Generate a story scene with streaming using multi-message structure for better cache utilization.
+        """
         
         # Get scene length and choices count from user settings
         generation_prefs = user_settings.get("generation_preferences", {})
@@ -1397,7 +1435,6 @@ class UnifiedLLMService:
         scene_length_description = self._get_scene_length_description(scene_length)
         
         # Extract immediate_situation from context for template variable
-        # This should contain the continuation option text when a choice is made
         immediate_situation = context.get("current_situation") or ""
         immediate_situation = str(immediate_situation) if immediate_situation else ""
         
@@ -1409,44 +1446,68 @@ class UnifiedLLMService:
             template_key = "scene_without_immediate"
             logger.info(f"[SCENE GENERATION STREAMING] Using scene_without_immediate template (no immediate_situation)")
         
-        formatted_context = self._format_context_for_scene(context)
-        
-        # Use the same template_key for both system and user prompts since they're under the same YAML key
-        system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-            template_key, template_key,  # Use same key for both system and user
+        # Get system prompt from template
+        system_prompt = prompt_manager.get_prompt(
+            template_key, "system",
             user_id=user_id,
-            context=formatted_context,
             scene_length_description=scene_length_description,
-            choices_count=choices_count,
-            immediate_situation=immediate_situation  # Only used by scene_with_immediate
+            choices_count=choices_count
         )
         
-        # Debug: Check if variables were substituted
-        if "{immediate_situation}" in user_prompt or "{scene_length_description}" in user_prompt:
-            logger.error(f"[SCENE GENERATION STREAMING] VARIABLES NOT SUBSTITUTED! User prompt still contains unsubstituted variables:")
-            logger.error(f"  - Has {{immediate_situation}}: {'{immediate_situation}' in user_prompt}")
-            logger.error(f"  - Has {{scene_length_description}}: {'{scene_length_description}' in user_prompt}")
-            logger.error(f"  - User prompt preview: {user_prompt[:500]}")
-        
-        # Log the complete prompt for debugging
-        logger.debug("=" * 80)
-        logger.debug("SCENE GENERATION PROMPT (STREAMING)")
-        logger.debug("=" * 80)
-        logger.debug(f"SYSTEM PROMPT:\n{system_prompt}")
-        logger.debug("-" * 80)
-        logger.debug(f"USER PROMPT:\n{user_prompt}")
-        logger.debug("=" * 80)
-        
         max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
+        
+        # Check completion mode - multi-message only works with chat completion
+        client = self.get_user_client(user_id, user_settings)
+        completion_mode = client.completion_mode
+        
+        if completion_mode == "text":
+            # Text completion mode - fall back to single prompt approach
+            formatted_context = self._format_context_for_scene(context)
+            _, user_prompt = prompt_manager.get_prompt_pair(
+                template_key, template_key,
+                user_id=user_id,
+                context=formatted_context,
+                scene_length_description=scene_length_description,
+                choices_count=choices_count,
+                immediate_situation=immediate_situation
+            )
+            
+            raw_chunks = []
+            async for chunk in self._generate_stream_text_completion(
+                user_prompt, user_id, user_settings, system_prompt, max_tokens, None, False
+            ):
+                raw_chunks.append(chunk)
+                cleaned_chunk = self._clean_scene_numbers_chunk(chunk)
+                if cleaned_chunk:
+                    yield cleaned_chunk
+            return
+        
+        # === MULTI-MESSAGE STRUCTURE FOR BETTER CACHING ===
+        messages = [{"role": "system", "content": system_prompt.strip()}]
+        
+        # Add context as multiple user messages (most stable → most dynamic)
+        context_messages = self._format_context_as_messages(context)
+        messages.extend(context_messages)
+        
+        # Add the final task message from prompts.yml (most dynamic - changes every scene)
+        has_immediate = bool(immediate_situation and immediate_situation.strip())
+        task_content = prompt_manager.get_task_instruction(
+            has_immediate=has_immediate,
+            immediate_situation=immediate_situation or "",
+            scene_length_description=scene_length_description
+        )
+        
+        messages.append({"role": "user", "content": task_content})
+        
+        logger.info(f"[SCENE GENERATION STREAMING] Using multi-message structure: {len(messages)} messages (1 system + {len(context_messages)} context + 1 task)")
         
         # Collect all raw chunks for raw response capture (before cleaning)
         raw_chunks = []
         
-        async for chunk in self._generate_stream(
-            prompt=user_prompt,
+        async for chunk in self._generate_stream_with_messages(
+            messages=messages,
             user_id=user_id,
             user_settings=user_settings,
-            system_prompt=system_prompt,
             max_tokens=max_tokens
         ):
             # Capture raw chunk before cleaning
@@ -1463,7 +1524,7 @@ class UnifiedLLMService:
                 full_response = ''.join(raw_chunks)
                 with open(raw_response_file, 'w', encoding='utf-8') as f:
                     f.write("=" * 80 + "\n")
-                    f.write("RAW LLM RESPONSE FOR NEW SCENE GENERATION (STREAMING)\n")
+                    f.write("RAW LLM RESPONSE FOR NEW SCENE GENERATION (STREAMING, MULTI-MESSAGE)\n")
                     f.write("=" * 80 + "\n\n")
                     f.write(full_response)
                     f.write("\n\n" + "=" * 80 + "\n")
@@ -1507,10 +1568,18 @@ class UnifiedLLMService:
         else:
             # Simple variant: use same templates as new scene generation for cache optimization
             # Choose template based on whether we have immediate_situation
-            if immediate_situation and immediate_situation.strip():
+            has_immediate = bool(immediate_situation and immediate_situation.strip())
+            if has_immediate:
                 template_key = "scene_with_immediate"
             else:
                 template_key = "scene_without_immediate"
+            
+            # Get task instruction from prompts.yml
+            task_instruction = prompt_manager.get_task_instruction(
+                has_immediate=has_immediate,
+                immediate_situation=immediate_situation or "",
+                scene_length_description=scene_length_description
+            )
             
             system_prompt, user_prompt = prompt_manager.get_prompt_pair(
                 template_key, template_key,
@@ -1520,7 +1589,8 @@ class UnifiedLLMService:
                 scene_length_description=scene_length_description,
                 choices_count=choices_count,
                 immediate_situation=immediate_situation,
-                pov_instruction=pov_instruction
+                pov_instruction=pov_instruction,
+                task_instruction=task_instruction
             )
         
         max_tokens = prompt_manager.get_max_tokens("scene_with_immediate", user_settings)
@@ -1875,6 +1945,7 @@ class UnifiedLLMService:
     ) -> AsyncGenerator[Tuple[str, bool, Optional[List[str]]], None]:
         """
         Generate scene content and choices in a single streaming call.
+        Uses multi-message structure for better cache utilization.
         
         Yields tuples of (chunk, scene_complete, parsed_choices)
         - chunk: Scene content chunk (only yielded before marker)
@@ -1890,7 +1961,6 @@ class UnifiedLLMService:
         scene_length_description = self._get_scene_length_description(scene_length)
         
         # Extract immediate_situation from context for template variable
-        # This should contain the continuation option text when a choice is made
         immediate_situation = context.get("current_situation") or ""
         immediate_situation = str(immediate_situation) if immediate_situation else ""
         
@@ -1921,15 +1991,13 @@ class UnifiedLLMService:
         else:
             pov_instruction = "in third person (he/she/they/character names)"
         
-        system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-            template_key, template_key,  # Use dynamic template key
+        # Get system prompt from template
+        system_prompt = prompt_manager.get_prompt(
+            template_key, "system",
             user_id=user_id,
             db=db,
-            context=self._format_context_for_scene(context),
             scene_length_description=scene_length_description,
-            choices_count=choices_count,
-            immediate_situation=immediate_situation,
-            pov_instruction=pov_instruction
+            choices_count=choices_count
         )
         
         # Enhance system prompt with POV instruction for choices
@@ -1939,11 +2007,116 @@ class UnifiedLLMService:
             system_prompt += "\n\nIMPORTANT: Write all choices in third person perspective (using 'he', 'she', 'they', character names). The choices should match the story's third-person narrative style."
         
         # Add buffer for choices section when generating scene with choices
-        # Buffer should be dynamic based on choices_count (estimate ~50 tokens per choice)
         base_max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
-        choices_buffer_tokens = max(300, choices_count * 50)  # At least 300, or 50 per choice
+        choices_buffer_tokens = max(300, choices_count * 50)
         max_tokens = base_max_tokens + choices_buffer_tokens
         logger.info(f"[SCENE WITH CHOICES STREAMING] Using max_tokens: {max_tokens} (base: {base_max_tokens} + {choices_buffer_tokens} buffer for {choices_count} choices)")
+        
+        # Check completion mode - multi-message only works with chat completion
+        client = self.get_user_client(user_id, user_settings)
+        completion_mode = client.completion_mode
+        
+        if completion_mode == "text":
+            # Text completion mode - fall back to single prompt approach
+            formatted_context = self._format_context_for_scene(context)
+            
+            # Get task instruction from prompts.yml
+            has_immediate = bool(immediate_situation and immediate_situation.strip())
+            task_instruction = prompt_manager.get_task_instruction(
+                has_immediate=has_immediate,
+                immediate_situation=immediate_situation or "",
+                scene_length_description=scene_length_description
+            )
+            # Append choices reminder
+            choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
+            if choices_reminder:
+                task_instruction = task_instruction + "\n\n" + choices_reminder
+            
+            _, user_prompt = prompt_manager.get_prompt_pair(
+                template_key, template_key,
+                user_id=user_id,
+                db=db,
+                context=formatted_context,
+                scene_length_description=scene_length_description,
+                choices_count=choices_count,
+                immediate_situation=immediate_situation,
+                pov_instruction=pov_instruction,
+                task_instruction=task_instruction
+            )
+            
+            scene_buffer = []
+            choices_buffer = []
+            found_marker = False
+            rolling_buffer = ""
+            total_chunks = 0
+            raw_chunks = []
+            
+            async for chunk in self._generate_stream_text_completion(
+                user_prompt, user_id, user_settings, system_prompt, max_tokens, None, False
+            ):
+                total_chunks += 1
+                raw_chunks.append(chunk)
+                cleaned_chunk = self._clean_scene_numbers_chunk(chunk)
+                if not cleaned_chunk:
+                    continue
+                
+                if not found_marker:
+                    rolling_buffer += cleaned_chunk
+                    if CHOICES_MARKER in rolling_buffer:
+                        parts = rolling_buffer.split(CHOICES_MARKER, 1)
+                        scene_part = parts[0]
+                        choices_part = parts[1] if len(parts) > 1 else ""
+                        if scene_part:
+                            yield (scene_part, False, None)
+                        scene_buffer.append(scene_part)
+                        if choices_part:
+                            choices_buffer.append(choices_part)
+                        found_marker = True
+                        rolling_buffer = ""
+                    else:
+                        if len(rolling_buffer) > len(CHOICES_MARKER) * 2:
+                            excess_length = len(rolling_buffer) - len(CHOICES_MARKER)
+                            excess = rolling_buffer[:excess_length]
+                            scene_buffer.append(excess)
+                            yield (excess, False, None)
+                            rolling_buffer = rolling_buffer[excess_length:]
+                else:
+                    choices_buffer.append(cleaned_chunk)
+            
+            if not found_marker and rolling_buffer:
+                scene_buffer.append(rolling_buffer)
+                yield (rolling_buffer, False, None)
+            
+            parsed_choices = None
+            if found_marker and choices_buffer:
+                choices_text = ''.join(choices_buffer).strip()
+                parsed_choices = self._parse_choices_from_json(choices_text)
+            
+            yield ("", True, parsed_choices)
+            return
+        
+        # === MULTI-MESSAGE STRUCTURE FOR BETTER CACHING ===
+        messages = [{"role": "system", "content": system_prompt.strip()}]
+        
+        # Add context as multiple user messages (most stable → most dynamic)
+        context_messages = self._format_context_as_messages(context)
+        messages.extend(context_messages)
+        
+        # Get task instruction and choices reminder from prompts.yml
+        has_immediate = bool(immediate_situation and immediate_situation.strip())
+        task_content = prompt_manager.get_task_instruction(
+            has_immediate=has_immediate,
+            immediate_situation=immediate_situation or "",
+            scene_length_description=scene_length_description
+        )
+        
+        choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
+        if choices_reminder:
+            task_content = task_content + "\n\n" + choices_reminder
+        
+        messages.append({"role": "user", "content": task_content})
+        
+        logger.info(f"[SCENE WITH CHOICES STREAMING] Using multi-message structure: {len(messages)} messages (1 system + {len(context_messages)} context + 1 task)")
         
         scene_buffer = []
         choices_buffer = []
@@ -1952,11 +2125,10 @@ class UnifiedLLMService:
         total_chunks = 0
         raw_chunks = []  # Collect raw chunks before cleaning
         
-        async for chunk in self._generate_stream(
-            prompt=user_prompt,
+        async for chunk in self._generate_stream_with_messages(
+            messages=messages,
             user_id=user_id,
             user_settings=user_settings,
-            system_prompt=system_prompt,
             max_tokens=max_tokens
         ):
             total_chunks += 1
@@ -2130,10 +2302,18 @@ class UnifiedLLMService:
             immediate_situation = str(immediate_situation) if immediate_situation else ""
             
             # Choose template based on whether we have immediate_situation
-            if immediate_situation and immediate_situation.strip():
+            has_immediate = bool(immediate_situation and immediate_situation.strip())
+            if has_immediate:
                 template_key = "scene_with_immediate"
             else:
                 template_key = "scene_without_immediate"
+            
+            # Get task instruction from prompts.yml
+            task_instruction = prompt_manager.get_task_instruction(
+                has_immediate=has_immediate,
+                immediate_situation=immediate_situation or "",
+                scene_length_description=scene_length_description
+            )
             
             system_prompt, user_prompt = prompt_manager.get_prompt_pair(
                 template_key, template_key,
@@ -2143,7 +2323,8 @@ class UnifiedLLMService:
                 scene_length_description=scene_length_description,
                 choices_count=choices_count,
                 immediate_situation=immediate_situation,
-                pov_instruction=pov_instruction
+                pov_instruction=pov_instruction,
+                task_instruction=task_instruction
             )
         
         # Enhance system prompt with POV instruction for choices
@@ -2685,6 +2866,223 @@ class UnifiedLLMService:
             "long": "approximately 400-500 words"
         }
         return length_map.get(scene_length, "approximately 200-300 words")
+    
+    def _format_characters_section(self, characters: Any) -> str:
+        """
+        Format characters section for context.
+        
+        Args:
+            characters: Either a list of character dicts or a dict with active_characters/inactive_characters
+            
+        Returns:
+            Formatted characters string
+        """
+        if not characters:
+            return ""
+        
+        char_descriptions = []
+        
+        # Check if characters is a dict with active_characters/inactive_characters
+        if isinstance(characters, dict) and "active_characters" in characters:
+            active_chars = characters.get("active_characters", [])
+            inactive_chars = characters.get("inactive_characters", [])
+            
+            # Active characters - full details
+            if active_chars:
+                char_descriptions.append("Active Characters (in this chapter):")
+                for char in active_chars:
+                    char_desc = f"- {char.get('name', 'Unknown')}"
+                    if char.get('role'):
+                        char_desc += f" ({char['role']})"
+                    char_desc += f": {char.get('description', 'No description')}"
+                    if char.get('personality'):
+                        char_desc += f". Personality: {char['personality']}"
+                    if char.get('background'):
+                        char_desc += f". Background: {char['background']}"
+                    if char.get('goals'):
+                        char_desc += f". Goals: {char['goals']}"
+                    if char.get('fears'):
+                        char_desc += f". Fears & Weaknesses: {char['fears']}"
+                    if char.get('appearance'):
+                        char_desc += f". Appearance: {char['appearance']}"
+                    char_descriptions.append(char_desc)
+            
+            # Inactive characters - brief format
+            if inactive_chars:
+                char_descriptions.append("\nInactive Characters (available for reference):")
+                for char in inactive_chars:
+                    char_desc = f"- {char.get('name', 'Unknown')}"
+                    if char.get('role'):
+                        char_desc += f" ({char['role']})"
+                    char_descriptions.append(char_desc)
+        else:
+            # Legacy format - list of character dicts
+            for char in characters:
+                char_desc = f"- {char.get('name', 'Unknown')}"
+                if char.get('role'):
+                    char_desc += f" ({char['role']})"
+                char_desc += f": {char.get('description', 'No description')}"
+                if char.get('personality'):
+                    char_desc += f". Personality: {char['personality']}"
+                if char.get('background'):
+                    char_desc += f". Background: {char['background']}"
+                if char.get('goals'):
+                    char_desc += f". Goals: {char['goals']}"
+                if char.get('fears'):
+                    char_desc += f". Fears & Weaknesses: {char['fears']}"
+                if char.get('appearance'):
+                    char_desc += f". Appearance: {char['appearance']}"
+                char_descriptions.append(char_desc)
+        
+        if char_descriptions:
+            return f"Characters:\n{chr(10).join(char_descriptions)}"
+        return ""
+    
+    def _format_context_as_messages(self, context: Dict[str, Any]) -> List[Dict[str, str]]:
+        """
+        Format context as multiple user messages for better LLM cache utilization.
+        
+        By splitting context into multiple user messages, we improve cache hit rates:
+        - Earlier messages (story foundation, chapter summaries) remain stable
+        - Only later messages (entity states, recent scenes) change frequently
+        
+        Message order (most stable → most dynamic):
+        1. Story Foundation: genre, tone, setting, scenario, characters
+        2. Chapter Context: story_so_far, previous/current chapter summaries
+        3. Entity States: character states, locations, objects
+        4. Story Progress: semantic scenes, recent scenes
+        
+        Args:
+            context: Context dictionary from context_manager
+            
+        Returns:
+            List of message dicts with 'role' and 'content' keys
+        """
+        messages = []
+        
+        # === MESSAGE 1: Story Foundation (stable per story) ===
+        foundation_parts = []
+        
+        if context.get("genre"):
+            foundation_parts.append(f"Genre: {context['genre']}")
+        
+        if context.get("tone"):
+            foundation_parts.append(f"Tone: {context['tone']}")
+        
+        if context.get("world_setting"):
+            foundation_parts.append(f"Setting: {context['world_setting']}")
+        
+        if context.get("scenario"):
+            foundation_parts.append(f"Story Scenario: {context['scenario']}")
+        
+        if context.get("initial_premise"):
+            foundation_parts.append(f"Initial Premise: {context['initial_premise']}")
+        
+        # Characters section
+        characters = context.get("characters")
+        if characters:
+            char_text = self._format_characters_section(characters)
+            if char_text:
+                foundation_parts.append(char_text)
+        
+        # Chapter metadata (stable per chapter)
+        if context.get("chapter_location"):
+            foundation_parts.append(f"Chapter Location: {context['chapter_location']}")
+        if context.get("chapter_time_period"):
+            foundation_parts.append(f"Chapter Time Period: {context['chapter_time_period']}")
+        if context.get("chapter_scenario"):
+            foundation_parts.append(f"Chapter Scenario: {context['chapter_scenario']}")
+        
+        if foundation_parts:
+            messages.append({
+                "role": "user",
+                "content": "=== STORY FOUNDATION ===\n" + "\n\n".join(foundation_parts)
+            })
+        
+        # === MESSAGE 2: Chapter Summaries (stable per chapter, changes on summary updates) ===
+        summary_parts = []
+        
+        if context.get("story_so_far"):
+            summary_parts.append(f"Story So Far:\n{context['story_so_far']}")
+        
+        if context.get("previous_chapter_summary"):
+            summary_parts.append(f"Previous Chapter Summary:\n{context['previous_chapter_summary']}")
+        
+        if context.get("current_chapter_summary"):
+            summary_parts.append(f"Current Chapter Summary:\n{context['current_chapter_summary']}")
+        
+        if summary_parts:
+            messages.append({
+                "role": "user", 
+                "content": "=== CHAPTER CONTEXT ===\n" + "\n\n".join(summary_parts)
+            })
+        
+        # === MESSAGE 3: Entity States (changes every N scenes when extraction runs) ===
+        entity_parts = []
+        previous_scenes_text = context.get("previous_scenes", "")
+        
+        if previous_scenes_text:
+            # Extract entity states sections from previous_scenes
+            # These are formatted by SemanticContextManager._get_entity_states()
+            
+            # Character states
+            entity_states_match = re.search(
+                r'CURRENT CHARACTER STATES:(.*?)(?=\n\n(?:CURRENT LOCATIONS|Notable Objects|Recent Scenes|Relevant Past Events)|$)', 
+                previous_scenes_text, re.DOTALL
+            )
+            if entity_states_match:
+                entity_parts.append(f"CURRENT CHARACTER STATES:{entity_states_match.group(1).strip()}")
+            
+            # Locations
+            locations_match = re.search(
+                r'CURRENT LOCATIONS:(.*?)(?=\n\n(?:Notable Objects|Recent Scenes|Relevant Past Events|CURRENT CHARACTER STATES)|$)',
+                previous_scenes_text, re.DOTALL
+            )
+            if locations_match:
+                entity_parts.append(f"CURRENT LOCATIONS:{locations_match.group(1).strip()}")
+            
+            # Objects
+            objects_match = re.search(
+                r'Notable Objects:(.*?)(?=\n\n(?:Recent Scenes|Relevant Past Events|CURRENT CHARACTER STATES|CURRENT LOCATIONS)|$)',
+                previous_scenes_text, re.DOTALL
+            )
+            if objects_match:
+                entity_parts.append(f"Notable Objects:{objects_match.group(1).strip()}")
+        
+        if entity_parts:
+            messages.append({
+                "role": "user",
+                "content": "=== CURRENT STATE ===\n" + "\n\n".join(entity_parts)
+            })
+        
+        # === MESSAGE 4: Story Progress - Semantic + Recent Scenes (changes every scene) ===
+        progress_parts = []
+        
+        if previous_scenes_text:
+            # Extract semantic/relevant events if present
+            relevant_match = re.search(
+                r'Relevant Past Events:(.*?)(?=\n\n(?:Recent Scenes|CURRENT CHARACTER STATES|CURRENT LOCATIONS|Notable Objects)|$)',
+                previous_scenes_text, re.DOTALL
+            )
+            if relevant_match:
+                progress_parts.append(f"Relevant Past Events:{relevant_match.group(1).strip()}")
+            
+            # Extract recent scenes - this is the most dynamic part
+            recent_match = re.search(r'Recent Scenes:(.*?)$', previous_scenes_text, re.DOTALL)
+            if recent_match:
+                progress_parts.append(f"Recent Scenes:{recent_match.group(1).strip()}")
+            elif not relevant_match:
+                # No structured sections found, use the whole previous_scenes as-is
+                # This handles the case where context_manager returns simple scene list
+                progress_parts.append(f"Previous Events:\n{previous_scenes_text}")
+        
+        if progress_parts:
+            messages.append({
+                "role": "user",
+                "content": "=== STORY PROGRESS ===\n" + "\n\n".join(progress_parts)
+            })
+        
+        return messages
     
     def _format_context_for_scene(self, context: Dict[str, Any], exclude_last_scene: bool = False) -> str:
         """Format context for scene generation, handling active/inactive characters
@@ -3862,3 +4260,188 @@ class UnifiedLLMService:
             logger.error(f"Failed to delete scenes from sequence {sequence_number} for story {story_id}: {e}")
             db.rollback()
             return False
+
+    async def _generate_with_messages(
+        self,
+        messages: List[Dict[str, str]],
+        user_id: int,
+        user_settings: Dict[str, Any],
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        skip_nsfw_filter: bool = False
+    ) -> str:
+        """
+        Generate with pre-constructed messages array for better cache utilization.
+        
+        This method accepts a list of messages (system + multiple user messages) and sends
+        them directly to the LLM. By splitting context into multiple user messages,
+        we improve cache hit rates since earlier messages remain stable while only
+        later messages change.
+        
+        Args:
+            messages: List of message dicts with 'role' and 'content' keys
+            user_id: User ID for client configuration
+            user_settings: User settings dict
+            max_tokens: Max tokens for generation
+            temperature: Temperature for generation
+            skip_nsfw_filter: Whether to skip NSFW filter injection
+            
+        Returns:
+            Generated text content
+        """
+        client = self.get_user_client(user_id, user_settings)
+        
+        # Check completion mode - multi-message only works with chat completion
+        if client.completion_mode == "text":
+            # For text completion, fall back to combining messages into single prompt
+            logger.warning("Multi-message generation not supported for text completion mode, combining messages")
+            combined_prompt = "\n\n".join([
+                msg["content"] for msg in messages if msg["role"] == "user"
+            ])
+            system_prompt = next((msg["content"] for msg in messages if msg["role"] == "system"), "")
+            return await self._generate_text_completion(
+                combined_prompt, user_id, user_settings, system_prompt, max_tokens, temperature, skip_nsfw_filter
+            )
+        
+        # Inject NSFW filter into system message if needed
+        from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
+        user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
+        
+        if not skip_nsfw_filter and should_inject_nsfw_filter(user_allow_nsfw):
+            # Find and modify system message, or add one
+            system_idx = next((i for i, m in enumerate(messages) if m["role"] == "system"), None)
+            if system_idx is not None:
+                messages[system_idx]["content"] = messages[system_idx]["content"].strip() + "\n\n" + get_nsfw_prevention_prompt()
+            else:
+                messages.insert(0, {"role": "system", "content": get_nsfw_prevention_prompt()})
+            logger.debug(f"NSFW filter injected for user {user_id}")
+        
+        # Get generation parameters
+        gen_params = client.get_generation_params(max_tokens, temperature)
+        gen_params["messages"] = messages
+        
+        # Get timeout from user settings or fallback to system default
+        user_timeout = user_settings.get('llm_settings', {}).get('timeout_total') if user_settings else None
+        gen_params["timeout"] = user_timeout if user_timeout is not None else settings.llm_timeout_total
+        
+        try:
+            response = await acompletion(**gen_params)
+            
+            # Check finish_reason for truncation
+            if hasattr(response, 'choices') and len(response.choices) > 0:
+                finish_reason = getattr(response.choices[0], 'finish_reason', None)
+                if finish_reason == 'length':
+                    logger.warning(f"[TRUNCATION] Response truncated due to token limit! max_tokens={max_tokens}")
+                elif finish_reason:
+                    logger.debug(f"[GENERATION] Finish reason: {finish_reason}")
+            
+            return response.choices[0].message.content
+            
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Multi-message generation failed for user {user_id}: {error_msg}")
+            raise ValueError(f"LLM generation failed: {error_msg}")
+
+    async def _generate_stream_with_messages(
+        self,
+        messages: List[Dict[str, str]],
+        user_id: int,
+        user_settings: Dict[str, Any],
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        skip_nsfw_filter: bool = False
+    ) -> AsyncGenerator[str, None]:
+        """
+        Streaming generation with pre-constructed messages array for better cache utilization.
+        
+        Args:
+            messages: List of message dicts with 'role' and 'content' keys
+            user_id: User ID for client configuration
+            user_settings: User settings dict
+            max_tokens: Max tokens for generation
+            temperature: Temperature for generation
+            skip_nsfw_filter: Whether to skip NSFW filter injection
+            
+        Yields:
+            Generated text chunks
+        """
+        client = self.get_user_client(user_id, user_settings)
+        
+        # Check completion mode - multi-message only works with chat completion
+        if client.completion_mode == "text":
+            # For text completion, fall back to combining messages into single prompt
+            logger.warning("Multi-message streaming not supported for text completion mode, combining messages")
+            combined_prompt = "\n\n".join([
+                msg["content"] for msg in messages if msg["role"] == "user"
+            ])
+            system_prompt = next((msg["content"] for msg in messages if msg["role"] == "system"), "")
+            async for chunk in self._generate_stream_text_completion(
+                combined_prompt, user_id, user_settings, system_prompt, max_tokens, temperature, skip_nsfw_filter
+            ):
+                yield chunk
+            return
+        
+        # Inject NSFW filter into system message if needed
+        from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
+        user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
+        
+        if not skip_nsfw_filter and should_inject_nsfw_filter(user_allow_nsfw):
+            # Find and modify system message, or add one
+            system_idx = next((i for i, m in enumerate(messages) if m["role"] == "system"), None)
+            if system_idx is not None:
+                messages[system_idx]["content"] = messages[system_idx]["content"].strip() + "\n\n" + get_nsfw_prevention_prompt()
+            else:
+                messages.insert(0, {"role": "system", "content": get_nsfw_prevention_prompt()})
+            logger.debug(f"NSFW filter injected for streaming user {user_id}")
+        
+        # Get streaming parameters
+        gen_params = client.get_generation_params(max_tokens, temperature)
+        gen_params["messages"] = messages
+        gen_params["stream"] = True
+        
+        # Get timeout from user settings or fallback to system default
+        user_timeout = user_settings.get('llm_settings', {}).get('timeout_total') if user_settings else None
+        gen_params["timeout"] = user_timeout if user_timeout is not None else settings.llm_timeout_total
+        
+        # Write prompt to file for debugging (only if prompt_debug is enabled)
+        if settings.prompt_debug:
+            try:
+                import os
+                import json
+                prompt_file_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "prompt_sent.txt")
+                with open(prompt_file_path, "w", encoding="utf-8") as f:
+                    f.write("=" * 80 + "\n")
+                    f.write("MULTI-MESSAGE STREAMING PROMPT (EXACTLY AS SENT TO LLM)\n")
+                    f.write("=" * 80 + "\n")
+                    f.write(f"NUMBER OF MESSAGES: {len(messages)}\n")
+                    f.write("-" * 80 + "\n")
+                    for i, msg in enumerate(messages):
+                        f.write(f"MESSAGE {i+1} [{msg['role'].upper()}]:\n")
+                        f.write(msg['content'][:500] + "..." if len(msg['content']) > 500 else msg['content'])
+                        f.write("\n" + "-" * 40 + "\n")
+                    f.write("-" * 80 + "\n")
+                    f.write(f"GENERATION PARAMETERS:\n")
+                    f.write(f"  max_tokens: {gen_params.get('max_tokens')}\n")
+                    f.write(f"  temperature: {gen_params.get('temperature')}\n")
+                    f.write(f"  model: {client.model_string}\n")
+                    f.write("-" * 80 + "\n")
+                    f.write("FULL MESSAGES ARRAY (JSON):\n")
+                    f.write(json.dumps(messages, indent=2, ensure_ascii=False))
+                    f.write("\n")
+                    f.write("=" * 80 + "\n")
+            except Exception as e:
+                logger.warning(f"Failed to write prompt debug file: {e}")
+        
+        try:
+            response = await acompletion(**gen_params)
+            
+            async for chunk in response:
+                if hasattr(chunk, 'choices') and len(chunk.choices) > 0:
+                    delta = chunk.choices[0].delta
+                    if hasattr(delta, 'content') and delta.content:
+                        yield delta.content
+                        
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Multi-message streaming failed for user {user_id}: {error_msg}")
+            raise ValueError(f"LLM streaming failed: {error_msg}")
