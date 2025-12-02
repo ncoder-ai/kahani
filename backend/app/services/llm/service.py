@@ -2675,7 +2675,13 @@ class UnifiedLLMService:
         return 'third'
     
     async def generate_choices(self, scene_content: str, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], db: Optional[Session] = None) -> List[str]:
-        """Generate narrative choices for the given scene"""
+        """
+        Generate narrative choices for the given scene.
+        
+        Uses the SAME multi-message structure as scene generation for maximum cache hits.
+        Messages 1-N are identical to scene generation (system prompt, foundation, chapter,
+        entity states, scene batches). Only the final message differs (new scene + choice request).
+        """
         
         # Detect POV from scene content
         pov = self._detect_pov(scene_content)
@@ -2688,50 +2694,70 @@ class UnifiedLLMService:
             if previous_pov != 'third' or pov == 'third':
                 pov = previous_pov
         
-        # Add POV instruction to context
-        pov_instruction = "third person" if pov == 'third' else "first person"
-        enhanced_context = context.copy()
-        enhanced_context["pov_instruction"] = pov_instruction
-        
-        # CRITICAL: Add scene_content to context as current_situation so it's formatted identically to scene generation
-        # This ensures the context formatting is identical, maximizing LLM cache hits
-        enhanced_context["current_situation"] = scene_content
-        
-        # Get choices count from user settings
+        # Get choices count and scene length from user settings
         generation_prefs = user_settings.get("generation_preferences", {})
         choices_count = generation_prefs.get("choices_count", 4)
+        scene_length = generation_prefs.get("scene_length", "medium")
+        scene_length_map = {"short": "short (50-100 words)", "medium": "medium (100-150 words)", "long": "long (150-250 words)"}
+        scene_length_description = scene_length_map.get(scene_length, "medium (100-150 words)")
         
-        # Format context using the same method as scene generation
-        formatted_context = self._format_context_for_choices(enhanced_context)
-        
-        system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-            "choice_generation", "choice_generation",
+        # === USE SAME SYSTEM PROMPT AS SCENE GENERATION ===
+        # This ensures the system message is identical and cacheable
+        system_prompt, _ = prompt_manager.get_prompt_pair(
+            "scene_with_immediate", "scene_with_immediate",
             user_id=user_id,
             db=db,
-            scene_content=scene_content[-800:],  # Last 800 chars for backward compatibility with prompt template
-            context=formatted_context,
+            context="",  # Not used for system prompt
+            scene_length_description=scene_length_description,
             choices_count=choices_count
         )
         
-        # Enhance system prompt with POV consistency requirement
+        # Add POV consistency requirement to system prompt
         if pov == 'first':
-            system_prompt += "\n\nIMPORTANT: Write all choices in first person perspective (using 'I', 'me', 'my'). The choices should match the story's first-person narrative style."
+            system_prompt += "\n\nIMPORTANT: Write all choices in first person perspective (using 'I', 'me', 'my')."
         else:
-            system_prompt += "\n\nIMPORTANT: Write all choices in third person perspective (using 'he', 'she', 'they', character names). The choices should match the story's third-person narrative style."
+            system_prompt += "\n\nIMPORTANT: Write all choices in third person perspective (using 'he', 'she', 'they', character names)."
         
-        # Use "choice_generation" to match the template key (800 tokens) instead of "choices" (600 tokens)
-        # Also make it dynamic based on choices_count to ensure enough tokens
+        # === BUILD SAME MULTI-MESSAGE STRUCTURE AS SCENE GENERATION ===
+        messages = [{"role": "system", "content": system_prompt.strip()}]
+        
+        # Get scene batch size from user settings for cache optimization
+        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
+        
+        # Add context as multiple user messages (SAME as scene generation - all CACHED)
+        # DO NOT modify context before this call - must be identical to scene generation
+        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
+        messages.extend(context_messages)
+        
+        # === ONLY THIS FINAL MESSAGE IS DIFFERENT ===
+        # Instead of task instruction, we send the new scene + choice generation request
+        choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
+        
+        final_message = f"""=== SCENE JUST GENERATED ===
+{scene_content}
+
+=== GENERATE CHOICES ===
+Based on the scene above, generate {choices_count} narrative choices for what happens next.
+
+{choices_reminder}
+
+Output ONLY valid JSON in this exact format:
+{{"choices": ["choice 1", "choice 2", "choice 3", "choice 4"]}}"""
+        
+        messages.append({"role": "user", "content": final_message})
+        
+        # Calculate max tokens
         base_max_tokens = prompt_manager.get_max_tokens("choice_generation", user_settings)
-        # Ensure we have enough tokens: estimate ~50 tokens per choice, minimum 800
         dynamic_max_tokens = max(base_max_tokens, choices_count * 50)
         max_tokens = dynamic_max_tokens
-        logger.info(f"[CHOICES] Using max_tokens: {max_tokens} (base: {base_max_tokens}, dynamic: {dynamic_max_tokens} for {choices_count} choices)")
         
-        response = await self._generate(
-            prompt=user_prompt,
+        logger.info(f"[CHOICES] Using multi-message structure for cache optimization: {len(messages)} messages, max_tokens={max_tokens}")
+        
+        # Use the multi-message generation method
+        response = await self._generate_with_messages(
+            messages=messages,
             user_id=user_id,
             user_settings=user_settings,
-            system_prompt=system_prompt,
             max_tokens=max_tokens
         )
         
@@ -2744,7 +2770,7 @@ class UnifiedLLMService:
             logger.warning(f"[CHOICES] Failed to parse choices from JSON. Response: {response[:200]}")
             return []
         
-        return choices  # Return all parsed choices
+        return choices
     
     async def generate_scenario(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> str:
         """Generate a creative scenario based on user selections and characters"""
