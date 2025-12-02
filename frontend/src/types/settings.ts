@@ -25,6 +25,7 @@ export interface GenerationPreferences {
   auto_choices: boolean;
   choices_count: number;
   enable_streaming?: boolean;
+  alert_on_high_context?: boolean;
 }
 
 export interface ExportSettings {
