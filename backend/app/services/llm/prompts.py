@@ -387,6 +387,43 @@ class PromptManager:
         scene_base = self._prompts_cache.get("scene_base", {})
         return scene_base.get("user_choices_reminder", "").strip()
     
+    def get_user_choices_reminder(self, **template_vars) -> str:
+        """
+        Public method to get the user choices reminder with variable substitution.
+        
+        Args:
+            **template_vars: Variables to substitute (e.g., choices_count)
+            
+        Returns:
+            The choices reminder text with variables substituted
+        """
+        reminder = self._get_user_choices_reminder()
+        if reminder and template_vars:
+            return self._substitute_variables(reminder, **template_vars)
+        return reminder
+    
+    def get_task_instruction(self, has_immediate: bool, **template_vars) -> str:
+        """
+        Get task instruction for multi-message structure from scene_base.
+        
+        Args:
+            has_immediate: Whether there's an immediate_situation (determines which template)
+            **template_vars: Variables to substitute (e.g., immediate_situation, scene_length_description)
+            
+        Returns:
+            The task instruction text with variables substituted
+        """
+        if not self._prompts_cache:
+            return ""
+        
+        scene_base = self._prompts_cache.get("scene_base", {})
+        template_key = "task_with_immediate" if has_immediate else "task_without_immediate"
+        instruction = scene_base.get(template_key, "").strip()
+        
+        if instruction and template_vars:
+            return self._substitute_variables(instruction, **template_vars)
+        return instruction
+    
     def _get_yaml_prompt(self, template_key: str, prompt_type: str) -> str:
         """Get prompt from YAML file"""
         if not self._prompts_cache:

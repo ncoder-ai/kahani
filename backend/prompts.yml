@@ -70,6 +70,27 @@ scene_base:
     Remember: Subtle variations within the moment's flow, not dramatic forks.
     Use specific details from the scene. Each choice: 1 sentence, max 15 words.
 
+  # Task instructions for multi-message structure (context sent separately)
+  # Used when immediate_situation is provided (continue choice or custom text)
+  task_with_immediate: |
+    ####### WHAT HAPPENS NEXT #######
+    {immediate_situation}
+    ##################################
+    
+    CRITICAL: The "WHAT HAPPENS NEXT" above specifies the exact events that MUST happen in this scene. Your task is to ELABORATE and SHOW these events in detail.
+    
+    REQUIREMENTS:
+    1. Start at the BEGINNING of these events - don't assume they already happened
+    2. Show every action with vivid detail, dialogue, and description
+    3. Do NOT skip ahead or summarize - elaborate fully on what's specified
+    4. DO NOT repeat text from recent scenes.
+    
+    Write an engaging scene ({scene_length_description}) that elaborates on the above.
+
+  # Task instructions when no immediate_situation (first scene or "Generate Scene")
+  task_without_immediate: |
+    Write an engaging scene ({scene_length_description}) that continues naturally from the previous events. If this is the first scene, establish the story world and introduce the characters naturally.
+
 # =============================================================================
 # STORY GENERATION PROMPTS
 # =============================================================================
@@ -127,35 +148,23 @@ story_generation:
 
   # Template for scenes WITH immediate situation (continue choice or custom text)
   # NOTE: System prompt is composed from scene_base components by PromptManager
-  # Only user prompt is defined here - system comes from scene_base.system + formatting + choices
+  # User prompt used for text completion API fallback; multi-message mode uses task_with_immediate
   scene_with_immediate:
     user: |
       Story Context:
       {context}
       
-      ####### WHAT HAPPENS NEXT #######
-      {immediate_situation}
-      ##################################
-      
-      CRITICAL: The "WHAT HAPPENS NEXT" above specifies the exact events that MUST happen in this scene. Your task is to ELABORATE and SHOW these events in detail.
-      
-      REQUIREMENTS:
-      1. Start at the BEGINNING of these events - don't assume they already happened
-      2. Use dialogs as the primary means of conveying the scene
-      3. Show every action with vivid detail, dialogue, and description
-      4. Do NOT skip ahead or summarize - elaborate fully on what's specified
-      5. DO NOT repeat text from recent scenes.
-      
-      Write an engaging scene ({scene_length_description}) that elaborates on the above.
-  
+      {task_instruction}
+
   # Template for scenes WITHOUT immediate situation (first scene or "Generate Scene")
   # NOTE: System prompt is composed from scene_base components by PromptManager
+  # User prompt used for text completion API fallback; multi-message mode uses task_without_immediate
   scene_without_immediate:
     user: |
       Story Context:
       {context}
       
-      Write an engaging scene ({scene_length_description}) that continues naturally from the previous events. If this is the first scene, establish the story world and introduce the characters naturally.
+      {task_instruction}
 
   # NOTE: System prompt is composed from scene_base components by PromptManager
   # This template adds enhancement-specific user instructions
