@@ -3164,7 +3164,8 @@ class UnifiedLLMService:
             # Sort scenes within batch by scene number
             scenes_in_batch.sort(key=lambda x: x[0])
             
-            # Calculate batch range
+            # Calculate FIXED batch range based on batch number
+            # Batch 4 is always scenes 41-50, batch 5 is always 51-60, etc.
             batch_start = batch_num * batch_size + 1
             batch_end = batch_start + batch_size - 1
             
@@ -3180,15 +3181,22 @@ class UnifiedLLMService:
             
             batch_content = "\n\n".join(formatted_scenes)
             
-            # Determine if this is the active (most recent) batch
+            # Determine if this batch is complete (has all scenes from batch_start to batch_end)
+            # A batch is complete if it has exactly batch_size scenes AND starts at batch_start
+            is_complete_batch = (len(scenes_in_batch) == batch_size and actual_start == batch_start)
+            
+            # Active batch = the one containing the highest scene number
             is_active_batch = (batch_num == active_batch_num)
             
-            if is_active_batch:
-                # Active batch - changes every scene
-                header = f"=== RECENT SCENES {actual_start}-{actual_end} ==="
+            # A batch is stable/cacheable only if it's complete AND not the active batch
+            is_stable = is_complete_batch and not is_active_batch
+            
+            if is_stable:
+                # Complete batch - use FIXED batch boundaries for stable caching
+                header = f"=== SCENES {batch_start}-{batch_end} ==="
             else:
-                # Completed batch - stable and cacheable
-                header = f"=== SCENES {actual_start}-{actual_end} ==="
+                # Incomplete or active batch - use actual scene range, marked as recent/changing
+                header = f"=== RECENT SCENES {actual_start}-{actual_end} ==="
             
             messages.append({
                 "role": "user",
