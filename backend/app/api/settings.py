@@ -37,6 +37,7 @@ class ContextSettingsUpdate(BaseModel):
     summary_threshold_tokens: int = Field(ge=1000, le=50000, default=8000)
     enable_summarization: bool = True
     character_extraction_threshold: Optional[int] = Field(default=None, ge=3, le=20)
+    scene_batch_size: Optional[int] = Field(default=None, ge=5, le=50)  # Batch size for scene caching
     # Semantic Memory Settings
     enable_semantic_memory: Optional[bool] = None
     context_strategy: Optional[str] = Field(default=None, pattern="^(linear|hybrid)$")
@@ -227,6 +228,8 @@ async def update_user_settings(
             user_settings.enable_context_summarization = ctx.enable_summarization
         if ctx.character_extraction_threshold is not None:
             user_settings.character_extraction_threshold = ctx.character_extraction_threshold
+        if ctx.scene_batch_size is not None:
+            user_settings.scene_batch_size = ctx.scene_batch_size
         
         # Update semantic memory settings (if provided)
         if ctx.enable_semantic_memory is not None:
@@ -436,7 +439,8 @@ async def get_default_settings():
                 "max_tokens": {"min": 1000, "max": 8000, "description": "Total context budget sent to LLM"},
                 "keep_recent_scenes": {"min": 1, "max": 10, "description": "Always preserve this many recent scenes"},
                 "summary_threshold": {"min": 3, "max": 20, "description": "Start summarizing when story exceeds this length"},
-                "enable_summarization": {"description": "Enable intelligent context summarization for long stories"}
+                "enable_summarization": {"description": "Enable intelligent context summarization for long stories"},
+                "scene_batch_size": {"min": 5, "max": 50, "default": 10, "description": "Batch size for scene caching - scenes are grouped into batches for better LLM cache hit rates"}
             }
         },
         "message": "Default settings and validation rules"
