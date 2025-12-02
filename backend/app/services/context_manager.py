@@ -540,7 +540,7 @@ Appearance: {char.get('appearance', '')}
         for scene in included_scenes:
             if scene.sequence_number in scene_map:
                 _, content, _ = scene_map[scene.sequence_number]
-                included_content_parts.append(content)
+            included_content_parts.append(content)
         
         included_content = "\n\n".join(included_content_parts)
         

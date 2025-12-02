@@ -1322,7 +1322,7 @@ class SemanticContextManager(ContextManager):
             if not batch_complete or len(batch_scenes) != batch_size:
                 logger.debug(f"[SEMANTIC BATCH FILL] Batch {current_batch_num} (scenes {batch_start}-{batch_end}): incomplete ({len(batch_scenes)}/{batch_size} scenes), stopping")
                 break
-            
+        
             # Check if adding this complete batch fits within our limit
             if used_tokens + batch_tokens <= effective_limit:
                 # Insert at the beginning to maintain chronological order

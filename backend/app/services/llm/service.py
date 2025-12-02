@@ -2009,11 +2009,10 @@ class UnifiedLLMService:
             choices_count=choices_count
         )
         
-        # Enhance system prompt with POV instruction for choices
-        if pov == 'first':
-            system_prompt += "\n\nIMPORTANT: Write all choices in first person perspective (using 'I', 'me', 'my'). The choices should match the story's first-person narrative style."
-        else:
-            system_prompt += "\n\nIMPORTANT: Write all choices in third person perspective (using 'he', 'she', 'they', character names). The choices should match the story's third-person narrative style."
+        # Enhance system prompt with POV instruction for choices (from template)
+        pov_reminder = prompt_manager.get_pov_reminder(pov)
+        if pov_reminder:
+            system_prompt += "\n\n" + pov_reminder
         
         # Add buffer for choices section when generating scene with choices
         base_max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
@@ -2339,11 +2338,10 @@ class UnifiedLLMService:
                 task_instruction=task_instruction
             )
         
-        # Enhance system prompt with POV instruction for choices
-        if pov == 'first':
-            system_prompt += "\n\nIMPORTANT: Write all choices in first person perspective (using 'I', 'me', 'my'). The choices should match the story's first-person narrative style."
-        else:
-            system_prompt += "\n\nIMPORTANT: Write all choices in third person perspective (using 'he', 'she', 'they', character names). The choices should match the story's third-person narrative style."
+        # Enhance system prompt with POV instruction for choices (from template)
+        pov_reminder = prompt_manager.get_pov_reminder(pov)
+        if pov_reminder:
+            system_prompt += "\n\n" + pov_reminder
         
         # Log prompts for debugging
         
@@ -2492,14 +2490,15 @@ class UnifiedLLMService:
         # Enhance system prompt with POV instruction for scene content
         if pov == 'first':
             system_prompt += "\n\nIMPORTANT: Continue the story in first person perspective (using 'I', 'me', 'my'). Maintain consistency with the established first-person narrative style."
+        elif pov == 'second':
+            system_prompt += "\n\nIMPORTANT: Continue the story in second person perspective (using 'you', 'your'). Maintain consistency with the established second-person narrative style."
         else:
             system_prompt += "\n\nIMPORTANT: Continue the story in third person perspective (using 'he', 'she', 'they', character names). Maintain consistency with the established third-person narrative style."
         
-        # Enhance system prompt with POV instruction for choices
-        if pov == 'first':
-            system_prompt += "\n\nIMPORTANT: Write all choices in first person perspective (using 'I', 'me', 'my'). The choices should match the story's first-person narrative style."
-        else:
-            system_prompt += "\n\nIMPORTANT: Write all choices in third person perspective (using 'he', 'she', 'they', character names). The choices should match the story's third-person narrative style."
+        # Enhance system prompt with POV instruction for choices (from template)
+        pov_reminder = prompt_manager.get_pov_reminder(pov)
+        if pov_reminder:
+            system_prompt += "\n\n" + pov_reminder
         
         # Add buffer for choices section - dynamic based on choices_count
         base_max_tokens = prompt_manager.get_max_tokens("scene_continuation", user_settings)
@@ -2683,16 +2682,16 @@ class UnifiedLLMService:
         entity states, scene batches). Only the final message differs (new scene + choice request).
         """
         
-        # Detect POV from scene content
-        pov = self._detect_pov(scene_content)
-        
-        # Also check previous scenes if available
-        previous_scenes = context.get("previous_scenes", "")
-        if previous_scenes:
-            previous_pov = self._detect_pov(previous_scenes)
-            # Use the POV from previous scenes if available (more context)
-            if previous_pov != 'third' or pov == 'third':
-                pov = previous_pov
+        # Get POV from writing preset (SAME as scene generation - critical for cache hits)
+        pov = 'third'
+        if db and user_id:
+            from ...models.writing_style_preset import WritingStylePreset
+            active_preset = db.query(WritingStylePreset).filter(
+                WritingStylePreset.user_id == user_id,
+                WritingStylePreset.is_active == True
+            ).first()
+            if active_preset and hasattr(active_preset, 'pov') and active_preset.pov:
+                pov = active_preset.pov
         
         # Get choices count and scene length from user settings
         generation_prefs = user_settings.get("generation_preferences", {})
@@ -2703,20 +2702,19 @@ class UnifiedLLMService:
         
         # === USE SAME SYSTEM PROMPT AS SCENE GENERATION ===
         # This ensures the system message is identical and cacheable
-        system_prompt, _ = prompt_manager.get_prompt_pair(
-            "scene_with_immediate", "scene_with_immediate",
+        # Use get_prompt instead of get_prompt_pair to avoid user prompt template errors
+        system_prompt = prompt_manager.get_prompt(
+            "scene_with_immediate", "system",
             user_id=user_id,
             db=db,
-            context="",  # Not used for system prompt
             scene_length_description=scene_length_description,
             choices_count=choices_count
         )
         
-        # Add POV consistency requirement to system prompt
-        if pov == 'first':
-            system_prompt += "\n\nIMPORTANT: Write all choices in first person perspective (using 'I', 'me', 'my')."
-        else:
-            system_prompt += "\n\nIMPORTANT: Write all choices in third person perspective (using 'he', 'she', 'they', character names)."
+        # Add POV consistency requirement to system prompt (from template)
+        pov_reminder = prompt_manager.get_pov_reminder(pov)
+        if pov_reminder:
+            system_prompt += "\n\n" + pov_reminder
         
         # === BUILD SAME MULTI-MESSAGE STRUCTURE AS SCENE GENERATION ===
         messages = [{"role": "system", "content": system_prompt.strip()}]
@@ -2752,6 +2750,36 @@ Output ONLY valid JSON in this exact format:
         max_tokens = dynamic_max_tokens
         
         logger.info(f"[CHOICES] Using multi-message structure for cache optimization: {len(messages)} messages, max_tokens={max_tokens}")
+        
+        # Write debug output to prompt_choice_sent.txt for debugging cache issues
+        from ...config import settings
+        if settings.prompt_debug:
+            try:
+                import os
+                import json
+                prompt_file_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "prompt_choice_sent.txt")
+                client = self.get_user_client(user_id, user_settings)
+                with open(prompt_file_path, "w", encoding="utf-8") as f:
+                    f.write("=" * 80 + "\n")
+                    f.write("CHOICE GENERATION PROMPT (EXACTLY AS SENT TO LLM)\n")
+                    f.write("=" * 80 + "\n")
+                    f.write(f"NUMBER OF MESSAGES: {len(messages)}\n")
+                    f.write("-" * 80 + "\n")
+                    for i, msg in enumerate(messages):
+                        f.write(f"MESSAGE {i+1} [{msg['role'].upper()}]:\n")
+                        f.write(msg['content'][:500] + "..." if len(msg['content']) > 500 else msg['content'])
+                        f.write("\n" + "-" * 40 + "\n")
+                    f.write("-" * 80 + "\n")
+                    f.write(f"GENERATION PARAMETERS:\n")
+                    f.write(f"  max_tokens: {max_tokens}\n")
+                    f.write(f"  model: {client.model_string}\n")
+                    f.write("-" * 80 + "\n")
+                    f.write("FULL MESSAGES ARRAY (JSON):\n")
+                    f.write(json.dumps(messages, indent=2, ensure_ascii=False))
+                    f.write("\n")
+                    f.write("=" * 80 + "\n")
+            except Exception as e:
+                logger.warning(f"Failed to write choice prompt debug file: {e}")
         
         # Use the multi-message generation method
         response = await self._generate_with_messages(
