@@ -1233,8 +1233,11 @@ class UnifiedLLMService:
         
         messages = [{"role": "system", "content": system_prompt.strip()}]
         
+        # Get scene batch size from user settings for cache optimization
+        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
+        
         # Add context as multiple user messages (most stable → most dynamic)
-        context_messages = self._format_context_as_messages(context)
+        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
         messages.extend(context_messages)
         
         # Add the final task message from prompts.yml (most dynamic - changes every scene)
@@ -1343,8 +1346,11 @@ class UnifiedLLMService:
             # === MULTI-MESSAGE STRUCTURE FOR BETTER CACHING ===
             messages = [{"role": "system", "content": system_prompt.strip()}]
             
+            # Get scene batch size from user settings for cache optimization
+            scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
+            
             # Add context as multiple user messages (most stable → most dynamic)
-            context_messages = self._format_context_as_messages(context)
+            context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
             messages.extend(context_messages)
             
             # Get task instruction and choices reminder from prompts.yml
@@ -1485,8 +1491,11 @@ class UnifiedLLMService:
         # === MULTI-MESSAGE STRUCTURE FOR BETTER CACHING ===
         messages = [{"role": "system", "content": system_prompt.strip()}]
         
+        # Get scene batch size from user settings for cache optimization
+        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
+        
         # Add context as multiple user messages (most stable → most dynamic)
-        context_messages = self._format_context_as_messages(context)
+        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
         messages.extend(context_messages)
         
         # Add the final task message from prompts.yml (most dynamic - changes every scene)
@@ -2098,8 +2107,11 @@ class UnifiedLLMService:
         # === MULTI-MESSAGE STRUCTURE FOR BETTER CACHING ===
         messages = [{"role": "system", "content": system_prompt.strip()}]
         
+        # Get scene batch size from user settings for cache optimization
+        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
+        
         # Add context as multiple user messages (most stable → most dynamic)
-        context_messages = self._format_context_as_messages(context)
+        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
         messages.extend(context_messages)
         
         # Get task instruction and choices reminder from prompts.yml
@@ -2938,22 +2950,26 @@ class UnifiedLLMService:
             return f"Characters:\n{chr(10).join(char_descriptions)}"
         return ""
     
-    def _format_context_as_messages(self, context: Dict[str, Any]) -> List[Dict[str, str]]:
+    def _format_context_as_messages(self, context: Dict[str, Any], scene_batch_size: int = 10) -> List[Dict[str, str]]:
         """
         Format context as multiple user messages for better LLM cache utilization.
         
         By splitting context into multiple user messages, we improve cache hit rates:
         - Earlier messages (story foundation, chapter summaries) remain stable
         - Only later messages (entity states, recent scenes) change frequently
+        - Scenes are batched into groups aligned with extraction intervals for optimal caching
         
         Message order (most stable → most dynamic):
         1. Story Foundation: genre, tone, setting, scenario, characters
         2. Chapter Context: story_so_far, previous/current chapter summaries
         3. Entity States: character states, locations, objects
-        4. Story Progress: semantic scenes, recent scenes
+        4. Semantic Events: relevant past events from semantic search (stable)
+        5. Scene Batches: completed scene batches (stable per batch)
+        6. Recent Scenes: active batch of most recent scenes (changes each scene)
         
         Args:
             context: Context dictionary from context_manager
+            scene_batch_size: Number of scenes per batch for caching optimization (default: 10)
             
         Returns:
             List of message dicts with 'role' and 'content' keys
@@ -3055,32 +3071,131 @@ class UnifiedLLMService:
                 "content": "=== CURRENT STATE ===\n" + "\n\n".join(entity_parts)
             })
         
-        # === MESSAGE 4: Story Progress - Semantic + Recent Scenes (changes every scene) ===
-        progress_parts = []
-        
+        # === MESSAGE 4: Semantic Events (stable - only changes when semantic search results change) ===
         if previous_scenes_text:
-            # Extract semantic/relevant events if present
+            # Extract semantic/relevant events if present - these are stable between extractions
             relevant_match = re.search(
                 r'Relevant Past Events:(.*?)(?=\n\n(?:Recent Scenes|CURRENT CHARACTER STATES|CURRENT LOCATIONS|Notable Objects)|$)',
                 previous_scenes_text, re.DOTALL
             )
             if relevant_match:
-                progress_parts.append(f"Relevant Past Events:{relevant_match.group(1).strip()}")
-            
-            # Extract recent scenes - this is the most dynamic part
+                messages.append({
+                    "role": "user",
+                    "content": "=== RELEVANT PAST EVENTS ===\n" + relevant_match.group(1).strip()
+                })
+        
+        # === MESSAGES 5+: Scene Batches (batch-aligned for optimal caching) ===
+        if previous_scenes_text:
+            # Extract recent scenes section
             recent_match = re.search(r'Recent Scenes:(.*?)$', previous_scenes_text, re.DOTALL)
             if recent_match:
-                progress_parts.append(f"Recent Scenes:{recent_match.group(1).strip()}")
+                scenes_text = recent_match.group(1).strip()
+                scene_messages = self._batch_scenes_as_messages(scenes_text, scene_batch_size)
+                messages.extend(scene_messages)
             elif not relevant_match:
                 # No structured sections found, use the whole previous_scenes as-is
                 # This handles the case where context_manager returns simple scene list
-                progress_parts.append(f"Previous Events:\n{previous_scenes_text}")
+                messages.append({
+                    "role": "user",
+                    "content": "=== STORY PROGRESS ===\n" + previous_scenes_text
+                })
         
-        if progress_parts:
+        return messages
+    
+    def _batch_scenes_as_messages(self, scenes_text: str, batch_size: int = 10) -> List[Dict[str, str]]:
+        """
+        Parse scenes and group them into batch-aligned messages for optimal caching.
+        
+        Completed batches (e.g., scenes 1-10, 11-20) remain stable and cacheable.
+        Only the active batch (current extraction window) changes per scene.
+        
+        Args:
+            scenes_text: Raw text containing scenes in format "Scene XX: content"
+            batch_size: Number of scenes per batch (default: 10)
+            
+        Returns:
+            List of message dicts, one per batch
+        """
+        messages = []
+        
+        # Parse individual scenes using regex
+        # Pattern matches "Scene XX:" followed by content until next "Scene XX:" or end
+        scene_pattern = re.compile(r'Scene\s+(\d+):\s*(.*?)(?=Scene\s+\d+:|$)', re.DOTALL)
+        matches = list(scene_pattern.finditer(scenes_text))
+        
+        if not matches:
+            # No scene pattern found, return as single message
+            if scenes_text.strip():
+                messages.append({
+                    "role": "user",
+                    "content": "=== RECENT SCENES ===\n" + scenes_text.strip()
+                })
+            return messages
+        
+        # Group scenes by batch
+        # Batch boundaries: 1-10, 11-20, 21-30, etc. (based on scene numbers, not indices)
+        batches: Dict[int, List[Tuple[int, str]]] = {}
+        
+        for match in matches:
+            scene_num = int(match.group(1))
+            scene_content = match.group(2).strip()
+            
+            # Calculate batch number (0-indexed): scenes 1-10 -> batch 0, 11-20 -> batch 1, etc.
+            batch_num = (scene_num - 1) // batch_size
+            
+            if batch_num not in batches:
+                batches[batch_num] = []
+            batches[batch_num].append((scene_num, scene_content))
+        
+        if not batches:
+            return messages
+        
+        # Sort batches by batch number
+        sorted_batch_nums = sorted(batches.keys())
+        max_batch_num = sorted_batch_nums[-1]
+        
+        # Get the highest scene number to determine which batch is "active"
+        all_scene_nums = [scene_num for batch in batches.values() for scene_num, _ in batch]
+        max_scene_num = max(all_scene_nums) if all_scene_nums else 0
+        active_batch_num = (max_scene_num - 1) // batch_size
+        
+        for batch_num in sorted_batch_nums:
+            scenes_in_batch = batches[batch_num]
+            # Sort scenes within batch by scene number
+            scenes_in_batch.sort(key=lambda x: x[0])
+            
+            # Calculate batch range
+            batch_start = batch_num * batch_size + 1
+            batch_end = batch_start + batch_size - 1
+            
+            # Get actual scene numbers in this batch
+            actual_scene_nums = [s[0] for s in scenes_in_batch]
+            actual_start = min(actual_scene_nums)
+            actual_end = max(actual_scene_nums)
+            
+            # Format scenes
+            formatted_scenes = []
+            for scene_num, content in scenes_in_batch:
+                formatted_scenes.append(f"Scene {scene_num}:  {content}")
+            
+            batch_content = "\n\n".join(formatted_scenes)
+            
+            # Determine if this is the active (most recent) batch
+            is_active_batch = (batch_num == active_batch_num)
+            
+            if is_active_batch:
+                # Active batch - changes every scene
+                header = f"=== RECENT SCENES {actual_start}-{actual_end} ==="
+            else:
+                # Completed batch - stable and cacheable
+                header = f"=== SCENES {actual_start}-{actual_end} ==="
+            
             messages.append({
                 "role": "user",
-                "content": "=== STORY PROGRESS ===\n" + "\n\n".join(progress_parts)
+                "content": f"{header}\n{batch_content}"
             })
+        
+        logger.debug(f"[SCENE BATCHING] Created {len(messages)} batch messages from {len(matches)} scenes (batch_size={batch_size})")
         
         return messages
     

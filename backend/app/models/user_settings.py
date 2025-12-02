@@ -41,6 +41,7 @@ class UserSettings(Base):
     enable_context_summarization = Column(Boolean, nullable=True)
     auto_generate_summaries = Column(Boolean, nullable=True)
     character_extraction_threshold = Column(Integer, nullable=True)
+    scene_batch_size = Column(Integer, nullable=True)  # Batch size for scene caching optimization
     
     # Semantic Memory Settings
     enable_semantic_memory = Column(Boolean, nullable=True)
@@ -148,6 +149,7 @@ class UserSettings(Base):
                 "summary_threshold_tokens": self.context_summary_threshold_tokens if self.context_summary_threshold_tokens is not None else ctx_defaults.get("summary_threshold_tokens", 8000),
                 "enable_summarization": self.enable_context_summarization if self.enable_context_summarization is not None else ctx_defaults.get("enable_summarization", True),
                 "character_extraction_threshold": self.character_extraction_threshold if self.character_extraction_threshold is not None else ctx_defaults.get("character_extraction_threshold", 5),
+                "scene_batch_size": self.scene_batch_size if self.scene_batch_size is not None else ctx_defaults.get("scene_batch_size", 10),
                 # Semantic Memory Settings
                 "enable_semantic_memory": self.enable_semantic_memory if self.enable_semantic_memory is not None else ctx_defaults.get("enable_semantic_memory", True),
                 "context_strategy": self.context_strategy if self.context_strategy is not None else ctx_defaults.get("context_strategy", "hybrid"),
@@ -270,6 +272,8 @@ class UserSettings(Base):
             self.auto_generate_summaries = ctx.get("auto_generate_summaries", True)
         if self.character_extraction_threshold is None:
             self.character_extraction_threshold = ctx.get("character_extraction_threshold", 5)
+        if self.scene_batch_size is None:
+            self.scene_batch_size = ctx.get("scene_batch_size", 10)
         
         # Semantic Memory Settings
         if self.enable_semantic_memory is None:
