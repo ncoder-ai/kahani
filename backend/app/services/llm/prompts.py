@@ -546,6 +546,63 @@ Write approximately {scene_length_description} in length."""
         
         return instruction
     
+    def get_chapter_conclusion_task_instruction(
+        self,
+        chapter_number: int = 1,
+        chapter_title: str = "Untitled",
+        chapter_location: str = "Unknown",
+        chapter_time_period: str = "Unknown",
+        chapter_scenario: str = "None"
+    ) -> str:
+        """
+        Get task instruction for chapter conclusion from scene_base.task_chapter_conclusion.
+        
+        This is used by generate_concluding_scene_streaming() for the final
+        message in the multi-message structure. Context is sent separately.
+        
+        Args:
+            chapter_number: The chapter number
+            chapter_title: The chapter title
+            chapter_location: The chapter location
+            chapter_time_period: The chapter time period
+            chapter_scenario: The chapter scenario
+            
+        Returns:
+            The task instruction text with variables substituted
+        """
+        if not self._prompts_cache:
+            return ""
+        
+        scene_base = self._prompts_cache.get("scene_base", {})
+        instruction = scene_base.get("task_chapter_conclusion", "").strip()
+        
+        if not instruction:
+            # Fallback if template not found
+            instruction = f"""=== CHAPTER CONCLUSION INSTRUCTIONS ===
+
+Chapter Information:
+- Chapter Number: {chapter_number}
+- Title: {chapter_title}
+- Location: {chapter_location}
+- Time Period: {chapter_time_period}
+- Scenario: {chapter_scenario}
+
+Create a chapter conclusion that brings Chapter {chapter_number} to a natural and satisfying end.
+Write ONLY the narrative content. Do not include any choices, options, or questions for the reader.
+
+Chapter Conclusion:"""
+        else:
+            instruction = self._substitute_variables(
+                instruction,
+                chapter_number=chapter_number,
+                chapter_title=chapter_title,
+                chapter_location=chapter_location,
+                chapter_time_period=chapter_time_period,
+                chapter_scenario=chapter_scenario
+            )
+        
+        return instruction
+    
     def get_pov_reminder(self, pov: str = 'third') -> str:
         """
         Get POV reminder text from scene_base.pov_reminder with POV substituted.
