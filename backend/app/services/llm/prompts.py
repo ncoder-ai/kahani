@@ -443,6 +443,109 @@ class PromptManager:
             return self._substitute_variables(instruction, **template_vars)
         return instruction
     
+    def get_continuation_task_instruction(
+        self, 
+        current_scene_content: str, 
+        continuation_prompt: str, 
+        choices_count: int = 4
+    ) -> str:
+        """
+        Get task instruction for scene continuation from scene_base.task_continuation.
+        
+        This is used by generate_continuation_with_choices_streaming() for the final
+        message in the multi-message structure. Context is sent separately.
+        
+        Args:
+            current_scene_content: The scene content to continue
+            continuation_prompt: User's continuation instruction
+            choices_count: Number of choices to generate
+            
+        Returns:
+            The task instruction text with variables substituted and choices reminder appended
+        """
+        if not self._prompts_cache:
+            return ""
+        
+        scene_base = self._prompts_cache.get("scene_base", {})
+        instruction = scene_base.get("task_continuation", "").strip()
+        
+        if not instruction:
+            # Fallback if template not found
+            instruction = f"""=== CURRENT SCENE TO CONTINUE ===
+{current_scene_content}
+
+=== CONTINUATION INSTRUCTION ===
+{continuation_prompt}
+
+Write a compelling continuation that follows naturally from the scene above. Focus on engaging narrative and dialogue. Do not repeat previous content."""
+        else:
+            instruction = self._substitute_variables(
+                instruction, 
+                current_scene_content=current_scene_content,
+                continuation_prompt=continuation_prompt
+            )
+        
+        # Append choices reminder
+        choices_reminder = self.get_user_choices_reminder(choices_count=choices_count)
+        if choices_reminder:
+            instruction = instruction + "\n\n" + choices_reminder
+        
+        return instruction
+    
+    def get_enhancement_task_instruction(
+        self, 
+        original_scene: str, 
+        enhancement_guidance: str, 
+        scene_length_description: str = "medium (100-150 words)",
+        choices_count: int = 4
+    ) -> str:
+        """
+        Get task instruction for guided enhancement from scene_base.task_guided_enhancement.
+        
+        This is used by generate_scene_variants_with_choices_streaming() for the final
+        message in the multi-message structure. Context is sent separately.
+        
+        Args:
+            original_scene: The original scene to enhance
+            enhancement_guidance: User's enhancement request
+            scene_length_description: Target scene length description
+            choices_count: Number of choices to generate
+            
+        Returns:
+            The task instruction text with variables substituted and choices reminder appended
+        """
+        if not self._prompts_cache:
+            return ""
+        
+        scene_base = self._prompts_cache.get("scene_base", {})
+        instruction = scene_base.get("task_guided_enhancement", "").strip()
+        
+        if not instruction:
+            # Fallback if template not found
+            instruction = f"""=== ORIGINAL SCENE ===
+{original_scene}
+
+=== ENHANCEMENT REQUEST ===
+{enhancement_guidance}
+
+Rewrite the scene above incorporating the requested enhancement.
+Maintain the same core events and outcomes. Keep consistency with established story elements.
+Write approximately {scene_length_description} in length."""
+        else:
+            instruction = self._substitute_variables(
+                instruction, 
+                original_scene=original_scene,
+                enhancement_guidance=enhancement_guidance,
+                scene_length_description=scene_length_description
+            )
+        
+        # Append choices reminder
+        choices_reminder = self.get_user_choices_reminder(choices_count=choices_count)
+        if choices_reminder:
+            instruction = instruction + "\n\n" + choices_reminder
+        
+        return instruction
+    
     def get_pov_reminder(self, pov: str = 'third') -> str:
         """
         Get POV reminder text from scene_base.pov_reminder with POV substituted.

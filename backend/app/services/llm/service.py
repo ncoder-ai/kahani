@@ -2001,13 +2001,9 @@ class UnifiedLLMService:
         immediate_situation = context.get("current_situation") or ""
         immediate_situation = str(immediate_situation) if immediate_situation else ""
         
-        # Choose template based on whether we have immediate_situation
-        if immediate_situation and immediate_situation.strip():
-            template_key = "scene_with_immediate"
-            logger.info(f"[SCENE GEN STREAMING] Using scene_with_immediate template")
-        else:
-            template_key = "scene_without_immediate"
-            logger.info(f"[SCENE GEN STREAMING] Using scene_without_immediate template")
+        # Determine if we have an immediate situation (for task instruction selection)
+        has_immediate = bool(immediate_situation and immediate_situation.strip())
+        logger.info(f"[SCENE GEN STREAMING] has_immediate={has_immediate}")
         
         # Get POV from writing preset (default to third person)
         pov = 'third'
@@ -2028,9 +2024,10 @@ class UnifiedLLMService:
         else:
             pov_instruction = "in third person (he/she/they/character names)"
         
-        # Get system prompt from template
+        # === ALWAYS use scene_with_immediate for system prompt (cache consistency) ===
+        # The task instruction will vary based on has_immediate, but system prompt stays the same
         system_prompt = prompt_manager.get_prompt(
-            template_key, "system",
+            "scene_with_immediate", "system",
             user_id=user_id,
             db=db,
             scene_length_description=scene_length_description,
@@ -2315,73 +2312,66 @@ class UnifiedLLMService:
         else:
             pov_instruction = "in third person (he/she/they/character names)"
         
-        if enhancement_guidance:
-            # Guided enhancement: use scene_guided_enhancement template with original scene
-            # Exclude last scene from previous events to avoid duplication
-            formatted_context = self._format_context_for_scene(context, exclude_last_scene=True)
-            logger.warning(f"[GUIDED ENHANCEMENT] scene_length_description: {scene_length_description}")
-            logger.warning(f"[GUIDED ENHANCEMENT] choices_count: {choices_count}")
-            system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-                "scene_guided_enhancement", "scene_guided_enhancement",
-                user_id=user_id,
-                db=db,
-                context=formatted_context,
-                original_scene=original_scene,
-                enhancement_guidance=enhancement_guidance,
-                scene_length_description=scene_length_description,
-                choices_count=choices_count,
-                pov_instruction=pov_instruction
-            )
-            logger.warning(f"[GUIDED ENHANCEMENT] Prompt length: {len(user_prompt)} chars")
-            logger.warning(f"[GUIDED ENHANCEMENT] Prompt contains scene_length_description: {'scene_length_description' in user_prompt or scene_length_description in user_prompt}")
-        else:
-            # Simple variant: use the same prompt template as new scene generation
-            # Extract immediate_situation from context for template variable
-            immediate_situation = context.get("current_situation") or ""
-            immediate_situation = str(immediate_situation) if immediate_situation else ""
-            
-            # Choose template based on whether we have immediate_situation
-            has_immediate = bool(immediate_situation and immediate_situation.strip())
-            if has_immediate:
-                template_key = "scene_with_immediate"
-            else:
-                template_key = "scene_without_immediate"
-            
-            # Get task instruction from prompts.yml
-            task_instruction = prompt_manager.get_task_instruction(
-                has_immediate=has_immediate,
-                immediate_situation=immediate_situation or "",
-                scene_length_description=scene_length_description
-            )
-            
-            system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-                template_key, template_key,
-                user_id=user_id,
-                db=db,
-                context=self._format_context_for_scene(context, exclude_last_scene=False),
-                scene_length_description=scene_length_description,
-                choices_count=choices_count,
-                immediate_situation=immediate_situation,
-                pov_instruction=pov_instruction,
-                task_instruction=task_instruction
-            )
+        # === USE SAME SYSTEM PROMPT AS SCENE GENERATION (for cache hits) ===
+        # Always use scene_with_immediate for system prompt consistency
+        system_prompt = prompt_manager.get_prompt(
+            "scene_with_immediate", "system",
+            user_id=user_id,
+            db=db,
+            scene_length_description=scene_length_description,
+            choices_count=choices_count
+        )
         
         # Enhance system prompt with POV instruction for choices (from template)
         pov_reminder = prompt_manager.get_pov_reminder(pov)
         if pov_reminder:
             system_prompt += "\n\n" + pov_reminder
         
-        # Log prompts for debugging
+        # === BUILD SAME MULTI-MESSAGE STRUCTURE AS SCENE GENERATION (for cache hits) ===
+        messages = [{"role": "system", "content": system_prompt.strip()}]
         
-        if not user_prompt or not user_prompt.strip():
-            logger.error("Empty user prompt generated for variant generation")
-            raise ValueError("Generated empty user prompt for variant generation")
+        # Get scene batch size from user settings for cache optimization
+        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
+        
+        # Add context as multiple user messages (SAME as scene generation - all CACHED)
+        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
+        messages.extend(context_messages)
+        
+        # === ONLY THIS FINAL MESSAGE IS DIFFERENT ===
+        if enhancement_guidance:
+            # Guided enhancement: use task_guided_enhancement from prompts.yml
+            task_content = prompt_manager.get_enhancement_task_instruction(
+                original_scene=original_scene,
+                enhancement_guidance=enhancement_guidance,
+                scene_length_description=scene_length_description,
+                choices_count=choices_count
+            )
+            logger.info(f"[GUIDED ENHANCEMENT] Using multi-message structure with enhancement task")
+        else:
+            # Simple variant: use same task instruction as scene generation
+            immediate_situation = context.get("current_situation") or ""
+            immediate_situation = str(immediate_situation) if immediate_situation else ""
+            has_immediate = bool(immediate_situation and immediate_situation.strip())
+            
+            task_content = prompt_manager.get_task_instruction(
+                has_immediate=has_immediate,
+                immediate_situation=immediate_situation or "",
+                scene_length_description=scene_length_description
+            )
+            
+            # Append choices reminder for simple variant
+            choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
+            if choices_reminder:
+                task_content = task_content + "\n\n" + choices_reminder
+        
+        messages.append({"role": "user", "content": task_content})
         
         # Add buffer for choices section - dynamic based on choices_count
         base_max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
         choices_buffer_tokens = max(300, choices_count * 50)  # At least 300, or 50 per choice
         max_tokens = base_max_tokens + choices_buffer_tokens
-        logger.info(f"[VARIANT WITH CHOICES STREAMING] Using max_tokens: {max_tokens} (base: {base_max_tokens} + {choices_buffer_tokens} buffer for {choices_count} choices)")
+        
+        logger.info(f"[VARIANT WITH CHOICES STREAMING] Using multi-message structure: {len(messages)} messages, max_tokens={max_tokens}")
         
         scene_buffer = []
         choices_buffer = []
@@ -2389,11 +2379,11 @@ class UnifiedLLMService:
         rolling_buffer = ""  # Buffer to detect marker across chunks
         total_chunks = 0
         
-        async for chunk in self._generate_stream(
-            prompt=user_prompt,
+        # Use multi-message streaming for cache optimization
+        async for chunk in self._generate_stream_with_messages(
+            messages=messages,
             user_id=user_id,
             user_settings=user_settings,
-            system_prompt=system_prompt,
             max_tokens=max_tokens
         ):
             total_chunks += 1
@@ -2521,8 +2511,6 @@ class UnifiedLLMService:
         
         # === ONLY THIS FINAL MESSAGE IS DIFFERENT ===
         # Instead of new scene + choice request, we send current scene + continuation instruction
-        choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
-        
         # Get current scene content and continuation prompt from context
         current_scene_content = context.get("current_scene_content", "") or context.get("current_content", "")
         continuation_prompt = context.get("continuation_prompt", "Continue this scene with more details and development.")
@@ -2531,21 +2519,14 @@ class UnifiedLLMService:
         cleaned_scene_content = self._clean_instruction_tags(current_scene_content)
         cleaned_scene_content = self._clean_scene_numbers(cleaned_scene_content)
         
-        final_message = f"""=== CURRENT SCENE TO CONTINUE ===
-{cleaned_scene_content}
-
-=== CONTINUATION INSTRUCTION ===
-{continuation_prompt}
-
-Write a compelling continuation that follows naturally from the scene above. Focus on engaging narrative and dialogue. Do not repeat previous content.
-
-After completing the continuation, add ###CHOICES### followed by {choices_count} narrative choices.
-
-{choices_reminder}
-
-Output choices as valid JSON: {{"choices": ["choice 1", "choice 2", ...]}}"""
+        # Get task instruction from prompt_manager (includes choices reminder)
+        task_content = prompt_manager.get_continuation_task_instruction(
+            current_scene_content=cleaned_scene_content,
+            continuation_prompt=continuation_prompt,
+            choices_count=choices_count
+        )
         
-        messages.append({"role": "user", "content": final_message})
+        messages.append({"role": "user", "content": task_content})
         
         # Add buffer for choices section - dynamic based on choices_count
         base_max_tokens = prompt_manager.get_max_tokens("scene_continuation", user_settings)
