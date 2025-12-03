@@ -2530,6 +2530,7 @@ class UnifiedLLMService:
 
 Write a compelling continuation that follows naturally from the scene above.
 Focus on engaging narrative and dialogue. Do not repeat previous content.
+Write approximately {scene_length_description} in length.
 
 {choices_reminder}"""
         
@@ -2715,16 +2716,24 @@ Focus on engaging narrative and dialogue. Do not repeat previous content.
         context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
         messages.extend(context_messages)
         
-        # === FINAL MESSAGE: Chapter conclusion task instruction ===
-        task_content = prompt_manager.get_chapter_conclusion_task_instruction(
-            chapter_number=chapter_info.get("chapter_number", 1),
-            chapter_title=chapter_info.get("chapter_title", "Untitled"),
-            chapter_location=chapter_info.get("chapter_location", "Unknown"),
-            chapter_time_period=chapter_info.get("chapter_time_period", "Unknown"),
-            chapter_scenario=chapter_info.get("chapter_scenario", "None")
-        )
+        # === FINAL MESSAGE: Simple chapter conclusion instruction (inline like continuation) ===
+        # Chapter context is already in the multi-message structure, so we just need the task
+        chapter_number = chapter_info.get("chapter_number", 1)
         
-        messages.append({"role": "user", "content": task_content})
+        final_message = f"""=== CHAPTER CONCLUSION INSTRUCTION ===
+
+Write a compelling conclusion for Chapter {chapter_number} that:
+1. Brings this chapter to a natural and satisfying end
+2. Provides closure for the chapter's events while leaving the overall story open
+3. Sets up anticipation for what might come next
+4. Ends at a natural chapter break point
+
+Write approximately {scene_length_description} in length.
+Write ONLY narrative content. Do not include any choices, options, or questions for the reader.
+
+Chapter Conclusion:"""
+        
+        messages.append({"role": "user", "content": final_message})
         
         max_tokens = prompt_manager.get_max_tokens("chapter_conclusion")
         logger.info(f"[CONCLUDING SCENE] Using multi-message structure: {len(messages)} messages, max_tokens={max_tokens}")
