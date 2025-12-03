@@ -603,9 +603,23 @@ class CharacterAssistantService:
             logger.error(f"Failed to check character importance: {e}")
             return False
     
-    def _get_active_variant(self, db: Session, scene_id: int) -> Optional[SceneVariant]:
+    def _get_active_variant(self, db: Session, scene_id: int, branch_id: int = None) -> Optional[SceneVariant]:
         """Get the active variant for a scene."""
-        # For now, get the first variant (this could be improved with story flow logic)
+        from ..models import StoryFlow
+        
+        # Try to get active variant from StoryFlow first
+        flow_query = db.query(StoryFlow).filter(
+            StoryFlow.scene_id == scene_id,
+            StoryFlow.is_active == True
+        )
+        if branch_id:
+            flow_query = flow_query.filter(StoryFlow.branch_id == branch_id)
+        flow = flow_query.first()
+        
+        if flow and flow.scene_variant_id:
+            return db.query(SceneVariant).filter(SceneVariant.id == flow.scene_variant_id).first()
+        
+        # Fallback: get the first variant
         return db.query(SceneVariant).filter(
             SceneVariant.scene_id == scene_id
         ).order_by(SceneVariant.variant_number).first()
@@ -710,13 +724,25 @@ class CharacterAssistantService:
         db: Session,
         story_id: int,
         character_name: str,
-        max_scenes: int = 10
+        max_scenes: int = 10,
+        branch_id: int = None
     ) -> List[Dict[str, Any]]:
         """
         Get most relevant scenes where character appears using semantic search.
         
         Instead of ALL scenes, get the top N most relevant ones to avoid timeouts.
         """
+        # Get active branch if not specified
+        if branch_id is None:
+            from ..models import StoryBranch
+            active_branch = db.query(StoryBranch).filter(
+                and_(
+                    StoryBranch.story_id == story_id,
+                    StoryBranch.is_active == True
+                )
+            ).first()
+            branch_id = active_branch.id if active_branch else None
+        
         try:
             # Try semantic search first for better relevance
             from ..services.semantic_memory import get_semantic_memory_service
@@ -739,8 +765,9 @@ class CharacterAssistantService:
                     for result in results:
                         scene_id = result.get('scene_id')
                         scene = db.query(Scene).filter(Scene.id == scene_id).first()
-                        if scene:
-                            variant = self._get_active_variant(db, scene.id)
+                        # Filter by branch
+                        if scene and (branch_id is None or scene.branch_id == branch_id):
+                            variant = self._get_active_variant(db, scene.id, branch_id=branch_id)
                             if variant and variant.content:
                                 # Verify character is actually mentioned
                                 if character_name.lower() in variant.content.lower():
@@ -758,18 +785,21 @@ class CharacterAssistantService:
         
         # Fallback: text search but limit results to avoid timeouts
         scenes = []
-        story_scenes = db.query(Scene).filter(
+        scene_query = db.query(Scene).filter(
             and_(
                 Scene.story_id == story_id,
                 Scene.is_deleted == False
             )
-        ).order_by(Scene.sequence_number).all()
+        )
+        if branch_id:
+            scene_query = scene_query.filter(Scene.branch_id == branch_id)
+        story_scenes = scene_query.order_by(Scene.sequence_number).all()
         
         for scene in story_scenes:
             if len(scenes) >= max_scenes:
                 break
                 
-            variant = self._get_active_variant(db, scene.id)
+            variant = self._get_active_variant(db, scene.id, branch_id=branch_id)
             if not variant or not variant.content:
                 continue
             

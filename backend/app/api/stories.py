@@ -89,25 +89,25 @@ class SceneVariantServiceAdapter:
         
         return variant
     
-    def get_active_story_flow(self, story_id: int):
-        return llm_service.get_active_story_flow(self.db, story_id)
+    def get_active_story_flow(self, story_id: int, branch_id: int = None):
+        return llm_service.get_active_story_flow(self.db, story_id, branch_id=branch_id)
     
     def get_scene_variants(self, scene_id: int):
         return llm_service.get_scene_variants(self.db, scene_id)
     
-    def create_scene_with_variant(self, story_id: int, sequence_number: int, content: str, title: str = None, custom_prompt: str = None, choices: List[Dict[str, Any]] = None, generation_method: str = "auto"):
-        return llm_service.create_scene_with_variant(self.db, story_id, sequence_number, content, title, custom_prompt, choices, generation_method)
+    def create_scene_with_variant(self, story_id: int, sequence_number: int, content: str, title: str = None, custom_prompt: str = None, choices: List[Dict[str, Any]] = None, generation_method: str = "auto", branch_id: int = None):
+        return llm_service.create_scene_with_variant(self.db, story_id, sequence_number, content, title, custom_prompt, choices, generation_method, branch_id)
     
-    async def regenerate_scene_variant(self, scene_id: int, custom_prompt: str = None, user_settings: dict = None, user_id: int = None):
+    async def regenerate_scene_variant(self, scene_id: int, custom_prompt: str = None, user_settings: dict = None, user_id: int = None, branch_id: int = None):
         # Use provided user_id or fall back to default
         actual_user_id = user_id or 1
-        return await llm_service.regenerate_scene_variant(self.db, scene_id, custom_prompt, user_id=actual_user_id, user_settings=user_settings)
+        return await llm_service.regenerate_scene_variant(self.db, scene_id, custom_prompt, user_id=actual_user_id, user_settings=user_settings, branch_id=branch_id)
     
-    def switch_to_variant(self, story_id: int, scene_id: int, variant_id: int):
-        return llm_service.switch_to_variant(self.db, story_id, scene_id, variant_id)
+    def switch_to_variant(self, story_id: int, scene_id: int, variant_id: int, branch_id: int = None):
+        return llm_service.switch_to_variant(self.db, story_id, scene_id, variant_id, branch_id=branch_id)
     
-    async def delete_scenes_from_sequence(self, story_id: int, sequence_number: int, skip_restoration: bool = False) -> bool:
-        return await llm_service.delete_scenes_from_sequence(self.db, story_id, sequence_number, skip_restoration=skip_restoration)
+    async def delete_scenes_from_sequence(self, story_id: int, sequence_number: int, skip_restoration: bool = False, branch_id: int = None) -> bool:
+        return await llm_service.delete_scenes_from_sequence(self.db, story_id, sequence_number, skip_restoration=skip_restoration, branch_id=branch_id)
 
 # Temporary adapter functions for old LLM function calls
 async def generate_scene_streaming(context, user_id, user_settings):
@@ -566,10 +566,15 @@ def update_last_accessed_story(db: Session, user_id: int, story_id: int):
 @router.get("/{story_id}")
 async def get_story(
     story_id: int,
+    branch_id: int = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get a specific story with its active flow"""
+    """Get a specific story with its active flow
+    
+    Args:
+        branch_id: Optional. If provided, use this branch. Otherwise uses story's current_branch_id.
+    """
     
     story = db.query(Story).filter(
         Story.id == story_id,
@@ -585,9 +590,16 @@ async def get_story(
     # Update last accessed story for auto-open feature
     update_last_accessed_story(db, current_user.id, story_id)
     
+    # Get active branch
+    from ..models import StoryBranch
+    active_branch_id = branch_id or story.current_branch_id
+    active_branch = None
+    if active_branch_id:
+        active_branch = db.query(StoryBranch).filter(StoryBranch.id == active_branch_id).first()
+    
     # Get the active story flow instead of direct scenes
     service = SceneVariantService(db)
-    flow = service.get_active_story_flow(story_id)
+    flow = service.get_active_story_flow(story_id, branch_id=active_branch_id)
     
     # Transform flow data to match expected format for backward compatibility
     scenes = []
@@ -612,6 +624,17 @@ async def get_story(
     # Check draft_data as fallback for fields that might not be in columns
     draft_data = story.draft_data or {}
     
+    # Get branch info
+    branch_info = None
+    if active_branch:
+        branch_count = db.query(StoryBranch).filter(StoryBranch.story_id == story_id).count()
+        branch_info = {
+            "id": active_branch.id,
+            "name": active_branch.name,
+            "is_main": active_branch.is_main,
+            "total_branches": branch_count
+        }
+    
     return {
         "id": story.id,
         "title": story.title,
@@ -626,7 +649,9 @@ async def get_story(
         "flow_info": {
             "total_scenes": len(scenes),
             "has_variants": any(scene['has_multiple_variants'] for scene in scenes)
-        }
+        },
+        "branch": branch_info,
+        "current_branch_id": active_branch_id
     }
 
 @router.put("/{story_id}")
@@ -819,6 +844,14 @@ async def generate_scene(
             detail="Story not found"
         )
     
+    # Get active branch
+    active_branch_id = story.current_branch_id
+    if not active_branch_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Story has no active branch. Please create a branch first."
+        )
+    
     # Get user settings and include permission flags
     user_settings = get_or_create_user_settings(current_user.id, db, current_user)
     
@@ -927,7 +960,7 @@ async def generate_scene(
             )
     
     # Create scene with variant system - use active scene count from StoryFlow
-    current_scene_count = llm_service.get_active_scene_count(db, story_id)
+    current_scene_count = llm_service.get_active_scene_count(db, story_id, branch_id=active_branch_id)
     next_sequence = current_scene_count + 1
     
     # Format choices from parsed result or fallback
@@ -959,7 +992,8 @@ async def generate_scene(
             title=f"Scene {next_sequence}",
             custom_prompt=effective_custom_prompt if effective_custom_prompt else None,
             choices=choices_data,
-            generation_method=generation_method
+            generation_method=generation_method,
+            branch_id=active_branch_id
         )
         
         # Format choices for response (already in correct format)
@@ -969,16 +1003,18 @@ async def generate_scene(
         from ..models import Chapter, ChapterStatus
         active_chapter = None
         try:
-            # Get or create active chapter for this story
+            # Get or create active chapter for this story (filtered by branch)
             active_chapter = db.query(Chapter).filter(
                 Chapter.story_id == story_id,
+                Chapter.branch_id == active_branch_id,
                 Chapter.status == ChapterStatus.ACTIVE
             ).order_by(Chapter.chapter_number.desc()).first()
             
             if not active_chapter:
-                # Create first chapter if none exists
+                # Create first chapter if none exists for this branch
                 active_chapter = Chapter(
                     story_id=story_id,
+                    branch_id=active_branch_id,
                     chapter_number=1,
                     title="Chapter 1",
                     status=ChapterStatus.ACTIVE,
@@ -988,7 +1024,7 @@ async def generate_scene(
                 )
                 db.add(active_chapter)
                 db.flush()
-                logger.info(f"[CHAPTER] Created first chapter {active_chapter.id} for story {story_id}")
+                logger.info(f"[CHAPTER] Created first chapter {active_chapter.id} for story {story_id} on branch {active_branch_id}")
             
             # Link scene to active chapter
             scene.chapter_id = active_chapter.id
@@ -1010,7 +1046,7 @@ async def generate_scene(
                 logger.warning(f"[CHAPTER] Using fallback token accumulation: {scene_tokens} tokens added")
             
             # Recalculate scenes_count from active StoryFlow instead of incrementing
-            active_chapter.scenes_count = llm_service.get_active_scene_count(db, story_id, active_chapter.id)
+            active_chapter.scenes_count = llm_service.get_active_scene_count(db, story_id, branch_id=active_branch_id, chapter_id=active_chapter.id)
             
             db.commit()
             logger.info(f"[CHAPTER] Linked scene {scene.id} to chapter {active_chapter.id} ({active_chapter.scenes_count} scenes, {active_chapter.context_tokens_used} tokens)")
@@ -1055,9 +1091,10 @@ async def generate_scene(
     # Save manual choice if custom_prompt was provided
     if custom_prompt and custom_prompt.strip():
         try:
-            # Get the previous scene (parent of the newly created scene)
+            # Get the previous scene (parent of the newly created scene, filtered by branch)
             previous_scenes = db.query(Scene).filter(
                 Scene.story_id == story_id,
+                Scene.branch_id == active_branch_id,
                 Scene.sequence_number == next_sequence - 1
             ).all()
             
@@ -1065,9 +1102,10 @@ async def generate_scene(
                 previous_scene = previous_scenes[0]
                 
                 # Get the active variant for the previous scene
-                # Use StoryFlow to find the active variant
+                # Use StoryFlow to find the active variant (filtered by branch)
                 previous_flow = db.query(StoryFlow).filter(
                     StoryFlow.story_id == story_id,
+                    StoryFlow.branch_id == active_branch_id,
                     StoryFlow.scene_id == previous_scene.id
                 ).order_by(StoryFlow.sequence_number.desc()).first()
                 
@@ -1181,6 +1219,14 @@ async def generate_scene_streaming_endpoint(
             detail="Story not found"
         )
     
+    # Get active branch
+    active_branch_id = story.current_branch_id
+    if not active_branch_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Story has no active branch. Please create a branch first."
+        )
+    
     # Get user settings
     user_settings = get_or_create_user_settings(current_user.id, db, current_user)
     
@@ -1202,9 +1248,10 @@ async def generate_scene_streaming_endpoint(
         user_provided_content = user_content.strip()
         generation_method = "user_written"
         # Still need context for choice generation
-        # Get active chapter for character separation
+        # Get active chapter for character separation (filtered by branch)
         active_chapter = db.query(Chapter).filter(
             Chapter.story_id == story_id,
+            Chapter.branch_id == active_branch_id,
             Chapter.status == ChapterStatus.ACTIVE
         ).first()
         chapter_id = active_chapter.id if active_chapter else None
@@ -1233,9 +1280,10 @@ async def generate_scene_streaming_endpoint(
     # Create context manager with user settings (semantic or linear)
     context_manager = get_context_manager_for_user(user_settings, current_user.id)
     
-    # Get active chapter for character separation
+    # Get active chapter for character separation (filtered by branch)
     active_chapter = db.query(Chapter).filter(
         Chapter.story_id == story_id,
+        Chapter.branch_id == active_branch_id,
         Chapter.status == ChapterStatus.ACTIVE
     ).first()
     chapter_id = active_chapter.id if active_chapter else None
@@ -1243,7 +1291,7 @@ async def generate_scene_streaming_endpoint(
     # Use context manager to build optimized context
     try:
         context = await context_manager.build_scene_generation_context(
-            story_id, db, effective_custom_prompt, is_variant_generation=False, chapter_id=chapter_id
+            story_id, db, effective_custom_prompt, is_variant_generation=False, chapter_id=chapter_id, branch_id=active_branch_id
         )
     except Exception as e:
         logger.error(f"Failed to build context for story {story_id}: {e}")
@@ -1253,7 +1301,7 @@ async def generate_scene_streaming_endpoint(
         )
     
     # Calculate next sequence number - use active scene count from StoryFlow
-    current_scene_count = llm_service.get_active_scene_count(db, story_id)
+    current_scene_count = llm_service.get_active_scene_count(db, story_id, branch_id=active_branch_id)
     next_sequence = current_scene_count + 1
     
     async def generate_stream():
@@ -1327,19 +1375,21 @@ async def generate_scene_streaming_endpoint(
                     title=f"Scene {next_sequence}",
                     custom_prompt=effective_custom_prompt if effective_custom_prompt else None,
                     choices=[],  # We'll add choices later
-                    generation_method=generation_method
+                    generation_method=generation_method,
+                    branch_id=active_branch_id
                 )
-                logger.info(f"Created scene {scene.id} with variant {variant.id} for story {story_id}")
+                logger.info(f"Created scene {scene.id} with variant {variant.id} for story {story_id} on branch {active_branch_id}")
             except Exception as e:
                 logger.error(f"Failed to create scene variant: {e}")
                 raise
             
             # Process semantic embeddings (async, non-blocking)
             try:
-                # Get chapter ID if available
+                # Get chapter ID if available (filtered by branch)
                 chapter_id = None
                 active_chapter = db.query(Chapter).filter(
                     Chapter.story_id == story_id,
+                    Chapter.branch_id == active_branch_id,
                     Chapter.status == ChapterStatus.ACTIVE
                 ).first()
                 if active_chapter:
@@ -1387,6 +1437,7 @@ async def generate_scene_streaming_endpoint(
                     choice = SceneChoice(
                         scene_id=scene.id,
                         scene_variant_id=variant.id,
+                        branch_id=active_branch_id,
                         choice_text=choice_text,
                         choice_order=i + 1
                     )
@@ -1407,16 +1458,18 @@ async def generate_scene_streaming_endpoint(
             # Chapter integration (optional - won't break if it fails)
             active_chapter = None  # Initialize outside try block for use in background tasks
             try:
-                # Get or create active chapter for this story
+                # Get or create active chapter for this story (filtered by branch)
                 active_chapter = db.query(Chapter).filter(
                     Chapter.story_id == story_id,
+                    Chapter.branch_id == active_branch_id,
                     Chapter.status == ChapterStatus.ACTIVE
                 ).order_by(Chapter.chapter_number.desc()).first()
                 
                 if not active_chapter:
-                    # Create first chapter if none exists
+                    # Create first chapter if none exists for this branch
                     active_chapter = Chapter(
                         story_id=story_id,
+                        branch_id=active_branch_id,
                         chapter_number=1,
                         title="Chapter 1",
                         status=ChapterStatus.ACTIVE,
@@ -1426,7 +1479,7 @@ async def generate_scene_streaming_endpoint(
                     )
                     db.add(active_chapter)
                     db.flush()
-                    logger.info(f"[CHAPTER] Created first chapter {active_chapter.id} for story {story_id}")
+                    logger.info(f"[CHAPTER] Created first chapter {active_chapter.id} for story {story_id} on branch {active_branch_id}")
                 
                 # Link scene to active chapter
                 scene.chapter_id = active_chapter.id
@@ -1448,7 +1501,7 @@ async def generate_scene_streaming_endpoint(
                     logger.warning(f"[CHAPTER] Using fallback token accumulation: {scene_tokens} tokens added")
                 
                 # Recalculate scenes_count from active StoryFlow instead of incrementing
-                active_chapter.scenes_count = llm_service.get_active_scene_count(db, story_id, active_chapter.id)
+                active_chapter.scenes_count = llm_service.get_active_scene_count(db, story_id, branch_id=active_branch_id, chapter_id=active_chapter.id)
                 
                 db.commit()
                 logger.info(f"[CHAPTER] Linked scene {scene.id} to chapter {active_chapter.id} ({active_chapter.scenes_count} scenes, {active_chapter.context_tokens_used} tokens)")
@@ -1471,15 +1524,17 @@ async def generate_scene_streaming_endpoint(
                     logger.warning(f"  - Scenes since last summary: {scenes_since_summary} (threshold: {summary_threshold})")
                     logger.warning(f"  - Scenes since last extraction: {scenes_since_extraction} (threshold: {extraction_threshold}, last_extraction_count: {last_extraction_count})")
                     
-                    # Check NPC tracking status
+                    # Check NPC tracking status (filtered by branch)
                     try:
                         from ..models import NPCTracking
                         npc_count = db.query(NPCTracking).filter(
                             NPCTracking.story_id == story_id,
+                            NPCTracking.branch_id == active_branch_id,
                             NPCTracking.converted_to_character == False
                         ).count()
                         npc_threshold_crossed = db.query(NPCTracking).filter(
                             NPCTracking.story_id == story_id,
+                            NPCTracking.branch_id == active_branch_id,
                             NPCTracking.crossed_threshold == True,
                             NPCTracking.converted_to_character == False
                         ).count()
@@ -1501,9 +1556,10 @@ async def generate_scene_streaming_endpoint(
             # Save manual choice if custom_prompt was provided
             if custom_prompt and custom_prompt.strip():
                 try:
-                    # Get the previous scene (parent of the newly created scene)
+                    # Get the previous scene (parent of the newly created scene, filtered by branch)
                     previous_scenes = db.query(Scene).filter(
                         Scene.story_id == story_id,
+                        Scene.branch_id == active_branch_id,
                         Scene.sequence_number == next_sequence - 1
                     ).all()
                     
@@ -1511,9 +1567,10 @@ async def generate_scene_streaming_endpoint(
                         previous_scene = previous_scenes[0]
                         
                         # Get the active variant for the previous scene
-                        # Use StoryFlow to find the active variant
+                        # Use StoryFlow to find the active variant (filtered by branch)
                         previous_flow = db.query(StoryFlow).filter(
                             StoryFlow.story_id == story_id,
+                            StoryFlow.branch_id == active_branch_id,
                             StoryFlow.scene_id == previous_scene.id
                         ).order_by(StoryFlow.sequence_number.desc()).first()
                         
@@ -2225,6 +2282,7 @@ async def generate_plot_endpoint(
 @router.get("/{story_id}/flow")
 async def get_story_flow(
     story_id: int,
+    branch_id: int = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -2241,12 +2299,16 @@ async def get_story_flow(
             detail="Story not found"
         )
     
-    flow = llm_service.get_active_story_flow(db, story_id)
+    # Use provided branch_id or story's current branch
+    active_branch_id = branch_id or story.current_branch_id
+    
+    flow = llm_service.get_active_story_flow(db, story_id, branch_id=active_branch_id)
     
     return {
         "story_id": story_id,
         "flow": flow,
-        "total_scenes": len(flow)
+        "total_scenes": len(flow),
+        "branch_id": active_branch_id
     }
 
 @router.put("/{story_id}/variants/{variant_id}/manual-choice")

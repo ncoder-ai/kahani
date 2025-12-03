@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import and_
 from ..database import get_db
-from ..models import User, Story, UserSettings
+from ..models import User, Story, UserSettings, Scene, StoryBranch
 from ..dependencies import get_current_user
 from ..services.context_manager import ContextManager
 from ..services.llm.service import UnifiedLLMService
@@ -13,6 +14,35 @@ import logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _get_branch_scenes(db: Session, story_id: int) -> list:
+    """Get scenes for the active branch of a story."""
+    # Get active branch
+    active_branch = db.query(StoryBranch).filter(
+        and_(
+            StoryBranch.story_id == story_id,
+            StoryBranch.is_active == True
+        )
+    ).first()
+    
+    if active_branch:
+        return db.query(Scene).filter(
+            and_(
+                Scene.story_id == story_id,
+                Scene.branch_id == active_branch.id,
+                Scene.is_deleted == False
+            )
+        ).order_by(Scene.sequence_number).all()
+    else:
+        # Fallback to all scenes if no active branch
+        return db.query(Scene).filter(
+            and_(
+                Scene.story_id == story_id,
+                Scene.is_deleted == False
+            )
+        ).order_by(Scene.sequence_number).all()
+
 
 @router.get("/stories/{story_id}/summary")
 async def get_story_summary(
@@ -34,7 +64,7 @@ async def get_story_summary(
         # Check if we have a stored summary
         if story.summary:
             logger.info(f"[SUMMARY] Returning stored summary for story {story_id}")
-            scenes = story.scenes
+            scenes = _get_branch_scenes(db, story_id)
             total_tokens = sum(ContextManager().count_tokens(scene.content) for scene in scenes) if scenes else 0
             return {
                 "summary": story.summary,
@@ -45,8 +75,8 @@ async def get_story_summary(
                 "is_stored": True
             }
         
-        # Get story scenes
-        scenes = story.scenes
+        # Get story scenes (filtered by branch)
+        scenes = _get_branch_scenes(db, story_id)
         if not scenes:
             return {
                 "summary": "No scenes available to summarize.",
@@ -113,8 +143,8 @@ async def generate_ai_summary(
         if not story:
             raise HTTPException(status_code=404, detail="Story not found")
         
-        # Get story scenes
-        scenes = story.scenes
+        # Get story scenes (filtered by branch)
+        scenes = _get_branch_scenes(db, story_id)
         if not scenes:
             raise HTTPException(status_code=400, detail="Story has no scenes to summarize")
         
@@ -243,9 +273,9 @@ async def regenerate_story_summary(
         context_manager = ContextManager()
         # Use the global llm_service instance
         
-        # Get scenes to summarize (exclude recent ones)
-        scenes = story.scenes
-        logger.info(f"[SUMMARY] Story has {len(scenes)} total scenes")
+        # Get scenes to summarize (exclude recent ones, filtered by branch)
+        scenes = _get_branch_scenes(db, story_id)
+        logger.info(f"[SUMMARY] Story has {len(scenes)} total scenes (active branch)")
         
         # Use user settings object for context settings
         keep_recent = user_settings_obj.context_keep_recent_scenes if user_settings_obj else 3

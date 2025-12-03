@@ -26,7 +26,7 @@ scene_base:
     FORMATTING REQUIREMENTS:
     - Standard quotation marks for dialogue: "Hello," she said.
     - Asterisks for thoughts: *I can't believe this*
-    - Third person perspective (he/she/they/name)
+    - {pov_perspective}
     - Clear paragraph breaks
     - Start directly with narrative
     
@@ -63,6 +63,11 @@ scene_base:
     Format: ["Choice 1", "Choice 2", ...]
     
     CRITICAL: Complete the choices section. Do not stop mid-response.
+  
+  # POV reminder appended to system prompt - ensures choices match story POV
+  # Uses {pov_perspective} for the full perspective description
+  pov_reminder: |
+    IMPORTANT: Write all choices {pov_instruction}. The choices should match the story's narrative style.
   
   # User prompt suffix - appended to all scene user prompts by PromptManager
   user_choices_reminder: |
@@ -155,7 +160,7 @@ story_generation:
       {context}
       
       {task_instruction}
-
+  
   # Template for scenes WITHOUT immediate situation (first scene or "Generate Scene")
   # NOTE: System prompt is composed from scene_base components by PromptManager
   # User prompt used for text completion API fallback; multi-message mode uses task_without_immediate

@@ -10,9 +10,10 @@ import json
 import re
 from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
+from sqlalchemy import and_
 from ..models import (
     Character, CharacterState, LocationState, ObjectState,
-    Story, Scene, StoryCharacter, EntityStateBatch
+    Story, Scene, StoryCharacter, EntityStateBatch, StoryBranch
 )
 from ..services.llm.service import UnifiedLLMService
 from ..services.llm.extraction_service import ExtractionLLMService
@@ -68,13 +69,24 @@ class EntityStateService:
         self.llm_service = UnifiedLLMService()
         self.extraction_service = None  # Will be initialized conditionally
     
+    def _get_active_branch_id(self, db: Session, story_id: int) -> int:
+        """Get the active branch ID for a story."""
+        active_branch = db.query(StoryBranch).filter(
+            and_(
+                StoryBranch.story_id == story_id,
+                StoryBranch.is_active == True
+            )
+        ).first()
+        return active_branch.id if active_branch else None
+    
     async def extract_and_update_states(
         self,
         db: Session,
         story_id: int,
         scene_id: int,
         scene_sequence: int,
-        scene_content: str
+        scene_content: str,
+        branch_id: int = None
     ) -> Dict[str, Any]:
         """
         Extract state changes from a scene and update all entity states.
@@ -85,6 +97,7 @@ class EntityStateService:
             scene_id: Scene ID
             scene_sequence: Scene sequence number
             scene_content: Scene content text
+            branch_id: Optional branch ID (if not provided, uses active branch)
             
         Returns:
             Dictionary with extraction results
@@ -96,11 +109,16 @@ class EntityStateService:
             "extraction_successful": False
         }
         
+        # Get active branch if not specified
+        if branch_id is None:
+            branch_id = self._get_active_branch_id(db, story_id)
+        
         try:
-            # Get story characters for context
-            story_characters = db.query(StoryCharacter).filter(
-                StoryCharacter.story_id == story_id
-            ).all()
+            # Get story characters for context (filtered by branch)
+            char_query = db.query(StoryCharacter).filter(StoryCharacter.story_id == story_id)
+            if branch_id:
+                char_query = char_query.filter(StoryCharacter.branch_id == branch_id)
+            story_characters = char_query.all()
             
             character_names = [
                 db.query(Character).filter(Character.id == sc.character_id).first().name
@@ -122,7 +140,7 @@ class EntityStateService:
             if "characters" in state_changes:
                 for char_update in state_changes["characters"]:
                     await self._update_character_state(
-                        db, story_id, scene_sequence, char_update
+                        db, story_id, scene_sequence, char_update, branch_id=branch_id
                     )
                     results["characters_updated"] += 1
             
@@ -130,7 +148,7 @@ class EntityStateService:
             if "locations" in state_changes:
                 for loc_update in state_changes["locations"]:
                     await self._update_location_state(
-                        db, story_id, scene_sequence, loc_update
+                        db, story_id, scene_sequence, loc_update, branch_id=branch_id
                     )
                     results["locations_updated"] += 1
             
@@ -138,7 +156,7 @@ class EntityStateService:
             if "objects" in state_changes:
                 for obj_update in state_changes["objects"]:
                     await self._update_object_state(
-                        db, story_id, scene_sequence, obj_update
+                        db, story_id, scene_sequence, obj_update, branch_id=branch_id
                     )
                     results["objects_updated"] += 1
             
@@ -155,7 +173,7 @@ class EntityStateService:
                 # Create batch snapshot
                 try:
                     self.create_entity_state_batch_snapshot(
-                        db, story_id, batch_start, batch_end
+                        db, story_id, batch_start, batch_end, branch_id=branch_id
                     )
                 except Exception as e:
                     # Don't fail extraction if batch creation fails
@@ -334,7 +352,8 @@ class EntityStateService:
         db: Session,
         story_id: int,
         scene_sequence: int,
-        char_update: Dict[str, Any]
+        char_update: Dict[str, Any],
+        branch_id: int = None
     ):
         """Update or create character state from extracted changes"""
         try:
@@ -342,26 +361,33 @@ class EntityStateService:
             if not char_name:
                 return
             
-            # Find character by name in this story
-            story_char = db.query(StoryCharacter).join(Character).filter(
+            # Find character by name in this story (filtered by branch)
+            char_query = db.query(StoryCharacter).join(Character).filter(
                 StoryCharacter.story_id == story_id,
                 Character.name == char_name
-            ).first()
+            )
+            if branch_id:
+                char_query = char_query.filter(StoryCharacter.branch_id == branch_id)
+            story_char = char_query.first()
             
             if not story_char:
-                logger.warning(f"Character '{char_name}' not found in story {story_id}")
+                logger.warning(f"Character '{char_name}' not found in story {story_id} (branch {branch_id})")
                 return
             
-            # Get or create character state
-            char_state = db.query(CharacterState).filter(
+            # Get or create character state (filtered by branch)
+            state_query = db.query(CharacterState).filter(
                 CharacterState.character_id == story_char.character_id,
                 CharacterState.story_id == story_id
-            ).first()
+            )
+            if branch_id:
+                state_query = state_query.filter(CharacterState.branch_id == branch_id)
+            char_state = state_query.first()
             
             if not char_state:
                 char_state = CharacterState(
                     character_id=story_char.character_id,
                     story_id=story_id,
+                    branch_id=branch_id,
                     possessions=[],
                     knowledge=[],
                     secrets=[],
@@ -419,7 +445,8 @@ class EntityStateService:
         db: Session,
         story_id: int,
         scene_sequence: int,
-        loc_update: Dict[str, Any]
+        loc_update: Dict[str, Any],
+        branch_id: int = None
     ):
         """Update or create location state from extracted changes"""
         try:
@@ -427,15 +454,19 @@ class EntityStateService:
             if not loc_name:
                 return
             
-            # Get or create location state
-            loc_state = db.query(LocationState).filter(
+            # Get or create location state (filtered by branch)
+            state_query = db.query(LocationState).filter(
                 LocationState.story_id == story_id,
                 LocationState.location_name == loc_name
-            ).first()
+            )
+            if branch_id:
+                state_query = state_query.filter(LocationState.branch_id == branch_id)
+            loc_state = state_query.first()
             
             if not loc_state:
                 loc_state = LocationState(
                     story_id=story_id,
+                    branch_id=branch_id,
                     location_name=loc_name,
                     notable_features=[],
                     current_occupants=[],
@@ -468,7 +499,8 @@ class EntityStateService:
         db: Session,
         story_id: int,
         scene_sequence: int,
-        obj_update: Dict[str, Any]
+        obj_update: Dict[str, Any],
+        branch_id: int = None
     ):
         """Update or create object state from extracted changes"""
         try:
@@ -476,15 +508,19 @@ class EntityStateService:
             if not obj_name:
                 return
             
-            # Get or create object state
-            obj_state = db.query(ObjectState).filter(
+            # Get or create object state (filtered by branch)
+            state_query = db.query(ObjectState).filter(
                 ObjectState.story_id == story_id,
                 ObjectState.object_name == obj_name
-            ).first()
+            )
+            if branch_id:
+                state_query = state_query.filter(ObjectState.branch_id == branch_id)
+            obj_state = state_query.first()
             
             if not obj_state:
                 obj_state = ObjectState(
                     story_id=story_id,
+                    branch_id=branch_id,
                     object_name=obj_name,
                     powers=[],
                     limitations=[],
@@ -595,7 +631,8 @@ class EntityStateService:
         db: Session,
         story_id: int,
         start_scene_sequence: int,
-        end_scene_sequence: int
+        end_scene_sequence: int,
+        branch_id: int = None
     ) -> Optional[EntityStateBatch]:
         """
         Create a snapshot of current entity states as a batch.
@@ -605,23 +642,27 @@ class EntityStateService:
             story_id: Story ID
             start_scene_sequence: First scene sequence in batch
             end_scene_sequence: Last scene sequence in batch
+            branch_id: Optional branch ID for filtering
             
         Returns:
             Created EntityStateBatch or None if no states exist
         """
         try:
-            # Get all current entity states
-            character_states = db.query(CharacterState).filter(
-                CharacterState.story_id == story_id
-            ).all()
+            # Get all current entity states (filtered by branch)
+            char_query = db.query(CharacterState).filter(CharacterState.story_id == story_id)
+            if branch_id:
+                char_query = char_query.filter(CharacterState.branch_id == branch_id)
+            character_states = char_query.all()
             
-            location_states = db.query(LocationState).filter(
-                LocationState.story_id == story_id
-            ).all()
+            loc_query = db.query(LocationState).filter(LocationState.story_id == story_id)
+            if branch_id:
+                loc_query = loc_query.filter(LocationState.branch_id == branch_id)
+            location_states = loc_query.all()
             
-            object_states = db.query(ObjectState).filter(
-                ObjectState.story_id == story_id
-            ).all()
+            obj_query = db.query(ObjectState).filter(ObjectState.story_id == story_id)
+            if branch_id:
+                obj_query = obj_query.filter(ObjectState.branch_id == branch_id)
+            object_states = obj_query.all()
             
             # Convert to JSON snapshots
             character_snapshot = [state.to_dict() for state in character_states]
@@ -630,12 +671,13 @@ class EntityStateService:
             
             # Only create batch if there are states to snapshot
             if not (character_snapshot or location_snapshot or object_snapshot):
-                logger.debug(f"No entity states to snapshot for story {story_id}")
+                logger.debug(f"No entity states to snapshot for story {story_id} (branch {branch_id})")
                 return None
             
             # Create batch snapshot
             batch = EntityStateBatch(
                 story_id=story_id,
+                branch_id=branch_id,
                 start_scene_sequence=start_scene_sequence,
                 end_scene_sequence=end_scene_sequence,
                 character_states_snapshot=character_snapshot,
@@ -646,7 +688,7 @@ class EntityStateService:
             db.add(batch)
             db.flush()
             
-            logger.info(f"Created entity state batch snapshot for story {story_id}: scenes {start_scene_sequence}-{end_scene_sequence} ({len(character_snapshot)} characters, {len(location_snapshot)} locations, {len(object_snapshot)} objects)")
+            logger.info(f"Created entity state batch snapshot for story {story_id} (branch {branch_id}): scenes {start_scene_sequence}-{end_scene_sequence} ({len(character_snapshot)} characters, {len(location_snapshot)} locations, {len(object_snapshot)} objects)")
             
             return batch
             

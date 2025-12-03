@@ -65,7 +65,8 @@ async def process_scene_embeddings(
     skip_npc_extraction: bool = False,
     skip_plot_extraction: bool = False,
     skip_character_moments: bool = False,
-    skip_entity_states: bool = False
+    skip_entity_states: bool = False,
+    branch_id: Optional[int] = None
 ) -> Dict[str, bool]:
     """
     Process semantic embeddings and extractions for a new scene
@@ -86,6 +87,7 @@ async def process_scene_embeddings(
         user_id: User ID
         user_settings: User settings
         db: Database session
+        branch_id: Optional branch ID (if not provided, uses active branch)
         
     Returns:
         Dictionary with success status for each operation
@@ -97,6 +99,18 @@ async def process_scene_embeddings(
         'entity_states': False,
         'npc_tracking': False
     }
+    
+    # Get active branch if not specified
+    if branch_id is None:
+        from ..models import StoryBranch
+        from sqlalchemy import and_
+        active_branch = db.query(StoryBranch).filter(
+            and_(
+                StoryBranch.story_id == story_id,
+                StoryBranch.is_active == True
+            )
+        ).first()
+        branch_id = active_branch.id if active_branch else None
     
     # Skip semantic embeddings if disabled, but still allow NPC tracking
     skip_semantic = not settings.enable_semantic_memory
@@ -150,6 +164,7 @@ async def process_scene_embeddings(
                     # Create new record
                     scene_embedding = SceneEmbedding(
                         story_id=story_id,
+                        branch_id=branch_id,
                         scene_id=scene_id,
                         variant_id=variant_id,
                         embedding_id=embedding_id,
@@ -247,7 +262,8 @@ async def process_scene_embeddings(
                     story_id=story_id,
                     scene_id=scene_id,
                     scene_sequence=sequence_number,
-                    scene_content=scene_content
+                    scene_content=scene_content,
+                    branch_id=branch_id
                 )
                 
                 results['entity_states'] = entity_results.get('extraction_successful', False)
@@ -275,7 +291,8 @@ async def process_scene_embeddings(
                         story_id=story_id,
                         scene_id=scene_id,
                         scene_sequence=sequence_number,
-                        scene_content=scene_content
+                        scene_content=scene_content,
+                        branch_id=branch_id
                     )
                     
                     results['npc_tracking'] = npc_results.get('extraction_successful', False)
@@ -924,7 +941,8 @@ async def batch_process_scene_extractions(
     to_sequence: int,
     user_id: int,
     user_settings: Dict[str, Any],
-    db: Session
+    db: Session,
+    branch_id: int = None
 ) -> Dict[str, Any]:
     """
     Batch process character/NPC extraction for multiple scenes in a chapter.
@@ -945,6 +963,7 @@ async def batch_process_scene_extractions(
         user_id: User ID
         user_settings: User settings
         db: Database session
+        branch_id: Optional branch ID (if not provided, uses active branch)
         
     Returns:
         Dictionary with aggregated results from all processed scenes
@@ -961,9 +980,21 @@ async def batch_process_scene_extractions(
         'scene_embeddings': 0
     }
     
+    # Get active branch if not specified
+    if branch_id is None:
+        from ..models import StoryBranch
+        from sqlalchemy import and_
+        active_branch = db.query(StoryBranch).filter(
+            and_(
+                StoryBranch.story_id == story_id,
+                StoryBranch.is_active == True
+            )
+        ).first()
+        branch_id = active_branch.id if active_branch else None
+    
     try:
         # DEBUG: Log query parameters
-        logger.warning(f"[EXTRACTION] Query parameters: story_id={story_id}, chapter_id={chapter_id}, from_sequence={from_sequence}, to_sequence={to_sequence}")
+        logger.warning(f"[EXTRACTION] Query parameters: story_id={story_id}, chapter_id={chapter_id}, from_sequence={from_sequence}, to_sequence={to_sequence}, branch_id={branch_id}")
         
         # DEBUG: Check what scenes exist in the database matching each filter condition
         total_scenes_in_story = db.query(Scene).filter(Scene.story_id == story_id, Scene.is_deleted == False).count()
@@ -999,37 +1030,46 @@ async def batch_process_scene_extractions(
         
         # DEBUG: Check StoryFlow to see if scenes are active (since scenes_count uses StoryFlow)
         from ..models import StoryFlow
-        active_scenes_in_chapter = db.query(StoryFlow).join(Scene).filter(
+        active_flow_query = db.query(StoryFlow).join(Scene).filter(
             StoryFlow.story_id == story_id,
             StoryFlow.is_active == True,
             Scene.chapter_id == chapter_id,
             Scene.sequence_number > from_sequence,
             Scene.sequence_number <= to_sequence,
             Scene.is_deleted == False
-        ).count()
+        )
+        if branch_id:
+            active_flow_query = active_flow_query.filter(StoryFlow.branch_id == branch_id)
+        active_scenes_in_chapter = active_flow_query.count()
         logger.warning(f"[EXTRACTION] Active scenes in chapter+range (via StoryFlow): {active_scenes_in_chapter}")
         
         # Get all scenes in the chapter within the sequence range
         # Try querying via StoryFlow first (to match how scenes_count is calculated)
-        scenes_via_flow = db.query(Scene).join(StoryFlow).filter(
+        flow_query = db.query(Scene).join(StoryFlow).filter(
             StoryFlow.story_id == story_id,
             StoryFlow.is_active == True,
             Scene.chapter_id == chapter_id,
             Scene.sequence_number > from_sequence,
             Scene.sequence_number <= to_sequence,
             Scene.is_deleted == False
-        ).order_by(Scene.sequence_number).all()
+        )
+        if branch_id:
+            flow_query = flow_query.filter(StoryFlow.branch_id == branch_id)
+        scenes_via_flow = flow_query.order_by(Scene.sequence_number).all()
         
         # Fallback to direct Scene query if StoryFlow query returns nothing
         if not scenes_via_flow:
             logger.warning(f"[EXTRACTION] StoryFlow query returned no scenes, trying direct Scene query")
-            scenes = db.query(Scene).filter(
+            scene_query = db.query(Scene).filter(
                 Scene.story_id == story_id,
                 Scene.chapter_id == chapter_id,
                 Scene.sequence_number > from_sequence,
                 Scene.sequence_number <= to_sequence,
                 Scene.is_deleted == False
-            ).order_by(Scene.sequence_number).all()
+            )
+            if branch_id:
+                scene_query = scene_query.filter(Scene.branch_id == branch_id)
+            scenes = scene_query.order_by(Scene.sequence_number).all()
         else:
             scenes = scenes_via_flow
         
@@ -1047,11 +1087,14 @@ async def batch_process_scene_extractions(
         
         for scene in scenes:
             try:
-                # Get active variant for the scene
-                flow_entry = db.query(StoryFlow).filter(
+                # Get active variant for the scene (filtered by branch)
+                flow_query = db.query(StoryFlow).filter(
                     StoryFlow.scene_id == scene.id,
                     StoryFlow.is_active == True
-                ).first()
+                )
+                if branch_id:
+                    flow_query = flow_query.filter(StoryFlow.branch_id == branch_id)
+                flow_entry = flow_query.first()
                 
                 if not flow_entry or not flow_entry.scene_variant_id:
                     logger.warning(f"No active variant found for scene {scene.id}, skipping")
@@ -1117,7 +1160,8 @@ async def batch_process_scene_extractions(
                 npc_results = await npc_service.extract_npcs_from_scenes_batch(
                     db=db,
                     story_id=story_id,
-                    scenes=npc_scenes_data
+                    scenes=npc_scenes_data,
+                    branch_id=branch_id
                 )
                 if npc_results.get('extraction_successful'):
                     results['npc_tracking'] += npc_results.get('npcs_tracked', 0)

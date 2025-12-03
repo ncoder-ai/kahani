@@ -54,6 +54,9 @@ class Story(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     last_scene_at = Column(DateTime(timezone=True))
     
+    # Active branch tracking
+    current_branch_id = Column(Integer, ForeignKey("story_branches.id"), nullable=True)
+    
     # Relationships
     owner = relationship("User", back_populates="stories")
     scenes = relationship("Scene", back_populates="story", cascade="all, delete-orphan", order_by="Scene.sequence_number")
@@ -78,6 +81,10 @@ class Story(Base):
     
     # Entity State Batch Relationships
     entity_state_batches = relationship("EntityStateBatch", back_populates="story", cascade="all, delete-orphan", order_by="EntityStateBatch.start_scene_sequence")
+    
+    # Story Branches
+    branches = relationship("StoryBranch", back_populates="story", cascade="all, delete-orphan", order_by="StoryBranch.created_at", foreign_keys="StoryBranch.story_id")
+    current_branch = relationship("StoryBranch", foreign_keys=[current_branch_id], post_update=True)
     
     def __repr__(self):
         return f"<Story(id={self.id}, title='{self.title}', owner_id={self.owner_id})>"

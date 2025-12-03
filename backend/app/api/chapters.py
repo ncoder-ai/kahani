@@ -133,10 +133,11 @@ class ChapterContextStatus(BaseModel):
 @router.get("/{story_id}/chapters", response_model=List[ChapterResponse])
 async def get_story_chapters(
     story_id: int,
+    branch_id: int = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get all chapters for a story"""
+    """Get all chapters for a story on the active or specified branch"""
     
     # Verify story ownership
     story = db.query(Story).filter(
@@ -147,9 +148,15 @@ async def get_story_chapters(
     if not story:
         raise HTTPException(status_code=404, detail="Story not found")
     
-    chapters = db.query(Chapter).filter(
-        Chapter.story_id == story_id
-    ).order_by(Chapter.chapter_number).all()
+    # Use provided branch_id or story's current branch
+    active_branch_id = branch_id or story.current_branch_id
+    
+    # Filter chapters by branch
+    query = db.query(Chapter).filter(Chapter.story_id == story_id)
+    if active_branch_id:
+        query = query.filter(Chapter.branch_id == active_branch_id)
+    
+    chapters = query.order_by(Chapter.chapter_number).all()
     
     # Build responses with characters
     return [build_chapter_response(ch, db) for ch in chapters]
@@ -207,15 +214,23 @@ async def create_chapter(
                 yield f"data: {json.dumps({'type': 'error', 'message': 'Story not found'})}\n\n"
                 return
             
-            # Get the current active chapter to complete it
+            # Get active branch
+            active_branch_id = story.current_branch_id
+            if not active_branch_id:
+                yield f"data: {json.dumps({'type': 'error', 'message': 'Story has no active branch'})}\n\n"
+                return
+            
+            # Get the current active chapter to complete it (filtered by branch)
             active_chapter = db.query(Chapter).filter(
                 Chapter.story_id == story_id,
+                Chapter.branch_id == active_branch_id,
                 Chapter.status == ChapterStatus.ACTIVE
             ).first()
             
-            # Get next chapter number
+            # Get next chapter number (for this branch)
             max_chapter = db.query(Chapter).filter(
-                Chapter.story_id == story_id
+                Chapter.story_id == story_id,
+                Chapter.branch_id == active_branch_id
             ).order_by(Chapter.chapter_number.desc()).first()
             
             next_chapter_number = (max_chapter.chapter_number + 1) if max_chapter else 1
@@ -264,6 +279,7 @@ async def create_chapter(
             
             new_chapter = Chapter(
                 story_id=story_id,
+                branch_id=active_branch_id,
                 chapter_number=next_chapter_number,
                 title=chapter_data.title or f"Chapter {next_chapter_number}",
                 description=chapter_data.description,
@@ -295,27 +311,29 @@ async def create_chapter(
                         yield f"data: {json.dumps({'type': 'error', 'message': f'Character with ID {character_id} not found'})}\n\n"
                         return
                     
-                    # Check if StoryCharacter entry already exists for this story
+                    # Check if StoryCharacter entry already exists for this story and branch
                     story_char = db.query(StoryCharacter).filter(
                         StoryCharacter.story_id == story_id,
+                        StoryCharacter.branch_id == active_branch_id,
                         StoryCharacter.character_id == character_id
                     ).first()
                     
                     if not story_char:
-                        # Create new StoryCharacter entry
+                        # Create new StoryCharacter entry for this branch
                         # Handle both int and str keys (JSON may convert int keys to strings)
                         role = None
                         if isinstance(character_roles, dict):
                             role = character_roles.get(character_id) or character_roles.get(str(character_id))
                         story_char = StoryCharacter(
                             story_id=story_id,
+                            branch_id=active_branch_id,
                             character_id=character_id,
                             role=role,
                             is_active=True
                         )
                         db.add(story_char)
                         db.flush()  # Flush to get the ID (but don't commit yet)
-                        logger.info(f"[CHAPTER] Created StoryCharacter entry for character {character_id} with role {role}")
+                        logger.info(f"[CHAPTER] Created StoryCharacter entry for character {character_id} with role {role} on branch {active_branch_id}")
                     else:
                         # Update role if provided and different
                         # Handle both int and str keys (JSON may convert int keys to strings)
@@ -330,15 +348,16 @@ async def create_chapter(
             
             # Handle existing story characters (story_character_ids)
             if chapter_data.story_character_ids:
-                # Validate that all story_character_ids belong to this story
+                # Validate that all story_character_ids belong to this story and branch
                 story_chars = db.query(StoryCharacter).filter(
                     StoryCharacter.id.in_(chapter_data.story_character_ids),
-                    StoryCharacter.story_id == story_id
+                    StoryCharacter.story_id == story_id,
+                    StoryCharacter.branch_id == active_branch_id
                 ).all()
                 
                 if len(story_chars) != len(chapter_data.story_character_ids):
                     db.rollback()  # Rollback before returning error
-                    yield f"data: {json.dumps({'type': 'error', 'message': 'Some character IDs do not belong to this story'})}\n\n"
+                    yield f"data: {json.dumps({'type': 'error', 'message': 'Some character IDs do not belong to this story branch'})}\n\n"
                     return
                 
                 # Add to the set of story_character_ids
@@ -1806,8 +1825,12 @@ async def get_active_chapter(
     if not story:
         raise HTTPException(status_code=404, detail="Story not found")
     
+    # Filter by the story's current active branch
+    active_branch_id = story.current_branch_id
+    
     chapter = db.query(Chapter).filter(
         Chapter.story_id == story_id,
+        Chapter.branch_id == active_branch_id,
         Chapter.status == ChapterStatus.ACTIVE
     ).first()
     

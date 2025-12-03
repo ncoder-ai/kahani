@@ -7,8 +7,9 @@ import { audioContextManager } from '@/utils/audioContextManager';
 import { useState, useEffect, useCallback } from 'react';
 import { 
   X, Settings, LogOut, User, Home, PlusCircle, BookOpen, 
-  ChevronRight, Film, Trash2, Shield, FileText, Edit, Bug
+  ChevronRight, Film, Trash2, Shield, FileText, Edit, Bug, GitBranch
 } from 'lucide-react';
+import BranchSelector from './BranchSelector';
 
 interface StoryActions {
   onChapters?: () => void;
@@ -20,6 +21,12 @@ interface StoryActions {
   onEditStorySettings?: () => void;
   directorModeActive?: boolean;
   deleteModeActive?: boolean;
+  // Branch-related props
+  storyId?: number;
+  currentBranchId?: number;
+  currentSceneSequence?: number;
+  onBranchChange?: (branchId: number) => void;
+  onBranchCreated?: () => void;
 }
 
 interface UnifiedMenuProps {
@@ -154,6 +161,29 @@ export default function UnifiedMenu({
               <div className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">
                 Story Actions
               </div>
+
+              {/* Branch Selector */}
+              {storyActions.storyId && (
+                <div className="px-3 py-2 border-b border-gray-700/50 mb-2">
+                  <div className="flex items-center gap-2 text-xs text-gray-400 mb-2">
+                    <GitBranch className="w-3.5 h-3.5" />
+                    <span>Story Branch</span>
+                  </div>
+                  <BranchSelector
+                    storyId={storyActions.storyId}
+                    currentBranchId={storyActions.currentBranchId}
+                    currentSceneSequence={storyActions.currentSceneSequence || 1}
+                    onBranchChange={(branchId) => {
+                      onClose();
+                      storyActions.onBranchChange?.(branchId);
+                    }}
+                    onBranchCreated={() => {
+                      onClose();
+                      storyActions.onBranchCreated?.();
+                    }}
+                  />
+                </div>
+              )}
 
               {/* Chapters */}
               {storyActions.onChapters && (

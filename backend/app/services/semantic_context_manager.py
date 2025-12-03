@@ -9,9 +9,10 @@ import logging
 from typing import List, Dict, Any, Optional, Tuple
 from sqlalchemy.orm import Session
 
+from sqlalchemy import and_
 from .context_manager import ContextManager
 from .semantic_memory import get_semantic_memory_service
-from ..models import Scene, SceneVariant, StoryFlow, Character, StoryCharacter, ChapterStatus
+from ..models import Scene, SceneVariant, StoryFlow, Character, StoryCharacter, ChapterStatus, StoryBranch
 from ..config import settings
 
 logger = logging.getLogger(__name__)
@@ -78,7 +79,7 @@ class SemanticContextManager(ContextManager):
             self.enable_semantic = False
             self.context_strategy = "linear"
     
-    async def build_story_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None, exclude_scene_id: Optional[int] = None) -> Dict[str, Any]:
+    async def build_story_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None, exclude_scene_id: Optional[int] = None, branch_id: Optional[int] = None) -> Dict[str, Any]:
         """
         Build optimized context using hybrid strategy if enabled
         
@@ -87,18 +88,19 @@ class SemanticContextManager(ContextManager):
             db: Database session
             chapter_id: Optional chapter ID to separate active/inactive characters
             exclude_scene_id: Optional scene ID to exclude from context (for regeneration)
+            branch_id: Optional branch ID (if not provided, uses active branch)
             
         Returns:
             Optimized context dictionary
         """
         # If semantic memory is disabled, use parent class method
         if not self.enable_semantic or self.context_strategy == "linear":
-            return await super().build_story_context(story_id, db, chapter_id=chapter_id, exclude_scene_id=exclude_scene_id)
+            return await super().build_story_context(story_id, db, chapter_id=chapter_id, exclude_scene_id=exclude_scene_id, branch_id=branch_id)
         
         # Use hybrid strategy
-        return await self._build_hybrid_context(story_id, db, chapter_id=chapter_id, exclude_scene_id=exclude_scene_id)
+        return await self._build_hybrid_context(story_id, db, chapter_id=chapter_id, exclude_scene_id=exclude_scene_id, branch_id=branch_id)
     
-    async def _build_hybrid_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None, exclude_scene_id: Optional[int] = None) -> Dict[str, Any]:
+    async def _build_hybrid_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None, exclude_scene_id: Optional[int] = None, branch_id: Optional[int] = None) -> Dict[str, Any]:
         """
         Build hybrid context combining recent scenes with semantically relevant past
         
@@ -115,6 +117,7 @@ class SemanticContextManager(ContextManager):
             db: Database session
             chapter_id: Optional chapter ID to separate active/inactive characters
             exclude_scene_id: Optional scene ID to exclude from context (for regeneration)
+            branch_id: Optional branch ID (if not provided, uses active branch)
         """
         from ..models import Story
         
@@ -123,17 +126,24 @@ class SemanticContextManager(ContextManager):
         if not story:
             raise ValueError(f"Story {story_id} not found")
         
+        # Get active branch if not specified
+        if branch_id is None:
+            branch_id = self._get_active_branch_id(db, story_id)
+        
         # If exclude_scene_id is provided, get scenes from StoryFlow that come before it
         if exclude_scene_id:
             # Get the scene being excluded to find its sequence_number
             excluded_scene = db.query(Scene).filter(Scene.id == exclude_scene_id).first()
             if excluded_scene:
                 # Query StoryFlow for all active entries with sequence_number < excluded_scene.sequence_number
-                flow_entries = db.query(StoryFlow).filter(
+                flow_query = db.query(StoryFlow).filter(
                     StoryFlow.story_id == story_id,
                     StoryFlow.is_active == True,
                     StoryFlow.sequence_number < excluded_scene.sequence_number
-                ).order_by(StoryFlow.sequence_number).all()
+                )
+                if branch_id:
+                    flow_query = flow_query.filter(StoryFlow.branch_id == branch_id)
+                flow_entries = flow_query.order_by(StoryFlow.sequence_number).all()
                 
                 # Get Scene objects from the flow entries
                 scene_ids = [flow.scene_id for flow in flow_entries]
@@ -152,9 +162,10 @@ class SemanticContextManager(ContextManager):
             else:
                 # Scene not found, fall back to normal query
                 logger.warning(f"[SEMANTIC CONTEXT BUILD] Excluded scene {exclude_scene_id} not found, falling back to normal query")
-                scenes = db.query(Scene).filter(
-                    Scene.story_id == story_id
-                ).order_by(Scene.sequence_number).all()
+                scene_query = db.query(Scene).filter(Scene.story_id == story_id)
+                if branch_id:
+                    scene_query = scene_query.filter(Scene.branch_id == branch_id)
+                scenes = scene_query.order_by(Scene.sequence_number).all()
         # Get all scenes ordered by sequence
         # When chapter_id is provided, include scenes from ALL chapters up to and including that chapter
         elif chapter_id:
@@ -165,32 +176,39 @@ class SemanticContextManager(ContextManager):
             if active_chapter:
                 # Include scenes from all chapters with chapter_number <= active chapter's chapter_number
                 # This ensures we include previous chapters but exclude future chapters
-                scenes = db.query(Scene).join(Chapter).filter(
+                scene_query = db.query(Scene).join(Chapter).filter(
                     Scene.story_id == story_id,
                     Chapter.chapter_number <= active_chapter.chapter_number
-                ).order_by(Scene.sequence_number).all()
+                )
+                if branch_id:
+                    scene_query = scene_query.filter(Scene.branch_id == branch_id)
+                scenes = scene_query.order_by(Scene.sequence_number).all()
                 logger.info(f"[SEMANTIC CONTEXT BUILD] Chapter {chapter_id} (Chapter {active_chapter.chapter_number}): Including scenes from chapters 1-{active_chapter.chapter_number} ({len(scenes)} scenes)")
             else:
                 # Fallback: if chapter not found, only get scenes from that chapter_id
-                scenes = db.query(Scene).filter(
+                scene_query = db.query(Scene).filter(
                     Scene.story_id == story_id,
                     Scene.chapter_id == chapter_id
-                ).order_by(Scene.sequence_number).all()
+                )
+                if branch_id:
+                    scene_query = scene_query.filter(Scene.branch_id == branch_id)
+                scenes = scene_query.order_by(Scene.sequence_number).all()
                 logger.warning(f"[SEMANTIC CONTEXT BUILD] Chapter {chapter_id} not found, falling back to chapter_id filter only")
             
             # Note: continues_from_previous is handled in base context building
             # Semantic search still searches across all chapters (limit_to_chapter_id controls this separately)
         else:
-            scenes = db.query(Scene).filter(
-                Scene.story_id == story_id
-            ).order_by(Scene.sequence_number).all()
+            scene_query = db.query(Scene).filter(Scene.story_id == story_id)
+            if branch_id:
+                scene_query = scene_query.filter(Scene.branch_id == branch_id)
+            scenes = scene_query.order_by(Scene.sequence_number).all()
         
         if not scenes:
             # No scenes yet, return base context
-            return await self._get_base_context(story_id, db, chapter_id=chapter_id)
+            return await self._get_base_context(story_id, db, chapter_id=chapter_id, branch_id=branch_id)
         
         # Calculate base context tokens
-        base_context = await self._get_base_context(story_id, db, chapter_id=chapter_id)
+        base_context = await self._get_base_context(story_id, db, chapter_id=chapter_id, branch_id=branch_id)
         base_tokens = self._calculate_base_context_tokens(base_context)
         
         # Available tokens for scene history (using effective max tokens)
@@ -202,7 +220,7 @@ class SemanticContextManager(ContextManager):
         
         # Build scene context using hybrid strategy
         scene_context = await self._build_hybrid_scene_context(
-            story_id, scenes, available_tokens, db, chapter_id=chapter_id
+            story_id, scenes, available_tokens, db, chapter_id=chapter_id, branch_id=branch_id
         )
         
         # Merge contexts
@@ -215,7 +233,8 @@ class SemanticContextManager(ContextManager):
         available_tokens: int,
         db: Session,
         chapter_id: Optional[int] = None,
-        limit_semantic_to_chapter: bool = False
+        limit_semantic_to_chapter: bool = False,
+        branch_id: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Build scene context using hybrid retrieval strategy
@@ -230,7 +249,7 @@ class SemanticContextManager(ContextManager):
         
         # Get recent scenes (last N scenes)
         recent_scenes = scenes[-self.keep_recent_scenes:]
-        recent_content = await self._get_scene_content(recent_scenes, db)
+        recent_content = await self._get_scene_content(recent_scenes, db, branch_id=branch_id)
         recent_tokens = self.count_tokens(recent_content)
         
         # Allocate remaining tokens
@@ -293,7 +312,7 @@ class SemanticContextManager(ContextManager):
         # Get entity states - pass current scene sequence for filtering
         current_scene_sequence = scenes[-1].sequence_number if scenes else None
         entity_states_content = await self._get_entity_states(
-            story_id, entity_tokens, db, current_scene_sequence=current_scene_sequence
+            story_id, entity_tokens, db, current_scene_sequence=current_scene_sequence, branch_id=branch_id
         )
         entity_used_tokens = self.count_tokens(entity_states_content) if entity_states_content else 0
         
@@ -388,7 +407,7 @@ class SemanticContextManager(ContextManager):
             "entity_states_included": entity_states_content is not None
         }
     
-    async def _get_base_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None) -> Dict[str, Any]:
+    async def _get_base_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None, branch_id: Optional[int] = None) -> Dict[str, Any]:
         """Get base story context (genre, tone, characters) with chapter-specific character separation"""
         from ..models import Story
         
@@ -396,10 +415,15 @@ class SemanticContextManager(ContextManager):
         if not story:
             return {}
         
-        # Get story characters
-        story_characters = db.query(StoryCharacter).filter(
-            StoryCharacter.story_id == story_id
-        ).all()
+        # Get active branch if not specified
+        if branch_id is None:
+            branch_id = self._get_active_branch_id(db, story_id)
+        
+        # Get story characters (filtered by branch)
+        char_query = db.query(StoryCharacter).filter(StoryCharacter.story_id == story_id)
+        if branch_id:
+            char_query = char_query.filter(StoryCharacter.branch_id == branch_id)
+        story_characters = char_query.all()
         
         # Separate into active (chapter) and inactive (story only) characters
         active_characters = []
@@ -456,7 +480,7 @@ class SemanticContextManager(ContextManager):
         try:
             from .npc_tracking_service import NPCTrackingService
             npc_service = NPCTrackingService(user_id=self.user_id, user_settings=self.user_settings)
-            npc_characters = npc_service.get_important_npcs_for_context(db, story_id)
+            npc_characters = npc_service.get_important_npcs_for_context(db, story_id, branch_id=branch_id)
             active_characters.extend(npc_characters)
             logger.warning(f"[CONTEXT BUILD] Added {len(npc_characters)} important NPCs to context (total characters now: {len(active_characters)})")
             if npc_characters:
@@ -532,7 +556,7 @@ class SemanticContextManager(ContextManager):
         
         return base_context
     
-    async def _get_scene_content(self, scenes: List[Scene], db: Session) -> str:
+    async def _get_scene_content(self, scenes: List[Scene], db: Session, branch_id: Optional[int] = None) -> str:
         """Get content for scenes using active variants
         
         Scenes are expected to be in chronological order (oldest → newest).
@@ -545,10 +569,13 @@ class SemanticContextManager(ContextManager):
         # No need to reverse - this ensures narrative flow and maximizes recency bias (most recent scenes at end)
         for scene in scenes:
             # Get active variant from StoryFlow
-            flow = db.query(StoryFlow).filter(
+            flow_query = db.query(StoryFlow).filter(
                 StoryFlow.scene_id == scene.id,
                 StoryFlow.is_active == True
-            ).first()
+            )
+            if branch_id:
+                flow_query = flow_query.filter(StoryFlow.branch_id == branch_id)
+            flow = flow_query.first()
             
             if flow and flow.scene_variant:
                 content_parts.append(
@@ -816,7 +843,8 @@ class SemanticContextManager(ContextManager):
         story_id: int,
         token_budget: int,
         db: Session,
-        current_scene_sequence: Optional[int] = None
+        current_scene_sequence: Optional[int] = None,
+        branch_id: Optional[int] = None
     ) -> Optional[str]:
         """
         Get formatted entity states for context
@@ -825,6 +853,8 @@ class SemanticContextManager(ContextManager):
             story_id: Story ID
             token_budget: Available tokens
             db: Database session
+            current_scene_sequence: Current scene sequence for filtering
+            branch_id: Optional branch ID for filtering
             
         Returns:
             Formatted entity states or None
@@ -832,20 +862,23 @@ class SemanticContextManager(ContextManager):
         try:
             from ..models import CharacterState, LocationState, ObjectState, Character
             
-            # Get all entity states for this story
+            # Get all entity states for this story (filtered by branch)
             # Order by updated_at DESC to ensure we get the latest states
             # (though typically there's one state per entity, ordering ensures we get most recent if duplicates exist)
-            character_states = db.query(CharacterState).filter(
-                CharacterState.story_id == story_id
-            ).order_by(CharacterState.updated_at.desc()).all()
+            char_state_query = db.query(CharacterState).filter(CharacterState.story_id == story_id)
+            if branch_id:
+                char_state_query = char_state_query.filter(CharacterState.branch_id == branch_id)
+            character_states = char_state_query.order_by(CharacterState.updated_at.desc()).all()
             
-            location_states = db.query(LocationState).filter(
-                LocationState.story_id == story_id
-            ).order_by(LocationState.updated_at.desc()).all()
+            loc_state_query = db.query(LocationState).filter(LocationState.story_id == story_id)
+            if branch_id:
+                loc_state_query = loc_state_query.filter(LocationState.branch_id == branch_id)
+            location_states = loc_state_query.order_by(LocationState.updated_at.desc()).all()
             
-            object_states = db.query(ObjectState).filter(
-                ObjectState.story_id == story_id
-            ).order_by(ObjectState.updated_at.desc()).all()
+            obj_state_query = db.query(ObjectState).filter(ObjectState.story_id == story_id)
+            if branch_id:
+                obj_state_query = obj_state_query.filter(ObjectState.branch_id == branch_id)
+            object_states = obj_state_query.order_by(ObjectState.updated_at.desc()).all()
             
             if not character_states and not location_states and not object_states:
                 return None
@@ -1109,13 +1142,15 @@ class SemanticContextManager(ContextManager):
 
     async def calculate_actual_context_size(self, story_id: int, chapter_id: int, db: Session) -> int:
         """
-        Calculate the actual context size for semantic context manager.
+        Calculate the total token count for all content in the current chapter.
         
-        This overrides the parent method to ensure semantic context is properly included
-        in the token count calculation, but only counts scenes from the current chapter.
+        This method counts tokens for ALL scenes in the chapter that are in the active
+        story flow, plus base context (story settings, chapter summaries, etc.).
         
-        IMPORTANT: For context size calculation, we only count current chapter's context,
-        not semantic search results from previous chapters.
+        Unlike the context sent to the LLM (which is limited by token budget), this
+        returns the TOTAL tokens for the chapter to show accurate progress tracking.
+        
+        IMPORTANT: Only counts scenes from the current chapter that are in the active story flow.
         
         Args:
             story_id: Story ID
@@ -1123,11 +1158,11 @@ class SemanticContextManager(ContextManager):
             db: Database session
             
         Returns:
-            Total token count of the actual context that would be sent to the LLM
+            Total token count of all content in the chapter
         """
         try:
-            # Get the chapter to verify it exists
             from ..models import Chapter
+            
             chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
             if not chapter:
                 logger.error(f"Chapter {chapter_id} not found")
@@ -1151,62 +1186,31 @@ class SemanticContextManager(ContextManager):
             if base_context.get("chapter_scenario"):
                 base_tokens += self.count_tokens(f"Chapter Scenario: {base_context['chapter_scenario']}")
             
-            # Available tokens for scene history
-            available_tokens = self.effective_max_tokens - base_tokens - 500  # Safety buffer
-            
-            # Get ONLY scenes from the current chapter (not previous chapters)
-            current_chapter_scenes = db.query(Scene).filter(
-                Scene.story_id == story_id,
+            # Get all scenes from the current chapter that are in the ACTIVE story flow
+            # This matches how get_active_scene_count works
+            current_chapter_scenes = db.query(Scene).join(StoryFlow).filter(
+                StoryFlow.story_id == story_id,
+                StoryFlow.is_active == True,
                 Scene.chapter_id == chapter_id
             ).order_by(Scene.sequence_number).all()
             
             if not current_chapter_scenes:
                 # No scenes in current chapter yet - still count base context
-                formatted_context = self._format_context_for_counting(base_context)
-                token_count = self.count_tokens(formatted_context)
-                # Ensure we return at least base context tokens
-                if token_count == 0 and base_tokens > 0:
-                    token_count = base_tokens
-                logger.info(f"[CONTEXT SIZE] Calculated actual context size for chapter {chapter_id} (semantic, no scenes): {token_count} tokens")
-                return token_count
+                logger.info(f"[CONTEXT SIZE] Calculated total context size for chapter {chapter_id} (semantic, no scenes): {base_tokens} tokens")
+                return base_tokens
             
-            if available_tokens <= 0:
-                logger.warning(f"Base context too large for story {story_id}, chapter {chapter_id}")
-                formatted_context = self._format_context_for_counting(base_context)
-                token_count = self.count_tokens(formatted_context)
-                if token_count == 0 and base_tokens > 0:
-                    token_count = base_tokens
-                return token_count
+            # Count tokens for ALL scenes in the chapter (not limited by available_tokens)
+            # This gives accurate total chapter size for progress tracking
+            total_scene_tokens = 0
+            for scene in current_chapter_scenes:
+                scene_content = await self._get_scene_content_proper(scene, db)
+                total_scene_tokens += self.count_tokens(scene_content)
             
-            # Build scene context with only current chapter scenes
-            # For semantic context manager, we still use hybrid strategy but only with current chapter scenes
-            # Set limit_semantic_to_chapter=True to ensure semantic search only finds scenes from current chapter
-            if self.enable_semantic and self.context_strategy != "linear":
-                scene_context = await self._build_hybrid_scene_context(
-                    story_id, current_chapter_scenes, available_tokens, db, 
-                    chapter_id=chapter_id,
-                    limit_semantic_to_chapter=True  # Only search within current chapter for context size
-                )
-            else:
-                # Use parent's linear scene context building
-                scene_context = await self._build_scene_context(current_chapter_scenes, available_tokens, db)
+            # Total = base context + all scene tokens
+            total_tokens = base_tokens + total_scene_tokens
             
-            # Merge contexts
-            full_context = {**base_context, **scene_context}
-            
-            # Format the context the same way it would be sent to the LLM
-            formatted_context = self._format_context_for_counting(full_context)
-            
-            # Count tokens of the formatted context
-            token_count = self.count_tokens(formatted_context)
-            
-            # Ensure we return at least base context tokens (should never be 0 if story exists)
-            if token_count == 0 and base_tokens > 0:
-                logger.warning(f"[CONTEXT SIZE] Token count is 0 but base_tokens is {base_tokens}, using base_tokens")
-                token_count = base_tokens
-            
-            logger.info(f"[CONTEXT SIZE] Calculated actual context size for chapter {chapter_id} (semantic): {token_count} tokens (base: {base_tokens}, scenes: {len(current_chapter_scenes)})")
-            return token_count
+            logger.info(f"[CONTEXT SIZE] Calculated total context size for chapter {chapter_id} (semantic): {total_tokens} tokens (base: {base_tokens}, scene_tokens: {total_scene_tokens}, scenes: {len(current_chapter_scenes)})")
+            return total_tokens
             
         except Exception as e:
             logger.error(f"Failed to calculate actual context size for chapter {chapter_id}: {e}", exc_info=True)

@@ -9,6 +9,7 @@ class StoryFlow(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     story_id = Column(Integer, ForeignKey("stories.id"), nullable=False)
+    branch_id = Column(Integer, ForeignKey("story_branches.id", ondelete="CASCADE"), nullable=True, index=True)  # Story branch
     
     # Flow path definition
     sequence_number = Column(Integer, nullable=False)  # Order in story (1, 2, 3...)
@@ -33,6 +34,7 @@ class StoryFlow(Base):
     
     # Relationships
     story = relationship("Story", back_populates="story_flows")
+    branch = relationship("StoryBranch", back_populates="story_flows")
     scene = relationship("Scene")
     scene_variant = relationship("SceneVariant", back_populates="story_flows")
     from_choice = relationship("SceneChoice", foreign_keys=[from_choice_id])

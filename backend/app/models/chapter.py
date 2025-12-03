@@ -27,6 +27,7 @@ class Chapter(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     story_id = Column(Integer, ForeignKey("stories.id", ondelete="CASCADE"), nullable=False)
+    branch_id = Column(Integer, ForeignKey("story_branches.id", ondelete="CASCADE"), nullable=True, index=True)  # Story branch
     chapter_number = Column(Integer, nullable=False)
     
     # Basic info
@@ -61,6 +62,7 @@ class Chapter(Base):
     
     # Relationships
     story = relationship("Story", back_populates="chapters")
+    branch = relationship("StoryBranch", back_populates="chapters")
     scenes = relationship("Scene", back_populates="chapter", cascade="all, delete-orphan", order_by="Scene.sequence_number")
     # Many-to-many relationship with StoryCharacter via chapter_characters association table
     characters = relationship(

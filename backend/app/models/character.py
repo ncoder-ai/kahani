@@ -41,6 +41,7 @@ class StoryCharacter(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     story_id = Column(Integer, ForeignKey("stories.id"), nullable=False)
+    branch_id = Column(Integer, ForeignKey("story_branches.id", ondelete="CASCADE"), nullable=True, index=True)  # Story branch
     character_id = Column(Integer, ForeignKey("characters.id"), nullable=False)
     
     # Story-specific character properties
@@ -63,7 +64,8 @@ class StoryCharacter(Base):
     
     # Relationships
     story = relationship("Story", back_populates="story_characters")
+    branch = relationship("StoryBranch", back_populates="story_characters")
     character = relationship("Character", back_populates="story_characters")
     
     def __repr__(self):
-        return f"<StoryCharacter(story_id={self.story_id}, character_id={self.character_id})>"
+        return f"<StoryCharacter(story_id={self.story_id}, branch_id={self.branch_id}, character_id={self.character_id})>"

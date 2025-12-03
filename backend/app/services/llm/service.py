@@ -1062,6 +1062,14 @@ class UnifiedLLMService:
         content = re.sub(r'^\d+[:.]\s*[A-Z][^.\n]*(\n|$)', '', content).strip()
         return content
     
+    def _clean_instruction_tags(self, content: str) -> str:
+        """Remove instruction tags like [/inst][inst] that may appear in LLM responses"""
+        # Remove [/inst] and [inst] tags (with or without closing brackets)
+        content = re.sub(r'\[/inst\]\s*\[inst\]', '', content, flags=re.IGNORECASE)
+        content = re.sub(r'\[/inst\]', '', content, flags=re.IGNORECASE)
+        content = re.sub(r'\[inst\]', '', content, flags=re.IGNORECASE)
+        return content.strip()
+    
     def _clean_scene_numbers_chunk(self, chunk: str) -> str:
         """Clean scene numbers from streaming chunks - more conservative than full cleaning"""
         if chunk.strip().startswith(('Scene ', 'SCENE ', 'scene ')):
@@ -2731,8 +2739,12 @@ class UnifiedLLMService:
         # Instead of task instruction, we send the new scene + choice generation request
         choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
         
+        # Clean scene content to remove any instruction tags or formatting artifacts
+        cleaned_scene_content = self._clean_instruction_tags(scene_content)
+        cleaned_scene_content = self._clean_scene_numbers(cleaned_scene_content)
+        
         final_message = f"""=== SCENE JUST GENERATED ===
-{scene_content}
+{cleaned_scene_content}
 
 === GENERATE CHOICES ===
 Based on the scene above, generate {choices_count} narrative choices for what happens next.
@@ -3917,6 +3929,17 @@ Output ONLY valid JSON in this exact format:
         return clean_text
 
     # Scene Variant Database Operations
+    def _get_active_branch_id(self, db: Session, story_id: int) -> int:
+        """Get the active branch ID for a story."""
+        from ...models import StoryBranch
+        active_branch = db.query(StoryBranch).filter(
+            and_(
+                StoryBranch.story_id == story_id,
+                StoryBranch.is_active == True
+            )
+        ).first()
+        return active_branch.id if active_branch else None
+    
     def create_scene_with_variant(
         self, 
         db: Session,
@@ -3926,27 +3949,36 @@ Output ONLY valid JSON in this exact format:
         title: str = None,
         custom_prompt: str = None,
         choices: List[Dict[str, Any]] = None,
-        generation_method: str = "auto"
+        generation_method: str = "auto",
+        branch_id: int = None
     ) -> Tuple[Any, Any]:
         """Create a new scene with its first variant"""
         from ...models import Scene, SceneVariant, SceneChoice, StoryFlow
         
-        # Check if a scene already exists for this sequence in this story
-        existing_flow = db.query(StoryFlow).filter(
+        # Get active branch if not specified
+        if branch_id is None:
+            branch_id = self._get_active_branch_id(db, story_id)
+        
+        # Check if a scene already exists for this sequence in this story/branch
+        existing_flow_query = db.query(StoryFlow).filter(
             StoryFlow.story_id == story_id,
             StoryFlow.sequence_number == sequence_number
-        ).first()
+        )
+        if branch_id:
+            existing_flow_query = existing_flow_query.filter(StoryFlow.branch_id == branch_id)
+        existing_flow = existing_flow_query.first()
         
         if existing_flow:
             # Return the existing scene and variant instead of creating duplicates
             existing_scene = db.query(Scene).filter(Scene.id == existing_flow.scene_id).first()
             existing_variant = db.query(SceneVariant).filter(SceneVariant.id == existing_flow.scene_variant_id).first()
-            logger.warning(f"Scene already exists for story {story_id} sequence {sequence_number}, returning existing scene {existing_scene.id}")
+            logger.warning(f"Scene already exists for story {story_id} sequence {sequence_number} (branch {branch_id}), returning existing scene {existing_scene.id}")
             return existing_scene, existing_variant
         
         # Create the logical scene
         scene = Scene(
             story_id=story_id,
+            branch_id=branch_id,
             sequence_number=sequence_number,
             title=title or f"Scene {sequence_number}",
         )
@@ -3980,10 +4012,10 @@ Output ONLY valid JSON in this exact format:
                 db.add(choice)
         
         # Update story flow
-        self._update_story_flow(db, story_id, sequence_number, scene.id, variant.id)
+        self._update_story_flow(db, story_id, sequence_number, scene.id, variant.id, branch_id=branch_id)
         
         db.commit()
-        logger.info(f"Successfully created scene {scene.id} with variant {variant.id} at sequence {sequence_number}")
+        logger.info(f"Successfully created scene {scene.id} with variant {variant.id} at sequence {sequence_number} (branch {branch_id})")
         return scene, variant
 
     async def regenerate_scene_variant(
@@ -4060,7 +4092,7 @@ Output ONLY valid JSON in this exact format:
         logger.info(f"Successfully created variant {variant.id} (#{next_variant_number}) for scene {scene_id}")
         return variant
 
-    def switch_to_variant(self, db: Session, story_id: int, scene_id: int, variant_id: int) -> bool:
+    def switch_to_variant(self, db: Session, story_id: int, scene_id: int, variant_id: int, branch_id: int = None) -> bool:
         """Switch the active variant for a scene in the story flow"""
         from ...models import StoryFlow, SceneVariant
         
@@ -4069,16 +4101,23 @@ Output ONLY valid JSON in this exact format:
         if not variant or variant.scene_id != scene_id:
             return False
         
-        # Update story flow to use this variant
-        flow_entry = db.query(StoryFlow).filter(
+        # Get active branch if not specified
+        if branch_id is None:
+            branch_id = self._get_active_branch_id(db, story_id)
+        
+        # Update story flow to use this variant (filtered by branch)
+        flow_query = db.query(StoryFlow).filter(
             StoryFlow.story_id == story_id,
             StoryFlow.scene_id == scene_id
-        ).first()
+        )
+        if branch_id:
+            flow_query = flow_query.filter(StoryFlow.branch_id == branch_id)
+        flow_entry = flow_query.first()
         
         if flow_entry:
             flow_entry.scene_variant_id = variant_id
             db.commit()
-            logger.info(f"Switched to variant {variant_id} for scene {scene_id} in story {story_id}")
+            logger.info(f"Switched to variant {variant_id} for scene {scene_id} in story {story_id} (branch {branch_id})")
             return True
         
         return False
@@ -4092,7 +4131,7 @@ Output ONLY valid JSON in this exact format:
             .order_by(SceneVariant.variant_number)\
             .all()
 
-    def get_active_scene_count(self, db: Session, story_id: int, chapter_id: Optional[int] = None) -> int:
+    def get_active_scene_count(self, db: Session, story_id: int, chapter_id: Optional[int] = None, branch_id: int = None) -> int:
         """
         Get count of active scenes from StoryFlow.
         
@@ -4100,16 +4139,24 @@ Output ONLY valid JSON in this exact format:
             db: Database session
             story_id: Story ID
             chapter_id: Optional chapter ID to filter scenes by chapter
+            branch_id: Optional branch ID for filtering
             
         Returns:
             Count of active scenes in the story flow
         """
         from ...models import StoryFlow, Scene
         
+        # Get active branch if not specified
+        if branch_id is None:
+            branch_id = self._get_active_branch_id(db, story_id)
+        
         query = db.query(StoryFlow).filter(
             StoryFlow.story_id == story_id,
             StoryFlow.is_active == True
         )
+        
+        if branch_id:
+            query = query.filter(StoryFlow.branch_id == branch_id)
         
         if chapter_id:
             # Join with Scene to filter by chapter
@@ -4117,15 +4164,19 @@ Output ONLY valid JSON in this exact format:
         
         return query.count()
     
-    def get_active_story_flow(self, db: Session, story_id: int) -> List[Dict[str, Any]]:
+    def get_active_story_flow(self, db: Session, story_id: int, branch_id: int = None) -> List[Dict[str, Any]]:
         """Get the active story flow with scene variants"""
         from ...models import StoryFlow, Scene, SceneVariant, SceneChoice
         
-        # Get the story flow ordered by sequence
-        flow_entries = db.query(StoryFlow)\
-            .filter(StoryFlow.story_id == story_id)\
-            .order_by(StoryFlow.sequence_number)\
-            .all()
+        # Get active branch if not specified
+        if branch_id is None:
+            branch_id = self._get_active_branch_id(db, story_id)
+        
+        # Get the story flow ordered by sequence (filtered by branch)
+        flow_query = db.query(StoryFlow).filter(StoryFlow.story_id == story_id)
+        if branch_id:
+            flow_query = flow_query.filter(StoryFlow.branch_id == branch_id)
+        flow_entries = flow_query.order_by(StoryFlow.sequence_number).all()
         
         result = []
         for flow_entry in flow_entries:
@@ -4182,15 +4233,22 @@ Output ONLY valid JSON in this exact format:
         
         return result
 
-    def _update_story_flow(self, db: Session, story_id: int, sequence_number: int, scene_id: int, variant_id: int):
+    def _update_story_flow(self, db: Session, story_id: int, sequence_number: int, scene_id: int, variant_id: int, branch_id: int = None):
         """Update or create story flow entry"""
         from ...models import StoryFlow
         
-        # Check if flow entry already exists for this sequence
-        existing_flow = db.query(StoryFlow).filter(
+        # Get active branch if not specified
+        if branch_id is None:
+            branch_id = self._get_active_branch_id(db, story_id)
+        
+        # Check if flow entry already exists for this sequence (filtered by branch)
+        existing_flow_query = db.query(StoryFlow).filter(
             StoryFlow.story_id == story_id,
             StoryFlow.sequence_number == sequence_number
-        ).first()
+        )
+        if branch_id:
+            existing_flow_query = existing_flow_query.filter(StoryFlow.branch_id == branch_id)
+        existing_flow = existing_flow_query.first()
         
         if existing_flow:
             # Update existing entry
@@ -4200,28 +4258,39 @@ Output ONLY valid JSON in this exact format:
             # Create new flow entry
             flow_entry = StoryFlow(
                 story_id=story_id,
+                branch_id=branch_id,
                 sequence_number=sequence_number,
                 scene_id=scene_id,
                 scene_variant_id=variant_id
             )
             db.add(flow_entry)
 
-    async def delete_scenes_from_sequence(self, db: Session, story_id: int, sequence_number: int, skip_restoration: bool = False) -> bool:
+    async def delete_scenes_from_sequence(self, db: Session, story_id: int, sequence_number: int, skip_restoration: bool = False, branch_id: int = None) -> bool:
         """Delete all scenes from a given sequence number onwards"""
         try:
             from ...models import StoryFlow, Scene
             
-            # First, delete all StoryFlow entries for this story with sequence_number >= sequence_number
-            story_flows_deleted = db.query(StoryFlow).filter(
+            # Get active branch if not specified
+            if branch_id is None:
+                branch_id = self._get_active_branch_id(db, story_id)
+            
+            # First, delete all StoryFlow entries for this story with sequence_number >= sequence_number (filtered by branch)
+            flow_delete_query = db.query(StoryFlow).filter(
                 StoryFlow.story_id == story_id,
                 StoryFlow.sequence_number >= sequence_number
-            ).delete()
+            )
+            if branch_id:
+                flow_delete_query = flow_delete_query.filter(StoryFlow.branch_id == branch_id)
+            story_flows_deleted = flow_delete_query.delete()
             
-            # Get scenes to delete (don't use bulk delete to ensure cascades work)
-            scenes_to_delete = db.query(Scene).filter(
+            # Get scenes to delete (don't use bulk delete to ensure cascades work) - filtered by branch
+            scene_query = db.query(Scene).filter(
                 Scene.story_id == story_id,
                 Scene.sequence_number >= sequence_number
-            ).all()
+            )
+            if branch_id:
+                scene_query = scene_query.filter(Scene.branch_id == branch_id)
+            scenes_to_delete = scene_query.all()
             
             # NOTE: Semantic cleanup (embeddings, character moments, plot events) is now handled
             # as a background task by the API endpoint to avoid blocking the response.

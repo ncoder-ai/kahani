@@ -110,7 +110,8 @@ async def get_character_suggestions(
     """Get character suggestions for a story chapter."""
     
     # Verify story ownership
-    from ..models import Story
+    from ..models import Story, StoryBranch
+    from sqlalchemy import and_
     story = db.query(Story).filter(
         Story.id == story_id,
         Story.owner_id == current_user.id
@@ -121,6 +122,15 @@ async def get_character_suggestions(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Story not found"
         )
+    
+    # Get active branch
+    active_branch = db.query(StoryBranch).filter(
+        and_(
+            StoryBranch.story_id == story_id,
+            StoryBranch.is_active == True
+        )
+    ).first()
+    branch_id = active_branch.id if active_branch else None
     
     # Get user settings
     user_settings = db.query(UserSettings).filter(
@@ -141,7 +151,7 @@ async def get_character_suggestions(
     try:
         from ..services.npc_tracking_service import NPCTrackingService
         npc_service = NPCTrackingService(current_user.id, user_settings_dict)
-        suggestions = npc_service.get_npcs_as_suggestions(db, story_id)
+        suggestions = npc_service.get_npcs_as_suggestions(db, story_id, branch_id=branch_id)
         
         # Sort by importance score
         suggestions.sort(key=lambda x: x.get('importance_score', 0), reverse=True)
