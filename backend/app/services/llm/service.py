@@ -2519,14 +2519,21 @@ class UnifiedLLMService:
         cleaned_scene_content = self._clean_instruction_tags(current_scene_content)
         cleaned_scene_content = self._clean_scene_numbers(cleaned_scene_content)
         
-        # Get task instruction from prompt_manager (includes choices reminder)
-        task_content = prompt_manager.get_continuation_task_instruction(
-            current_scene_content=cleaned_scene_content,
-            continuation_prompt=continuation_prompt,
-            choices_count=choices_count
-        )
+        # Build final message inline (like generate_choices does)
+        choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
         
-        messages.append({"role": "user", "content": task_content})
+        final_message = f"""=== CURRENT SCENE TO CONTINUE ===
+{cleaned_scene_content}
+
+=== CONTINUATION INSTRUCTION ===
+{continuation_prompt}
+
+Write a compelling continuation that follows naturally from the scene above.
+Focus on engaging narrative and dialogue. Do not repeat previous content.
+
+{choices_reminder}"""
+        
+        messages.append({"role": "user", "content": final_message})
         
         # Add buffer for choices section - dynamic based on choices_count
         base_max_tokens = prompt_manager.get_max_tokens("scene_continuation", user_settings)
