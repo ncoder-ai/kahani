@@ -79,6 +79,28 @@ class UnifiedLLMService:
             del self._client_cache[user_id]
             logger.info(f"Invalidated LLM client cache for user {user_id}")
     
+    def _get_prompt_debug_path(self, filename: str) -> str:
+        """Get the path for prompt debug files, handling both Docker and bare-metal environments.
+        
+        Args:
+            filename: Name of the debug file (e.g., 'prompt_sent.txt', 'prompt_choice_sent.txt')
+        
+        Returns:
+            Full path to the debug file
+        """
+        # Check if we're in Docker (working directory is /app)
+        if os.path.exists("/app") and os.getcwd().startswith("/app"):
+            # Docker: use mounted logs directory
+            return f"/app/root_logs/{filename}"
+        else:
+            # Bare-metal: use logs directory relative to project root
+            # Go up from service.py: backend/app/services/llm/service.py 
+            # -> backend/app/services/llm -> backend/app/services -> backend/app -> backend -> project root
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
+            logs_dir = os.path.join(project_root, "logs")
+            os.makedirs(logs_dir, exist_ok=True)  # Ensure directory exists
+            return os.path.join(logs_dir, filename)
+    
     async def generate(
         self,
         prompt: str,
@@ -843,8 +865,7 @@ class UnifiedLLMService:
         # Write prompt to file for streaming generation (only if prompt_debug is enabled)
         if settings.prompt_debug:
             try:
-                import os
-                prompt_file_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "prompt_sent.txt")
+                prompt_file_path = self._get_prompt_debug_path("prompt_sent.txt")
                 with open(prompt_file_path, "w", encoding="utf-8") as f:
                     f.write("=" * 80 + "\n")
                     f.write("STREAMING SCENE GENERATION PROMPT (EXACTLY AS SENT TO LLM)\n")
@@ -951,8 +972,7 @@ class UnifiedLLMService:
         # Write prompt to file for text completion streaming generation (only if prompt_debug is enabled)
         if settings.prompt_debug:
             try:
-                import os
-                prompt_file_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "prompt_sent.txt")
+                prompt_file_path = self._get_prompt_debug_path("prompt_sent.txt")
                 with open(prompt_file_path, "w", encoding="utf-8") as f:
                     f.write("=" * 80 + "\n")
                     f.write("STREAMING SCENE GENERATION PROMPT (EXACTLY AS SENT TO LLM - TEXT COMPLETION)\n")
@@ -2767,9 +2787,8 @@ Output ONLY valid JSON in this exact format:
         from ...config import settings
         if settings.prompt_debug:
             try:
-                import os
                 import json
-                prompt_file_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "prompt_choice_sent.txt")
+                prompt_file_path = self._get_prompt_debug_path("prompt_choice_sent.txt")
                 client = self.get_user_client(user_id, user_settings)
                 with open(prompt_file_path, "w", encoding="utf-8") as f:
                     f.write("=" * 80 + "\n")
@@ -4650,7 +4669,7 @@ Output ONLY valid JSON in this exact format:
             try:
                 import os
                 import json
-                prompt_file_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "prompt_sent.txt")
+                prompt_file_path = self._get_prompt_debug_path("prompt_sent.txt")
                 with open(prompt_file_path, "w", encoding="utf-8") as f:
                     f.write("=" * 80 + "\n")
                     f.write("MULTI-MESSAGE STREAMING PROMPT (EXACTLY AS SENT TO LLM)\n")
