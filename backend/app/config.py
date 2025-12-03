@@ -59,8 +59,15 @@ def flatten_yaml_config(yaml_config: dict) -> dict:
     flattened['debug'] = app.get('debug')
     
     # Database
+    # DATABASE_URL environment variable takes priority over YAML config
+    # This allows easy switching between SQLite and PostgreSQL via environment
     db = yaml_config.get('database', {})
-    flattened['database_url'] = db.get('database_url')
+    env_database_url = os.environ.get('DATABASE_URL')
+    if env_database_url:
+        flattened['database_url'] = env_database_url
+        logger.info(f"Using DATABASE_URL from environment: {env_database_url.split('@')[0]}@...")  # Log without password
+    else:
+        flattened['database_url'] = db.get('database_url')
     
     # Security
     security = yaml_config.get('security', {})

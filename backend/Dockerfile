@@ -1,4 +1,13 @@
+# ============================================================================
+# KAHANI BACKEND DOCKERFILE
+# ============================================================================
 # Multi-stage build for Python FastAPI backend
+#
+# Database Configuration:
+# - Database is configured via DATABASE_URL environment variable
+# - Supports SQLite (default) and PostgreSQL
+# - See docker-compose.yml and .env.example for database setup instructions
+# ============================================================================
 
 # Build stage
 FROM python:3.12-slim as builder

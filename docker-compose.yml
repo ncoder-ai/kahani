@@ -1,8 +1,65 @@
-# Kahani Docker Compose Configuration
+# ============================================================================
+# KAHANI DOCKER COMPOSE CONFIGURATION
+# ============================================================================
 # First user to register becomes admin automatically
 # No default users - register your first account to get started
+#
+# ============================================================================
+# DATABASE SETUP INSTRUCTIONS
+# ============================================================================
+# 
+# OPTION 1: SQLite (Default - No changes needed)
+#   - Just run: docker-compose up -d
+#   - SQLite will be used automatically
+#
+# OPTION 2: PostgreSQL (Recommended for production)
+#   Step 1: Copy .env.example to .env (if not already done)
+#           cp .env.example .env
+#
+#   Step 2: Edit .env and set PostgreSQL credentials:
+#           POSTGRES_USER=kahani
+#           POSTGRES_PASSWORD=your_secure_password_here
+#           POSTGRES_DB=kahani
+#           DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+#
+#   Step 3: Uncomment the postgres service below (remove # from lines)
+#
+#   Step 4: Uncomment the depends_on section in backend service (line ~75)
+#
+#   Step 5: Uncomment the volumes section at the bottom (line ~95)
+#
+#   Step 6: Run: docker-compose up -d
+#
+# ============================================================================
 
 services:
+  # --------------------------------------------------------------------------
+  # PostgreSQL Database Service
+  # --------------------------------------------------------------------------
+  # UNCOMMENT THE LINES BELOW TO USE POSTGRESQL (remove # from each line)
+  # Then uncomment depends_on in backend service and volumes at bottom
+  #
+  # postgres:
+  #   image: postgres:16-alpine
+  #   container_name: kahani-postgres
+  #   environment:
+  #     POSTGRES_USER: ${POSTGRES_USER:-kahani}
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kahani}
+  #     POSTGRES_DB: ${POSTGRES_DB:-kahani}
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   ports:
+  #     - "${POSTGRES_PORT:-5432}:5432"  # Optional: expose for external access
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kahani} -d ${POSTGRES_DB:-kahani}"]
+  #     interval: 5s
+  #     timeout: 5s
+  #     retries: 5
+  #   restart: unless-stopped
+
+  # --------------------------------------------------------------------------
+  # Backend Service
+  # --------------------------------------------------------------------------
   backend:
     build: ./backend
     container_name: kahani-backend
@@ -16,7 +73,9 @@ services:
     # Run as root initially to set up permissions, then drop to app user
     user: "root"
     environment:
-      - DATABASE_URL=sqlite:///./data/kahani.db
+      # Database URL - defaults to SQLite, uses PostgreSQL if DATABASE_URL is set in .env
+      # If using PostgreSQL, set DATABASE_URL in .env file (see .env.example)
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///./data/kahani.db}
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY environment variable is required - see docs/SECURITY_SETUP.md}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT_SECRET_KEY environment variable is required - see docs/SECURITY_SETUP.md}
       - CORS_ORIGINS=${CORS_ORIGINS:-["http://localhost:6789"]}
@@ -25,6 +84,10 @@ services:
       - HF_HOME=/app/.cache/huggingface
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # UNCOMMENT THE LINES BELOW IF USING POSTGRESQL (remove # from each line)
+    # depends_on:
+    #   postgres:
+    #     condition: service_healthy
     
   frontend:
     build: ./frontend
@@ -46,3 +109,10 @@ services:
         max-size: "10m"
         max-file: "3"
         tag: "kahani-frontend"
+
+# ============================================================================
+# VOLUMES
+# ============================================================================
+# UNCOMMENT THE LINES BELOW IF USING POSTGRESQL (remove # from each line)
+# volumes:
+#   postgres_data:
