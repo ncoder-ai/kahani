@@ -577,8 +577,9 @@ class ApiClient {
     return this.request<any[]>(`/api/stories/?skip=${skip}&limit=${limit}`);
   }
 
-  async getStory(id: number) {
-    return this.request<any>(`/api/stories/${id}`);
+  async getStory(id: number, branchId?: number) {
+    const params = branchId ? `?branch_id=${branchId}` : '';
+    return this.request<any>(`/api/stories/${id}${params}`);
   }
 
   async createStory(data: { title: string; description?: string; genre?: string; tone?: string; world_setting?: string; initial_premise?: string; }) {
@@ -1694,6 +1695,135 @@ class ApiClient {
     return this.request<{ message: string }>(`/api/stories/${storyId}/chapters/${chapterId}/scenes`, {
       method: 'DELETE',
     });
+  }
+
+  // Branch API
+  async getBranches(storyId: number) {
+    return this.request<{
+      branches: Array<{
+        id: number;
+        story_id: number;
+        name: string;
+        description: string | null;
+        is_main: boolean;
+        is_active: boolean;
+        forked_from_branch_id: number | null;
+        forked_at_scene_sequence: number | null;
+        scene_count: number;
+        chapter_count: number;
+        created_at: string;
+      }>;
+      active_branch_id: number | null;
+    }>(`/api/stories/${storyId}/branches`);
+  }
+
+  async getActiveBranch(storyId: number) {
+    return this.request<{
+      id: number;
+      story_id: number;
+      name: string;
+      description: string | null;
+      is_main: boolean;
+      is_active: boolean;
+      forked_from_branch_id: number | null;
+      forked_at_scene_sequence: number | null;
+      scene_count: number;
+      chapter_count: number;
+      created_at: string;
+    }>(`/api/stories/${storyId}/branches/active`);
+  }
+
+  async createBranch(storyId: number, data: {
+    name: string;
+    description?: string;
+    fork_from_scene_sequence: number;
+    activate?: boolean;
+  }) {
+    return this.request<{
+      branch: {
+        id: number;
+        story_id: number;
+        name: string;
+        description: string | null;
+        is_main: boolean;
+        is_active: boolean;
+        forked_from_branch_id: number | null;
+        forked_at_scene_sequence: number | null;
+        scene_count: number;
+        chapter_count: number;
+        created_at: string;
+      };
+      stats: {
+        scenes_cloned: number;
+        chapters_cloned: number;
+        characters_cloned: number;
+        [key: string]: any;
+      };
+    }>(`/api/stories/${storyId}/branches`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async activateBranch(storyId: number, branchId: number) {
+    return this.request<{
+      success: boolean;
+      message: string;
+      branch: {
+        id: number;
+        story_id: number;
+        name: string;
+        description: string | null;
+        is_main: boolean;
+        is_active: boolean;
+        forked_from_branch_id: number | null;
+        forked_at_scene_sequence: number | null;
+        scene_count: number;
+        chapter_count: number;
+        created_at: string;
+      };
+    }>(`/api/stories/${storyId}/branches/${branchId}/activate`, {
+      method: 'PUT',
+    });
+  }
+
+  async updateBranch(storyId: number, branchId: number, data: {
+    name?: string;
+    description?: string;
+  }) {
+    return this.request<{
+      id: number;
+      story_id: number;
+      name: string;
+      description: string | null;
+      is_main: boolean;
+      is_active: boolean;
+      forked_from_branch_id: number | null;
+      forked_at_scene_sequence: number | null;
+      scene_count: number;
+      chapter_count: number;
+      created_at: string;
+    }>(`/api/stories/${storyId}/branches/${branchId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteBranch(storyId: number, branchId: number) {
+    return this.request<{ success: boolean; message: string }>(`/api/stories/${storyId}/branches/${branchId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getBranchStats(storyId: number, branchId: number) {
+    return this.request<{
+      branch_id: number;
+      branch_name: string;
+      scene_count: number;
+      chapter_count: number;
+      character_count: number;
+      [key: string]: any;
+    }>(`/api/stories/${storyId}/branches/${branchId}/stats`);
   }
 
   // Generic HTTP methods

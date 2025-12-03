@@ -28,6 +28,7 @@ class CharacterState(Base):
     id = Column(Integer, primary_key=True, index=True)
     character_id = Column(Integer, ForeignKey("characters.id", ondelete="CASCADE"), nullable=False)
     story_id = Column(Integer, ForeignKey("stories.id", ondelete="CASCADE"), nullable=False)
+    branch_id = Column(Integer, ForeignKey("story_branches.id", ondelete="CASCADE"), nullable=True, index=True)  # Story branch
     last_updated_scene = Column(Integer, nullable=True)  # Scene sequence number
     
     # Physical State
@@ -64,6 +65,7 @@ class CharacterState(Base):
     # Relationships
     character = relationship("Character", back_populates="state")
     story = relationship("Story", back_populates="character_states")
+    branch = relationship("StoryBranch", back_populates="character_states")
     
     def to_dict(self):
         """Convert to dictionary for easy serialization"""
@@ -106,6 +108,7 @@ class LocationState(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     story_id = Column(Integer, ForeignKey("stories.id", ondelete="CASCADE"), nullable=False)
+    branch_id = Column(Integer, ForeignKey("story_branches.id", ondelete="CASCADE"), nullable=True, index=True)  # Story branch
     location_name = Column(String(255), nullable=False)
     last_updated_scene = Column(Integer, nullable=True)
     
@@ -133,6 +136,7 @@ class LocationState(Base):
     
     # Relationships
     story = relationship("Story", back_populates="location_states")
+    branch = relationship("StoryBranch", back_populates="location_states")
     
     def to_dict(self):
         """Convert to dictionary for easy serialization"""
@@ -168,6 +172,7 @@ class ObjectState(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     story_id = Column(Integer, ForeignKey("stories.id", ondelete="CASCADE"), nullable=False)
+    branch_id = Column(Integer, ForeignKey("story_branches.id", ondelete="CASCADE"), nullable=True, index=True)  # Story branch
     object_name = Column(String(255), nullable=False)
     last_updated_scene = Column(Integer, nullable=True)
     
@@ -198,6 +203,7 @@ class ObjectState(Base):
     
     # Relationships
     story = relationship("Story", back_populates="object_states")
+    branch = relationship("StoryBranch", back_populates="object_states")
     current_owner = relationship("Character", foreign_keys=[current_owner_id])
     
     def to_dict(self):
@@ -228,6 +234,7 @@ class EntityStateBatch(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     story_id = Column(Integer, ForeignKey("stories.id", ondelete="CASCADE"), nullable=False, index=True)
+    branch_id = Column(Integer, ForeignKey("story_branches.id", ondelete="CASCADE"), nullable=True, index=True)  # Story branch
     
     # Scene range this batch covers
     start_scene_sequence = Column(Integer, nullable=False)  # First scene in batch
@@ -244,7 +251,8 @@ class EntityStateBatch(Base):
     
     # Relationship
     story = relationship("Story", back_populates="entity_state_batches")
+    branch = relationship("StoryBranch", back_populates="entity_state_batches")
     
     def __repr__(self):
-        return f"<EntityStateBatch(id={self.id}, story_id={self.story_id}, scenes={self.start_scene_sequence}-{self.end_scene_sequence})>"
+        return f"<EntityStateBatch(id={self.id}, story_id={self.story_id}, branch_id={self.branch_id}, scenes={self.start_scene_sequence}-{self.end_scene_sequence})>"
 

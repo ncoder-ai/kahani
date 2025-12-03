@@ -13,8 +13,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from datetime import datetime
 
+from sqlalchemy import and_
 from ..models import (
-    NPCMention, NPCTracking, NPCTrackingSnapshot, StoryCharacter, Character, Scene, Story
+    NPCMention, NPCTracking, NPCTrackingSnapshot, StoryCharacter, Character, Scene, Story, StoryBranch
 )
 from ..services.llm.service import UnifiedLLMService
 from ..services.llm.extraction_service import ExtractionLLMService
@@ -66,7 +67,8 @@ class NPCTrackingService:
         self,
         db: Session,
         story_id: int,
-        scenes: List[Tuple[int, int, str]]  # List of (scene_id, scene_sequence, scene_content) tuples
+        scenes: List[Tuple[int, int, str]],  # List of (scene_id, scene_sequence, scene_content) tuples
+        branch_id: int = None
     ) -> Dict[str, Any]:
         """
         Batch extract NPCs from multiple scenes in a single LLM call, then store them.
@@ -75,6 +77,7 @@ class NPCTrackingService:
             db: Database session
             story_id: Story ID
             scenes: List of (scene_id, scene_sequence, scene_content) tuples
+            branch_id: Optional branch ID for filtering
             
         Returns:
             Dictionary with extraction results:
@@ -90,11 +93,12 @@ class NPCTrackingService:
             }
         
         try:
-            # Get list of explicit characters in the story
+            # Get list of explicit characters in the story (filtered by branch)
             from ..models import StoryCharacter, Character
-            story_characters = db.query(StoryCharacter).filter(
-                StoryCharacter.story_id == story_id
-            ).all()
+            char_query = db.query(StoryCharacter).filter(StoryCharacter.story_id == story_id)
+            if branch_id:
+                char_query = char_query.filter(StoryCharacter.branch_id == branch_id)
+            story_characters = char_query.all()
             
             explicit_character_names = set()
             for sc in story_characters:
@@ -154,6 +158,7 @@ class NPCTrackingService:
                     # Store mention
                     mention = NPCMention(
                         story_id=story_id,
+                        branch_id=branch_id,
                         scene_id=scene_id,
                         character_name=npc_name,
                         sequence_number=scene_sequence,
@@ -168,13 +173,13 @@ class NPCTrackingService:
                     
                     # Update or create tracking record
                     await self._update_npc_tracking(
-                        db, story_id, npc_name, scene_sequence, npc_data_scene
+                        db, story_id, npc_name, scene_sequence, npc_data_scene, branch_id=branch_id
                     )
                     
                     total_npcs_tracked += 1
                 
                 # Create snapshot after all NPCs for this scene are processed
-                self._create_npc_tracking_snapshot(db, story_id, scene_id, scene_sequence)
+                self._create_npc_tracking_snapshot(db, story_id, scene_id, scene_sequence, branch_id=branch_id)
             
             db.commit()
             logger.info(f"Batch extracted and stored {total_npcs_tracked} NPCs from {len(scenes)} scenes")
@@ -352,7 +357,8 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
         story_id: int,
         scene_id: int,
         scene_sequence: int,
-        scene_content: str
+        scene_content: str,
+        branch_id: int = None
     ) -> Dict[str, Any]:
         """
         Extract NPCs from a scene and store mentions.
@@ -363,6 +369,7 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
             scene_id: Scene ID
             scene_sequence: Scene sequence number
             scene_content: Scene content text
+            branch_id: Optional branch ID for filtering
             
         Returns:
             Dictionary with extraction results
@@ -373,11 +380,24 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
             "extraction_successful": False
         }
         
+        # Get active branch if not specified
+        if branch_id is None:
+            from ..models import StoryBranch
+            from sqlalchemy import and_
+            active_branch = db.query(StoryBranch).filter(
+                and_(
+                    StoryBranch.story_id == story_id,
+                    StoryBranch.is_active == True
+                )
+            ).first()
+            branch_id = active_branch.id if active_branch else None
+        
         try:
-            # Get list of explicit characters in the story
-            story_characters = db.query(StoryCharacter).filter(
-                StoryCharacter.story_id == story_id
-            ).all()
+            # Get list of explicit characters in the story (filtered by branch)
+            char_query = db.query(StoryCharacter).filter(StoryCharacter.story_id == story_id)
+            if branch_id:
+                char_query = char_query.filter(StoryCharacter.branch_id == branch_id)
+            story_characters = char_query.all()
             
             explicit_character_names = set()
             for sc in story_characters:
@@ -415,6 +435,7 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
                 # Store mention
                 mention = NPCMention(
                     story_id=story_id,
+                    branch_id=branch_id,
                     scene_id=scene_id,
                     character_name=npc_name,
                     sequence_number=scene_sequence,
@@ -429,13 +450,13 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
                 
                 # Update or create tracking record
                 await self._update_npc_tracking(
-                    db, story_id, npc_name, scene_sequence, npc
+                    db, story_id, npc_name, scene_sequence, npc, branch_id=branch_id
                 )
                 
                 results["npcs_tracked"] += 1
             
             # Create snapshot after all NPCs for this scene are processed
-            self._create_npc_tracking_snapshot(db, story_id, scene_id, scene_sequence)
+            self._create_npc_tracking_snapshot(db, story_id, scene_id, scene_sequence, branch_id=branch_id)
             
             db.commit()
             results["extraction_successful"] = True
@@ -681,7 +702,8 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
         self,
         db: Session,
         story_id: int,
-        character_name: str
+        character_name: str,
+        branch_id: int = None
     ) -> Optional[str]:
         """
         Find canonical name for a character (handles duplicates like 'Reynolds' vs 'Sheriff Reynolds', 'Vortex' vs 'vortex')
@@ -690,10 +712,11 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
         """
         from difflib import SequenceMatcher
         
-        # Get all existing NPCs for this story
-        existing_npcs = db.query(NPCTracking).filter(
-            NPCTracking.story_id == story_id
-        ).all()
+        # Get all existing NPCs for this story (filtered by branch)
+        npc_query = db.query(NPCTracking).filter(NPCTracking.story_id == story_id)
+        if branch_id:
+            npc_query = npc_query.filter(NPCTracking.branch_id == branch_id)
+        existing_npcs = npc_query.all()
         
         name_lower = character_name.lower().strip()
         
@@ -738,21 +761,25 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
         story_id: int,
         character_name: str,
         scene_sequence: int,
-        npc_data: Dict[str, Any]
+        npc_data: Dict[str, Any],
+        branch_id: int = None
     ):
         """Update or create NPC tracking record with deduplication and entity type"""
         try:
             # Check for duplicates
-            canonical_name = self._find_canonical_name(db, story_id, character_name)
+            canonical_name = self._find_canonical_name(db, story_id, character_name, branch_id=branch_id)
             if canonical_name and canonical_name != character_name:
                 logger.info(f"Merging '{character_name}' → '{canonical_name}'")
                 character_name = canonical_name
             
-            # Get or create tracking record
-            tracking = db.query(NPCTracking).filter(
+            # Get or create tracking record (filtered by branch)
+            track_query = db.query(NPCTracking).filter(
                 NPCTracking.story_id == story_id,
                 NPCTracking.character_name == character_name
-            ).first()
+            )
+            if branch_id:
+                track_query = track_query.filter(NPCTracking.branch_id == branch_id)
+            tracking = track_query.first()
             
             if not tracking:
                 # Get entity_type from npc_data, default to CHARACTER
@@ -764,6 +791,7 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
                 
                 tracking = NPCTracking(
                     story_id=story_id,
+                    branch_id=branch_id,
                     character_name=character_name,
                     entity_type=entity_type,  # Store entity type
                     first_appearance_scene=scene_sequence,
@@ -835,7 +863,8 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
         db: Session,
         story_id: int,
         scene_id: int,
-        scene_sequence: int
+        scene_sequence: int,
+        branch_id: int = None
     ):
         """
         Create a snapshot of all NPC tracking data for a scene.
@@ -846,12 +875,14 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
             story_id: Story ID
             scene_id: Scene ID
             scene_sequence: Scene sequence number
+            branch_id: Optional branch ID for filtering
         """
         try:
-            # Get all current NPC tracking records for this story
-            all_npcs = db.query(NPCTracking).filter(
-                NPCTracking.story_id == story_id
-            ).all()
+            # Get all current NPC tracking records for this story (filtered by branch)
+            npc_query = db.query(NPCTracking).filter(NPCTracking.story_id == story_id)
+            if branch_id:
+                npc_query = npc_query.filter(NPCTracking.branch_id == branch_id)
+            all_npcs = npc_query.all()
             
             # Build snapshot data
             snapshot_data = {}
@@ -886,6 +917,7 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
                 scene_id=scene_id,
                 scene_sequence=scene_sequence,
                 story_id=story_id,
+                branch_id=branch_id,
                 snapshot_data=snapshot_data
             )
             db.add(snapshot)
@@ -1187,7 +1219,8 @@ Return ONLY the JSON, no other text."""
         db: Session,
         story_id: int,
         min_importance: float = 0.0,
-        entity_type: str = "CHARACTER"  # Filter by entity type
+        entity_type: str = "CHARACTER",  # Filter by entity type
+        branch_id: int = None
     ) -> List[Dict[str, Any]]:
         """
         Get NPCs formatted as character suggestions for discovery.
@@ -1200,6 +1233,7 @@ Return ONLY the JSON, no other text."""
             story_id: Story ID
             min_importance: Minimum importance score to include (0.0 = all NPCs)
             entity_type: Filter by entity type ("CHARACTER" or "ENTITY"), defaults to "CHARACTER"
+            branch_id: Optional branch ID for filtering
         """
         try:
             # Query with entity type filter (handle NULL values and missing column for backward compatibility)
@@ -1211,6 +1245,10 @@ Return ONLY the JSON, no other text."""
                 NPCTracking.converted_to_character == False,  # Exclude converted NPCs
                 NPCTracking.importance_score >= min_importance
             )
+            
+            # Filter by branch if specified
+            if branch_id:
+                query = query.filter(NPCTracking.branch_id == branch_id)
             
             # Add entity_type filter if column exists in database
             # Check if column exists by inspecting the table
@@ -1384,11 +1422,22 @@ Return ONLY the JSON, no other text."""
             logger.error(f"Failed to get NPCs as suggestions: {e}")
             return []
     
+    def _get_active_branch_id(self, db: Session, story_id: int) -> int:
+        """Get the active branch ID for a story."""
+        active_branch = db.query(StoryBranch).filter(
+            and_(
+                StoryBranch.story_id == story_id,
+                StoryBranch.is_active == True
+            )
+        ).first()
+        return active_branch.id if active_branch else None
+    
     def get_important_npcs_for_context(
         self,
         db: Session,
         story_id: int,
-        limit: int = 10
+        limit: int = 10,
+        branch_id: int = None
     ) -> List[Dict[str, Any]]:
         """
         Get most important NPCs formatted for context inclusion.
@@ -1401,6 +1450,7 @@ Return ONLY the JSON, no other text."""
             db: Database session
             story_id: Story ID
             limit: Maximum number of NPCs to return (default: 10)
+            branch_id: Optional branch ID for filtering
             
         Returns:
             List of NPCs formatted as characters, sorted by importance (most important first)
@@ -1408,27 +1458,37 @@ Return ONLY the JSON, no other text."""
         try:
             from sqlalchemy import desc
             
+            # Get active branch if not specified
+            if branch_id is None:
+                branch_id = self._get_active_branch_id(db, story_id)
+            
             # Log threshold being used
             logger.warning(f"[NPC CONTEXT] Importance threshold: {self.importance_threshold}")
             
-            # Get ALL NPCs for this story to show what's available
-            all_npcs = db.query(NPCTracking).filter(
+            # Get ALL NPCs for this story/branch to show what's available
+            all_query = db.query(NPCTracking).filter(
                 NPCTracking.story_id == story_id,
                 NPCTracking.converted_to_character == False
-            ).order_by(desc(NPCTracking.importance_score)).all()
+            )
+            if branch_id:
+                all_query = all_query.filter(NPCTracking.branch_id == branch_id)
+            all_npcs = all_query.order_by(desc(NPCTracking.importance_score)).all()
             
             # Log all NPCs with their scores and threshold status
-            logger.warning(f"[NPC CONTEXT] Total NPCs in story: {len(all_npcs)}")
+            logger.warning(f"[NPC CONTEXT] Total NPCs in story (branch {branch_id}): {len(all_npcs)}")
             for npc in all_npcs:
                 threshold_status = "✓ CROSSED" if npc.crossed_threshold else "✗ BELOW"
                 logger.warning(f"[NPC CONTEXT]   - {npc.character_name}: importance_score={npc.importance_score:.2f}, threshold={self.importance_threshold:.2f}, status={threshold_status}")
             
             # Get NPCs that crossed threshold, ordered by importance score (most important first)
-            npcs = db.query(NPCTracking).filter(
+            npcs_query = db.query(NPCTracking).filter(
                 NPCTracking.story_id == story_id,
                 NPCTracking.crossed_threshold == True,
                 NPCTracking.converted_to_character == False  # Exclude converted NPCs
-            ).order_by(desc(NPCTracking.importance_score)).limit(limit).all()
+            )
+            if branch_id:
+                npcs_query = npcs_query.filter(NPCTracking.branch_id == branch_id)
+            npcs = npcs_query.order_by(desc(NPCTracking.importance_score)).limit(limit).all()
             
             logger.warning(f"[NPC CONTEXT] NPCs that crossed threshold: {len(npcs)} (limit: {limit})")
             

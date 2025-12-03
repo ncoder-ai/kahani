@@ -1,7 +1,8 @@
 import logging
 from typing import List, Dict, Any, Optional, Tuple
 from sqlalchemy.orm import Session
-from ..models import Story, Scene, Character, StoryCharacter
+from sqlalchemy import and_
+from ..models import Story, Scene, Character, StoryCharacter, StoryBranch
 from ..services.llm.service import UnifiedLLMService
 from ..services.llm.prompts import prompt_manager
 from ..database import get_db
@@ -88,7 +89,17 @@ class ContextManager:
         # This is closer to the actual token count
         return int(len(text) / 3.5)
     
-    async def build_story_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None, exclude_scene_id: Optional[int] = None) -> Dict[str, Any]:
+    def _get_active_branch_id(self, db: Session, story_id: int) -> Optional[int]:
+        """Get the active branch ID for a story."""
+        active_branch = db.query(StoryBranch).filter(
+            and_(
+                StoryBranch.story_id == story_id,
+                StoryBranch.is_active == True
+            )
+        ).first()
+        return active_branch.id if active_branch else None
+    
+    async def build_story_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None, exclude_scene_id: Optional[int] = None, branch_id: Optional[int] = None) -> Dict[str, Any]:
         """
         Build optimized context for story generation, managing token limits
         
@@ -97,6 +108,7 @@ class ContextManager:
             db: Database session
             chapter_id: Optional chapter ID to separate active/inactive characters
             exclude_scene_id: Optional scene ID to exclude from context (for regeneration)
+            branch_id: Optional branch ID (if not provided, uses active branch)
         
         Returns:
             Optimized context dict with story info, characters, and scene history
@@ -107,6 +119,10 @@ class ContextManager:
         if not story:
             raise ValueError(f"Story {story_id} not found")
         
+        # Get active branch if not specified
+        if branch_id is None:
+            branch_id = self._get_active_branch_id(db, story_id)
+        
         # If exclude_scene_id is provided, get scenes from StoryFlow that come before it
         if exclude_scene_id:
             from ..models import StoryFlow
@@ -114,11 +130,15 @@ class ContextManager:
             excluded_scene = db.query(Scene).filter(Scene.id == exclude_scene_id).first()
             if excluded_scene:
                 # Query StoryFlow for all active entries with sequence_number < excluded_scene.sequence_number
-                flow_entries = db.query(StoryFlow).filter(
+                flow_query = db.query(StoryFlow).filter(
                     StoryFlow.story_id == story_id,
                     StoryFlow.is_active == True,
                     StoryFlow.sequence_number < excluded_scene.sequence_number
-                ).order_by(StoryFlow.sequence_number).all()
+                )
+                # Filter by branch if available
+                if branch_id:
+                    flow_query = flow_query.filter(StoryFlow.branch_id == branch_id)
+                flow_entries = flow_query.order_by(StoryFlow.sequence_number).all()
                 
                 # Get Scene objects from the flow entries
                 scene_ids = [flow.scene_id for flow in flow_entries]
@@ -137,9 +157,10 @@ class ContextManager:
             else:
                 # Scene not found, fall back to normal query
                 logger.warning(f"[CONTEXT BUILD] Excluded scene {exclude_scene_id} not found, falling back to normal query")
-                scenes = db.query(Scene).filter(
-                    Scene.story_id == story_id
-                ).order_by(Scene.sequence_number).all()
+                scene_query = db.query(Scene).filter(Scene.story_id == story_id)
+                if branch_id:
+                    scene_query = scene_query.filter(Scene.branch_id == branch_id)
+                scenes = scene_query.order_by(Scene.sequence_number).all()
         # Get all scenes ordered by sequence
         # When chapter_id is provided, include scenes from ALL chapters up to and including that chapter
         elif chapter_id:
@@ -150,30 +171,38 @@ class ContextManager:
             if active_chapter:
                 # Include scenes from all chapters with chapter_number <= active chapter's chapter_number
                 # This ensures we include previous chapters but exclude future chapters
-                scenes = db.query(Scene).join(Chapter).filter(
+                scene_query = db.query(Scene).join(Chapter).filter(
                     Scene.story_id == story_id,
                     Chapter.chapter_number <= active_chapter.chapter_number
-                ).order_by(Scene.sequence_number).all()
+                )
+                if branch_id:
+                    scene_query = scene_query.filter(Scene.branch_id == branch_id)
+                scenes = scene_query.order_by(Scene.sequence_number).all()
                 logger.info(f"[CONTEXT BUILD] Chapter {chapter_id} (Chapter {active_chapter.chapter_number}): Including scenes from chapters 1-{active_chapter.chapter_number} ({len(scenes)} scenes)")
             else:
                 # Fallback: if chapter not found, only get scenes from that chapter_id
-                scenes = db.query(Scene).filter(
+                scene_query = db.query(Scene).filter(
                     Scene.story_id == story_id,
                     Scene.chapter_id == chapter_id
-                ).order_by(Scene.sequence_number).all()
+                )
+                if branch_id:
+                    scene_query = scene_query.filter(Scene.branch_id == branch_id)
+                scenes = scene_query.order_by(Scene.sequence_number).all()
                 logger.warning(f"[CONTEXT BUILD] Chapter {chapter_id} not found, falling back to chapter_id filter only")
             
             # Note: continues_from_previous controls whether story_so_far and 
             # previous_chapter_summary are included (handled in base context building below)
         else:
-            scenes = db.query(Scene).filter(
-                Scene.story_id == story_id
-            ).order_by(Scene.sequence_number).all()
+            scene_query = db.query(Scene).filter(Scene.story_id == story_id)
+            if branch_id:
+                scene_query = scene_query.filter(Scene.branch_id == branch_id)
+            scenes = scene_query.order_by(Scene.sequence_number).all()
         
-        # Get story characters
-        story_characters = db.query(StoryCharacter).filter(
-            StoryCharacter.story_id == story_id
-        ).all()
+        # Get story characters (filtered by branch)
+        char_query = db.query(StoryCharacter).filter(StoryCharacter.story_id == story_id)
+        if branch_id:
+            char_query = char_query.filter(StoryCharacter.branch_id == branch_id)
+        story_characters = char_query.all()
         
         # Separate into active (chapter) and inactive (story only) characters
         active_characters = []
@@ -230,7 +259,7 @@ class ContextManager:
         try:
             from .npc_tracking_service import NPCTrackingService
             npc_service = NPCTrackingService(user_id=self.user_id, user_settings=self.user_settings)
-            npc_characters = npc_service.get_important_npcs_for_context(db, story_id)
+            npc_characters = npc_service.get_important_npcs_for_context(db, story_id, branch_id=branch_id)
             active_characters.extend(npc_characters)
             logger.warning(f"[CONTEXT BUILD] Added {len(npc_characters)} important NPCs to context (total characters now: {len(active_characters)})")
             if npc_characters:
@@ -577,7 +606,7 @@ Appearance: {char.get('appearance', '')}
             "context_strategy": strategy
         }
     
-    async def _get_scene_content_proper(self, scene: Scene, db: Session = None) -> str:
+    async def _get_scene_content_proper(self, scene: Scene, db: Session = None, branch_id: Optional[int] = None) -> str:
         """
         Get proper scene content from active variant via StoryFlow.
         This is the correct way to get scene content.
@@ -590,10 +619,13 @@ Appearance: {char.get('appearance', '')}
             from ..models import StoryFlow, SceneVariant
             
             # Get active variant from StoryFlow
-            flow = db.query(StoryFlow).filter(
+            flow_query = db.query(StoryFlow).filter(
                 StoryFlow.scene_id == scene.id,
                 StoryFlow.is_active == True
-            ).first()
+            )
+            if branch_id:
+                flow_query = flow_query.filter(StoryFlow.branch_id == branch_id)
+            flow = flow_query.first()
             
             if flow and flow.scene_variant:
                 return f"Scene {scene.sequence_number}: {flow.scene_variant.content}"
@@ -845,7 +877,7 @@ Appearance: {char.get('appearance', '')}
         
         return "\n".join(text_parts)
     
-    async def build_scene_generation_context(self, story_id: int, db: Session, custom_prompt: str = "", is_variant_generation: bool = False, chapter_id: Optional[int] = None, exclude_scene_id: Optional[int] = None) -> Dict[str, Any]:
+    async def build_scene_generation_context(self, story_id: int, db: Session, custom_prompt: str = "", is_variant_generation: bool = False, chapter_id: Optional[int] = None, exclude_scene_id: Optional[int] = None, branch_id: Optional[int] = None) -> Dict[str, Any]:
         """
         Build optimized context specifically for scene generation
         
@@ -856,10 +888,11 @@ Appearance: {char.get('appearance', '')}
             is_variant_generation: True if this is for variant generation, False for new scene generation
             chapter_id: Optional chapter ID to separate active/inactive characters
             exclude_scene_id: Optional scene ID to exclude from context (for regeneration)
+            branch_id: Optional branch ID to filter scenes by branch (for branching stories)
         """
         
-        # Get full context with chapter_id for character separation
-        full_context = await self.build_story_context(story_id, db, chapter_id=chapter_id, exclude_scene_id=exclude_scene_id)
+        # Get full context with chapter_id for character separation and branch_id for branch filtering
+        full_context = await self.build_story_context(story_id, db, chapter_id=chapter_id, exclude_scene_id=exclude_scene_id, branch_id=branch_id)
         
         # Check if this is the first scene (no previous scenes)
         total_scenes = full_context.get("total_scenes", 0)
@@ -968,42 +1001,52 @@ Appearance: {char.get('appearance', '')}
         
         return context
 
-    async def calculate_actual_context_size(self, story_id: int, chapter_id: int, db: Session) -> int:
+    async def calculate_actual_context_size(self, story_id: int, chapter_id: int, db: Session, branch_id: Optional[int] = None) -> int:
         """
-        Calculate the actual context size that would be sent to the LLM for the current chapter.
+        Calculate the total token count for all content in the current chapter.
         
-        This method builds the actual context (including base context, chapter summaries,
-        entity states, and only recent scenes from the current chapter), formats it the same
-        way it would be sent to the LLM, and counts the tokens.
+        This method counts tokens for ALL scenes in the chapter that are in the active
+        story flow, plus base context (story settings, chapter summaries, etc.).
         
-        IMPORTANT: Only counts scenes from the current chapter, not previous chapters.
+        Unlike the context sent to the LLM (which is limited by token budget), this
+        returns the TOTAL tokens for the chapter to show accurate progress tracking.
+        
+        IMPORTANT: Only counts scenes from the current chapter that are in the active story flow.
         
         Args:
             story_id: Story ID
             chapter_id: Chapter ID (ensures only current chapter context is included)
             db: Database session
+            branch_id: Optional branch ID (if not provided, uses active branch)
             
         Returns:
-            Total token count of the actual context that would be sent to the LLM
+            Total token count of all content in the chapter
         """
         try:
-            # Build the actual context for this chapter
-            # We need to ensure only current chapter's scenes are included
-            # First, get the chapter to check its scenes
-            from ..models import Chapter
+            from ..models import Chapter, StoryFlow
+            
             chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
             if not chapter:
                 logger.error(f"Chapter {chapter_id} not found")
                 return 0
             
-            # Build context with chapter_id - this will include base context and chapter summaries
-            context = await self.build_story_context(story_id, db, chapter_id=chapter_id)
+            # Get active branch if not specified
+            if branch_id is None:
+                branch_id = self._get_active_branch_id(db, story_id)
             
-            # Get all scenes from the current chapter only (regardless of what build_story_context returned)
-            current_chapter_scenes = db.query(Scene).filter(
-                Scene.story_id == story_id,
+            # Build context with chapter_id - this will include base context and chapter summaries
+            context = await self.build_story_context(story_id, db, chapter_id=chapter_id, branch_id=branch_id)
+            
+            # Get all scenes from the current chapter that are in the ACTIVE story flow
+            # This matches how get_active_scene_count works
+            scene_query = db.query(Scene).join(StoryFlow).filter(
+                StoryFlow.story_id == story_id,
+                StoryFlow.is_active == True,
                 Scene.chapter_id == chapter_id
-            ).order_by(Scene.sequence_number).all()
+            )
+            if branch_id:
+                scene_query = scene_query.filter(StoryFlow.branch_id == branch_id)
+            current_chapter_scenes = scene_query.order_by(Scene.sequence_number).all()
             
             # Calculate base context tokens (always included)
             base_context_dict = {
@@ -1030,43 +1073,18 @@ Appearance: {char.get('appearance', '')}
             if context.get("chapter_scenario"):
                 base_tokens += self.count_tokens(f"Chapter Scenario: {context['chapter_scenario']}")
             
-            # Now handle scene context - only from current chapter
-            if current_chapter_scenes:
-                # Available tokens for scene history
-                available_tokens = self.effective_max_tokens - base_tokens - 500  # Reserve 500 for safety
-                
-                if available_tokens > 0:
-                    # Build scene context with only current chapter scenes
-                    scene_context = await self._build_scene_context(current_chapter_scenes, available_tokens, db)
-                    # Update context with filtered scene context
-                    context["previous_scenes"] = scene_context.get("previous_scenes", "")
-                    context["recent_scenes"] = scene_context.get("recent_scenes", "")
-                    context["scene_summary"] = scene_context.get("scene_summary", "")
-                else:
-                    # Base context too large, no room for scenes
-                    context["previous_scenes"] = ""
-                    context["recent_scenes"] = ""
-                    context["scene_summary"] = ""
-            else:
-                # No scenes in current chapter yet - still count base context
-                context["previous_scenes"] = ""
-                context["recent_scenes"] = ""
-                context["scene_summary"] = ""
+            # Count tokens for ALL scenes in the chapter (not limited by available_tokens)
+            # This gives accurate total chapter size for progress tracking
+            total_scene_tokens = 0
+            for scene in current_chapter_scenes:
+                scene_content = await self._get_scene_content_proper(scene, db)
+                total_scene_tokens += self.count_tokens(scene_content)
             
-            # Format the context the same way it would be sent to the LLM
-            # This matches the formatting in UnifiedLLMService._format_context_for_scene()
-            formatted_context = self._format_context_for_counting(context)
+            # Total = base context + all scene tokens
+            total_tokens = base_tokens + total_scene_tokens
             
-            # Count tokens of the formatted context
-            token_count = self.count_tokens(formatted_context)
-            
-            # Ensure we return at least base context tokens (should never be 0 if story exists)
-            if token_count == 0 and base_tokens > 0:
-                logger.warning(f"[CONTEXT SIZE] Token count is 0 but base_tokens is {base_tokens}, using base_tokens")
-                token_count = base_tokens
-            
-            logger.info(f"[CONTEXT SIZE] Calculated actual context size for chapter {chapter_id}: {token_count} tokens (base: {base_tokens}, scenes: {len(current_chapter_scenes)})")
-            return token_count
+            logger.info(f"[CONTEXT SIZE] Calculated total context size for chapter {chapter_id}: {total_tokens} tokens (base: {base_tokens}, scene_tokens: {total_scene_tokens}, scenes: {len(current_chapter_scenes)})")
+            return total_tokens
             
         except Exception as e:
             logger.error(f"Failed to calculate actual context size for chapter {chapter_id}: {e}", exc_info=True)

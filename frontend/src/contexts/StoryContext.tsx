@@ -21,6 +21,12 @@ export interface StoryActions {
   extractionStatus?: { status: 'extracting' | 'complete' | 'error'; message: string } | null;
   // Story title for banner display
   storyTitle?: string;
+  // Branch-related props
+  storyId?: number;
+  currentBranchId?: number;
+  currentSceneSequence?: number;
+  onBranchChange?: (branchId: number) => void;
+  onBranchCreated?: (branchId?: number) => void;
 }
 
 interface StoryContextType {

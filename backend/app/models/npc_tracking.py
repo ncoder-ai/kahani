@@ -24,6 +24,7 @@ class NPCMention(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     story_id = Column(Integer, ForeignKey("stories.id", ondelete="CASCADE"), nullable=False, index=True)
+    branch_id = Column(Integer, ForeignKey("story_branches.id", ondelete="CASCADE"), nullable=True, index=True)  # Story branch
     scene_id = Column(Integer, ForeignKey("scenes.id", ondelete="CASCADE"), nullable=False, index=True)
     character_name = Column(String(255), nullable=False, index=True)
     sequence_number = Column(Integer, nullable=False)  # Scene sequence number
@@ -43,16 +44,18 @@ class NPCMention(Base):
     
     # Relationships
     story = relationship("Story", back_populates="npc_mentions")
+    branch = relationship("StoryBranch", back_populates="npc_mentions")
     scene = relationship("Scene")
     
     # Index for efficient queries
     __table_args__ = (
         Index('idx_npc_mentions_story_name', 'story_id', 'character_name'),
         Index('idx_npc_mentions_story_scene', 'story_id', 'scene_id'),
+        Index('idx_npc_mentions_branch', 'branch_id', 'character_name'),
     )
     
     def __repr__(self):
-        return f"<NPCMention(story_id={self.story_id}, character_name='{self.character_name}', scene_id={self.scene_id})>"
+        return f"<NPCMention(story_id={self.story_id}, branch_id={self.branch_id}, character_name='{self.character_name}', scene_id={self.scene_id})>"
 
 
 class NPCTracking(Base):
@@ -69,6 +72,7 @@ class NPCTracking(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     story_id = Column(Integer, ForeignKey("stories.id", ondelete="CASCADE"), nullable=False, index=True)
+    branch_id = Column(Integer, ForeignKey("story_branches.id", ondelete="CASCADE"), nullable=True, index=True)  # Story branch
     character_name = Column(String(255), nullable=False, index=True)
     entity_type = Column(String(50), default="CHARACTER", nullable=True)  # CHARACTER or ENTITY
     
@@ -113,10 +117,12 @@ class NPCTracking(Base):
     
     # Relationships
     story = relationship("Story", back_populates="npc_tracking")
+    branch = relationship("StoryBranch", back_populates="npc_tracking")
     
     # Index for efficient queries
     __table_args__ = (
-        Index('idx_npc_tracking_story_name', 'story_id', 'character_name', unique=True),
+        Index('idx_npc_tracking_story_name', 'story_id', 'character_name'),
+        Index('idx_npc_tracking_branch_name', 'branch_id', 'character_name', unique=True),
         Index('idx_npc_tracking_threshold', 'story_id', 'crossed_threshold'),
     )
     
@@ -161,6 +167,7 @@ class NPCTrackingSnapshot(Base):
     scene_id = Column(Integer, ForeignKey("scenes.id", ondelete="CASCADE"), nullable=False, index=True)
     scene_sequence = Column(Integer, nullable=False, index=True)  # For quick lookup by sequence
     story_id = Column(Integer, ForeignKey("stories.id", ondelete="CASCADE"), nullable=False, index=True)
+    branch_id = Column(Integer, ForeignKey("story_branches.id", ondelete="CASCADE"), nullable=True, index=True)  # Story branch
     
     # Snapshot data: JSON object mapping character_name to aggregated values
     # Structure: {
@@ -187,14 +194,16 @@ class NPCTrackingSnapshot(Base):
     # Relationships
     scene = relationship("Scene")
     story = relationship("Story")
+    branch = relationship("StoryBranch", back_populates="npc_tracking_snapshots")
     
     # Index for efficient queries
     __table_args__ = (
         Index('idx_npc_snapshot_story_sequence', 'story_id', 'scene_sequence'),
+        Index('idx_npc_snapshot_branch_sequence', 'branch_id', 'scene_sequence'),
         Index('idx_npc_snapshot_scene', 'scene_id'),
     )
     
     def __repr__(self):
         npc_count = len(self.snapshot_data) if self.snapshot_data else 0
-        return f"<NPCTrackingSnapshot(scene_id={self.scene_id}, scene_sequence={self.scene_sequence}, npcs={npc_count})>"
+        return f"<NPCTrackingSnapshot(scene_id={self.scene_id}, branch_id={self.branch_id}, scene_sequence={self.scene_sequence}, npcs={npc_count})>"
 

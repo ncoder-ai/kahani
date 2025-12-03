@@ -3,38 +3,37 @@ from jose import JWTError, jwt
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 import logging
+import bcrypt as bcrypt_lib
 from ..config import settings
 
 logger = logging.getLogger(__name__)
 
-# Password hashing with fallback for bcrypt issues
-try:
-    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-except Exception as e:
-    logger.warning(f"bcrypt initialization failed: {e}")
-    # Fallback to a simpler scheme if bcrypt fails
-    pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
+# Password hashing - use pbkdf2_sha256 for new passwords
+# We handle bcrypt legacy passwords manually due to passlib/bcrypt version incompatibility
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against its hash.
-    Bcrypt limits inputs to 72 bytes; truncate to avoid backend errors while keeping UX lenient.
+    Supports both pbkdf2_sha256 (new) and bcrypt (legacy) hashes.
     """
     try:
         truncated = plain_password[:72]
-        return pwd_context.verify(truncated, hashed_password)
-    except Exception:
+        
+        # Check if it's a bcrypt hash (starts with $2a$, $2b$, or $2y$)
+        if hashed_password.startswith(('$2a$', '$2b$', '$2y$')):
+            # Use bcrypt library directly for bcrypt hashes
+            return bcrypt_lib.checkpw(truncated.encode('utf-8'), hashed_password.encode('utf-8'))
+        else:
+            # Use passlib for pbkdf2_sha256 hashes
+            return pwd_context.verify(truncated, hashed_password)
+    except Exception as e:
+        logger.error(f"Password verification error: {e}")
         return False
 
 def get_password_hash(password: str) -> str:
-    """Hash a password (truncate to bcrypt's 72-byte input limit)."""
-    try:
-        truncated = password[:72]
-        return pwd_context.hash(truncated)
-    except Exception as e:
-        logger.error(f"Error hashing password: {e}")
-        # Fallback to a simple hash if bcrypt fails
-        import hashlib
-        return hashlib.sha256(truncated.encode()).hexdigest()
+    """Hash a password using pbkdf2_sha256 (truncate to 72 bytes for compatibility)."""
+    truncated = password[:72]
+    return pwd_context.hash(truncated)
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """Create a JWT access token"""

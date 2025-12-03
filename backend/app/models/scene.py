@@ -16,6 +16,7 @@ class Scene(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     story_id = Column(Integer, ForeignKey("stories.id"), nullable=False)
+    branch_id = Column(Integer, ForeignKey("story_branches.id", ondelete="CASCADE"), nullable=True, index=True)  # Story branch
     chapter_id = Column(Integer, ForeignKey("chapters.id"), nullable=True)  # New: Link to chapter
     
     # Scene ordering and structure
@@ -37,6 +38,7 @@ class Scene(Base):
     
     # Relationships
     story = relationship("Story", back_populates="scenes")
+    branch = relationship("StoryBranch", back_populates="scenes")
     chapter = relationship("Chapter", back_populates="scenes")
     parent_scene = relationship("Scene", remote_side=[id], backref="child_scenes")
     variants = relationship("SceneVariant", back_populates="scene", cascade="all, delete-orphan")
@@ -67,6 +69,7 @@ class SceneChoice(Base):
     id = Column(Integer, primary_key=True, index=True)
     scene_id = Column(Integer, ForeignKey("scenes.id"), nullable=False)  # Legacy - logical scene
     scene_variant_id = Column(Integer, ForeignKey("scene_variants.id"))  # New - specific variant
+    branch_id = Column(Integer, ForeignKey("story_branches.id", ondelete="CASCADE"), nullable=True, index=True)  # Story branch
     
     # Choice content
     choice_text = Column(Text, nullable=False)

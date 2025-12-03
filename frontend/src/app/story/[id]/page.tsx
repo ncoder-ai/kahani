@@ -7,7 +7,7 @@ import { useParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { useAuthStore, useStoryStore, useHasHydrated } from '@/store';
 import { useGlobalTTS } from '@/contexts/GlobalTTSContext';
-import { useStoryActions } from '@/contexts/StoryContext';
+import { useStoryActions, StoryActions } from '@/contexts/StoryContext';
 import { useUISettings } from '@/hooks/useUISettings';
 import apiClient, { getApiBaseUrl } from '@/lib/api';
 import CharacterQuickAdd from '@/components/CharacterQuickAdd';
@@ -17,6 +17,7 @@ import SceneDisplay from '@/components/SceneDisplay';
 import SceneVariantDisplay from '@/components/SceneVariantDisplay';
 import { GlobalTTSWidget } from '@/components/GlobalTTSWidget';
 import MicrophoneButton from '@/components/MicrophoneButton';
+import BranchSelector from '@/components/BranchSelector';
 
 // Lazy load heavy components - only load when needed
 const CharacterWizard = dynamic(() => import('@/components/CharacterWizard'), {
@@ -114,6 +115,13 @@ interface Story {
     total_scenes: number;
     has_variants: boolean;
   };
+  branch?: {
+    id: number;
+    name: string;
+    is_main: boolean;
+    total_branches: number;
+  };
+  current_branch_id?: number;
 }
 
 export default function StoryPage() {
@@ -126,6 +134,7 @@ export default function StoryPage() {
   const hasHydrated = useHasHydrated();
   const globalTTS = useGlobalTTS();
   const { setStoryActions } = useStoryActions();
+  const loadStoryRef = useRef<((scrollToLastScene?: boolean, scrollToNewScene?: boolean, overrideBranchId?: number) => Promise<void>) | null>(null);
   const [story, setStory] = useState<Story | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -197,6 +206,9 @@ export default function StoryPage() {
   
   // Chapter sidebar state
   const [isChapterSidebarOpen, setIsChapterSidebarOpen] = useState(false); // Start closed
+  
+  // Branch state
+  const [currentBranchId, setCurrentBranchId] = useState<number | undefined>(undefined);
   
   const [chapterSidebarRefreshKey, setChapterSidebarRefreshKey] = useState(0);
   const [activeChapterId, setActiveChapterId] = useState<number | null>(null); // Active chapter from backend
@@ -336,11 +348,29 @@ export default function StoryPage() {
         extractionStatus,
         // Story title for banner display
         storyTitle: story.title,
+        // Branch-related props
+        storyId: storyId,
+        currentBranchId: currentBranchId,
+        currentSceneSequence: story?.scenes?.length || 1,
+        // Branch callbacks - use ref to access loadStory
+        onBranchChange: async (branchId: number) => {
+          setCurrentBranchId(branchId);
+          if (loadStoryRef.current) {
+            // Pass branchId directly to avoid React state timing issues
+            await loadStoryRef.current(true, false, branchId);
+          }
+        },
+        onBranchCreated: (branchId?: number) => {
+          if (loadStoryRef.current) {
+            // Pass branchId directly if provided
+            loadStoryRef.current(true, false, branchId);
+          }
+        },
       });
     } else {
       setStoryActions(undefined);
     }
-  }, [story, directorMode, isInDeleteMode, showCharacterBanner, lastGenerationTime, generationStartTime, extractionStatus, setStoryActions, router]);
+  }, [story, directorMode, isInDeleteMode, showCharacterBanner, lastGenerationTime, generationStartTime, extractionStatus, setStoryActions, router, storyId, currentBranchId]);
 
   // Auto-scroll to bottom when streaming starts
   useEffect(() => {
@@ -357,13 +387,16 @@ export default function StoryPage() {
     }
   }, [isStreaming, streamingContent]);
 
-  // Show context warning popup when reaching 80%
+  // Show context warning popup when reaching 80% (only if user has enabled the setting)
   useEffect(() => {
-    if (contextUsagePercent >= 80 && !hasShownContextWarning) {
+    // Check if user has enabled the alert setting (default to true if not set)
+    const alertEnabled = userSettings?.generation_preferences?.alert_on_high_context !== false;
+    
+    if (alertEnabled && contextUsagePercent >= 80 && !hasShownContextWarning) {
       setShowContextWarning(true);
       setHasShownContextWarning(true);
     }
-  }, [contextUsagePercent, hasShownContextWarning]);
+  }, [contextUsagePercent, hasShownContextWarning, userSettings?.generation_preferences?.alert_on_high_context]);
 
   // Preserve scroll position on resize/orientation change
   useEffect(() => {
@@ -571,6 +604,9 @@ export default function StoryPage() {
     try {
       const storyData = await apiClient.getStory(storyId);
       setStory(storyData);
+      if (storyData.current_branch_id) {
+        setCurrentBranchId(storyData.current_branch_id);
+      }
     } catch (err) {
       console.error('Failed to refresh story:', err);
     }
@@ -804,12 +840,19 @@ export default function StoryPage() {
     };
   }, [displayMode, loadMoreScenesAutomatically, isAutoLoadingScenes, story?.scenes, scenesToShow, activeChapterId]);
 
-  const loadStory = async (scrollToLastScene = true, scrollToNewScene = false) => {
+  const loadStory = async (scrollToLastScene = true, scrollToNewScene = false, overrideBranchId?: number) => {
     try {
       setIsLoading(true);
 
-      const storyData = await apiClient.getStory(storyId);
+      // Use overrideBranchId if provided (for immediate branch switches), otherwise use currentBranchId
+      const branchIdToUse = overrideBranchId ?? currentBranchId;
+      const storyData = await apiClient.getStory(storyId, branchIdToUse || undefined);
       setStory(storyData);
+      
+      // Set current branch ID from story data (only if not already set by user selection or override)
+      if (storyData.current_branch_id && !branchIdToUse) {
+        setCurrentBranchId(storyData.current_branch_id);
+      }
 
       // Check if chapter setup is needed
       const setupChapter = searchParams?.get('setup_chapter') === 'true';
@@ -886,6 +929,12 @@ export default function StoryPage() {
               const displayedScenes = sortedScenes.slice(startIndex);
               const targetScene = displayedScenes[displayedScenes.length - 1]; // Last scene in displayed list
               
+              // Guard: if no scenes, just scroll to bottom
+              if (!targetScene) {
+                container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+                return;
+              }
+              
               // Try to find the scene element - wait a bit more if not found
               let targetSceneElement = container.querySelector(`[data-scene-id="${targetScene.id}"]`) as HTMLElement;
               
@@ -915,6 +964,15 @@ export default function StoryPage() {
     }
   };
 
+  // Store loadStory in ref so branch callbacks can access it
+  loadStoryRef.current = loadStory;
+
+  // Handle branch change - scroll to last scene of new branch
+  const handleBranchChange = async (branchId: number) => {
+    setCurrentBranchId(branchId);
+    // Pass branchId directly to loadStory to avoid React state timing issues
+    await loadStory(true, false, branchId);  // scrollToLastScene=true to show last scene of new branch
+  };
 
   const loadContextStatus = async () => {
     try {
@@ -2253,6 +2311,22 @@ export default function StoryPage() {
             <div className="p-2 max-h-[calc(100vh-12rem)] overflow-y-auto">
               {/* TTS Audio Player */}
               <GlobalTTSWidget />
+              
+              {/* Branch Selector */}
+              <div className="px-3 py-2 border-b border-slate-700/50 mb-2">
+                <div className="text-xs text-slate-400 mb-2">Story Branch</div>
+                <BranchSelector
+                  storyId={storyId}
+                  currentBranchId={currentBranchId}
+                  currentSceneSequence={story?.scenes?.length || 1}
+                  onBranchChange={handleBranchChange}
+                  onBranchCreated={(branch) => {
+                    setShowMainMenu(false);
+                    setCurrentBranchId(branch.id);
+                    loadStory(true, false, branch.id);
+                  }}
+                />
+              </div>
               
               {/* Chapter Navigation */}
               <button

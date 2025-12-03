@@ -127,25 +127,39 @@ class PromptManager:
                             yaml_full_prompt = self._get_yaml_prompt(template_key, "system")
                             technical_requirements = self._extract_technical_requirements(yaml_full_prompt, pov)
                             
-                            pov_instruction = ""
+                            # Build POV-related values for both prose instruction and template variables
+                            pov_instruction_prose = ""
+                            pov_instruction_var = ""  # For {pov_instruction} template variable
+                            pov_perspective_var = ""  # For {pov_perspective} template variable
+                            
                             if pov == "first":
-                                pov_instruction = "\n\nWrite in first person perspective (using 'I', 'me', 'my') to create an immersive experience."
+                                pov_instruction_prose = "\n\nWrite in first person perspective (using 'I', 'me', 'my') to create an immersive experience."
+                                pov_instruction_var = "in first person perspective (using 'I', 'me', 'my')"
+                                pov_perspective_var = "First person perspective (I/me/my)"
                             elif pov == "second":
-                                pov_instruction = "\n\nWrite in second person perspective (using 'you', 'your') to create an immersive interactive experience."
-                            elif pov == "third" or not pov:
-                                # Default to third person
-                                pov_instruction = "\n\nWrite in third person perspective (using 'he', 'she', 'they', character names) to maintain story immersion."
+                                pov_instruction_prose = "\n\nWrite in second person perspective (using 'you', 'your') to create an immersive interactive experience."
+                                pov_instruction_var = "in second person perspective (using 'you', 'your')"
+                                pov_perspective_var = "Second person perspective (you/your)"
+                            else:  # third or not pov
+                                pov_instruction_prose = "\n\nWrite in third person perspective (using 'he', 'she', 'they', character names) to maintain story immersion."
+                                pov_instruction_var = "in third person perspective (using 'he', 'she', 'they', character names)"
+                                pov_perspective_var = "Third person perspective (he/she/they/name)"
+                            
+                            # Add POV template variables to template_vars for substitution
+                            template_vars_with_pov = dict(template_vars)
+                            template_vars_with_pov['pov_instruction'] = pov_instruction_var
+                            template_vars_with_pov['pov_perspective'] = pov_perspective_var
                             
                             # Combine: style + POV instruction + technical requirements
                             if technical_requirements:
-                                combined_prompt = f"{style_prompt.strip()}{pov_instruction}\n\n{technical_requirements}"
+                                combined_prompt = f"{style_prompt.strip()}{pov_instruction_prose}\n\n{technical_requirements}"
                                 logger.debug(f"Combined user preset style with POV ({pov or 'third'}) and technical requirements from YAML for {template_key}")
                             else:
                                 # No technical requirements found, combine style + POV only
-                                combined_prompt = f"{style_prompt.strip()}{pov_instruction}"
+                                combined_prompt = f"{style_prompt.strip()}{pov_instruction_prose}"
                                 logger.debug(f"Combined user preset style with POV ({pov or 'third'}) (no technical requirements) for {template_key}")
                             
-                            return self._substitute_variables(combined_prompt, **template_vars)
+                            return self._substitute_variables(combined_prompt, **template_vars_with_pov)
                             
                 except Exception as e:
                     logger.warning(f"Error querying writing style preset: {e}")
@@ -170,16 +184,21 @@ class PromptManager:
                     technical_requirements = self._extract_technical_requirements(yaml_full_prompt, "third")
                     
                     # Default to third person POV when no preset
-                    pov_instruction = "\n\nWrite in third person perspective (using 'he', 'she', 'they', character names) to maintain story immersion."
+                    pov_instruction_prose = "\n\nWrite in third person perspective (using 'he', 'she', 'they', character names) to maintain story immersion."
+                    
+                    # Add default POV template variables for substitution
+                    template_vars_with_pov = dict(template_vars)
+                    template_vars_with_pov['pov_instruction'] = "in third person perspective (using 'he', 'she', 'they', character names)"
+                    template_vars_with_pov['pov_perspective'] = "Third person perspective (he/she/they/name)"
                     
                     if technical_requirements:
-                        combined_prompt = f"{style_portion}{pov_instruction}\n\n{technical_requirements}"
+                        combined_prompt = f"{style_portion}{pov_instruction_prose}\n\n{technical_requirements}"
                         logger.debug(f"Using extracted YAML style + POV + technical requirements for template {template_key}")
                     else:
-                        combined_prompt = f"{style_portion}{pov_instruction}"
+                        combined_prompt = f"{style_portion}{pov_instruction_prose}"
                         logger.debug(f"Using extracted YAML style + POV for template {template_key}")
                     
-                    return self._substitute_variables(combined_prompt, **template_vars)
+                    return self._substitute_variables(combined_prompt, **template_vars_with_pov)
                 else:
                     # Use as-is (may not have technical sections)
                     logger.debug(f"Using YAML system prompt for template {template_key}")
@@ -423,6 +442,38 @@ class PromptManager:
         if instruction and template_vars:
             return self._substitute_variables(instruction, **template_vars)
         return instruction
+    
+    def get_pov_reminder(self, pov: str = 'third') -> str:
+        """
+        Get POV reminder text from scene_base.pov_reminder with POV substituted.
+        
+        This is appended to system prompts to remind the LLM about POV consistency
+        for choices generation.
+        
+        Args:
+            pov: The POV setting ('first', 'second', or 'third')
+            
+        Returns:
+            The POV reminder text with {pov_instruction} substituted
+        """
+        if not self._prompts_cache:
+            return ""
+        
+        scene_base = self._prompts_cache.get("scene_base", {})
+        reminder = scene_base.get("pov_reminder", "").strip()
+        
+        if not reminder:
+            return ""
+        
+        # Build pov_instruction based on POV
+        if pov == 'first':
+            pov_instruction = "in first person perspective (using 'I', 'me', 'my')"
+        elif pov == 'second':
+            pov_instruction = "in second person perspective (using 'you', 'your')"
+        else:  # third or default
+            pov_instruction = "in third person perspective (using 'he', 'she', 'they', character names)"
+        
+        return self._substitute_variables(reminder, pov_instruction=pov_instruction)
     
     def _get_yaml_prompt(self, template_key: str, prompt_type: str) -> str:
         """Get prompt from YAML file"""

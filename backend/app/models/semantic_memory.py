@@ -43,6 +43,7 @@ class CharacterMemory(Base):
     character_id = Column(Integer, ForeignKey("characters.id", ondelete="CASCADE"), nullable=False, index=True)
     scene_id = Column(Integer, ForeignKey("scenes.id", ondelete="CASCADE"), nullable=False, index=True)
     story_id = Column(Integer, ForeignKey("stories.id", ondelete="CASCADE"), nullable=False, index=True)
+    branch_id = Column(Integer, ForeignKey("story_branches.id", ondelete="CASCADE"), nullable=True, index=True)  # Story branch
     
     # Moment details
     moment_type = Column(SQLEnum(MomentType), nullable=False, index=True)
@@ -64,10 +65,11 @@ class CharacterMemory(Base):
     character = relationship("Character")
     scene = relationship("Scene")
     story = relationship("Story")
+    branch = relationship("StoryBranch", back_populates="character_memories")
     chapter = relationship("Chapter")
     
     def __repr__(self):
-        return f"<CharacterMemory(id={self.id}, character_id={self.character_id}, moment_type={self.moment_type})>"
+        return f"<CharacterMemory(id={self.id}, character_id={self.character_id}, branch_id={self.branch_id}, moment_type={self.moment_type})>"
 
 
 class PlotEvent(Base):
@@ -83,6 +85,7 @@ class PlotEvent(Base):
     
     # References
     story_id = Column(Integer, ForeignKey("stories.id", ondelete="CASCADE"), nullable=False, index=True)
+    branch_id = Column(Integer, ForeignKey("story_branches.id", ondelete="CASCADE"), nullable=True, index=True)  # Story branch
     scene_id = Column(Integer, ForeignKey("scenes.id", ondelete="CASCADE"), nullable=False, index=True)
     
     # Event details
@@ -111,12 +114,13 @@ class PlotEvent(Base):
     
     # Relationships
     story = relationship("Story")
+    branch = relationship("StoryBranch", back_populates="plot_events")
     scene = relationship("Scene", foreign_keys=[scene_id])
     resolution_scene = relationship("Scene", foreign_keys=[resolution_scene_id])
     chapter = relationship("Chapter")
     
     def __repr__(self):
-        return f"<PlotEvent(id={self.id}, event_type={self.event_type}, resolved={self.is_resolved})>"
+        return f"<PlotEvent(id={self.id}, branch_id={self.branch_id}, event_type={self.event_type}, resolved={self.is_resolved})>"
 
 
 class SceneEmbedding(Base):
@@ -131,6 +135,7 @@ class SceneEmbedding(Base):
     
     # References
     story_id = Column(Integer, ForeignKey("stories.id", ondelete="CASCADE"), nullable=False, index=True)
+    branch_id = Column(Integer, ForeignKey("story_branches.id", ondelete="CASCADE"), nullable=True, index=True)  # Story branch
     scene_id = Column(Integer, ForeignKey("scenes.id", ondelete="CASCADE"), nullable=False, index=True)
     variant_id = Column(Integer, ForeignKey("scene_variants.id", ondelete="CASCADE"), nullable=False, index=True)
     
@@ -152,10 +157,11 @@ class SceneEmbedding(Base):
     
     # Relationships
     story = relationship("Story")
+    branch = relationship("StoryBranch", back_populates="scene_embeddings")
     scene = relationship("Scene")
     variant = relationship("SceneVariant")
     chapter = relationship("Chapter")
     
     def __repr__(self):
-        return f"<SceneEmbedding(id={self.id}, scene_id={self.scene_id}, variant_id={self.variant_id})>"
+        return f"<SceneEmbedding(id={self.id}, branch_id={self.branch_id}, scene_id={self.scene_id}, variant_id={self.variant_id})>"
 
