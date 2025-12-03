@@ -420,10 +420,12 @@ Appearance: {char.get('appearance', '')}
         total_scenes = len(scenes)
         
         # Calculate total token count for hybrid threshold
-        total_content = "\n\n".join([
-            f"Scene {scene.sequence_number}: {scene.content}" 
-            for scene in scenes
-        ])
+        # Get proper scene content via StoryFlow
+        scene_contents = []
+        for scene in scenes:
+            content = await self._get_scene_content_proper(scene, db)
+            scene_contents.append(content)
+        total_content = "\n\n".join(scene_contents)
         total_tokens = self.count_tokens(total_content)
         
         # Adaptive strategy based on story length - use hybrid threshold
@@ -435,19 +437,23 @@ Appearance: {char.get('appearance', '')}
         
         if not should_summarize:
             # Short story - try to include everything
-            return await self._handle_short_story(scenes, available_tokens, db)
+            return await self._handle_short_story(scenes, available_tokens, db, scene_contents)
         else:
             # Long story - use progressive summarization
             return await self._handle_long_story(scenes, available_tokens, db)
     
-    async def _handle_short_story(self, scenes: List[Scene], available_tokens: int, db: Session = None) -> Dict[str, Any]:
+    async def _handle_short_story(self, scenes: List[Scene], available_tokens: int, db: Session = None, scene_contents: List[str] = None) -> Dict[str, Any]:
         """Handle stories with few scenes - try to include full context with dynamic filling"""
         
+        # Use pre-fetched scene contents if provided, otherwise fetch them
+        if scene_contents is None:
+            scene_contents = []
+            for scene in scenes:
+                content = await self._get_scene_content_proper(scene, db)
+                scene_contents.append(content)
+        
         # Try to include all scenes first
-        all_content = "\n\n".join([
-            f"Scene {scene.sequence_number}: {scene.content}" 
-            for scene in scenes
-        ])
+        all_content = "\n\n".join(scene_contents)
         all_tokens = self.count_tokens(all_content)
         
         if all_tokens <= available_tokens:
@@ -610,10 +616,21 @@ Appearance: {char.get('appearance', '')}
         """
         Get proper scene content from active variant via StoryFlow.
         This is the correct way to get scene content.
+        
+        Scene model does NOT have a 'content' attribute - content is in SceneVariant.
+        We must get it via StoryFlow or directly from variants relationship.
         """
+        # Try to get content from variants relationship if no db session
         if not db:
-            # Fallback to scene.content if no db session
-            return f"Scene {scene.sequence_number}: {scene.content}"
+            # Fallback: try to get from variants relationship
+            if scene.variants:
+                # Get the first/original variant
+                variant = scene.variants[0] if scene.variants else None
+                if variant and variant.content:
+                    return f"Scene {scene.sequence_number}: {variant.content}"
+            # If no variants, return a placeholder
+            logger.warning(f"No db session and no variants for scene {scene.id}")
+            return f"Scene {scene.sequence_number}: [content unavailable]"
         
         try:
             from ..models import StoryFlow, SceneVariant
@@ -630,11 +647,23 @@ Appearance: {char.get('appearance', '')}
             if flow and flow.scene_variant:
                 return f"Scene {scene.sequence_number}: {flow.scene_variant.content}"
             else:
-                # Fallback to scene content if no flow entry
-                return f"Scene {scene.sequence_number}: {scene.content}"
+                # Fallback: get any variant for this scene
+                variant = db.query(SceneVariant).filter(
+                    SceneVariant.scene_id == scene.id
+                ).first()
+                if variant and variant.content:
+                    return f"Scene {scene.sequence_number}: {variant.content}"
+                else:
+                    logger.warning(f"No StoryFlow or variant found for scene {scene.id}")
+                    return f"Scene {scene.sequence_number}: [content unavailable]"
         except Exception as e:
             logger.warning(f"Failed to get proper scene content for scene {scene.id}: {e}")
-            return f"Scene {scene.sequence_number}: {scene.content}"
+            # Last resort fallback
+            if scene.variants:
+                variant = scene.variants[0] if scene.variants else None
+                if variant and variant.content:
+                    return f"Scene {scene.sequence_number}: {variant.content}"
+            return f"Scene {scene.sequence_number}: [content unavailable]"
     
     def _get_scene_token_count(self, scene: Scene, scene_content: str) -> int:
         """
@@ -666,7 +695,7 @@ Appearance: {char.get('appearance', '')}
         # Use dynamic filling for long stories too
         return await self._fill_scenes_dynamically(scenes, available_tokens, db)
     
-    async def _create_progressive_summary(self, scenes: List[Scene], available_tokens: int) -> str:
+    async def _create_progressive_summary(self, scenes: List[Scene], available_tokens: int, db: Session = None) -> str:
         """
         Create a progressive summary that captures key story beats
         """
@@ -680,7 +709,7 @@ Appearance: {char.get('appearance', '')}
             
             if scene_count <= 6:
                 # Small enough to summarize as one chunk
-                return await self._summarize_scenes(scenes)
+                return await self._summarize_scenes(scenes, db)
             
             # Divide into narrative sections
             beginning_count = max(2, scene_count // 4)
@@ -693,11 +722,11 @@ Appearance: {char.get('appearance', '')}
             summaries = []
             
             if beginning_scenes:
-                beginning_summary = await self._summarize_scenes(beginning_scenes)
+                beginning_summary = await self._summarize_scenes(beginning_scenes, db)
                 summaries.append(f"Story Opening (Scenes {beginning_scenes[0].sequence_number}-{beginning_scenes[-1].sequence_number}): {beginning_summary}")
             
             if middle_scenes:
-                middle_summary = await self._summarize_scenes(middle_scenes)
+                middle_summary = await self._summarize_scenes(middle_scenes, db)
                 summaries.append(f"Story Development (Scenes {middle_scenes[0].sequence_number}-{middle_scenes[-1].sequence_number}): {middle_summary}")
             
             combined_summary = "\n\n".join(summaries)
@@ -707,14 +736,14 @@ Appearance: {char.get('appearance', '')}
                 return combined_summary
             else:
                 # Too long, fall back to single summary
-                return await self._summarize_scenes(scenes)
+                return await self._summarize_scenes(scenes, db)
                 
         except Exception as e:
             logger.error(f"Failed to create progressive summary: {e}")
             # Fallback to simple summary
-            return await self._summarize_scenes(scenes[-6:])  # Last 6 scenes
+            return await self._summarize_scenes(scenes[-6:], db)  # Last 6 scenes
     
-    async def _include_earlier_scenes(self, scenes: List[Scene], available_tokens: int) -> str:
+    async def _include_earlier_scenes(self, scenes: List[Scene], available_tokens: int, db: Session = None) -> str:
         """Include as many earlier scenes as possible within token limit"""
         
         content_parts = []
@@ -722,7 +751,8 @@ Appearance: {char.get('appearance', '')}
         
         # Include scenes from most recent to oldest (within the earlier scenes)
         for scene in reversed(scenes):
-            scene_text = f"Scene {scene.sequence_number}: {scene.content}"
+            # Get proper scene content via StoryFlow (not scene.content which doesn't exist)
+            scene_text = await self._get_scene_content_proper(scene, db)
             scene_tokens = self.count_tokens(scene_text)
             
             if used_tokens + scene_tokens <= available_tokens:
@@ -735,9 +765,9 @@ Appearance: {char.get('appearance', '')}
             return "\n\n".join(content_parts)
         else:
             # If no scenes fit, create a summary
-            return await self._summarize_scenes(scenes)
+            return await self._summarize_scenes(scenes, db)
     
-    async def _summarize_scenes(self, scenes: List[Scene]) -> str:
+    async def _summarize_scenes(self, scenes: List[Scene], db: Session = None) -> str:
         """
         Create a concise summary of multiple scenes using LLM
         
@@ -747,51 +777,55 @@ Appearance: {char.get('appearance', '')}
         if not scenes:
             return ""
         
-        if len(scenes) == 1:
-            return f"Previous: {scenes[0].content[:200]}..."
+        # Get database session if not provided
+        close_db = False
+        if not db:
+            db = next(get_db())
+            close_db = True
         
         try:
-            # Prepare scenes for summarization
-            scenes_text = "\n\n".join([
-                f"Scene {scene.sequence_number}: {scene.content}"
-                for scene in scenes
-            ])
+            if len(scenes) == 1:
+                # Get proper scene content via StoryFlow
+                scene_content = await self._get_scene_content_proper(scenes[0], db)
+                # Remove the "Scene X:" prefix for the preview
+                content_only = scene_content.split(": ", 1)[1] if ": " in scene_content else scene_content
+                return f"Previous: {content_only[:200]}..."
             
-            # Get database session for prompt lookup
-            db = next(get_db())
+            # Prepare scenes for summarization - use proper content retrieval
+            scene_texts = []
+            for scene in scenes:
+                scene_content = await self._get_scene_content_proper(scene, db)
+                scene_texts.append(scene_content)
+            scenes_text = "\n\n".join(scene_texts)
             
-            try:
-                # Get dynamic prompts (user custom or default)
-                system_prompt = prompt_manager.get_prompt(
-                    template_key="story_summary",
-                    prompt_type="system",
-                    user_id=self.user_id,
-                    db=db
-                )
-                
-                # Get user prompt with template variables
-                user_prompt = prompt_manager.get_prompt(
-                    template_key="story_summary",
-                    prompt_type="user",
-                    user_id=self.user_id,
-                    db=db,
-                    story_content=scenes_text,
-                    story_context=f"Summary of {len(scenes)} scenes from the story"
-                )
-                
-                # Get max tokens for this template
-                max_tokens = prompt_manager.get_max_tokens("story_summary")
+            # Get dynamic prompts (user custom or default)
+            system_prompt = prompt_manager.get_prompt(
+                template_key="story_summary",
+                prompt_type="system",
+                user_id=self.user_id,
+                db=db
+            )
+            
+            # Get user prompt with template variables
+            user_prompt = prompt_manager.get_prompt(
+                template_key="story_summary",
+                prompt_type="user",
+                user_id=self.user_id,
+                db=db,
+                story_content=scenes_text,
+                story_context=f"Summary of {len(scenes)} scenes from the story"
+            )
+            
+            # Get max tokens for this template
+            max_tokens = prompt_manager.get_max_tokens("story_summary")
 
-                summary = await unified_llm_service.generate(
-                    prompt=user_prompt, 
-                    user_id=self.user_id, 
-                    user_settings=self.user_settings, 
-                    system_prompt=system_prompt, 
-                    max_tokens=max_tokens
-                )
-            
-            finally:
-                db.close()
+            summary = await unified_llm_service.generate(
+                prompt=user_prompt, 
+                user_id=self.user_id, 
+                user_settings=self.user_settings, 
+                system_prompt=system_prompt, 
+                max_tokens=max_tokens
+            )
             
             # Add metadata about what was summarized
             scene_range = f"Scenes {scenes[0].sequence_number}-{scenes[-1].sequence_number}"
@@ -800,18 +834,26 @@ Appearance: {char.get('appearance', '')}
         except Exception as e:
             logger.error(f"Failed to summarize scenes: {e}")
             
-            # Fallback: simple truncation summary
+            # Fallback: simple truncation summary using proper content retrieval
             key_points = []
             for scene in scenes[-3:]:  # Last 3 scenes for fallback
-                # Extract first sentence or two
-                content = scene.content
-                sentences = content.split('. ')
-                if len(sentences) >= 2:
-                    key_points.append(f"Scene {scene.sequence_number}: {sentences[0]}. {sentences[1]}.")
-                else:
-                    key_points.append(f"Scene {scene.sequence_number}: {content[:100]}...")
+                try:
+                    scene_content = await self._get_scene_content_proper(scene, db)
+                    # Remove the "Scene X:" prefix
+                    content_only = scene_content.split(": ", 1)[1] if ": " in scene_content else scene_content
+                    sentences = content_only.split('. ')
+                    if len(sentences) >= 2:
+                        key_points.append(f"Scene {scene.sequence_number}: {sentences[0]}. {sentences[1]}.")
+                    else:
+                        key_points.append(f"Scene {scene.sequence_number}: {content_only[:100]}...")
+                except Exception as inner_e:
+                    logger.warning(f"Failed to get content for scene {scene.id} in fallback: {inner_e}")
+                    key_points.append(f"Scene {scene.sequence_number}: [content unavailable]")
             
             return "Previous story events: " + " ".join(key_points)
+        finally:
+            if close_db:
+                db.close()
     
     def optimize_character_context(self, characters: List[Dict[str, Any]], max_tokens: int) -> List[Dict[str, Any]]:
         """

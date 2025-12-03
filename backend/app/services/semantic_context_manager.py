@@ -582,10 +582,14 @@ class SemanticContextManager(ContextManager):
                     f"Scene {scene.sequence_number}: {flow.scene_variant.content}"
                 )
             else:
-                # Fallback to scene content if no flow entry
-                if scene.content:
+                # Fallback: get any variant for this scene
+                from ..models import SceneVariant
+                variant = db.query(SceneVariant).filter(
+                    SceneVariant.scene_id == scene.id
+                ).first()
+                if variant and variant.content:
                     content_parts.append(
-                        f"Scene {scene.sequence_number}: {scene.content}"
+                        f"Scene {scene.sequence_number}: {variant.content}"
                     )
         
         return "\n\n".join(content_parts)
@@ -627,7 +631,17 @@ class SemanticContextManager(ContextManager):
                     StoryFlow.is_active == True
                 ).first()
                 
-                scene_content = flow.scene_variant.content if flow and flow.scene_variant else scene.content
+                scene_content = None
+                if flow and flow.scene_variant:
+                    scene_content = flow.scene_variant.content
+                else:
+                    # Fallback: get any variant for this scene
+                    from ..models import SceneVariant
+                    variant = db.query(SceneVariant).filter(
+                        SceneVariant.scene_id == scene.id
+                    ).first()
+                    if variant:
+                        scene_content = variant.content
                 if scene_content:
                     # Weight: most recent scene gets full weight, older scenes get reduced weight
                     weight = 1.0 - (i * 0.2)  # 1.0, 0.8, 0.6 for 3 scenes
@@ -1113,32 +1127,58 @@ class SemanticContextManager(ContextManager):
             logger.error(f"Failed to get entity states: {e}")
             return None
     
-    async def _get_scene_content_proper(self, scene: Scene, db: Session = None) -> str:
+    async def _get_scene_content_proper(self, scene: Scene, db: Session = None, branch_id: Optional[int] = None) -> str:
         """
         Get proper scene content from active variant via StoryFlow.
         This is the correct way to get scene content.
+        
+        Scene model does NOT have a 'content' attribute - content is in SceneVariant.
+        We must get it via StoryFlow or directly from variants relationship.
         """
+        # Try to get content from variants relationship if no db session
         if not db:
-            # Fallback to scene.content if no db session
-            return f"Scene {scene.sequence_number}: {scene.content}"
+            # Fallback: try to get from variants relationship
+            if scene.variants:
+                # Get the first/original variant
+                variant = scene.variants[0] if scene.variants else None
+                if variant and variant.content:
+                    return f"Scene {scene.sequence_number}: {variant.content}"
+            # If no variants, return a placeholder
+            logger.warning(f"No db session and no variants for scene {scene.id}")
+            return f"Scene {scene.sequence_number}: [content unavailable]"
         
         try:
             from ..models import StoryFlow, SceneVariant
             
             # Get active variant from StoryFlow
-            flow = db.query(StoryFlow).filter(
+            flow_query = db.query(StoryFlow).filter(
                 StoryFlow.scene_id == scene.id,
                 StoryFlow.is_active == True
-            ).first()
+            )
+            if branch_id:
+                flow_query = flow_query.filter(StoryFlow.branch_id == branch_id)
+            flow = flow_query.first()
             
             if flow and flow.scene_variant:
                 return f"Scene {scene.sequence_number}: {flow.scene_variant.content}"
             else:
-                # Fallback to scene content if no flow entry
-                return f"Scene {scene.sequence_number}: {scene.content}"
+                # Fallback: get any variant for this scene
+                variant = db.query(SceneVariant).filter(
+                    SceneVariant.scene_id == scene.id
+                ).first()
+                if variant and variant.content:
+                    return f"Scene {scene.sequence_number}: {variant.content}"
+                else:
+                    logger.warning(f"No StoryFlow or variant found for scene {scene.id}")
+                    return f"Scene {scene.sequence_number}: [content unavailable]"
         except Exception as e:
             logger.warning(f"Failed to get proper scene content for scene {scene.id}: {e}")
-            return f"Scene {scene.sequence_number}: {scene.content}"
+            # Last resort fallback
+            if scene.variants:
+                variant = scene.variants[0] if scene.variants else None
+                if variant and variant.content:
+                    return f"Scene {scene.sequence_number}: {variant.content}"
+            return f"Scene {scene.sequence_number}: [content unavailable]"
 
     async def calculate_actual_context_size(self, story_id: int, chapter_id: int, db: Session) -> int:
         """
