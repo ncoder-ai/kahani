@@ -2607,8 +2607,8 @@ async def create_scene_variant(
         try:
             # Build full scene generation context for choice generation
             # Note: We don't have the original scene generation context here, so we rebuild it
-            from ..services.context_manager import ContextManager
-            context_manager = ContextManager(user_settings=user_settings, user_id=current_user.id)
+            # Use get_context_manager_for_user to get SemanticContextManager for structured format
+            context_manager = get_context_manager_for_user(user_settings, current_user.id)
             
             # Get active chapter for character separation
             active_chapter = db.query(Chapter).filter(
@@ -3125,14 +3125,16 @@ async def continue_scene(
                 detail="No active scene variant found"
             )
         
-        # Build context for continuation
-        context_manager = ContextManager(user_settings=user_settings)
+        # Build context for continuation - use get_context_manager_for_user to get SemanticContextManager
+        # which produces structured format needed for multi-message LLM caching
+        context_manager = get_context_manager_for_user(user_settings, current_user.id)
         
         # Get custom_prompt from the request model
         custom_prompt = request.custom_prompt
             
         context = await context_manager.build_scene_continuation_context(
-            story_id, scene_id, current_variant.content, db, custom_prompt
+            story_id, scene_id, current_variant.content, db, custom_prompt,
+            branch_id=story.current_branch_id  # Pass branch_id for branch-aware context
         )
         
         # Generate continuation content
@@ -3225,8 +3227,9 @@ async def continue_scene_streaming(
             # Send initial metadata
             yield f"data: {json.dumps({'type': 'start', 'scene_id': scene_id, 'original_length': len(current_variant.content)})}\n\n"
             
-            # Build context for continuation
-            context_manager = ContextManager(user_settings=user_settings)
+            # Build context for continuation - use get_context_manager_for_user to get SemanticContextManager
+            # which produces structured format needed for multi-message LLM caching
+            context_manager = get_context_manager_for_user(user_settings, current_user.id)
             
             # Get custom_prompt from the request model
             custom_prompt = request.custom_prompt
@@ -3474,7 +3477,8 @@ async def regenerate_scene_variant_choices(
         logger.info(f"[REGENERATE_CHOICES] Variant details: id={variant.id}, variant_number={variant.variant_number}, content_length={len(variant.content)}")
         
         # Build context for choice generation (same as in create_scene_variant)
-        context_manager = ContextManager(user_settings=user_settings, user_id=current_user.id)
+        # Use get_context_manager_for_user to get SemanticContextManager for structured format
+        context_manager = get_context_manager_for_user(user_settings, current_user.id)
         choice_context = await context_manager.build_choice_generation_context(story_id, db)
         
         # Generate new choices using the same fallback logic
