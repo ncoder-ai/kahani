@@ -280,9 +280,12 @@ backend/scripts/TEST_RESULTS.md
 backend/data/whisper_models/
 backend/data/vad_models/
 
-# Prompt tracking files
-backend/app/prompt_sent.txt
+# Prompt tracking files and log files
+logs/
+backend/app/prompt_*.txt
+backend/app/*prompt*.txt
 backend/app/Raw-Response.txt
+backend/app/*.log
 
 # Backup files
 *.bak
