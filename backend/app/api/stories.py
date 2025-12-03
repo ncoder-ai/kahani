@@ -3232,7 +3232,8 @@ async def continue_scene_streaming(
             custom_prompt = request.custom_prompt
                 
             context = await context_manager.build_scene_continuation_context(
-                story_id, scene_id, current_variant.content, db, custom_prompt
+                story_id, scene_id, current_variant.content, db, custom_prompt,
+                branch_id=story.current_branch_id  # Pass branch_id for branch-aware context
             )
             
             # Stream continuation generation with combined choices
