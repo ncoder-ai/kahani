@@ -972,34 +972,39 @@ Appearance: {char.get('appearance', '')}
         scene_id: int, 
         current_content: str,
         db: Session, 
-        custom_prompt: str = ""
+        custom_prompt: str = "",
+        branch_id: Optional[int] = None
     ) -> Dict[str, Any]:
         """
-        Build context for continuing a scene by adding more content to existing content
+        Build context for scene continuation - uses same structure as scene generation
+        for maximum cache hits.
+        
+        The current scene is EXCLUDED from previous_scenes (via exclude_scene_id) and
+        sent only in the final message. This mirrors how choice generation works.
         """
-        # Get the base story context
-        story_context = await self.build_story_context(story_id, db)
-        
-        # Get scene specific info
+        # Get scene info for chapter_id
         scene = db.query(Scene).filter(Scene.id == scene_id).first()
+        chapter_id = scene.chapter_id if scene else None
         
-        context = {
-            "story_title": story_context.get("story_title", ""),
-            "story_description": story_context.get("story_description", ""),
-            "genre": story_context.get("genre", ""),
-            "tone": story_context.get("tone", ""),
-            "characters": story_context.get("characters", []),
-            "world_setting": story_context.get("world_setting", ""),
-            "current_content": current_content,  # For POV detection
-            "current_scene_content": current_content,
-            "previous_scenes": story_context.get("previous_scenes", ""),  # For POV detection
-            "scene_title": scene.title if scene else "",
-            "scene_number": scene.sequence_number if scene else 1,
-            "continuation_prompt": custom_prompt,
-            "context_type": "scene_continuation"
-        }
+        # Build full context, EXCLUDING the current scene to avoid duplication
+        # This uses the same context structure as scene generation for cache hits
+        full_context = await self.build_scene_generation_context(
+            story_id, db, 
+            custom_prompt=custom_prompt,
+            chapter_id=chapter_id,
+            exclude_scene_id=scene_id,  # Exclude current scene - it will be in final message
+            branch_id=branch_id
+        )
         
-        return context
+        # Add continuation-specific fields
+        full_context["current_scene_content"] = current_content
+        full_context["current_content"] = current_content  # For POV detection
+        full_context["continuation_prompt"] = custom_prompt or "Continue this scene with more details and development."
+        full_context["context_type"] = "scene_continuation"
+        full_context["scene_title"] = scene.title if scene else ""
+        full_context["scene_number"] = scene.sequence_number if scene else 1
+        
+        return full_context
 
     async def calculate_actual_context_size(self, story_id: int, chapter_id: int, db: Session, branch_id: Optional[int] = None) -> int:
         """

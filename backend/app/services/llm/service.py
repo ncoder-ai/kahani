@@ -2468,11 +2468,15 @@ class UnifiedLLMService:
     ) -> AsyncGenerator[Tuple[str, bool, Optional[List[str]]], None]:
         """
         Generate scene continuation and choices in a single streaming call.
-        Same pattern as generate_scene_with_choices_streaming.
+        
+        Uses the SAME multi-message structure as scene generation and choice generation
+        for maximum cache hits. Messages 1-N are identical (system prompt, foundation,
+        chapter, entity states, scene batches). Only the final message differs
+        (current scene + continuation instruction instead of new scene + choice request).
         """
         CHOICES_MARKER = "###CHOICES###"
         
-        # Get POV from writing preset first (default to third person)
+        # Get POV from writing preset (SAME as scene generation - critical for cache hits)
         pov = 'third'
         if db and user_id:
             from ...models.writing_style_preset import WritingStylePreset
@@ -2483,67 +2487,112 @@ class UnifiedLLMService:
             if active_preset and hasattr(active_preset, 'pov') and active_preset.pov:
                 pov = active_preset.pov
         
-        # If no preset POV, detect from content
-        if pov == 'third':
-            current_content = context.get("current_content", "") or context.get("current_scene_content", "")
-            previous_scenes = context.get("previous_scenes", "")
-            detected_pov = self._detect_pov(current_content)
-            if previous_scenes:
-                previous_pov = self._detect_pov(previous_scenes)
-                if previous_pov != 'third' or detected_pov == 'third':
-                    detected_pov = previous_pov
-            # Only use detected POV if preset didn't override it
-            if not (db and user_id):
-                pov = detected_pov
-        
-        # Create POV instruction for template
-        if pov == 'first':
-            pov_instruction = "in first person (I/me/my)"
-        elif pov == 'second':
-            pov_instruction = "in second person (you/your)"
-        else:
-            pov_instruction = "in third person (he/she/they/character names)"
-        
-        # Get choices count from user settings
+        # Get choices count and scene length from user settings
         generation_prefs = user_settings.get("generation_preferences", {})
         choices_count = generation_prefs.get("choices_count", 4)
+        scene_length = generation_prefs.get("scene_length", "medium")
+        scene_length_map = {"short": "short (50-100 words)", "medium": "medium (100-150 words)", "long": "long (150-250 words)"}
+        scene_length_description = scene_length_map.get(scene_length, "medium (100-150 words)")
         
-        system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-            "story_generation", "scene_continuation",
-            context=self._format_context_for_continuation(context),
-            choices_count=choices_count,
-            pov_instruction=pov_instruction
+        # === USE SAME SYSTEM PROMPT AS SCENE GENERATION (for cache hits) ===
+        system_prompt = prompt_manager.get_prompt(
+            "scene_with_immediate", "system",
+            user_id=user_id,
+            db=db,
+            scene_length_description=scene_length_description,
+            choices_count=choices_count
         )
         
-        # Enhance system prompt with POV instruction for scene content
-        if pov == 'first':
-            system_prompt += "\n\nIMPORTANT: Continue the story in first person perspective (using 'I', 'me', 'my'). Maintain consistency with the established first-person narrative style."
-        elif pov == 'second':
-            system_prompt += "\n\nIMPORTANT: Continue the story in second person perspective (using 'you', 'your'). Maintain consistency with the established second-person narrative style."
-        else:
-            system_prompt += "\n\nIMPORTANT: Continue the story in third person perspective (using 'he', 'she', 'they', character names). Maintain consistency with the established third-person narrative style."
-        
-        # Enhance system prompt with POV instruction for choices (from template)
+        # Add POV consistency requirement to system prompt (from template)
         pov_reminder = prompt_manager.get_pov_reminder(pov)
         if pov_reminder:
             system_prompt += "\n\n" + pov_reminder
+        
+        # === BUILD SAME MULTI-MESSAGE STRUCTURE AS SCENE GENERATION (for cache hits) ===
+        messages = [{"role": "system", "content": system_prompt.strip()}]
+        
+        # Get scene batch size from user settings for cache optimization
+        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
+        
+        # Add context as multiple user messages (SAME as scene generation - all CACHED)
+        # The context already has current scene excluded (via exclude_scene_id in context_manager)
+        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
+        messages.extend(context_messages)
+        
+        # === ONLY THIS FINAL MESSAGE IS DIFFERENT ===
+        # Instead of new scene + choice request, we send current scene + continuation instruction
+        choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
+        
+        # Get current scene content and continuation prompt from context
+        current_scene_content = context.get("current_scene_content", "") or context.get("current_content", "")
+        continuation_prompt = context.get("continuation_prompt", "Continue this scene with more details and development.")
+        
+        # Clean scene content to remove any instruction tags or formatting artifacts
+        cleaned_scene_content = self._clean_instruction_tags(current_scene_content)
+        cleaned_scene_content = self._clean_scene_numbers(cleaned_scene_content)
+        
+        final_message = f"""=== CURRENT SCENE TO CONTINUE ===
+{cleaned_scene_content}
+
+=== CONTINUATION INSTRUCTION ===
+{continuation_prompt}
+
+Write a compelling continuation that follows naturally from the scene above. Focus on engaging narrative and dialogue. Do not repeat previous content.
+
+After completing the continuation, add ###CHOICES### followed by {choices_count} narrative choices.
+
+{choices_reminder}
+
+Output choices as valid JSON: {{"choices": ["choice 1", "choice 2", ...]}}"""
+        
+        messages.append({"role": "user", "content": final_message})
         
         # Add buffer for choices section - dynamic based on choices_count
         base_max_tokens = prompt_manager.get_max_tokens("scene_continuation", user_settings)
         choices_buffer_tokens = max(300, choices_count * 50)  # At least 300, or 50 per choice
         max_tokens = base_max_tokens + choices_buffer_tokens
-        logger.info(f"[CONTINUATION WITH CHOICES STREAMING] Using max_tokens: {max_tokens} (base: {base_max_tokens} + {choices_buffer_tokens} buffer for {choices_count} choices)")
+        
+        logger.info(f"[CONTINUATION] Using multi-message structure for cache optimization: {len(messages)} messages, max_tokens={max_tokens}")
+        
+        # Write debug output for debugging cache issues
+        from ...config import settings
+        if settings.prompt_debug:
+            try:
+                import json
+                prompt_file_path = self._get_prompt_debug_path("prompt_sent.txt")
+                client = self.get_user_client(user_id, user_settings)
+                with open(prompt_file_path, "w", encoding="utf-8") as f:
+                    f.write("=" * 80 + "\n")
+                    f.write("CONTINUATION STREAMING PROMPT (EXACTLY AS SENT TO LLM)\n")
+                    f.write("=" * 80 + "\n")
+                    f.write(f"NUMBER OF MESSAGES: {len(messages)}\n")
+                    f.write("-" * 80 + "\n")
+                    for i, msg in enumerate(messages):
+                        f.write(f"MESSAGE {i+1} [{msg['role'].upper()}]:\n")
+                        f.write(msg['content'][:500] + "..." if len(msg['content']) > 500 else msg['content'])
+                        f.write("\n" + "-" * 40 + "\n")
+                    f.write("-" * 80 + "\n")
+                    f.write(f"GENERATION PARAMETERS:\n")
+                    f.write(f"  max_tokens: {max_tokens}\n")
+                    f.write(f"  model: {client.model_string}\n")
+                    f.write("-" * 80 + "\n")
+                    f.write("FULL MESSAGES ARRAY (JSON):\n")
+                    f.write(json.dumps(messages, indent=2, ensure_ascii=False))
+                    f.write("\n")
+                    f.write("=" * 80 + "\n")
+            except Exception as e:
+                logger.warning(f"Failed to write continuation prompt debug file: {e}")
         
         scene_buffer = []
         choices_buffer = []
         found_marker = False
         rolling_buffer = ""  # Buffer to detect marker across chunks
         
-        async for chunk in self._generate_stream(
-            prompt=user_prompt,
+        # Use multi-message streaming for cache optimization
+        async for chunk in self._generate_stream_with_messages(
+            messages=messages,
             user_id=user_id,
             user_settings=user_settings,
-            system_prompt=system_prompt,
             max_tokens=max_tokens
         ):
             cleaned_chunk = self._clean_scene_numbers_chunk(chunk)
