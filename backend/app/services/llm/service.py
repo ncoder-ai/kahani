@@ -3177,7 +3177,7 @@ Output ONLY valid JSON in this exact format:
         - The last batch is the "active" batch that changes each scene
         
         Complete batches use fixed headers (=== SCENES 41-50 ===) for stable caching.
-        Active batch uses dynamic headers (=== RECENT SCENES 61-65 ===).
+        Active batch uses fixed header (=== RECENT SCENES ===) for stable caching.
         
         Args:
             scenes_text: Raw text containing scenes in format "Scene XX: content"
@@ -3254,8 +3254,8 @@ Output ONLY valid JSON in this exact format:
             is_active_batch = (idx == last_batch_idx)
             
             if is_active_batch:
-                # Active batch - use actual scene range, marked as recent/changing
-                header = f"=== RECENT SCENES {actual_start}-{actual_end} ==="
+                # Active batch - use FIXED header for stable caching (scene numbers change content, not header)
+                header = f"=== RECENT SCENES ==="
             else:
                 # Complete batch - use FIXED batch boundaries for stable caching
                 header = f"=== SCENES {batch_start}-{batch_end} ==="
