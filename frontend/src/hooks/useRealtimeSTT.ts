@@ -8,6 +8,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { AudioRecorder, useAudioRecorder } from '../utils/audioRecorder';
 import { useConfig } from '@/contexts/ConfigContext';
+import { getAuthToken } from '@/utils/jwt';
 
 export interface STTMessage {
   type: 'partial' | 'final' | 'status' | 'error' | 'complete';
@@ -67,8 +68,8 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
    */
   const checkSTTEnabled = useCallback(async (): Promise<boolean> => {
     try {
-      // Get auth token from localStorage or auth store
-      const token = localStorage.getItem('auth_token') || '';
+      // Get auth token from store
+      const token = getAuthToken();
       
       // Get API base URL from config
       const { getApiBaseUrl } = await import('@/lib/apiUrl');
@@ -121,8 +122,8 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}) {
    */
   const createSession = useCallback(async (): Promise<string> => {
     try {
-      // Get auth token from localStorage or auth store
-      const token = localStorage.getItem('auth_token') || '';
+      // Get auth token from store
+      const token = getAuthToken();
       
       // Get API base URL and STT path from config context
       const apiBaseUrl = await config.getApiBaseUrl();

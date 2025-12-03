@@ -217,9 +217,23 @@ class ApiClient {
     }
   }
 
+  /**
+   * Load token from auth store (single source of truth)
+   * Called on initialization and when store changes
+   */
   private loadToken() {
     if (typeof window !== 'undefined') {
-      this.token = localStorage.getItem('auth_token');
+      // Try to get token from Zustand persisted store
+      try {
+        const authStorage = localStorage.getItem('auth-storage');
+        if (authStorage) {
+          const parsed = JSON.parse(authStorage);
+          this.token = parsed.state?.token || null;
+        }
+      } catch (e) {
+        console.warn('[API] Failed to load token from auth store:', e);
+        this.token = null;
+      }
     }
   }
 
@@ -233,18 +247,20 @@ class ApiClient {
     return false;
   }
 
+  /**
+   * Set token in API client memory
+   * Note: Token persistence is handled by the auth store, not here
+   */
   setToken(token: string) {
     this.token = token;
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('auth_token', token);
-    }
   }
 
+  /**
+   * Remove token from API client memory
+   * Note: Token persistence is handled by the auth store, not here
+   */
   removeToken() {
     this.token = null;
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('auth_token');
-    }
     // Clear cached timeout when token is removed
     this.cachedTimeoutMs = null;
   }

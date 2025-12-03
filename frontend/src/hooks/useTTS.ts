@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import api, { getApiBaseUrl } from '@/lib/api';
+import { getAuthToken } from '@/utils/jwt';
 
 interface UseTTSOptions {
   sceneId: number;
@@ -120,7 +121,7 @@ export const useTTS = ({ sceneId, onPlaybackStart, onPlaybackEnd, onError }: Use
 
       const response = await fetch(url, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+          'Authorization': `Bearer ${getAuthToken()}`
         }
       });
 
@@ -143,7 +144,7 @@ export const useTTS = ({ sceneId, onPlaybackStart, onPlaybackEnd, onError }: Use
             `${await getApiBaseUrl()}/api/tts/audio/${sceneId}/status`,
             {
               headers: {
-                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+                'Authorization': `Bearer ${getAuthToken()}`
               }
             }
           );
