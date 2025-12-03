@@ -96,6 +96,30 @@ scene_base:
   task_without_immediate: |
     Write an engaging scene ({scene_length_description}) that continues naturally from the previous events. If this is the first scene, establish the story world and introduce the characters naturally.
 
+  # Task instruction for scene continuation (context sent separately in multi-message)
+  # Used by generate_continuation_with_choices_streaming()
+  task_continuation: |
+    === CURRENT SCENE TO CONTINUE ===
+    {current_scene_content}
+
+    === CONTINUATION INSTRUCTION ===
+    {continuation_prompt}
+
+    Write a compelling continuation that follows naturally from the scene above. Focus on engaging narrative and dialogue. Do not repeat previous content.
+
+  # Task instruction for guided enhancement (context sent separately in multi-message)
+  # Used by generate_scene_variants_with_choices_streaming() when enhancement_guidance is provided
+  task_guided_enhancement: |
+    === ORIGINAL SCENE ===
+    {original_scene}
+
+    === ENHANCEMENT REQUEST ===
+    {enhancement_guidance}
+
+    Rewrite the scene above incorporating the requested enhancement.
+    Maintain the same core events and outcomes. Keep consistency with established story elements.
+    Write approximately {scene_length_description} in length.
+
 # =============================================================================
 # STORY GENERATION PROMPTS
 # =============================================================================
