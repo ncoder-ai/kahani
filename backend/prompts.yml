@@ -120,6 +120,39 @@ scene_base:
     Maintain the same core events and outcomes. Keep consistency with established story elements.
     Write approximately {scene_length_description} in length.
 
+  # Task instruction for chapter conclusion (context sent separately in multi-message)
+  # Used by generate_concluding_scene_streaming()
+  task_chapter_conclusion: |
+    === CHAPTER CONCLUSION INSTRUCTIONS ===
+    
+    Chapter Information:
+    - Chapter Number: {chapter_number}
+    - Title: {chapter_title}
+    - Location: {chapter_location}
+    - Time Period: {chapter_time_period}
+    - Scenario: {chapter_scenario}
+    
+    Create a chapter conclusion that brings Chapter {chapter_number} to a natural and satisfying end. The conclusion should:
+    1. Provide closure for this chapter's specific events and character arcs
+    2. Tie up chapter-specific plot threads
+    3. Set up anticipation for the next chapter (without resolving the overall story)
+    4. Maintain the established genre, tone, and writing style
+    5. Feel like a natural chapter ending, not a story ending
+    6. Use vivid, descriptive language that draws readers into the specific world of this story
+    7. End at a natural chapter break point that leaves readers wanting to continue
+    
+    IMPORTANT: This is a CHAPTER ending, not a STORY ending. The conclusion should:
+    - Provide closure for the chapter's specific events and character arcs
+    - Leave the overall story plot open and unresolved
+    - Create a satisfying pause point that feels like a natural chapter break
+    - Set up intrigue or anticipation for the next chapter
+    - NOT resolve the main story conflict or bring the entire narrative to a close
+    
+    Write ONLY the narrative content. Do not include any choices, options, or questions for the reader.
+    This should be pure narrative - a compelling conclusion to this chapter.
+    
+    Chapter Conclusion:
+
 # =============================================================================
 # STORY GENERATION PROMPTS
 # =============================================================================

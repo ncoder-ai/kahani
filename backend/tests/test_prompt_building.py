@@ -94,6 +94,25 @@ class TestPromptManagerTaskInstructions:
         assert enhancement_guidance in result
         assert "long (150-250 words)" in result
     
+    def test_get_chapter_conclusion_task_instruction(self):
+        """Test chapter conclusion task instruction generation."""
+        result = self.pm.get_chapter_conclusion_task_instruction(
+            chapter_number=1,
+            chapter_title="The Beginning",
+            chapter_location="Castle Dungeon",
+            chapter_time_period="Medieval",
+            chapter_scenario="The hero escapes"
+        )
+        
+        assert result is not None
+        assert len(result) > 0
+        assert "CHAPTER CONCLUSION" in result
+        assert "Chapter Number: 1" in result or "chapter 1" in result.lower()
+        assert "The Beginning" in result
+        assert "Castle Dungeon" in result
+        assert "Medieval" in result
+        assert "The hero escapes" in result
+    
     def test_get_user_choices_reminder(self):
         """Test choices reminder generation."""
         result = self.pm.get_user_choices_reminder(choices_count=4)
@@ -296,6 +315,13 @@ class TestPromptTemplatesExist:
         if self.pm._prompts_cache:
             scene_base = self.pm._prompts_cache.get("scene_base", {})
             assert "task_without_immediate" in scene_base, "task_without_immediate template missing"
+    
+    def test_task_chapter_conclusion_template_exists(self):
+        """Test that task_chapter_conclusion template exists."""
+        if self.pm._prompts_cache:
+            scene_base = self.pm._prompts_cache.get("scene_base", {})
+            assert "task_chapter_conclusion" in scene_base, "task_chapter_conclusion template missing"
+            assert len(scene_base["task_chapter_conclusion"]) > 0
 
 
 class TestCleaningFunctions:

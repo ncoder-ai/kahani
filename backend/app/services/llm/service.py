@@ -2649,6 +2649,10 @@ class UnifiedLLMService:
         Unlike other scene generation methods, this does NOT generate choices
         as chapter endings are meant to conclude rather than branch.
         
+        Uses the SAME multi-message structure as scene generation for maximum cache hits.
+        Messages 1-N are identical (system prompt, foundation, chapter, entity states, 
+        scene batches). Only the final message differs (chapter conclusion instruction).
+        
         Args:
             context: Scene generation context from context_manager
             chapter_info: Dictionary with chapter_number, chapter_title, chapter_location, 
@@ -2660,15 +2664,52 @@ class UnifiedLLMService:
         Yields:
             str: Scene content chunks as they're generated
         """
-        # Format context for prompt
-        formatted_context = self._format_context_for_scene(context)
+        # Get POV from writing preset (SAME as scene generation - critical for cache hits)
+        pov = 'third'
+        if db and user_id:
+            from ...models.writing_style_preset import WritingStylePreset
+            active_preset = db.query(WritingStylePreset).filter(
+                WritingStylePreset.user_id == user_id,
+                WritingStylePreset.is_active == True
+            ).first()
+            if active_preset and hasattr(active_preset, 'pov') and active_preset.pov:
+                pov = active_preset.pov
         
-        # Get chapter conclusion prompts from prompt_manager
-        system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-            "chapter_conclusion", "chapter_conclusion",
+        # Get scene length from user settings (for consistency with other generation methods)
+        generation_prefs = user_settings.get("generation_preferences", {})
+        scene_length = generation_prefs.get("scene_length", "medium")
+        scene_length_description = self._get_scene_length_description(scene_length)
+        
+        # === USE CHAPTER CONCLUSION SYSTEM PROMPT (different from scene generation) ===
+        # Chapter conclusions have their own specific system prompt requirements
+        system_prompt = prompt_manager.get_prompt(
+            "chapter_conclusion", "system",
             user_id=user_id,
             db=db,
-            context=formatted_context,
+            scene_length_description=scene_length_description
+        )
+        
+        if not system_prompt or not system_prompt.strip():
+            logger.error("[CONCLUDING SCENE] System prompt is empty for chapter_conclusion")
+            raise ValueError("Failed to load system prompt for chapter conclusion")
+        
+        # Add POV consistency requirement
+        pov_reminder = prompt_manager.get_pov_reminder(pov)
+        if pov_reminder:
+            system_prompt += "\n\n" + pov_reminder
+        
+        # === BUILD MULTI-MESSAGE STRUCTURE (for cache hits on context) ===
+        messages = [{"role": "system", "content": system_prompt.strip()}]
+        
+        # Get scene batch size from user settings for cache optimization
+        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
+        
+        # Add context as multiple user messages (SAME as scene generation - all CACHED)
+        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
+        messages.extend(context_messages)
+        
+        # === FINAL MESSAGE: Chapter conclusion task instruction ===
+        task_content = prompt_manager.get_chapter_conclusion_task_instruction(
             chapter_number=chapter_info.get("chapter_number", 1),
             chapter_title=chapter_info.get("chapter_title", "Untitled"),
             chapter_location=chapter_info.get("chapter_location", "Unknown"),
@@ -2676,21 +2717,46 @@ class UnifiedLLMService:
             chapter_scenario=chapter_info.get("chapter_scenario", "None")
         )
         
-        if not system_prompt or not system_prompt.strip():
-            logger.error("[CONCLUDING SCENE] System prompt is empty for chapter_conclusion")
-            raise ValueError("Failed to load system prompt for chapter conclusion")
-        if not user_prompt or not user_prompt.strip():
-            logger.error("[CONCLUDING SCENE] User prompt is empty for chapter_conclusion")
-            raise ValueError("Failed to load user prompt for chapter conclusion")
+        messages.append({"role": "user", "content": task_content})
         
         max_tokens = prompt_manager.get_max_tokens("chapter_conclusion")
-        logger.info(f"[CONCLUDING SCENE STREAMING] Starting generation with max_tokens: {max_tokens}")
+        logger.info(f"[CONCLUDING SCENE] Using multi-message structure: {len(messages)} messages, max_tokens={max_tokens}")
         
-        async for chunk in self._generate_stream(
-            prompt=user_prompt,
+        # Write debug output for debugging cache issues
+        from ...config import settings
+        if settings.prompt_debug:
+            try:
+                import json
+                prompt_file_path = self._get_prompt_debug_path("prompt_sent.txt")
+                client = self.get_user_client(user_id, user_settings)
+                with open(prompt_file_path, "w", encoding="utf-8") as f:
+                    f.write("=" * 80 + "\n")
+                    f.write("CHAPTER CONCLUSION STREAMING PROMPT (EXACTLY AS SENT TO LLM)\n")
+                    f.write("=" * 80 + "\n")
+                    f.write(f"NUMBER OF MESSAGES: {len(messages)}\n")
+                    f.write("-" * 80 + "\n")
+                    for i, msg in enumerate(messages):
+                        f.write(f"MESSAGE {i+1} [{msg['role'].upper()}]:\n")
+                        f.write(msg['content'][:500] + "..." if len(msg['content']) > 500 else msg['content'])
+                        f.write("\n" + "-" * 40 + "\n")
+                    f.write("-" * 80 + "\n")
+                    f.write(f"GENERATION PARAMETERS:\n")
+                    f.write(f"  max_tokens: {max_tokens}\n")
+                    f.write(f"  temperature: 1.0\n")
+                    f.write(f"  model: {client.model_string}\n")
+                    f.write("-" * 80 + "\n")
+                    f.write("FULL MESSAGES ARRAY (JSON):\n")
+                    f.write(json.dumps(messages, indent=2, ensure_ascii=False))
+                    f.write("\n")
+                    f.write("=" * 80 + "\n")
+            except Exception as e:
+                logger.warning(f"Failed to write chapter conclusion prompt debug file: {e}")
+        
+        # Use multi-message streaming for cache optimization
+        async for chunk in self._generate_stream_with_messages(
+            messages=messages,
             user_id=user_id,
             user_settings=user_settings,
-            system_prompt=system_prompt,
             max_tokens=max_tokens
         ):
             cleaned_chunk = self._clean_scene_numbers_chunk(chunk)
