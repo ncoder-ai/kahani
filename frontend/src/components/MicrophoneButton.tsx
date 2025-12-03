@@ -4,6 +4,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useRealtimeSTT } from '../hooks/useRealtimeSTT';
 import { Mic, MicOff, Loader2 } from 'lucide-react';
 import { getApiBaseUrl } from '../lib/api';
+import { getAuthToken } from '@/utils/jwt';
 
 export interface MicrophoneButtonProps {
   onTranscriptComplete: (text: string) => void;
@@ -72,8 +73,8 @@ export default function MicrophoneButton({
   useEffect(() => {
     const checkSTTEnabled = async () => {
       try {
-        // Get auth token from localStorage or auth store
-        const token = localStorage.getItem('auth_token') || '';
+        // Get auth token from store
+        const token = getAuthToken();
         
         
         const response = await fetch(`${await getApiBaseUrl()}/api/settings/`, {

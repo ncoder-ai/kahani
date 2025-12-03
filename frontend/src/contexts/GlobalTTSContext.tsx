@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react';
 import { getApiBaseUrl } from '@/lib/api';
 import { audioContextManager } from '@/utils/audioContextManager';
+import { getAuthToken } from '@/utils/jwt';
 
 interface TTSMessage {
   type: string;
@@ -291,7 +292,7 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children }
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+          'Authorization': `Bearer ${getAuthToken()}`
         }
       });
       

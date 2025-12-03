@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, BookOpen, AlertCircle, Edit2, Save, X, Plus, CheckCircle, RefreshCw } from 'lucide-react';
 import apiClient, { getApiBaseUrl } from '@/lib/api';
+import { getAuthToken } from '@/utils/jwt';
 import dynamic from 'next/dynamic';
 
 const ChapterWizard = dynamic(() => import('@/components/ChapterWizard'), {
@@ -477,7 +478,7 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
+            'Authorization': `Bearer ${getAuthToken()}`,
             'Content-Type': 'application/json'
           }
         }
@@ -520,7 +521,7 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
+            'Authorization': `Bearer ${getAuthToken()}`,
             'Content-Type': 'application/json'
           }
         }
@@ -564,7 +565,7 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
+            'Authorization': `Bearer ${getAuthToken()}`,
             'Content-Type': 'application/json'
           }
         }

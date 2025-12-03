@@ -273,7 +273,8 @@ export default function StoryPage() {
     
     loadStory();
     loadUserSettings();
-  }, [user, hasHydrated, storyId, router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, hasHydrated, storyId]); // router intentionally excluded - it can be unstable and cause unwanted reloads
 
   const loadUserSettings = async () => {
     try {

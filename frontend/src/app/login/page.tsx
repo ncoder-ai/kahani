@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/store';
 import apiClient, { getApiBaseUrl } from '@/lib/api';
@@ -13,17 +13,24 @@ export default function LoginPage() {
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [sessionExpiredMessage, setSessionExpiredMessage] = useState(false);
   
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { login } = useAuthStore();
 
   useEffect(() => {
+    // Check if redirected due to session expiry
+    if (searchParams.get('expired') === 'true') {
+      setSessionExpiredMessage(true);
+    }
+    
     // Clear any stale tokens when landing on login page
     const { logout } = useAuthStore.getState();
     logout();
     // Apply default theme for login page
     applyTheme('pure-dark');
-  }, []);
+  }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -104,6 +111,15 @@ export default function LoginPage() {
           <h2 className="text-center text-2xl font-bold text-white mb-8">
             Welcome Back
           </h2>
+
+          {sessionExpiredMessage && (
+            <div className="mb-6 bg-amber-500/20 border border-amber-400/30 text-amber-100 px-4 py-3 rounded-lg flex items-center gap-2">
+              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <span>Your session has expired. Please sign in again.</span>
+            </div>
+          )}
 
           {error && (
             <div className="mb-6 bg-red-500/20 border border-red-400/30 text-red-100 px-4 py-3 rounded-lg">
