@@ -28,14 +28,15 @@ wait_for_service() {
 
 # Create necessary directories (only if we have permission)
 echo "📁 Creating directories..."
-mkdir -p /app/data /app/data/audio /app/logs 2>/dev/null || echo "⚠️  Some directories could not be created (mounted volumes)"
+mkdir -p /app/data /app/data/audio /app/logs /app/root_logs 2>/dev/null || echo "⚠️  Some directories could not be created (mounted volumes)"
 mkdir -p /app/exports /app/backups 2>/dev/null || echo "⚠️  Some directories could not be created (mounted volumes)"
 
 # Fix permissions for mounted volumes (critical for Docker volume mounts)
 echo "🔧 Setting up permissions for mounted volumes..."
 # Try to fix permissions, but don't fail if we can't
 chmod -R 755 /app/data 2>/dev/null || echo "⚠️  Could not set data directory permissions (mounted volume)"
-chmod -R 755 /app/logs 2>/dev/null || echo "⚠️  Could not set logs directory permissions (mounted volume)"
+chmod -R 777 /app/logs 2>/dev/null || echo "⚠️  Could not set logs directory permissions (mounted volume)"
+chmod -R 777 /app/root_logs 2>/dev/null || echo "⚠️  Could not set root_logs directory permissions (mounted volume)"
 chmod -R 755 /app/exports /app/backups 2>/dev/null || echo "⚠️  Could not set export/backup permissions"
 
 # Handle ownership for user 1000:1000 (Docker user mapping)
@@ -48,18 +49,22 @@ if [ "$(id -u)" = "0" ]; then
     echo "🔧 Running as root - fixing ownership of mounted volumes..."
     chown -R 1000:1000 /app/data 2>/dev/null && echo "✅ Fixed data directory ownership" || echo "⚠️  Could not change data directory ownership"
     chown -R 1000:1000 /app/logs 2>/dev/null && echo "✅ Fixed logs directory ownership" || echo "⚠️  Could not change logs directory ownership"
+    chown -R 1000:1000 /app/root_logs 2>/dev/null && echo "✅ Fixed root_logs directory ownership" || echo "⚠️  Could not change root_logs directory ownership"
     
-    # Set permissions after ownership change
+    # Set permissions after ownership change (use 777 for logs to ensure writability)
     chmod -R 755 /app/data 2>/dev/null && echo "✅ Set data directory permissions" || echo "⚠️  Could not set data directory permissions"
-    chmod -R 755 /app/logs 2>/dev/null && echo "✅ Set logs directory permissions" || echo "⚠️  Could not set logs directory permissions"
+    chmod -R 777 /app/logs 2>/dev/null && echo "✅ Set logs directory permissions" || echo "⚠️  Could not set logs directory permissions"
+    chmod -R 777 /app/root_logs 2>/dev/null && echo "✅ Set root_logs directory permissions" || echo "⚠️  Could not set root_logs directory permissions"
 else
     # If not running as root, try to fix ownership with current user
     echo "🔧 Not running as root - attempting to fix ownership with current user..."
     chown -R 1000:1000 /app/data 2>/dev/null && echo "✅ Fixed data directory ownership" || echo "⚠️  Could not change data directory ownership"
     chown -R 1000:1000 /app/logs 2>/dev/null && echo "✅ Fixed logs directory ownership" || echo "⚠️  Could not change logs directory ownership"
+    chown -R 1000:1000 /app/root_logs 2>/dev/null && echo "✅ Fixed root_logs directory ownership" || echo "⚠️  Could not change root_logs directory ownership"
     
     chmod -R 755 /app/data 2>/dev/null && echo "✅ Set data directory permissions" || echo "⚠️  Could not set data directory permissions"
-    chmod -R 755 /app/logs 2>/dev/null && echo "✅ Set logs directory permissions" || echo "⚠️  Could not set logs directory permissions"
+    chmod -R 777 /app/logs 2>/dev/null && echo "✅ Set logs directory permissions" || echo "⚠️  Could not set logs directory permissions"
+    chmod -R 777 /app/root_logs 2>/dev/null && echo "✅ Set root_logs directory permissions" || echo "⚠️  Could not set root_logs directory permissions"
 fi
 
 # Ensure data directory is writable by the application (critical for SQLite)
@@ -69,6 +74,10 @@ touch /app/data/.test_write 2>/dev/null && rm -f /app/data/.test_write && echo "
 # Ensure logs directory is writable by the application
 echo "📝 Ensuring logs directory is writable..."
 touch /app/logs/.test_write 2>/dev/null && rm -f /app/logs/.test_write && echo "✅ Logs directory is writable" || echo "⚠️  Logs directory may not be writable, will use console logging"
+
+# Ensure root_logs directory is writable by the application
+echo "📝 Ensuring root_logs directory is writable..."
+touch /app/root_logs/.test_write 2>/dev/null && rm -f /app/root_logs/.test_write && echo "✅ Root_logs directory is writable" || echo "⚠️  Root_logs directory may not be writable, will use console logging"
 
 # If PostgreSQL is configured, wait for it
 if [[ "$DATABASE_URL" == postgresql* ]]; then
