@@ -31,7 +31,8 @@ def upgrade() -> None:
         # SQLite doesn't support ALTER TABLE to drop constraints
         # We need to recreate the table
         
-        # Create a new table with the correct constraint
+        # Create a new table WITHOUT the problematic UNIQUE constraint
+        # We'll use partial unique indexes instead to handle NULL branch_id correctly
         op.execute("""
             CREATE TABLE npc_tracking_new (
                 id INTEGER PRIMARY KEY,
@@ -56,8 +57,7 @@ def upgrade() -> None:
                 created_at DATETIME DEFAULT (CURRENT_TIMESTAMP),
                 last_calculated DATETIME DEFAULT (CURRENT_TIMESTAMP),
                 FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE,
-                FOREIGN KEY (branch_id) REFERENCES story_branches(id) ON DELETE CASCADE,
-                UNIQUE (story_id, branch_id, character_name)
+                FOREIGN KEY (branch_id) REFERENCES story_branches(id) ON DELETE CASCADE
             )
         """)
         
@@ -83,15 +83,45 @@ def upgrade() -> None:
         op.create_index('ix_npc_tracking_character_name', 'npc_tracking', ['character_name'])
         op.create_index('ix_npc_tracking_importance_score', 'npc_tracking', ['importance_score'])
         op.create_index('ix_npc_tracking_branch_id', 'npc_tracking', ['branch_id'])
-        op.create_index('idx_npc_tracking_story_branch_name', 'npc_tracking', ['story_id', 'branch_id', 'character_name'])
+        
+        # Create partial unique indexes to handle NULL branch_id correctly
+        # For rows with branch_id IS NOT NULL: enforce (story_id, branch_id, character_name) uniqueness
+        op.execute("""
+            CREATE UNIQUE INDEX idx_npc_tracking_story_branch_name_not_null
+            ON npc_tracking(story_id, branch_id, character_name)
+            WHERE branch_id IS NOT NULL
+        """)
+        
+        # For rows with branch_id IS NULL: enforce (story_id, character_name) uniqueness
+        op.execute("""
+            CREATE UNIQUE INDEX idx_npc_tracking_story_name_null_branch
+            ON npc_tracking(story_id, character_name)
+            WHERE branch_id IS NULL
+        """)
     else:
-        # For PostgreSQL/MySQL, we can use ALTER TABLE
-        op.drop_constraint('idx_npc_tracking_story_name', 'npc_tracking', type_='unique')
-        op.create_unique_constraint(
-            'idx_npc_tracking_story_branch_name', 
-            'npc_tracking', 
-            ['story_id', 'branch_id', 'character_name']
-        )
+        # For PostgreSQL, use partial unique constraints to handle NULL branch_id correctly
+        # Drop the old constraint if it exists
+        try:
+            op.drop_constraint('idx_npc_tracking_story_name', 'npc_tracking', type_='unique')
+        except Exception:
+            # Constraint might not exist, that's okay
+            pass
+        
+        # Create partial unique index for rows with branch_id IS NOT NULL
+        # This enforces (story_id, branch_id, character_name) uniqueness when branch_id is not NULL
+        op.execute("""
+            CREATE UNIQUE INDEX idx_npc_tracking_story_branch_name_not_null
+            ON npc_tracking(story_id, branch_id, character_name)
+            WHERE branch_id IS NOT NULL
+        """)
+        
+        # Create partial unique index for rows with branch_id IS NULL
+        # This enforces (story_id, character_name) uniqueness when branch_id is NULL
+        op.execute("""
+            CREATE UNIQUE INDEX idx_npc_tracking_story_name_null_branch
+            ON npc_tracking(story_id, character_name)
+            WHERE branch_id IS NULL
+        """)
 
 
 def downgrade() -> None:
@@ -145,9 +175,17 @@ def downgrade() -> None:
         op.create_index('ix_npc_tracking_character_name', 'npc_tracking', ['character_name'])
         op.create_index('ix_npc_tracking_importance_score', 'npc_tracking', ['importance_score'])
         op.create_index('ix_npc_tracking_branch_id', 'npc_tracking', ['branch_id'])  # Recreate index from migration 019
-        op.create_index('idx_npc_tracking_story_name', 'npc_tracking', ['story_id', 'character_name'])
+        # Note: The UNIQUE constraint on (story_id, character_name) is already in the table definition above
     else:
-        op.drop_constraint('idx_npc_tracking_story_branch_name', 'npc_tracking', type_='unique')
+        # Drop the partial unique indexes
+        try:
+            op.execute("DROP INDEX IF EXISTS idx_npc_tracking_story_branch_name_not_null")
+            op.execute("DROP INDEX IF EXISTS idx_npc_tracking_story_name_null_branch")
+        except Exception:
+            # Indexes might not exist, that's okay
+            pass
+        
+        # Recreate the original unique constraint
         op.create_unique_constraint(
             'idx_npc_tracking_story_name', 
             'npc_tracking', 
