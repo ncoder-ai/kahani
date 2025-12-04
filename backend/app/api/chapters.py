@@ -549,6 +549,15 @@ async def complete_chapter(
     if not chapter.auto_summary or chapter.last_summary_scene_count < chapter.scenes_count:
         logger.info(f"[CHAPTER] Generating final summary for chapter {chapter_id}")
         await generate_chapter_summary_incremental(chapter_id, db, current_user.id)
+        
+        # Update story.summary now that this chapter is completed
+        try:
+            from ..api.summaries import update_story_summary_from_chapters
+            await update_story_summary_from_chapters(story_id, db, current_user.id)
+            logger.info(f"[CHAPTER] Updated story summary after completing chapter {chapter_id}")
+        except Exception as e:
+            # Don't fail chapter completion if story summary update fails
+            logger.warning(f"[CHAPTER] Failed to update story summary after completing chapter {chapter_id}: {e}")
     
     # Mark as completed
     chapter.status = ChapterStatus.COMPLETED
@@ -722,6 +731,15 @@ async def conclude_chapter(
         if not chapter.auto_summary or chapter.last_summary_scene_count < chapter.scenes_count:
             await generate_chapter_summary_incremental(chapter_id, db, current_user.id)
             await generate_story_so_far(chapter_id, db, current_user.id)
+            
+            # Update story.summary now that this chapter is completed
+            try:
+                from ..api.summaries import update_story_summary_from_chapters
+                await update_story_summary_from_chapters(story_id, db, current_user.id)
+                logger.info(f"[CHAPTER] Updated story summary after concluding chapter {chapter_id}")
+            except Exception as e:
+                # Don't fail chapter conclusion if story summary update fails
+                logger.warning(f"[CHAPTER] Failed to update story summary after concluding chapter {chapter_id}: {e}")
         
         # Mark chapter as COMPLETED after generating conclusion scene
         chapter.status = ChapterStatus.COMPLETED
