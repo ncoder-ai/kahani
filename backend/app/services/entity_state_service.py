@@ -700,7 +700,8 @@ class EntityStateService:
         self,
         db: Session,
         story_id: int,
-        max_scene_sequence: int
+        max_scene_sequence: int,
+        branch_id: int = None
     ) -> Optional[EntityStateBatch]:
         """
         Find the last valid batch that doesn't overlap with deleted scenes.
@@ -709,15 +710,19 @@ class EntityStateService:
             db: Database session
             story_id: Story ID
             max_scene_sequence: Maximum scene sequence to consider (scenes after this are deleted)
+            branch_id: Optional branch ID to filter by
             
         Returns:
             Last valid EntityStateBatch or None
         """
         # Find the last batch where end_scene_sequence < max_scene_sequence
-        batch = db.query(EntityStateBatch).filter(
+        batch_query = db.query(EntityStateBatch).filter(
             EntityStateBatch.story_id == story_id,
             EntityStateBatch.end_scene_sequence < max_scene_sequence
-        ).order_by(EntityStateBatch.end_scene_sequence.desc()).first()
+        )
+        if branch_id is not None:
+            batch_query = batch_query.filter(EntityStateBatch.branch_id == branch_id)
+        batch = batch_query.order_by(EntityStateBatch.end_scene_sequence.desc()).first()
         
         return batch
     
@@ -789,7 +794,8 @@ class EntityStateService:
         db: Session,
         story_id: int,
         min_seq: int,
-        max_seq: int
+        max_seq: int,
+        branch_id: int = None
     ) -> int:
         """
         Delete entity state batches that overlap with deleted scenes.
@@ -799,15 +805,19 @@ class EntityStateService:
             story_id: Story ID
             min_seq: Minimum scene sequence deleted
             max_seq: Maximum scene sequence deleted
+            branch_id: Optional branch ID to filter by
             
         Returns:
             Number of batches deleted
         """
-        affected_batches = db.query(EntityStateBatch).filter(
+        affected_batches_query = db.query(EntityStateBatch).filter(
             EntityStateBatch.story_id == story_id,
             EntityStateBatch.start_scene_sequence <= max_seq,
             EntityStateBatch.end_scene_sequence >= min_seq
-        ).all()
+        )
+        if branch_id is not None:
+            affected_batches_query = affected_batches_query.filter(EntityStateBatch.branch_id == branch_id)
+        affected_batches = affected_batches_query.all()
         
         if affected_batches:
             count = len(affected_batches)
@@ -822,7 +832,8 @@ class EntityStateService:
         self,
         db: Session,
         story_id: int,
-        max_deleted_sequence: int
+        max_deleted_sequence: int,
+        branch_id: int = None
     ) -> Dict[str, Any]:
         """
         Restore entity states from last complete batch without re-extraction.
@@ -832,18 +843,26 @@ class EntityStateService:
             db: Database session
             story_id: Story ID
             max_deleted_sequence: Maximum scene sequence that was deleted
+            branch_id: Optional branch ID to filter by
             
         Returns:
             Dictionary with restoration results
         """
         try:
             # Find last valid batch before deleted scenes
-            last_valid_batch = self.get_last_valid_batch(db, story_id, max_deleted_sequence)
+            last_valid_batch = self.get_last_valid_batch(db, story_id, max_deleted_sequence, branch_id=branch_id)
             
-            # Delete all existing entity states
-            db.query(CharacterState).filter(CharacterState.story_id == story_id).delete()
-            db.query(LocationState).filter(LocationState.story_id == story_id).delete()
-            db.query(ObjectState).filter(ObjectState.story_id == story_id).delete()
+            # Delete all existing entity states (filtered by branch)
+            char_delete_query = db.query(CharacterState).filter(CharacterState.story_id == story_id)
+            loc_delete_query = db.query(LocationState).filter(LocationState.story_id == story_id)
+            obj_delete_query = db.query(ObjectState).filter(ObjectState.story_id == story_id)
+            if branch_id is not None:
+                char_delete_query = char_delete_query.filter(CharacterState.branch_id == branch_id)
+                loc_delete_query = loc_delete_query.filter(LocationState.branch_id == branch_id)
+                obj_delete_query = obj_delete_query.filter(ObjectState.branch_id == branch_id)
+            char_delete_query.delete()
+            loc_delete_query.delete()
+            obj_delete_query.delete()
             
             # Restore from last valid batch if exists
             if last_valid_batch:
@@ -878,7 +897,8 @@ class EntityStateService:
         story_id: int,
         user_id: int,
         user_settings: Dict[str, Any],
-        max_deleted_sequence: int
+        max_deleted_sequence: int,
+        branch_id: int = None
     ) -> Dict[str, Any]:
         """
         Recalculate entity states using batch system after scene deletion.
@@ -890,18 +910,26 @@ class EntityStateService:
             user_id: User ID
             user_settings: User settings
             max_deleted_sequence: Maximum scene sequence that was deleted
+            branch_id: Optional branch ID to filter by
             
         Returns:
             Dictionary with recalculation results
         """
         try:
             # Find last valid batch before deleted scenes
-            last_valid_batch = self.get_last_valid_batch(db, story_id, max_deleted_sequence)
+            last_valid_batch = self.get_last_valid_batch(db, story_id, max_deleted_sequence, branch_id=branch_id)
             
-            # Delete all existing entity states
-            db.query(CharacterState).filter(CharacterState.story_id == story_id).delete()
-            db.query(LocationState).filter(LocationState.story_id == story_id).delete()
-            db.query(ObjectState).filter(ObjectState.story_id == story_id).delete()
+            # Delete all existing entity states (filtered by branch)
+            char_delete_query = db.query(CharacterState).filter(CharacterState.story_id == story_id)
+            loc_delete_query = db.query(LocationState).filter(LocationState.story_id == story_id)
+            obj_delete_query = db.query(ObjectState).filter(ObjectState.story_id == story_id)
+            if branch_id is not None:
+                char_delete_query = char_delete_query.filter(CharacterState.branch_id == branch_id)
+                loc_delete_query = loc_delete_query.filter(LocationState.branch_id == branch_id)
+                obj_delete_query = obj_delete_query.filter(ObjectState.branch_id == branch_id)
+            char_delete_query.delete()
+            loc_delete_query.delete()
+            obj_delete_query.delete()
             
             # Restore from last valid batch if exists
             if last_valid_batch:
@@ -913,12 +941,15 @@ class EntityStateService:
                 start_sequence = 1
                 logger.info(f"No valid batch found, starting from scene 1")
             
-            # Get all remaining scenes after the last valid batch
+            # Get all remaining scenes after the last valid batch (filtered by branch)
             from ..models import Scene, StoryFlow
-            remaining_scenes = db.query(Scene).filter(
+            remaining_scenes_query = db.query(Scene).filter(
                 Scene.story_id == story_id,
                 Scene.sequence_number >= start_sequence
-            ).order_by(Scene.sequence_number).all()
+            )
+            if branch_id is not None:
+                remaining_scenes_query = remaining_scenes_query.filter(Scene.branch_id == branch_id)
+            remaining_scenes = remaining_scenes_query.order_by(Scene.sequence_number).all()
             
             if not remaining_scenes:
                 logger.info(f"No remaining scenes to process after batch restoration")
