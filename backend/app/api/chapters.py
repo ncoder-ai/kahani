@@ -710,7 +710,8 @@ async def conclude_chapter(
             content=conclusion_text,
             title=f"Chapter {chapter.chapter_number} Conclusion",
             custom_prompt=conclusion_prompt_text,
-            generation_method="chapter_conclusion"
+            generation_method="chapter_conclusion",
+            branch_id=chapter.branch_id
         )
         
         # Link scene to chapter
@@ -1014,7 +1015,7 @@ async def get_chapter_context_status(
     # Calculate scenes_count dynamically from active StoryFlow instead of using stored value
     from ..services.llm.service import UnifiedLLMService
     llm_service = UnifiedLLMService()
-    active_scenes_count = llm_service.get_active_scene_count(db, story_id, chapter_id)
+    active_scenes_count = llm_service.get_active_scene_count(db, story_id, chapter_id, branch_id=chapter.branch_id)
     
     return ChapterContextStatus(
         chapter_id=chapter_id,
@@ -1704,7 +1705,7 @@ async def delete_chapter_content(
         db.delete(scene)
     
     # Recalculate scenes_count from active StoryFlow (should be 0 after deletion)
-    chapter.scenes_count = llm_service.get_active_scene_count(db, story_id, chapter_id)
+    chapter.scenes_count = llm_service.get_active_scene_count(db, story_id, chapter_id, branch_id=chapter.branch_id)
     
     # Delete all summary batches for this chapter (CASCADE should handle this, but explicit is clearer)
     batches_deleted = db.query(ChapterSummaryBatch).filter(

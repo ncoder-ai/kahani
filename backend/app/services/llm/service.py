@@ -4521,7 +4521,7 @@ Output ONLY valid JSON in this exact format:
             for chapter_id in affected_chapter_ids:
                 chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
                 if chapter:
-                    chapter.scenes_count = self.get_active_scene_count(db, story_id, chapter_id)
+                    chapter.scenes_count = self.get_active_scene_count(db, story_id, chapter_id, branch_id=chapter.branch_id)
                     logger.info(f"[DELETE] Updated chapter {chapter_id} scenes_count to {chapter.scenes_count}")
                     
                     # Invalidate batches that overlap with deleted scenes
