@@ -19,3 +19,4 @@ def upgrade():
 def downgrade():
     op.drop_column('user_settings', 'alert_on_high_context')
 
+
