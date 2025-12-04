@@ -114,5 +114,5 @@ services:
 # VOLUMES
 # ============================================================================
 # UNCOMMENT THE LINES BELOW IF USING POSTGRESQL (remove # from each line)
-# volumes:
-#   postgres_data:
+volumes:
+  postgres_data:

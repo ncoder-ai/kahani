@@ -573,24 +573,11 @@ Appearance: {char.get('appearance', '')}
         
         included_content = "\n\n".join(included_content_parts)
         
-        # Check if we have excluded scenes that need summarization
-        included_set = set(s.sequence_number for s in included_scenes)
-        excluded_scenes = [s for s in scenes if s.sequence_number not in included_set]
-        
-        if excluded_scenes and used_tokens < available_tokens - 200:  # Leave room for summary
-            remaining_tokens = available_tokens - used_tokens
-            summary = await self._summarize_scenes(excluded_scenes)
-            summary_tokens = self.count_tokens(summary)
-            
-            if summary_tokens <= remaining_tokens:
-                full_content = f"{summary}\n\n{included_content}"
-                strategy = "batch_aligned_with_summary"
-            else:
-                full_content = included_content
-                strategy = "batch_aligned"
-        else:
-            full_content = included_content
-            strategy = "batch_aligned"
+        # Use batch-aligned content directly - no on-the-fly summarization
+        # Pre-existing summaries (story_so_far, previous_chapter_summary, current_chapter_summary)
+        # are already included in base context and should be used instead
+        full_content = included_content
+        strategy = "batch_aligned"
         
         # Log batch alignment info
         if included_scenes:
