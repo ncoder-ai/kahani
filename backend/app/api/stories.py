@@ -3584,7 +3584,8 @@ async def regenerate_scene_variant_choices(
 
 async def restore_npc_tracking_in_background(
     story_id: int,
-    sequence_number: int
+    sequence_number: int,
+    branch_id: int = None
 ):
     """Background task to restore NPC tracking from snapshot after scene deletion"""
     try:
@@ -3597,32 +3598,42 @@ async def restore_npc_tracking_in_background(
         try:
             from ..models import Story, NPCTracking, NPCTrackingSnapshot, Scene
             
-            # Find the last remaining scene's sequence number
-            last_remaining_scene = bg_db.query(Scene).filter(
+            # Find the last remaining scene's sequence number (filtered by branch)
+            last_remaining_scene_query = bg_db.query(Scene).filter(
                 Scene.story_id == story_id,
                 Scene.sequence_number < sequence_number
-            ).order_by(Scene.sequence_number.desc()).first()
+            )
+            if branch_id is not None:
+                last_remaining_scene_query = last_remaining_scene_query.filter(Scene.branch_id == branch_id)
+            last_remaining_scene = last_remaining_scene_query.order_by(Scene.sequence_number.desc()).first()
             
             if last_remaining_scene:
-                # Get snapshot for the last remaining scene
-                snapshot = bg_db.query(NPCTrackingSnapshot).filter(
+                # Get snapshot for the last remaining scene (filtered by branch)
+                snapshot_query = bg_db.query(NPCTrackingSnapshot).filter(
                     NPCTrackingSnapshot.story_id == story_id,
                     NPCTrackingSnapshot.scene_sequence == last_remaining_scene.sequence_number
-                ).first()
+                )
+                if branch_id is not None:
+                    snapshot_query = snapshot_query.filter(NPCTrackingSnapshot.branch_id == branch_id)
+                snapshot = snapshot_query.first()
                 
                 if snapshot:
                     # Restore NPCTracking from snapshot
                     snapshot_data = snapshot.snapshot_data or {}
                     
-                    # Delete all existing NPC tracking records for this story
-                    bg_db.query(NPCTracking).filter(
+                    # Delete all existing NPC tracking records for this story and branch
+                    npc_delete_query = bg_db.query(NPCTracking).filter(
                         NPCTracking.story_id == story_id
-                    ).delete()
+                    )
+                    if branch_id is not None:
+                        npc_delete_query = npc_delete_query.filter(NPCTracking.branch_id == branch_id)
+                    npc_delete_query.delete()
                     
                     # Restore from snapshot
                     for character_name, npc_data in snapshot_data.items():
                         tracking = NPCTracking(
                             story_id=story_id,
+                            branch_id=branch_id,
                             character_name=character_name,
                             entity_type=npc_data.get("entity_type", "CHARACTER"),
                             total_mentions=npc_data.get("total_mentions", 0),
@@ -3643,16 +3654,19 @@ async def restore_npc_tracking_in_background(
                         bg_db.add(tracking)
                     
                     bg_db.commit()
-                    logger.info(f"[DELETE-BG] Restored NPC tracking from snapshot for scene {last_remaining_scene.sequence_number} (story {story_id})")
+                    logger.info(f"[DELETE-BG] Restored NPC tracking from snapshot for scene {last_remaining_scene.sequence_number} (story {story_id}, branch {branch_id})")
                 else:
                     logger.warning(f"[DELETE-BG] No snapshot found for last remaining scene {last_remaining_scene.sequence_number}")
             else:
-                # No remaining scenes - delete all NPC tracking
-                bg_db.query(NPCTracking).filter(
+                # No remaining scenes - delete all NPC tracking for this branch
+                npc_delete_query = bg_db.query(NPCTracking).filter(
                     NPCTracking.story_id == story_id
-                ).delete()
+                )
+                if branch_id is not None:
+                    npc_delete_query = npc_delete_query.filter(NPCTracking.branch_id == branch_id)
+                npc_delete_query.delete()
                 bg_db.commit()
-                logger.info(f"[DELETE-BG] No remaining scenes, deleted all NPC tracking for story {story_id}")
+                logger.info(f"[DELETE-BG] No remaining scenes, deleted all NPC tracking for story {story_id}, branch {branch_id}")
         finally:
             bg_db.close()
     except Exception as e:
@@ -3701,7 +3715,8 @@ async def restore_entity_states_in_background(
     min_deleted_seq: int,
     max_deleted_seq: int,
     user_id: int,
-    user_settings: dict
+    user_settings: dict,
+    branch_id: int = None
 ):
     """Background task to restore entity states after scene deletion"""
     try:
@@ -3731,16 +3746,19 @@ async def restore_entity_states_in_background(
                 user_settings=user_settings
             )
             
-            # Invalidate batches that overlap with deleted scenes
+            # Invalidate batches that overlap with deleted scenes (filtered by branch)
             entity_service.invalidate_entity_batches_for_scenes(
-                bg_db, story_id, min_deleted_seq, max_deleted_seq
+                bg_db, story_id, min_deleted_seq, max_deleted_seq, branch_id=branch_id
             )
             
-            # Check if remaining scenes form a complete batch
-            last_remaining_scene = bg_db.query(Scene).filter(
+            # Check if remaining scenes form a complete batch (filtered by branch)
+            last_remaining_scene_query = bg_db.query(Scene).filter(
                 Scene.story_id == story_id,
                 Scene.sequence_number < sequence_number
-            ).order_by(Scene.sequence_number.desc()).first()
+            )
+            if branch_id is not None:
+                last_remaining_scene_query = last_remaining_scene_query.filter(Scene.branch_id == branch_id)
+            last_remaining_scene = last_remaining_scene_query.order_by(Scene.sequence_number.desc()).first()
             
             if last_remaining_scene:
                 batch_threshold = user_settings.get("context_summary_threshold", 5)
@@ -3750,23 +3768,30 @@ async def restore_entity_states_in_background(
                 if is_complete_batch:
                     # Complete batch - recalculate (will re-extract)
                     await entity_service.recalculate_entity_states_from_batches(
-                        bg_db, story_id, user_id, user_settings, max_deleted_seq
+                        bg_db, story_id, user_id, user_settings, max_deleted_seq, branch_id=branch_id
                     )
-                    logger.info(f"[DELETE-BG] Recalculated entity states (complete batch) for story {story_id}")
+                    logger.info(f"[DELETE-BG] Recalculated entity states (complete batch) for story {story_id}, branch {branch_id}")
                 else:
                     # Incomplete batch - only restore, don't re-extract
                     entity_service.restore_from_last_complete_batch(
-                        bg_db, story_id, max_deleted_seq
+                        bg_db, story_id, max_deleted_seq, branch_id=branch_id
                     )
-                    logger.info(f"[DELETE-BG] Restored entity states from last complete batch (incomplete batch remains) for story {story_id}")
+                    logger.info(f"[DELETE-BG] Restored entity states from last complete batch (incomplete batch remains) for story {story_id}, branch {branch_id}")
             else:
-                # No remaining scenes - just clear entity states
+                # No remaining scenes - just clear entity states for this branch
                 from ..models import CharacterState, LocationState, ObjectState
-                bg_db.query(CharacterState).filter(CharacterState.story_id == story_id).delete()
-                bg_db.query(LocationState).filter(LocationState.story_id == story_id).delete()
-                bg_db.query(ObjectState).filter(ObjectState.story_id == story_id).delete()
+                char_delete_query = bg_db.query(CharacterState).filter(CharacterState.story_id == story_id)
+                loc_delete_query = bg_db.query(LocationState).filter(LocationState.story_id == story_id)
+                obj_delete_query = bg_db.query(ObjectState).filter(ObjectState.story_id == story_id)
+                if branch_id is not None:
+                    char_delete_query = char_delete_query.filter(CharacterState.branch_id == branch_id)
+                    loc_delete_query = loc_delete_query.filter(LocationState.branch_id == branch_id)
+                    obj_delete_query = obj_delete_query.filter(ObjectState.branch_id == branch_id)
+                char_delete_query.delete()
+                loc_delete_query.delete()
+                obj_delete_query.delete()
                 bg_db.commit()
-                logger.info(f"[DELETE-BG] No remaining scenes, cleared entity states for story {story_id}")
+                logger.info(f"[DELETE-BG] No remaining scenes, cleared entity states for story {story_id}, branch {branch_id}")
         finally:
             bg_db.close()
     except Exception as e:
@@ -3802,12 +3827,18 @@ async def delete_scenes_from_sequence(
     ).first()
     user_settings = user_settings_obj.to_dict() if user_settings_obj else {}
     
-    # Get scene info for background tasks BEFORE deletion
+    # Get branch_id from story's current branch
+    branch_id = story.current_branch_id
+    
+    # Get scene info for background tasks BEFORE deletion (filtered by branch)
     from ..models import Scene as SceneModel
-    scenes_to_delete = db.query(SceneModel).filter(
+    scenes_to_delete_query = db.query(SceneModel).filter(
         SceneModel.story_id == story_id,
         SceneModel.sequence_number >= sequence_number
-    ).all()
+    )
+    if branch_id is not None:
+        scenes_to_delete_query = scenes_to_delete_query.filter(SceneModel.branch_id == branch_id)
+    scenes_to_delete = scenes_to_delete_query.all()
     
     # Collect scene IDs for semantic cleanup (before scenes are deleted)
     scene_ids_to_cleanup = [scene.id for scene in scenes_to_delete]
@@ -3816,7 +3847,7 @@ async def delete_scenes_from_sequence(
     
     # Perform deletion (fast database operations only - semantic cleanup in background)
     service = SceneVariantService(db)
-    success = await service.delete_scenes_from_sequence(story_id, sequence_number, skip_restoration=True)
+    success = await service.delete_scenes_from_sequence(story_id, sequence_number, skip_restoration=True, branch_id=branch_id)
     
     if not success:
         raise HTTPException(
@@ -3837,7 +3868,8 @@ async def delete_scenes_from_sequence(
     background_tasks.add_task(
         restore_npc_tracking_in_background,
         story_id=story_id,
-        sequence_number=sequence_number
+        sequence_number=sequence_number,
+        branch_id=branch_id
     )
     
     # 3. Entity states restoration
@@ -3848,7 +3880,8 @@ async def delete_scenes_from_sequence(
         min_deleted_seq=min_deleted_seq,
         max_deleted_seq=max_deleted_seq,
         user_id=current_user.id,
-        user_settings=user_settings
+        user_settings=user_settings,
+        branch_id=branch_id
     )
     
     return {"message": f"Scenes from sequence {sequence_number} onwards deleted successfully"}
