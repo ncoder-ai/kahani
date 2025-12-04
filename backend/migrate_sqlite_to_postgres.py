@@ -170,6 +170,22 @@ def table_exists(engine, table_name: str) -> bool:
     return table_name in inspector.get_table_names()
 
 
+def get_boolean_columns(engine, table_name: str) -> set:
+    """Get a set of column names that are boolean type in PostgreSQL."""
+    boolean_cols = set()
+    with engine.connect() as conn:
+        result = conn.execute(text(f"""
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = '{table_name}' 
+            AND table_schema = 'public'
+            AND data_type = 'boolean'
+        """))
+        for row in result:
+            boolean_cols.add(row[0])
+    return boolean_cols
+
+
 def insert_data(engine, table_name: str, data: List[Dict[str, Any]], batch_size: int = 100) -> int:
     """Insert data into a table in batches."""
     if not data:
@@ -177,6 +193,9 @@ def insert_data(engine, table_name: str, data: List[Dict[str, Any]], batch_size:
     
     inserted = 0
     columns = data[0].keys()
+    
+    # Get boolean columns for this table
+    boolean_columns = get_boolean_columns(engine, table_name)
     
     with engine.connect() as conn:
         for i in range(0, len(data), batch_size):
@@ -188,10 +207,14 @@ def insert_data(engine, table_name: str, data: List[Dict[str, Any]], batch_size:
                 placeholders = ', '.join([f':{c}' for c in row.keys()])
                 
                 # Handle NULL values and special types
+                # Convert SQLite boolean integers (0/1) to PostgreSQL booleans (True/False)
                 clean_row = {}
                 for k, v in row.items():
                     if v is None:
                         clean_row[k] = None
+                    elif k in boolean_columns and isinstance(v, int) and v in (0, 1):
+                        # This column is a boolean in PostgreSQL, convert integer to boolean
+                        clean_row[k] = bool(v)
                     else:
                         clean_row[k] = v
                 
