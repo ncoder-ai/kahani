@@ -144,6 +144,7 @@ def downgrade() -> None:
         op.create_index('ix_npc_tracking_story_id', 'npc_tracking', ['story_id'])
         op.create_index('ix_npc_tracking_character_name', 'npc_tracking', ['character_name'])
         op.create_index('ix_npc_tracking_importance_score', 'npc_tracking', ['importance_score'])
+        op.create_index('ix_npc_tracking_branch_id', 'npc_tracking', ['branch_id'])  # Recreate index from migration 019
         op.create_index('idx_npc_tracking_story_name', 'npc_tracking', ['story_id', 'character_name'])
     else:
         op.drop_constraint('idx_npc_tracking_story_branch_name', 'npc_tracking', type_='unique')
