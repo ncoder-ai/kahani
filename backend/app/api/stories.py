@@ -1144,6 +1144,7 @@ async def generate_scene(
                         manual_choice = SceneChoice(
                             scene_id=previous_scene.id,
                             scene_variant_id=previous_flow.scene_variant_id,
+                            branch_id=active_branch_id,
                             choice_text=custom_prompt.strip(),
                             choice_order=max_order + 1,
                             is_user_created=True,
@@ -1609,6 +1610,7 @@ async def generate_scene_streaming_endpoint(
                                 manual_choice = SceneChoice(
                                     scene_id=previous_scene.id,
                                     scene_variant_id=previous_flow.scene_variant_id,
+                                    branch_id=active_branch_id,
                                     choice_text=custom_prompt.strip(),
                                     choice_order=max_order + 1,
                                     is_user_created=True,
@@ -1968,6 +1970,7 @@ async def generate_more_choices(
             choice = SceneChoice(
                 scene_id=scene.id,
                 scene_variant_id=variant.id,
+                branch_id=scene.branch_id,
                 choice_text=choice_text,
                 choice_order=next_order + idx
             )
@@ -2363,9 +2366,14 @@ async def update_manual_choice(
             SceneChoice.scene_variant_id == variant_id
         ).scalar() or 0
         
+        # Get branch_id from variant's scene
+        scene = db.query(Scene).filter(Scene.id == variant.scene_id).first()
+        branch_id = scene.branch_id if scene else None
+        
         manual_choice = SceneChoice(
             scene_id=variant.scene_id,
             scene_variant_id=variant_id,
+            branch_id=branch_id,
             choice_text=choice_text.strip(),
             choice_order=max_order + 1,
             is_user_created=True
@@ -2644,11 +2652,16 @@ async def create_scene_variant(
                 db
             )
             
+            # Get branch_id from scene
+            scene = db.query(Scene).filter(Scene.id == scene_id).first()
+            branch_id = scene.branch_id if scene else None
+            
             # Create choice records for the variant
             for idx, choice_text in enumerate(generated_choices, 1):
                 choice = SceneChoice(
                     scene_id=scene_id,
                     scene_variant_id=variant.id,
+                    branch_id=branch_id,
                     choice_text=choice_text,
                     choice_order=idx
                 )
@@ -2994,11 +3007,16 @@ async def create_scene_variant_streaming(
                         db
                     )
                 
+                # Get branch_id from scene
+                scene = db.query(Scene).filter(Scene.id == scene_id).first()
+                branch_id = scene.branch_id if scene else None
+                
                 # Create choice records for the variant
                 for idx, choice_text in enumerate(generated_choices, 1):
                     choice = SceneChoice(
                         scene_id=scene_id,
                         scene_variant_id=variant.id,
+                        branch_id=branch_id,
                         choice_text=choice_text,
                         choice_order=idx
                     )
@@ -3297,6 +3315,7 @@ async def continue_scene_streaming(
                         choice = SceneChoice(
                             scene_id=scene_id,
                             scene_variant_id=current_variant.id,
+                            branch_id=scene.branch_id,
                             choice_text=choice_text,
                             choice_order=i
                         )
@@ -3534,6 +3553,7 @@ async def regenerate_scene_variant_choices(
             choice = SceneChoice(
                 scene_id=scene_id,
                 scene_variant_id=variant.id,  # Explicitly use variant.id to ensure correct linkage
+                branch_id=scene.branch_id,
                 choice_text=choice_text,
                 choice_order=idx
             )
