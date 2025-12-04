@@ -85,17 +85,19 @@ def upgrade():
         story_id = story[0]
         
         # Create main branch for this story
+        # Use true/false for PostgreSQL boolean compatibility (also works with SQLite)
         connection.execute(
             text("""
                 INSERT INTO story_branches (story_id, name, is_main, is_active, created_at)
-                VALUES (:story_id, 'Main', 1, 1, CURRENT_TIMESTAMP)
+                VALUES (:story_id, 'Main', true, true, CURRENT_TIMESTAMP)
             """),
             {"story_id": story_id}
         )
         
         # Get the branch_id we just created
+        # Use true for PostgreSQL boolean compatibility
         result = connection.execute(
-            text("SELECT id FROM story_branches WHERE story_id = :story_id AND is_main = 1"),
+            text("SELECT id FROM story_branches WHERE story_id = :story_id AND is_main = true"),
             {"story_id": story_id}
         ).fetchone()
         branch_id = result[0]
@@ -139,14 +141,9 @@ def upgrade():
     op.create_index('idx_npc_tracking_branch_name', 'npc_tracking', ['branch_id', 'character_name'], unique=True)
     op.create_index('idx_npc_snapshot_branch_sequence', 'npc_tracking_snapshots', ['branch_id', 'scene_sequence'])
     
-    # Drop the old unique index on npc_tracking that doesn't include branch_id
-    # and recreate it without unique constraint (since unique is now on branch_id + character_name)
-    try:
-        op.drop_index('idx_npc_tracking_story_name', 'npc_tracking')
-        op.create_index('idx_npc_tracking_story_name', 'npc_tracking', ['story_id', 'character_name'])
-    except Exception:
-        # Index might not exist or have a different name
-        pass
+    # Note: idx_npc_tracking_story_name already exists as a unique constraint from migration 004
+    # We don't modify it here - migration 020 will handle updating it for branch support
+    # In PostgreSQL, try/except doesn't work because errors abort the entire transaction
 
 
 def downgrade():
