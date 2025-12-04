@@ -749,7 +749,12 @@ async def activate_chapter(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Set a chapter as active. All other chapters will be marked as COMPLETED (if they have scenes) or DRAFT (if empty)."""
+    """
+    Set a chapter as active. All other chapters in the SAME BRANCH will be marked as 
+    COMPLETED (if they have scenes) or DRAFT (if empty).
+    
+    Note: Only affects chapters in the same branch to maintain branch isolation.
+    """
     
     logger.info(f"[CHAPTER] Activating chapter {chapter_id} for story {story_id}")
     
@@ -771,38 +776,43 @@ async def activate_chapter(
     if not chapter:
         raise HTTPException(status_code=404, detail="Chapter not found")
     
-    # Get all chapters for this story
-    all_chapters = db.query(Chapter).filter(
+    # Get all chapters for this story in the SAME BRANCH
+    # This prevents cross-branch status changes
+    branch_chapters_query = db.query(Chapter).filter(
         Chapter.story_id == story_id
-    ).all()
+    )
+    # Filter by branch_id if the chapter has one
+    if chapter.branch_id:
+        branch_chapters_query = branch_chapters_query.filter(Chapter.branch_id == chapter.branch_id)
+    branch_chapters = branch_chapters_query.all()
     
-    # Set all other chapters to COMPLETED (if they have scenes) or DRAFT (if empty)
-    for ch in all_chapters:
+    # Set all other chapters in this branch to COMPLETED (if they have scenes) or DRAFT (if empty)
+    for ch in branch_chapters:
         if ch.id == chapter_id:
             # Set target chapter as ACTIVE
             ch.status = ChapterStatus.ACTIVE
-            logger.info(f"[CHAPTER] Set chapter {ch.id} (Chapter {ch.chapter_number}) as ACTIVE")
+            logger.info(f"[CHAPTER] Set chapter {ch.id} (Chapter {ch.chapter_number}, branch={ch.branch_id}) as ACTIVE")
         else:
             # Set other chapters based on whether they have scenes
             if ch.scenes_count > 0:
                 ch.status = ChapterStatus.COMPLETED
                 if not ch.completed_at:
                     ch.completed_at = datetime.now(timezone.utc)
-                logger.info(f"[CHAPTER] Set chapter {ch.id} (Chapter {ch.chapter_number}) as COMPLETED (has {ch.scenes_count} scenes)")
+                logger.info(f"[CHAPTER] Set chapter {ch.id} (Chapter {ch.chapter_number}, branch={ch.branch_id}) as COMPLETED (has {ch.scenes_count} scenes)")
             else:
                 ch.status = ChapterStatus.DRAFT
-                logger.info(f"[CHAPTER] Set chapter {ch.id} (Chapter {ch.chapter_number}) as DRAFT (no scenes)")
+                logger.info(f"[CHAPTER] Set chapter {ch.id} (Chapter {ch.chapter_number}, branch={ch.branch_id}) as DRAFT (no scenes)")
     
     db.commit()
     
     # Refresh all chapters and return updated list
     db.refresh(chapter)
-    for ch in all_chapters:
+    for ch in branch_chapters:
         db.refresh(ch)
     
-    logger.info(f"[CHAPTER] Successfully activated chapter {chapter_id}. All chapters updated.")
+    logger.info(f"[CHAPTER] Successfully activated chapter {chapter_id} in branch {chapter.branch_id}. {len(branch_chapters)} chapters updated.")
     
-    return [build_chapter_response(ch, db) for ch in all_chapters]
+    return [build_chapter_response(ch, db) for ch in branch_chapters]
 
 
 @router.post("/{story_id}/chapters/{chapter_id}/characters", response_model=ChapterResponse)
@@ -1072,17 +1082,24 @@ async def generate_chapter_summary(chapter_id: int, db: Session, user_id: int) -
     Generate a summary of the chapter's scenes WITH CONTEXT from previous chapters.
     This is stored in chapter.auto_summary and represents ONLY this chapter's content,
     but the LLM receives previous chapter summaries to maintain consistency.
+    
+    Note: Filters by branch_id to ensure only chapters from the same branch are included.
     """
     
     chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
     if not chapter:
         return ""
     
-    # Get ALL PREVIOUS chapters' summaries for context
-    previous_chapters = db.query(Chapter).filter(
+    # Get ALL PREVIOUS chapters' summaries for context (filtered by branch_id)
+    # This ensures we only get chapters from the same branch to avoid cross-branch pollution
+    previous_chapters_query = db.query(Chapter).filter(
         Chapter.story_id == chapter.story_id,
         Chapter.chapter_number < chapter.chapter_number
-    ).order_by(Chapter.chapter_number).all()
+    )
+    # Filter by branch_id if the chapter has one
+    if chapter.branch_id:
+        previous_chapters_query = previous_chapters_query.filter(Chapter.branch_id == chapter.branch_id)
+    previous_chapters = previous_chapters_query.order_by(Chapter.chapter_number).all()
     
     previous_summaries = []
     for ch in previous_chapters:
@@ -1307,14 +1324,18 @@ async def generate_chapter_summary_incremental(chapter_id: int, db: Session, use
     if chapter.story_so_far:
         story_so_far_text = f"\nStory So Far (Previous Chapters):\n{chapter.story_so_far}\n"
     
-    # 2. previous chapter summary
+    # 2. previous chapter summary (filtered by branch_id to avoid cross-branch pollution)
     previous_chapter_text = ""
     if chapter.chapter_number > 1:
-        previous_chapter = db.query(Chapter).filter(
+        previous_chapter_query = db.query(Chapter).filter(
             Chapter.story_id == chapter.story_id,
             Chapter.chapter_number == chapter.chapter_number - 1,
             Chapter.auto_summary.isnot(None)
-        ).first()
+        )
+        # Filter by branch_id if the chapter has one
+        if chapter.branch_id:
+            previous_chapter_query = previous_chapter_query.filter(Chapter.branch_id == chapter.branch_id)
+        previous_chapter = previous_chapter_query.first()
         if previous_chapter and previous_chapter.auto_summary:
             previous_chapter_text = f"\nPrevious Chapter Summary:\n{previous_chapter.auto_summary}\n"
     
@@ -1523,6 +1544,8 @@ async def generate_story_so_far(chapter_id: int, db: Session, user_id: int) -> O
     
     Returns None if there are no previous chapters with summaries.
     This is used when creating a new chapter to provide context from all previous chapters.
+    
+    Note: Filters by branch_id to ensure only chapters from the same branch are included.
     """
     
     chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
@@ -1532,10 +1555,15 @@ async def generate_story_so_far(chapter_id: int, db: Session, user_id: int) -> O
     story_id = chapter.story_id
     
     # Get all previous chapters (completed or active, in order)
-    previous_chapters = db.query(Chapter).filter(
+    # Filter by branch_id to avoid cross-branch context pollution
+    previous_chapters_query = db.query(Chapter).filter(
         Chapter.story_id == story_id,
         Chapter.chapter_number < chapter.chapter_number
-    ).order_by(Chapter.chapter_number).all()
+    )
+    # Filter by branch_id if the chapter has one
+    if chapter.branch_id:
+        previous_chapters_query = previous_chapters_query.filter(Chapter.branch_id == chapter.branch_id)
+    previous_chapters = previous_chapters_query.order_by(Chapter.chapter_number).all()
     
     # Build the story so far from previous chapter summaries ONLY
     previous_summaries = []
