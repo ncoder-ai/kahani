@@ -6,7 +6,6 @@ Create Date: 2025-01-XX
 """
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = '013_add_entity_state_batches'
@@ -21,9 +20,9 @@ def upgrade():
         sa.Column('story_id', sa.Integer(), nullable=False),
         sa.Column('start_scene_sequence', sa.Integer(), nullable=False),
         sa.Column('end_scene_sequence', sa.Integer(), nullable=False),
-        sa.Column('character_states_snapshot', postgresql.JSON(astext_type=sa.Text()), nullable=False),
-        sa.Column('location_states_snapshot', postgresql.JSON(astext_type=sa.Text()), nullable=False),
-        sa.Column('object_states_snapshot', postgresql.JSON(astext_type=sa.Text()), nullable=False),
+        sa.Column('character_states_snapshot', sa.JSON(), nullable=False),
+        sa.Column('location_states_snapshot', sa.JSON(), nullable=False),
+        sa.Column('object_states_snapshot', sa.JSON(), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
         sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(['story_id'], ['stories.id'], ondelete='CASCADE'),
