@@ -6,7 +6,6 @@ Create Date: 2025-01-XX
 """
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = '015_add_npc_tracking_snapshots'
@@ -21,7 +20,7 @@ def upgrade():
         sa.Column('scene_id', sa.Integer(), nullable=False),
         sa.Column('scene_sequence', sa.Integer(), nullable=False),
         sa.Column('story_id', sa.Integer(), nullable=False),
-        sa.Column('snapshot_data', postgresql.JSON(astext_type=sa.Text()), nullable=False),
+        sa.Column('snapshot_data', sa.JSON(), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
         sa.ForeignKeyConstraint(['scene_id'], ['scenes.id'], ondelete='CASCADE'),
         sa.ForeignKeyConstraint(['story_id'], ['stories.id'], ondelete='CASCADE'),
@@ -38,5 +37,6 @@ def downgrade():
     op.drop_index('ix_npc_tracking_snapshots_scene_id', table_name='npc_tracking_snapshots')
     op.drop_index('ix_npc_tracking_snapshots_id', table_name='npc_tracking_snapshots')
     op.drop_table('npc_tracking_snapshots')
+
 
 
