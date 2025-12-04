@@ -781,6 +781,12 @@ async def run_extractions_in_background(
             
             actual_to_sequence = max_sequence_in_chapter
             
+            # Safety check: if from_sequence >= to_sequence, there are no scenes to process
+            if actual_from_sequence >= actual_to_sequence:
+                logger.warning(f"[EXTRACTION] No scenes to process: from_sequence ({actual_from_sequence}) >= to_sequence ({actual_to_sequence})")
+                logger.warning(f"[EXTRACTION] Skipping extraction for chapter {chapter_id}")
+                return
+            
             logger.warning(f"[EXTRACTION] Background task - Reloaded chapter {chapter_id}:")
             logger.warning(f"  - Scenes in chapter: {len(scenes_in_chapter)} (sequences {min_sequence_in_chapter} to {max_sequence_in_chapter})")
             logger.warning(f"  - Using from_sequence={actual_from_sequence}, to_sequence={actual_to_sequence}")
@@ -796,13 +802,21 @@ async def run_extractions_in_background(
                 db=extraction_db
             )
             
-            # Update last extraction count with actual sequence number (not count)
-            extraction_chapter.last_extraction_scene_count = actual_to_sequence
-            extraction_db.commit()
-            logger.warning(f"[EXTRACTION] Updated last_extraction_scene_count to {actual_to_sequence} for chapter {chapter_id}")
+            # Only update last_extraction_scene_count if scenes were actually processed
+            # This prevents loops when scenes are deleted and no scenes are found to process
+            scenes_processed = batch_results.get('scenes_processed', 0)
+            if scenes_processed > 0:
+                # Update last extraction count with actual sequence number (not count)
+                extraction_chapter.last_extraction_scene_count = actual_to_sequence
+                extraction_db.commit()
+                logger.warning(f"[EXTRACTION] Updated last_extraction_scene_count to {actual_to_sequence} for chapter {chapter_id}")
+            else:
+                # No scenes processed - don't update last_extraction_scene_count to prevent loops
+                # This can happen if scenes were deleted or if there's a timing issue
+                logger.warning(f"[EXTRACTION] No scenes processed, keeping last_extraction_scene_count at {extraction_chapter.last_extraction_scene_count} for chapter {chapter_id}")
             
             logger.warning(f"[EXTRACTION] Background extraction complete for chapter {chapter_id}")
-            logger.warning(f"  - Scenes processed: {batch_results.get('scenes_processed', 0)}")
+            logger.warning(f"  - Scenes processed: {scenes_processed}")
             logger.warning(f"  - Character moments: {batch_results.get('character_moments', 0)}")
             logger.warning(f"  - Plot events: {batch_results.get('plot_events', 0)}")
             logger.warning(f"  - Entity states: {batch_results.get('entity_states', 0)}")
@@ -3476,10 +3490,21 @@ async def regenerate_scene_variant_choices(
         logger.info(f"[REGENERATE_CHOICES] Regenerating choices for variant {variant_id} (scene {scene_id}, story {story_id})")
         logger.info(f"[REGENERATE_CHOICES] Variant details: id={variant.id}, variant_number={variant.variant_number}, content_length={len(variant.content)}")
         
-        # Build context for choice generation (same as in create_scene_variant)
-        # Use get_context_manager_for_user to get SemanticContextManager for structured format
+        # Build context for choice generation - use same structure as scene generation for cache hits
+        # Exclude the current scene since its content will be in the final message
         context_manager = get_context_manager_for_user(user_settings, current_user.id)
-        choice_context = await context_manager.build_choice_generation_context(story_id, db)
+        
+        # Get active chapter for character separation
+        active_chapter = db.query(Chapter).filter(
+            Chapter.story_id == story_id,
+            Chapter.status == ChapterStatus.ACTIVE
+        ).first()
+        chapter_id = active_chapter.id if active_chapter else None
+        
+        # Build context excluding the current scene (same as generate_more_choices)
+        choice_context = await context_manager.build_scene_generation_context(
+            story_id, db, chapter_id=chapter_id, exclude_scene_id=scene_id
+        )
         
         # Generate new choices using the same fallback logic
         generated_choices = await llm_service.generate_choices(
