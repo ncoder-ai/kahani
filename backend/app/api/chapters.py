@@ -779,12 +779,11 @@ async def activate_chapter(
     
     # Get all chapters for this story in the SAME BRANCH
     # This prevents cross-branch status changes
+    # Note: SQLAlchemy handles None correctly in comparisons, so we can filter unconditionally
     branch_chapters_query = db.query(Chapter).filter(
-        Chapter.story_id == story_id
+        Chapter.story_id == story_id,
+        Chapter.branch_id == chapter.branch_id
     )
-    # Filter by branch_id if the chapter has one
-    if chapter.branch_id:
-        branch_chapters_query = branch_chapters_query.filter(Chapter.branch_id == chapter.branch_id)
     branch_chapters = branch_chapters_query.all()
     
     # Set all other chapters in this branch to COMPLETED (if they have scenes) or DRAFT (if empty)
