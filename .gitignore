@@ -199,6 +199,9 @@ typings/
 .next
 out/
 
+# Sensitive prompt file removed from history; prevent re-add
+backend/app/prompt_sent.txt
+
 # Nuxt.js build / generate output
 .nuxt
 dist
