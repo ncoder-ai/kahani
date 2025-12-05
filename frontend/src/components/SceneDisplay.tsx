@@ -190,8 +190,7 @@ export default function SceneDisplay({
         </div>
       ) : (
         <div 
-          className={`${getContentClassName()} cursor-pointer hover:bg-gray-700/20 rounded p-2 transition-colors`}
-          onClick={() => onStartEdit(scene)}
+          className={`${getContentClassName()} rounded p-2`}
         >
           <FormattedText content={scene.content} />
           {isStreamingVariant && (

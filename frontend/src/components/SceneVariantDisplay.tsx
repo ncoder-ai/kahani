@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { PlayIcon, ArrowPathIcon, PlusCircleIcon, StopIcon, SparklesIcon, TrashIcon, ClipboardIcon, XMarkIcon, FlagIcon } from '@heroicons/react/24/outline';
+import { PlayIcon, ArrowPathIcon, PlusCircleIcon, StopIcon, SparklesIcon, TrashIcon, ClipboardIcon, XMarkIcon, FlagIcon, PencilIcon } from '@heroicons/react/24/outline';
 import SceneDisplay from './SceneDisplay';
 import { SceneTTSButton } from './SceneTTSButton';
 import MicrophoneButton from './MicrophoneButton';
@@ -844,6 +844,17 @@ export default function SceneVariantDisplay({
       {/* Quick Action Buttons - Floating buttons in top-right */}
       {isClient && (
         <div className="absolute -top-4 -right-4 md:-top-2 md:-right-2 z-10 flex items-center gap-1">
+          {/* Edit Button */}
+          {!isEditing && (
+            <button
+              onClick={() => onStartEdit(scene)}
+              className="flex items-center justify-center transition-all duration-200 flex-shrink-0 text-gray-400 hover:text-gray-300 hover:bg-gray-800/50 rounded p-1"
+              title="Edit scene"
+            >
+              <PencilIcon className="w-3.5 h-3.5 md:w-4 md:h-4" />
+            </button>
+          )}
+
           {/* Copy Button */}
           <button
             onClick={handleCopyScene}
