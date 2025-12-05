@@ -52,6 +52,30 @@ docker-compose ps
 
 **That's it!** 🎉
 
+### Using PostgreSQL (Optional)
+
+By default, Kahani uses SQLite. For production or better performance, you can use PostgreSQL:
+
+1. **Edit `.env` file** and add PostgreSQL credentials:
+   ```bash
+   POSTGRES_USER=kahani
+   POSTGRES_PASSWORD=your_secure_password_here
+   POSTGRES_DB=kahani
+   DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+   ```
+
+2. **Edit `docker-compose.yml`**:
+   - Uncomment the `postgres` service (remove `#` from lines 42-58)
+   - Uncomment the `depends_on` section in the `backend` service (lines 88-90)
+   - Uncomment the `volumes` section at the bottom (line 117)
+
+3. **Start services**:
+   ```bash
+   docker-compose up -d
+   ```
+
+The backend will automatically detect PostgreSQL and use it instead of SQLite.
+
 ---
 
 ## 🖥️ Baremetal Installation (Advanced)
@@ -152,7 +176,8 @@ cd frontend && npm list
 ### Common Issues
 - **Port conflicts**: Change ports in `config.yaml` (under `server.backend.port` and `server.frontend.port`)
 - **Model download**: First run downloads AI models (~200MB)
-- **Database**: Automatically created on first run
+- **Database**: Automatically created on first run (SQLite by default, PostgreSQL if configured)
+- **PostgreSQL connection**: If using PostgreSQL, ensure the postgres service is healthy before backend starts
 - **Configuration**: All settings are in `config.yaml`, only secrets go in `.env`
 
 ---
