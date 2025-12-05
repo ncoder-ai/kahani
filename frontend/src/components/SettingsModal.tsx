@@ -259,7 +259,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [testAudio, setTestAudio] = useState<HTMLAudioElement | null>(null);
   const [showVoiceBrowser, setShowVoiceBrowser] = useState(false);
   const [chatterboxExaggeration, setChatterboxExaggeration] = useState(0.5);
-  const [chatterboxCfgWeight, setChatterboxCfgWeight] = useState(3.0);
+  const [chatterboxCfgWeight, setChatterboxCfgWeight] = useState(0.5);
   const [chatterboxTemperature, setChatterboxTemperature] = useState(0.7);
   
   // Messages
@@ -1024,10 +1024,15 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             setTtsSettings(mergedSettings);
             
             // Load provider-specific settings
-            if (currentProvider === 'chatterbox' && currentConfig.extra_params) {
-              setChatterboxExaggeration(currentConfig.extra_params.exaggeration || 0.5);
-              setChatterboxCfgWeight(currentConfig.extra_params.cfg_weight || 3.0);
-              setChatterboxTemperature(currentConfig.extra_params.temperature || 0.7);
+            if (currentProvider === 'chatterbox') {
+              // Check provider config first, then global settings, then defaults
+              const providerExtraParams = currentConfig.extra_params || {};
+              const globalExtraParams = globalData.extra_params || {};
+              const extraParams = { ...globalExtraParams, ...providerExtraParams };
+              
+              setChatterboxExaggeration(extraParams.exaggeration !== undefined ? extraParams.exaggeration : 0.5);
+              setChatterboxCfgWeight(extraParams.cfg_weight !== undefined ? extraParams.cfg_weight : 0.5);
+              setChatterboxTemperature(extraParams.temperature !== undefined ? extraParams.temperature : 0.7);
             }
             
             // Load voices for the current provider
@@ -1052,6 +1057,14 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 auto_play_last_scene: globalData.auto_play_last_scene !== undefined ? globalData.auto_play_last_scene : false,
               };
               setTtsSettings(fallbackSettings);
+              
+              // Load Chatterbox settings from global settings if provider is chatterbox
+              if (globalData.provider_type === 'chatterbox' && globalData.extra_params) {
+                const extraParams = globalData.extra_params;
+                setChatterboxExaggeration(extraParams.exaggeration !== undefined ? extraParams.exaggeration : 0.5);
+                setChatterboxCfgWeight(extraParams.cfg_weight !== undefined ? extraParams.cfg_weight : 0.5);
+                setChatterboxTemperature(extraParams.temperature !== undefined ? extraParams.temperature : 0.7);
+              }
             }
           }
         } else {
@@ -1072,6 +1085,14 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               auto_play_last_scene: globalData.auto_play_last_scene !== undefined ? globalData.auto_play_last_scene : false,
             };
             setTtsSettings(fallbackSettings);
+            
+            // Load Chatterbox settings from global settings if provider is chatterbox
+            if (globalData.provider_type === 'chatterbox' && globalData.extra_params) {
+              const extraParams = globalData.extra_params;
+              setChatterboxExaggeration(extraParams.exaggeration !== undefined ? extraParams.exaggeration : 0.5);
+              setChatterboxCfgWeight(extraParams.cfg_weight !== undefined ? extraParams.cfg_weight : 0.5);
+              setChatterboxTemperature(extraParams.temperature !== undefined ? extraParams.temperature : 0.7);
+            }
           }
         }
       }
@@ -1158,10 +1179,12 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       setTtsSettings(newSettings);
       
       // Load provider-specific settings
-      if (providerType === 'chatterbox' && savedConfig.extra_params) {
-        setChatterboxExaggeration(savedConfig.extra_params.exaggeration || 0.5);
-        setChatterboxCfgWeight(savedConfig.extra_params.cfg_weight || 3.0);
-        setChatterboxTemperature(savedConfig.extra_params.temperature || 0.7);
+      if (providerType === 'chatterbox') {
+        // Check savedConfig first, then fall back to defaults
+        const extraParams = savedConfig.extra_params || {};
+        setChatterboxExaggeration(extraParams.exaggeration !== undefined ? extraParams.exaggeration : 0.5);
+        setChatterboxCfgWeight(extraParams.cfg_weight !== undefined ? extraParams.cfg_weight : 0.5);
+        setChatterboxTemperature(extraParams.temperature !== undefined ? extraParams.temperature : 0.7);
       }
     } else {
       // Default settings for new provider - load from config
@@ -1194,6 +1217,13 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           auto_play_last_scene: ttsSettings.auto_play_last_scene,
         });
       }
+      
+      // Reset provider-specific settings to defaults for new provider
+      if (providerType === 'chatterbox') {
+        setChatterboxExaggeration(0.5);
+        setChatterboxCfgWeight(0.5);
+        setChatterboxTemperature(0.7);
+      }
     }
     
     setTtsVoices([]);
@@ -1204,17 +1234,23 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setIsSavingTTS(true);
     try {
       // Include Chatterbox-specific params if Chatterbox is selected
+      // Always use current state values, not ttsSettings.extra_params which might be stale
       const extra_params = ttsSettings.provider_type === 'chatterbox' ? {
         exaggeration: chatterboxExaggeration,
         cfg_weight: chatterboxCfgWeight,
         temperature: chatterboxTemperature,
-        ...ttsSettings.extra_params,
-      } : ttsSettings.extra_params;
+      } : (ttsSettings.extra_params || {});
       
       // Prepare the full settings object with all fields
+      // Explicitly set each field to ensure we're saving current values
       const fullSettings = {
-        ...ttsSettings,
-        extra_params,
+        provider_type: ttsSettings.provider_type,
+        api_url: ttsSettings.api_url,
+        api_key: ttsSettings.api_key,
+        voice_id: ttsSettings.voice_id,
+        speed: ttsSettings.speed,
+        timeout: ttsSettings.timeout,
+        extra_params: extra_params,
         // Explicitly include these fields to ensure they're saved
         tts_enabled: ttsSettings.tts_enabled,
         progressive_narration: ttsSettings.progressive_narration,
@@ -1222,6 +1258,16 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         stream_audio: ttsSettings.stream_audio,
         auto_play_last_scene: ttsSettings.auto_play_last_scene,
       };
+      
+      console.log('Saving TTS settings:', {
+        provider_type: fullSettings.provider_type,
+        extra_params: fullSettings.extra_params,
+        chatterboxValues: ttsSettings.provider_type === 'chatterbox' ? {
+          exaggeration: chatterboxExaggeration,
+          cfg_weight: chatterboxCfgWeight,
+          temperature: chatterboxTemperature,
+        } : null
+      });
 
       // Save provider-specific config
       const providerConfigResponse = await fetch(`${await getApiBaseUrl()}/api/tts/provider-configs/${ttsSettings.provider_type}`, {
@@ -3195,8 +3241,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       </label>
                       <input
                         type="range"
-                        min="0.1"
-                        max="2"
+                        min="0.25"
+                        max="2.0"
                         step="0.05"
                         value={chatterboxExaggeration}
                         onChange={(e) => setChatterboxExaggeration(parseFloat(e.target.value))}
@@ -3204,7 +3250,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
                       />
                       <div className="flex justify-between text-xs text-gray-500 mt-1">
-                        <span>0.1 (Subtle)</span>
+                        <span>0.25 (Subtle)</span>
                         <span>1.0 (Balanced)</span>
                         <span>2.0 (Dramatic)</span>
                       </div>
@@ -3244,7 +3290,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       <input
                         type="range"
                         min="0.05"
-                        max="2"
+                        max="5.0"
                         step="0.05"
                         value={chatterboxTemperature}
                         onChange={(e) => setChatterboxTemperature(parseFloat(e.target.value))}
@@ -3254,7 +3300,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       <div className="flex justify-between text-xs text-gray-500 mt-1">
                         <span>0.05 (Consistent)</span>
                         <span>1.0 (Balanced)</span>
-                        <span>2.0 (Creative)</span>
+                        <span>5.0 (Creative)</span>
                       </div>
                       <p className="text-xs text-gray-500 mt-1">
                         Controls randomness in speech generation
