@@ -41,7 +41,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kahani}
       POSTGRES_DB: ${POSTGRES_DB:-kahani}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ./postgres_data:/var/lib/postgresql/data
     ports:
       - "${POSTGRES_PORT:-5432}:5432"  # Optional: expose for external access
     healthcheck:
@@ -107,5 +107,8 @@ services:
 # ============================================================================
 # VOLUMES
 # ============================================================================
-volumes:
-  postgres_data:
+# Note: postgres_data is now a bind mount (./postgres_data folder) instead of a named volume
+# The database will be stored in ./postgres_data/ relative to this docker-compose.yml file
+# This makes it easy to backup, move, and manage the database files directly
+# volumes:
+#   postgres_data:
