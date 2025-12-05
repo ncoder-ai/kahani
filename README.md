@@ -50,6 +50,7 @@ Kahani (meaning "story" in Hindi) is a modern interactive storytelling platform 
 
 ### 🐳 **Deployment**
 - **Docker Ready**: Easy deployment with Docker and Docker Compose
+- **Database Support**: SQLite (default) or PostgreSQL (production)
 - **Network Configuration**: Automatic network detection for local development
 - **Environment Management**: Template-based configuration system
 - **Production Ready**: Nginx configuration and production optimizations
