@@ -160,7 +160,6 @@ cd frontend && npm list
 ## 📚 Next Steps
 
 - **Configuration Guide**: See `CONFIGURATION_GUIDE.md` for detailed setup
-- **Network Setup**: See `NETWORK_CONFIGURATION.md` for remote access
 - **Documentation**: Check `docs/` folder for feature guides
 
 ---

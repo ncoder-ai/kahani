@@ -347,7 +347,7 @@ class UserSettings(Base):
         if self.enable_character_suggestions is None:
             self.enable_character_suggestions = char_assist.get("enable_suggestions", True)
         if self.character_importance_threshold is None:
-            self.character_importance_threshold = char_assist.get("importance_threshold", 5)
+            self.character_importance_threshold = char_assist.get("importance_threshold", 70)
         if self.character_mention_threshold is None:
             self.character_mention_threshold = char_assist.get("mention_threshold", 3)
         

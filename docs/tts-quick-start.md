@@ -235,6 +235,6 @@ pydub>=0.25.1
 
 ## ✅ Ready to Start!
 
-See full details in: `/docs/tts-implementation-plan.md`
-
 **First Task**: Create database migration for `tts_settings` table
+
+For more information, see the TTS settings documentation in the Settings UI.
