@@ -179,7 +179,6 @@ kahani/
 ├── README.md                    # This file
 ├── QUICK_START.md              # Quick start guide
 ├── CONFIGURATION_GUIDE.md      # Configuration documentation
-├── NETWORK_CONFIGURATION.md    # Network setup guide
 ├── config.yaml                 # Main application configuration
 ├── .env.example                # Environment variables template
 ├── setup-env.sh               # Environment setup script
@@ -271,8 +270,7 @@ KAHANI_ENV=production docker-compose -f docker-compose.network.yml up -d
 |-------|-------------|
 | [QUICK_START.md](QUICK_START.md) | 5-minute setup guide |
 | [CONFIGURATION_GUIDE.md](CONFIGURATION_GUIDE.md) | Complete configuration guide |
-| [NETWORK_CONFIGURATION.md](NETWORK_CONFIGURATION.md) | Network setup and troubleshooting |
-| [docs/](docs/) | Detailed feature documentation |
+| [docs/](docs/) | Feature setup and settings documentation |
 
 ## 🤝 Contributing
 
