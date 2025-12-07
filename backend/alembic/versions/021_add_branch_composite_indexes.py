@@ -1,7 +1,7 @@
 """Add composite indexes for branch-filtered queries
 
-Revision ID: 021_add_branch_composite_indexes
-Revises: 020_fix_npc_tracking_unique_constraint
+Revision ID: 021_add_branch_indexes
+Revises: 020_fix_npc_unique
 Create Date: 2025-01-07
 
 This migration adds composite indexes to optimize branch-filtered queries
@@ -13,8 +13,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '021_add_branch_composite_indexes'
-down_revision = '020_fix_npc_tracking_unique_constraint'
+revision = '021_add_branch_indexes'
+down_revision = '020_fix_npc_unique'
 branch_labels = None
 depends_on = None
 
