@@ -89,6 +89,8 @@ scene_base:
     2. Show every action with vivid detail, dialogue, and description
     3. Do NOT skip ahead or summarize - elaborate fully on what's specified
     4. DO NOT repeat text from recent scenes.
+    5. Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
+   
     
     Write an engaging scene ({scene_length_description}) that elaborates on the above.
 
@@ -106,7 +108,7 @@ scene_base:
     {continuation_prompt}
 
     Write a compelling continuation that follows naturally from the scene above. Focus on engaging narrative and dialogue. Do not repeat previous content.
-
+    Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
   # Task instruction for guided enhancement (context sent separately in multi-message)
   # Used by generate_scene_variants_with_choices_streaming() when enhancement_guidance is provided
   task_guided_enhancement: |
@@ -118,6 +120,7 @@ scene_base:
 
     Rewrite the scene above incorporating the requested enhancement.
     Maintain the same core events and outcomes. Keep consistency with established story elements.
+    Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
     Write approximately {scene_length_description} in length.
 
   # Task instruction for chapter conclusion (context sent separately in multi-message)
@@ -140,6 +143,7 @@ scene_base:
     5. Feel like a natural chapter ending, not a story ending
     6. Use vivid, descriptive language that draws readers into the specific world of this story
     7. End at a natural chapter break point that leaves readers wanting to continue
+    8. Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
     
     IMPORTANT: This is a CHAPTER ending, not a STORY ending. The conclusion should:
     - Provide closure for the chapter's specific events and character arcs
