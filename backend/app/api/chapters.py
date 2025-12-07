@@ -78,12 +78,16 @@ class ChapterResponse(BaseModel):
 
 def build_chapter_response(chapter: Chapter, db: Session) -> ChapterResponse:
     """Helper function to build ChapterResponse with characters"""
-    # Load characters for chapter
-    chapter_chars = db.query(StoryCharacter).join(
+    # Load characters for chapter (filter by branch_id to avoid cross-branch contamination)
+    chapter_char_query = db.query(StoryCharacter).join(
         chapter_characters, StoryCharacter.id == chapter_characters.c.story_character_id
     ).filter(
         chapter_characters.c.chapter_id == chapter.id
-    ).all()
+    )
+    # Filter by branch_id if the chapter has one
+    if chapter.branch_id:
+        chapter_char_query = chapter_char_query.filter(StoryCharacter.branch_id == chapter.branch_id)
+    chapter_chars = chapter_char_query.all()
     
     # Build character info list
     char_info_list = []
@@ -456,6 +460,14 @@ async def update_chapter(
     if not chapter:
         raise HTTPException(status_code=404, detail="Chapter not found")
     
+    # Verify chapter belongs to active branch (branch consistency check)
+    if story.current_branch_id and chapter.branch_id != story.current_branch_id:
+        logger.warning(f"[CHAPTER] Attempt to update chapter {chapter_id} from branch {chapter.branch_id} while active branch is {story.current_branch_id}")
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Cannot update chapter from inactive branch. Please switch to the chapter's branch first."
+        )
+    
     # Update fields
     if chapter_data.title is not None:
         chapter.title = chapter_data.title
@@ -545,6 +557,14 @@ async def complete_chapter(
     if not chapter:
         raise HTTPException(status_code=404, detail="Chapter not found")
     
+    # Verify chapter belongs to active branch (branch consistency check)
+    if story.current_branch_id and chapter.branch_id != story.current_branch_id:
+        logger.warning(f"[CHAPTER] Attempt to complete chapter {chapter_id} from branch {chapter.branch_id} while active branch is {story.current_branch_id}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot complete chapter from inactive branch. Please switch to the chapter's branch first."
+        )
+    
     # Generate chapter summary if not already done
     if not chapter.auto_summary or chapter.last_summary_scene_count < chapter.scenes_count:
         logger.info(f"[CHAPTER] Generating final summary for chapter {chapter_id}")
@@ -598,6 +618,14 @@ async def conclude_chapter(
     
     if not chapter:
         raise HTTPException(status_code=404, detail="Chapter not found")
+    
+    # Verify chapter belongs to active branch (branch consistency check)
+    if story.current_branch_id and chapter.branch_id != story.current_branch_id:
+        logger.warning(f"[CHAPTER] Attempt to conclude chapter {chapter_id} from branch {chapter.branch_id} while active branch is {story.current_branch_id}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot conclude chapter from inactive branch. Please switch to the chapter's branch first."
+        )
     
     # Check that chapter has at least one scene
     if chapter.scenes_count == 0:
@@ -862,6 +890,14 @@ async def add_character_to_chapter(
     
     if not chapter:
         raise HTTPException(status_code=404, detail="Chapter not found")
+    
+    # Verify chapter belongs to active branch (branch consistency check)
+    if story.current_branch_id and chapter.branch_id != story.current_branch_id:
+        logger.warning(f"[CHAPTER] Attempt to add characters to chapter {chapter_id} from branch {chapter.branch_id} while active branch is {story.current_branch_id}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot modify chapter from inactive branch. Please switch to the chapter's branch first."
+        )
     
     # Determine which story_character_id to use
     target_story_character_id = None
@@ -1129,9 +1165,13 @@ async def generate_chapter_summary(chapter_id: int, db: Session, user_id: int) -
     from ..models import StoryFlow
     
     variant_service = SceneVariantServiceAdapter(db)
-    scenes = db.query(Scene).filter(
+    # Filter scenes by branch_id to avoid cross-branch contamination
+    scene_query = db.query(Scene).filter(
         Scene.chapter_id == chapter_id
-    ).order_by(Scene.sequence_number).all()
+    )
+    if chapter.branch_id:
+        scene_query = scene_query.filter(Scene.branch_id == chapter.branch_id)
+    scenes = scene_query.order_by(Scene.sequence_number).all()
     
     if not scenes:
         return "No scenes in this chapter yet."
@@ -1307,10 +1347,14 @@ async def generate_chapter_summary_incremental(chapter_id: int, db: Session, use
     
     # Get scenes since last summary
     last_summary_count = chapter.last_summary_scene_count or 0
-    new_scenes = db.query(Scene).filter(
+    # Filter scenes by branch_id to avoid cross-branch contamination
+    new_scene_query = db.query(Scene).filter(
         Scene.chapter_id == chapter_id,
         Scene.sequence_number > last_summary_count
-    ).order_by(Scene.sequence_number).all()
+    )
+    if chapter.branch_id:
+        new_scene_query = new_scene_query.filter(Scene.branch_id == chapter.branch_id)
+    new_scenes = new_scene_query.order_by(Scene.sequence_number).all()
     
     if not new_scenes:
         logger.info(f"[CHAPTER] No new scenes to summarize for chapter {chapter_id}")
@@ -1358,8 +1402,18 @@ async def generate_chapter_summary_incremental(chapter_id: int, db: Session, use
             previous_chapter_text = f"\nPrevious Chapter Summary:\n{previous_chapter.auto_summary}\n"
     
     # 3. Characters in this chapter
-    # Use the chapter's relationship to get characters
-    chapter_chars = chapter.characters.all()
+    # Query characters explicitly with branch_id filter to avoid cross-branch contamination
+    from ..models import StoryCharacter, Character
+    from ..models.chapter import chapter_characters
+    chapter_char_query = db.query(StoryCharacter).join(
+        chapter_characters, StoryCharacter.id == chapter_characters.c.story_character_id
+    ).filter(
+        chapter_characters.c.chapter_id == chapter.id
+    )
+    # Filter by branch_id if the chapter has one
+    if chapter.branch_id:
+        chapter_char_query = chapter_char_query.filter(StoryCharacter.branch_id == chapter.branch_id)
+    chapter_chars = chapter_char_query.all()
     
     characters_text = ""
     if chapter_chars:
@@ -1375,17 +1429,27 @@ async def generate_chapter_summary_incremental(chapter_id: int, db: Session, use
     from ..models import CharacterState, LocationState, ObjectState, Character
     entity_parts = []
     
-    character_states = db.query(CharacterState).filter(
+    # Filter entity states by branch_id to avoid cross-branch contamination
+    char_state_query = db.query(CharacterState).filter(
         CharacterState.story_id == chapter.story_id
-    ).all()
+    )
+    if chapter.branch_id:
+        char_state_query = char_state_query.filter(CharacterState.branch_id == chapter.branch_id)
+    character_states = char_state_query.all()
     
-    location_states = db.query(LocationState).filter(
+    loc_state_query = db.query(LocationState).filter(
         LocationState.story_id == chapter.story_id
-    ).all()
+    )
+    if chapter.branch_id:
+        loc_state_query = loc_state_query.filter(LocationState.branch_id == chapter.branch_id)
+    location_states = loc_state_query.all()
     
-    object_states = db.query(ObjectState).filter(
+    obj_state_query = db.query(ObjectState).filter(
         ObjectState.story_id == chapter.story_id
-    ).all()
+    )
+    if chapter.branch_id:
+        obj_state_query = obj_state_query.filter(ObjectState.branch_id == chapter.branch_id)
+    object_states = obj_state_query.all()
     
     if character_states:
         entity_parts.append("CURRENT CHARACTER STATES:")
@@ -1710,8 +1774,19 @@ async def delete_chapter_content(
     if not chapter:
         raise HTTPException(status_code=404, detail="Chapter not found")
     
-    # Delete all scenes in this chapter
-    scenes = db.query(Scene).filter(Scene.chapter_id == chapter_id).all()
+    # Verify chapter belongs to active branch (branch consistency check)
+    if story.current_branch_id and chapter.branch_id != story.current_branch_id:
+        logger.warning(f"[CHAPTER] Attempt to delete scenes from chapter {chapter_id} from branch {chapter.branch_id} while active branch is {story.current_branch_id}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot delete scenes from chapter in inactive branch. Please switch to the chapter's branch first."
+        )
+    
+    # Delete all scenes in this chapter (filter by branch_id to avoid cross-branch deletion)
+    scene_query = db.query(Scene).filter(Scene.chapter_id == chapter_id)
+    if chapter.branch_id:
+        scene_query = scene_query.filter(Scene.branch_id == chapter.branch_id)
+    scenes = scene_query.all()
     scene_count = len(scenes)
     
     # Collect scene IDs for background semantic cleanup BEFORE deleting

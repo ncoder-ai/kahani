@@ -1316,13 +1316,14 @@ async def cleanup_scene_embeddings(scene_id: int, db: Session):
         db.rollback()
 
 
-def get_semantic_stats(story_id: int, db: Session) -> Dict[str, Any]:
+def get_semantic_stats(story_id: int, db: Session, branch_id: int = None) -> Dict[str, Any]:
     """
     Get statistics about semantic data for a story
     
     Args:
         story_id: Story ID
         db: Database session
+        branch_id: Optional branch ID for filtering
         
     Returns:
         Dictionary with semantic memory statistics
@@ -1341,26 +1342,38 @@ def get_semantic_stats(story_id: int, db: Session) -> Dict[str, Any]:
         if not settings.enable_semantic_memory:
             return stats
         
-        # Count scene embeddings
-        stats['scene_embeddings'] = db.query(SceneEmbedding).filter(
+        # Count scene embeddings (filter by branch to avoid cross-branch contamination)
+        scene_emb_query = db.query(SceneEmbedding).filter(
             SceneEmbedding.story_id == story_id
-        ).count()
+        )
+        if branch_id:
+            scene_emb_query = scene_emb_query.filter(SceneEmbedding.branch_id == branch_id)
+        stats['scene_embeddings'] = scene_emb_query.count()
         
-        # Count character moments
-        stats['character_moments'] = db.query(CharacterMemory).filter(
+        # Count character moments (filter by branch)
+        char_mem_query = db.query(CharacterMemory).filter(
             CharacterMemory.story_id == story_id
-        ).count()
+        )
+        if branch_id:
+            char_mem_query = char_mem_query.filter(CharacterMemory.branch_id == branch_id)
+        stats['character_moments'] = char_mem_query.count()
         
-        # Count plot events
-        stats['plot_events'] = db.query(PlotEvent).filter(
+        # Count plot events (filter by branch)
+        plot_query = db.query(PlotEvent).filter(
             PlotEvent.story_id == story_id
-        ).count()
+        )
+        if branch_id:
+            plot_query = plot_query.filter(PlotEvent.branch_id == branch_id)
+        stats['plot_events'] = plot_query.count()
         
-        # Count unresolved threads
-        stats['unresolved_threads'] = db.query(PlotEvent).filter(
+        # Count unresolved threads (filter by branch)
+        unresolved_query = db.query(PlotEvent).filter(
             PlotEvent.story_id == story_id,
             PlotEvent.is_resolved == False
-        ).count()
+        )
+        if branch_id:
+            unresolved_query = unresolved_query.filter(PlotEvent.branch_id == branch_id)
+        stats['unresolved_threads'] = unresolved_query.count()
         
         return stats
         
