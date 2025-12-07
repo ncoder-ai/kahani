@@ -545,11 +545,14 @@ class EntityStateService:
             # Update owner if specified
             if obj_update.get("owner"):
                 owner_name = obj_update["owner"]
-                # Find character ID by name
-                story_char = db.query(StoryCharacter).join(Character).filter(
+                # Find character ID by name (filter by branch to avoid cross-branch contamination)
+                story_char_query = db.query(StoryCharacter).join(Character).filter(
                     StoryCharacter.story_id == story_id,
                     Character.name == owner_name
-                ).first()
+                )
+                if branch_id:
+                    story_char_query = story_char_query.filter(StoryCharacter.branch_id == branch_id)
+                story_char = story_char_query.first()
                 if story_char:
                     obj_state.current_owner_id = story_char.character_id
             
@@ -564,67 +567,91 @@ class EntityStateService:
         self,
         db: Session,
         character_id: int,
-        story_id: int
+        story_id: int,
+        branch_id: int = None
     ) -> Optional[CharacterState]:
-        """Get current character state"""
-        return db.query(CharacterState).filter(
+        """Get current character state (optionally filtered by branch)"""
+        query = db.query(CharacterState).filter(
             CharacterState.character_id == character_id,
             CharacterState.story_id == story_id
-        ).first()
+        )
+        if branch_id:
+            query = query.filter(CharacterState.branch_id == branch_id)
+        return query.first()
     
     def get_all_character_states(
         self,
         db: Session,
-        story_id: int
+        story_id: int,
+        branch_id: int = None
     ) -> List[CharacterState]:
-        """Get all character states for a story"""
-        return db.query(CharacterState).filter(
+        """Get all character states for a story (optionally filtered by branch)"""
+        query = db.query(CharacterState).filter(
             CharacterState.story_id == story_id
-        ).all()
+        )
+        if branch_id:
+            query = query.filter(CharacterState.branch_id == branch_id)
+        return query.all()
     
     def get_location_state(
         self,
         db: Session,
         story_id: int,
-        location_name: str
+        location_name: str,
+        branch_id: int = None
     ) -> Optional[LocationState]:
-        """Get current location state"""
-        return db.query(LocationState).filter(
+        """Get current location state (optionally filtered by branch)"""
+        query = db.query(LocationState).filter(
             LocationState.story_id == story_id,
             LocationState.location_name == location_name
-        ).first()
+        )
+        if branch_id:
+            query = query.filter(LocationState.branch_id == branch_id)
+        return query.first()
     
     def get_all_location_states(
         self,
         db: Session,
-        story_id: int
+        story_id: int,
+        branch_id: int = None
     ) -> List[LocationState]:
-        """Get all location states for a story"""
-        return db.query(LocationState).filter(
+        """Get all location states for a story (optionally filtered by branch)"""
+        query = db.query(LocationState).filter(
             LocationState.story_id == story_id
-        ).all()
+        )
+        if branch_id:
+            query = query.filter(LocationState.branch_id == branch_id)
+        return query.all()
     
     def get_object_state(
         self,
         db: Session,
         story_id: int,
-        object_name: str
+        object_name: str,
+        branch_id: int = None
     ) -> Optional[ObjectState]:
-        """Get current object state"""
-        return db.query(ObjectState).filter(
+        """Get current object state (optionally filtered by branch)"""
+        query = db.query(ObjectState).filter(
             ObjectState.story_id == story_id,
             ObjectState.object_name == object_name
-        ).first()
+        )
+        if branch_id:
+            query = query.filter(ObjectState.branch_id == branch_id)
+        return query.first()
     
     def get_all_object_states(
         self,
         db: Session,
-        story_id: int
+        story_id: int,
+        branch_id: int = None
     ) -> List[ObjectState]:
-        """Get all object states for a story"""
-        return db.query(ObjectState).filter(
+        """Get all object states for a story (optionally filtered by branch)"""
+        query = db.query(ObjectState).filter(
             ObjectState.story_id == story_id
-        ).all()
+        )
+        if branch_id:
+            query = query.filter(ObjectState.branch_id == branch_id)
+        return query.all()
     
     def create_entity_state_batch_snapshot(
         self,

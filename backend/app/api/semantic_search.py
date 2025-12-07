@@ -277,7 +277,8 @@ async def get_story_semantic_stats(
         raise HTTPException(status_code=404, detail="Story not found")
     
     try:
-        stats = get_semantic_stats(story_id, db)
+        # Get stats for the current active branch
+        stats = get_semantic_stats(story_id, db, branch_id=story.current_branch_id)
         return {
             "story_id": story_id,
             "semantic_memory": stats
