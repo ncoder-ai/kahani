@@ -199,8 +199,11 @@ typings/
 .next
 out/
 
-# Sensitive prompt file removed from history; prevent re-add
+# Sensitive prompt debug files removed from history; prevent re-add
 backend/app/prompt_sent.txt
+backend/app/prompt_choice_sent.txt
+logs/prompt_sent.json
+logs/prompt_choice_sent.json
 
 # Nuxt.js build / generate output
 .nuxt
