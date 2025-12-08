@@ -38,7 +38,20 @@ function LoginForm() {
     setError('');
 
     try {
-      const apiBaseUrl = await getApiBaseUrl();
+      // Initialize API client if needed (this will fetch API URL with timeout)
+      try {
+        await apiClient.initialize();
+      } catch (initError) {
+        console.error('Failed to initialize API client:', initError);
+        const errorMsg = initError instanceof Error ? initError.message : 'Unknown error';
+        // If initialization fails, show a helpful error message
+        if (errorMsg.includes('timeout') || errorMsg.includes('connect') || errorMsg.includes('backend')) {
+          setError('Unable to connect to the backend server. Please ensure the backend is running and accessible.');
+          setIsLoading(false);
+          return;
+        }
+        // For other errors, continue and let login attempt show the error
+      }
       
       const response = await apiClient.login(email, password, rememberMe);
       
@@ -54,9 +67,16 @@ function LoginForm() {
         return;
       }
       
-      // Check if user wants to auto-open last story
+      // Check if user wants to auto-open last story (with timeout to prevent hanging)
       try {
-        const lastStoryResponse = await apiClient.getLastAccessedStory();
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Settings fetch timeout')), 5000); // 5 second timeout
+        });
+        
+        const lastStoryResponse = await Promise.race([
+          apiClient.getLastAccessedStory(),
+          timeoutPromise
+        ]);
         
         if (lastStoryResponse.auto_open_last_story && lastStoryResponse.last_accessed_story_id) {
           router.push(`/story/${lastStoryResponse.last_accessed_story_id}`);
@@ -65,6 +85,7 @@ function LoginForm() {
         }
       } catch (settingsError) {
         console.error('❌ Failed to check auto-redirect settings:', settingsError);
+        // Always redirect to dashboard even if settings fetch fails
         router.push('/dashboard');
       }
     } catch (err) {
@@ -77,12 +98,22 @@ function LoginForm() {
       if (err instanceof Error) {
         const message = err.message.toLowerCase();
         // Check for specific error types
-        if (message.includes('timeout') || message.includes('timed out')) {
-          errorMessage = 'Connection timed out. Please check your network connection and ensure the backend server is running.';
-        } else if (message.includes('failed to fetch') || message.includes('network error') || message.includes('networkerror')) {
-          errorMessage = 'Network error. Please check your connection and ensure the backend server is accessible.';
+        if (message.includes('timeout') || message.includes('timed out') || message.includes('request timed out')) {
+          errorMessage = 'Connection timed out after 30 seconds. The backend server may not be running or is not responding. Please:\n\n' +
+            '1. Check if the backend server is running\n' +
+            '2. Verify the backend URL is correct\n' +
+            '3. Check your network connection\n' +
+            '4. Review backend server logs for errors';
+        } else if (message.includes('failed to fetch') || message.includes('network error') || message.includes('networkerror') || message.includes('load failed')) {
+          errorMessage = 'Network error: Unable to reach the backend server. Please:\n\n' +
+            '1. Ensure the backend server is running\n' +
+            '2. Check if the backend URL is correct\n' +
+            '3. Verify your network connection\n' +
+            '4. Check for firewall or CORS issues';
         } else if (message.includes('cors')) {
-          errorMessage = 'CORS error. Please check backend CORS configuration.';
+          errorMessage = 'CORS error: The backend server is blocking the request. Please check backend CORS configuration.';
+        } else if (message.includes('unable to connect') || message.includes('connect to backend')) {
+          errorMessage = err.message; // Use the detailed error message from initialization
         } else {
           errorMessage = err.message;
         }

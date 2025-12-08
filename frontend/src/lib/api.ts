@@ -208,12 +208,23 @@ class ApiClient {
   
   // Method to update base URL after config is loaded
   async initialize(): Promise<void> {
-    // Try to get from config API
+    // Try to get from config API with timeout
     try {
-      this.baseURL = await getApiBaseUrl();
+      // Add a timeout wrapper to prevent hanging
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('API URL initialization timeout after 10 seconds')), 10000);
+      });
+      
+      this.baseURL = await Promise.race([
+        getApiBaseUrl(),
+        timeoutPromise
+      ]);
     } catch (error) {
       console.error('Failed to initialize API URL from config:', error);
-      throw error; // Fail fast - config must be available
+      // For login/register, we can try to continue with fallback
+      // But for other operations, we should fail
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      throw new Error(`Failed to connect to backend: ${errorMessage}. Please ensure the backend server is running.`);
     }
   }
 
@@ -341,8 +352,29 @@ class ApiClient {
     
     // Ensure baseURL is initialized before making request
     if (!this.baseURL) {
-      await this.initialize();
+      try {
+        await this.initialize();
+      } catch (initError) {
+        const errorMsg = initError instanceof Error ? initError.message : 'Unknown error';
+        throw new ApiError(
+          `Failed to initialize API client: ${errorMsg}. Please ensure the backend server is running.`,
+          ApiErrorType.NETWORK_ERROR,
+          undefined,
+          false
+        );
+      }
     }
+    
+    // Validate baseURL before constructing URL
+    if (!this.baseURL || this.baseURL.trim() === '') {
+      throw new ApiError(
+        'API base URL is not set. Please ensure the backend server is running and accessible.',
+        ApiErrorType.NETWORK_ERROR,
+        undefined,
+        false
+      );
+    }
+    
     const url = `${this.baseURL}${endpoint}`;
     const isFormData = (typeof FormData !== 'undefined') && (options.body instanceof FormData);
 
