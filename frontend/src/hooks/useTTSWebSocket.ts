@@ -211,6 +211,9 @@ export const useTTSWebSocket = ({
     console.log('[TTS WS] Starting generation for scene:', sceneId);
     
     try {
+      // IMPORTANT: Stop everything first (closes WebSocket, stops audio, resets state)
+      stop(); // This already calls stopAll() and resetQueue()
+      
       setIsGenerating(true);
       setError(null);
       setProgress(0);
@@ -218,9 +221,6 @@ export const useTTSWebSocket = ({
       setTotalChunks(0);
       hasStartedPlayback.current = false;
       generationCompleteRef.current = false;
-      
-      // Stop any current playback
-      audioContextManager.stopAll();
       
       // Unlock AudioContext during this user gesture
       // This is critical for iOS - the context must be created/resumed during a tap
