@@ -787,6 +787,11 @@ async def generate_scene_audio_websocket(
     try:
         logger.info(f"[MANUAL TTS] Step 1: Received request for scene {scene_id}, user {current_user.id}")
         
+        # Clear any existing sessions for this scene/user before creating new one
+        cleared_count = tts_session_manager.clear_sessions_for_scene(scene_id, current_user.id)
+        if cleared_count > 0:
+            logger.info(f"[MANUAL TTS] Cleared {cleared_count} old session(s) for scene {scene_id}")
+        
         # Create TTS session
         session_id = tts_session_manager.create_session(
             scene_id=scene_id,
@@ -1016,7 +1021,27 @@ async def generate_and_stream_chunks(
                         format=format
                     )
                     
-                    response = await provider.synthesize(request)
+                    # Use user's configured timeout with a reasonable multiplier for per-chunk timeout
+                    # Add 50% buffer to user's timeout to account for network delays
+                    chunk_timeout = int((tts_settings.tts_timeout or 30) * 1.5)
+                    chunk_timeout = max(chunk_timeout, 60)  # Minimum 60 seconds
+                    chunk_timeout = min(chunk_timeout, 180)  # Maximum 180 seconds per chunk
+                    
+                    try:
+                        response = await asyncio.wait_for(
+                            provider.synthesize(request),
+                            timeout=chunk_timeout
+                        )
+                    except asyncio.TimeoutError:
+                        logger.error(f"[GEN] Chunk {i} generation timed out after {chunk_timeout}s")
+                        await tts_session_manager.send_message(session_id, {
+                            "type": "error",
+                            "message": f"Chunk {i} generation timed out after {chunk_timeout} seconds",
+                            "chunk_number": i
+                        })
+                        # Continue with other chunks - don't fail entire generation
+                        continue
+                    
                     audio_data = response.audio_data
                     
                     if not audio_data:
@@ -1058,12 +1083,21 @@ async def generate_and_stream_chunks(
                     # Continue with other chunks
                     continue
             
-            # Send completion message
-            await tts_session_manager.send_message(session_id, {
-                "type": "complete",
-                "total_chunks": total_chunks,
-                "message": "All chunks generated successfully"
-            })
+            # Send completion message only if we got at least one chunk
+            session = tts_session_manager.get_session(session_id)
+            chunks_sent = session.chunks_sent if session else 0
+            if chunks_sent > 0:
+                await tts_session_manager.send_message(session_id, {
+                    "type": "complete",
+                    "total_chunks": total_chunks,
+                    "chunks_sent": chunks_sent,
+                    "message": f"Generation complete ({chunks_sent}/{total_chunks} chunks)"
+                })
+            else:
+                await tts_session_manager.send_message(session_id, {
+                    "type": "error",
+                    "message": "Failed to generate any audio chunks"
+                })
             
         else:
             # Generate single audio file

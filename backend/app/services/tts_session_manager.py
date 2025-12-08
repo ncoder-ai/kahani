@@ -197,6 +197,29 @@ class TTSSessionManager:
         """Remove a session (called on completion or error)."""
         self.sessions.pop(session_id, None)
     
+    def clear_sessions_for_scene(self, scene_id: int, user_id: int) -> int:
+        """
+        Clear all existing sessions for a scene/user before starting new generation.
+        This prevents old chunks from being played when starting a new TTS generation.
+        
+        Returns:
+            Number of sessions cleared
+        """
+        sessions_to_remove = [
+            sid for sid, session in self.sessions.items()
+            if session.scene_id == scene_id and session.user_id == user_id
+        ]
+        
+        for session_id in sessions_to_remove:
+            logger.info(f"Clearing old session {session_id} for scene {scene_id}, user {user_id}")
+            # Mark as not generating to prevent race conditions
+            session = self.sessions.get(session_id)
+            if session:
+                session.is_generating = False
+            self.remove_session(session_id)
+        
+        return len(sessions_to_remove)
+    
     async def cleanup_expired_sessions(self):
         """Remove sessions that have expired."""
         now = datetime.now()

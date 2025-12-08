@@ -383,7 +383,7 @@ class AudioContextManager {
    * Stop all currently playing and scheduled audio
    */
   stopAll(): void {
-    console.log('[AudioContext] Stopping all audio, active sources:', this.activeSources.size);
+    console.log('[AudioContext] Stopping all audio, active sources:', this.activeSources.size, 'pending:', this.pendingSourceCount);
     
     // Stop all active sources
     this.activeSources.forEach(source => {
@@ -397,6 +397,9 @@ class AudioContextManager {
     this.activeSources.clear();
     this.resetQueue();
     this.isPlaying = false;
+    // Clear callback to prevent stale callbacks from triggering
+    this.onPlaybackEndCallback = null;
+    console.log('[AudioContext] All audio stopped and queue cleared');
   }
   
   /**
