@@ -45,8 +45,57 @@ async function detectBackendPort(): Promise<number> {
 
   // Fallback: Get from config API (only if context not available)
   // This should rarely happen if ConfigProvider is mounted
-  cachedBackendPort = await getBackendPort();
-  return cachedBackendPort;
+  // Add timeout to prevent hanging
+  try {
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('Config fetch timeout')), 5000); // 5 second timeout
+    });
+    
+    cachedBackendPort = await Promise.race([
+      getBackendPort(),
+      timeoutPromise
+    ]);
+    return cachedBackendPort;
+  } catch (error) {
+    // If config fetch fails, try common ports as fallback
+    console.warn('[API URL] Config fetch failed, trying common ports:', error);
+    
+    if (typeof window !== 'undefined') {
+      const hostname = window.location.hostname;
+      const protocol = window.location.protocol;
+      const commonPorts = [9876, 8000, 3000]; // Common backend ports
+      
+      for (const port of commonPorts) {
+        try {
+          const testUrl = `${protocol}//${hostname}:${port}`;
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 2000); // 2 second timeout per port
+          
+          const response = await fetch(`${testUrl}/api/config/frontend`, {
+            signal: controller.signal,
+            mode: 'cors'
+          });
+          
+          clearTimeout(timeoutId);
+          
+          if (response.ok) {
+            const config = await response.json();
+            cachedBackendPort = config.server?.backend?.port || port;
+            return cachedBackendPort;
+          }
+        } catch (testError) {
+          // Continue to next port
+          continue;
+        }
+      }
+    }
+    
+    // If all attempts failed, throw with helpful message
+    throw new Error(
+      'Unable to connect to backend server. Please ensure the backend is running. ' +
+      'Tried to fetch config and common ports (9876, 8000, 3000) but none responded.'
+    );
+  }
 }
 
 export const getApiBaseUrl = async (): Promise<string> => {
