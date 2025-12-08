@@ -3115,15 +3115,16 @@ Output ONLY valid JSON in this exact format:
         
         By splitting context into multiple user messages, we improve cache hit rates:
         - Earlier messages (story foundation, chapter summaries) remain stable
-        - Only later messages (entity states, recent scenes) change frequently
+        - Only later messages (semantic events, recent scenes) change frequently
         - Scenes are batched into groups aligned with extraction intervals for optimal caching
+        - Semantic events placed after scene batches to avoid invalidating batch caches
         
         Message order (most stable → most dynamic):
         1. Story Foundation: genre, tone, setting, scenario, characters
         2. Chapter Context: story_so_far, previous/current chapter summaries
         3. Entity States: character states, locations, objects
-        4. Semantic Events: relevant past events from semantic search (stable)
-        5. Scene Batches: completed scene batches (stable per batch)
+        4. Scene Batches: completed scene batches (stable per batch)
+        5. Semantic Events: relevant past events from semantic search (changes each generation)
         6. Recent Scenes: active batch of most recent scenes (changes each scene)
         
         Args:
@@ -3230,20 +3231,15 @@ Output ONLY valid JSON in this exact format:
                 "content": "=== CURRENT STATE ===\n" + "\n\n".join(entity_parts)
             })
         
-        # === MESSAGE 4: Semantic Events (stable - only changes when semantic search results change) ===
+        # === MESSAGES 4+: Scene Batches (batch-aligned for optimal caching) ===
+        # Extract semantic/relevant events for later (will be added after scene batches)
+        relevant_match = None
         if previous_scenes_text:
-            # Extract semantic/relevant events if present - these are stable between extractions
             relevant_match = re.search(
                 r'Relevant Past Events:(.*?)(?=\n\n(?:Recent Scenes|CURRENT CHARACTER STATES|CURRENT LOCATIONS|Notable Objects)|$)',
                 previous_scenes_text, re.DOTALL
             )
-            if relevant_match:
-                messages.append({
-                    "role": "user",
-                    "content": "=== RELEVANT PAST EVENTS ===\n" + relevant_match.group(1).strip()
-                })
         
-        # === MESSAGES 5+: Scene Batches (batch-aligned for optimal caching) ===
         if previous_scenes_text:
             # Extract recent scenes section
             recent_match = re.search(r'Recent Scenes:(.*?)$', previous_scenes_text, re.DOTALL)
@@ -3258,6 +3254,15 @@ Output ONLY valid JSON in this exact format:
                     "role": "user",
                     "content": "=== STORY PROGRESS ===\n" + previous_scenes_text
                 })
+        
+        # === MESSAGE N-2: Semantic Events (changes every generation - placed after scene batches for better caching) ===
+        # By placing this after scene batches, we ensure that stable scene batch messages remain cached
+        # even when semantic search results change
+        if relevant_match:
+            messages.append({
+                "role": "user",
+                "content": "=== RELEVANT PAST EVENTS ===\n" + relevant_match.group(1).strip()
+            })
         
         return messages
     
