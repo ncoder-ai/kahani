@@ -11,6 +11,7 @@ import re
 from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
+from sqlalchemy.exc import IntegrityError
 from ..models import (
     Character, CharacterState, LocationState, ObjectState,
     Story, Scene, StoryCharacter, EntityStateBatch, StoryBranch
@@ -108,6 +109,12 @@ class EntityStateService:
             "objects_updated": 0,
             "extraction_successful": False
         }
+        
+        # Verify scene exists before processing (prevents foreign key violations)
+        scene_exists = db.query(Scene).filter(Scene.id == scene_id).first()
+        if not scene_exists:
+            logger.warning(f"Scene {scene_id} doesn't exist, cannot extract entity states")
+            return results
         
         # Get active branch if not specified
         if branch_id is None:
@@ -397,6 +404,27 @@ class EntityStateService:
                     full_state={}
                 )
                 db.add(char_state)
+                try:
+                    db.flush()  # Flush to catch constraint violations immediately
+                except IntegrityError as ie:
+                    db.rollback()
+                    error_msg = str(ie).lower()
+                    if "duplicate" in error_msg or "unique constraint" in error_msg:
+                        logger.debug(f"Character state already exists (race condition), reloading: {char_name}")
+                        # Reload the state that was created by another process
+                        state_query = db.query(CharacterState).filter(
+                            CharacterState.character_id == story_char.character_id,
+                            CharacterState.story_id == story_id
+                        )
+                        if branch_id:
+                            state_query = state_query.filter(CharacterState.branch_id == branch_id)
+                        char_state = state_query.first()
+                        if not char_state:
+                            logger.error(f"Failed to reload character state after race condition: {char_name}")
+                            return
+                    else:
+                        # Re-raise if it's a different integrity error
+                        raise
             
             # Update fields
             char_state.last_updated_scene = scene_sequence
@@ -433,8 +461,13 @@ class EntityStateService:
                 current_relationships.update(char_update["relationship_changes"])
                 char_state.relationships = current_relationships
             
-            db.commit()
-            logger.debug(f"Updated character state for {char_name}")
+            try:
+                db.commit()
+                logger.debug(f"Updated character state for {char_name}")
+            except IntegrityError as ie:
+                db.rollback()
+                logger.warning(f"Failed to commit character state update for {char_name}: {ie}")
+                # Don't re-raise - allow processing to continue
             
         except Exception as e:
             logger.error(f"Failed to update character state: {e}")
@@ -474,6 +507,27 @@ class EntityStateService:
                     full_state={}
                 )
                 db.add(loc_state)
+                try:
+                    db.flush()  # Flush to catch constraint violations immediately
+                except IntegrityError as ie:
+                    db.rollback()
+                    error_msg = str(ie).lower()
+                    if "duplicate" in error_msg or "unique constraint" in error_msg:
+                        logger.debug(f"Location state already exists (race condition), reloading: {loc_name}")
+                        # Reload the state that was created by another process
+                        state_query = db.query(LocationState).filter(
+                            LocationState.story_id == story_id,
+                            LocationState.location_name == loc_name
+                        )
+                        if branch_id:
+                            state_query = state_query.filter(LocationState.branch_id == branch_id)
+                        loc_state = state_query.first()
+                        if not loc_state:
+                            logger.error(f"Failed to reload location state after race condition: {loc_name}")
+                            return
+                    else:
+                        # Re-raise if it's a different integrity error
+                        raise
             
             # Update fields
             loc_state.last_updated_scene = scene_sequence
@@ -487,8 +541,13 @@ class EntityStateService:
             if loc_update.get("occupants"):
                 loc_state.current_occupants = loc_update["occupants"]
             
-            db.commit()
-            logger.debug(f"Updated location state for {loc_name}")
+            try:
+                db.commit()
+                logger.debug(f"Updated location state for {loc_name}")
+            except IntegrityError as ie:
+                db.rollback()
+                logger.warning(f"Failed to commit location state update for {loc_name}: {ie}")
+                # Don't re-raise - allow processing to continue
             
         except Exception as e:
             logger.error(f"Failed to update location state: {e}")
@@ -529,6 +588,27 @@ class EntityStateService:
                     full_state={}
                 )
                 db.add(obj_state)
+                try:
+                    db.flush()  # Flush to catch constraint violations immediately
+                except IntegrityError as ie:
+                    db.rollback()
+                    error_msg = str(ie).lower()
+                    if "duplicate" in error_msg or "unique constraint" in error_msg:
+                        logger.debug(f"Object state already exists (race condition), reloading: {obj_name}")
+                        # Reload the state that was created by another process
+                        state_query = db.query(ObjectState).filter(
+                            ObjectState.story_id == story_id,
+                            ObjectState.object_name == obj_name
+                        )
+                        if branch_id:
+                            state_query = state_query.filter(ObjectState.branch_id == branch_id)
+                        obj_state = state_query.first()
+                        if not obj_state:
+                            logger.error(f"Failed to reload object state after race condition: {obj_name}")
+                            return
+                    else:
+                        # Re-raise if it's a different integrity error
+                        raise
             
             # Update fields
             obj_state.last_updated_scene = scene_sequence
@@ -556,8 +636,13 @@ class EntityStateService:
                 if story_char:
                     obj_state.current_owner_id = story_char.character_id
             
-            db.commit()
-            logger.debug(f"Updated object state for {obj_name}")
+            try:
+                db.commit()
+                logger.debug(f"Updated object state for {obj_name}")
+            except IntegrityError as ie:
+                db.rollback()
+                logger.warning(f"Failed to commit object state update for {obj_name}: {ie}")
+                # Don't re-raise - allow processing to continue
             
         except Exception as e:
             logger.error(f"Failed to update object state: {e}")

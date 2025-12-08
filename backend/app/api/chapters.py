@@ -1835,8 +1835,9 @@ async def cleanup_semantic_data_in_background(scene_ids: list, story_id: int):
     """Background task to clean up semantic data for deleted scenes"""
     try:
         import asyncio
-        # Small delay to ensure database commits from main session are visible
-        await asyncio.sleep(0.1)
+        # Delay to ensure database commits from main session are visible
+        # Increased from 0.1s to 0.3s for better reliability under load
+        await asyncio.sleep(0.3)
         
         from ..database import SessionLocal
         bg_db = SessionLocal()

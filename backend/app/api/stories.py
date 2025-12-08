@@ -742,9 +742,10 @@ async def run_extractions_in_background(
     """Run extractions in background, independent of streaming response"""
     try:
         import asyncio
-        # Small delay to ensure database commits from main session are visible
+        # Delay to ensure database commits from main session are visible
         # This helps with transaction isolation between sessions
-        await asyncio.sleep(0.1)
+        # Increased from 0.1s to 0.3s for better reliability under load
+        await asyncio.sleep(0.3)
         
         from ..database import SessionLocal
         extraction_db = SessionLocal()
@@ -3610,8 +3611,9 @@ async def restore_npc_tracking_in_background(
     """Background task to restore NPC tracking from snapshot after scene deletion"""
     try:
         import asyncio
-        # Small delay to ensure database commits from main session are visible
-        await asyncio.sleep(0.1)
+        # Delay to ensure database commits from main session are visible
+        # Increased from 0.1s to 0.3s for better reliability under load
+        await asyncio.sleep(0.3)
         
         from ..database import SessionLocal
         bg_db = SessionLocal()
@@ -3702,8 +3704,9 @@ async def cleanup_semantic_data_in_background(
     """Background task to clean up semantic data for deleted scenes"""
     try:
         import asyncio
-        # Small delay to ensure database commits from main session are visible
-        await asyncio.sleep(0.1)
+        # Delay to ensure database commits from main session are visible
+        # Increased from 0.1s to 0.3s for better reliability under load
+        await asyncio.sleep(0.3)
         
         from ..database import SessionLocal
         bg_db = SessionLocal()
@@ -3741,8 +3744,9 @@ async def restore_entity_states_in_background(
     """Background task to restore entity states after scene deletion"""
     try:
         import asyncio
-        # Small delay to ensure database commits from main session are visible
-        await asyncio.sleep(0.1)
+        # Delay to ensure database commits from main session are visible
+        # Increased from 0.1s to 0.3s for better reliability under load
+        await asyncio.sleep(0.3)
         
         from ..database import SessionLocal
         bg_db = SessionLocal()

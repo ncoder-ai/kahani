@@ -14,6 +14,7 @@ from sqlalchemy import func
 from datetime import datetime
 
 from sqlalchemy import and_
+from sqlalchemy.exc import IntegrityError
 from ..models import (
     NPCMention, NPCTracking, NPCTrackingSnapshot, StoryCharacter, Character, Scene, Story, StoryBranch
 )
@@ -142,6 +143,12 @@ class NPCTrackingService:
             for scene_id, scene_sequence, scene_content in scenes:
                 npcs_for_scene = scene_npc_map.get(scene_id, [])
                 
+                # Verify scene exists before processing (prevents foreign key violations)
+                scene_exists = db.query(Scene).filter(Scene.id == scene_id).first()
+                if not scene_exists:
+                    logger.warning(f"Scene {scene_id} doesn't exist yet, skipping NPC mentions for this scene")
+                    continue
+                
                 for npc_data_scene in npcs_for_scene:
                     npc_name = npc_data_scene.get('name', '').strip()
                     if not npc_name or npc_name.lower() in explicit_character_names:
@@ -155,28 +162,42 @@ class NPCTrackingService:
                             return value.lower() in ('true', '1', 'yes')
                         return bool(value)
                     
-                    # Store mention
-                    mention = NPCMention(
-                        story_id=story_id,
-                        branch_id=branch_id,
-                        scene_id=scene_id,
-                        character_name=npc_name,
-                        sequence_number=scene_sequence,
-                        mention_count=npc_data_scene.get("mention_count", 1),
-                        has_dialogue=to_bool(npc_data_scene.get("has_dialogue", False)),
-                        has_actions=to_bool(npc_data_scene.get("has_actions", False)),
-                        has_relationships=to_bool(npc_data_scene.get("has_relationships", False)),
-                        context_snippets=npc_data_scene.get("context_snippets", []),
-                        extracted_properties=npc_data_scene.get("properties", {})
-                    )
-                    db.add(mention)
-                    
-                    # Update or create tracking record
-                    await self._update_npc_tracking(
-                        db, story_id, npc_name, scene_sequence, npc_data_scene, branch_id=branch_id
-                    )
-                    
-                    total_npcs_tracked += 1
+                    # Store mention with IntegrityError handling
+                    try:
+                        mention = NPCMention(
+                            story_id=story_id,
+                            branch_id=branch_id,
+                            scene_id=scene_id,
+                            character_name=npc_name,
+                            sequence_number=scene_sequence,
+                            mention_count=npc_data_scene.get("mention_count", 1),
+                            has_dialogue=to_bool(npc_data_scene.get("has_dialogue", False)),
+                            has_actions=to_bool(npc_data_scene.get("has_actions", False)),
+                            has_relationships=to_bool(npc_data_scene.get("has_relationships", False)),
+                            context_snippets=npc_data_scene.get("context_snippets", []),
+                            extracted_properties=npc_data_scene.get("properties", {})
+                        )
+                        db.add(mention)
+                        db.flush()  # Flush to catch constraint violations immediately
+                        
+                        # Update or create tracking record
+                        await self._update_npc_tracking(
+                            db, story_id, npc_name, scene_sequence, npc_data_scene, branch_id=branch_id
+                        )
+                        
+                        total_npcs_tracked += 1
+                    except IntegrityError as ie:
+                        db.rollback()
+                        error_msg = str(ie).lower()
+                        if "foreign key" in error_msg and "scene_id" in error_msg:
+                            logger.warning(f"Scene {scene_id} was deleted during extraction, skipping NPC mention for {npc_name}")
+                            break  # Skip remaining NPCs for this scene
+                        elif "duplicate key" in error_msg or "unique constraint" in error_msg:
+                            logger.debug(f"NPC mention already exists (race condition), skipping: {npc_name} in scene {scene_id}")
+                            continue
+                        else:
+                            # Re-raise if it's a different integrity error
+                            raise
                 
                 # Create snapshot after all NPCs for this scene are processed
                 self._create_npc_tracking_snapshot(db, story_id, scene_id, scene_sequence, branch_id=branch_id)
@@ -418,6 +439,12 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
             
             results["npcs_found"] = len(npc_data["npcs"])
             
+            # Verify scene exists before processing (prevents foreign key violations)
+            scene_exists = db.query(Scene).filter(Scene.id == scene_id).first()
+            if not scene_exists:
+                logger.warning(f"Scene {scene_id} doesn't exist, cannot create NPC mentions")
+                return results
+            
             # Store mentions and update tracking
             for npc in npc_data["npcs"]:
                 npc_name = npc.get("name", "").strip()
@@ -432,28 +459,42 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
                         return value.lower() in ('true', '1', 'yes')
                     return bool(value)
                 
-                # Store mention
-                mention = NPCMention(
-                    story_id=story_id,
-                    branch_id=branch_id,
-                    scene_id=scene_id,
-                    character_name=npc_name,
-                    sequence_number=scene_sequence,
-                    mention_count=npc.get("mention_count", 1),
-                    has_dialogue=to_bool(npc.get("has_dialogue", False)),
-                    has_actions=to_bool(npc.get("has_actions", False)),
-                    has_relationships=to_bool(npc.get("has_relationships", False)),
-                    context_snippets=npc.get("context_snippets", []),
-                    extracted_properties=npc.get("properties", {})
-                )
-                db.add(mention)
-                
-                # Update or create tracking record
-                await self._update_npc_tracking(
-                    db, story_id, npc_name, scene_sequence, npc, branch_id=branch_id
-                )
-                
-                results["npcs_tracked"] += 1
+                # Store mention with IntegrityError handling
+                try:
+                    mention = NPCMention(
+                        story_id=story_id,
+                        branch_id=branch_id,
+                        scene_id=scene_id,
+                        character_name=npc_name,
+                        sequence_number=scene_sequence,
+                        mention_count=npc.get("mention_count", 1),
+                        has_dialogue=to_bool(npc.get("has_dialogue", False)),
+                        has_actions=to_bool(npc.get("has_actions", False)),
+                        has_relationships=to_bool(npc.get("has_relationships", False)),
+                        context_snippets=npc.get("context_snippets", []),
+                        extracted_properties=npc.get("properties", {})
+                    )
+                    db.add(mention)
+                    db.flush()  # Flush to catch constraint violations immediately
+                    
+                    # Update or create tracking record
+                    await self._update_npc_tracking(
+                        db, story_id, npc_name, scene_sequence, npc, branch_id=branch_id
+                    )
+                    
+                    results["npcs_tracked"] += 1
+                except IntegrityError as ie:
+                    db.rollback()
+                    error_msg = str(ie).lower()
+                    if "foreign key" in error_msg and "scene_id" in error_msg:
+                        logger.warning(f"Scene {scene_id} was deleted during extraction, stopping NPC extraction")
+                        break  # Stop processing NPCs for this scene
+                    elif "duplicate key" in error_msg or "unique constraint" in error_msg:
+                        logger.debug(f"NPC mention already exists (race condition), skipping: {npc_name} in scene {scene_id}")
+                        continue
+                    else:
+                        # Re-raise if it's a different integrity error
+                        raise
             
             # Create snapshot after all NPCs for this scene are processed
             self._create_npc_tracking_snapshot(db, story_id, scene_id, scene_sequence, branch_id=branch_id)

@@ -8,6 +8,7 @@ during scene generation and story management.
 import logging
 from typing import Optional, Dict, Any, List, Tuple
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 
 from .semantic_context_manager import SemanticContextManager, create_semantic_context_manager
@@ -652,7 +653,19 @@ async def _try_combined_extraction(
                             content = moment_data.get('content', '')
                             confidence = moment_data.get('confidence', 70)
                             
-                            # Create embedding
+                            # Check if already exists BEFORE creating embedding (prevents duplicates)
+                            existing_memory = db.query(CharacterMemory).filter(
+                                CharacterMemory.character_id == character.id,
+                                CharacterMemory.scene_id == scene_id,
+                                CharacterMemory.moment_type == MomentType(moment_type),
+                                CharacterMemory.content == content
+                            ).first()
+                            
+                            if existing_memory:
+                                logger.debug(f"Character moment already exists for {character.name} in scene {scene_id}, skipping")
+                                continue
+                            
+                            # Create embedding only if not exists
                             embedding_id = await char_service.semantic_memory.add_character_moment(
                                 character_id=character.id,
                                 character_name=character.name,
@@ -666,29 +679,32 @@ async def _try_combined_extraction(
                                 }
                             )
                             
-                            # Check if already exists
-                            existing_memory = db.query(CharacterMemory).filter(
-                                CharacterMemory.embedding_id == embedding_id
-                            ).first()
-                            
-                            if existing_memory:
-                                continue
-                            
-                            # Create database record
-                            memory = CharacterMemory(
-                                character_id=character.id,
-                                scene_id=scene_id,
-                                story_id=story_id,
-                                moment_type=MomentType(moment_type),
-                                content=content,
-                                embedding_id=embedding_id,
-                                sequence_order=sequence_number,
-                                chapter_id=chapter_id,
-                                extracted_automatically=True,
-                                confidence_score=confidence
-                            )
-                            db.add(memory)
-                            all_created_moments[scene_id].append(memory)
+                            # Create database record with IntegrityError handling
+                            try:
+                                memory = CharacterMemory(
+                                    character_id=character.id,
+                                    scene_id=scene_id,
+                                    story_id=story_id,
+                                    moment_type=MomentType(moment_type),
+                                    content=content,
+                                    embedding_id=embedding_id,
+                                    sequence_order=sequence_number,
+                                    chapter_id=chapter_id,
+                                    extracted_automatically=True,
+                                    confidence_score=confidence
+                                )
+                                db.add(memory)
+                                db.flush()  # Flush to catch constraint violations immediately
+                                all_created_moments[scene_id].append(memory)
+                            except IntegrityError as ie:
+                                db.rollback()
+                                error_msg = str(ie).lower()
+                                if "duplicate key" in error_msg or "unique constraint" in error_msg:
+                                    logger.debug(f"Character moment already exists (race condition), skipping: {embedding_id}")
+                                    continue
+                                else:
+                                    # Re-raise if it's a different integrity error
+                                    raise
                 
                 db.commit()
                 total_moments = sum(len(moments) for moments in all_created_moments.values())
@@ -728,6 +744,12 @@ async def _try_combined_extraction(
                     return bool(value)
                 
                 for scene_id, sequence_number, chapter_id, scene_content in scenes_data:
+                    # Verify scene exists before creating mentions (prevents foreign key violations)
+                    scene_exists = db.query(Scene).filter(Scene.id == scene_id).first()
+                    if not scene_exists:
+                        logger.warning(f"Scene {scene_id} doesn't exist yet, skipping NPC mentions for this scene")
+                        continue
+                    
                     npcs_for_scene = scene_npc_map.get(scene_id, [])
                     for npc_data_scene in npcs_for_scene:
                         npc_name = npc_data_scene.get('name', '').strip()
@@ -740,26 +762,40 @@ async def _try_combined_extraction(
                         has_actions = to_bool(npc_data_scene.get('has_actions', False))
                         
                         if mention_count >= 2 or has_dialogue or has_actions:
-                            # Store mention
-                            mention = NPCMention(
-                                story_id=story_id,
-                                scene_id=scene_id,
-                                character_name=npc_name,
-                                sequence_number=sequence_number,
-                                mention_count=mention_count,
-                                has_dialogue=has_dialogue,
-                                has_actions=has_actions,
-                                has_relationships=to_bool(npc_data_scene.get('has_relationships', False)),
-                                context_snippets=npc_data_scene.get('context_snippets', []),
-                                extracted_properties=npc_data_scene.get('properties', {})
-                            )
-                            db.add(mention)
-                            
-                            # Update tracking
-                            await npc_service._update_npc_tracking(
-                                db, story_id, npc_name, sequence_number, npc_data_scene
-                            )
-                            total_npcs += 1
+                            # Store mention with IntegrityError handling
+                            try:
+                                mention = NPCMention(
+                                    story_id=story_id,
+                                    scene_id=scene_id,
+                                    character_name=npc_name,
+                                    sequence_number=sequence_number,
+                                    mention_count=mention_count,
+                                    has_dialogue=has_dialogue,
+                                    has_actions=has_actions,
+                                    has_relationships=to_bool(npc_data_scene.get('has_relationships', False)),
+                                    context_snippets=npc_data_scene.get('context_snippets', []),
+                                    extracted_properties=npc_data_scene.get('properties', {})
+                                )
+                                db.add(mention)
+                                db.flush()  # Flush to catch constraint violations immediately
+                                
+                                # Update tracking
+                                await npc_service._update_npc_tracking(
+                                    db, story_id, npc_name, sequence_number, npc_data_scene
+                                )
+                                total_npcs += 1
+                            except IntegrityError as ie:
+                                db.rollback()
+                                error_msg = str(ie).lower()
+                                if "foreign key" in error_msg and "scene_id" in error_msg:
+                                    logger.warning(f"Scene {scene_id} was deleted during extraction, skipping NPC mention for {npc_name}")
+                                    continue
+                                elif "duplicate key" in error_msg or "unique constraint" in error_msg:
+                                    logger.debug(f"NPC mention already exists (race condition), skipping: {npc_name} in scene {scene_id}")
+                                    continue
+                                else:
+                                    # Re-raise if it's a different integrity error
+                                    raise
                 
                 db.commit()
                 results['npc_tracking'] += total_npcs
