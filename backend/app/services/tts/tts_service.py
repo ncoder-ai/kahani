@@ -120,11 +120,24 @@ class TTSService:
         # Generate new audio
         logger.info(f"Generating audio for scene {scene.id}")
         
-        # Get the active variant content from story flow
-        flow_entry = self.db.query(StoryFlow).filter(
+        # Get the story to determine branch_id
+        from app.models.story import Story
+        story = self.db.query(Story).filter(Story.id == scene.story_id).first()
+        
+        # Get branch_id (prefer story's current_branch_id, fallback to scene's branch_id)
+        branch_id = story.current_branch_id if story and story.current_branch_id else scene.branch_id
+        
+        # Get the active variant content from story flow (filtered by branch_id)
+        flow_query = self.db.query(StoryFlow).filter(
             StoryFlow.scene_id == scene.id,
             StoryFlow.is_active == True
-        ).first()
+        )
+        
+        # Filter by branch_id if available
+        if branch_id is not None:
+            flow_query = flow_query.filter(StoryFlow.branch_id == branch_id)
+        
+        flow_entry = flow_query.first()
         
         if not flow_entry or not flow_entry.scene_variant_id:
             logger.error(f"No active variant found for scene {scene.id}")
@@ -350,13 +363,26 @@ class TTSService:
             logger.warning(f"No TTS settings found for user {user_id}")
             return
         
-        # Get scene content from active variant
-        story_flow = self.db.query(StoryFlow).filter(
+        # Get the story to determine branch_id
+        from app.models.story import Story
+        story = self.db.query(Story).filter(Story.id == scene.story_id).first()
+        
+        # Get branch_id (prefer story's current_branch_id, fallback to scene's branch_id)
+        branch_id = story.current_branch_id if story and story.current_branch_id else scene.branch_id
+        
+        # Get scene content from active variant (filtered by branch_id)
+        flow_query = self.db.query(StoryFlow).filter(
             and_(
                 StoryFlow.scene_id == scene.id,
                 StoryFlow.is_active == True
             )
-        ).first()
+        )
+        
+        # Filter by branch_id if available
+        if branch_id is not None:
+            flow_query = flow_query.filter(StoryFlow.branch_id == branch_id)
+        
+        story_flow = flow_query.first()
         
         if not story_flow:
             logger.error(f"No active variant found for scene {scene.id}")

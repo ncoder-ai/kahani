@@ -878,14 +878,35 @@ async def generate_and_stream_chunks(
         
         logger.info(f"[GEN] Step 5: Scene found, querying active variant")
         
-        # Get the active variant content from story flow (same as working TTS code)
+        # Get the story to determine branch_id
+        from app.models.story import Story
+        story = db.query(Story).filter(Story.id == scene.story_id).first()
+        if not story:
+            logger.error(f"[GEN] Step 5 FAILED: Story {scene.story_id} not found")
+            await tts_session_manager.send_message(session_id, {
+                "type": "error",
+                "message": "Story not found"
+            })
+            return
+        
+        # Get branch_id (prefer story's current_branch_id, fallback to scene's branch_id)
+        branch_id = story.current_branch_id if story.current_branch_id else scene.branch_id
+        logger.info(f"[GEN] Step 5b: Using branch_id={branch_id} for scene {scene_id}")
+        
+        # Get the active variant content from story flow (filtered by branch_id)
         from app.models.story_flow import StoryFlow
         from app.models.scene_variant import SceneVariant
         
-        flow_entry = db.query(StoryFlow).filter(
+        flow_query = db.query(StoryFlow).filter(
             StoryFlow.scene_id == scene_id,
             StoryFlow.is_active == True
-        ).first()
+        )
+        
+        # Filter by branch_id if available
+        if branch_id is not None:
+            flow_query = flow_query.filter(StoryFlow.branch_id == branch_id)
+        
+        flow_entry = flow_query.first()
         
         if not flow_entry or not flow_entry.scene_variant_id:
             logger.error(f"[GEN] Step 5 FAILED: No active variant for scene {scene_id}")
@@ -1470,14 +1491,23 @@ async def get_scene_audio_chunk(
             detail="TTS not configured"
         )
     
-    # Get scene variant content
+    # Get scene variant content (filtered by branch_id)
     from app.models.story_flow import StoryFlow
     from app.models.scene_variant import SceneVariant
     
-    flow_entry = db.query(StoryFlow).filter(
+    # Get branch_id (prefer story's current_branch_id, fallback to scene's branch_id)
+    branch_id = story.current_branch_id if story.current_branch_id else scene.branch_id
+    
+    flow_query = db.query(StoryFlow).filter(
         StoryFlow.scene_id == scene.id,
         StoryFlow.is_active == True
-    ).first()
+    )
+    
+    # Filter by branch_id if available
+    if branch_id is not None:
+        flow_query = flow_query.filter(StoryFlow.branch_id == branch_id)
+    
+    flow_entry = flow_query.first()
     
     if not flow_entry or not flow_entry.scene_variant_id:
         raise HTTPException(
