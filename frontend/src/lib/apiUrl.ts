@@ -80,8 +80,9 @@ async function detectBackendPort(): Promise<number> {
           
           if (response.ok) {
             const config = await response.json();
-            cachedBackendPort = config.server?.backend?.port || port;
-            return cachedBackendPort;
+            const detectedPort = config.server?.backend?.port || port;
+            cachedBackendPort = detectedPort;
+            return detectedPort;
           }
         } catch (testError) {
           // Continue to next port
