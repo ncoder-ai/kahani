@@ -326,6 +326,15 @@ class ContextManager:
                 logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: Excluding previous_chapter_summary (continues_from_previous=False)")
             else:
                 logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: First chapter, no previous chapter summary")
+            
+            # Include current chapter's auto_summary for context on this chapter's progress
+            # This should only include scenes that have been summarized (up to last_summary_scene_count)
+            # Recent scenes beyond last_summary_scene_count will be included separately in the scene context
+            if chapter.auto_summary:
+                logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: Including current_chapter_summary ({len(chapter.auto_summary)} chars, last_summary_scene_count={chapter.last_summary_scene_count})")
+                base_context["current_chapter_summary"] = chapter.auto_summary
+            else:
+                logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: current_chapter_summary is None")
         
         # Calculate base context tokens
         base_tokens = self._calculate_base_context_tokens(base_context)
@@ -400,6 +409,14 @@ Fears: {char.get('fears', '')}
 Appearance: {char.get('appearance', '')}
 """
                     context_text += char_text
+        
+        # Add chapter summaries to token count (these are part of base context)
+        if base_context.get('story_so_far'):
+            context_text += f"\nStory So Far:\n{base_context['story_so_far']}"
+        if base_context.get('previous_chapter_summary'):
+            context_text += f"\nPrevious Chapter Summary:\n{base_context['previous_chapter_summary']}"
+        if base_context.get('current_chapter_summary'):
+            context_text += f"\nCurrent Chapter Summary:\n{base_context['current_chapter_summary']}"
         
         return self.count_tokens(context_text)
     

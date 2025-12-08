@@ -83,7 +83,7 @@ class UnifiedLLMService:
         """Get the path for prompt debug files, handling both Docker and bare-metal environments.
         
         Args:
-            filename: Name of the debug file (e.g., 'prompt_sent.txt', 'prompt_choice_sent.txt')
+            filename: Name of the debug file (e.g., 'prompt_sent.json', 'prompt_choice_sent.json')
         
         Returns:
             Full path to the debug file
@@ -865,24 +865,18 @@ class UnifiedLLMService:
         # Write prompt to file for streaming generation (only if prompt_debug is enabled)
         if settings.prompt_debug:
             try:
-                prompt_file_path = self._get_prompt_debug_path("prompt_sent.txt")
+                import json
+                prompt_file_path = self._get_prompt_debug_path("prompt_sent.json")
+                debug_data = {
+                    "messages": gen_params["messages"],
+                    "generation_parameters": {
+                        "max_tokens": gen_params.get('max_tokens'),
+                        "temperature": gen_params.get('temperature'),
+                        "model": client.model_string
+                    }
+                }
                 with open(prompt_file_path, "w", encoding="utf-8") as f:
-                    f.write("=" * 80 + "\n")
-                    f.write("STREAMING SCENE GENERATION PROMPT (EXACTLY AS SENT TO LLM)\n")
-                    f.write("=" * 80 + "\n")
-                    f.write(f"SYSTEM PROMPT:\n{system_prompt_log}\n")
-                    f.write("-" * 80 + "\n")
-                    f.write(f"USER PROMPT:\n{user_prompt_log}\n")
-                    f.write("-" * 80 + "\n")
-                    f.write(f"GENERATION PARAMETERS:\n")
-                    f.write(f"  max_tokens: {gen_params.get('max_tokens')}\n")
-                    f.write(f"  temperature: {gen_params.get('temperature')}\n")
-                    f.write(f"  model: {client.model_string}\n")
-                    f.write("-" * 80 + "\n")
-                    f.write("FULL MESSAGES ARRAY (JSON):\n")
-                    f.write(json.dumps(gen_params["messages"], indent=2, ensure_ascii=False))
-                    f.write("\n")
-                    f.write("=" * 80 + "\n")
+                    json.dump(debug_data, f, indent=2, ensure_ascii=False)
             except Exception as e:
                 pass  # Silently fail if file writing fails
         
@@ -972,23 +966,21 @@ class UnifiedLLMService:
         # Write prompt to file for text completion streaming generation (only if prompt_debug is enabled)
         if settings.prompt_debug:
             try:
-                prompt_file_path = self._get_prompt_debug_path("prompt_sent.txt")
+                import json
+                prompt_file_path = self._get_prompt_debug_path("prompt_sent.json")
+                debug_data = {
+                    "system_prompt": system_prompt or None,
+                    "user_prompt": prompt.strip(),
+                    "rendered_prompt": rendered_prompt,
+                    "generation_parameters": {
+                        "max_tokens": gen_params.get('max_tokens'),
+                        "temperature": gen_params.get('temperature'),
+                        "model": client.model_string,
+                        "prompt": gen_params.get('prompt', '')
+                    }
+                }
                 with open(prompt_file_path, "w", encoding="utf-8") as f:
-                    f.write("=" * 80 + "\n")
-                    f.write("STREAMING SCENE GENERATION PROMPT (EXACTLY AS SENT TO LLM - TEXT COMPLETION)\n")
-                    f.write("=" * 80 + "\n")
-                    f.write(f"SYSTEM PROMPT:\n{system_prompt or '(none)'}\n")
-                    f.write("-" * 80 + "\n")
-                    f.write(f"USER PROMPT:\n{prompt.strip()}\n")
-                    f.write("-" * 80 + "\n")
-                    f.write(f"RENDERED PROMPT (FULL - EXACTLY AS SENT):\n{rendered_prompt}\n")
-                    f.write("-" * 80 + "\n")
-                    f.write(f"GENERATION PARAMETERS:\n")
-                    f.write(f"  max_tokens: {gen_params.get('max_tokens')}\n")
-                    f.write(f"  temperature: {gen_params.get('temperature')}\n")
-                    f.write(f"  model: {client.model_string}\n")
-                    f.write(f"  prompt (in gen_params): {gen_params.get('prompt', '')[:200]}...\n")
-                    f.write("=" * 80 + "\n")
+                    json.dump(debug_data, f, indent=2, ensure_ascii=False)
             except Exception as e:
                 logger.debug(f"Failed to write prompt to file: {e}")
         
@@ -2548,27 +2540,17 @@ Write approximately {scene_length_description} in length.
         if settings.prompt_debug:
             try:
                 import json
-                prompt_file_path = self._get_prompt_debug_path("prompt_sent.txt")
+                prompt_file_path = self._get_prompt_debug_path("prompt_sent.json")
                 client = self.get_user_client(user_id, user_settings)
+                debug_data = {
+                    "messages": messages,
+                    "generation_parameters": {
+                        "max_tokens": max_tokens,
+                        "model": client.model_string
+                    }
+                }
                 with open(prompt_file_path, "w", encoding="utf-8") as f:
-                    f.write("=" * 80 + "\n")
-                    f.write("CONTINUATION STREAMING PROMPT (EXACTLY AS SENT TO LLM)\n")
-                    f.write("=" * 80 + "\n")
-                    f.write(f"NUMBER OF MESSAGES: {len(messages)}\n")
-                    f.write("-" * 80 + "\n")
-                    for i, msg in enumerate(messages):
-                        f.write(f"MESSAGE {i+1} [{msg['role'].upper()}]:\n")
-                        f.write(msg['content'][:500] + "..." if len(msg['content']) > 500 else msg['content'])
-                        f.write("\n" + "-" * 40 + "\n")
-                    f.write("-" * 80 + "\n")
-                    f.write(f"GENERATION PARAMETERS:\n")
-                    f.write(f"  max_tokens: {max_tokens}\n")
-                    f.write(f"  model: {client.model_string}\n")
-                    f.write("-" * 80 + "\n")
-                    f.write("FULL MESSAGES ARRAY (JSON):\n")
-                    f.write(json.dumps(messages, indent=2, ensure_ascii=False))
-                    f.write("\n")
-                    f.write("=" * 80 + "\n")
+                    json.dump(debug_data, f, indent=2, ensure_ascii=False)
             except Exception as e:
                 logger.warning(f"Failed to write continuation prompt debug file: {e}")
         
@@ -2743,28 +2725,18 @@ Chapter Conclusion:"""
         if settings.prompt_debug:
             try:
                 import json
-                prompt_file_path = self._get_prompt_debug_path("prompt_sent.txt")
+                prompt_file_path = self._get_prompt_debug_path("prompt_sent.json")
                 client = self.get_user_client(user_id, user_settings)
+                debug_data = {
+                    "messages": messages,
+                    "generation_parameters": {
+                        "max_tokens": max_tokens,
+                        "temperature": 1.0,
+                        "model": client.model_string
+                    }
+                }
                 with open(prompt_file_path, "w", encoding="utf-8") as f:
-                    f.write("=" * 80 + "\n")
-                    f.write("CHAPTER CONCLUSION STREAMING PROMPT (EXACTLY AS SENT TO LLM)\n")
-                    f.write("=" * 80 + "\n")
-                    f.write(f"NUMBER OF MESSAGES: {len(messages)}\n")
-                    f.write("-" * 80 + "\n")
-                    for i, msg in enumerate(messages):
-                        f.write(f"MESSAGE {i+1} [{msg['role'].upper()}]:\n")
-                        f.write(msg['content'][:500] + "..." if len(msg['content']) > 500 else msg['content'])
-                        f.write("\n" + "-" * 40 + "\n")
-                    f.write("-" * 80 + "\n")
-                    f.write(f"GENERATION PARAMETERS:\n")
-                    f.write(f"  max_tokens: {max_tokens}\n")
-                    f.write(f"  temperature: 1.0\n")
-                    f.write(f"  model: {client.model_string}\n")
-                    f.write("-" * 80 + "\n")
-                    f.write("FULL MESSAGES ARRAY (JSON):\n")
-                    f.write(json.dumps(messages, indent=2, ensure_ascii=False))
-                    f.write("\n")
-                    f.write("=" * 80 + "\n")
+                    json.dump(debug_data, f, indent=2, ensure_ascii=False)
             except Exception as e:
                 logger.warning(f"Failed to write chapter conclusion prompt debug file: {e}")
         
@@ -2895,32 +2867,22 @@ Output ONLY valid JSON in this exact format:
         
         logger.info(f"[CHOICES] Using multi-message structure for cache optimization: {len(messages)} messages, max_tokens={max_tokens}")
         
-        # Write debug output to prompt_choice_sent.txt for debugging cache issues
+        # Write debug output to prompt_choice_sent.json for debugging cache issues
         from ...config import settings
         if settings.prompt_debug:
             try:
                 import json
-                prompt_file_path = self._get_prompt_debug_path("prompt_choice_sent.txt")
+                prompt_file_path = self._get_prompt_debug_path("prompt_choice_sent.json")
                 client = self.get_user_client(user_id, user_settings)
+                debug_data = {
+                    "messages": messages,
+                    "generation_parameters": {
+                        "max_tokens": max_tokens,
+                        "model": client.model_string
+                    }
+                }
                 with open(prompt_file_path, "w", encoding="utf-8") as f:
-                    f.write("=" * 80 + "\n")
-                    f.write("CHOICE GENERATION PROMPT (EXACTLY AS SENT TO LLM)\n")
-                    f.write("=" * 80 + "\n")
-                    f.write(f"NUMBER OF MESSAGES: {len(messages)}\n")
-                    f.write("-" * 80 + "\n")
-                    for i, msg in enumerate(messages):
-                        f.write(f"MESSAGE {i+1} [{msg['role'].upper()}]:\n")
-                        f.write(msg['content'][:500] + "..." if len(msg['content']) > 500 else msg['content'])
-                        f.write("\n" + "-" * 40 + "\n")
-                    f.write("-" * 80 + "\n")
-                    f.write(f"GENERATION PARAMETERS:\n")
-                    f.write(f"  max_tokens: {max_tokens}\n")
-                    f.write(f"  model: {client.model_string}\n")
-                    f.write("-" * 80 + "\n")
-                    f.write("FULL MESSAGES ARRAY (JSON):\n")
-                    f.write(json.dumps(messages, indent=2, ensure_ascii=False))
-                    f.write("\n")
-                    f.write("=" * 80 + "\n")
+                    json.dump(debug_data, f, indent=2, ensure_ascii=False)
             except Exception as e:
                 logger.warning(f"Failed to write choice prompt debug file: {e}")
         
@@ -4781,27 +4743,17 @@ Output ONLY valid JSON in this exact format:
             try:
                 import os
                 import json
-                prompt_file_path = self._get_prompt_debug_path("prompt_sent.txt")
+                prompt_file_path = self._get_prompt_debug_path("prompt_sent.json")
+                debug_data = {
+                    "messages": messages,
+                    "generation_parameters": {
+                        "max_tokens": gen_params.get('max_tokens'),
+                        "temperature": gen_params.get('temperature'),
+                        "model": client.model_string
+                    }
+                }
                 with open(prompt_file_path, "w", encoding="utf-8") as f:
-                    f.write("=" * 80 + "\n")
-                    f.write("MULTI-MESSAGE STREAMING PROMPT (EXACTLY AS SENT TO LLM)\n")
-                    f.write("=" * 80 + "\n")
-                    f.write(f"NUMBER OF MESSAGES: {len(messages)}\n")
-                    f.write("-" * 80 + "\n")
-                    for i, msg in enumerate(messages):
-                        f.write(f"MESSAGE {i+1} [{msg['role'].upper()}]:\n")
-                        f.write(msg['content'][:500] + "..." if len(msg['content']) > 500 else msg['content'])
-                        f.write("\n" + "-" * 40 + "\n")
-                    f.write("-" * 80 + "\n")
-                    f.write(f"GENERATION PARAMETERS:\n")
-                    f.write(f"  max_tokens: {gen_params.get('max_tokens')}\n")
-                    f.write(f"  temperature: {gen_params.get('temperature')}\n")
-                    f.write(f"  model: {client.model_string}\n")
-                    f.write("-" * 80 + "\n")
-                    f.write("FULL MESSAGES ARRAY (JSON):\n")
-                    f.write(json.dumps(messages, indent=2, ensure_ascii=False))
-                    f.write("\n")
-                    f.write("=" * 80 + "\n")
+                    json.dump(debug_data, f, indent=2, ensure_ascii=False)
             except Exception as e:
                 logger.warning(f"Failed to write prompt debug file: {e}")
         
