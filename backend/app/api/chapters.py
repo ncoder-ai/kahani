@@ -1380,13 +1380,7 @@ async def generate_chapter_summary_incremental(chapter_id: int, db: Session, use
     
     new_scenes_text = "\n\n".join(scene_contents)
     
-    # Get rich context (similar to scene generation)
-    # 1. story_so_far
-    story_so_far_text = ""
-    if chapter.story_so_far:
-        story_so_far_text = f"\nStory So Far (Previous Chapters):\n{chapter.story_so_far}\n"
-    
-    # 2. previous chapter summary (filtered by branch_id to avoid cross-branch pollution)
+    # Get previous chapter summary for narrative continuity (filtered by branch_id to avoid cross-branch pollution)
     previous_chapter_text = ""
     if chapter.chapter_number > 1:
         previous_chapter_query = db.query(Chapter).filter(
@@ -1401,143 +1395,13 @@ async def generate_chapter_summary_incremental(chapter_id: int, db: Session, use
         if previous_chapter and previous_chapter.auto_summary:
             previous_chapter_text = f"\nPrevious Chapter Summary:\n{previous_chapter.auto_summary}\n"
     
-    # 3. Characters in this chapter
-    # Query characters explicitly with branch_id filter to avoid cross-branch contamination
-    from ..models import StoryCharacter, Character
-    from ..models.chapter import chapter_characters
-    chapter_char_query = db.query(StoryCharacter).join(
-        chapter_characters, StoryCharacter.id == chapter_characters.c.story_character_id
-    ).filter(
-        chapter_characters.c.chapter_id == chapter.id
-    )
-    # Filter by branch_id if the chapter has one
-    if chapter.branch_id:
-        chapter_char_query = chapter_char_query.filter(StoryCharacter.branch_id == chapter.branch_id)
-    chapter_chars = chapter_char_query.all()
-    
-    characters_text = ""
-    if chapter_chars:
-        # Get character names from the Character relationship
-        char_names = []
-        for story_char in chapter_chars:
-            if story_char.character and story_char.character.name:
-                char_names.append(story_char.character.name)
-        if char_names:
-            characters_text = f"\nCharacters in Chapter: {', '.join(char_names)}\n"
-    
-    # 4. Entity states (characters, locations, objects)
-    from ..models import CharacterState, LocationState, ObjectState, Character
-    entity_parts = []
-    
-    # Filter entity states by branch_id to avoid cross-branch contamination
-    char_state_query = db.query(CharacterState).filter(
-        CharacterState.story_id == chapter.story_id
-    )
-    if chapter.branch_id:
-        char_state_query = char_state_query.filter(CharacterState.branch_id == chapter.branch_id)
-    character_states = char_state_query.all()
-    
-    loc_state_query = db.query(LocationState).filter(
-        LocationState.story_id == chapter.story_id
-    )
-    if chapter.branch_id:
-        loc_state_query = loc_state_query.filter(LocationState.branch_id == chapter.branch_id)
-    location_states = loc_state_query.all()
-    
-    obj_state_query = db.query(ObjectState).filter(
-        ObjectState.story_id == chapter.story_id
-    )
-    if chapter.branch_id:
-        obj_state_query = obj_state_query.filter(ObjectState.branch_id == chapter.branch_id)
-    object_states = obj_state_query.all()
-    
-    if character_states:
-        entity_parts.append("CURRENT CHARACTER STATES:")
-        for char_state in character_states[:5]:  # Limit to 5 characters
-            character = db.query(Character).filter(
-                Character.id == char_state.character_id
-            ).first()
-            
-            if not character:
-                continue
-            
-            char_text = f"\n{character.name}:"
-            
-            if char_state.current_location:
-                char_text += f"\n  Location: {char_state.current_location}"
-            
-            if char_state.emotional_state:
-                char_text += f"\n  Emotional State: {char_state.emotional_state}"
-            
-            if char_state.physical_condition:
-                char_text += f"\n  Physical Condition: {char_state.physical_condition}"
-            
-            if char_state.possessions:
-                possessions_str = ", ".join(char_state.possessions[:5])
-                char_text += f"\n  Possessions: {possessions_str}"
-            
-            if char_state.knowledge and len(char_state.knowledge) > 0:
-                recent_knowledge = char_state.knowledge[-3:]
-                char_text += f"\n  Recent Knowledge: {'; '.join(recent_knowledge)}"
-            
-            entity_parts.append(char_text)
-    
-    if location_states:
-        entity_parts.append("\n\nCURRENT LOCATIONS:")
-        for loc_state in location_states[:3]:  # Limit to 3 locations
-            loc_text = f"\n{loc_state.location_name}:"
-            
-            if loc_state.condition:
-                loc_text += f"\n  Condition: {loc_state.condition}"
-            
-            if loc_state.atmosphere:
-                loc_text += f"\n  Atmosphere: {loc_state.atmosphere}"
-            
-            if loc_state.current_occupants:
-                occupants_str = ", ".join(loc_state.current_occupants[:5])
-                loc_text += f"\n  Present: {occupants_str}"
-            
-            entity_parts.append(loc_text)
-    
-    if object_states:
-        entity_parts.append("\n\nIMPORTANT OBJECTS:")
-        for obj_state in object_states[:3]:  # Limit to 3 objects
-            obj_text = f"\n{obj_state.object_name}:"
-            
-            if obj_state.current_location:
-                obj_text += f"\n  Location: {obj_state.current_location}"
-            
-            if obj_state.condition:
-                obj_text += f"\n  Condition: {obj_state.condition}"
-            
-            if obj_state.significance:
-                obj_text += f"\n  Significance: {obj_state.significance}"
-            
-            entity_parts.append(obj_text)
-    
-    entity_states_text = ""
-    if entity_parts:
-        entity_states_text = "\n" + "\n".join(entity_parts) + "\n"
-    
-    # 5. Chapter metadata
-    chapter_context = ""
-    if chapter.location_name or chapter.time_period or chapter.scenario:
-        chapter_context = "\nChapter Context:\n"
-        if chapter.location_name:
-            chapter_context += f"Location: {chapter.location_name}\n"
-        if chapter.time_period:
-            chapter_context += f"Time Period: {chapter.time_period}\n"
-        if chapter.scenario:
-            chapter_context += f"Scenario: {chapter.scenario}\n"
-    
     # Build prompt based on whether we have existing summary
     existing_summary = chapter.auto_summary
     
     if existing_summary:
         # Incremental update: extend existing summary
         prompt = f"""You are creating a cohesive chapter summary. You have an existing summary and new scenes to incorporate.
-
-{story_so_far_text}{previous_chapter_text}{characters_text}{entity_states_text}{chapter_context}
+{previous_chapter_text}
 Existing Chapter Summary (Scenes 1-{last_summary_count}):
 {existing_summary}
 
@@ -1550,14 +1414,12 @@ Instructions:
 - Highlight key events, character developments, and plot progression
 - Keep the summary engaging and comprehensive (3-4 paragraphs)
 - Focus on what happens in THIS chapter only
-- Maintain consistency with the story context provided
 
 Updated Chapter {chapter.chapter_number} Summary:"""
     else:
         # First summary: create from scratch
         prompt = f"""Summarize the following scenes from Chapter {chapter.chapter_number} into a cohesive summary.
-
-{story_so_far_text}{previous_chapter_text}{characters_text}{entity_states_text}{chapter_context}
+{previous_chapter_text}
 Chapter {chapter.chapter_number}: {chapter.title or 'Untitled'}
 
 Scenes to Summarize:
@@ -1565,7 +1427,6 @@ Scenes to Summarize:
 
 Instructions:
 - Summarize ONLY Chapter {chapter.chapter_number}'s content
-- Maintain consistency with the story context provided
 - Capture key events, character developments, and plot progression
 - Keep summary engaging and comprehensive (2-3 paragraphs)
 
