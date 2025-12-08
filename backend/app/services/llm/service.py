@@ -3117,7 +3117,7 @@ Output ONLY valid JSON in this exact format:
         - Earlier messages (story foundation, chapter summaries) remain stable
         - Only later messages (semantic events, recent scenes) change frequently
         - Scenes are batched into groups aligned with extraction intervals for optimal caching
-        - Semantic events placed after scene batches to avoid invalidating batch caches
+        - Semantic events placed between completed batches and recent scenes to avoid invalidating batch caches
         
         Message order (most stable → most dynamic):
         1. Story Foundation: genre, tone, setting, scenario, characters
@@ -3125,7 +3125,9 @@ Output ONLY valid JSON in this exact format:
         3. Entity States: character states, locations, objects
         4. Scene Batches: completed scene batches (stable per batch)
         5. Semantic Events: relevant past events from semantic search (changes each generation)
-        6. Recent Scenes: active batch of most recent scenes (changes each scene)
+        6. Recent Scenes: active batch of most recent scenes (changes each scene) ← Most relevant, closest to instruction
+        
+        Order ensures: Past scenes → Past events → Most recent scenes
         
         Args:
             context: Context dictionary from context_manager
@@ -3232,7 +3234,7 @@ Output ONLY valid JSON in this exact format:
             })
         
         # === MESSAGES 4+: Scene Batches (batch-aligned for optimal caching) ===
-        # Extract semantic/relevant events for later (will be added after scene batches)
+        # Extract semantic/relevant events for later (will be added between completed batches and recent scenes)
         relevant_match = None
         if previous_scenes_text:
             relevant_match = re.search(
@@ -3246,7 +3248,38 @@ Output ONLY valid JSON in this exact format:
             if recent_match:
                 scenes_text = recent_match.group(1).strip()
                 scene_messages = self._batch_scenes_as_messages(scenes_text, scene_batch_size)
-                messages.extend(scene_messages)
+                
+                # Separate completed batches from the active "Recent Scenes" batch
+                # The last message in scene_messages is always the "Recent Scenes" batch
+                if len(scene_messages) > 1:
+                    # We have both completed batches and recent scenes
+                    completed_batches = scene_messages[:-1]  # All except the last
+                    recent_scenes_batch = scene_messages[-1]  # The last one (Recent Scenes)
+                    
+                    # Add completed batches first
+                    messages.extend(completed_batches)
+                    
+                    # Add Relevant Past Events between completed batches and recent scenes
+                    if relevant_match:
+                        messages.append({
+                            "role": "user",
+                            "content": "=== RELEVANT PAST EVENTS ===\n" + relevant_match.group(1).strip()
+                        })
+                    
+                    # Add recent scenes last (most relevant, closest to instruction)
+                    messages.append(recent_scenes_batch)
+                elif len(scene_messages) == 1:
+                    # Only one batch (the recent scenes batch)
+                    # Add Relevant Past Events before it if it exists
+                    if relevant_match:
+                        messages.append({
+                            "role": "user",
+                            "content": "=== RELEVANT PAST EVENTS ===\n" + relevant_match.group(1).strip()
+                        })
+                    messages.extend(scene_messages)
+                else:
+                    # No scene messages (shouldn't happen, but handle gracefully)
+                    messages.extend(scene_messages)
             elif not relevant_match:
                 # No structured sections found, use the whole previous_scenes as-is
                 # This handles the case where context_manager returns simple scene list
@@ -3254,15 +3287,13 @@ Output ONLY valid JSON in this exact format:
                     "role": "user",
                     "content": "=== STORY PROGRESS ===\n" + previous_scenes_text
                 })
-        
-        # === MESSAGE N-2: Semantic Events (changes every generation - placed after scene batches for better caching) ===
-        # By placing this after scene batches, we ensure that stable scene batch messages remain cached
-        # even when semantic search results change
-        if relevant_match:
-            messages.append({
-                "role": "user",
-                "content": "=== RELEVANT PAST EVENTS ===\n" + relevant_match.group(1).strip()
-            })
+            else:
+                # We have relevant_match but no recent scenes - add relevant events
+                if relevant_match:
+                    messages.append({
+                        "role": "user",
+                        "content": "=== RELEVANT PAST EVENTS ===\n" + relevant_match.group(1).strip()
+                    })
         
         return messages
     
