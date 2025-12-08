@@ -14,10 +14,18 @@ scene_base:
   system: |
     You are a skilled interactive fiction writer. Create engaging story scenes that:
     1. Advance the plot using specific story context and established details
-    2. Develop characters through action and dialogue
+    2. Develop characters through action and dialogue - PRIORITIZE DIALOGUE: Include frequent, natural conversations between characters. Dialogue should drive character development, reveal relationships, and advance the plot. Aim for dialogue exchanges in most scenes, not just occasional lines.
     3. Maintain strict consistency with established story elements
     4. Create dramatic tension appropriate to genre and tone
     5. Use vivid, descriptive language
+    
+    DIALOGUE REQUIREMENTS:
+    - Include substantial dialogue exchanges between characters whenever multiple characters are present
+    - Use dialogue to reveal character personalities, motivations, and relationships
+    - Let characters speak naturally and frequently - don't rely solely on narrative description
+    - Create back-and-forth conversations, not just single statements
+    - Use dialogue to show conflict, tension, and emotional dynamics
+    - Balance dialogue with action and description, but prioritize dialogue when characters interact
     
     SPECIFICITY: Use character names, places, events from context. Reference previous scenes. Build on established relationships.
   
@@ -86,17 +94,20 @@ scene_base:
     
     REQUIREMENTS:
     1. Start at the BEGINNING of these events - don't assume they already happened
-    2. Show every action with vivid detail, dialogue, and description
-    3. Do NOT skip ahead or summarize - elaborate fully on what's specified
-    4. DO NOT repeat text from recent scenes.
-    5. Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
+    2. PRIORITIZE DIALOGUE: If characters are interacting, include substantial dialogue exchanges. Show conversations, not just describe them. Let characters speak to each other frequently and naturally. Dialogue should be a primary method of advancing the scene, not just occasional lines.
+    3. Show every action with vivid detail, dialogue, and description
+    4. Do NOT skip ahead or summarize - elaborate fully on what's specified
+    5. DO NOT repeat text from recent scenes.
+    6. Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
    
     
-    Write an engaging scene ({scene_length_description}) that elaborates on the above.
+    Write an engaging scene ({scene_length_description}) that elaborates on the above. Remember: Include frequent dialogue when characters interact.
 
   # Task instructions when no immediate_situation (first scene or "Generate Scene")
   task_without_immediate: |
     Write an engaging scene ({scene_length_description}) that continues naturally from the previous events. If this is the first scene, establish the story world and introduce the characters naturally.
+    
+    IMPORTANT: PRIORITIZE DIALOGUE. When characters are present together, include substantial dialogue exchanges. Let characters speak to each other frequently - use dialogue to reveal personalities, build relationships, and advance the plot. Don't rely solely on narrative description when characters can interact through conversation.
 
   # Task instruction for scene continuation (context sent separately in multi-message)
   # Used by generate_continuation_with_choices_streaming()
@@ -107,7 +118,7 @@ scene_base:
     === CONTINUATION INSTRUCTION ===
     {continuation_prompt}
 
-    Write a compelling continuation that follows naturally from the scene above. Focus on engaging narrative and dialogue. Do not repeat previous content.
+    Write a compelling continuation that follows naturally from the scene above. PRIORITIZE DIALOGUE: Include frequent, natural conversations between characters. Let characters speak to each other - use dialogue exchanges to develop relationships, reveal information, and create tension. Focus on engaging narrative and dialogue. Do not repeat previous content.
     Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
   # Task instruction for guided enhancement (context sent separately in multi-message)
   # Used by generate_scene_variants_with_choices_streaming() when enhancement_guidance is provided
@@ -120,6 +131,7 @@ scene_base:
 
     Rewrite the scene above incorporating the requested enhancement.
     Maintain the same core events and outcomes. Keep consistency with established story elements.
+    PRIORITIZE DIALOGUE: When characters interact, include substantial dialogue exchanges. Let characters speak frequently and naturally - use dialogue to drive the scene forward.
     Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
     Write approximately {scene_length_description} in length.
 
@@ -143,7 +155,8 @@ scene_base:
     5. Feel like a natural chapter ending, not a story ending
     6. Use vivid, descriptive language that draws readers into the specific world of this story
     7. End at a natural chapter break point that leaves readers wanting to continue
-    8. Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
+    8. PRIORITIZE DIALOGUE: If characters are present, include meaningful dialogue exchanges. Let characters speak to each other - use dialogue to provide closure, reveal final thoughts, or set up future intrigue.
+    9. Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
     
     IMPORTANT: This is a CHAPTER ending, not a STORY ending. The conclusion should:
     - Provide closure for the chapter's specific events and character arcs
@@ -261,7 +274,7 @@ story_generation:
       
       {context}
       
-      Write a compelling continuation that follows from the established context. Focus on engaging narrative and dialogue. Include specific details. Do not repeat previous content.
+      Write a compelling continuation that follows from the established context. PRIORITIZE DIALOGUE: Include frequent, natural conversations between characters. Let characters speak to each other - use dialogue exchanges to develop relationships, reveal information, and advance the plot. Focus on engaging narrative and dialogue. Include specific details. Do not repeat previous content.
 
 # Choice Generation (Direct access key for choice_generation calls)
 choice_generation:
