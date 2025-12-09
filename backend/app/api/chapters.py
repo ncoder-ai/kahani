@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from fastapi.responses import StreamingResponse
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
@@ -246,11 +247,9 @@ async def create_chapter(
                 logger.info(f"[CHAPTER:CREATE] trace_id={trace_id} completing_chapter_id={active_chapter.id} chapter_number={active_chapter.chapter_number}")
                 
                 try:
-                    active_chapter.status = ChapterStatus.COMPLETED
-                    active_chapter.completed_at = datetime.now(timezone.utc)
-                    
                     # ALWAYS regenerate summary for the completed chapter to include all scenes
                     # (even if summary exists, it might be stale and missing recent scenes)
+                    # IMPORTANT: Generate summary BEFORE marking as completed so rollback works
                     if active_chapter.scenes_count > 0:
                         yield f"data: {json.dumps({'type': 'status', 'message': 'Generating chapter summary...', 'step': 'generating_chapter_summary'})}\n\n"
                         logger.info(f"[CHAPTER:CREATE] trace_id={trace_id} generating_summary chapter_id={active_chapter.id} scenes={active_chapter.scenes_count}")
@@ -269,6 +268,11 @@ async def create_chapter(
                         except Exception as e:
                             # Don't fail chapter creation if story summary update fails
                             logger.warning(f"[CHAPTER:CREATE] trace_id={trace_id} story_summary_failed error={e}")
+                    
+                    # ONLY mark as completed AFTER summary generation succeeds
+                    # This ensures rollback works properly if summary generation fails
+                    active_chapter.status = ChapterStatus.COMPLETED
+                    active_chapter.completed_at = datetime.now(timezone.utc)
                     
                     # Commit completed chapter changes ONLY (separate transaction)
                     db.commit()
@@ -388,10 +392,14 @@ async def create_chapter(
                 # Handle existing story characters (story_character_ids)
                 if chapter_data.story_character_ids:
                     # Validate that all story_character_ids belong to this story and branch
+                    # Allow characters with NULL branch_id (pre-branching or shared characters)
                     story_chars = db.query(StoryCharacter).filter(
                         StoryCharacter.id.in_(chapter_data.story_character_ids),
                         StoryCharacter.story_id == story_id,
-                        StoryCharacter.branch_id == active_branch_id
+                        or_(
+                            StoryCharacter.branch_id == active_branch_id,
+                            StoryCharacter.branch_id.is_(None)
+                        )
                     ).all()
                     
                     if len(story_chars) != len(chapter_data.story_character_ids):
