@@ -410,6 +410,15 @@ summary_generation:
   # NOTE: scene_variants template was removed - use scene_with_immediate or scene_without_immediate instead
   # This consolidation improves prompt cache hit rates
 
+  chapter_summary:
+    system: |
+      You are a helpful assistant that creates concise narrative summaries.
+      Focus on capturing key events, character developments, and plot progression
+      while maintaining consistency with previous chapters.
+    
+    user: |
+      {prompt}
+
   story_chapters:
     system: |
       You are an expert story architect and narrative planner. Generate a chapter structure for an interactive story that:
