@@ -662,6 +662,7 @@ Chapter Conclusion:"""
             "scene_guided_enhancement": ("story_generation", "scene_guided_enhancement"),
             "story_summary": ("summary_generation", "story_summary"),
             "chapter_summary": ("summary_generation", "chapter_summary"),
+            "story_so_far": ("summary_generation", "story_so_far"),
             "choice_generation": ("choice_generation", ""),
             "title_generation": ("story_generation", "titles"),
             "scenario_generation": ("story_generation", "scenario"),

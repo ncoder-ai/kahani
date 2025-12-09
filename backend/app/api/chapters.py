@@ -2155,7 +2155,7 @@ async def generate_story_so_far(chapter_id: int, db: Session, user_id: int) -> O
     # Combine previous chapter summaries
     combined_story = "=== Previous Chapters ===\n" + "\n\n".join(previous_summaries)
     
-    # Use LLM to create a cohesive "Story So Far" summary
+    # Build prompt for story so far
     prompt = f"""Create a cohesive "Story So Far" summary from the following chapter summaries. This should read as a continuous narrative that helps the reader understand where the story currently stands.
 
 {combined_story}
@@ -2179,14 +2179,63 @@ Story So Far:"""
         if user:
             user_settings['allow_nsfw'] = user.allow_nsfw
     
-    # Generate story so far
-    story_so_far = await llm_service.generate(
-        prompt=prompt,
-        user_id=user_id,
-        user_settings=user_settings,
-        system_prompt="You are a helpful assistant that creates cohesive story summaries from chapter summaries.",
-        max_tokens=600
-    )
+    # Get system prompt from prompts.yml
+    system_prompt = prompt_manager.get_prompt("story_so_far", "system", user_id=user_id, db=db)
+    if not system_prompt:
+        # Fallback if template not found
+        system_prompt = "You are a helpful assistant that creates cohesive story summaries from chapter summaries."
+    
+    # Generate story so far - check if user wants to use extraction LLM
+    use_extraction_llm = user_settings.get('generation_preferences', {}).get('use_extraction_llm_for_summary', False) if user_settings else False
+    extraction_enabled = user_settings.get('extraction_model_settings', {}).get('enabled', False) if user_settings else False
+    
+    if use_extraction_llm and extraction_enabled:
+        try:
+            from ..services.llm.extraction_service import ExtractionLLMService
+            logger.info(f"[CHAPTER:STORY_SO_FAR] Using extraction LLM for story so far (chapter_id={chapter_id})")
+            
+            ext_settings = user_settings.get('extraction_model_settings', {})
+            extraction_service = ExtractionLLMService(
+                url=ext_settings.get('url', 'http://localhost:1234/v1'),
+                model=ext_settings.get('model_name', 'qwen2.5-3b-instruct'),
+                api_key=ext_settings.get('api_key', ''),
+                temperature=ext_settings.get('temperature', 0.3),
+                max_tokens=ext_settings.get('max_tokens', 1000)
+            )
+            
+            # Use extraction LLM for story so far
+            from litellm import acompletion
+            params = extraction_service._get_generation_params(max_tokens=600)
+            response = await acompletion(
+                **params,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                timeout=extraction_service.timeout.total * 2
+            )
+            story_so_far = response.choices[0].message.content.strip()
+            logger.info(f"[CHAPTER:STORY_SO_FAR] Successfully generated with extraction LLM (chapter_id={chapter_id}, length={len(story_so_far)})")
+        except Exception as e:
+            logger.warning(f"[CHAPTER:STORY_SO_FAR] Extraction LLM failed, falling back to main LLM: {e}")
+            # Fall through to main LLM
+            story_so_far = await llm_service.generate(
+                prompt=prompt,
+                user_id=user_id,
+                user_settings=user_settings,
+                system_prompt=system_prompt,
+                max_tokens=600
+            )
+    else:
+        # Use main LLM (default behavior)
+        logger.info(f"[CHAPTER:STORY_SO_FAR] Using main LLM for story so far (chapter_id={chapter_id})")
+        story_so_far = await llm_service.generate(
+            prompt=prompt,
+            user_id=user_id,
+            user_settings=user_settings,
+            system_prompt=system_prompt,
+            max_tokens=600
+        )
     
     # Update chapter's story_so_far
     chapter.story_so_far = story_so_far

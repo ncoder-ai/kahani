@@ -419,6 +419,15 @@ summary_generation:
     user: |
       {prompt}
 
+  story_so_far:
+    system: |
+      You are a helpful assistant that creates cohesive story summaries from chapter summaries.
+      Combine multiple chapter summaries into a flowing narrative that helps readers
+      understand where the story currently stands.
+    
+    user: |
+      {prompt}
+
   story_chapters:
     system: |
       You are an expert story architect and narrative planner. Generate a chapter structure for an interactive story that:
