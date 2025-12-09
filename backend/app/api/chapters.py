@@ -2385,14 +2385,24 @@ async def get_available_characters(
     if not story:
         raise HTTPException(status_code=404, detail="Story not found")
     
-    # Get all story characters
+    # Get all story characters for the active branch (or NULL branch for shared characters)
+    active_branch_id = story.current_branch_id
     story_chars = db.query(StoryCharacter).filter(
-        StoryCharacter.story_id == story_id
+        StoryCharacter.story_id == story_id,
+        or_(
+            StoryCharacter.branch_id == active_branch_id,
+            StoryCharacter.branch_id.is_(None)
+        )
     ).all()
     
-    # Build response with character details
+    # Build response with character details, deduplicating by character_id
+    seen_character_ids = set()
     characters = []
     for sc in story_chars:
+        # Skip if we've already added this character
+        if sc.character_id in seen_character_ids:
+            continue
+            
         char = db.query(Character).filter(Character.id == sc.character_id).first()
         if char:
             characters.append({
@@ -2402,6 +2412,7 @@ async def get_available_characters(
                 "role": sc.role,
                 "description": char.description
             })
+            seen_character_ids.add(sc.character_id)
     
     return {"characters": characters}
 
