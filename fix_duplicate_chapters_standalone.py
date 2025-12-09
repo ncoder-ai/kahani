@@ -251,14 +251,16 @@ def delete_chapter(db, chapter_id):
     if parent_nullify_count > 0:
         print(f"  - Nullified {parent_nullify_count} scene.parent_scene_id reference(s)")
     
-    # Now safe to delete our scenes
-    scene_count = len(scenes)
-    for scene in scenes:
-        db.delete(scene)
+    # Now safe to delete our scenes - MUST use query delete, not ORM delete!
+    scene_count = db.query(Scene).filter(
+        Scene.chapter_id == chapter_id
+    ).delete(synchronize_session=False)
     print(f"  - Deleted {scene_count} scene(s)")
     
     # 8. Finally, delete the chapter itself (now nothing references it)
-    db.delete(chapter)
+    chapter_delete_count = db.query(Chapter).filter(
+        Chapter.id == chapter_id
+    ).delete(synchronize_session=False)
     print(f"  - Deleted chapter {chapter_id}")
     
     db.commit()
