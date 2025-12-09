@@ -61,6 +61,17 @@ class Scene(Base):
     chapter_id = Column(Integer, ForeignKey("chapters.id", ondelete="CASCADE"))
     story_id = Column(Integer, ForeignKey("stories.id", ondelete="CASCADE"))
 
+class SceneVariant(Base):
+    __tablename__ = "scene_variants"
+    id = Column(Integer, primary_key=True)
+    scene_id = Column(Integer, ForeignKey("scenes.id", ondelete="CASCADE"), nullable=False)
+
+class StoryFlow(Base):
+    __tablename__ = "story_flow"
+    id = Column(Integer, primary_key=True)
+    scene_id = Column(Integer, ForeignKey("scenes.id", ondelete="CASCADE"), nullable=False)
+    scene_variant_id = Column(Integer, ForeignKey("scene_variants.id", ondelete="CASCADE"))
+
 class ChapterSummaryBatch(Base):
     __tablename__ = "chapter_summary_batches"
     id = Column(Integer, primary_key=True)
@@ -148,21 +159,39 @@ def delete_chapter(db, chapter_id):
     
     print(f"\nDeleting chapter {chapter_id}...")
     
-    # Delete chapter-character associations
+    # Get all scenes in this chapter first
+    scenes = db.query(Scene).filter(Scene.chapter_id == chapter_id).all()
+    scene_ids = [scene.id for scene in scenes]
+    
+    # Delete in correct order to avoid foreign key violations:
+    
+    # 1. Delete chapter-character associations
     db.execute(chapter_characters.delete().where(chapter_characters.c.chapter_id == chapter_id))
     print(f"  - Deleted chapter-character associations")
     
-    # Delete summary batches
+    # 2. Delete summary batches
     batch_count = db.query(ChapterSummaryBatch).filter(
         ChapterSummaryBatch.chapter_id == chapter_id
     ).delete()
     print(f"  - Deleted {batch_count} summary batch(es)")
     
-    # Delete scenes (CASCADE should handle scene variants, story flow, etc.)
-    scene_count = db.query(Scene).filter(Scene.chapter_id == chapter_id).delete()
+    # 3. Delete story flow entries (references scene_variants and scenes)
+    if scene_ids:
+        flow_count = db.query(StoryFlow).filter(StoryFlow.scene_id.in_(scene_ids)).delete(synchronize_session=False)
+        print(f"  - Deleted {flow_count} story flow entries")
+    
+    # 4. Delete scene variants (references scenes)
+    if scene_ids:
+        variant_count = db.query(SceneVariant).filter(SceneVariant.scene_id.in_(scene_ids)).delete(synchronize_session=False)
+        print(f"  - Deleted {variant_count} scene variant(s)")
+    
+    # 5. Now delete scenes (no more foreign key references)
+    scene_count = len(scenes)
+    for scene in scenes:
+        db.delete(scene)
     print(f"  - Deleted {scene_count} scene(s)")
     
-    # Delete the chapter itself
+    # 6. Finally, delete the chapter itself
     db.delete(chapter)
     
     db.commit()
