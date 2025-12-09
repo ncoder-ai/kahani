@@ -2223,7 +2223,7 @@ async def delete_chapter(
     Use with caution!
     """
     
-    logger.info(f"[CHAPTER] Deleting chapter {chapter_id}")
+    logger.info(f"[CHAPTER:DELETE:START] story_id={story_id} chapter_id={chapter_id} user_id={current_user.id}")
     
     # Verify story ownership
     story = db.query(Story).filter(
@@ -2232,6 +2232,7 @@ async def delete_chapter(
     ).first()
     
     if not story:
+        logger.error(f"[CHAPTER:DELETE:ERROR] story_id={story_id} chapter_id={chapter_id} error=story_not_found")
         raise HTTPException(status_code=404, detail="Story not found")
     
     chapter = db.query(Chapter).filter(
