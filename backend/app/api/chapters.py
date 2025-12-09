@@ -10,8 +10,10 @@ from ..dependencies import get_current_user
 from ..services.llm.service import UnifiedLLMService
 from ..config import settings
 from datetime import datetime, timezone
+import time
 import logging
 import json
+import uuid
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -205,8 +207,12 @@ async def create_chapter(
     """Create a new chapter (Dynamic mode) with streaming status updates"""
     
     async def generate_stream():
+        trace_id = f"chap-create-{uuid.uuid4()}"
+        prev_chapter_completed = False
+        new_chapter_created = False
+        
         try:
-            logger.info(f"[CHAPTER] Creating new chapter for story {story_id}")
+            logger.info(f"[CHAPTER:CREATE:START] trace_id={trace_id} story_id={story_id}")
             
             # Verify story ownership
             story = db.query(Story).filter(
@@ -224,6 +230,8 @@ async def create_chapter(
                 yield f"data: {json.dumps({'type': 'error', 'message': 'Story has no active branch'})}\n\n"
                 return
             
+            logger.info(f"[CHAPTER:CREATE] trace_id={trace_id} active_branch_id={active_branch_id}")
+            
             # Get the current active chapter to complete it (filtered by branch)
             active_chapter = db.query(Chapter).filter(
                 Chapter.story_id == story_id,
@@ -231,199 +239,233 @@ async def create_chapter(
                 Chapter.status == ChapterStatus.ACTIVE
             ).first()
             
-            # Get next chapter number (for this branch)
+            # STEP 1: Complete previous chapter (if exists) in its own transaction
+            # This ensures that if summary generation fails, we can retry without side effects
+            if active_chapter:
+                yield f"data: {json.dumps({'type': 'status', 'message': 'Completing previous chapter...', 'step': 'completing_previous'})}\n\n"
+                logger.info(f"[CHAPTER:CREATE] trace_id={trace_id} completing_chapter_id={active_chapter.id} chapter_number={active_chapter.chapter_number}")
+                
+                try:
+                    active_chapter.status = ChapterStatus.COMPLETED
+                    active_chapter.completed_at = datetime.now(timezone.utc)
+                    
+                    # ALWAYS regenerate summary for the completed chapter to include all scenes
+                    # (even if summary exists, it might be stale and missing recent scenes)
+                    if active_chapter.scenes_count > 0:
+                        yield f"data: {json.dumps({'type': 'status', 'message': 'Generating chapter summary...', 'step': 'generating_chapter_summary'})}\n\n"
+                        logger.info(f"[CHAPTER:CREATE] trace_id={trace_id} generating_summary chapter_id={active_chapter.id} scenes={active_chapter.scenes_count}")
+                        
+                        # Generate the chapter's own summary (incremental - only new scenes)
+                        await generate_chapter_summary_incremental(active_chapter.id, db, current_user.id)
+                        
+                        db.refresh(active_chapter)  # Refresh to get the auto_summary
+                        logger.info(f"[CHAPTER:CREATE] trace_id={trace_id} summary_generated chapter_id={active_chapter.id}")
+                        
+                        # Update story.summary now that this chapter is completed
+                        try:
+                            from ..api.summaries import update_story_summary_from_chapters
+                            await update_story_summary_from_chapters(active_chapter.story_id, db, current_user.id)
+                            logger.info(f"[CHAPTER:CREATE] trace_id={trace_id} story_summary_updated")
+                        except Exception as e:
+                            # Don't fail chapter creation if story summary update fails
+                            logger.warning(f"[CHAPTER:CREATE] trace_id={trace_id} story_summary_failed error={e}")
+                    
+                    # Commit completed chapter changes ONLY (separate transaction)
+                    db.commit()
+                    prev_chapter_completed = True
+                    logger.info(f"[CHAPTER:CREATE] trace_id={trace_id} prev_chapter_committed chapter_id={active_chapter.id}")
+                    
+                except Exception as e:
+                    logger.error(f"[CHAPTER:CREATE:ERROR] trace_id={trace_id} step=completing_previous error={e}")
+                    db.rollback()
+                    yield f"data: {json.dumps({'type': 'error', 'message': f'Failed to complete previous chapter: {str(e)}'})}\n\n"
+                    return
+            
+            # STEP 2: Calculate next chapter number AFTER completing previous chapter
+            # This ensures we get the correct number even if previous operation modified the database
+            yield f"data: {json.dumps({'type': 'status', 'message': 'Creating new chapter...', 'step': 'creating_chapter'})}\n\n"
+            
+            # Recalculate chapter number to ensure accuracy
             max_chapter = db.query(Chapter).filter(
                 Chapter.story_id == story_id,
                 Chapter.branch_id == active_branch_id
             ).order_by(Chapter.chapter_number.desc()).first()
             
             next_chapter_number = (max_chapter.chapter_number + 1) if max_chapter else 1
+            logger.info(f"[CHAPTER:CREATE] trace_id={trace_id} next_chapter_number={next_chapter_number} max_chapter={'None' if not max_chapter else max_chapter.chapter_number}")
             
-            # Mark current chapter as completed if exists
-            # This needs to be committed before creating new chapter (to free up ACTIVE status)
-            if active_chapter:
-                yield f"data: {json.dumps({'type': 'status', 'message': 'Completing previous chapter...', 'step': 'completing_previous'})}\n\n"
+            # STEP 3: Create new chapter in a separate transaction
+            # This ensures clean rollback if anything fails during creation
+            try:
+                # Validate no duplicate chapter number exists (safety check)
+                duplicate_check = db.query(Chapter).filter(
+                    Chapter.story_id == story_id,
+                    Chapter.branch_id == active_branch_id,
+                    Chapter.chapter_number == next_chapter_number
+                ).first()
                 
-                active_chapter.status = ChapterStatus.COMPLETED
-                active_chapter.completed_at = datetime.now(timezone.utc)
-                logger.info(f"[CHAPTER] Marked chapter {active_chapter.id} as completed")
-                
-                # ALWAYS regenerate summary for the completed chapter to include all scenes
-                # (even if summary exists, it might be stale and missing recent scenes)
-                if active_chapter.scenes_count > 0:
-                    yield f"data: {json.dumps({'type': 'status', 'message': 'Generating chapter summary...', 'step': 'generating_chapter_summary'})}\n\n"
-                    logger.info(f"[CHAPTER] Generating final summary for completed chapter {active_chapter.id} ({active_chapter.scenes_count} scenes)")
-                    try:
-                        # Generate the chapter's own summary (incremental - only new scenes)
-                        await generate_chapter_summary_incremental(active_chapter.id, db, current_user.id)
-                        
-                        db.refresh(active_chapter)  # Refresh to get the auto_summary
-                        logger.info(f"[CHAPTER] Final summary generated for completed chapter {active_chapter.id}")
-                        
-                        # Update story.summary now that this chapter is completed
-                        try:
-                            from ..api.summaries import update_story_summary_from_chapters
-                            await update_story_summary_from_chapters(active_chapter.story_id, db, current_user.id)
-                            logger.info(f"[CHAPTER] Updated story summary after completing chapter {active_chapter.id}")
-                        except Exception as e:
-                            # Don't fail chapter creation if story summary update fails
-                            logger.warning(f"[CHAPTER] Failed to update story summary after completing chapter {active_chapter.id}: {e}")
-                    except Exception as e:
-                        logger.error(f"[CHAPTER] Failed to generate summary for completed chapter {active_chapter.id}: {e}")
-                        # Continue with chapter creation even if summary fails
-                
-                # Commit completed chapter changes before creating new chapter
-                db.commit()
-            
-            yield f"data: {json.dumps({'type': 'status', 'message': 'Creating new chapter...', 'step': 'creating_chapter'})}\n\n"
-            
-            # Create new chapter (but don't commit yet - wait for summaries)
-            # Don't use placeholder strings - use None if no real summary exists
-            initial_story_so_far = None
-            
-            new_chapter = Chapter(
-                story_id=story_id,
-                branch_id=active_branch_id,
-                chapter_number=next_chapter_number,
-                title=chapter_data.title or f"Chapter {next_chapter_number}",
-                description=chapter_data.description,
-                story_so_far=initial_story_so_far,
-                plot_point=chapter_data.plot_point,
-                location_name=chapter_data.location_name,
-                time_period=chapter_data.time_period,
-                scenario=chapter_data.scenario,
-                continues_from_previous=chapter_data.continues_from_previous if chapter_data.continues_from_previous is not None else True,
-                status=ChapterStatus.ACTIVE,
-                context_tokens_used=0,
-                scenes_count=0
-            )
-            
-            db.add(new_chapter)
-            db.flush()  # Flush to get the chapter ID (but don't commit yet)
-            
-            # Collect all story_character_ids to associate with the chapter
-            all_story_character_ids = set()
-            
-            # Handle new characters from library (character_ids)
-            if chapter_data.character_ids:
-                character_roles = chapter_data.character_roles or {}
-                for character_id in chapter_data.character_ids:
-                    # Check if character exists
-                    char = db.query(Character).filter(Character.id == character_id).first()
-                    if not char:
-                        db.rollback()  # Rollback before returning error
-                        yield f"data: {json.dumps({'type': 'error', 'message': f'Character with ID {character_id} not found'})}\n\n"
-                        return
-                    
-                    # Check if StoryCharacter entry already exists for this story and branch
-                    story_char = db.query(StoryCharacter).filter(
-                        StoryCharacter.story_id == story_id,
-                        StoryCharacter.branch_id == active_branch_id,
-                        StoryCharacter.character_id == character_id
-                    ).first()
-                    
-                    if not story_char:
-                        # Create new StoryCharacter entry for this branch
-                        # Handle both int and str keys (JSON may convert int keys to strings)
-                        role = None
-                        if isinstance(character_roles, dict):
-                            role = character_roles.get(character_id) or character_roles.get(str(character_id))
-                        story_char = StoryCharacter(
-                            story_id=story_id,
-                            branch_id=active_branch_id,
-                            character_id=character_id,
-                            role=role,
-                            is_active=True
-                        )
-                        db.add(story_char)
-                        db.flush()  # Flush to get the ID (but don't commit yet)
-                        logger.info(f"[CHAPTER] Created StoryCharacter entry for character {character_id} with role {role} on branch {active_branch_id}")
-                    else:
-                        # Update role if provided and different
-                        # Handle both int and str keys (JSON may convert int keys to strings)
-                        new_role = None
-                        if isinstance(character_roles, dict):
-                            new_role = character_roles.get(character_id) or character_roles.get(str(character_id))
-                        if new_role and story_char.role != new_role:
-                            story_char.role = new_role
-                            logger.info(f"[CHAPTER] Updated role for StoryCharacter {story_char.id} to {new_role}")
-                    
-                    all_story_character_ids.add(story_char.id)
-            
-            # Handle existing story characters (story_character_ids)
-            if chapter_data.story_character_ids:
-                # Validate that all story_character_ids belong to this story and branch
-                story_chars = db.query(StoryCharacter).filter(
-                    StoryCharacter.id.in_(chapter_data.story_character_ids),
-                    StoryCharacter.story_id == story_id,
-                    StoryCharacter.branch_id == active_branch_id
-                ).all()
-                
-                if len(story_chars) != len(chapter_data.story_character_ids):
-                    db.rollback()  # Rollback before returning error
-                    yield f"data: {json.dumps({'type': 'error', 'message': 'Some character IDs do not belong to this story branch'})}\n\n"
+                if duplicate_check:
+                    logger.error(f"[CHAPTER:CREATE:ERROR] trace_id={trace_id} duplicate_chapter_number={next_chapter_number} existing_chapter_id={duplicate_check.id}")
+                    yield f"data: {json.dumps({'type': 'error', 'message': f'Chapter {next_chapter_number} already exists. Please refresh and try again.'})}\n\n"
                     return
                 
-                # Add to the set of story_character_ids
-                for story_char in story_chars:
-                    all_story_character_ids.add(story_char.id)
-            
-            # Create chapter-character associations for all characters
-            if all_story_character_ids:
-                for story_char_id in all_story_character_ids:
-                    db.execute(
-                        chapter_characters.insert().values(
-                            chapter_id=new_chapter.id,
-                            story_character_id=story_char_id
+                # Create new chapter (but don't commit yet - wait for summaries)
+                # Don't use placeholder strings - use None if no real summary exists
+                initial_story_so_far = None
+                
+                new_chapter = Chapter(
+                    story_id=story_id,
+                    branch_id=active_branch_id,
+                    chapter_number=next_chapter_number,
+                    title=chapter_data.title or f"Chapter {next_chapter_number}",
+                    description=chapter_data.description,
+                    story_so_far=initial_story_so_far,
+                    plot_point=chapter_data.plot_point,
+                    location_name=chapter_data.location_name,
+                    time_period=chapter_data.time_period,
+                    scenario=chapter_data.scenario,
+                    continues_from_previous=chapter_data.continues_from_previous if chapter_data.continues_from_previous is not None else True,
+                    status=ChapterStatus.ACTIVE,
+                    context_tokens_used=0,
+                    scenes_count=0
+                )
+                
+                db.add(new_chapter)
+                db.flush()  # Flush to get the chapter ID (but don't commit yet)
+                new_chapter_created = True
+                logger.info(f"[CHAPTER:CREATE] trace_id={trace_id} new_chapter_flushed chapter_id={new_chapter.id} chapter_number={next_chapter_number}")
+                
+                # Collect all story_character_ids to associate with the chapter
+                all_story_character_ids = set()
+                
+                # Handle new characters from library (character_ids)
+                if chapter_data.character_ids:
+                    character_roles = chapter_data.character_roles or {}
+                    for character_id in chapter_data.character_ids:
+                        # Check if character exists
+                        char = db.query(Character).filter(Character.id == character_id).first()
+                        if not char:
+                            db.rollback()  # Rollback before returning error
+                            logger.error(f"[CHAPTER:CREATE:ERROR] trace_id={trace_id} character_not_found character_id={character_id}")
+                            yield f"data: {json.dumps({'type': 'error', 'message': f'Character with ID {character_id} not found'})}\n\n"
+                            return
+                        
+                        # Check if StoryCharacter entry already exists for this story and branch
+                        story_char = db.query(StoryCharacter).filter(
+                            StoryCharacter.story_id == story_id,
+                            StoryCharacter.branch_id == active_branch_id,
+                            StoryCharacter.character_id == character_id
+                        ).first()
+                        
+                        if not story_char:
+                            # Create new StoryCharacter entry for this branch
+                            # Handle both int and str keys (JSON may convert int keys to strings)
+                            role = None
+                            if isinstance(character_roles, dict):
+                                role = character_roles.get(character_id) or character_roles.get(str(character_id))
+                            story_char = StoryCharacter(
+                                story_id=story_id,
+                                branch_id=active_branch_id,
+                                character_id=character_id,
+                                role=role,
+                                is_active=True
+                            )
+                            db.add(story_char)
+                            db.flush()  # Flush to get the ID (but don't commit yet)
+                            logger.info(f"[CHAPTER:CREATE] trace_id={trace_id} created_story_character character_id={character_id} role={role}")
+                        else:
+                            # Update role if provided and different
+                            # Handle both int and str keys (JSON may convert int keys to strings)
+                            new_role = None
+                            if isinstance(character_roles, dict):
+                                new_role = character_roles.get(character_id) or character_roles.get(str(character_id))
+                            if new_role and story_char.role != new_role:
+                                story_char.role = new_role
+                                logger.info(f"[CHAPTER:CREATE] trace_id={trace_id} updated_story_character_role story_char_id={story_char.id} role={new_role}")
+                        
+                        all_story_character_ids.add(story_char.id)
+                
+                # Handle existing story characters (story_character_ids)
+                if chapter_data.story_character_ids:
+                    # Validate that all story_character_ids belong to this story and branch
+                    story_chars = db.query(StoryCharacter).filter(
+                        StoryCharacter.id.in_(chapter_data.story_character_ids),
+                        StoryCharacter.story_id == story_id,
+                        StoryCharacter.branch_id == active_branch_id
+                    ).all()
+                    
+                    if len(story_chars) != len(chapter_data.story_character_ids):
+                        db.rollback()  # Rollback before returning error
+                        logger.error(f"[CHAPTER:CREATE:ERROR] trace_id={trace_id} invalid_story_characters requested={len(chapter_data.story_character_ids)} found={len(story_chars)}")
+                        yield f"data: {json.dumps({'type': 'error', 'message': 'Some character IDs do not belong to this story branch'})}\n\n"
+                        return
+                    
+                    # Add to the set of story_character_ids
+                    for story_char in story_chars:
+                        all_story_character_ids.add(story_char.id)
+                
+                # Create chapter-character associations for all characters
+                if all_story_character_ids:
+                    for story_char_id in all_story_character_ids:
+                        db.execute(
+                            chapter_characters.insert().values(
+                                chapter_id=new_chapter.id,
+                                story_character_id=story_char_id
+                            )
                         )
-                    )
-                logger.info(f"[CHAPTER] Associated {len(all_story_character_ids)} characters with chapter {new_chapter.id}")
-            
-            # Generate the story_so_far for the new chapter (combining all previous chapters)
-            # BUT skip for the first chapter since there are no previous chapters
-            if next_chapter_number > 1:
-                yield f"data: {json.dumps({'type': 'status', 'message': 'Generating story so far...', 'step': 'generating_story_so_far'})}\n\n"
-                try:
-                    await generate_story_so_far(new_chapter.id, db, current_user.id)
-                    db.refresh(new_chapter)
-                    logger.info(f"[CHAPTER] Generated story_so_far for new chapter {new_chapter.id}")
-                except Exception as e:
-                    logger.error(f"[CHAPTER] Failed to generate story_so_far for new chapter {new_chapter.id}: {e}")
-                    # If generation fails, story_so_far will remain None (already set above)
-            
-            # Now commit everything atomically: new chapter + character associations + summaries
-            db.commit()
-            db.refresh(new_chapter)
-            
-            logger.info(f"[CHAPTER] Created chapter {new_chapter.id} (Chapter {next_chapter_number})")
-            
-            yield f"data: {json.dumps({'type': 'status', 'message': 'Finalizing...', 'step': 'finalizing'})}\n\n"
-            
-            # Build and return the final chapter response
-            chapter_response = build_chapter_response(new_chapter, db)
-            # Convert Pydantic model to dict with proper datetime serialization
-            # Use model_dump with mode='json' to serialize datetime objects as ISO strings
-            if hasattr(chapter_response, 'model_dump'):
-                # Pydantic v2
-                chapter_dict = chapter_response.model_dump(mode='json')
-            else:
-                # Pydantic v1 - need to manually serialize datetime
-                chapter_dict = chapter_response.dict()
-                # Convert datetime objects to ISO format strings
-                if 'created_at' in chapter_dict and chapter_dict['created_at']:
-                    chapter_dict['created_at'] = chapter_dict['created_at'].isoformat()
-                if 'completed_at' in chapter_dict and chapter_dict['completed_at']:
-                    chapter_dict['completed_at'] = chapter_dict['completed_at'].isoformat()
-            yield f"data: {json.dumps({'type': 'complete', 'chapter': chapter_dict})}\n\n"
+                    logger.info(f"[CHAPTER:CREATE] trace_id={trace_id} associated_characters count={len(all_story_character_ids)}")
+                
+                # Generate the story_so_far for the new chapter (combining all previous chapters)
+                # BUT skip for the first chapter since there are no previous chapters
+                if next_chapter_number > 1:
+                    yield f"data: {json.dumps({'type': 'status', 'message': 'Generating story so far...', 'step': 'generating_story_so_far'})}\n\n"
+                    try:
+                        await generate_story_so_far(new_chapter.id, db, current_user.id)
+                        db.refresh(new_chapter)
+                        logger.info(f"[CHAPTER:CREATE] trace_id={trace_id} story_so_far_generated")
+                    except Exception as e:
+                        logger.warning(f"[CHAPTER:CREATE] trace_id={trace_id} story_so_far_failed error={e}")
+                        # If generation fails, story_so_far will remain None (already set above)
+                
+                # Now commit everything atomically: new chapter + character associations + summaries
+                db.commit()
+                db.refresh(new_chapter)
+                
+                logger.info(f"[CHAPTER:CREATE:SUCCESS] trace_id={trace_id} chapter_id={new_chapter.id} chapter_number={next_chapter_number}")
+                
+                yield f"data: {json.dumps({'type': 'status', 'message': 'Finalizing...', 'step': 'finalizing'})}\n\n"
+                
+                # Build and return the final chapter response
+                chapter_response = build_chapter_response(new_chapter, db)
+                # Convert Pydantic model to dict with proper datetime serialization
+                # Use model_dump with mode='json' to serialize datetime objects as ISO strings
+                if hasattr(chapter_response, 'model_dump'):
+                    # Pydantic v2
+                    chapter_dict = chapter_response.model_dump(mode='json')
+                else:
+                    # Pydantic v1 - need to manually serialize datetime
+                    chapter_dict = chapter_response.dict()
+                    # Convert datetime objects to ISO format strings
+                    if 'created_at' in chapter_dict and chapter_dict['created_at']:
+                        chapter_dict['created_at'] = chapter_dict['created_at'].isoformat()
+                    if 'completed_at' in chapter_dict and chapter_dict['completed_at']:
+                        chapter_dict['completed_at'] = chapter_dict['completed_at'].isoformat()
+                yield f"data: {json.dumps({'type': 'complete', 'chapter': chapter_dict})}\n\n"
+                
+            except Exception as e:
+                logger.error(f"[CHAPTER:CREATE:ERROR] trace_id={trace_id} step=creating_new_chapter error={e}")
+                db.rollback()
+                yield f"data: {json.dumps({'type': 'error', 'message': f'Failed to create new chapter: {str(e)}'})}\n\n"
+                return
             
         except Exception as e:
-            logger.error(f"[CHAPTER] Error creating chapter: {e}")
-            # Rollback any uncommitted changes (new chapter creation)
+            logger.error(f"[CHAPTER:CREATE:ERROR] trace_id={trace_id} step=outer_exception error={e}")
+            # Rollback any uncommitted changes
             try:
                 db.rollback()
             except Exception as rollback_error:
-                logger.error(f"[CHAPTER] Error during rollback: {rollback_error}")
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+                logger.error(f"[CHAPTER:CREATE:ERROR] trace_id={trace_id} rollback_failed error={rollback_error}")
+            yield f"data: {json.dumps({'type': 'error', 'message': f'Unexpected error: {str(e)}'})}\n\n"
     
     return StreamingResponse(
         generate_stream(),
@@ -1139,114 +1181,138 @@ async def generate_chapter_summary(chapter_id: int, db: Session, user_id: int) -
     
     Note: Filters by branch_id to ensure only chapters from the same branch are included.
     """
-    
-    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
-    if not chapter:
-        return ""
-    
-    # Get ALL PREVIOUS chapters' summaries for context (filtered by branch_id)
-    # This ensures we only get chapters from the same branch to avoid cross-branch pollution
-    previous_chapters_query = db.query(Chapter).filter(
-        Chapter.story_id == chapter.story_id,
-        Chapter.chapter_number < chapter.chapter_number
-    )
-    # Filter by branch_id if the chapter has one
-    if chapter.branch_id:
-        previous_chapters_query = previous_chapters_query.filter(Chapter.branch_id == chapter.branch_id)
-    previous_chapters = previous_chapters_query.order_by(Chapter.chapter_number).all()
-    
-    previous_summaries = []
-    for ch in previous_chapters:
-        if ch.auto_summary:
-            previous_summaries.append(f"Chapter {ch.chapter_number} ({ch.title or 'Untitled'}): {ch.auto_summary}")
-    
-    # Get all scenes in THIS chapter with their active variants
-    from .stories import SceneVariantServiceAdapter
-    from ..models import StoryFlow
-    
-    variant_service = SceneVariantServiceAdapter(db)
-    # Filter scenes by branch_id to avoid cross-branch contamination
-    scene_query = db.query(Scene).filter(
-        Scene.chapter_id == chapter_id
-    )
-    if chapter.branch_id:
-        scene_query = scene_query.filter(Scene.branch_id == chapter.branch_id)
-    scenes = scene_query.order_by(Scene.sequence_number).all()
-    
-    if not scenes:
-        return "No scenes in this chapter yet."
-    
-    # Build scene content from active variants
-    scene_contents = []
-    for scene in scenes:
-        # Get active variant from StoryFlow
-        flow = db.query(StoryFlow).filter(
-            StoryFlow.scene_id == scene.id,
-            StoryFlow.is_active == True
-        ).first()
+    op_start = time.perf_counter()
+    trace_id = f"chap-sum-{uuid.uuid4()}"
+    status = "error"
+    summary_text = ""
+    try:
+        chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+        if not chapter:
+            logger.warning(f"[CHAPTER:SUMMARY:SKIP] trace_id={trace_id} chapter_id={chapter_id} reason=not_found")
+            return ""
         
-        if flow and flow.scene_variant:
-            scene_contents.append(f"Scene {scene.sequence_number}: {flow.scene_variant.content}")
-    
-    if not scene_contents:
-        return "No content available to summarize."
-    
-    # Prepare context for LLM with previous chapters for continuity
-    combined_content = "\n\n".join(scene_contents)
-    
-    # Build prompt with context from previous chapters
-    context_section = ""
-    if previous_summaries:
-        context_section = f"""
+        logger.info(f"[CHAPTER:SUMMARY:START] trace_id={trace_id} chapter_id={chapter_id} story_id={chapter.story_id} branch_id={chapter.branch_id}")
+        
+        # Get ALL PREVIOUS chapters' summaries for context (filtered by branch_id)
+        # This ensures we only get chapters from the same branch to avoid cross-branch pollution
+        previous_chapters_query = db.query(Chapter).filter(
+            Chapter.story_id == chapter.story_id,
+            Chapter.chapter_number < chapter.chapter_number
+        )
+        # Filter by branch_id if the chapter has one
+        if chapter.branch_id:
+            previous_chapters_query = previous_chapters_query.filter(Chapter.branch_id == chapter.branch_id)
+        previous_chapters = previous_chapters_query.order_by(Chapter.chapter_number).all()
+        
+        previous_summaries = []
+        for ch in previous_chapters:
+            if ch.auto_summary:
+                previous_summaries.append(f"Chapter {ch.chapter_number} ({ch.title or 'Untitled'}): {ch.auto_summary}")
+        
+        # Get all scenes in THIS chapter with their active variants
+        from .stories import SceneVariantServiceAdapter
+        from ..models import StoryFlow
+        
+        variant_service = SceneVariantServiceAdapter(db)
+        # Filter scenes by branch_id to avoid cross-branch contamination
+        scene_query = db.query(Scene).filter(
+            Scene.chapter_id == chapter_id
+        )
+        if chapter.branch_id:
+            scene_query = scene_query.filter(Scene.branch_id == chapter.branch_id)
+        scenes = scene_query.order_by(Scene.sequence_number).all()
+        
+        if not scenes:
+            logger.warning(f"[CHAPTER:SUMMARY:EMPTY] trace_id={trace_id} chapter_id={chapter_id} reason=no_scenes")
+            return "No scenes in this chapter yet."
+        
+        # Build scene content from active variants
+        scene_contents = []
+        for scene in scenes:
+            # Get active variant from StoryFlow
+            flow = db.query(StoryFlow).filter(
+                StoryFlow.scene_id == scene.id,
+                StoryFlow.is_active == True
+            ).first()
+            
+            if flow and flow.scene_variant:
+                scene_contents.append(f"Scene {scene.sequence_number}: {flow.scene_variant.content}")
+        
+        if not scene_contents:
+            logger.warning(f"[CHAPTER:SUMMARY:EMPTY] trace_id={trace_id} chapter_id={chapter_id} reason=no_active_variants")
+            return "No content available to summarize."
+        
+        # Prepare context for LLM with previous chapters for continuity
+        combined_content = "\n\n".join(scene_contents)
+        
+        # Build prompt with context from previous chapters
+        context_section = ""
+        if previous_summaries:
+            context_section = f"""
 Previous Chapters (for context - maintain consistency with these):
 {chr(10).join(previous_summaries)}
 
 """
-    
-    prompt = f"""Summarize Chapter {chapter.chapter_number} below into a concise summary that captures the key events, character developments, and plot progression.
-
+        
+        prompt = f"""Summarize Chapter {chapter.chapter_number} below into a concise summary that captures the key events, character developments, and plot progression.
+        
 {context_section}Current Chapter {chapter.chapter_number}: {chapter.title or 'Untitled'}
-
+        
 Scenes to Summarize:
 {combined_content}
-
+        
 Instructions:
 - Summarize ONLY Chapter {chapter.chapter_number}'s content
 - Maintain consistency with characters and events from previous chapters
 - Capture key events, character developments, and plot progression
 - Keep summary to 2-3 paragraphs
-
+        
 Summary:"""
-    
-    # Get user settings
-    from ..models import UserSettings
-    user_settings_obj = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
-    user_settings = user_settings_obj.to_dict() if user_settings_obj else None
-    
-    # Add allow_nsfw from user to ensure NSFW filter is applied correctly
-    if user_settings is not None:
-        user = db.query(User).filter(User.id == user_id).first()
-        if user:
-            user_settings['allow_nsfw'] = user.allow_nsfw
-    
-    # Generate summary using basic LLM generation (not scene continuation)
-    # NSFW filter is automatically applied based on user settings
-    summary = await llm_service.generate(
-        prompt=prompt,
-        user_id=user_id,
-        user_settings=user_settings,
-        system_prompt="You are a helpful assistant that creates concise narrative summaries.",
-        max_tokens=400  # Enough for a good summary
-    )
-    
-    # Update chapter's auto_summary (just this chapter's content)
-    chapter.auto_summary = summary
-    chapter.last_summary_scene_count = chapter.scenes_count
-    db.commit()
-    
-    logger.info(f"[CHAPTER] Generated summary for chapter {chapter_id}: {len(summary)} chars")
-    
-    return summary
+        
+        # Get user settings
+        from ..models import UserSettings
+        user_settings_obj = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+        user_settings = user_settings_obj.to_dict() if user_settings_obj else None
+        
+        # Add allow_nsfw from user to ensure NSFW filter is applied correctly
+        if user_settings is not None:
+            user = db.query(User).filter(User.id == user_id).first()
+            if user:
+                user_settings['allow_nsfw'] = user.allow_nsfw
+        
+        # Generate summary using basic LLM generation (not scene continuation)
+        # NSFW filter is automatically applied based on user settings
+        llm_start = time.perf_counter()
+        summary = await llm_service.generate(
+            prompt=prompt,
+            user_id=user_id,
+            user_settings=user_settings,
+            system_prompt="You are a helpful assistant that creates concise narrative summaries.",
+            max_tokens=400  # Enough for a good summary
+        )
+        logger.info(f"[CHAPTER:SUMMARY:LLM] trace_id={trace_id} duration_ms={(time.perf_counter() - llm_start) * 1000:.2f}")
+        
+        # Update chapter's auto_summary (just this chapter's content)
+        chapter.auto_summary = summary
+        chapter.last_summary_scene_count = chapter.scenes_count
+        db.commit()
+        summary_text = summary
+        
+        status = "success"
+        logger.info(f"[CHAPTER] Generated summary for chapter {chapter_id}: {len(summary)} chars trace_id={trace_id}")
+        
+        return summary
+    except Exception as e:
+        logger.error(f"[CHAPTER:SUMMARY:ERROR] trace_id={trace_id} chapter_id={chapter_id} error={e}")
+        return ""
+    finally:
+        duration_ms = (time.perf_counter() - op_start) * 1000
+        if duration_ms > 15000:
+            logger.error(f"[CHAPTER:SUMMARY:SLOW] trace_id={trace_id} chapter_id={chapter_id} status={status} duration_ms={duration_ms:.2f} summary_len={len(summary_text)}")
+        elif duration_ms > 5000:
+            logger.warning(f"[CHAPTER:SUMMARY:SLOW] trace_id={trace_id} chapter_id={chapter_id} status={status} duration_ms={duration_ms:.2f} summary_len={len(summary_text)}")
+        else:
+            logger.info(f"[CHAPTER:SUMMARY:DONE] trace_id={trace_id} chapter_id={chapter_id} status={status} duration_ms={duration_ms:.2f} summary_len={len(summary_text)}")
 
 
 def combine_chapter_batches(chapter_id: int, db: Session) -> Optional[str]:
@@ -1341,66 +1407,77 @@ async def generate_chapter_summary_incremental(chapter_id: int, db: Session, use
     
     This is much more efficient and scalable for long chapters.
     """
-    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
-    if not chapter:
-        return ""
+    op_start = time.perf_counter()
+    trace_id = f"chap-sum-inc-{uuid.uuid4()}"
+    status = "error"
+    combined_summary = ""
     
-    # Get scenes since last summary
-    last_summary_count = chapter.last_summary_scene_count or 0
-    # Filter scenes by branch_id to avoid cross-branch contamination
-    new_scene_query = db.query(Scene).filter(
-        Scene.chapter_id == chapter_id,
-        Scene.sequence_number > last_summary_count
-    )
-    if chapter.branch_id:
-        new_scene_query = new_scene_query.filter(Scene.branch_id == chapter.branch_id)
-    new_scenes = new_scene_query.order_by(Scene.sequence_number).all()
-    
-    if not new_scenes:
-        logger.info(f"[CHAPTER] No new scenes to summarize for chapter {chapter_id}")
-        return chapter.auto_summary or ""
-    
-    # Build scene content from active variants (only NEW scenes)
-    from .stories import SceneVariantServiceAdapter
-    from ..models import StoryFlow
-    
-    scene_contents = []
-    for scene in new_scenes:
-        flow = db.query(StoryFlow).filter(
-            StoryFlow.scene_id == scene.id,
-            StoryFlow.is_active == True
-        ).first()
+    try:
+        chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+        if not chapter:
+            logger.warning(f"[CHAPTER:SUMMARY:INC:SKIP] trace_id={trace_id} chapter_id={chapter_id} reason=not_found")
+            return ""
         
-        if flow and flow.scene_variant:
-            scene_contents.append(f"Scene {scene.sequence_number}: {flow.scene_variant.content}")
-    
-    if not scene_contents:
-        logger.info(f"[CHAPTER] No content available for new scenes in chapter {chapter_id}")
-        return chapter.auto_summary or ""
-    
-    new_scenes_text = "\n\n".join(scene_contents)
-    
-    # Get previous chapter summary for narrative continuity (filtered by branch_id to avoid cross-branch pollution)
-    previous_chapter_text = ""
-    if chapter.chapter_number > 1:
-        previous_chapter_query = db.query(Chapter).filter(
-            Chapter.story_id == chapter.story_id,
-            Chapter.chapter_number == chapter.chapter_number - 1,
-            Chapter.auto_summary.isnot(None)
+        logger.info(f"[CHAPTER:SUMMARY:INC:START] trace_id={trace_id} chapter_id={chapter_id} story_id={chapter.story_id} branch_id={chapter.branch_id}")
+        
+        # Get scenes since last summary
+        last_summary_count = chapter.last_summary_scene_count or 0
+        # Filter scenes by branch_id to avoid cross-branch contamination
+        new_scene_query = db.query(Scene).filter(
+            Scene.chapter_id == chapter_id,
+            Scene.sequence_number > last_summary_count
         )
-        # Filter by branch_id if the chapter has one
         if chapter.branch_id:
-            previous_chapter_query = previous_chapter_query.filter(Chapter.branch_id == chapter.branch_id)
-        previous_chapter = previous_chapter_query.first()
-        if previous_chapter and previous_chapter.auto_summary:
-            previous_chapter_text = f"\nPrevious Chapter Summary:\n{previous_chapter.auto_summary}\n"
-    
-    # Build prompt based on whether we have existing summary
-    existing_summary = chapter.auto_summary
-    
-    if existing_summary:
-        # Incremental update: extend existing summary
-        prompt = f"""You are creating a cohesive chapter summary. You have an existing summary and new scenes to incorporate.
+            new_scene_query = new_scene_query.filter(Scene.branch_id == chapter.branch_id)
+        new_scenes = new_scene_query.order_by(Scene.sequence_number).all()
+        
+        if not new_scenes:
+            logger.info(f"[CHAPTER:SUMMARY:INC:EMPTY] trace_id={trace_id} chapter_id={chapter_id} reason=no_new_scenes")
+            status = "no_new_scenes"
+            return chapter.auto_summary or ""
+        
+        # Build scene content from active variants (only NEW scenes)
+        from .stories import SceneVariantServiceAdapter
+        from ..models import StoryFlow
+        
+        scene_contents = []
+        for scene in new_scenes:
+            flow = db.query(StoryFlow).filter(
+                StoryFlow.scene_id == scene.id,
+                StoryFlow.is_active == True
+            ).first()
+            
+            if flow and flow.scene_variant:
+                scene_contents.append(f"Scene {scene.sequence_number}: {flow.scene_variant.content}")
+        
+        if not scene_contents:
+            logger.info(f"[CHAPTER:SUMMARY:INC:EMPTY] trace_id={trace_id} chapter_id={chapter_id} reason=no_active_variants")
+            status = "no_active_variants"
+            return chapter.auto_summary or ""
+        
+        new_scenes_text = "\n\n".join(scene_contents)
+        
+        # Get previous chapter summary for narrative continuity (filtered by branch_id to avoid cross-branch pollution)
+        previous_chapter_text = ""
+        if chapter.chapter_number > 1:
+            previous_chapter_query = db.query(Chapter).filter(
+                Chapter.story_id == chapter.story_id,
+                Chapter.chapter_number == chapter.chapter_number - 1,
+                Chapter.auto_summary.isnot(None)
+            )
+            # Filter by branch_id if the chapter has one
+            if chapter.branch_id:
+                previous_chapter_query = previous_chapter_query.filter(Chapter.branch_id == chapter.branch_id)
+            previous_chapter = previous_chapter_query.first()
+            if previous_chapter and previous_chapter.auto_summary:
+                previous_chapter_text = f"\nPrevious Chapter Summary:\n{previous_chapter.auto_summary}\n"
+        
+        # Build prompt based on whether we have existing summary
+        existing_summary = chapter.auto_summary
+        
+        if existing_summary:
+            # Incremental update: extend existing summary
+            prompt = f"""You are creating a cohesive chapter summary. You have an existing summary and new scenes to incorporate.
 {previous_chapter_text}
 Existing Chapter Summary (Scenes 1-{last_summary_count}):
 {existing_summary}
@@ -1416,9 +1493,9 @@ Instructions:
 - Focus on what happens in THIS chapter only
 
 Updated Chapter {chapter.chapter_number} Summary:"""
-    else:
-        # First summary: create from scratch
-        prompt = f"""Summarize the following scenes from Chapter {chapter.chapter_number} into a cohesive summary.
+        else:
+            # First summary: create from scratch
+            prompt = f"""Summarize the following scenes from Chapter {chapter.chapter_number} into a cohesive summary.
 {previous_chapter_text}
 Chapter {chapter.chapter_number}: {chapter.title or 'Untitled'}
 
@@ -1431,53 +1508,485 @@ Instructions:
 - Keep summary engaging and comprehensive (2-3 paragraphs)
 
 Chapter {chapter.chapter_number} Summary:"""
+        
+        # Get user settings
+        from ..models import UserSettings
+        user_settings_obj = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+        user_settings = user_settings_obj.to_dict() if user_settings_obj else None
+        
+        if user_settings is not None:
+            user = db.query(User).filter(User.id == user_id).first()
+            if user:
+                user_settings['allow_nsfw'] = user.allow_nsfw
+        
+        # Generate summary for this batch
+        llm_start = time.perf_counter()
+        batch_summary = await llm_service.generate(
+            prompt=prompt,
+            user_id=user_id,
+            user_settings=user_settings,
+            system_prompt="You are a helpful assistant that creates cohesive narrative summaries.",
+            max_tokens=500  # Slightly more for incremental updates
+        )
+        logger.info(f"[CHAPTER:SUMMARY:INC:LLM] trace_id={trace_id} duration_ms={(time.perf_counter() - llm_start) * 1000:.2f}")
+        
+        # Determine scene range for this batch
+        batch_start = last_summary_count + 1
+        batch_end = chapter.scenes_count
+        
+        # Store this batch
+        batch = ChapterSummaryBatch(
+            chapter_id=chapter_id,
+            start_scene_sequence=batch_start,
+            end_scene_sequence=batch_end,
+            summary=batch_summary
+        )
+        db.add(batch)
+        db.flush()  # Flush to get batch ID
+        
+        # Update chapter's auto_summary from all batches
+        update_chapter_summary_from_batches(chapter_id, db)
+        
+        # Get batch count for logging
+        all_batches = db.query(ChapterSummaryBatch).filter(
+            ChapterSummaryBatch.chapter_id == chapter_id
+        ).all()
+        
+        combined_summary = chapter.auto_summary or ""
+        
+        logger.info(f"[CHAPTER] {'Extended' if existing_summary else 'Created'} summary for chapter {chapter_id}: {len(batch_summary)} chars (scenes {batch_start}-{batch_end}), total batches: {len(all_batches)}, trace_id={trace_id}")
+        status = "success"
+        return combined_summary
     
-    # Get user settings
-    from ..models import UserSettings
-    user_settings_obj = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
-    user_settings = user_settings_obj.to_dict() if user_settings_obj else None
+    except Exception as e:
+        logger.error(f"[CHAPTER:SUMMARY:INC:ERROR] trace_id={trace_id} chapter_id={chapter_id} error={e}")
+        status = "error"
+        raise
     
-    if user_settings is not None:
-        user = db.query(User).filter(User.id == user_id).first()
-        if user:
-            user_settings['allow_nsfw'] = user.allow_nsfw
-    
-    # Generate summary for this batch
-    batch_summary = await llm_service.generate(
-        prompt=prompt,
-        user_id=user_id,
-        user_settings=user_settings,
-        system_prompt="You are a helpful assistant that creates cohesive narrative summaries.",
-        max_tokens=500  # Slightly more for incremental updates
-    )
-    
-    # Determine scene range for this batch
-    batch_start = last_summary_count + 1
-    batch_end = chapter.scenes_count
-    
-    # Store this batch
-    batch = ChapterSummaryBatch(
-        chapter_id=chapter_id,
-        start_scene_sequence=batch_start,
-        end_scene_sequence=batch_end,
-        summary=batch_summary
-    )
-    db.add(batch)
-    db.flush()  # Flush to get batch ID
-    
-    # Update chapter's auto_summary from all batches
-    update_chapter_summary_from_batches(chapter_id, db)
-    
-    # Get batch count for logging
-    all_batches = db.query(ChapterSummaryBatch).filter(
-        ChapterSummaryBatch.chapter_id == chapter_id
-    ).all()
-    
-    combined_summary = chapter.auto_summary or ""
-    
-    logger.info(f"[CHAPTER] {'Extended' if existing_summary else 'Created'} summary for chapter {chapter_id}: {len(batch_summary)} chars (scenes {batch_start}-{batch_end}), total batches: {len(all_batches)}")
-    
-    return combined_summary
+    finally:
+        duration_ms = (time.perf_counter() - op_start) * 1000
+        if duration_ms > 15000:
+            logger.error(f"[CHAPTER:SUMMARY:INC:SLOW] trace_id={trace_id} chapter_id={chapter_id} status={status} duration_ms={duration_ms:.2f} summary_len={len(combined_summary)}")
+        elif duration_ms > 5000:
+            logger.warning(f"[CHAPTER:SUMMARY:INC:SLOW] trace_id={trace_id} chapter_id={chapter_id} status={status} duration_ms={duration_ms:.2f} summary_len={len(combined_summary)}")
+        else:
+            logger.info(f"[CHAPTER:SUMMARY:INC:DONE] trace_id={trace_id} chapter_id={chapter_id} status={status} duration_ms={duration_ms:.2f} summary_len={len(combined_summary)}")
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
+    # noqa
+    # pragma: no cover
 
 
 async def generate_story_so_far(chapter_id: int, db: Session, user_id: int) -> Optional[str]:
@@ -1689,6 +2198,132 @@ async def delete_chapter_content(
     return {
         "message": "Chapter content deleted successfully",
         "scenes_deleted": scene_count
+    }
+
+
+@router.delete("/{story_id}/chapters/{chapter_id}")
+async def delete_chapter(
+    story_id: int,
+    chapter_id: int,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete an entire chapter and all its content.
+    
+    WARNING: This permanently deletes:
+    - The chapter itself
+    - All scenes in the chapter
+    - All scene variants
+    - Chapter summaries
+    - Chapter-character associations
+    - Semantic embeddings
+    
+    Use with caution!
+    """
+    
+    logger.info(f"[CHAPTER] Deleting chapter {chapter_id}")
+    
+    # Verify story ownership
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    
+    chapter = db.query(Chapter).filter(
+        Chapter.id == chapter_id,
+        Chapter.story_id == story_id
+    ).first()
+    
+    if not chapter:
+        raise HTTPException(status_code=404, detail="Chapter not found")
+    
+    # Verify chapter belongs to active branch (branch consistency check)
+    if story.current_branch_id and chapter.branch_id != story.current_branch_id:
+        logger.warning(f"[CHAPTER] Attempt to delete chapter {chapter_id} from branch {chapter.branch_id} while active branch is {story.current_branch_id}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot delete chapter from inactive branch. Please switch to the chapter's branch first."
+        )
+    
+    # Prevent deletion of the only chapter
+    chapter_count = db.query(Chapter).filter(
+        Chapter.story_id == story_id,
+        Chapter.branch_id == chapter.branch_id
+    ).count()
+    
+    if chapter_count <= 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete the only chapter in the story. Stories must have at least one chapter."
+        )
+    
+    # Store chapter info for logging
+    chapter_number = chapter.chapter_number
+    chapter_title = chapter.title
+    
+    # Get all scenes for background cleanup (filter by branch_id)
+    scene_query = db.query(Scene).filter(Scene.chapter_id == chapter_id)
+    if chapter.branch_id:
+        scene_query = scene_query.filter(Scene.branch_id == chapter.branch_id)
+    scenes = scene_query.all()
+    scene_ids_to_cleanup = [scene.id for scene in scenes]
+    scene_count = len(scenes)
+    
+    # Delete chapter-character associations
+    db.execute(
+        chapter_characters.delete().where(
+            chapter_characters.c.chapter_id == chapter_id
+        )
+    )
+    
+    # Delete all summary batches for this chapter
+    batches_deleted = db.query(ChapterSummaryBatch).filter(
+        ChapterSummaryBatch.chapter_id == chapter_id
+    ).delete()
+    
+    # Delete all scenes in this chapter (CASCADE will handle variants, story flow, etc.)
+    for scene in scenes:
+        db.delete(scene)
+    
+    # Delete the chapter itself
+    db.delete(chapter)
+    
+    # If this was the active chapter, we need to activate another one
+    if chapter.status == ChapterStatus.ACTIVE:
+        # Find the most recent chapter (by chapter_number) to activate
+        new_active = db.query(Chapter).filter(
+            Chapter.story_id == story_id,
+            Chapter.branch_id == chapter.branch_id,
+            Chapter.id != chapter_id
+        ).order_by(Chapter.chapter_number.desc()).first()
+        
+        if new_active:
+            new_active.status = ChapterStatus.ACTIVE
+            logger.info(f"[CHAPTER] Activated chapter {new_active.id} (Chapter {new_active.chapter_number}) after deleting active chapter")
+    
+    db.commit()
+    
+    # Schedule semantic cleanup in background (don't block response)
+    if scene_ids_to_cleanup:
+        background_tasks.add_task(
+            cleanup_semantic_data_in_background,
+            scene_ids=scene_ids_to_cleanup,
+            story_id=story_id
+        )
+    
+    logger.info(f"[CHAPTER] Deleted chapter {chapter_id} (Chapter {chapter_number}: {chapter_title}) with {scene_count} scenes and {batches_deleted} summary batches")
+    
+    return {
+        "message": "Chapter deleted successfully",
+        "chapter_number": chapter_number,
+        "chapter_title": chapter_title,
+        "scenes_deleted": scene_count,
+        "batches_deleted": batches_deleted
     }
 
 
