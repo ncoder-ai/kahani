@@ -629,7 +629,7 @@ If no NPCs found, return {{"npcs": []}}. Return ONLY the JSON, no other text."""
         scene_content: str,
         scene_sequence: int,
         character_names: List[str],
-        system_prompt: str = "You are a precise story analysis assistant. Extract entity state changes and return only valid JSON."
+        system_prompt: str = "You are a precise story analysis assistant. Extract entity state changes and return only valid JSON. Focus on quality over quantity - extract only truly significant entities and states."
     ) -> Dict[str, Any]:
         """
         Extract entity state changes from a scene
@@ -658,29 +658,65 @@ Extract the following as JSON:
 2. Location information (name, condition, atmosphere, occupants)
 3. Important objects (name, location, owner, condition)
 
+CRITICAL INSTRUCTIONS FOR CHARACTER STATE EXTRACTION:
+All character descriptions MUST be:
+- FACTUAL: Only what is explicitly stated or directly observable
+- CONCISE: 1-5 words for states (e.g., "angry", "wounded", "exhausted")
+- OBJECTIVE: No interpretations, symbolism, or inferred meanings
+
+For "location": Use room/building names only
+  * GOOD: "bedroom", "kitchen", "forest clearing"
+  * BAD: "next to the bed", "by the window", "at the table"
+
+For "emotional_state": Single words or short phrases
+  * GOOD: "angry", "sad", "determined", "confused"
+  * BAD: "feeling complex emotions about recent events"
+
+CRITICAL INSTRUCTIONS FOR LOCATION EXTRACTION:
+ONLY extract locations that are:
+- Rooms (bedroom, kitchen, living room, office)
+- Buildings (house, castle, tower, shop)
+- Outdoor areas (forest, courtyard, street, park)
+- Named places (Blackwood Manor, Crystal Tower)
+
+DO NOT extract:
+- Furniture (table, chair, bed, sofa)
+- Parts of rooms (corner, doorway, window, headboard)
+- Spatial references (next to X, by the Y, near Z)
+- Temporary positions (where character is standing)
+
 CRITICAL INSTRUCTIONS FOR OBJECT EXTRACTION:
-- Only extract objects that are PLOT-RELEVANT:
-  * Used in actions by characters (e.g., "Rambo drew his gun")
-  * Possessed/carried by characters (e.g., "Sarah's phone")
-  * Mentioned 2+ times in the scene
-  * Central to plot events (not trivial items like phones, keys unless central to action)
-- DO NOT extract everyday items unless they are actively used or central to the scene
-- For "condition": Provide ONLY factual, observable physical condition (damaged, intact, locked, open, broken, pristine, etc.)
-  * BAD: "Silent confirmation of a rendezvous" (interpretive)
-  * GOOD: "intact", "damaged", "locked"
-- For "significance": Provide ONLY factual role in the scene (used by X, mentioned in Y, carried by Z)
-  * BAD: "A symbol of active planning and intention" (interpretive/symbolic)
-  * GOOD: "used by Rambo to call for backup", "carried by Sarah", "mentioned in conversation"
-- NO interpretive, symbolic, or narrative importance descriptions
+DO NOT extract:
+- Body parts (hands, eyes, face, arms, legs, head, etc.) - NEVER extract these
+- Furniture (tables, chairs, beds - unless central to plot)
+- Everyday items mentioned casually (phones, keys, cups, pens)
+- Parts of objects (door handle, table leg, window pane)
+- Natural features (trees, rocks, grass - unless named/magical)
+- Clothing items (unless explicitly given/taken/significant)
+
+ONLY extract objects that are:
+- Weapons or tools actively used (guns, swords, knives, tools)
+- Magical/special items with powers (artifacts, enchanted items)
+- Plot devices (letters, maps, documents, keys to important places)
+- Items explicitly given/taken between characters
+- Objects mentioned 3+ times AND used in actions
+
+For "condition": ONLY factual physical condition (1-3 words)
+  * GOOD: "damaged", "intact", "locked", "broken", "pristine"
+  * BAD: "silent confirmation of a rendezvous" (interpretive)
+
+For "significance": ONLY factual role in scene (1 sentence max)
+  * GOOD: "used by Rambo to call backup", "carried by Sarah"
+  * BAD: "symbol of active planning and intention" (symbolic)
 
 Return ONLY valid JSON in this exact format:
 {{
   "characters": [
     {{
       "name": "character name",
-      "location": "current location or null",
-      "emotional_state": "brief emotional state or null",
-      "physical_condition": "condition or null",
+      "location": "room/building name or null",
+      "emotional_state": "1-3 word state or null",
+      "physical_condition": "1-3 word condition or null",
       "possessions_gained": ["item1", "item2"],
       "possessions_lost": ["item3"],
       "knowledge_gained": ["fact1", "fact2"],
@@ -689,19 +725,19 @@ Return ONLY valid JSON in this exact format:
   ],
   "locations": [
     {{
-      "name": "location name",
-      "condition": "condition description or null",
-      "atmosphere": "atmosphere description or null",
+      "name": "room/building/area name (consistent naming)",
+      "condition": "1-3 word condition or null",
+      "atmosphere": "1-5 word atmosphere or null",
       "occupants": ["character1", "character2"]
     }}
   ],
   "objects": [
     {{
-      "name": "object name",
+      "name": "object name (weapons/artifacts/plot-items only)",
       "location": "where it is",
       "owner": "who has it or null",
-      "condition": "factual physical condition only (damaged, intact, locked, etc.) or null",
-      "significance": "factual role in scene only (used by X, mentioned in Y) or null"
+      "condition": "1-3 word factual condition or null",
+      "significance": "factual role in scene (1 sentence max) or null"
     }}
   ]
 }}
@@ -789,6 +825,68 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             
         except Exception as e:
             logger.error(f"Failed to extract character details with extraction model: {e}")
+            raise
+    
+    async def generate_summary(
+        self,
+        story_content: str,
+        story_context: str = "",
+        system_prompt: str = "You are an expert story analyst. Create a comprehensive summary that captures the essential plot points and character development while maintaining the tone and style of the original story.",
+        max_tokens: Optional[int] = None
+    ) -> str:
+        """
+        Generate a summary of story content using the extraction model
+        
+        Args:
+            story_content: The story text to summarize
+            story_context: Additional context about the story (title, genre, etc.)
+            system_prompt: System prompt for the model
+            max_tokens: Maximum tokens for response (defaults to 2000 for summaries)
+            
+        Returns:
+            Generated summary text
+        """
+        try:
+            from litellm import acompletion
+            
+            # Use higher max_tokens for summaries (default 2000)
+            summary_max_tokens = max_tokens if max_tokens is not None else 2000
+            
+            # Build user prompt
+            context_section = f"Story Context:\n{story_context}\n\n" if story_context else ""
+            
+            prompt = f"""{context_section}Story Content:
+{story_content}
+
+Create a comprehensive summary that captures the essential elements of this story while maintaining its tone and character development.
+
+Instructions:
+- Capture the essential plot points and character development
+- Maintain the tone and style of the original story
+- Preserve important details while being concise
+- Focus on character relationships and growth
+- Highlight key conflicts and resolutions
+
+Summary:"""
+            
+            params = self._get_generation_params(max_tokens=summary_max_tokens)
+            logger.info(f"Generating summary with extraction model: max_tokens={summary_max_tokens}")
+            
+            response = await acompletion(
+                **params,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                timeout=self.timeout.total * 3  # Longer timeout for summaries
+            )
+            
+            content = response.choices[0].message.content.strip()
+            logger.info(f"Summary generated with extraction model: {len(content)} characters")
+            return content
+            
+        except Exception as e:
+            logger.error(f"Failed to generate summary with extraction model: {e}")
             raise
     
     def _calculate_batch_timeout(self, num_scenes: int) -> float:
