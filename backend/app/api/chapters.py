@@ -432,8 +432,10 @@ async def create_chapter(
                         db.refresh(new_chapter)
                         logger.info(f"[CHAPTER:CREATE] trace_id={trace_id} story_so_far_generated")
                     except Exception as e:
-                        logger.warning(f"[CHAPTER:CREATE] trace_id={trace_id} story_so_far_failed error={e}")
-                        # If generation fails, story_so_far will remain None (already set above)
+                        logger.error(f"[CHAPTER:CREATE:ERROR] trace_id={trace_id} story_so_far_failed error={e}")
+                        db.rollback()
+                        yield f"data: {json.dumps({'type': 'error', 'message': f'Failed to generate story context: {str(e)}'})}\n\n"
+                        return
                 
                 # Now commit everything atomically: new chapter + character associations + summaries
                 db.commit()
