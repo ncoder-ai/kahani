@@ -15,6 +15,7 @@ import { ContextInfo } from '@/components/ContextInfo';
 import FormattedText from '@/components/FormattedText';
 import SceneDisplay from '@/components/SceneDisplay';
 import SceneVariantDisplay from '@/components/SceneVariantDisplay';
+import BranchCreationModal from '@/components/BranchCreationModal';
 import { GlobalTTSWidget } from '@/components/GlobalTTSWidget';
 import MicrophoneButton from '@/components/MicrophoneButton';
 import BranchSelector from '@/components/BranchSelector';
@@ -44,7 +45,7 @@ const StorySettingsModal = dynamic(() => import('@/components/StorySettingsModal
   loading: () => null,
   ssr: false
 });
-import { BookOpen, ChevronRight, X, AlertCircle, Sparkles, Volume2, Trash2 } from 'lucide-react';
+import { BookOpen, ChevronRight, X, AlertCircle, Sparkles, Volume2, Trash2, Edit2 } from 'lucide-react';
 import { 
   BookOpenIcon, 
   FilmIcon,
@@ -209,6 +210,8 @@ export default function StoryPage() {
   
   // Branch state
   const [currentBranchId, setCurrentBranchId] = useState<number | undefined>(undefined);
+  const [showBranchCreationModal, setShowBranchCreationModal] = useState(false);
+  const [branchCreationFromScene, setBranchCreationFromScene] = useState<number>(1);
   
   const [chapterSidebarRefreshKey, setChapterSidebarRefreshKey] = useState(0);
   const [activeChapterId, setActiveChapterId] = useState<number | null>(null); // Active chapter from backend
@@ -2383,6 +2386,50 @@ export default function StoryPage() {
                 <ChevronRight className="w-5 h-5 text-gray-500" />
               </button>
 
+              {/* Edit Latest Scene */}
+              <button
+                onClick={() => {
+                  setShowMainMenu(false);
+                  if (story?.scenes && story.scenes.length > 0) {
+                    const lastScene = story.scenes[story.scenes.length - 1];
+                    startEditingScene(lastScene);
+                  }
+                }}
+                disabled={!story?.scenes || story.scenes.length === 0}
+                className="w-full flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors text-left group disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <div className="p-2 bg-indigo-600/20 rounded-lg group-hover:bg-indigo-600/30 transition-colors">
+                  <Edit2 className="w-5 h-5 text-indigo-400" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-white">Edit Scene</div>
+                  <div className="text-xs text-gray-400">Edit the latest scene</div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-gray-500" />
+              </button>
+
+              {/* Play TTS for Latest Scene */}
+              <button
+                onClick={() => {
+                  setShowMainMenu(false);
+                  if (story?.scenes && story.scenes.length > 0) {
+                    const lastScene = story.scenes[story.scenes.length - 1];
+                    globalTTS.playScene(lastScene.id);
+                  }
+                }}
+                disabled={!story?.scenes || story.scenes.length === 0}
+                className="w-full flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors text-left group disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <div className="p-2 bg-green-600/20 rounded-lg group-hover:bg-green-600/30 transition-colors">
+                  <Volume2 className="w-5 h-5 text-green-400" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-white">Play TTS</div>
+                  <div className="text-xs text-gray-400">Play the latest scene</div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-gray-500" />
+              </button>
+
               {/* Divider */}
               <div className="my-2 border-t border-slate-700"></div>
               
@@ -2778,6 +2825,10 @@ export default function StoryPage() {
                               console.error('Failed to copy text:', error);
                             }
                           }}
+                          onCreateBranch={(sceneSequence) => {
+                            setShowBranchCreationModal(true);
+                            setBranchCreationFromScene(sceneSequence);
+                          }}
                           isGeneratingChoices={isGeneratingChoices && waitingForChoicesSceneId === scene.id}
                         />
                       </div>
@@ -3114,6 +3165,25 @@ export default function StoryPage() {
           chapterId={currentChapterId}
           onCharacterCreated={handleCharacterCreated}
           onClose={() => setShowCharacterWizard(false)}
+        />
+      )}
+
+      {/* Branch Creation Modal */}
+      {showBranchCreationModal && (
+        <BranchCreationModal
+          storyId={storyId}
+          currentSceneSequence={story?.scenes?.length || 1}
+          preselectedScene={branchCreationFromScene}
+          onClose={() => {
+            setShowBranchCreationModal(false);
+            setBranchCreationFromScene(1);
+          }}
+          onBranchCreated={(branch) => {
+            setShowBranchCreationModal(false);
+            setBranchCreationFromScene(1);
+            setCurrentBranchId(branch.id);
+            loadStory(true, false, branch.id);
+          }}
         />
       )}
 

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { PlayIcon, ArrowPathIcon, PlusCircleIcon, StopIcon, SparklesIcon, TrashIcon, ClipboardIcon, XMarkIcon, FlagIcon, PencilIcon } from '@heroicons/react/24/outline';
+import { GitFork } from 'lucide-react';
 import SceneDisplay from './SceneDisplay';
 import { SceneTTSButton } from './SceneTTSButton';
 import MicrophoneButton from './MicrophoneButton';
@@ -96,6 +97,8 @@ interface SceneVariantDisplayProps {
   onDeactivateDeleteMode?: () => void;
   // Copy functionality
   onCopySceneText?: (content: string) => void;
+  // Branch creation
+  onCreateBranch?: (sceneSequence: number) => void;
   // Choices generation loading state
   isGeneratingChoices?: boolean;
   // Variant reload trigger from parent
@@ -145,6 +148,7 @@ export default function SceneVariantDisplay({
   onActivateDeleteMode,
   onDeactivateDeleteMode,
   onCopySceneText,
+  onCreateBranch,
   isGeneratingChoices = false,
   variantReloadTrigger
 }: SceneVariantDisplayProps) {
@@ -895,6 +899,15 @@ export default function SceneVariantDisplay({
             }
           >
             <TrashIcon className="w-3.5 h-3.5 md:w-4 md:h-4" />
+          </button>
+
+          {/* Create Branch Button */}
+          <button
+            onClick={() => onCreateBranch?.(scene.sequence_number)}
+            className="flex items-center justify-center transition-all duration-200 flex-shrink-0 text-gray-400 hover:text-gray-300 hover:bg-gray-800/50 rounded p-1"
+            title="Create branch from this scene"
+          >
+            <GitFork className="w-3.5 h-3.5 md:w-4 md:h-4" />
           </button>
 
           {/* Audio Controls - Floating speaker button */}
