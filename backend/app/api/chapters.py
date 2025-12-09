@@ -1304,16 +1304,58 @@ Summary:"""
             if user:
                 user_settings['allow_nsfw'] = user.allow_nsfw
         
-        # Generate summary using basic LLM generation (not scene continuation)
-        # NSFW filter is automatically applied based on user settings
+        # Generate summary - check if user wants to use extraction LLM
         llm_start = time.perf_counter()
-        summary = await llm_service.generate(
-            prompt=prompt,
-            user_id=user_id,
-            user_settings=user_settings,
-            system_prompt="You are a helpful assistant that creates concise narrative summaries.",
-            max_tokens=400  # Enough for a good summary
-        )
+        use_extraction_llm = user_settings.get('generation_preferences', {}).get('use_extraction_llm_for_summary', False) if user_settings else False
+        extraction_enabled = user_settings.get('extraction_model_settings', {}).get('enabled', False) if user_settings else False
+        
+        if use_extraction_llm and extraction_enabled:
+            try:
+                from ..services.llm.extraction_service import ExtractionLLMService
+                logger.info(f"[CHAPTER:SUMMARY] Using extraction LLM for chapter summary (chapter_id={chapter_id})")
+                
+                ext_settings = user_settings.get('extraction_model_settings', {})
+                extraction_service = ExtractionLLMService(
+                    url=ext_settings.get('url', 'http://localhost:1234/v1'),
+                    model=ext_settings.get('model_name', 'qwen2.5-3b-instruct'),
+                    api_key=ext_settings.get('api_key', ''),
+                    temperature=ext_settings.get('temperature', 0.3),
+                    max_tokens=ext_settings.get('max_tokens', 1000)
+                )
+                
+                # Use extraction LLM for chapter summary
+                from litellm import acompletion
+                params = extraction_service._get_generation_params(max_tokens=400)
+                response = await acompletion(
+                    **params,
+                    messages=[
+                        {"role": "system", "content": "You are a helpful assistant that creates concise narrative summaries."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    timeout=extraction_service.timeout.total * 2
+                )
+                summary = response.choices[0].message.content.strip()
+                logger.info(f"[CHAPTER:SUMMARY] Successfully generated with extraction LLM (chapter_id={chapter_id}, length={len(summary)})")
+            except Exception as e:
+                logger.warning(f"[CHAPTER:SUMMARY] Extraction LLM failed, falling back to main LLM: {e}")
+                # Fall through to main LLM
+                summary = await llm_service.generate(
+                    prompt=prompt,
+                    user_id=user_id,
+                    user_settings=user_settings,
+                    system_prompt="You are a helpful assistant that creates concise narrative summaries.",
+                    max_tokens=400
+                )
+        else:
+            # Use main LLM (default behavior)
+            logger.info(f"[CHAPTER:SUMMARY] Using main LLM for chapter summary (chapter_id={chapter_id})")
+            summary = await llm_service.generate(
+                prompt=prompt,
+                user_id=user_id,
+                user_settings=user_settings,
+                system_prompt="You are a helpful assistant that creates concise narrative summaries.",
+                max_tokens=400  # Enough for a good summary
+            )
         logger.info(f"[CHAPTER:SUMMARY:LLM] trace_id={trace_id} duration_ms={(time.perf_counter() - llm_start) * 1000:.2f}")
         
         # Update chapter's auto_summary (just this chapter's content)
@@ -1543,15 +1585,58 @@ Chapter {chapter.chapter_number} Summary:"""
             if user:
                 user_settings['allow_nsfw'] = user.allow_nsfw
         
-        # Generate summary for this batch
+        # Generate summary for this batch - check if user wants to use extraction LLM
         llm_start = time.perf_counter()
-        batch_summary = await llm_service.generate(
-            prompt=prompt,
-            user_id=user_id,
-            user_settings=user_settings,
-            system_prompt="You are a helpful assistant that creates cohesive narrative summaries.",
-            max_tokens=500  # Slightly more for incremental updates
-        )
+        use_extraction_llm = user_settings.get('generation_preferences', {}).get('use_extraction_llm_for_summary', False) if user_settings else False
+        extraction_enabled = user_settings.get('extraction_model_settings', {}).get('enabled', False) if user_settings else False
+        
+        if use_extraction_llm and extraction_enabled:
+            try:
+                from ..services.llm.extraction_service import ExtractionLLMService
+                logger.info(f"[CHAPTER:SUMMARY:INC] Using extraction LLM for incremental chapter summary (chapter_id={chapter_id})")
+                
+                ext_settings = user_settings.get('extraction_model_settings', {})
+                extraction_service = ExtractionLLMService(
+                    url=ext_settings.get('url', 'http://localhost:1234/v1'),
+                    model=ext_settings.get('model_name', 'qwen2.5-3b-instruct'),
+                    api_key=ext_settings.get('api_key', ''),
+                    temperature=ext_settings.get('temperature', 0.3),
+                    max_tokens=ext_settings.get('max_tokens', 1000)
+                )
+                
+                # Use extraction LLM for incremental chapter summary
+                from litellm import acompletion
+                params = extraction_service._get_generation_params(max_tokens=500)
+                response = await acompletion(
+                    **params,
+                    messages=[
+                        {"role": "system", "content": "You are a helpful assistant that creates cohesive narrative summaries."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    timeout=extraction_service.timeout.total * 2
+                )
+                batch_summary = response.choices[0].message.content.strip()
+                logger.info(f"[CHAPTER:SUMMARY:INC] Successfully generated with extraction LLM (chapter_id={chapter_id}, length={len(batch_summary)})")
+            except Exception as e:
+                logger.warning(f"[CHAPTER:SUMMARY:INC] Extraction LLM failed, falling back to main LLM: {e}")
+                # Fall through to main LLM
+                batch_summary = await llm_service.generate(
+                    prompt=prompt,
+                    user_id=user_id,
+                    user_settings=user_settings,
+                    system_prompt="You are a helpful assistant that creates cohesive narrative summaries.",
+                    max_tokens=500
+                )
+        else:
+            # Use main LLM (default behavior)
+            logger.info(f"[CHAPTER:SUMMARY:INC] Using main LLM for incremental chapter summary (chapter_id={chapter_id})")
+            batch_summary = await llm_service.generate(
+                prompt=prompt,
+                user_id=user_id,
+                user_settings=user_settings,
+                system_prompt="You are a helpful assistant that creates cohesive narrative summaries.",
+                max_tokens=500  # Slightly more for incremental updates
+            )
         logger.info(f"[CHAPTER:SUMMARY:INC:LLM] trace_id={trace_id} duration_ms={(time.perf_counter() - llm_start) * 1000:.2f}")
         
         # Determine scene range for this batch
