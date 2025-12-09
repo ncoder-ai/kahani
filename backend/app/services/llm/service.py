@@ -2999,7 +2999,7 @@ Output ONLY valid JSON in this exact format:
                 
                 # Get prompts from centralized prompt manager
                 system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-                    "summary_generation", "story_summary",
+                    "story_summary", "story_summary",
                     story_context=self._format_context_for_summary(story_context),
                     story_content=story_content
                 )
@@ -3025,7 +3025,7 @@ Output ONLY valid JSON in this exact format:
         logger.info(f"[SUMMARY] Using main LLM for summary generation (user_id={user_id})")
         
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-            "summary_generation", "story_summary",
+            "story_summary", "story_summary",
             story_context=self._format_context_for_summary(story_context),
             story_content=story_content
         )
