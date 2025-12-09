@@ -9,6 +9,7 @@ from ..models import Story, Chapter, Scene, User, ChapterStatus, StoryMode, Stor
 from ..models.chapter import chapter_characters
 from ..dependencies import get_current_user
 from ..services.llm.service import UnifiedLLMService
+from ..services.llm.prompts import prompt_manager
 from ..config import settings
 from datetime import datetime, timezone
 import time
@@ -1304,6 +1305,12 @@ Summary:"""
             if user:
                 user_settings['allow_nsfw'] = user.allow_nsfw
         
+        # Get system prompt from prompts.yml
+        system_prompt = prompt_manager.get_prompt("chapter_summary", "system", user_id=user_id, db=db)
+        if not system_prompt:
+            # Fallback if template not found
+            system_prompt = "You are a helpful assistant that creates concise narrative summaries."
+        
         # Generate summary - check if user wants to use extraction LLM
         llm_start = time.perf_counter()
         use_extraction_llm = user_settings.get('generation_preferences', {}).get('use_extraction_llm_for_summary', False) if user_settings else False
@@ -1329,7 +1336,7 @@ Summary:"""
                 response = await acompletion(
                     **params,
                     messages=[
-                        {"role": "system", "content": "You are a helpful assistant that creates concise narrative summaries."},
+                        {"role": "system", "content": system_prompt},
                         {"role": "user", "content": prompt}
                     ],
                     timeout=extraction_service.timeout.total * 2
@@ -1343,7 +1350,7 @@ Summary:"""
                     prompt=prompt,
                     user_id=user_id,
                     user_settings=user_settings,
-                    system_prompt="You are a helpful assistant that creates concise narrative summaries.",
+                    system_prompt=system_prompt,
                     max_tokens=400
                 )
         else:
@@ -1353,7 +1360,7 @@ Summary:"""
                 prompt=prompt,
                 user_id=user_id,
                 user_settings=user_settings,
-                system_prompt="You are a helpful assistant that creates concise narrative summaries.",
+                system_prompt=system_prompt,
                 max_tokens=400  # Enough for a good summary
             )
         logger.info(f"[CHAPTER:SUMMARY:LLM] trace_id={trace_id} duration_ms={(time.perf_counter() - llm_start) * 1000:.2f}")
@@ -1585,6 +1592,12 @@ Chapter {chapter.chapter_number} Summary:"""
             if user:
                 user_settings['allow_nsfw'] = user.allow_nsfw
         
+        # Get system prompt from prompts.yml
+        system_prompt = prompt_manager.get_prompt("chapter_summary", "system", user_id=user_id, db=db)
+        if not system_prompt:
+            # Fallback if template not found
+            system_prompt = "You are a helpful assistant that creates cohesive narrative summaries."
+        
         # Generate summary for this batch - check if user wants to use extraction LLM
         llm_start = time.perf_counter()
         use_extraction_llm = user_settings.get('generation_preferences', {}).get('use_extraction_llm_for_summary', False) if user_settings else False
@@ -1610,7 +1623,7 @@ Chapter {chapter.chapter_number} Summary:"""
                 response = await acompletion(
                     **params,
                     messages=[
-                        {"role": "system", "content": "You are a helpful assistant that creates cohesive narrative summaries."},
+                        {"role": "system", "content": system_prompt},
                         {"role": "user", "content": prompt}
                     ],
                     timeout=extraction_service.timeout.total * 2
@@ -1624,7 +1637,7 @@ Chapter {chapter.chapter_number} Summary:"""
                     prompt=prompt,
                     user_id=user_id,
                     user_settings=user_settings,
-                    system_prompt="You are a helpful assistant that creates cohesive narrative summaries.",
+                    system_prompt=system_prompt,
                     max_tokens=500
                 )
         else:
@@ -1634,7 +1647,7 @@ Chapter {chapter.chapter_number} Summary:"""
                 prompt=prompt,
                 user_id=user_id,
                 user_settings=user_settings,
-                system_prompt="You are a helpful assistant that creates cohesive narrative summaries.",
+                system_prompt=system_prompt,
                 max_tokens=500  # Slightly more for incremental updates
             )
         logger.info(f"[CHAPTER:SUMMARY:INC:LLM] trace_id={trace_id} duration_ms={(time.perf_counter() - llm_start) * 1000:.2f}")
