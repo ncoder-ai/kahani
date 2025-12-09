@@ -61,6 +61,7 @@ class UserSettings(Base):
     enable_auto_choices = Column(Boolean, nullable=True)
     choices_count = Column(Integer, nullable=True)
     alert_on_high_context = Column(Boolean, nullable=True)  # Alert user to create new chapter when context is high
+    use_extraction_llm_for_summary = Column(Boolean, nullable=True)  # Use extraction LLM instead of main LLM for summaries
     
     # UI Preferences
     color_theme = Column(String(30), nullable=True)
@@ -168,7 +169,8 @@ class UserSettings(Base):
                 "scene_length": self.preferred_scene_length if self.preferred_scene_length is not None else gen_defaults.get("scene_length", "medium"),
                 "auto_choices": self.enable_auto_choices if self.enable_auto_choices is not None else gen_defaults.get("auto_choices", True),
                 "choices_count": self.choices_count if self.choices_count is not None else gen_defaults.get("choices_count", 4),
-                "alert_on_high_context": self.alert_on_high_context if self.alert_on_high_context is not None else gen_defaults.get("alert_on_high_context", True)
+                "alert_on_high_context": self.alert_on_high_context if self.alert_on_high_context is not None else gen_defaults.get("alert_on_high_context", True),
+                "use_extraction_llm_for_summary": self.use_extraction_llm_for_summary if self.use_extraction_llm_for_summary is not None else gen_defaults.get("use_extraction_llm_for_summary", False)
             },
             "ui_preferences": {
                 "color_theme": self.color_theme if self.color_theme is not None else ui_defaults.get("color_theme", "pure-dark"),
@@ -311,6 +313,8 @@ class UserSettings(Base):
             self.choices_count = gen.get("choices_count", 4)
         if self.alert_on_high_context is None:
             self.alert_on_high_context = gen.get("alert_on_high_context", True)
+        if self.use_extraction_llm_for_summary is None:
+            self.use_extraction_llm_for_summary = gen.get("use_extraction_llm_for_summary", False)
         
         # UI Preferences
         ui = user_defaults.get("ui_preferences", {})

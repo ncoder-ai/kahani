@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, desc
 import httpx
 import time
+import uuid
 
 from .client import LLMClient
 from .prompts import prompt_manager
@@ -2058,7 +2059,7 @@ class UnifiedLLMService:
                 task_instruction = task_instruction + "\n\n" + choices_reminder
             
             _, user_prompt = prompt_manager.get_prompt_pair(
-                template_key, template_key,
+                "scene_with_immediate", "scene_with_immediate",
                 user_id=user_id,
                 db=db,
                 context=formatted_context,
@@ -2968,7 +2969,60 @@ Output ONLY valid JSON in this exact format:
             return [response]
     
     async def generate_summary(self, story_content: str, story_context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> str:
-        """Generate a comprehensive story summary"""
+        """Generate a comprehensive story summary
+        
+        Can use either the main LLM or the extraction LLM based on user settings.
+        If use_extraction_llm_for_summary is True and extraction model is enabled,
+        uses the extraction model for faster (but potentially lower quality) summaries.
+        """
+        
+        # Check if user wants to use extraction LLM for summaries
+        use_extraction_llm = user_settings.get('generation_preferences', {}).get('use_extraction_llm_for_summary', False)
+        extraction_enabled = user_settings.get('extraction_model_settings', {}).get('enabled', False)
+        
+        # Try extraction LLM if requested and enabled
+        if use_extraction_llm and extraction_enabled:
+            try:
+                from .extraction_service import ExtractionLLMService
+                
+                logger.info(f"[SUMMARY] Using extraction LLM for summary generation (user_id={user_id})")
+                
+                # Get extraction model settings
+                ext_settings = user_settings.get('extraction_model_settings', {})
+                extraction_service = ExtractionLLMService(
+                    url=ext_settings.get('url', 'http://localhost:1234/v1'),
+                    model=ext_settings.get('model_name', 'qwen2.5-3b-instruct'),
+                    api_key=ext_settings.get('api_key', ''),
+                    temperature=ext_settings.get('temperature', 0.3),
+                    max_tokens=ext_settings.get('max_tokens', 1000)
+                )
+                
+                # Get prompts from centralized prompt manager
+                system_prompt, user_prompt = prompt_manager.get_prompt_pair(
+                    "summary_generation", "story_summary",
+                    story_context=self._format_context_for_summary(story_context),
+                    story_content=story_content
+                )
+                
+                max_tokens = prompt_manager.get_max_tokens("story_summary")
+                
+                # Generate summary with extraction model
+                summary = await extraction_service.generate_summary(
+                    story_content=story_content,
+                    story_context=self._format_context_for_summary(story_context),
+                    system_prompt=system_prompt,
+                    max_tokens=max_tokens
+                )
+                
+                logger.info(f"[SUMMARY] Successfully generated summary with extraction LLM (user_id={user_id}, length={len(summary)})")
+                return summary.strip()
+                
+            except Exception as e:
+                logger.warning(f"[SUMMARY] Extraction LLM failed, falling back to main LLM: {e}")
+                # Fall through to main LLM
+        
+        # Use main LLM (default behavior or fallback)
+        logger.info(f"[SUMMARY] Using main LLM for summary generation (user_id={user_id})")
         
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
             "summary_generation", "story_summary",
@@ -4396,12 +4450,18 @@ Output ONLY valid JSON in this exact format:
 
     async def delete_scenes_from_sequence(self, db: Session, story_id: int, sequence_number: int, skip_restoration: bool = False, branch_id: int = None) -> bool:
         """Delete all scenes from a given sequence number onwards"""
+        start_time = time.perf_counter()
+        trace_id = f"scene-del-{uuid.uuid4()}"
+        status = "error"
+        story_flows_deleted = 0
+        scenes_deleted = 0
         try:
             from ...models import StoryFlow, Scene
             
             # Get active branch if not specified
             if branch_id is None:
                 branch_id = self._get_active_branch_id(db, story_id)
+            logger.info(f"[DELETE:START] trace_id={trace_id} story_id={story_id} sequence_start={sequence_number} branch_id={branch_id}")
             
             # First, delete all StoryFlow entries for this story with sequence_number >= sequence_number (filtered by branch)
             flow_delete_query = db.query(StoryFlow).filter(
@@ -4411,6 +4471,7 @@ Output ONLY valid JSON in this exact format:
             if branch_id:
                 flow_delete_query = flow_delete_query.filter(StoryFlow.branch_id == branch_id)
             story_flows_deleted = flow_delete_query.delete()
+            logger.info(f"[DELETE] trace_id={trace_id} story_flows_deleted={story_flows_deleted}")
             
             # Get scenes to delete (don't use bulk delete to ensure cascades work) - filtered by branch
             scene_query = db.query(Scene).filter(
@@ -4424,7 +4485,7 @@ Output ONLY valid JSON in this exact format:
             # NOTE: Semantic cleanup (embeddings, character moments, plot events) is now handled
             # as a background task by the API endpoint to avoid blocking the response.
             # This method only handles fast database deletions.
-            logger.info(f"[DELETE] Will delete {len(scenes_to_delete)} scenes (sequence {sequence_number} onwards)")
+            logger.info(f"[DELETE] trace_id={trace_id} scenes_to_delete={len(scenes_to_delete)} sequence_start={sequence_number}")
             
             # Restore NPCTracking from snapshot after scene deletion (skip if doing in background)
             if not skip_restoration:
@@ -4622,15 +4683,25 @@ Output ONLY valid JSON in this exact format:
                     logger.warning(f"[DELETE] Traceback: {traceback.format_exc()}")
             
             # Commit the transaction
+            logger.info(f"[DELETE] trace_id={trace_id} committing changes for story_id={story_id}")
             db.commit()
+            status = "success"
             
-            logger.info(f"Deleted {story_flows_deleted} story flows and {scenes_deleted} scenes from sequence {sequence_number} onwards for story {story_id}")
+            logger.info(f"[DELETE:END] trace_id={trace_id} story_id={story_id} sequence_start={sequence_number} flows_deleted={story_flows_deleted} scenes_deleted={scenes_deleted}")
             return True
             
         except Exception as e:
-            logger.error(f"Failed to delete scenes from sequence {sequence_number} for story {story_id}: {e}")
+            logger.error(f"[DELETE:ERROR] trace_id={trace_id} story_id={story_id} sequence_start={sequence_number} error={e}")
             db.rollback()
             return False
+        finally:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            if duration_ms > 15000:
+                logger.error(f"[DELETE:SLOW] trace_id={trace_id} duration_ms={duration_ms:.2f} status={status} story_id={story_id}")
+            elif duration_ms > 5000:
+                logger.warning(f"[DELETE:SLOW] trace_id={trace_id} duration_ms={duration_ms:.2f} status={status} story_id={story_id}")
+            else:
+                logger.info(f"[DELETE:DONE] trace_id={trace_id} duration_ms={duration_ms:.2f} status={status} story_id={story_id}")
 
     async def _generate_with_messages(
         self,

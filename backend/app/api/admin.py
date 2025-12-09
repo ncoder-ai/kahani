@@ -2,12 +2,16 @@
 Admin API endpoints for user management, permissions, and system settings.
 All endpoints require admin privileges.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime, timezone
+import asyncio
+import os
+import signal
+import uuid
 
 from ..database import get_db
 from ..models import User, SystemSettings, Story, Scene
@@ -43,6 +47,68 @@ def get_system_settings(db: Session) -> SystemSettings:
         db.commit()
         db.refresh(settings)
     return settings
+
+
+# ---------------------------------------------------------------------------
+# Restart backend (auth required, not admin-only)
+# ---------------------------------------------------------------------------
+async def _perform_graceful_restart(delay_seconds: float = 2.0):
+    """Sleep briefly to let response flush, then send SIGHUP to self."""
+    await asyncio.sleep(delay_seconds)
+    logger.warning("[RESTART] Sending SIGHUP for graceful restart")
+    os.kill(os.getpid(), signal.SIGHUP)
+
+
+@router.post("/restart")
+async def restart_backend(
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Trigger a graceful backend restart (SIGHUP).
+    Available to authenticated users (not limited to admins) to recover from hangs.
+    """
+    trace_id = f"restart-{uuid.uuid4()}"
+    logger.warning(f"[RESTART:REQUEST] trace_id={trace_id} user_id={current_user.id}")
+    background_tasks.add_task(_perform_graceful_restart)
+    return {
+        "message": "Backend restart initiated",
+        "trace_id": trace_id,
+        "estimated_downtime": "5-10 seconds"
+    }
+
+
+# ============================================================
+# Restart Endpoint
+# ============================================================
+
+@router.post("/restart")
+async def restart_backend(
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Trigger a graceful backend restart.
+    Available to any authenticated user.
+    """
+    trace_id = f"restart-{uuid.uuid4()}"
+    logger.warning(f"[RESTART] trace_id={trace_id} requested_by={current_user.id}")
+    background_tasks.add_task(_perform_graceful_restart, trace_id)
+    return {
+        "message": "Backend restart initiated",
+        "estimated_downtime": "5-10 seconds",
+        "trace_id": trace_id
+    }
+
+
+async def _perform_graceful_restart(trace_id: str):
+    """Perform graceful restart after brief delay to allow response to return."""
+    try:
+        await asyncio.sleep(2)
+        logger.warning(f"[RESTART] trace_id={trace_id} executing graceful restart (SIGHUP)")
+        os.kill(os.getpid(), signal.SIGHUP)
+    except Exception as e:
+        logger.error(f"[RESTART] trace_id={trace_id} failed to restart: {e}")
 
 
 # ============================================================

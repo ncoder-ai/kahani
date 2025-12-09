@@ -261,6 +261,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [chatterboxExaggeration, setChatterboxExaggeration] = useState(0.5);
   const [chatterboxCfgWeight, setChatterboxCfgWeight] = useState(0.5);
   const [chatterboxTemperature, setChatterboxTemperature] = useState(0.7);
+  const [isRestartingBackend, setIsRestartingBackend] = useState(false);
+  const [restartMessage, setRestartMessage] = useState<string | null>(null);
   
   // Messages
   const [message, setMessage] = useState('');
@@ -1311,6 +1313,24 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       showMessage('Error saving TTS settings', 'error');
     } finally {
       setIsSavingTTS(false);
+    }
+  };
+
+  const handleBackendRestart = async () => {
+    const confirmed = window.confirm('Restart backend now? This may take ~5-10 seconds.');
+    if (!confirmed) return;
+    setIsRestartingBackend(true);
+    setRestartMessage('Initiating backend restart...');
+    try {
+      const res = await apiClient.restartBackend();
+      setRestartMessage(res.estimated_downtime ? `Restarting... downtime ${res.estimated_downtime}` : 'Restarting backend...');
+      showMessage(res.message || 'Backend restart initiated', 'success');
+    } catch (error) {
+      console.error('Failed to restart backend', error);
+      showMessage('Failed to restart backend', 'error');
+      setRestartMessage(null);
+    } finally {
+      setIsRestartingBackend(false);
     }
   };
 
@@ -2600,6 +2620,24 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     />
                     <p className="text-xs text-gray-400 mt-1">Number of choices to generate</p>
                   </div>
+
+                  {/* Use Extraction LLM for Summary - only show if extraction model is enabled */}
+                  {extractionModelSettings.enabled && (
+                    <div>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={generationPrefs.use_extraction_llm_for_summary || false}
+                          onChange={(e) => setGenerationPrefs({ ...generationPrefs, use_extraction_llm_for_summary: e.target.checked })}
+                          className="w-4 h-4 rounded"
+                        />
+                        <span className="text-sm text-white">Use Extraction LLM for Summary</span>
+                      </label>
+                      <p className="text-xs text-gray-400 mt-1">
+                        Generate summaries using the extraction model instead of the main LLM (faster, may be lower quality)
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 {/* Context Management */}
@@ -3549,6 +3587,34 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     </button>
                   </div>
                 </div>
+              </div>
+
+              {/* System / Maintenance */}
+              <div className="border-t border-gray-700 pt-6 mt-6">
+                <h3 className="text-lg font-semibold text-white mb-2">System</h3>
+                <p className="text-sm text-gray-400 mb-3">
+                  Restart the backend if the app becomes unresponsive. Expected downtime: ~5-10 seconds.
+                </p>
+                {restartMessage && (
+                  <p className="text-xs text-gray-500 mb-2">{restartMessage}</p>
+                )}
+                <button
+                  onClick={handleBackendRestart}
+                  disabled={isRestartingBackend}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {isRestartingBackend ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Restarting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <AlertCircle className="w-4 h-4" />
+                      <span>Restart Backend</span>
+                    </>
+                  )}
+                </button>
               </div>
             </div>
           )}

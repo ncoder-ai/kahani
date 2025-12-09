@@ -231,6 +231,8 @@ user_defaults:
     scene_length: "medium"
     auto_choices: true
     choices_count: 4
+    alert_on_high_context: true
+    use_extraction_llm_for_summary: false
   ui_preferences:
     color_theme: "pure-dark"
     font_size: "medium"

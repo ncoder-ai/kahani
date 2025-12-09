@@ -38,6 +38,8 @@ from .database import engine, get_db
 from .models import Base
 from .dependencies import get_current_user
 import logging
+import time
+from datetime import datetime, timezone
 import os
 
 # Configure logging
@@ -61,6 +63,10 @@ for handler in root_logger.handlers:
 
 logger = logging.getLogger(__name__)
 logger.setLevel(log_level)
+
+# Track process start for health reporting
+APP_START_TIME = time.time()
+APP_START_ISO = datetime.fromtimestamp(APP_START_TIME, timezone.utc).isoformat()
 
 # NOTE: We do NOT create tables here anymore! 
 # Database schema is managed by Alembic migrations.
@@ -173,12 +179,16 @@ async def health_check():
     
     # Simple health check
     llm_status = "available"
+    uptime_seconds = int(time.time() - APP_START_TIME)
     
     return {
         "status": "healthy",
         "app": settings.app_name,
         "version": settings.app_version,
-        "llm_connected": llm_status
+        "llm_connected": llm_status,
+        "uptime_seconds": uptime_seconds,
+        "last_restart": APP_START_ISO,
+        "server_time": datetime.now(timezone.utc).isoformat()
     }
 
 # Import and include routers

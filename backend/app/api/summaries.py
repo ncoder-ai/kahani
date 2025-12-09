@@ -180,39 +180,14 @@ async def generate_ai_summary(
             "scene_count": len(scenes)
         }
         
-        # Generate AI summary using dynamic prompts
-        db_session = next(get_db())
-        try:
-            # Get dynamic prompts (user custom or default)
-            system_prompt = prompt_manager.get_prompt(
-                template_key="story_summary",
-                prompt_type="system",
-                user_id=current_user.id,
-                db=db_session
-            )
-            
-            # Get user prompt with template variables
-            user_prompt = prompt_manager.get_prompt(
-                template_key="story_summary",
-                prompt_type="user",
-                user_id=current_user.id,
-                db=db_session,
-                story_content=combined_text,
-                story_context=f"Title: {story_context['title']}, Genre: {story_context['genre']}, Total Scenes: {story_context['scene_count']}"
-            )
-            
-            # Get max tokens for this template
-            max_tokens = prompt_manager.get_max_tokens("story_summary")
-            
-            ai_summary = await llm_service.generate(
-                prompt=user_prompt,
-                user_id=current_user.id,
-                user_settings=user_settings,
-                system_prompt=system_prompt,
-                max_tokens=max_tokens
-            )
-        finally:
-            db_session.close()
+        # Generate AI summary using the unified generate_summary method
+        # This will automatically use extraction LLM if user has enabled it
+        ai_summary = await llm_service.generate_summary(
+            story_content=combined_text,
+            story_context=story_context,
+            user_id=current_user.id,
+            user_settings=user_settings
+        )
         
         return {
             "message": "AI summary generated successfully",

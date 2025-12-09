@@ -12,6 +12,8 @@ from ..dependencies import get_current_user
 from ..config import settings
 import logging
 import json
+import time
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -1223,6 +1225,9 @@ async def generate_scene_streaming_endpoint(
     
     is_concluding: If "true", generates a chapter-concluding scene (no choices)
     """
+    trace_id = f"scene-stream-{uuid.uuid4()}"
+    start_time = time.perf_counter()
+    logger.info(f"[SCENE:STREAM:START] trace_id={trace_id} story_id={story_id} content_mode={content_mode} is_concluding={is_concluding}")
     
     story = db.query(Story).filter(
         Story.id == story_id,
@@ -1394,9 +1399,9 @@ async def generate_scene_streaming_endpoint(
                     generation_method=generation_method,
                     branch_id=active_branch_id
                 )
-                logger.info(f"Created scene {scene.id} with variant {variant.id} for story {story_id} on branch {active_branch_id}")
+                logger.info(f"Created scene {scene.id} with variant {variant.id} for story {story_id} on branch {active_branch_id} trace_id={trace_id}")
             except Exception as e:
-                logger.error(f"Failed to create scene variant: {e}")
+                logger.error(f"Failed to create scene variant: {e} trace_id={trace_id}")
                 raise
             
             # Process semantic embeddings (async, non-blocking)
@@ -1755,7 +1760,7 @@ async def generate_scene_streaming_endpoint(
             logger.error(f"Streaming generation failed: {e}")
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
     
-    return StreamingResponse(
+    response = StreamingResponse(
         generate_stream(),
         media_type="text/plain",
         headers={
@@ -1764,6 +1769,8 @@ async def generate_scene_streaming_endpoint(
             "Content-Type": "text/event-stream"
         }
     )
+    logger.info(f"[SCENE:STREAM:READY] trace_id={trace_id} story_id={story_id} setup_ms={(time.perf_counter() - start_time) * 1000:.2f}")
+    return response
 
 @router.get("/{story_id}/context-info")
 async def get_story_context_info(
@@ -2540,6 +2547,9 @@ async def create_scene_variant(
     db: Session = Depends(get_db)
 ):
     """Create a new variant (regeneration) for a scene"""
+    trace_id = f"scene-variant-{uuid.uuid4()}"
+    op_start = time.perf_counter()
+    logger.info(f"[SCENE:VARIANT:START] trace_id={trace_id} story_id={story_id} scene_id={scene_id}")
     
     story = db.query(Story).filter(
         Story.id == story_id,
@@ -2567,7 +2577,7 @@ async def create_scene_variant(
             user_id=current_user.id
         )
         
-        logger.info(f"Created new variant {variant.id} (#{variant.variant_number}) for scene {scene_id}")
+        logger.info(f"Created new variant {variant.id} (#{variant.variant_number}) for scene {scene_id} trace_id={trace_id}")
         
         # Update StoryFlow to point to the new variant as active
         flow_entry = db.query(StoryFlow).filter(
@@ -2597,7 +2607,7 @@ async def create_scene_variant(
                     db=db
                 )
         else:
-            logger.warning(f"No active StoryFlow entry found for scene {scene_id}")
+            logger.warning(f"No active StoryFlow entry found for scene {scene_id} trace_id={trace_id}")
         
         # Check if this is the last scene and trigger auto-play TTS if enabled
         # Do this BEFORE generating choices so user can start listening sooner
@@ -3833,6 +3843,9 @@ async def delete_scenes_from_sequence(
     db: Session = Depends(get_db)
 ):
     """Delete all scenes from a given sequence number onwards"""
+    op_start = time.perf_counter()
+    trace_id = f"scene-del-api-{uuid.uuid4()}"
+    logger.info(f"[SCENE:DELETE:START] trace_id={trace_id} story_id={story_id} sequence_start={sequence_number}")
     
     story = db.query(Story).filter(
         Story.id == story_id,
@@ -3874,6 +3887,7 @@ async def delete_scenes_from_sequence(
     success = await service.delete_scenes_from_sequence(story_id, sequence_number, skip_restoration=True, branch_id=branch_id)
     
     if not success:
+        logger.error(f"[SCENE:DELETE:ERROR] trace_id={trace_id} story_id={story_id} sequence_start={sequence_number}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Failed to delete scenes"
@@ -3907,6 +3921,14 @@ async def delete_scenes_from_sequence(
         user_settings=user_settings,
         branch_id=branch_id
     )
+    
+    duration_ms = (time.perf_counter() - op_start) * 1000
+    if duration_ms > 15000:
+        logger.error(f"[SCENE:DELETE:SLOW] trace_id={trace_id} story_id={story_id} duration_ms={duration_ms:.2f} scenes_deleted={len(scene_ids_to_cleanup)}")
+    elif duration_ms > 5000:
+        logger.warning(f"[SCENE:DELETE:SLOW] trace_id={trace_id} story_id={story_id} duration_ms={duration_ms:.2f} scenes_deleted={len(scene_ids_to_cleanup)}")
+    else:
+        logger.info(f"[SCENE:DELETE:END] trace_id={trace_id} story_id={story_id} duration_ms={duration_ms:.2f} scenes_deleted={len(scene_ids_to_cleanup)}")
     
     return {"message": f"Scenes from sequence {sequence_number} onwards deleted successfully"}
 

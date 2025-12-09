@@ -8,6 +8,8 @@ Uses LLM to extract state changes from scenes and maintains authoritative truth.
 import logging
 import json
 import re
+import time
+import uuid
 from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
@@ -103,22 +105,26 @@ class EntityStateService:
         Returns:
             Dictionary with extraction results
         """
+        op_start = time.perf_counter()
+        trace_id = f"entity-extract-{uuid.uuid4()}"
         results = {
             "characters_updated": 0,
             "locations_updated": 0,
             "objects_updated": 0,
             "extraction_successful": False
         }
+        status = "error"
         
         # Verify scene exists before processing (prevents foreign key violations)
         scene_exists = db.query(Scene).filter(Scene.id == scene_id).first()
         if not scene_exists:
-            logger.warning(f"Scene {scene_id} doesn't exist, cannot extract entity states")
+            logger.warning(f"[ENTITY:SKIP] trace_id={trace_id} scene_id={scene_id} story_id={story_id} reason=scene_missing")
             return results
         
         # Get active branch if not specified
         if branch_id is None:
             branch_id = self._get_active_branch_id(db, story_id)
+        logger.info(f"[ENTITY:START] trace_id={trace_id} story_id={story_id} scene_id={scene_id} sequence={scene_sequence} branch_id={branch_id}")
         
         try:
             # Get story characters for context (filtered by branch)
@@ -136,18 +142,19 @@ class EntityStateService:
             state_changes = await self._extract_state_changes(
                 scene_content,
                 scene_sequence,
-                character_names
+                character_names,
+                trace_id=trace_id
             )
             
             if not state_changes:
-                logger.warning(f"No state changes extracted from scene {scene_id}")
+                logger.warning(f"[ENTITY:EMPTY] trace_id={trace_id} scene_id={scene_id} story_id={story_id} sequence={scene_sequence}")
                 return results
             
             # Update character states
             if "characters" in state_changes:
                 for char_update in state_changes["characters"]:
                     await self._update_character_state(
-                        db, story_id, scene_sequence, char_update, branch_id=branch_id
+                        db, story_id, scene_sequence, char_update, branch_id=branch_id, trace_id=trace_id
                     )
                     results["characters_updated"] += 1
             
@@ -155,7 +162,7 @@ class EntityStateService:
             if "locations" in state_changes:
                 for loc_update in state_changes["locations"]:
                     await self._update_location_state(
-                        db, story_id, scene_sequence, loc_update, branch_id=branch_id
+                        db, story_id, scene_sequence, loc_update, branch_id=branch_id, trace_id=trace_id
                     )
                     results["locations_updated"] += 1
             
@@ -163,12 +170,13 @@ class EntityStateService:
             if "objects" in state_changes:
                 for obj_update in state_changes["objects"]:
                     await self._update_object_state(
-                        db, story_id, scene_sequence, obj_update, branch_id=branch_id
+                        db, story_id, scene_sequence, obj_update, branch_id=branch_id, trace_id=trace_id
                     )
                     results["objects_updated"] += 1
             
             results["extraction_successful"] = True
-            logger.info(f"Updated entity states for scene {scene_id}: {results}")
+            status = "success"
+            logger.info(f"[ENTITY:UPDATED] trace_id={trace_id} scene_id={scene_id} story_id={story_id} sequence={scene_sequence} counts={results}")
             
             # Check if we should create a batch snapshot (every 5 scenes, matching chapter summary batch threshold)
             batch_threshold = self.user_settings.get("context_summary_threshold", 5)
@@ -184,10 +192,18 @@ class EntityStateService:
                     )
                 except Exception as e:
                     # Don't fail extraction if batch creation fails
-                    logger.warning(f"Failed to create entity state batch snapshot: {e}")
+                    logger.warning(f"[ENTITY:BATCH:ERROR] trace_id={trace_id} story_id={story_id} batch={batch_start}-{batch_end} error={e}")
             
         except Exception as e:
-            logger.error(f"Failed to extract and update entity states: {e}")
+            logger.error(f"[ENTITY:ERROR] trace_id={trace_id} story_id={story_id} scene_id={scene_id} error={e}")
+        finally:
+            duration_ms = (time.perf_counter() - op_start) * 1000
+            if duration_ms > 15000:
+                logger.error(f"[ENTITY:SLOW] trace_id={trace_id} duration_ms={duration_ms:.2f} status={status} story_id={story_id}")
+            elif duration_ms > 5000:
+                logger.warning(f"[ENTITY:SLOW] trace_id={trace_id} duration_ms={duration_ms:.2f} status={status} story_id={story_id}")
+            else:
+                logger.info(f"[ENTITY:DONE] trace_id={trace_id} duration_ms={duration_ms:.2f} status={status} story_id={story_id}")
         
         return results
     
@@ -228,7 +244,8 @@ class EntityStateService:
         self,
         scene_content: str,
         scene_sequence: int,
-        character_names: List[str]
+        character_names: List[str],
+        trace_id: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """
         Use LLM to extract state changes from a scene.
@@ -236,11 +253,13 @@ class EntityStateService:
         
         Returns JSON with character, location, and object updates.
         """
+        trace_id = trace_id or f"entity-extract-{uuid.uuid4()}"
+        op_start = time.perf_counter()
         # Try extraction model first if enabled
         extraction_service = self._get_extraction_service()
         if extraction_service:
             try:
-                logger.info(f"Using extraction model for entity state extraction (user {self.user_id})")
+                logger.info(f"[ENTITY:LLM:START] trace_id={trace_id} mode=extraction_model user={self.user_id} scene_sequence={scene_sequence}")
                 state_changes = await extraction_service.extract_entity_states(
                     scene_content=scene_content,
                     scene_sequence=scene_sequence,
@@ -250,22 +269,24 @@ class EntityStateService:
                 # Validate state changes
                 validated = self._validate_state_changes(state_changes)
                 if validated:
-                    logger.info(f"Extraction model successfully extracted entity states")
+                    duration_ms = (time.perf_counter() - op_start) * 1000
+                    logger.info(f"[ENTITY:LLM:END] trace_id={trace_id} mode=extraction_model status=success duration_ms={duration_ms:.2f}")
                     return validated
                 else:
-                    logger.warning("Extraction model returned no valid state changes, falling back to main LLM")
+                    logger.warning(f"[ENTITY:LLM:EMPTY] trace_id={trace_id} mode=extraction_model duration_ms={(time.perf_counter() - op_start) * 1000:.2f} fallback=main")
             except Exception as e:
-                logger.warning(f"Extraction model failed: {e}, falling back to main LLM")
+                logger.warning(f"[ENTITY:LLM:ERROR] trace_id={trace_id} mode=extraction_model error={e}, fallback=main")
                 # Continue to fallback
         
         # Fallback to main LLM
         fallback_enabled = self.user_settings.get('extraction_model_settings', {}).get('fallback_to_main', True)
         if not fallback_enabled and extraction_service:
-            logger.warning("Extraction model failed and fallback disabled, returning empty results")
+            logger.warning(f"[ENTITY:LLM:DISABLED] trace_id={trace_id} fallback_disabled=True returning_empty=True")
             return {'characters': [], 'locations': [], 'objects': []}
         
         try:
-            logger.info(f"Using main LLM for entity state extraction (user {self.user_id})")
+            llm_start = time.perf_counter()
+            logger.info(f"[ENTITY:LLM:START] trace_id={trace_id} mode=main_llm user={self.user_id} scene_sequence={scene_sequence}")
             
             # Get prompts from centralized prompts.yml
             system_prompt = prompt_manager.get_prompt("entity_state_extraction.single", "system")
@@ -283,6 +304,7 @@ class EntityStateService:
                 system_prompt=system_prompt,
                 max_tokens=1000
             )
+            llm_duration_ms = (time.perf_counter() - llm_start) * 1000
             
             logger.warning(f"RAW LLM RESPONSE - ENTITY STATES:\n{response}")
             
@@ -301,15 +323,20 @@ class EntityStateService:
             response_clean = clean_llm_json(response_clean)
             
             state_changes = json.loads(response_clean)
-            return self._validate_state_changes(state_changes)
+            validated = self._validate_state_changes(state_changes)
+            if validated:
+                logger.info(f"[ENTITY:LLM:END] trace_id={trace_id} mode=main_llm status=success duration_ms={llm_duration_ms:.2f}")
+            else:
+                logger.warning(f"[ENTITY:LLM:EMPTY] trace_id={trace_id} mode=main_llm duration_ms={llm_duration_ms:.2f}")
+            return validated
             
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse LLM response as JSON: {e}")
+            logger.error(f"[ENTITY:LLM:PARSE_ERROR] trace_id={trace_id} error={e}")
             logger.debug(f"Original response was: {response}")
             logger.debug(f"Cleaned response was: {response_clean}")
             return None
         except Exception as e:
-            logger.error(f"Main LLM entity state extraction failed: {e}")
+            logger.error(f"[ENTITY:LLM:ERROR] trace_id={trace_id} mode=main_llm error={e}")
             return None
     
     def _validate_state_changes(self, state_changes: Dict[str, Any]) -> Dict[str, Any]:
@@ -360,10 +387,12 @@ class EntityStateService:
         story_id: int,
         scene_sequence: int,
         char_update: Dict[str, Any],
-        branch_id: int = None
+        branch_id: int = None,
+        trace_id: Optional[str] = None
     ):
         """Update or create character state from extracted changes"""
         try:
+            trace_suffix = f" trace_id={trace_id}" if trace_id else ""
             char_name = char_update.get("name")
             if not char_name:
                 return
@@ -378,7 +407,7 @@ class EntityStateService:
             story_char = char_query.first()
             
             if not story_char:
-                logger.warning(f"Character '{char_name}' not found in story {story_id} (branch {branch_id})")
+                logger.warning(f"Character '{char_name}' not found in story {story_id} (branch {branch_id}){trace_suffix}")
                 return
             
             # Get or create character state (filtered by branch)
@@ -410,7 +439,7 @@ class EntityStateService:
                     db.rollback()
                     error_msg = str(ie).lower()
                     if "duplicate" in error_msg or "unique constraint" in error_msg:
-                        logger.debug(f"Character state already exists (race condition), reloading: {char_name}")
+                        logger.debug(f"Character state already exists (race condition), reloading: {char_name}{trace_suffix}")
                         # Reload the state that was created by another process
                         state_query = db.query(CharacterState).filter(
                             CharacterState.character_id == story_char.character_id,
@@ -420,7 +449,7 @@ class EntityStateService:
                             state_query = state_query.filter(CharacterState.branch_id == branch_id)
                         char_state = state_query.first()
                         if not char_state:
-                            logger.error(f"Failed to reload character state after race condition: {char_name}")
+                            logger.error(f"Failed to reload character state after race condition: {char_name}{trace_suffix}")
                             return
                     else:
                         # Re-raise if it's a different integrity error
@@ -463,14 +492,14 @@ class EntityStateService:
             
             try:
                 db.commit()
-                logger.debug(f"Updated character state for {char_name}")
+                logger.debug(f"Updated character state for {char_name}{trace_suffix}")
             except IntegrityError as ie:
                 db.rollback()
-                logger.warning(f"Failed to commit character state update for {char_name}: {ie}")
+                logger.warning(f"Failed to commit character state update for {char_name}: {ie}{trace_suffix}")
                 # Don't re-raise - allow processing to continue
             
         except Exception as e:
-            logger.error(f"Failed to update character state: {e}")
+            logger.error(f"Failed to update character state: {e}{trace_suffix}")
             db.rollback()
     
     async def _update_location_state(
@@ -479,10 +508,12 @@ class EntityStateService:
         story_id: int,
         scene_sequence: int,
         loc_update: Dict[str, Any],
-        branch_id: int = None
+        branch_id: int = None,
+        trace_id: Optional[str] = None
     ):
         """Update or create location state from extracted changes"""
         try:
+            trace_suffix = f" trace_id={trace_id}" if trace_id else ""
             loc_name = loc_update.get("name")
             if not loc_name:
                 return
@@ -513,7 +544,7 @@ class EntityStateService:
                     db.rollback()
                     error_msg = str(ie).lower()
                     if "duplicate" in error_msg or "unique constraint" in error_msg:
-                        logger.debug(f"Location state already exists (race condition), reloading: {loc_name}")
+                        logger.debug(f"Location state already exists (race condition), reloading: {loc_name}{trace_suffix}")
                         # Reload the state that was created by another process
                         state_query = db.query(LocationState).filter(
                             LocationState.story_id == story_id,
@@ -523,7 +554,7 @@ class EntityStateService:
                             state_query = state_query.filter(LocationState.branch_id == branch_id)
                         loc_state = state_query.first()
                         if not loc_state:
-                            logger.error(f"Failed to reload location state after race condition: {loc_name}")
+                            logger.error(f"Failed to reload location state after race condition: {loc_name}{trace_suffix}")
                             return
                     else:
                         # Re-raise if it's a different integrity error
@@ -543,14 +574,14 @@ class EntityStateService:
             
             try:
                 db.commit()
-                logger.debug(f"Updated location state for {loc_name}")
+                logger.debug(f"Updated location state for {loc_name}{trace_suffix}")
             except IntegrityError as ie:
                 db.rollback()
-                logger.warning(f"Failed to commit location state update for {loc_name}: {ie}")
+                logger.warning(f"Failed to commit location state update for {loc_name}: {ie}{trace_suffix}")
                 # Don't re-raise - allow processing to continue
             
         except Exception as e:
-            logger.error(f"Failed to update location state: {e}")
+            logger.error(f"Failed to update location state: {e}{trace_suffix}")
             db.rollback()
     
     async def _update_object_state(
@@ -559,10 +590,12 @@ class EntityStateService:
         story_id: int,
         scene_sequence: int,
         obj_update: Dict[str, Any],
-        branch_id: int = None
+        branch_id: int = None,
+        trace_id: Optional[str] = None
     ):
         """Update or create object state from extracted changes"""
         try:
+            trace_suffix = f" trace_id={trace_id}" if trace_id else ""
             obj_name = obj_update.get("name")
             if not obj_name:
                 return
@@ -594,7 +627,7 @@ class EntityStateService:
                     db.rollback()
                     error_msg = str(ie).lower()
                     if "duplicate" in error_msg or "unique constraint" in error_msg:
-                        logger.debug(f"Object state already exists (race condition), reloading: {obj_name}")
+                        logger.debug(f"Object state already exists (race condition), reloading: {obj_name}{trace_suffix}")
                         # Reload the state that was created by another process
                         state_query = db.query(ObjectState).filter(
                             ObjectState.story_id == story_id,
@@ -604,7 +637,7 @@ class EntityStateService:
                             state_query = state_query.filter(ObjectState.branch_id == branch_id)
                         obj_state = state_query.first()
                         if not obj_state:
-                            logger.error(f"Failed to reload object state after race condition: {obj_name}")
+                            logger.error(f"Failed to reload object state after race condition: {obj_name}{trace_suffix}")
                             return
                     else:
                         # Re-raise if it's a different integrity error
@@ -638,14 +671,14 @@ class EntityStateService:
             
             try:
                 db.commit()
-                logger.debug(f"Updated object state for {obj_name}")
+                logger.debug(f"Updated object state for {obj_name}{trace_suffix}")
             except IntegrityError as ie:
                 db.rollback()
-                logger.warning(f"Failed to commit object state update for {obj_name}: {ie}")
+                logger.warning(f"Failed to commit object state update for {obj_name}: {ie}{trace_suffix}")
                 # Don't re-raise - allow processing to continue
             
         except Exception as e:
-            logger.error(f"Failed to update object state: {e}")
+            logger.error(f"Failed to update object state: {e}{trace_suffix}")
             db.rollback()
     
     def get_character_state(
