@@ -26,6 +26,7 @@ export interface GenerationPreferences {
   choices_count: number;
   enable_streaming?: boolean;
   alert_on_high_context?: boolean;
+  use_extraction_llm_for_summary?: boolean;
 }
 
 export interface ExportSettings {
