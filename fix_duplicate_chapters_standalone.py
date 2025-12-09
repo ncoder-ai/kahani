@@ -11,12 +11,12 @@ Usage:
 import sys
 import os
 from sqlalchemy import create_engine, func, Column, Integer, String, Text, DateTime, ForeignKey, Table, Enum as SQLEnum
-from sqlalchemy.orm import sessionmaker, declarative_base, relationship
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, relationship, DeclarativeBase
 import enum
 from datetime import datetime
 
-Base = declarative_base()
+class Base(DeclarativeBase):
+    pass
 
 # Define minimal models needed for this script
 class ChapterStatus(str, enum.Enum):
@@ -68,9 +68,16 @@ class ChapterSummaryBatch(Base):
 
 def get_database_url():
     """Get database URL from environment or use default"""
+    # First, try to get from environment variable (works in Docker)
+    db_url = os.environ.get('DATABASE_URL')
+    if db_url:
+        print(f"Using DATABASE_URL from environment")
+        return db_url
+    
     # Try to read from .env file
     env_path = os.path.join(os.path.dirname(__file__), '.env')
     if os.path.exists(env_path):
+        print(f"Reading from .env file: {env_path}")
         with open(env_path) as f:
             for line in f:
                 if line.startswith('DATABASE_URL='):
@@ -78,6 +85,7 @@ def get_database_url():
     
     # Default to SQLite in backend directory
     db_path = os.path.join(os.path.dirname(__file__), 'backend', 'kahani.db')
+    print(f"Using default SQLite path: {db_path}")
     return f"sqlite:///{db_path}"
 
 def get_db_session():
