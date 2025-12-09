@@ -81,13 +81,23 @@ export default function ChapterWizard({
         apiClient.getAvailableLocations(storyId)
       ]);
       
-      setAvailableCharacters(charsResponse.characters.map(c => ({
-        id: c.character_id,
-        name: c.name,
-        role: c.role,
-        description: c.description,
-        story_character_id: c.story_character_id
-      })));
+      // Map and deduplicate by story_character_id (or character_id if story_character_id is missing)
+      const characterMap = new Map<number, Character>();
+      charsResponse.characters.forEach(c => {
+        const key = c.story_character_id || c.character_id;
+        // Only add if we haven't seen this story_character_id before
+        if (!characterMap.has(key)) {
+          characterMap.set(key, {
+            id: c.character_id,
+            name: c.name,
+            role: c.role,
+            description: c.description,
+            story_character_id: c.story_character_id
+          });
+        }
+      });
+      
+      setAvailableCharacters(Array.from(characterMap.values()));
       setAvailableLocations(locsResponse.locations);
     } catch (error) {
       console.error('Failed to load available data:', error);
@@ -277,9 +287,9 @@ export default function ChapterWizard({
               ) : (
                 <div className="space-y-2 max-h-48 overflow-y-auto">
                   {/* Existing story characters */}
-                  {availableCharacters.map((char) => (
+                  {availableCharacters.map((char, index) => (
                     <label
-                      key={char.id}
+                      key={char.story_character_id || `char-${char.id}-${index}`}
                       className="flex items-start space-x-3 p-2 rounded hover:bg-white/5 cursor-pointer"
                     >
                       <input

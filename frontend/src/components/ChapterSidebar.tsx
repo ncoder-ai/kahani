@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, BookOpen, AlertCircle, Edit2, Save, X, Plus, CheckCircle, RefreshCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, BookOpen, AlertCircle, Edit2, Save, X, Plus, CheckCircle, RefreshCw, Trash2 } from 'lucide-react';
 import apiClient, { getApiBaseUrl } from '@/lib/api';
 import { getAuthToken } from '@/utils/jwt';
 import dynamic from 'next/dynamic';
@@ -277,6 +277,59 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
       alert('Failed to conclude chapter. Please try again.');
     } finally {
       setIsConcludingChapter(false);
+    }
+  };
+
+  const handleDeleteChapter = async (chapter: Chapter) => {
+    if (!chapter) return;
+    
+    // Safety check: prevent deleting the only chapter
+    if (chapters.length <= 1) {
+      alert('Cannot delete the only chapter in the story. Stories must have at least one chapter.');
+      return;
+    }
+    
+    // Confirmation with warning
+    const scenesWarning = chapter.scenes_count > 0 
+      ? `\n\nWARNING: This chapter has ${chapter.scenes_count} scene(s) that will also be deleted!`
+      : '';
+    
+    if (!confirm(
+      `Are you sure you want to DELETE Chapter ${chapter.chapter_number}: "${chapter.title || 'Untitled'}"?` +
+      scenesWarning +
+      `\n\nThis action CANNOT be undone!`
+    )) {
+      return;
+    }
+    
+    // Double confirmation for chapters with content
+    if (chapter.scenes_count > 0) {
+      if (!confirm(
+        `FINAL CONFIRMATION:\n\nYou are about to permanently delete Chapter ${chapter.chapter_number} and all ${chapter.scenes_count} scene(s).\n\nType YES in your mind and click OK to proceed.`
+      )) {
+        return;
+      }
+    }
+    
+    try {
+      setLoading(true);
+      await apiClient.deleteChapter(storyId, chapter.id);
+      
+      // Reload chapters
+      await loadChapters();
+      
+      // Notify parent component
+      if (onChapterChange) {
+        onChapterChange();
+      }
+      
+      alert(`Chapter ${chapter.chapter_number} deleted successfully.`);
+    } catch (err: any) {
+      console.error('Failed to delete chapter:', err);
+      const errorMessage = err?.response?.data?.detail || 'Failed to delete chapter. Please try again.';
+      alert(`Error: ${errorMessage}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -731,6 +784,17 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
                           Conclude Chapter
                         </>
                       )}
+                    </button>
+                  )}
+                  
+                  {/* Delete Chapter Button - Show only if there are multiple chapters */}
+                  {activeChapter && chapters.length > 1 && (
+                    <button
+                      onClick={() => handleDeleteChapter(activeChapter)}
+                      className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-red-600/80 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors mt-2"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Delete Chapter
                     </button>
                   )}
                   
