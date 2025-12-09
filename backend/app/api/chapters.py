@@ -403,8 +403,22 @@ async def create_chapter(
                     ).all()
                     
                     if len(story_chars) != len(chapter_data.story_character_ids):
+                        # Log which characters failed validation for debugging
+                        found_ids = {sc.id for sc in story_chars}
+                        missing_ids = [cid for cid in chapter_data.story_character_ids if cid not in found_ids]
+                        
+                        # Get details about missing characters for better error message
+                        missing_chars = db.query(StoryCharacter).filter(
+                            StoryCharacter.id.in_(missing_ids)
+                        ).all()
+                        
+                        missing_details = []
+                        for mc in missing_chars:
+                            missing_details.append(f"id={mc.id} story_id={mc.story_id} branch_id={mc.branch_id}")
+                        
                         db.rollback()  # Rollback before returning error
-                        logger.error(f"[CHAPTER:CREATE:ERROR] trace_id={trace_id} invalid_story_characters requested={len(chapter_data.story_character_ids)} found={len(story_chars)}")
+                        logger.error(f"[CHAPTER:CREATE:ERROR] trace_id={trace_id} invalid_story_characters requested={len(chapter_data.story_character_ids)} found={len(story_chars)} active_branch={active_branch_id}")
+                        logger.error(f"[CHAPTER:CREATE:ERROR] trace_id={trace_id} missing_characters: {', '.join(missing_details)}")
                         yield f"data: {json.dumps({'type': 'error', 'message': 'Some character IDs do not belong to this story branch'})}\n\n"
                         return
                     
