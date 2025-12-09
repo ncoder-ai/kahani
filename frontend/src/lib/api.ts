@@ -1745,6 +1745,18 @@ class ApiClient {
     });
   }
 
+  async deleteChapter(storyId: number, chapterId: number) {
+    return this.request<{
+      message: string;
+      chapter_number: number;
+      chapter_title: string;
+      scenes_deleted: number;
+      batches_deleted: number;
+    }>(`/api/stories/${storyId}/chapters/${chapterId}`, {
+      method: 'DELETE',
+    });
+  }
+
   // Branch API
   async getBranches(storyId: number) {
     return this.request<{
@@ -1860,6 +1872,13 @@ class ApiClient {
   async deleteBranch(storyId: number, branchId: number) {
     return this.request<{ success: boolean; message: string }>(`/api/stories/${storyId}/branches/${branchId}`, {
       method: 'DELETE',
+    });
+  }
+
+  // System / admin
+  async restartBackend() {
+    return this.request<{ message: string; trace_id: string; estimated_downtime?: string }>(`/api/admin/restart`, {
+      method: 'POST',
     });
   }
 
