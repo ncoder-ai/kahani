@@ -223,6 +223,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     choices_count: 4,
     enable_streaming: true,
     alert_on_high_context: true,
+    use_extraction_llm_for_summary: false,
   });
   
   // TTS Settings
@@ -388,6 +389,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             choices_count: settings.generation_preferences.choices_count ?? 4,
             enable_streaming: settings.generation_preferences.enable_streaming !== false, // Default to true
             alert_on_high_context: settings.generation_preferences.alert_on_high_context !== false, // Default to true
+            use_extraction_llm_for_summary: settings.generation_preferences.use_extraction_llm_for_summary || false, // Default to false
           });
         }
 

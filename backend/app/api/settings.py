@@ -56,6 +56,7 @@ class GenerationPreferencesUpdate(BaseModel):
     auto_choices: Optional[bool] = None
     choices_count: Optional[int] = Field(ge=2, le=6, default=3)
     alert_on_high_context: Optional[bool] = None
+    use_extraction_llm_for_summary: Optional[bool] = None
 
 class UIPreferencesUpdate(BaseModel):
     color_theme: Optional[str] = Field(
@@ -267,6 +268,8 @@ async def update_user_settings(
             user_settings.choices_count = gen.choices_count
         if gen.alert_on_high_context is not None:
             user_settings.alert_on_high_context = gen.alert_on_high_context
+        if gen.use_extraction_llm_for_summary is not None:
+            user_settings.use_extraction_llm_for_summary = gen.use_extraction_llm_for_summary
     
     # Update UI preferences
     if settings_update.ui_preferences:
