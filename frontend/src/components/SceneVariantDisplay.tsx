@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { PlayIcon, ArrowPathIcon, PlusCircleIcon, StopIcon, SparklesIcon, TrashIcon, ClipboardIcon, XMarkIcon, FlagIcon, PencilIcon } from '@heroicons/react/24/outline';
-import { GitFork } from 'lucide-react';
+import { GitFork, Volume2 } from 'lucide-react';
 import SceneDisplay from './SceneDisplay';
 import { SceneTTSButton } from './SceneTTSButton';
 import MicrophoneButton from './MicrophoneButton';
+import { useGlobalTTS } from '@/contexts/GlobalTTSContext';
 import apiClient from '@/lib/api';
 
 interface SceneVariant {
@@ -167,6 +168,9 @@ export default function SceneVariantDisplay({
   const [isClient, setIsClient] = useState(false);
   const [isMenuVisible, setIsMenuVisible] = useState(true);
   const menuTimerRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Global TTS context for play/stop functionality
+  const { playScene, stop, currentSceneId, isPlaying: isTTSPlaying } = useGlobalTTS();
   
   // Only render client-side only elements after hydration
   useEffect(() => {
@@ -973,6 +977,39 @@ export default function SceneVariantDisplay({
               <FlagIcon className="w-5 h-5" />
             </button>
 
+            {/* Edit Scene Button */}
+            <button
+              onClick={() => onStartEdit(scene)}
+              disabled={isEditing}
+              className="flex items-center justify-center w-10 h-10 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-800 disabled:opacity-50 rounded-lg transition-colors"
+              title="Edit scene"
+            >
+              <PencilIcon className="w-5 h-5" />
+            </button>
+
+            {/* Play/Stop TTS Button */}
+            <button
+              onClick={() => {
+                if (isTTSPlaying && currentSceneId === scene.id) {
+                  stop();
+                } else {
+                  playScene(scene.id);
+                }
+              }}
+              className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors ${
+                isTTSPlaying && currentSceneId === scene.id
+                  ? 'bg-red-600 hover:bg-red-700'
+                  : 'bg-green-600 hover:bg-green-700'
+              }`}
+              title={isTTSPlaying && currentSceneId === scene.id ? 'Stop TTS' : 'Play TTS'}
+            >
+              {isTTSPlaying && currentSceneId === scene.id ? (
+                <StopIcon className="w-5 h-5" />
+              ) : (
+                <Volume2 className="w-5 h-5" />
+              )}
+            </button>
+
             {/* Stop Generation Button - Only show when generating */}
             {(isGenerating || isStreaming || isRegenerating || isStreamingContinuation) && onStopGeneration && (
               <button
@@ -1064,6 +1101,49 @@ export default function SceneVariantDisplay({
                 >
                   <FlagIcon className="w-5 h-5" />
                   <span className="text-sm font-medium">Conclude</span>
+                </button>
+                
+                {/* Edit Scene */}
+                <button
+                  onClick={() => {
+                    setShowFloatingMenu(false);
+                    resetMenuTimer();
+                    onStartEdit(scene);
+                  }}
+                  disabled={isEditing}
+                  className="flex items-center gap-2 w-full px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-800 disabled:opacity-50 text-white rounded-lg shadow-lg transition-all backdrop-blur-sm"
+                  title="Edit scene"
+                >
+                  <PencilIcon className="w-5 h-5" />
+                  <span className="text-sm font-medium">Edit Scene</span>
+                </button>
+                
+                {/* Play/Stop TTS */}
+                <button
+                  onClick={() => {
+                    setShowFloatingMenu(false);
+                    resetMenuTimer();
+                    if (isTTSPlaying && currentSceneId === scene.id) {
+                      stop();
+                    } else {
+                      playScene(scene.id);
+                    }
+                  }}
+                  className={`flex items-center gap-2 w-full px-4 py-2 rounded-lg shadow-lg transition-all backdrop-blur-sm text-white ${
+                    isTTSPlaying && currentSceneId === scene.id
+                      ? 'bg-red-600 hover:bg-red-700'
+                      : 'bg-green-600 hover:bg-green-700'
+                  }`}
+                  title={isTTSPlaying && currentSceneId === scene.id ? 'Stop TTS' : 'Play TTS'}
+                >
+                  {isTTSPlaying && currentSceneId === scene.id ? (
+                    <StopIcon className="w-5 h-5" />
+                  ) : (
+                    <Volume2 className="w-5 h-5" />
+                  )}
+                  <span className="text-sm font-medium">
+                    {isTTSPlaying && currentSceneId === scene.id ? 'Stop TTS' : 'Play TTS'}
+                  </span>
                 </button>
                 
                 {/* Delete Mode Toggle */}
