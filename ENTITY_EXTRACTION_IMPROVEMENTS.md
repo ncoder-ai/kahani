@@ -190,3 +190,4 @@ These changes are backward compatible:
 - The `extract_all_batch()` method in extraction_service.py uses centralized prompts from prompts.yml, so batch improvements automatically apply
 - Hardcoded limits in extraction_service.py (max_npcs_total=10, max_events_total=8) are overridden by stricter prompt instructions (5 and 5)
 - All prompts emphasize "quality over quantity" and "be highly selective"
+
