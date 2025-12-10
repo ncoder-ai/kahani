@@ -25,7 +25,7 @@ services:
   vibevoice:
     build:
       context: .
-      dockerfile: vibevoice/Dockerfile
+      dockerfile: VibeVoice/Dockerfile
       args:
         # CUDA version for PyTorch (cu121 for CUDA 12.1, cu118 for CUDA 11.8)
         # Set to 'cpu' to build CPU-only version
@@ -56,11 +56,11 @@ services:
       # Leave unset to use all available GPUs
     volumes:
       # Mount models directory (if using local models)
-      - ./vibevoice/models:/app/models:ro
+      - ./VibeVoice/models:/app/models:ro
       
       # Mount voices directory (voice presets)
       # Note: Copy voice .pt files from VibeVoice-main/demo/voices/streaming_model/
-      - ./vibevoice/voices:/app/vibevoice-source/demo/voices/streaming_model:ro
+      - ./VibeVoice/voices:/app/vibevoice-source/demo/voices/streaming_model:ro
       
       # Optional: Cache for HuggingFace models
       - vibevoice-cache:/root/.cache/huggingface
