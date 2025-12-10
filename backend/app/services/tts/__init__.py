@@ -22,7 +22,7 @@ from .text_chunker import TextChunker, TextChunk
 from .tts_service import TTSService
 
 # Import providers to trigger registration
-from .providers import openai_compatible, chatterbox, kokoro, orpheus
+from .providers import openai_compatible, chatterbox, kokoro, orpheus, vibevoice
 
 __all__ = [
     "TTSProviderBase",

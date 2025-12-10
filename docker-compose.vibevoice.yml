@@ -1,0 +1,84 @@
+# ============================================================================
+# VIBEVOICE TTS SERVICE - DOCKER COMPOSE
+# ============================================================================
+# Optional standalone Docker Compose file for VibeVoice TTS service
+# 
+# This is separate from the main Kahani docker-compose.yml to keep
+# VibeVoice optional. Users can run it independently.
+#
+# Usage:
+#   docker-compose -f docker-compose.vibevoice.yml up -d
+#
+# GPU Support:
+#   - For GPU: Set MODEL_DEVICE=cuda and ensure nvidia-docker is installed
+#   - For CPU: Set MODEL_DEVICE=cpu (default)
+#   - For Apple Silicon: Set MODEL_DEVICE=mps
+# ============================================================================
+
+services:
+  # --------------------------------------------------------------------------
+  # VibeVoice TTS Service
+  # --------------------------------------------------------------------------
+  vibevoice:
+    build:
+      context: .
+      dockerfile: vibevoice/Dockerfile
+    container_name: vibevoice-tts
+    ports:
+      - "${VIBEVOICE_PORT:-3000}:3000"
+    environment:
+      # Model configuration
+      # Options for MODEL_PATH:
+      #   - HuggingFace model ID: "microsoft/VibeVoice-Realtime-0.5B"
+      #   - Local path: "/app/models/vibevoice-realtime-0.5b"
+      MODEL_PATH: ${VIBEVOICE_MODEL_PATH:-microsoft/VibeVoice-Realtime-0.5B}
+      
+      # Device configuration
+      # Options: "cuda" (GPU), "cpu" (CPU), "mps" (Apple Silicon)
+      MODEL_DEVICE: ${VIBEVOICE_DEVICE:-cpu}
+      
+      # Port configuration
+      PORT: ${VIBEVOICE_PORT:-3000}
+      
+      # Optional: Voice preset override
+      # VOICE_PRESET: ${VIBEVOICE_VOICE_PRESET:-}
+    volumes:
+      # Mount models directory (if using local models)
+      - ./vibevoice/models:/app/models:ro
+      
+      # Mount voices directory (voice presets)
+      # Note: Copy voice .pt files from VibeVoice-main/demo/voices/streaming_model/
+      - ./vibevoice/voices:/app/vibevoice-source/demo/voices/streaming_model:ro
+      
+      # Optional: Cache for HuggingFace models
+      - vibevoice-cache:/root/.cache/huggingface
+    # Resource limits - VibeVoice needs significant memory for model loading
+    deploy:
+      resources:
+        limits:
+          memory: 8G  # Model needs ~4-6GB for loading
+        reservations:
+          memory: 4G
+      # GPU support (uncomment if you have NVIDIA GPU and nvidia-docker installed)
+      # reservations:
+      #   devices:
+      #     - driver: nvidia
+      #       count: 1
+      #       capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/config"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - vibevoice-network
+
+networks:
+  vibevoice-network:
+    driver: bridge
+
+volumes:
+  vibevoice-cache:
+    driver: local

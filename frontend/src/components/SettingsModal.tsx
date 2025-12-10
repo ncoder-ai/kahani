@@ -120,6 +120,7 @@ const DEFAULT_TTS_PROVIDERS: TTSProvider[] = [
   { type: 'openai-compatible', name: 'OpenAI Compatible', supports_streaming: true },
   { type: 'chatterbox', name: 'Chatterbox', supports_streaming: true },
   { type: 'kokoro', name: 'Kokoro', supports_streaming: false },
+  { type: 'vibevoice', name: 'VibeVoice', supports_streaming: true },
 ];
 
 interface SettingsModalProps {
