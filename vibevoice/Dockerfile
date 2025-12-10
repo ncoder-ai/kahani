@@ -31,9 +31,14 @@ RUN git clone --depth 1 --branch ${VIBEVOICE_VERSION} https://github.com/microso
 # Install VibeVoice dependencies
 WORKDIR /app/vibevoice-source
 
-# Install PyTorch first (CPU version by default, can be overridden for GPU)
-# For GPU support, use: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+# Install PyTorch with CUDA support (works on both CPU and GPU)
+# CUDA-enabled PyTorch will automatically use GPU when available via nvidia-docker
+# For CUDA 12.1: --index-url https://download.pytorch.org/whl/cu121
+# For CUDA 11.8: --index-url https://download.pytorch.org/whl/cu118
+# CPU fallback: If no GPU available, PyTorch will use CPU automatically
+ARG CUDA_VERSION=cu121
+RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/${CUDA_VERSION} || \
+    pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
 # Install VibeVoice dependencies from pyproject.toml
 RUN pip install --no-cache-dir \
