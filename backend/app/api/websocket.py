@@ -127,6 +127,8 @@ async def websocket_tts_stream(
                         await websocket.send_json({"type": "pong"})
                     elif message_type == "cancel":
                         # Client wants to cancel generation
+                        logger.info(f"[WebSocket] Cancel requested for session {session_id}")
+                        tts_session_manager.cancel_session(session_id)
                         await websocket.send_json({
                             "type": "cancelled",
                             "message": "Generation cancelled by user"

@@ -25,6 +25,7 @@ class TTSSession(BaseModel):
     created_at: datetime
     websocket: Optional[WebSocket] = None
     is_generating: bool = False
+    is_cancelled: bool = False  # Flag to stop generation
     chunks_sent: int = 0
     total_chunks: Optional[int] = None
     error: Optional[str] = None
@@ -104,6 +105,14 @@ class TTSSessionManager:
         session = self.sessions.get(session_id)
         if session:
             session.is_generating = is_generating
+    
+    def cancel_session(self, session_id: str):
+        """Mark a session as cancelled to stop generation."""
+        session = self.sessions.get(session_id)
+        if session:
+            session.is_cancelled = True
+            session.is_generating = False
+            logger.info(f"Session {session_id} marked as cancelled")
     
     def set_total_chunks(self, session_id: str, total_chunks: int):
         """Set the total number of chunks for a session."""

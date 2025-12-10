@@ -318,14 +318,32 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children }
   const stop = useCallback(() => {
     console.log('[Global TTS] Stopping playback');
     
+    // Send cancel message to backend if WebSocket is open
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      try {
+        console.log('[Global TTS] Sending cancel message to backend');
+        wsRef.current.send(JSON.stringify({ type: 'cancel' }));
+      } catch (err) {
+        console.warn('[Global TTS] Failed to send cancel message:', err);
+      }
+    }
+    
     // Stop AudioContext playback
     audioContextManager.stopAll();
     audioContextManager.setOnPlaybackEnd(null);
     
-    // Close WebSocket
+    // Close WebSocket (with small delay to ensure cancel message is sent)
     if (wsRef.current) {
-      wsRef.current.close();
+      const ws = wsRef.current;
       wsRef.current = null;
+      
+      setTimeout(() => {
+        try {
+          ws.close();
+        } catch (err) {
+          console.warn('[Global TTS] Error closing WebSocket:', err);
+        }
+      }, 100);
     }
     
     // Reset state

@@ -1038,6 +1038,12 @@ async def generate_and_stream_chunks(
             
             # Generate each chunk and stream immediately
             for i, text_chunk in enumerate(text_chunks, start=1):
+                # Check if session has been cancelled
+                session = tts_session_manager.get_session(session_id)
+                if not session or session.is_cancelled:
+                    logger.info(f"[GEN] Generation cancelled for session {session_id} at chunk {i}/{total_chunks}")
+                    break
+                
                 try:
                     # Extract text from TextChunk object
                     chunk_text = text_chunk.text
