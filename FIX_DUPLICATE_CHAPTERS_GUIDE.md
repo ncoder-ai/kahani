@@ -160,3 +160,4 @@ python fix_duplicate_chapters.py
 ```
 
 If it says "No duplicate chapters found!" you're all set! ✓
+
