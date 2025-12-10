@@ -238,3 +238,135 @@ pydub>=0.25.1
 **First Task**: Create database migration for `tts_settings` table
 
 For more information, see the TTS settings documentation in the Settings UI.
+
+## 🎙️ VibeVoice TTS Provider
+
+VibeVoice is an optional TTS provider that offers real-time, high-quality speech synthesis. It runs as a separate service and can be deployed via Docker or baremetal.
+
+### Features
+- Real-time streaming TTS with ~300ms latency
+- High-quality expressive speech
+- Multiple voice options (English voices included)
+- WebSocket-based streaming
+- GPU and CPU support
+
+### Deployment Options
+
+#### Option 1: Docker Deployment (Recommended)
+
+1. **Prepare voice presets** (optional but recommended):
+   ```bash
+   mkdir -p vibevoice/voices
+   # Copy voice .pt files from VibeVoice-main/demo/voices/streaming_model/
+   cp /path/to/VibeVoice-main/demo/voices/streaming_model/*.pt vibevoice/voices/
+   ```
+
+2. **Configure environment** (create `.env.vibevoice` or set environment variables):
+   ```bash
+   # Model configuration
+   VIBEVOICE_MODEL_PATH=microsoft/VibeVoice-Realtime-0.5B  # or local path
+   VIBEVOICE_DEVICE=cuda  # or "cpu" or "mps" for Apple Silicon
+   VIBEVOICE_PORT=3000
+   ```
+
+3. **Build and run**:
+   ```bash
+   # For CPU
+   docker-compose -f docker-compose.vibevoice.yml up -d
+   
+   # For GPU (requires nvidia-docker)
+   # Uncomment GPU section in docker-compose.vibevoice.yml first
+   docker-compose -f docker-compose.vibevoice.yml up -d
+   ```
+
+4. **Verify it's running**:
+   ```bash
+   curl http://localhost:3000/config
+   ```
+
+#### Option 2: Baremetal Deployment
+
+1. **Install VibeVoice dependencies**:
+   ```bash
+   cd /path/to/VibeVoice-main
+   pip install -e .
+   ```
+
+2. **Download model** (if not using HuggingFace auto-download):
+   ```bash
+   # Model will be downloaded automatically on first use
+   # Or download manually from HuggingFace
+   ```
+
+3. **Run the service**:
+   ```bash
+   cd /path/to/VibeVoice-main
+   python demo/vibevoice_realtime_demo.py \
+     --model_path microsoft/VibeVoice-Realtime-0.5B \
+     --device cuda  # or "cpu" or "mps"
+     --port 3000
+   ```
+
+### Configuration in Kahani
+
+1. **Open Settings → TTS** in Kahani
+2. **Select Provider**: Choose "VibeVoice"
+3. **Set API URL**: 
+   - Docker: `http://localhost:3000` (or service name if in same network)
+   - Baremetal: `http://localhost:3000`
+4. **Select Voice**: Choose from available voices (e.g., `en-Emma_woman`, `en-Carter_man`)
+5. **Optional Parameters**:
+   - `cfg_scale`: Controls generation quality (default: 1.5, range: 1.0-2.0)
+   - `inference_steps`: Number of diffusion steps (default: 5, higher = better quality but slower)
+
+### Available Voices
+
+Default voices included:
+- `en-Emma_woman` - Female English voice
+- `en-Carter_man` - Male English voice
+- `en-Davis_man` - Male English voice
+- `en-Frank_man` - Male English voice
+- `en-Grace_woman` - Female English voice
+- `en-Mike_man` - Male English voice
+
+### Troubleshooting
+
+**Service won't start:**
+- Check that port 3000 is not in use: `lsof -i :3000`
+- Verify model path is correct
+- Check device availability (for GPU: `nvidia-smi`)
+
+**No audio generated:**
+- Verify WebSocket connection: Check Kahani backend logs
+- Test service directly: `curl http://localhost:3000/config`
+- Check VibeVoice service logs: `docker logs vibevoice-tts`
+
+**Slow generation:**
+- Use GPU if available (set `MODEL_DEVICE=cuda`)
+- Reduce `inference_steps` (lower quality but faster)
+- Check system resources (CPU/GPU usage)
+
+### GPU Configuration
+
+For GPU support in Docker:
+1. Install [nvidia-docker](https://github.com/NVIDIA/nvidia-docker)
+2. Uncomment GPU section in `docker-compose.vibevoice.yml`:
+   ```yaml
+   deploy:
+     resources:
+       reservations:
+         devices:
+           - driver: nvidia
+             count: 1
+             capabilities: [gpu]
+   ```
+3. Set `VIBEVOICE_DEVICE=cuda` in environment
+4. Rebuild: `docker-compose -f docker-compose.vibevoice.yml up -d --build`
+
+### Model Options
+
+- **VibeVoice-Realtime-0.5B**: Fast, real-time model (recommended)
+- **VibeVoice-1.5B**: Higher quality, slower generation
+- **Local models**: Download and use local path in `MODEL_PATH`
+
+For more information, see the [VibeVoice documentation](https://github.com/microsoft/VibeVoice).
