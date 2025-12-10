@@ -2768,6 +2768,9 @@ async def create_scene_variant_streaming(
             ).first()
             chapter_id = active_chapter.id if active_chapter else None
             
+            # Get branch_id from story (same as new scene generation)
+            branch_id = story.current_branch_id if story else None
+            
             # Get original variant content for variant generation
             variant_service = SceneVariantService(db)
             
@@ -2819,7 +2822,7 @@ async def create_scene_variant_streaming(
                 logger.warning(f"[VARIANT] Mode: CONCLUDING SCENE")
                 context = await context_manager.build_scene_generation_context(
                     story_id, db, "", is_variant_generation=False, 
-                    exclude_scene_id=scene_id, chapter_id=chapter_id
+                    exclude_scene_id=scene_id, chapter_id=chapter_id, branch_id=branch_id
                 )
                 
                 # Get chapter info for the concluding prompt
@@ -2849,7 +2852,7 @@ async def create_scene_variant_streaming(
                 logger.warning(f"[VARIANT] Mode: GUIDED ENHANCEMENT")
                 context = await context_manager.build_scene_generation_context(
                     story_id, db, custom_prompt, is_variant_generation=True, 
-                    exclude_scene_id=scene_id, chapter_id=chapter_id
+                    exclude_scene_id=scene_id, chapter_id=chapter_id, branch_id=branch_id
                 )
                 
                 # Use guided enhancement function
@@ -2876,7 +2879,7 @@ async def create_scene_variant_streaming(
                 # chapter_id ensures context is identical to new scene generation for cache hits
                 context = await context_manager.build_scene_generation_context(
                     story_id, db, original_continue_option, is_variant_generation=False, 
-                    exclude_scene_id=scene_id, chapter_id=chapter_id
+                    exclude_scene_id=scene_id, chapter_id=chapter_id, branch_id=branch_id
                 )
                 
                 # Use the SAME function as new scene generation
