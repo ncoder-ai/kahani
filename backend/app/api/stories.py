@@ -907,9 +907,10 @@ async def generate_scene(
             )
         effective_custom_prompt = user_content.strip()
         # Continue with normal AI generation flow
-        # Get active chapter for character separation
+        # Get active chapter for character separation (filter by branch to avoid cross-branch confusion)
         active_chapter = db.query(Chapter).filter(
             Chapter.story_id == story_id,
+            Chapter.branch_id == active_branch_id,
             Chapter.status == ChapterStatus.ACTIVE
         ).first()
         chapter_id = active_chapter.id if active_chapter else None
@@ -940,9 +941,10 @@ async def generate_scene(
         # Create context manager with user settings (semantic or linear)
         context_manager = get_context_manager_for_user(user_settings, current_user.id)
         
-        # Get active chapter for character separation
+        # Get active chapter for character separation (filter by branch to avoid cross-branch confusion)
         active_chapter = db.query(Chapter).filter(
             Chapter.story_id == story_id,
+            Chapter.branch_id == active_branch_id,
             Chapter.status == ChapterStatus.ACTIVE
         ).first()
         chapter_id = active_chapter.id if active_chapter else None
@@ -1937,8 +1939,11 @@ async def generate_more_choices(
     try:
         # For "More Choices": We need to rebuild context since the original scene generation context isn't available
         # Build full scene generation context with appropriate parameters
+        # Filter by branch to avoid cross-branch confusion
+        active_branch_id = story.current_branch_id
         active_chapter = db.query(Chapter).filter(
             Chapter.story_id == story_id,
+            Chapter.branch_id == active_branch_id,
             Chapter.status == ChapterStatus.ACTIVE
         ).first()
         chapter_id = active_chapter.id if active_chapter else None
@@ -2643,9 +2648,11 @@ async def create_scene_variant(
             # Use get_context_manager_for_user to get SemanticContextManager for structured format
             context_manager = get_context_manager_for_user(user_settings, current_user.id)
             
-            # Get active chapter for character separation
+            # Get active chapter for character separation (filter by branch to avoid cross-branch confusion)
+            active_branch_id = story.current_branch_id
             active_chapter = db.query(Chapter).filter(
                 Chapter.story_id == story_id,
+                Chapter.branch_id == active_branch_id,
                 Chapter.status == ChapterStatus.ACTIVE
             ).first()
             chapter_id = active_chapter.id if active_chapter else None
@@ -2760,16 +2767,17 @@ async def create_scene_variant_streaming(
                 yield f"data: {json.dumps({'type': 'error', 'message': 'Scene not found'})}\n\n"
                 return
             
-            # Get active chapter for character separation (same as new scene generation)
+            # Get branch_id from story (same as new scene generation)
+            branch_id = story.current_branch_id if story else None
+            
+            # Get active chapter for character separation (filter by branch to avoid cross-branch confusion)
             # This ensures context is identical between new scene and variant generation
             active_chapter = db.query(Chapter).filter(
                 Chapter.story_id == story_id,
+                Chapter.branch_id == branch_id,
                 Chapter.status == ChapterStatus.ACTIVE
             ).first()
             chapter_id = active_chapter.id if active_chapter else None
-            
-            # Get branch_id from story (same as new scene generation)
-            branch_id = story.current_branch_id if story else None
             
             # Get original variant content for variant generation
             variant_service = SceneVariantService(db)
@@ -3527,9 +3535,11 @@ async def regenerate_scene_variant_choices(
         # Exclude the current scene since its content will be in the final message
         context_manager = get_context_manager_for_user(user_settings, current_user.id)
         
-        # Get active chapter for character separation
+        # Get active chapter for character separation (filter by branch to avoid cross-branch confusion)
+        active_branch_id = story.current_branch_id
         active_chapter = db.query(Chapter).filter(
             Chapter.story_id == story_id,
+            Chapter.branch_id == active_branch_id,
             Chapter.status == ChapterStatus.ACTIVE
         ).first()
         chapter_id = active_chapter.id if active_chapter else None
