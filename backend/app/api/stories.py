@@ -2879,9 +2879,14 @@ async def create_scene_variant_streaming(
                         break
             else:
                 # SIMPLE VARIANT: No custom prompt - use original continue option
-                original_continue_option = original_variant.generation_prompt or ""
+                # Get the ORIGINAL variant (is_original=True) to get the continue option that created the scene
+                # NOT the current variant which may have guidance from a previous enhancement
+                true_original_variant = db.query(SceneVariant)\
+                    .filter(SceneVariant.scene_id == scene_id, SceneVariant.is_original == True)\
+                    .first()
+                original_continue_option = true_original_variant.generation_prompt if true_original_variant else ""
                 logger.warning(f"[VARIANT] Mode: SIMPLE REGENERATION")
-                logger.warning(f"[VARIANT] Using original continue option: '{original_continue_option}'")
+                logger.warning(f"[VARIANT] Using original continue option: '{original_continue_option}' (from is_original=True variant)")
                 
                 # Build context with original continue option (triggers IMMEDIATE SITUATION)
                 # chapter_id ensures context is identical to new scene generation for cache hits
@@ -2927,15 +2932,22 @@ async def create_scene_variant_streaming(
             
             # Determine what to save as generation_prompt
             # For guided enhancement: save the custom_prompt (enhancement instructions)
-            # For simple variant: save the original_continue_option (the continue option that was used)
+            # For simple variant: save the ORIGINAL variant's generation_prompt (the continue option that created the scene)
+            #   NOT the current variant's prompt (which may contain guidance from a previous enhancement)
             # For concluding scene: save empty prompt (uses chapter_conclusion prompt)
             if is_concluding:
                 prompt_to_save = ""
                 generation_method = "concluding_scene"
-            else:
-                prompt_to_save = custom_prompt if custom_prompt else (variant_to_regenerate_from.generation_prompt or "")
+            elif custom_prompt:
+                # Guided enhancement - save the custom prompt
+                prompt_to_save = custom_prompt
                 generation_method = "regeneration"
-            logger.warning(f"[VARIANT] Saving generation_prompt: '{prompt_to_save}' (is_concluding: {is_concluding}, custom_prompt: '{custom_prompt}', from variant: '{variant_to_regenerate_from.generation_prompt}')")
+            else:
+                # Simple regeneration - use the ORIGINAL variant's generation_prompt
+                # This is the continue option that was used to create the scene originally
+                prompt_to_save = original_variant.generation_prompt if original_variant else ""
+                generation_method = "regeneration"
+            logger.warning(f"[VARIANT] Saving generation_prompt: '{prompt_to_save}' (is_concluding: {is_concluding}, custom_prompt: '{custom_prompt}', original_variant prompt: '{original_variant.generation_prompt if original_variant else 'N/A'}')")
             
             # Create the new variant
             variant = SceneVariant(
