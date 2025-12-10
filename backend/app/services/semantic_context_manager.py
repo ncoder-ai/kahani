@@ -130,42 +130,48 @@ class SemanticContextManager(ContextManager):
         if branch_id is None:
             branch_id = self._get_active_branch_id(db, story_id)
         
-        # If exclude_scene_id is provided, get scenes from StoryFlow that come before it
+        # If exclude_scene_id is provided, use same logic as new scene generation
+        # Get all scenes from chapters 1 through current chapter, then exclude the specific scene
         if exclude_scene_id:
-            # Get the scene being excluded to find its sequence_number
+            # Get the scene being excluded
             excluded_scene = db.query(Scene).filter(Scene.id == exclude_scene_id).first()
-            if excluded_scene:
-                # Query StoryFlow for all active entries with sequence_number < excluded_scene.sequence_number
-                flow_query = db.query(StoryFlow).filter(
-                    StoryFlow.story_id == story_id,
-                    StoryFlow.is_active == True,
-                    StoryFlow.sequence_number < excluded_scene.sequence_number
-                )
-                if branch_id:
-                    flow_query = flow_query.filter(StoryFlow.branch_id == branch_id)
-                flow_entries = flow_query.order_by(StoryFlow.sequence_number).all()
+            if excluded_scene and chapter_id:
+                # Use the same chapter-based selection as new scene generation
+                from ..models import Chapter
+                active_chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
                 
-                # Get Scene objects from the flow entries
-                scene_ids = [flow.scene_id for flow in flow_entries]
-                if scene_ids:
-                    scene_query = db.query(Scene).filter(Scene.id.in_(scene_ids))
-                    
-                    # Filter by chapter_id if provided
-                    if chapter_id:
-                        scene_query = scene_query.filter(Scene.chapter_id == chapter_id)
-                        logger.info(f"[SEMANTIC CONTEXT BUILD] Filtering to chapter {chapter_id} (with exclude_scene_id)")
-                    
+                if active_chapter:
+                    # Include scenes from all chapters with chapter_number <= active chapter's chapter_number
+                    # This is the SAME logic as new scene generation (lines 171-186)
+                    scene_query = db.query(Scene).join(Chapter).filter(
+                        Scene.story_id == story_id,
+                        Chapter.chapter_number <= active_chapter.chapter_number,
+                        Scene.id != exclude_scene_id  # Exclude the specific scene
+                    )
+                    if branch_id:
+                        scene_query = scene_query.filter(Scene.branch_id == branch_id)
                     scenes = scene_query.order_by(Scene.sequence_number).all()
+                    logger.info(f"[SEMANTIC CONTEXT BUILD] Chapter {chapter_id} (Chapter {active_chapter.chapter_number}): Including scenes from chapters 1-{active_chapter.chapter_number}, excluding scene {exclude_scene_id} ({len(scenes)} scenes)")
                 else:
-                    scenes = []
-                logger.info(f"[SEMANTIC CONTEXT BUILD] Excluding scene {exclude_scene_id} (sequence {excluded_scene.sequence_number}), using {len(scenes)} scenes from StoryFlow")
+                    # Fallback: if chapter not found, get all scenes except excluded one
+                    scene_query = db.query(Scene).filter(
+                        Scene.story_id == story_id,
+                        Scene.id != exclude_scene_id
+                    )
+                    if branch_id:
+                        scene_query = scene_query.filter(Scene.branch_id == branch_id)
+                    scenes = scene_query.order_by(Scene.sequence_number).all()
+                    logger.warning(f"[SEMANTIC CONTEXT BUILD] Chapter {chapter_id} not found, using all scenes except {exclude_scene_id}")
             else:
-                # Scene not found, fall back to normal query
-                logger.warning(f"[SEMANTIC CONTEXT BUILD] Excluded scene {exclude_scene_id} not found, falling back to normal query")
-                scene_query = db.query(Scene).filter(Scene.story_id == story_id)
+                # No chapter_id provided or scene not found - fall back to simple exclusion
+                scene_query = db.query(Scene).filter(
+                    Scene.story_id == story_id,
+                    Scene.id != exclude_scene_id
+                )
                 if branch_id:
                     scene_query = scene_query.filter(Scene.branch_id == branch_id)
                 scenes = scene_query.order_by(Scene.sequence_number).all()
+                logger.info(f"[SEMANTIC CONTEXT BUILD] Excluding scene {exclude_scene_id}, using {len(scenes)} scenes")
         # Get all scenes ordered by sequence
         # When chapter_id is provided, include scenes from ALL chapters up to and including that chapter
         elif chapter_id:
