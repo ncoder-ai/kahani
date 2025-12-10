@@ -13,7 +13,7 @@ import os
 import base64
 import asyncio
 
-from app.database import get_db
+from app.database import get_db, get_background_db
 from app.dependencies import get_current_user
 from app.models.user import User
 from app.models.scene import Scene
@@ -862,12 +862,11 @@ async def generate_and_stream_chunks(
     tts_session_manager.set_generating(session_id, True)
     logger.info(f"[GEN] Step 2b: Set is_generating=True to prevent race condition")
     
-    logger.info(f"[GEN] Step 3: Creating DB session")
+    logger.info(f"[GEN] Step 3: Querying database for all needed data")
     
-    # Create a new DB session for this background task
-    db = next(get_db())
-    
-    try:
+    # Query all data upfront and close DB connection immediately
+    # This prevents holding the connection during long-running TTS generation
+    with get_background_db() as db:
         logger.info(f"[GEN] Step 4: Querying scene {scene_id}")
         
         # Get the scene
@@ -932,9 +931,36 @@ async def generate_and_stream_chunks(
         
         logger.info(f"[GEN] Step 7: Variant found, content length={len(variant.content)}")
         
-        # Use variant.content instead of scene.content!
+        # Extract scene content
         scene_content = variant.content
         
+        # Get TTS settings
+        tts_settings = db.query(TTSSettings).filter(
+            TTSSettings.user_id == user_id
+        ).first()
+        
+        if not tts_settings or not tts_settings.tts_enabled:
+            await tts_session_manager.send_message(session_id, {
+                "type": "error",
+                "message": "TTS not configured or disabled"
+            })
+            return
+        
+        # Extract all TTS settings we need
+        is_progressive = tts_settings.progressive_narration
+        provider_type = tts_settings.tts_provider_type
+        api_url = tts_settings.tts_api_url
+        api_key = tts_settings.tts_api_key or ""
+        timeout = tts_settings.tts_timeout or 30
+        extra_params = tts_settings.tts_extra_params or {}
+        default_voice = tts_settings.default_voice or "default"
+        speech_speed = tts_settings.speech_speed or 1.0
+        chunk_size = tts_settings.chunk_size or 280
+    
+    # DB connection is now closed - proceed with TTS generation
+    logger.info(f"[GEN] Step 7b: Database queries complete, connection closed")
+    
+    try:
         # Check if this is an auto-play session
         session = tts_session_manager.get_session(session_id)
         is_auto_play = session and session.auto_play
@@ -965,31 +991,13 @@ async def generate_and_stream_chunks(
         # Mark session as generating
         tts_session_manager.set_generating(session_id, True)
         
-        logger.info(f"[GEN] Step 11: Getting TTS service and settings")
-        
-        # Get TTS service
-        tts_service = TTSService(db)
-        
-        # Get TTS settings
-        tts_settings = db.query(TTSSettings).filter(
-            TTSSettings.user_id == user_id
-        ).first()
-        
-        if not tts_settings or not tts_settings.tts_enabled:
-            await tts_session_manager.send_message(session_id, {
-                "type": "error",
-                "message": "TTS not configured or disabled"
-            })
-            return
-        
-        # Check if progressive narration is enabled
-        is_progressive = tts_settings.progressive_narration
+        logger.info(f"[GEN] Step 11: Starting TTS generation (no DB connection held)")
         
         if is_progressive:
             # Generate chunks and stream them
             # Use text chunker to split scene text
             from app.services.tts.text_chunker import TextChunker
-            chunker = TextChunker(max_chunk_size=tts_settings.chunk_size or 280)
+            chunker = TextChunker(max_chunk_size=chunk_size)
             
             logger.info(f"Scene content length: {len(scene_content)} chars")
             text_chunks = chunker.chunk_text(scene_content)
@@ -1012,17 +1020,17 @@ async def generate_and_stream_chunks(
             from app.services.tts.base import TTSRequest, AudioFormat
             
             provider = TTSProviderFactory.create_provider(
-                provider_type=tts_settings.tts_provider_type,
-                api_url=tts_settings.tts_api_url,
-                api_key=tts_settings.tts_api_key or "",
-                timeout=tts_settings.tts_timeout or 30,
-                extra_params=tts_settings.tts_extra_params or {}
+                provider_type=provider_type,
+                api_url=api_url,
+                api_key=api_key,
+                timeout=timeout,
+                extra_params=extra_params
             )
             
             # Get audio format
             format = AudioFormat.MP3
-            if tts_settings.tts_extra_params:
-                format_str = tts_settings.tts_extra_params.get("format", "mp3")
+            if extra_params:
+                format_str = extra_params.get("format", "mp3")
                 try:
                     format = AudioFormat(format_str)
                 except ValueError:
@@ -1037,14 +1045,14 @@ async def generate_and_stream_chunks(
                     # Generate audio for this chunk using provider directly
                     request = TTSRequest(
                         text=chunk_text,
-                        voice_id=tts_settings.default_voice or "default",
-                        speed=tts_settings.speech_speed or 1.0,
+                        voice_id=default_voice,
+                        speed=speech_speed,
                         format=format
                     )
                     
                     # Use user's configured timeout with a reasonable multiplier for per-chunk timeout
                     # Add 50% buffer to user's timeout to account for network delays
-                    chunk_timeout = int((tts_settings.tts_timeout or 30) * 1.5)
+                    chunk_timeout = int(timeout * 1.5)
                     chunk_timeout = max(chunk_timeout, 60)  # Minimum 60 seconds
                     chunk_timeout = min(chunk_timeout, 180)  # Maximum 180 seconds per chunk
                     
@@ -1121,55 +1129,67 @@ async def generate_and_stream_chunks(
                 })
             
         else:
-            # Generate single audio file
-            scene_audio = await tts_service.get_or_generate_scene_audio(
-                scene=scene,
-                user_id=user_id,
-                force_regenerate=True
+            # Generate single audio file (non-progressive mode)
+            from app.services.tts.factory import TTSProviderFactory
+            from app.services.tts.base import TTSRequest, AudioFormat
+            
+            provider = TTSProviderFactory.create_provider(
+                provider_type=provider_type,
+                api_url=api_url,
+                api_key=api_key,
+                timeout=timeout,
+                extra_params=extra_params
             )
             
-            if not scene_audio or not scene_audio.audio_url:
+            # Get audio format
+            format = AudioFormat.MP3
+            if extra_params:
+                format_str = extra_params.get("format", "mp3")
+                try:
+                    format = AudioFormat(format_str)
+                except ValueError:
+                    pass
+            
+            # Generate audio for entire scene
+            request = TTSRequest(
+                text=scene_content,
+                voice_id=default_voice,
+                speed=speech_speed,
+                format=format
+            )
+            
+            try:
+                response = await provider.synthesize(request)
+                audio_data = response.audio_data
+                
+                if not audio_data:
+                    raise Exception("Failed to generate audio")
+                
+                # Convert to base64 for WebSocket transmission
+                audio_base64 = base64.b64encode(audio_data).decode('utf-8')
+                
+                # Send as single chunk
+                await tts_session_manager.send_message(session_id, {
+                    "type": "chunk_ready",
+                    "chunk_number": 1,
+                    "total_chunks": 1,
+                    "audio_base64": audio_base64,
+                    "size_bytes": len(audio_data),
+                    "duration": response.duration
+                })
+                
+                await tts_session_manager.send_message(session_id, {
+                    "type": "complete",
+                    "total_chunks": 1,
+                    "message": "Audio generated successfully"
+                })
+            except Exception as e:
+                logger.error(f"Failed to generate single audio file: {e}")
                 await tts_session_manager.send_message(session_id, {
                     "type": "error",
-                    "message": "Failed to generate audio"
+                    "message": f"Failed to generate audio: {str(e)}"
                 })
                 return
-            
-            # Resolve audio file path (handle both absolute and relative paths)
-            from pathlib import Path
-            import os
-            file_path = Path(scene_audio.audio_url)
-            if not file_path.is_absolute():
-                cwd = Path(os.getcwd())
-                file_path = cwd / file_path
-            
-            if not file_path.exists():
-                await tts_session_manager.send_message(session_id, {
-                    "type": "error",
-                    "message": "Audio file not found"
-                })
-                return
-            
-            # Read audio file and send as single chunk
-            with open(file_path, 'rb') as f:
-                audio_data = f.read()
-            
-            audio_base64 = base64.b64encode(audio_data).decode('utf-8')
-            
-            await tts_session_manager.send_message(session_id, {
-                "type": "chunk_ready",
-                "chunk_number": 1,
-                "total_chunks": 1,
-                "audio_base64": audio_base64,
-                "size_bytes": len(audio_data),
-                "duration": scene_audio.duration
-            })
-            
-            await tts_session_manager.send_message(session_id, {
-                "type": "complete",
-                "total_chunks": 1,
-                "message": "Audio generated successfully"
-            })
         
     except Exception as e:
         logger.error(f"Error in generate_and_stream_chunks: {e}", exc_info=True)
@@ -1183,8 +1203,7 @@ async def generate_and_stream_chunks(
         # Clean up
         tts_session_manager.set_generating(session_id, False)
         logger.info(f"Completed generation for session {session_id}")
-        # Close DB session
-        db.close()
+        # DB connection already closed by context manager
 
 
 @router.post("/stream/{scene_id}")
