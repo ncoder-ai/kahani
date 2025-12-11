@@ -205,9 +205,24 @@ class OpenAICompatibleProvider(TTSProviderBase):
                     
                     if response.status_code == 200:
                         voices_data = response.json()
-                        voices_list = voices_data.get("voices", [])
                         
                         # Handle different response formats:
+                        # 1. Direct array: ["tara", "leah", ...] or [{"id": "...", ...}, ...]
+                        # 2. OpenAI standard format: {"object": "list", "data": [...]}
+                        # 3. Alternative format: {"voices": [...]}
+                        if isinstance(voices_data, list):
+                            voices_list = voices_data
+                        elif isinstance(voices_data, dict):
+                            # Check for OpenAI standard format first
+                            if voices_data.get("object") == "list" and "data" in voices_data:
+                                voices_list = voices_data.get("data", [])
+                            else:
+                                # Fall back to "voices" key for backward compatibility
+                                voices_list = voices_data.get("voices", [])
+                        else:
+                            voices_list = []
+                        
+                        # Handle different voice item formats:
                         # 1. Array of strings: ["tara", "leah", ...]
                         # 2. Array of objects: [{"id": "...", "name": "...", ...}]
                         voices = []
