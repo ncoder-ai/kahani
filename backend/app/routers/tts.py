@@ -959,7 +959,7 @@ async def generate_and_stream_chunks(
         
         logger.info(f"[GEN] TTS settings: provider={provider_type}, default_voice={default_voice}, from_db={tts_settings.default_voice}")
         
-        # If voice is still "default", try to get it from provider-specific config
+        # If voice is still "default", try to get it from provider-specific config or fetch first available voice
         if default_voice == "default":
             provider_config = db.query(TTSProviderConfigModel).filter(
                 TTSProviderConfigModel.user_id == user_id,
@@ -969,7 +969,25 @@ async def generate_and_stream_chunks(
                 default_voice = provider_config.voice_id
                 logger.info(f"[GEN] Using voice from provider config: {default_voice}")
             else:
-                logger.warning(f"[GEN] Voice is 'default' and no provider config found or provider config also has 'default'")
+                logger.warning(f"[GEN] Voice is 'default', attempting to fetch first available voice from provider")
+                # Try to get first available voice from the provider
+                try:
+                    from app.services.tts.factory import TTSProviderFactory
+                    temp_provider = TTSProviderFactory.create_provider(
+                        provider_type=provider_type,
+                        api_url=api_url,
+                        api_key=api_key,
+                        timeout=timeout,
+                        extra_params=extra_params
+                    )
+                    voices = await temp_provider.get_voices()
+                    if voices and len(voices) > 0:
+                        default_voice = voices[0].id
+                        logger.info(f"[GEN] Using first available voice: {default_voice}")
+                    else:
+                        logger.error(f"[GEN] No voices available from provider, keeping 'default'")
+                except Exception as e:
+                    logger.error(f"[GEN] Failed to fetch voices: {e}, keeping 'default'")
     
     # DB connection is now closed - proceed with TTS generation
     logger.info(f"[GEN] Step 7b: Database queries complete, connection closed")
