@@ -1090,7 +1090,8 @@ class UnifiedLLMService:
         content = re.sub(r'^[#=\-\*]{2,}\s*SCENE\s*(?:EXPANSION|CONTINUATION|CONTENT|START|BEGIN)[^#=\-\*\n]*[#=\-\*]*\s*\n?', '', content, flags=re.IGNORECASE).strip()
         
         # Regenerated/Revised scene markers: "=== REGENERATED SCENE ===", "### REVISED SCENE ###"
-        content = re.sub(r'^[#=\-\*]{2,}\s*(?:REGENERATED|REVISED|UPDATED|NEW|REWRITTEN)\s*SCENE[^#=\-\*\n]*[#=\-\*]*\s*\n?', '', content, flags=re.IGNORECASE).strip()
+        # Also handles common typos like "REGNERATED" (missing first E)
+        content = re.sub(r'^[#=\-\*]{2,}\s*(?:REGE?NERATED|REVISED|UPDATED|NEW|REWRITTEN)\s*SCENE[^#=\-\*\n]*[#=\-\*]*\s*\n?', '', content, flags=re.IGNORECASE).strip()
         
         # Generic section markers at start: "### SCENE ###", "=== SCENE ==="
         content = re.sub(r'^[#=\-\*]{2,}\s*SCENE\s*\d*\s*[#=\-\*]*\s*\n?', '', content, flags=re.IGNORECASE).strip()
