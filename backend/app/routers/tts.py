@@ -217,7 +217,7 @@ async def update_tts_settings(
     db.commit()
     db.refresh(tts_settings)
     
-    logger.info(f"Updated TTS settings for user {current_user.id}")
+    logger.info(f"Updated TTS settings for user {current_user.id}: provider={settings_request.provider_type}, voice={settings_request.voice_id}")
     
     return TTSSettingsResponse.from_db_model(tts_settings)
 
@@ -346,7 +346,7 @@ async def save_provider_config(
     db.commit()
     db.refresh(config)
     
-    logger.info(f"Saved provider config for user {current_user.id}, provider {provider_type}")
+    logger.info(f"Saved provider config for user {current_user.id}, provider {provider_type}, voice={settings_request.voice_id}")
     
     return TTSSettingsResponse(
         id=config.id,
@@ -956,6 +956,16 @@ async def generate_and_stream_chunks(
         default_voice = tts_settings.default_voice or "default"
         speech_speed = tts_settings.speech_speed or 1.0
         chunk_size = tts_settings.chunk_size or 280
+        
+        # If voice is still "default", try to get it from provider-specific config
+        if default_voice == "default":
+            provider_config = db.query(TTSProviderConfigModel).filter(
+                TTSProviderConfigModel.user_id == user_id,
+                TTSProviderConfigModel.provider_type == provider_type
+            ).first()
+            if provider_config and provider_config.voice_id and provider_config.voice_id != "default":
+                default_voice = provider_config.voice_id
+                logger.info(f"Using voice from provider config: {default_voice}")
     
     # DB connection is now closed - proceed with TTS generation
     logger.info(f"[GEN] Step 7b: Database queries complete, connection closed")
