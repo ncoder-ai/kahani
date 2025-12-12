@@ -403,6 +403,9 @@ export default function StoryPage() {
   }, [contextUsagePercent, hasShownContextWarning, userSettings?.generation_preferences?.alert_on_high_context]);
 
   // Preserve scroll position on resize/orientation change
+  // Disabled: This was causing scroll jumps on mobile when address bar hides/shows
+  // The overscroll-behavior-y: contain on the container should handle most cases
+  /*
   useEffect(() => {
     const container = storyContentRef.current;
     if (!container) return;
@@ -452,6 +455,7 @@ export default function StoryPage() {
       clearTimeout(resizeTimeout);
     };
   }, [story?.scenes]);
+  */
 
   // Load chapter info when active chapter changes
   useEffect(() => {
@@ -720,7 +724,8 @@ export default function StoryPage() {
         lastScrollTop = currentScrollTop;
 
         // Log every scroll for debugging
-        // Only trigger on scroll up
+        // Only trigger on scroll up AND when actually near the top
+        // This prevents false triggers from elastic bounce at bottom
         if (scrollDirection === 'up') {
           // Calculate distance from top
           const distanceFromTop = currentScrollTop;
@@ -729,11 +734,16 @@ export default function StoryPage() {
           const maxScroll = Math.max(1, scrollHeight - clientHeight);
           const scrollPercentage = maxScroll > 0 ? (currentScrollTop / maxScroll) * 100 : 0;
           
-          // More aggressive trigger: within 600px of top OR in top 20% OR scrollTop is very small
-          const shouldTrigger = 
+          // Only trigger when ACTUALLY near the top (not just scrolling up direction)
+          // This prevents false triggers from elastic bounce at bottom
+          const isActuallyNearTop = currentScrollTop < 600;
+          
+          // Trigger only when near top: within 600px of top OR in top 20% OR scrollTop is very small
+          const shouldTrigger = isActuallyNearTop && (
             distanceFromTop < 600 || 
             scrollPercentage < 20 || 
-            currentScrollTop < 50;
+            currentScrollTop < 50
+          );
           
           if (shouldTrigger) {
             hasTriggered = true;
@@ -751,16 +761,23 @@ export default function StoryPage() {
 
     // Also listen to window scroll in case that's what's actually scrolling
     const handleWindowScroll = () => {
-      if (isAutoLoadingScenes || hasTriggered) {
+      if (isAutoLoadingScenes || hasTriggered || isInitialLoad) {
         return;
       }
 
       const currentWindowScroll = typeof window !== 'undefined' ? window.pageYOffset : 0;
       const scrollDirection = currentWindowScroll < lastWindowScroll ? 'up' : 'down';
+      
+      // Mark that user has scrolled
+      if (Math.abs(currentWindowScroll - lastWindowScroll) > 10) {
+        isInitialLoad = false;
+      }
+      
       lastWindowScroll = currentWindowScroll;
 
-      // If window is scrolling up and we're near the top, trigger
-      if (scrollDirection === 'up' && currentWindowScroll < 400) {
+      // Only trigger when ACTUALLY near the top of the page (not just scrolling up)
+      // This prevents false triggers from elastic bounce at bottom
+      if (scrollDirection === 'up' && currentWindowScroll < 200) {
         hasTriggered = true;
         loadMoreScenesAutomatically();
         clearTimeout(triggerCooldown);
@@ -2654,7 +2671,7 @@ export default function StoryPage() {
       {/* Main Story Container */}
       <div className="max-w-4xl mx-auto flex flex-col" style={{ height: 'calc(100vh - 40px)' }}>
         {/* Story Content Area */}
-        <div className="flex-1 p-4 md:p-6 overflow-y-auto" ref={storyContentRef}>
+        <div className="flex-1 p-4 md:p-6 overflow-y-auto" ref={storyContentRef} style={{ overscrollBehaviorY: 'contain' }}>
           <div className="min-h-full">
 
             {/* Character Display */}
@@ -3118,6 +3135,23 @@ export default function StoryPage() {
           </div>
         </div>
       </div>
+
+      {/* Scroll to Bottom Button */}
+      <button
+        onClick={() => {
+          if (storyContentRef.current) {
+            storyContentRef.current.scrollTo({
+              top: storyContentRef.current.scrollHeight,
+              behavior: 'smooth'
+            });
+          }
+        }}
+        className="fixed bottom-4 left-4 z-50 p-3 bg-gray-700/80 hover:bg-gray-600 text-white rounded-full shadow-lg backdrop-blur-sm transition-all"
+        aria-label="Scroll to bottom"
+        title="Scroll to bottom"
+      >
+        <ArrowDownIcon className="h-5 w-5" />
+      </button>
 
       {error && (
         <div className="fixed top-4 right-4 bg-red-600 text-white px-4 py-3 rounded-lg shadow-lg z-50 max-w-md">

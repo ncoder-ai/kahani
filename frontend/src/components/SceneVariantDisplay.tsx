@@ -161,7 +161,6 @@ export default function SceneVariantDisplay({
   const [showGuidedOptions, setShowGuidedOptions] = useState(false);
   const sceneContentRef = useRef<HTMLDivElement>(null);
   const hasLoadedVariantsRef = useRef<Set<number>>(new Set());
-  const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
   const lastTriggerRef = useRef<number>(0);
   const [copySuccess, setCopySuccess] = useState(false);
   const [showFloatingMenu, setShowFloatingMenu] = useState(false);
@@ -549,61 +548,7 @@ export default function SceneVariantDisplay({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isLastScene, variants, currentVariantId]);
 
-  // Swipe gesture handlers for mobile variant navigation
-  useEffect(() => {
-    if (!isLastScene || !sceneContentRef.current) return;
-
-    const container = sceneContentRef.current;
-    const SWIPE_THRESHOLD = 50; // Minimum distance in pixels
-    const SWIPE_VELOCITY_THRESHOLD = 0.3; // Minimum velocity
-
-    const handleTouchStart = (e: TouchEvent) => {
-      const touch = e.touches[0];
-      touchStartRef.current = { x: touch.clientX, y: touch.clientY, time: e.timeStamp };
-    };
-
-    const handleTouchEnd = (e: TouchEvent) => {
-      if (!touchStartRef.current) return;
-
-      const touch = e.changedTouches[0];
-      const deltaX = touch.clientX - touchStartRef.current.x;
-      const deltaY = touch.clientY - touchStartRef.current.y;
-      const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-      const time = e.timeStamp - touchStartRef.current.time;
-      const velocity = time > 0 ? distance / time : 0;
-
-      // Only trigger swipe if horizontal movement is dominant and meets threshold
-      if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > SWIPE_THRESHOLD) {
-        // Prevent default to avoid scrolling
-        e.preventDefault();
-        
-        // Check navigation availability
-        const currentIndex = variants.findIndex(v => v.id === currentVariantId);
-        const canGoPrev = variants.length > 1 && currentIndex > 0;
-        const canGoNext = variants.length > 1 && currentIndex < variants.length - 1;
-        
-        if (deltaX > 0 && canGoPrev) {
-          // Swipe right = previous variant
-          const previousVariant = variants[currentIndex - 1];
-          switchToVariant(previousVariant.id);
-        } else if (deltaX < 0 && canGoNext) {
-          // Swipe left = next variant
-          const nextVariant = variants[currentIndex + 1];
-          switchToVariant(nextVariant.id);
-        }
-      }
-
-      touchStartRef.current = null;
-    };
-
-    container.addEventListener('touchstart', handleTouchStart, { passive: true });
-    container.addEventListener('touchend', handleTouchEnd, { passive: false });
-
-    return () => {
-      container.removeEventListener('touchstart', handleTouchStart);
-      container.removeEventListener('touchend', handleTouchEnd);
-    };
-  }, [isLastScene, variants, currentVariantId]);
+  // Swipe gesture handlers removed - use arrow buttons for variant navigation on mobile
 
   // Handle copy scene text
   const handleCopyScene = async () => {
