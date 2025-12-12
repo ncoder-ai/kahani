@@ -62,6 +62,7 @@ class UserSettings(Base):
     choices_count = Column(Integer, nullable=True)
     alert_on_high_context = Column(Boolean, nullable=True)  # Alert user to create new chapter when context is high
     use_extraction_llm_for_summary = Column(Boolean, nullable=True)  # Use extraction LLM instead of main LLM for summaries
+    separate_choice_generation = Column(Boolean, nullable=True)  # Generate choices in separate LLM call for higher quality
     
     # UI Preferences
     color_theme = Column(String(30), nullable=True)
@@ -170,7 +171,8 @@ class UserSettings(Base):
                 "auto_choices": self.enable_auto_choices if self.enable_auto_choices is not None else gen_defaults.get("auto_choices", True),
                 "choices_count": self.choices_count if self.choices_count is not None else gen_defaults.get("choices_count", 4),
                 "alert_on_high_context": self.alert_on_high_context if self.alert_on_high_context is not None else gen_defaults.get("alert_on_high_context", True),
-                "use_extraction_llm_for_summary": self.use_extraction_llm_for_summary if self.use_extraction_llm_for_summary is not None else gen_defaults.get("use_extraction_llm_for_summary", False)
+                "use_extraction_llm_for_summary": self.use_extraction_llm_for_summary if self.use_extraction_llm_for_summary is not None else gen_defaults.get("use_extraction_llm_for_summary", False),
+                "separate_choice_generation": self.separate_choice_generation if self.separate_choice_generation is not None else gen_defaults.get("separate_choice_generation", False)
             },
             "ui_preferences": {
                 "color_theme": self.color_theme if self.color_theme is not None else ui_defaults.get("color_theme", "pure-dark"),
@@ -315,6 +317,8 @@ class UserSettings(Base):
             self.alert_on_high_context = gen.get("alert_on_high_context", True)
         if self.use_extraction_llm_for_summary is None:
             self.use_extraction_llm_for_summary = gen.get("use_extraction_llm_for_summary", False)
+        if self.separate_choice_generation is None:
+            self.separate_choice_generation = gen.get("separate_choice_generation", False)
         
         # UI Preferences
         ui = user_defaults.get("ui_preferences", {})

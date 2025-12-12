@@ -965,9 +965,16 @@ async def generate_scene(
         try:
             scene_content, parsed_choices = await llm_service.generate_scene_with_choices(context, current_user.id, user_settings, db)
             
-            # If choices weren't parsed, fall back to separate generation
+            # Check if separate choice generation is enabled
+            generation_prefs = user_settings.get("generation_preferences", {})
+            separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
+            
+            # If choices weren't parsed (or separate generation is enabled), generate separately
             if not parsed_choices or len(parsed_choices) < 2:
-                logger.warning("Choice parsing failed, using fallback generation")
+                if separate_choice_generation:
+                    logger.info("Separate choice generation enabled - generating choices in dedicated LLM call")
+                else:
+                    logger.warning("Choice parsing failed, using fallback generation")
                 # Reuse the existing scene generation context - don't rebuild it
                 # The scene_content will be added to context as current_situation in generate_choices()
                 parsed_choices = await llm_service.generate_choices(scene_content, context, current_user.id, user_settings, db)
@@ -1444,13 +1451,20 @@ async def generate_scene_streaming_endpoint(
             # PRIORITY 2: Generate choices (may already be parsed from combined generation)
             choices_data = []
             try:
-                if parsed_choices and len(parsed_choices) >= 2:
+                # Check if separate choice generation is enabled
+                generation_prefs = user_settings.get("generation_preferences", {})
+                separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
+                
+                if parsed_choices and len(parsed_choices) >= 2 and not separate_choice_generation:
                     # Use parsed choices from combined generation
                     logger.info(f"Using parsed choices from combined generation: {len(parsed_choices)} choices")
                     choices = parsed_choices
                 else:
-                    # Fallback: separate choice generation
-                    logger.warning("Choice parsing failed or no choices found, using fallback generation")
+                    # Separate choice generation (intentional or fallback)
+                    if separate_choice_generation:
+                        logger.info("Separate choice generation enabled - generating choices in dedicated LLM call")
+                    else:
+                        logger.warning("Choice parsing failed or no choices found, using fallback generation")
                     # Reuse the existing scene generation context - don't create minimal dict
                     # The scene_content will be added to context as current_situation in generate_choices()
                     choices = await llm_service.generate_choices(full_content, context, current_user.id, user_settings, db)
@@ -3024,13 +3038,20 @@ async def create_scene_variant_streaming(
             
             # Generate choices for the new variant (may already be parsed from combined generation)
             try:
-                if parsed_choices and len(parsed_choices) >= 2:
+                # Check if separate choice generation is enabled
+                generation_prefs = user_settings.get("generation_preferences", {})
+                separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
+                
+                if parsed_choices and len(parsed_choices) >= 2 and not separate_choice_generation:
                     # Use parsed choices from combined generation
                     logger.info(f"Using parsed choices from combined variant generation: {len(parsed_choices)} choices")
                     generated_choices = parsed_choices
                 else:
-                    # Fallback: separate choice generation
-                    logger.warning("Choice parsing failed for variant, using fallback generation")
+                    # Separate choice generation (intentional or fallback)
+                    if separate_choice_generation:
+                        logger.info("Separate choice generation enabled - generating choices in dedicated LLM call")
+                    else:
+                        logger.warning("Choice parsing failed for variant, using fallback generation")
                     # Reuse the existing scene generation context - don't rebuild it
                     # The variant_content will be added to context as current_situation in generate_choices()
                     generated_choices = await llm_service.generate_choices(

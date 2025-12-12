@@ -2700,6 +2700,21 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     </select>
                     <p className="text-xs text-gray-400 mt-1">Target length for generated scenes</p>
                   </div>
+
+                  <div>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={generationPrefs.separate_choice_generation || false}
+                        onChange={(e) => setGenerationPrefs({ ...generationPrefs, separate_choice_generation: e.target.checked })}
+                        className="w-4 h-4 rounded"
+                      />
+                      <span className="text-sm text-white">Generate choices separately (higher quality)</span>
+                    </label>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Generate choices in a separate LLM call after scene generation for better quality choices
+                    </p>
+                  </div>
                   
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
