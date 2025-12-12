@@ -957,6 +957,8 @@ async def generate_and_stream_chunks(
         speech_speed = tts_settings.speech_speed or 1.0
         chunk_size = tts_settings.chunk_size or 280
         
+        logger.info(f"[GEN] TTS settings: provider={provider_type}, default_voice={default_voice}, from_db={tts_settings.default_voice}")
+        
         # If voice is still "default", try to get it from provider-specific config
         if default_voice == "default":
             provider_config = db.query(TTSProviderConfigModel).filter(
@@ -965,7 +967,9 @@ async def generate_and_stream_chunks(
             ).first()
             if provider_config and provider_config.voice_id and provider_config.voice_id != "default":
                 default_voice = provider_config.voice_id
-                logger.info(f"Using voice from provider config: {default_voice}")
+                logger.info(f"[GEN] Using voice from provider config: {default_voice}")
+            else:
+                logger.warning(f"[GEN] Voice is 'default' and no provider config found or provider config also has 'default'")
     
     # DB connection is now closed - proceed with TTS generation
     logger.info(f"[GEN] Step 7b: Database queries complete, connection closed")
@@ -1059,6 +1063,7 @@ async def generate_and_stream_chunks(
                     chunk_text = text_chunk.text
                     
                     # Generate audio for this chunk using provider directly
+                    logger.info(f"[GEN] Creating TTS request: voice_id={default_voice}, provider={provider_type}")
                     request = TTSRequest(
                         text=chunk_text,
                         voice_id=default_voice,
