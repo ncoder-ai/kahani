@@ -1229,6 +1229,7 @@ class ApiClient {
       system_prompt: string;
       summary_system_prompt: string | null;
       pov: string | null;
+      prose_style: string | null;
       is_active: boolean;
       created_at: string;
       updated_at: string | null;
@@ -1244,6 +1245,7 @@ class ApiClient {
       system_prompt: string;
       summary_system_prompt: string | null;
       pov: string | null;
+      prose_style: string | null;
       is_active: boolean;
       created_at: string;
       updated_at: string | null;
@@ -1256,6 +1258,7 @@ class ApiClient {
     system_prompt: string;
     summary_system_prompt?: string;
     pov?: string;
+    prose_style?: string;
   }) {
     return this.request<{
       id: number;
@@ -1265,6 +1268,7 @@ class ApiClient {
       system_prompt: string;
       summary_system_prompt: string | null;
       pov: string | null;
+      prose_style: string | null;
       is_active: boolean;
       created_at: string;
       updated_at: string | null;
@@ -1280,6 +1284,7 @@ class ApiClient {
     system_prompt?: string;
     summary_system_prompt?: string;
     pov?: string;
+    prose_style?: string;
   }) {
     return this.request<{
       id: number;
@@ -1289,6 +1294,7 @@ class ApiClient {
       system_prompt: string;
       summary_system_prompt: string | null;
       pov: string | null;
+      prose_style: string | null;
       is_active: boolean;
       created_at: string;
       updated_at: string | null;
@@ -1313,6 +1319,7 @@ class ApiClient {
       system_prompt: string;
       summary_system_prompt: string | null;
       pov: string | null;
+      prose_style: string | null;
       is_active: boolean;
       created_at: string;
       updated_at: string | null;
@@ -1330,6 +1337,7 @@ class ApiClient {
       system_prompt: string;
       summary_system_prompt: string | null;
       pov: string | null;
+      prose_style: string | null;
       is_active: boolean;
       created_at: string;
       updated_at: string | null;
@@ -1345,7 +1353,17 @@ class ApiClient {
       system_prompt: string;
       summary_system_prompt: string | null;
       pov?: string;
+      prose_style?: string;
     }>(`/api/writing-presets/default/template`);
+  }
+
+  async getProseStyles() {
+    return this.request<Array<{
+      key: string;
+      name: string;
+      description: string;
+      example: string;
+    }>>(`/api/writing-presets/prose-styles`);
   }
 
   // Chapters

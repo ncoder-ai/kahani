@@ -1067,13 +1067,86 @@ class UnifiedLLMService:
                 logger.error(f"Streaming text completion failed for user {user_id}: {error_msg}")
                 raise ValueError(f"Streaming text completion failed: {str(e)}")
     
-    def _clean_scene_numbers(self, content: str) -> str:
-        """Remove scene numbers and titles from the beginning of generated content"""
-        # Remove patterns like "Scene 7:", "Scene 7: Title", etc. from the start
-        content = re.sub(r'^Scene\s+\d+:.*?(\n|$)', '', content, flags=re.IGNORECASE).strip()
-        # Also remove standalone scene titles that might start with numbers
+    def _clean_scene_content(self, content: str) -> str:
+        """
+        Comprehensive cleaning of LLM-generated scene content.
+        Removes various junk patterns that LLMs commonly add to scenes.
+        """
+        if not content:
+            return content
+        
+        original_content = content
+        
+        # === HEADER/PREFIX PATTERNS (at start of content) ===
+        
+        # Scene numbers and titles: "Scene 7:", "Scene 7: The Escape", "### Scene 7 ###", "SCENE 1"
+        content = re.sub(r'^#{1,6}\s*Scene\s+\d+[^#\n]*#{0,6}\s*\n?', '', content, flags=re.IGNORECASE).strip()
+        content = re.sub(r'^Scene\s+\d+(?:\s*[:\-]\s*[^\n]*)?\s*\n', '', content, flags=re.IGNORECASE).strip()
+        
+        # Standalone numbers as titles: "7:", "7. The Beginning"
         content = re.sub(r'^\d+[:.]\s*[A-Z][^.\n]*(\n|$)', '', content).strip()
-        return content
+        
+        # Scene expansion markers: "### SCENE EXPANSION ###", "=== SCENE EXPANSION ==="
+        content = re.sub(r'^[#=\-\*]{2,}\s*SCENE\s*(?:EXPANSION|CONTINUATION|CONTENT|START|BEGIN)[^#=\-\*\n]*[#=\-\*]*\s*\n?', '', content, flags=re.IGNORECASE).strip()
+        
+        # Regenerated/Revised scene markers: "=== REGENERATED SCENE ===", "### REVISED SCENE ###"
+        content = re.sub(r'^[#=\-\*]{2,}\s*(?:REGENERATED|REVISED|UPDATED|NEW|REWRITTEN)\s*SCENE[^#=\-\*\n]*[#=\-\*]*\s*\n?', '', content, flags=re.IGNORECASE).strip()
+        
+        # Generic section markers at start: "### SCENE ###", "=== SCENE ==="
+        content = re.sub(r'^[#=\-\*]{2,}\s*SCENE\s*\d*\s*[#=\-\*]*\s*\n?', '', content, flags=re.IGNORECASE).strip()
+        
+        # "Continue scene" prefixes: "Continue scene:", "Continuing the scene:"
+        content = re.sub(r'^(?:Continue|Continuing|Continued)\s+(?:the\s+)?scene[:\s]*\n?', '', content, flags=re.IGNORECASE).strip()
+        
+        # "Here is" prefixes: "Here is the scene:", "Here's the continuation:"
+        content = re.sub(r'^Here(?:\'s|\s+is)\s+(?:the\s+)?(?:scene|continuation|next\s+part|story)[:\s]*\n?', '', content, flags=re.IGNORECASE).strip()
+        
+        # Instruction acknowledgments: "Understood, here's the scene:", "Got it. Here's the scene:"
+        content = re.sub(r'^(?:Understood|Got\s+it|Okay|Sure|Certainly)[.,!]?\s*(?:Here(?:\'s|\s+is)[^:]*:)?\s*\n?', '', content, flags=re.IGNORECASE).strip()
+        
+        # Chapter/Part markers at start: "Chapter 7:", "Part 3:"
+        content = re.sub(r'^(?:Chapter|Part)\s+\d+[:\s].*?(\n|$)', '', content, flags=re.IGNORECASE).strip()
+        
+        # === INSTRUCTION TAGS (can appear anywhere) ===
+        
+        # Llama-style instruction tags: [/inst], [inst], <<SYS>>, <</SYS>>
+        content = re.sub(r'\[/?inst\]', '', content, flags=re.IGNORECASE)
+        content = re.sub(r'<<?/?SYS>>?', '', content, flags=re.IGNORECASE)
+        
+        # Assistant/User role markers that leak through
+        content = re.sub(r'^(?:Assistant|AI|Model):\s*', '', content, flags=re.IGNORECASE | re.MULTILINE).strip()
+        
+        # === TRAILING JUNK PATTERNS ===
+        
+        # "End of scene" markers: "--- End of Scene ---", "=== END ==="
+        content = re.sub(r'\n?[#=\-\*]{2,}\s*(?:END|FIN|THE\s+END)\s*(?:OF\s+SCENE)?[^#=\-\*\n]*[#=\-\*]*\s*$', '', content, flags=re.IGNORECASE).strip()
+        
+        # "To be continued" markers
+        content = re.sub(r'\n?\s*(?:\[|\()?(?:To\s+be\s+continued|TBC|Continued\s+in\s+next\s+scene)(?:\]|\))?\s*\.?\s*$', '', content, flags=re.IGNORECASE).strip()
+        
+        # Word count annotations: "(Word count: 150)", "[~200 words]"
+        content = re.sub(r'\n?\s*(?:\[|\()?\s*(?:~?\s*\d+\s*words?|word\s*count[:\s]*\d+)\s*(?:\]|\))?\s*$', '', content, flags=re.IGNORECASE).strip()
+        
+        # === EMBEDDED METADATA (anywhere in content) ===
+        
+        # Scene numbers embedded: "### Scene 113 ###" in middle of text
+        content = re.sub(r'\n[#=\-\*]{2,}\s*SCENE\s+\d+\s*[#=\-\*]*\s*\n', '\n', content, flags=re.IGNORECASE)
+        
+        # Remove multiple consecutive blank lines (normalize to max 2)
+        content = re.sub(r'\n{3,}', '\n\n', content)
+        
+        # Log if significant cleaning occurred
+        if len(original_content) - len(content) > 50:
+            logger.debug(f"Scene cleaning removed {len(original_content) - len(content)} characters")
+        
+        return content.strip()
+    
+    def _clean_scene_numbers(self, content: str) -> str:
+        """
+        Remove scene numbers and LLM junk from generated content.
+        This is an alias for _clean_scene_content for backward compatibility.
+        """
+        return self._clean_scene_content(content)
     
     def _clean_instruction_tags(self, content: str) -> str:
         """Remove instruction tags like [/inst][inst] that may appear in LLM responses"""
@@ -1084,11 +1157,42 @@ class UnifiedLLMService:
         return content.strip()
     
     def _clean_scene_numbers_chunk(self, chunk: str) -> str:
-        """Clean scene numbers from streaming chunks - more conservative than full cleaning"""
-        if chunk.strip().startswith(('Scene ', 'SCENE ', 'scene ')):
+        """
+        Clean scene numbers and junk from streaming chunks.
+        More conservative than full cleaning to avoid breaking mid-stream content.
+        """
+        if not chunk:
+            return chunk
+        
+        stripped = chunk.strip()
+        
+        # Scene number patterns at start of chunk
+        if stripped.startswith(('Scene ', 'SCENE ', 'scene ')):
             if re.match(r'^Scene\s+\d+[:\-\s]', chunk, re.IGNORECASE):
                 cleaned = re.sub(r'^Scene\s+\d+[:\-\s]*[^\n]*\n?', '', chunk, flags=re.IGNORECASE)
                 return cleaned
+        
+        # Markdown scene headers: "### Scene 7 ###", "## Scene 7"
+        if stripped.startswith('#'):
+            if re.match(r'^#{1,6}\s*Scene\s+\d+', stripped, re.IGNORECASE):
+                cleaned = re.sub(r'^#{1,6}\s*Scene\s+\d+[^#\n]*#{0,6}\s*\n?', '', chunk, flags=re.IGNORECASE)
+                return cleaned
+        
+        # Scene expansion markers
+        if any(marker in stripped.upper() for marker in ['SCENE EXPANSION', 'SCENE CONTINUATION', 'REGENERATED SCENE', 'REVISED SCENE']):
+            cleaned = re.sub(r'^[#=\-\*]{2,}\s*(?:REGENERATED|REVISED|SCENE)\s*(?:EXPANSION|CONTINUATION)?[^#=\-\*\n]*[#=\-\*]*\s*\n?', '', chunk, flags=re.IGNORECASE)
+            return cleaned
+        
+        # "Continue scene" prefix
+        if stripped.lower().startswith(('continue scene', 'continuing the scene', 'continued scene')):
+            cleaned = re.sub(r'^(?:Continue|Continuing|Continued)\s+(?:the\s+)?scene[:\s]*\n?', '', chunk, flags=re.IGNORECASE)
+            return cleaned
+        
+        # "Here is" prefix
+        if stripped.lower().startswith(("here's the scene", "here is the scene", "here's the continuation")):
+            cleaned = re.sub(r'^Here(?:\'s|\s+is)\s+(?:the\s+)?(?:scene|continuation)[:\s]*\n?', '', chunk, flags=re.IGNORECASE)
+            return cleaned
+        
         return chunk
     
     # Story Generation Functions
@@ -1204,6 +1308,17 @@ class UnifiedLLMService:
         choices_count = generation_prefs.get("choices_count", 4)
         scene_length_description = self._get_scene_length_description(scene_length)
         
+        # Get prose_style from writing preset (default to balanced)
+        prose_style = 'balanced'
+        if db and user_id:
+            from ...models.writing_style_preset import WritingStylePreset
+            active_preset = db.query(WritingStylePreset).filter(
+                WritingStylePreset.user_id == user_id,
+                WritingStylePreset.is_active == True
+            ).first()
+            if active_preset and hasattr(active_preset, 'prose_style') and active_preset.prose_style:
+                prose_style = active_preset.prose_style
+        
         # Extract immediate_situation from context for template variable
         # This should contain the continuation option text when a choice is made
         immediate_situation = context.get("current_situation") or ""
@@ -1265,6 +1380,7 @@ class UnifiedLLMService:
         has_immediate = bool(immediate_situation and immediate_situation.strip())
         task_content = prompt_manager.get_task_instruction(
             has_immediate=has_immediate,
+            prose_style=prose_style,
             immediate_situation=immediate_situation or "",
             scene_length_description=scene_length_description
         )
@@ -1316,6 +1432,17 @@ class UnifiedLLMService:
         scene_length = generation_prefs.get("scene_length", "medium")
         choices_count = generation_prefs.get("choices_count", 4)
         scene_length_description = self._get_scene_length_description(scene_length)
+        
+        # Get prose_style from writing preset (default to balanced)
+        prose_style = 'balanced'
+        if db and user_id:
+            from ...models.writing_style_preset import WritingStylePreset
+            active_preset = db.query(WritingStylePreset).filter(
+                WritingStylePreset.user_id == user_id,
+                WritingStylePreset.is_active == True
+            ).first()
+            if active_preset and hasattr(active_preset, 'prose_style') and active_preset.prose_style:
+                prose_style = active_preset.prose_style
         
         # Extract immediate_situation from context for template variable
         immediate_situation = context.get("current_situation") or ""
@@ -1378,6 +1505,7 @@ class UnifiedLLMService:
             has_immediate = bool(immediate_situation and immediate_situation.strip())
             task_content = prompt_manager.get_task_instruction(
                 has_immediate=has_immediate,
+                prose_style=prose_style,
                 immediate_situation=immediate_situation or "",
                 scene_length_description=scene_length_description
             )
@@ -1461,6 +1589,9 @@ class UnifiedLLMService:
         choices_count = generation_prefs.get("choices_count", 4)
         scene_length_description = self._get_scene_length_description(scene_length)
         
+        # Default prose_style (no db access in this function)
+        prose_style = 'balanced'
+        
         # Extract immediate_situation from context for template variable
         immediate_situation = context.get("current_situation") or ""
         immediate_situation = str(immediate_situation) if immediate_situation else ""
@@ -1523,6 +1654,7 @@ class UnifiedLLMService:
         has_immediate = bool(immediate_situation and immediate_situation.strip())
         task_content = prompt_manager.get_task_instruction(
             has_immediate=has_immediate,
+            prose_style=prose_style,
             immediate_situation=immediate_situation or "",
             scene_length_description=scene_length_description
         )
@@ -1574,6 +1706,17 @@ class UnifiedLLMService:
         choices_count = generation_prefs.get("choices_count", 4)
         scene_length_description = self._get_scene_length_description(scene_length)
         
+        # Get prose_style from writing preset (default to balanced)
+        prose_style = 'balanced'
+        if db and user_id:
+            from ...models.writing_style_preset import WritingStylePreset
+            active_preset = db.query(WritingStylePreset).filter(
+                WritingStylePreset.user_id == user_id,
+                WritingStylePreset.is_active == True
+            ).first()
+            if active_preset and hasattr(active_preset, 'prose_style') and active_preset.prose_style:
+                prose_style = active_preset.prose_style
+        
         # Extract immediate_situation from context for template variable
         immediate_situation = context.get("current_situation") or ""
         immediate_situation = str(immediate_situation) if immediate_situation else ""
@@ -1607,6 +1750,7 @@ class UnifiedLLMService:
             # Get task instruction from prompts.yml
             task_instruction = prompt_manager.get_task_instruction(
                 has_immediate=has_immediate,
+                prose_style=prose_style,
                 immediate_situation=immediate_situation or "",
                 scene_length_description=scene_length_description
             )
@@ -2000,6 +2144,7 @@ class UnifiedLLMService:
         
         # Get POV from writing preset (default to third person)
         pov = 'third'
+        prose_style = 'balanced'
         if db and user_id:
             from ...models.writing_style_preset import WritingStylePreset
             active_preset = db.query(WritingStylePreset).filter(
@@ -2008,6 +2153,8 @@ class UnifiedLLMService:
             ).first()
             if active_preset and hasattr(active_preset, 'pov') and active_preset.pov:
                 pov = active_preset.pov
+            if active_preset and hasattr(active_preset, 'prose_style') and active_preset.prose_style:
+                prose_style = active_preset.prose_style
         
         # Create POV instruction for template
         if pov == 'first':
@@ -2050,6 +2197,7 @@ class UnifiedLLMService:
             has_immediate = bool(immediate_situation and immediate_situation.strip())
             task_instruction = prompt_manager.get_task_instruction(
                 has_immediate=has_immediate,
+                prose_style=prose_style,
                 immediate_situation=immediate_situation or "",
                 scene_length_description=scene_length_description
             )
@@ -2135,6 +2283,7 @@ class UnifiedLLMService:
         has_immediate = bool(immediate_situation and immediate_situation.strip())
         task_content = prompt_manager.get_task_instruction(
             has_immediate=has_immediate,
+            prose_style=prose_style,
             immediate_situation=immediate_situation or "",
             scene_length_description=scene_length_description
         )
@@ -2288,6 +2437,7 @@ class UnifiedLLMService:
         
         # Get POV from writing preset (default to third person)
         pov = 'third'
+        prose_style = 'balanced'
         if db and user_id:
             from ...models.writing_style_preset import WritingStylePreset
             active_preset = db.query(WritingStylePreset).filter(
@@ -2296,6 +2446,8 @@ class UnifiedLLMService:
             ).first()
             if active_preset and hasattr(active_preset, 'pov') and active_preset.pov:
                 pov = active_preset.pov
+            if active_preset and hasattr(active_preset, 'prose_style') and active_preset.prose_style:
+                prose_style = active_preset.prose_style
         
         # Create POV instruction for template
         if pov == 'first':
@@ -2337,7 +2489,8 @@ class UnifiedLLMService:
                 original_scene=original_scene,
                 enhancement_guidance=enhancement_guidance,
                 scene_length_description=scene_length_description,
-                choices_count=choices_count
+                choices_count=choices_count,
+                prose_style=prose_style
             )
             logger.info(f"[GUIDED ENHANCEMENT] Using multi-message structure with enhancement task")
         else:
@@ -2348,6 +2501,7 @@ class UnifiedLLMService:
             
             task_content = prompt_manager.get_task_instruction(
                 has_immediate=has_immediate,
+                prose_style=prose_style,
                 immediate_situation=immediate_situation or "",
                 scene_length_description=scene_length_description
             )

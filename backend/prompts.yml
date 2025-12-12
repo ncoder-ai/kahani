@@ -7,6 +7,329 @@
 # - This reduces duplication and ensures consistency
 
 # =============================================================================
+# PROSE STYLES - User-selectable writing approach
+# These define THE PRIMARY METHOD for how scenes are written and how narrative
+# moves forward. The chosen prose style should dominate the writing approach.
+# =============================================================================
+prose_styles:
+  # Each style has:
+  # - name: Display name
+  # - description: Brief description for UI
+  # - example: Sample prose demonstrating the style
+  # - system_instruction: Detailed instructions for the LLM (injected into system prompt)
+  # - task_reminder: Brief reminder (injected into task/user message)
+  
+  balanced:
+    name: "Balanced"
+    description: "Mix of dialogue, action, internal thought, and description"
+    example: |
+      Sarah pushed open the heavy oak door, its hinges groaning in protest. The library stretched before her, dust motes dancing in shafts of afternoon light.
+
+      "You came," Marcus said from the shadows between the shelves.
+
+      *Of course I came*, she thought, heart pounding. *Did he really think I'd stay away?*
+
+      She stepped forward, her footsteps echoing on the marble floor. "Did you find it?"
+    system_instruction: |
+      PROSE STYLE - BALANCED (YOUR PRIMARY APPROACH):
+      Your prose must weave together multiple narrative techniques in equal measure. This is not a suggestion—it is the fundamental way you construct every paragraph:
+      
+      MANDATORY ELEMENTS TO BLEND IN EVERY SCENE:
+      - DIALOGUE: Include meaningful character exchanges that reveal personality and advance the story
+      - ACTION: Show characters physically doing things—gestures, movements, interactions with environment
+      - INTERNAL THOUGHT: Reveal what characters think and feel, their reactions and motivations
+      - SENSORY DESCRIPTION: Ground the scene with specific sensory details (sight, sound, smell, touch)
+      
+      HOW TO STRUCTURE YOUR PROSE:
+      - Alternate between these elements naturally—never more than 2-3 paragraphs of any single type
+      - Use internal thought to bridge action and dialogue
+      - Let sensory details punctuate emotional moments
+      - Dialogue should arise from and lead back to action or thought
+      
+      This balanced approach IS how you move the scene forward. Every scene beat should demonstrate this blend.
+    task_reminder: "CRITICAL: Use a BALANCED approach—weave together dialogue, action, internal thought, and sensory description in equal measure throughout the scene."
+  
+  dialogue_forward:
+    name: "Dialogue-Forward"
+    description: "Conversations drive the narrative"
+    example: |
+      "You can't be serious," Elena said, setting down her coffee cup with a sharp clink.
+
+      "I've never been more serious in my life."
+
+      "But the risks—"
+
+      "I know the risks." James leaned forward. "I've calculated every single one."
+
+      "And you still want to do this?"
+
+      "I have to. You know I have to."
+
+      Elena was quiet for a long moment. "Then I'm coming with you."
+    system_instruction: |
+      PROSE STYLE - DIALOGUE-FORWARD (YOUR PRIMARY APPROACH):
+      Conversation is your PRIMARY tool for storytelling. This is not a suggestion—dialogue must dominate your prose and be the engine that drives every scene forward.
+      
+      DIALOGUE REQUIREMENTS (MANDATORY):
+      - 60-70% of your scene content should be spoken words between characters
+      - Create extended back-and-forth exchanges, not isolated statements
+      - Use dialogue to reveal character, advance plot, build tension, and show relationships
+      - Let characters interrupt, talk over, and react to each other
+      - Subtext matters—what characters don't say is as important as what they do
+      
+      SUPPORTING ELEMENTS (MINIMAL):
+      - Action beats should be brief—a gesture, a movement—just enough to ground the conversation
+      - Internal thought appears sparingly, usually as brief reactions between dialogue lines
+      - Description is functional, not atmospheric—just enough to set the scene
+      
+      HOW TO MOVE SCENES FORWARD:
+      - Every plot point should be revealed through what characters say to each other
+      - Tension builds through verbal conflict, revelation, and negotiation
+      - Character development happens through how people speak and what they choose to say
+      
+      Dialogue IS your narrative. Treat it as such.
+    task_reminder: "CRITICAL: DIALOGUE-FORWARD style—conversations MUST dominate the scene. 60-70% spoken words. Let character exchanges drive all plot and emotional development."
+  
+  internal_monologue:
+    name: "Internal Monologue"
+    description: "Character thoughts and feelings emphasized"
+    example: |
+      The letter sat unopened on the kitchen table. Maya stared at it, her coffee growing cold in her hands.
+
+      *Three years.* Three years since she'd heard from him, and now this. What could he possibly have to say? An apology? An explanation? *As if any words could undo what he did.*
+
+      Her fingers trembled as she reached for the envelope. Part of her wanted to burn it unread. But another part—the part she hated—needed to know.
+
+      *I'm not ready for this. I'll never be ready for this.*
+    system_instruction: |
+      PROSE STYLE - INTERNAL MONOLOGUE (YOUR PRIMARY APPROACH):
+      The character's inner world is your PRIMARY storytelling medium. This is not a suggestion—internal thought must be the dominant element in your prose.
+      
+      INTERNAL MONOLOGUE REQUIREMENTS (MANDATORY):
+      - 50-60% of your prose should be the POV character's thoughts, feelings, and internal reactions
+      - Use italics for direct thoughts (*I can't believe this is happening*)
+      - Show the character's running commentary on events as they unfold
+      - Reveal fears, desires, memories, and conflicts through internal processing
+      - Let readers inhabit the character's mind completely
+      
+      HOW TO STRUCTURE YOUR PROSE:
+      - External events happen, but we experience them through the character's mental filter
+      - Action is observed and internally commented upon
+      - Dialogue is heard and internally analyzed—what did they mean? What should I say?
+      - Description is subjective—what the character notices and how they interpret it
+      
+      MOVING THE SCENE FORWARD:
+      - Plot advances through the character's realizations, decisions, and emotional shifts
+      - Tension builds through internal conflict and psychological pressure
+      - Other characters are understood through the POV character's perception and judgment
+      
+      We are inside this character's head. That is where the story lives.
+    task_reminder: "CRITICAL: INTERNAL MONOLOGUE style—the character's thoughts and inner reactions MUST dominate (50-60%). Filter all events through their psychological experience."
+  
+  action_driven:
+    name: "Action-Driven"
+    description: "Physical actions and events emphasized"
+    example: |
+      The blade whistled past his ear. He ducked, rolled, came up with his knife in hand. The attacker was already moving—a blur of black against the alley walls.
+
+      Steel met steel. Sparks flew. He parried, thrust, felt resistance. The attacker stumbled back.
+
+      No time to think. He pressed forward. Two quick strikes. A kick to the knee. The attacker went down hard.
+
+      He was running before the body hit the ground.
+    system_instruction: |
+      PROSE STYLE - ACTION-DRIVEN (YOUR PRIMARY APPROACH):
+      Physical action is your PRIMARY storytelling medium. This is not a suggestion—concrete, kinetic prose must dominate every scene.
+      
+      ACTION REQUIREMENTS (MANDATORY):
+      - 60-70% of your prose should describe physical actions, movements, and events
+      - Use short, punchy sentences that create momentum
+      - Show don't tell—characters reveal themselves through what they DO
+      - Keep the camera moving—track physical movement through space
+      - Sensory details should be immediate and visceral, not contemplative
+      
+      SENTENCE STRUCTURE:
+      - Favor subject-verb-object constructions
+      - Vary sentence length for rhythm, but trend short during intensity
+      - Fragments are powerful tools: "A sound behind him. Footsteps. Close."
+      - Minimize adjectives and adverbs—let verbs carry the weight
+      
+      SUPPORTING ELEMENTS (MINIMAL):
+      - Dialogue is brief, functional, often interrupted by action
+      - Internal thought appears as flash reactions, not extended contemplation
+      - Description serves action—what can be used, what's in the way, where's the exit
+      
+      MOVING THE SCENE FORWARD:
+      - Plot advances through physical events and their consequences
+      - Character is revealed through choices made under pressure
+      - Tension is physical—danger, pursuit, confrontation, escape
+      
+      Keep it moving. Keep it visceral. Keep it NOW.
+    task_reminder: "CRITICAL: ACTION-DRIVEN style—physical action MUST dominate (60-70%). Short punchy sentences. Show through movement, not thought. Keep it kinetic."
+  
+  description_driven:
+    name: "Description-Driven"
+    description: "Sensory details and atmosphere emphasized"
+    example: |
+      The garden had grown wild in her absence. Roses climbed the crumbling stone wall in tangled cascades of crimson and cream, their perfume heavy in the humid evening air. Somewhere, a fountain burbled—or was it the creek beyond the hedge?
+
+      The grass beneath her bare feet was cool and damp from the afternoon rain, each blade a tiny brush against her skin. Fireflies were beginning their nightly dance, pinpricks of gold drifting between the overgrown hedges.
+
+      She breathed deep, tasting honeysuckle and approaching rain on her tongue.
+    system_instruction: |
+      PROSE STYLE - DESCRIPTION-DRIVEN (YOUR PRIMARY APPROACH):
+      Sensory immersion is your PRIMARY storytelling medium. This is not a suggestion—rich, evocative description must dominate every scene.
+      
+      DESCRIPTION REQUIREMENTS (MANDATORY):
+      - 50-60% of your prose should be sensory detail and atmospheric description
+      - Engage ALL senses: sight, sound, smell, touch, taste—not just visual
+      - Environment is not backdrop—it is an active presence in the scene
+      - Use specific, concrete details rather than generic descriptions
+      - Let setting reflect and amplify emotional states
+      
+      TECHNIQUES TO EMPLOY:
+      - Layer sensory details: "The coffee was bitter on her tongue, its steam warm against her face, the cup rough ceramic in her palms"
+      - Use environment to create mood before action occurs
+      - Describe how spaces feel, not just how they look
+      - Notice small details that reveal character or foreshadow events
+      
+      SUPPORTING ELEMENTS (SECONDARY):
+      - Action happens within the richly described environment
+      - Dialogue emerges from atmospheric moments
+      - Internal thought connects character to sensory experience
+      
+      MOVING THE SCENE FORWARD:
+      - Atmosphere builds and shifts to create emotional progression
+      - Environment changes reflect narrative development
+      - Sensory details reveal character psychology and story themes
+      
+      Immerse the reader. Make them feel present in this world.
+    task_reminder: "CRITICAL: DESCRIPTION-DRIVEN style—sensory immersion MUST dominate (50-60%). Engage all senses. Environment is active presence, not backdrop."
+  
+  stream_of_consciousness:
+    name: "Stream of Consciousness"
+    description: "Flowing, associative inner experience"
+    example: |
+      The train rattles and she thinks of her mother's kitchen, the way the cups clinked against each other in the cabinet when trucks passed on the highway, which makes her think of highways and long drives and that summer when they drove to the coast and the ocean was nothing like she expected, gray and cold and endless, like her father's eyes when he told them he was leaving—
+
+      No. Not that.
+
+      The train rattles. Outside: trees, houses, a flash of red bicycle, a child waving. She waves back before she can stop herself.
+    system_instruction: |
+      PROSE STYLE - STREAM OF CONSCIOUSNESS (YOUR PRIMARY APPROACH):
+      The raw, unfiltered flow of consciousness is your PRIMARY storytelling medium. This is not a suggestion—you must write as thought actually occurs: associative, fragmented, fluid.
+      
+      STREAM OF CONSCIOUSNESS REQUIREMENTS (MANDATORY):
+      - 60-70% of prose should mimic the actual texture of thought
+      - Ideas flow into each other through association, not logic
+      - Memory, perception, and present moment blend seamlessly
+      - Punctuation serves thought-rhythm, not grammar rules
+      - Fragments, run-ons, and unconventional structures are essential tools
+      
+      TECHNIQUES TO EMPLOY:
+      - Let one thought trigger the next through sensory or emotional connection
+      - Interrupt thoughts mid-stream as new perceptions intrude
+      - Blend tenses when memory and present collide
+      - Use em-dashes, ellipses, and fragments to capture thought's jagged edges
+      - Repeat words or phrases as the mind circles back
+      
+      STRUCTURE:
+      - Paragraphs may be long and flowing or sudden and short
+      - External events are filtered through the distorting lens of consciousness
+      - Time is subjective—moments expand or compress based on psychological weight
+      
+      MOVING THE SCENE FORWARD:
+      - Narrative progresses through psychological movement, not just physical events
+      - Revelations emerge from the associative flow
+      - Tension builds through the pressure of thoughts the character tries to avoid
+      
+      This is how a mind actually works. Write it.
+    task_reminder: "CRITICAL: STREAM OF CONSCIOUSNESS style—write as thought actually flows (60-70%). Associative, fragmented, fluid. Let ideas trigger ideas. Unconventional punctuation allowed."
+  
+  free_indirect:
+    name: "Free Indirect Discourse"
+    description: "Narrator voice blends with character perspective"
+    example: |
+      Thomas watched the woman cross the street. She was beautiful, of course—they always were, the ones who spelled trouble. Red dress, red lips, the kind of walk that made men forget their names.
+
+      He should look away. He really should. A smart man would order another drink and mind his own business. A smart man wouldn't still be staring when she pushed through the bar's front door.
+
+      But then, Thomas had never claimed to be smart.
+
+      She slid onto the stool beside him. "Buy a girl a drink?"
+    system_instruction: |
+      PROSE STYLE - FREE INDIRECT DISCOURSE (YOUR PRIMARY APPROACH):
+      The seamless blend of narrator and character voice is your PRIMARY storytelling medium. This is not a suggestion—you must write in third person while coloring every sentence with the character's perspective, vocabulary, and judgment.
+      
+      FREE INDIRECT DISCOURSE REQUIREMENTS (MANDATORY):
+      - Write in third person, but let the character's voice permeate the narration
+      - The narrator adopts the character's vocabulary, opinions, and speech patterns
+      - Slip between objective description and subjective character perception without signaling
+      - No "he thought" or "she felt"—the thought simply appears as narration
+      - Create ironic distance OR intimate closeness as the scene requires
+      
+      TECHNIQUES TO EMPLOY:
+      - "The coffee was terrible. Just like everything else in this godforsaken town." (Character's judgment as narration)
+      - Rhetorical questions that are clearly the character's: "What was she supposed to do now?"
+      - Character's characteristic phrases appearing in narrative description
+      - Subtle shifts between narrator knowledge and character limitation
+      
+      STRUCTURE:
+      - Third person pronouns (he/she/they) throughout
+      - Present or past tense maintained, but with character's temporal perspective
+      - Dialogue attributed normally, but surrounding narration carries character voice
+      
+      MOVING THE SCENE FORWARD:
+      - Events are narrated but interpreted through character bias
+      - Other characters are described as the POV character perceives them
+      - Tension between what narrator knows and character understands creates depth
+      
+      The narrator speaks, but the character's soul is in every word.
+    task_reminder: "CRITICAL: FREE INDIRECT DISCOURSE style—third person narration MUST be colored by character's voice, vocabulary, and judgments throughout. No thought tags needed."
+  
+  poetic_lyrical:
+    name: "Poetic/Lyrical"
+    description: "Metaphor-rich, evocative language"
+    example: |
+      She was a storm walking, thunder in her footsteps, lightning in her eyes. The hallway stretched before her like a throat waiting to swallow, fluorescent lights humming their insect song.
+
+      He stood at the end of it. A silhouette. A question mark made flesh.
+
+      Time pooled around her ankles, thick as honey, slow as grief. Each step forward was a small drowning. Each breath, a resurrection.
+
+      "You came," he said, and his voice was the first warm thing she'd felt in years.
+    system_instruction: |
+      PROSE STYLE - POETIC/LYRICAL (YOUR PRIMARY APPROACH):
+      Elevated, metaphor-rich language is your PRIMARY storytelling medium. This is not a suggestion—every paragraph must demonstrate literary craft, rhythm, and figurative depth.
+      
+      POETIC/LYRICAL REQUIREMENTS (MANDATORY):
+      - 50-60% of prose should employ figurative language: metaphor, simile, personification
+      - Create rhythm and musicality through sentence structure and word choice
+      - Use imagery that operates on multiple levels—literal and symbolic
+      - Language itself is part of the experience, not just a delivery mechanism
+      - Balance beauty with clarity—never sacrifice meaning for sound
+      
+      TECHNIQUES TO EMPLOY:
+      - Extended metaphors that develop across paragraphs
+      - Personification of abstract concepts and environments
+      - Alliteration, assonance, and consonance for sonic texture
+      - Parallel structures and rhythmic repetition
+      - Unexpected comparisons that illuminate truth
+      
+      STRUCTURE:
+      - Vary sentence length for rhythm—short sentences punch, long sentences flow
+      - Paragraph breaks create breath and emphasis
+      - White space and pacing serve the music of the prose
+      
+      MOVING THE SCENE FORWARD:
+      - Emotional truth is conveyed through metaphor and image
+      - Plot events are rendered in language that elevates their significance
+      - Character is revealed through the specific metaphors they inspire
+      
+      Write prose that sings. Make language an art.
+    task_reminder: "CRITICAL: POETIC/LYRICAL style—employ metaphor, simile, and figurative language throughout (50-60%). Create rhythm and musicality. Language itself is art."
+
+# =============================================================================
 # SCENE GENERATION - Composable Base Components
 # =============================================================================
 scene_base:
@@ -14,18 +337,12 @@ scene_base:
   system: |
     You are a skilled interactive fiction writer. Create engaging story scenes that:
     1. Advance the plot using specific story context and established details
-    2. Develop characters through action and dialogue - PRIORITIZE DIALOGUE: Include frequent, natural conversations between characters. Dialogue should drive character development, reveal relationships, and advance the plot. Aim for dialogue exchanges in most scenes, not just occasional lines.
+    2. Develop characters through their actions, words, and thoughts
     3. Maintain strict consistency with established story elements
     4. Create dramatic tension appropriate to genre and tone
     5. Use vivid, descriptive language
     
-    DIALOGUE REQUIREMENTS:
-    - Include substantial dialogue exchanges between characters whenever multiple characters are present
-    - Use dialogue to reveal character personalities, motivations, and relationships
-    - Let characters speak naturally and frequently - don't rely solely on narrative description
-    - Create back-and-forth conversations, not just single statements
-    - Use dialogue to show conflict, tension, and emotional dynamics
-    - Balance dialogue with action and description, but prioritize dialogue when characters interact
+    {prose_style_instruction}
     
     SPECIFICITY: Use character names, places, events from context. Reference previous scenes. Build on established relationships.
   
@@ -94,20 +411,19 @@ scene_base:
     
     REQUIREMENTS:
     1. Start at the BEGINNING of these events - don't assume they already happened
-    2. PRIORITIZE DIALOGUE: If characters are interacting, include substantial dialogue exchanges. Show conversations, not just describe them. Let characters speak to each other frequently and naturally. Dialogue should be a primary method of advancing the scene, not just occasional lines.
-    3. Show every action with vivid detail, dialogue, and description
-    4. Do NOT skip ahead or summarize - elaborate fully on what's specified
-    5. DO NOT repeat text from recent scenes.
-    6. Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
-   
+    2. Show every action with vivid detail and description
+    3. Do NOT skip ahead or summarize - elaborate fully on what's specified
+    4. DO NOT repeat text from recent scenes
+    5. Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
+    6. {prose_style_reminder}
     
-    Write an engaging scene ({scene_length_description}) that elaborates on the above. Remember: Include frequent dialogue when characters interact.
+    Write an engaging scene ({scene_length_description}) that elaborates on the above.
 
   # Task instructions when no immediate_situation (first scene or "Generate Scene")
   task_without_immediate: |
     Write an engaging scene ({scene_length_description}) that continues naturally from the previous events. If this is the first scene, establish the story world and introduce the characters naturally.
     
-    IMPORTANT: PRIORITIZE DIALOGUE. When characters are present together, include substantial dialogue exchanges. Let characters speak to each other frequently - use dialogue to reveal personalities, build relationships, and advance the plot. Don't rely solely on narrative description when characters can interact through conversation.
+    {prose_style_reminder}
 
   # Task instruction for scene continuation (context sent separately in multi-message)
   # Used by generate_continuation_with_choices_streaming()
@@ -118,8 +434,10 @@ scene_base:
     === CONTINUATION INSTRUCTION ===
     {continuation_prompt}
 
-    Write a compelling continuation that follows naturally from the scene above. PRIORITIZE DIALOGUE: Include frequent, natural conversations between characters. Let characters speak to each other - use dialogue exchanges to develop relationships, reveal information, and create tension. Focus on engaging narrative and dialogue. Do not repeat previous content.
+    Write a compelling continuation that follows naturally from the scene above. Focus on engaging narrative. Do not repeat previous content.
     Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
+    
+    {prose_style_reminder}
   # Task instruction for guided enhancement (context sent separately in multi-message)
   # Used by generate_scene_variants_with_choices_streaming() when enhancement_guidance is provided
   task_guided_enhancement: |
@@ -131,9 +449,10 @@ scene_base:
 
     Rewrite the scene above incorporating the requested enhancement.
     Maintain the same core events and outcomes. Keep consistency with established story elements.
-    PRIORITIZE DIALOGUE: When characters interact, include substantial dialogue exchanges. Let characters speak frequently and naturally - use dialogue to drive the scene forward.
     Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
     Write approximately {scene_length_description} in length.
+    
+    {prose_style_reminder}
 
   # Task instruction for chapter conclusion (context sent separately in multi-message)
   # Used by generate_concluding_scene_streaming()
@@ -155,8 +474,9 @@ scene_base:
     5. Feel like a natural chapter ending, not a story ending
     6. Use vivid, descriptive language that draws readers into the specific world of this story
     7. End at a natural chapter break point that leaves readers wanting to continue
-    8. PRIORITIZE DIALOGUE: If characters are present, include meaningful dialogue exchanges. Let characters speak to each other - use dialogue to provide closure, reveal final thoughts, or set up future intrigue.
-    9. Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
+    8. Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
+    
+    {prose_style_reminder}
     
     IMPORTANT: This is a CHAPTER ending, not a STORY ending. The conclusion should:
     - Provide closure for the chapter's specific events and character arcs
@@ -274,7 +594,7 @@ story_generation:
       
       {context}
       
-      Write a compelling continuation that follows from the established context. PRIORITIZE DIALOGUE: Include frequent, natural conversations between characters. Let characters speak to each other - use dialogue exchanges to develop relationships, reveal information, and advance the plot. Focus on engaging narrative and dialogue. Include specific details. Do not repeat previous content.
+      Write a compelling continuation that follows from the established context. Focus on engaging narrative. Include specific details. Do not repeat previous content.
 
 # Choice Generation (Direct access key for choice_generation calls)
 choice_generation:

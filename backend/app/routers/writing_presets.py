@@ -28,6 +28,7 @@ class WritingStylePresetCreate(BaseModel):
     system_prompt: str = Field(..., min_length=10, description="System prompt that controls AI writing style")
     summary_system_prompt: Optional[str] = Field(None, description="Optional override for story summaries")
     pov: Optional[str] = Field(None, description="Point of view: 'first', 'second', or 'third'")
+    prose_style: Optional[str] = Field('balanced', description="Prose style: balanced, dialogue_forward, internal_monologue, action_driven, description_driven, stream_of_consciousness, free_indirect, poetic_lyrical")
 
 
 class WritingStylePresetUpdate(BaseModel):
@@ -37,6 +38,7 @@ class WritingStylePresetUpdate(BaseModel):
     system_prompt: Optional[str] = Field(None, min_length=10)
     summary_system_prompt: Optional[str] = None
     pov: Optional[str] = Field(None, description="Point of view: 'first', 'second', or 'third'")
+    prose_style: Optional[str] = Field(None, description="Prose style: balanced, dialogue_forward, internal_monologue, action_driven, description_driven, stream_of_consciousness, free_indirect, poetic_lyrical")
 
 
 class WritingStylePresetResponse(BaseModel):
@@ -48,6 +50,7 @@ class WritingStylePresetResponse(BaseModel):
     system_prompt: str
     summary_system_prompt: Optional[str]
     pov: Optional[str]
+    prose_style: Optional[str]
     is_active: bool
     created_at: datetime
     updated_at: Optional[datetime]
@@ -81,6 +84,63 @@ def deactivate_all_presets(user_id: int, db: Session):
 
 
 # API Endpoints
+
+# Static routes MUST come before dynamic routes like /{preset_id}
+# Otherwise FastAPI will try to match "prose-styles" as a preset_id
+
+@router.get("/prose-styles", response_model=list)
+async def get_prose_styles(
+    current_user: User = Depends(get_current_user)
+):
+    """Get all available prose styles from prompts.yml
+    
+    Returns the prose style definitions including name, description, and example
+    for display in the frontend. This ensures the frontend always matches
+    the backend configuration.
+    """
+    from ..services.llm.prompts import prompt_manager
+    
+    return prompt_manager.get_all_prose_styles()
+
+
+@router.get("/default/template", response_model=dict)
+async def get_default_template(
+    current_user: User = Depends(get_current_user)
+):
+    """Get the default system prompt template for new presets
+    
+    Extracts the style portion from prompts.yml to show users what they're actually customizing.
+    Technical requirements (formatting, choices) are automatically appended at runtime.
+    """
+    from ..services.llm.prompts import prompt_manager
+    
+    # Get the full scene generation prompt from YAML
+    yaml_full_prompt = prompt_manager._get_yaml_prompt("scene_generation", "system")
+    
+    if yaml_full_prompt:
+        # Extract just the style portion (everything before technical requirements)
+        default_template = prompt_manager._extract_style_portion(yaml_full_prompt)
+    else:
+        # Fallback if YAML not available
+        default_template = """You are a skilled interactive fiction writer. Create engaging, immersive story scenes that:
+1. Advance the plot meaningfully using specific story context and established details
+2. Develop characters through action and dialogue, referencing their existing traits and relationships
+3. Maintain strict consistency with established story elements, characters, and world-building
+4. Create dramatic tension and forward momentum appropriate to the established genre and tone
+5. End at a natural stopping point that leaves the reader wanting more
+6. Use vivid, descriptive language that draws readers into the specific world of this story
+7. Keep appropriate pacing for the story moment and genre"""
+    
+    return {
+        "name": "New Preset",
+        "description": "Customize this preset to match your preferred writing style. Formatting and choices requirements are automatically added.",
+        "system_prompt": default_template,
+        "summary_system_prompt": None,
+        "pov": "third",  # Default to third person
+        "prose_style": "balanced"  # Default prose style
+    }
+
+
 @router.get("/", response_model=List[WritingStylePresetResponse])
 async def list_presets(
     current_user: User = Depends(get_current_user),
@@ -120,6 +180,7 @@ async def create_preset(
         system_prompt=preset_data.system_prompt,
         summary_system_prompt=preset_data.summary_system_prompt,
         pov=preset_data.pov,
+        prose_style=preset_data.prose_style or 'balanced',
         is_active=False
     )
     
@@ -238,6 +299,7 @@ async def duplicate_preset(
         system_prompt=original.system_prompt,
         summary_system_prompt=original.summary_system_prompt,
         pov=original.pov,
+        prose_style=original.prose_style,
         is_active=False
     )
     
@@ -246,39 +308,4 @@ async def duplicate_preset(
     db.refresh(duplicate)
     
     return duplicate
-
-
-@router.get("/default/template", response_model=dict)
-async def get_default_template():
-    """Get the default system prompt template for new presets
-    
-    Extracts the style portion from prompts.yml to show users what they're actually customizing.
-    Technical requirements (formatting, choices) are automatically appended at runtime.
-    """
-    from ..services.llm.prompts import prompt_manager
-    
-    # Get the full scene generation prompt from YAML
-    yaml_full_prompt = prompt_manager._get_yaml_prompt("scene_generation", "system")
-    
-    if yaml_full_prompt:
-        # Extract just the style portion (everything before technical requirements)
-        default_template = prompt_manager._extract_style_portion(yaml_full_prompt)
-    else:
-        # Fallback if YAML not available
-        default_template = """You are a skilled interactive fiction writer. Create engaging, immersive story scenes that:
-1. Advance the plot meaningfully using specific story context and established details
-2. Develop characters through action and dialogue, referencing their existing traits and relationships
-3. Maintain strict consistency with established story elements, characters, and world-building
-4. Create dramatic tension and forward momentum appropriate to the established genre and tone
-5. End at a natural stopping point that leaves the reader wanting more
-6. Use vivid, descriptive language that draws readers into the specific world of this story
-7. Keep appropriate pacing for the story moment and genre"""
-    
-    return {
-        "name": "New Preset",
-        "description": "Customize this preset to match your preferred writing style. Formatting and choices requirements are automatically added.",
-        "system_prompt": default_template,
-        "summary_system_prompt": None,
-        "pov": "third"  # Default to third person
-    }
 

@@ -8,6 +8,7 @@ import { getThemeList, applyTheme } from '@/lib/themes';
 import { useAuthStore } from '@/store';
 import { useConfig } from '@/contexts/ConfigContext';
 import { UIPreferences, GenerationPreferences } from '@/types/settings';
+import { ProseStyleDefinition } from '@/types/writing-presets';
 import TextCompletionTemplateEditor from './TextCompletionTemplateEditor';
 
 // Lazy load VoiceBrowserModal - only loads when voice browser is opened
@@ -35,6 +36,7 @@ interface WritingPreset {
   system_prompt: string;
   summary_system_prompt: string;
   pov?: string;
+  prose_style?: string;
 }
 
 interface LLMSettings {
@@ -152,6 +154,10 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [summaryPrompt, setSummaryPrompt] = useState('');
   const [presetName, setPresetName] = useState('');
   const [pov, setPov] = useState<'first' | 'second' | 'third'>('third');
+  const [proseStyle, setProseStyle] = useState<string>('balanced');
+  const [proseStyles, setProseStyles] = useState<ProseStyleDefinition[]>([]);
+  const [loadingProseStyles, setLoadingProseStyles] = useState(false);
+  const [expandedProseStyle, setExpandedProseStyle] = useState<string | null>(null);
   const [showPromptInfo, setShowPromptInfo] = useState(false);
   const [loadingPrompts, setLoadingPrompts] = useState(false);
   const [savingPrompts, setSavingPrompts] = useState(false);
@@ -473,7 +479,20 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   const loadWritingPrompts = async () => {
     setLoadingPrompts(true);
+    setLoadingProseStyles(true);
     try {
+      // Load prose styles from API (they're defined in prompts.yml)
+      const proseStylesResponse = await fetch(`${await getApiBaseUrl()}/api/writing-presets/prose-styles`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      
+      if (proseStylesResponse.ok) {
+        const styles = await proseStylesResponse.json();
+        setProseStyles(styles);
+      }
+      
       // Load all presets
       const presetsResponse = await fetch(`${await getApiBaseUrl()}/api/writing-presets/`, {
         headers: {
@@ -493,6 +512,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               setSummaryPrompt(activePreset.summary_system_prompt || '');
               setPresetName(activePreset.name || '');
               setPov((activePreset.pov as 'first' | 'second' | 'third') || 'third');
+              setProseStyle(activePreset.prose_style || 'balanced');
             } else if (presets.length > 0) {
               // If no active, load first preset
               setSelectedPresetId(presets[0].id || null);
@@ -500,6 +520,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               setSummaryPrompt(presets[0].summary_system_prompt || '');
               setPresetName(presets[0].name || '');
               setPov((presets[0].pov as 'first' | 'second' | 'third') || 'third');
+              setProseStyle(presets[0].prose_style || 'balanced');
             } else {
           // No presets, load defaults from backend (prompts.yaml)
           await loadDefaultPrompts();
@@ -510,6 +531,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       showMessage('Failed to load writing prompts', 'error');
     } finally {
       setLoadingPrompts(false);
+      setLoadingProseStyles(false);
     }
   };
 
@@ -528,6 +550,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         setSummaryPrompt(data.summary_system_prompt || 'Summarize the key events and character developments concisely.');
         setPresetName('Default');
         setPov((data.pov as 'first' | 'second' | 'third') || 'third');
+        setProseStyle(data.prose_style || 'balanced');
       } else {
         // Fallback if API doesn't exist
         setSystemPrompt('You are a creative storytelling assistant. Write engaging, immersive narrative prose.');
@@ -553,6 +576,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       setSummaryPrompt(preset.summary_system_prompt);
       setPresetName(preset.name);
       setPov((preset.pov as 'first' | 'second' | 'third') || 'third');
+      setProseStyle(preset.prose_style || 'balanced');
     }
   };
 
@@ -645,6 +669,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               system_prompt: systemPrompt,
               summary_system_prompt: summaryPrompt,
               pov: pov,
+              prose_style: proseStyle,
               is_active: makeActive,
             }),
       });
@@ -682,6 +707,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               system_prompt: systemPrompt,
               summary_system_prompt: summaryPrompt,
               pov: pov,
+              prose_style: proseStyle,
               is_active: makeActive,
             }),
       });
@@ -719,6 +745,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           system_prompt: systemPrompt,
           summary_system_prompt: summaryPrompt,
           pov: pov,
+          prose_style: proseStyle,
           is_active: false,
         }),
       });
@@ -1956,6 +1983,94 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                           <div className="text-xs mt-1 opacity-75">He, she, they</div>
                         </button>
                       </div>
+                    </div>
+
+                    {/* Prose Style Selection */}
+                    <div>
+                      <label className="block text-sm font-medium text-white mb-2">
+                        Prose Style
+                      </label>
+                      <p className="text-xs text-gray-400 mb-3">
+                        Choose how the AI structures its writing. Click any style to see an example.
+                      </p>
+                      {loadingProseStyles ? (
+                        <div className="flex items-center justify-center py-8 text-gray-400">
+                          <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                          Loading prose styles...
+                        </div>
+                      ) : proseStyles.length === 0 ? (
+                        <div className="text-gray-400 text-sm py-4">
+                          No prose styles available. Check backend configuration.
+                        </div>
+                      ) : (
+                      <div className="space-y-2 max-h-80 overflow-y-auto pr-2">
+                        {proseStyles.map((style) => (
+                          <div
+                            key={style.key}
+                            className={`rounded-lg border-2 transition-all ${
+                              proseStyle === style.key
+                                ? 'border-blue-500 bg-blue-600/20'
+                                : 'border-gray-600 bg-gray-700 hover:border-gray-500'
+                            }`}
+                          >
+                            {/* Style Header - Clickable to select */}
+                            <div className="flex items-center gap-3 p-3">
+                              <button
+                                type="button"
+                                onClick={() => setProseStyle(style.key)}
+                                className="flex-1 text-left"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                                    proseStyle === style.key
+                                      ? 'border-blue-500 bg-blue-500'
+                                      : 'border-gray-400'
+                                  }`}>
+                                    {proseStyle === style.key && (
+                                      <svg className="w-2.5 h-2.5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                      </svg>
+                                    )}
+                                  </div>
+                                  <span className={`font-medium ${
+                                    proseStyle === style.key ? 'text-blue-200' : 'text-white'
+                                  }`}>
+                                    {style.name}
+                                  </span>
+                                </div>
+                                <p className={`text-xs mt-1 ml-6 ${
+                                  proseStyle === style.key ? 'text-blue-300' : 'text-gray-400'
+                                }`}>
+                                  {style.description}
+                                </p>
+                              </button>
+                              
+                              {/* Toggle Example Button */}
+                              <button
+                                type="button"
+                                onClick={() => setExpandedProseStyle(expandedProseStyle === style.key ? null : style.key)}
+                                className={`px-2 py-1 text-xs rounded transition-colors ${
+                                  expandedProseStyle === style.key
+                                    ? 'bg-blue-600 text-blue-100'
+                                    : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
+                                }`}
+                              >
+                                {expandedProseStyle === style.key ? 'Hide' : 'Example'}
+                              </button>
+                            </div>
+                            
+                            {/* Expandable Example */}
+                            {expandedProseStyle === style.key && (
+                              <div className="px-3 pb-3">
+                                <div className="bg-gray-800 rounded-lg p-3 text-sm text-gray-300 whitespace-pre-wrap font-serif italic border border-gray-600">
+                                  {style.example}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      )}
                     </div>
 
                     {/* System Prompt */}

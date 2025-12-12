@@ -13,6 +13,7 @@ export interface WritingStylePreset {
   system_prompt: string;
   summary_system_prompt: string | null;
   pov: string | null;  // 'first', 'second', 'third', or null
+  prose_style: string | null;  // 'balanced', 'dialogue_forward', etc.
   is_active: boolean;
   created_at: string;
   updated_at: string | null;
@@ -24,6 +25,7 @@ export interface WritingPresetCreateData {
   system_prompt: string;
   summary_system_prompt?: string;
   pov?: string;  // 'first', 'second', or 'third'
+  prose_style?: string;  // prose style key
 }
 
 export interface WritingPresetUpdateData {
@@ -32,6 +34,7 @@ export interface WritingPresetUpdateData {
   system_prompt?: string;
   summary_system_prompt?: string;
   pov?: string;  // 'first', 'second', or 'third'
+  prose_style?: string;  // prose style key
 }
 
 export interface WritingPresetTemplate {
@@ -40,6 +43,7 @@ export interface WritingPresetTemplate {
   system_prompt: string;
   summary_system_prompt: string | null;
   pov?: string;  // 'first', 'second', or 'third'
+  prose_style?: string;  // prose style key
 }
 
 // Preset categories for UI organization
@@ -142,4 +146,20 @@ Content may include mature romantic themes as appropriate. Write in second perso
 Content may include scary and disturbing themes. Write in second person ("you") for immersive horror storytelling.`,
   },
 ];
+
+/**
+ * Prose Style Definitions
+ * 
+ * Each style has a key, display name, description, and example text
+ * to help users understand what each style produces.
+ * 
+ * NOTE: Prose styles are now fetched from the backend API (prompts.yml)
+ * instead of being hardcoded here. Use api.getProseStyles() to fetch them.
+ */
+export interface ProseStyleDefinition {
+  key: string;
+  name: string;
+  description: string;
+  example: string;
+}
 

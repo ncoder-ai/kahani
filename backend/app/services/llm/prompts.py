@@ -123,8 +123,18 @@ class PromptManager:
                             # Get POV from preset if available
                             pov = getattr(active_preset, 'pov', None) if hasattr(active_preset, 'pov') else None
                             
+                            # Get prose_style from preset if available
+                            prose_style = getattr(active_preset, 'prose_style', None) if hasattr(active_preset, 'prose_style') else 'balanced'
+                            prose_style = prose_style or 'balanced'
+                            
+                            # Get prose style instruction
+                            prose_style_instruction = self.get_prose_style_instruction(prose_style)
+                            
                             # Get technical requirements from YAML (with POV substitution)
-                            yaml_full_prompt = self._get_yaml_prompt(template_key, "system")
+                            # Pass prose_style to compose the system prompt correctly
+                            yaml_full_prompt = self._compose_scene_system_prompt(template_key, prose_style)
+                            if not yaml_full_prompt:
+                                yaml_full_prompt = self._get_yaml_prompt(template_key, "system")
                             technical_requirements = self._extract_technical_requirements(yaml_full_prompt, pov)
                             
                             # Build POV-related values for both prose instruction and template variables
@@ -150,14 +160,17 @@ class PromptManager:
                             template_vars_with_pov['pov_instruction'] = pov_instruction_var
                             template_vars_with_pov['pov_perspective'] = pov_perspective_var
                             
-                            # Combine: style + POV instruction + technical requirements
+                            # Add prose style instruction to the style prompt
+                            style_with_prose = f"{style_prompt.strip()}\n\n{prose_style_instruction}"
+                            
+                            # Combine: style + prose style + POV instruction + technical requirements
                             if technical_requirements:
-                                combined_prompt = f"{style_prompt.strip()}{pov_instruction_prose}\n\n{technical_requirements}"
-                                logger.debug(f"Combined user preset style with POV ({pov or 'third'}) and technical requirements from YAML for {template_key}")
+                                combined_prompt = f"{style_with_prose}{pov_instruction_prose}\n\n{technical_requirements}"
+                                logger.debug(f"Combined user preset style with prose_style={prose_style}, POV ({pov or 'third'}) and technical requirements from YAML for {template_key}")
                             else:
                                 # No technical requirements found, combine style + POV only
-                                combined_prompt = f"{style_prompt.strip()}{pov_instruction_prose}"
-                                logger.debug(f"Combined user preset style with POV ({pov or 'third'}) (no technical requirements) for {template_key}")
+                                combined_prompt = f"{style_with_prose}{pov_instruction_prose}"
+                                logger.debug(f"Combined user preset style with prose_style={prose_style}, POV ({pov or 'third'}) (no technical requirements) for {template_key}")
                             
                             return self._substitute_variables(combined_prompt, **template_vars_with_pov)
                             
@@ -169,7 +182,10 @@ class PromptManager:
             # Fallback to YAML system prompt
             # For templates with technical requirements, extract style and combine with technical requirements
             # For others, use full prompt as-is
-            yaml_full_prompt = self._get_yaml_prompt(template_key, "system")
+            # Use default 'balanced' prose style when no user preset
+            yaml_full_prompt = self._compose_scene_system_prompt(template_key, 'balanced')
+            if not yaml_full_prompt:
+                yaml_full_prompt = self._get_yaml_prompt(template_key, "system")
             if yaml_full_prompt:
                 templates_with_tech_requirements = {
                     "scene_with_immediate", "scene_without_immediate",
@@ -341,12 +357,12 @@ class PromptManager:
         # If no technical markers found, return empty (no technical requirements)
         return ""
     
-    def _compose_scene_system_prompt(self, template_key: str) -> str:
+    def _compose_scene_system_prompt(self, template_key: str, prose_style: str = 'balanced') -> str:
         """
         Compose a scene system prompt from base components.
         
         For scene types that use the composable structure, this combines:
-        - scene_base.system (core writing instructions)
+        - scene_base.system (core writing instructions with prose_style_instruction)
         - scene_base.formatting (standard formatting rules)
         - scene_base.choices (choices generation instructions)
         
@@ -355,6 +371,7 @@ class PromptManager:
         
         Args:
             template_key: The scene template key
+            prose_style: The prose style to inject into the system prompt
             
         Returns:
             Composed system prompt or empty string if not a composable scene type
@@ -386,6 +403,10 @@ class PromptManager:
         if not base_system:
             return ""
         
+        # Get prose style instruction and substitute it
+        prose_style_instruction = self.get_prose_style_instruction(prose_style)
+        base_system = base_system.replace("{prose_style_instruction}", prose_style_instruction)
+        
         # Compose the full system prompt
         # Note: {pov_instruction} and {choices_count} placeholders are preserved
         # for later substitution by _substitute_variables()
@@ -395,7 +416,7 @@ class PromptManager:
         if choices:
             composed += "\n\n" + choices
         
-        logger.debug(f"[PROMPTS] Composed scene system prompt for {template_key} (length: {len(composed)})")
+        logger.debug(f"[PROMPTS] Composed scene system prompt for {template_key} with prose_style={prose_style} (length: {len(composed)})")
         return composed
     
     def _get_user_choices_reminder(self) -> str:
@@ -421,12 +442,13 @@ class PromptManager:
             return self._substitute_variables(reminder, **template_vars)
         return reminder
     
-    def get_task_instruction(self, has_immediate: bool, **template_vars) -> str:
+    def get_task_instruction(self, has_immediate: bool, prose_style: str = 'balanced', **template_vars) -> str:
         """
         Get task instruction for multi-message structure from scene_base.
         
         Args:
             has_immediate: Whether there's an immediate_situation (determines which template)
+            prose_style: The prose style to use for the reminder
             **template_vars: Variables to substitute (e.g., immediate_situation, scene_length_description)
             
         Returns:
@@ -439,15 +461,21 @@ class PromptManager:
         template_key = "task_with_immediate" if has_immediate else "task_without_immediate"
         instruction = scene_base.get(template_key, "").strip()
         
-        if instruction and template_vars:
-            return self._substitute_variables(instruction, **template_vars)
+        # Get prose style reminder and add to template vars
+        prose_style_reminder = self.get_prose_style_reminder(prose_style)
+        template_vars_with_style = dict(template_vars)
+        template_vars_with_style['prose_style_reminder'] = prose_style_reminder
+        
+        if instruction and template_vars_with_style:
+            return self._substitute_variables(instruction, **template_vars_with_style)
         return instruction
     
     def get_continuation_task_instruction(
         self, 
         current_scene_content: str, 
         continuation_prompt: str, 
-        choices_count: int = 4
+        choices_count: int = 4,
+        prose_style: str = 'balanced'
     ) -> str:
         """
         Get task instruction for scene continuation from scene_base.task_continuation.
@@ -459,6 +487,7 @@ class PromptManager:
             current_scene_content: The scene content to continue
             continuation_prompt: User's continuation instruction
             choices_count: Number of choices to generate
+            prose_style: The prose style to use for the reminder
             
         Returns:
             The task instruction text with variables substituted and choices reminder appended
@@ -469,6 +498,9 @@ class PromptManager:
         scene_base = self._prompts_cache.get("scene_base", {})
         instruction = scene_base.get("task_continuation", "").strip()
         
+        # Get prose style reminder
+        prose_style_reminder = self.get_prose_style_reminder(prose_style)
+        
         if not instruction:
             # Fallback if template not found
             instruction = f"""=== CURRENT SCENE TO CONTINUE ===
@@ -477,12 +509,15 @@ class PromptManager:
 === CONTINUATION INSTRUCTION ===
 {continuation_prompt}
 
-Write a compelling continuation that follows naturally from the scene above. Focus on engaging narrative and dialogue. Do not repeat previous content."""
+Write a compelling continuation that follows naturally from the scene above. Focus on engaging narrative. Do not repeat previous content.
+
+{prose_style_reminder}"""
         else:
             instruction = self._substitute_variables(
                 instruction, 
                 current_scene_content=current_scene_content,
-                continuation_prompt=continuation_prompt
+                continuation_prompt=continuation_prompt,
+                prose_style_reminder=prose_style_reminder
             )
         
         # Append choices reminder
@@ -497,7 +532,8 @@ Write a compelling continuation that follows naturally from the scene above. Foc
         original_scene: str, 
         enhancement_guidance: str, 
         scene_length_description: str = "medium (100-150 words)",
-        choices_count: int = 4
+        choices_count: int = 4,
+        prose_style: str = 'balanced'
     ) -> str:
         """
         Get task instruction for guided enhancement from scene_base.task_guided_enhancement.
@@ -510,6 +546,7 @@ Write a compelling continuation that follows naturally from the scene above. Foc
             enhancement_guidance: User's enhancement request
             scene_length_description: Target scene length description
             choices_count: Number of choices to generate
+            prose_style: The prose style to use for the reminder
             
         Returns:
             The task instruction text with variables substituted and choices reminder appended
@@ -519,6 +556,9 @@ Write a compelling continuation that follows naturally from the scene above. Foc
         
         scene_base = self._prompts_cache.get("scene_base", {})
         instruction = scene_base.get("task_guided_enhancement", "").strip()
+        
+        # Get prose style reminder
+        prose_style_reminder = self.get_prose_style_reminder(prose_style)
         
         if not instruction:
             # Fallback if template not found
@@ -530,13 +570,16 @@ Write a compelling continuation that follows naturally from the scene above. Foc
 
 Rewrite the scene above incorporating the requested enhancement.
 Maintain the same core events and outcomes. Keep consistency with established story elements.
-Write approximately {scene_length_description} in length."""
+Write approximately {scene_length_description} in length.
+
+{prose_style_reminder}"""
         else:
             instruction = self._substitute_variables(
                 instruction, 
                 original_scene=original_scene,
                 enhancement_guidance=enhancement_guidance,
-                scene_length_description=scene_length_description
+                scene_length_description=scene_length_description,
+                prose_style_reminder=prose_style_reminder
             )
         
         # Append choices reminder
@@ -552,7 +595,8 @@ Write approximately {scene_length_description} in length."""
         chapter_title: str = "Untitled",
         chapter_location: str = "Unknown",
         chapter_time_period: str = "Unknown",
-        chapter_scenario: str = "None"
+        chapter_scenario: str = "None",
+        prose_style: str = 'balanced'
     ) -> str:
         """
         Get task instruction for chapter conclusion from scene_base.task_chapter_conclusion.
@@ -566,6 +610,7 @@ Write approximately {scene_length_description} in length."""
             chapter_location: The chapter location
             chapter_time_period: The chapter time period
             chapter_scenario: The chapter scenario
+            prose_style: The prose style to use for the reminder
             
         Returns:
             The task instruction text with variables substituted
@@ -575,6 +620,9 @@ Write approximately {scene_length_description} in length."""
         
         scene_base = self._prompts_cache.get("scene_base", {})
         instruction = scene_base.get("task_chapter_conclusion", "").strip()
+        
+        # Get prose style reminder
+        prose_style_reminder = self.get_prose_style_reminder(prose_style)
         
         if not instruction:
             # Fallback if template not found
@@ -590,6 +638,8 @@ Chapter Information:
 Create a chapter conclusion that brings Chapter {chapter_number} to a natural and satisfying end.
 Write ONLY the narrative content. Do not include any choices, options, or questions for the reader.
 
+{prose_style_reminder}
+
 Chapter Conclusion:"""
         else:
             instruction = self._substitute_variables(
@@ -598,7 +648,8 @@ Chapter Conclusion:"""
                 chapter_title=chapter_title,
                 chapter_location=chapter_location,
                 chapter_time_period=chapter_time_period,
-                chapter_scenario=chapter_scenario
+                chapter_scenario=chapter_scenario,
+                prose_style_reminder=prose_style_reminder
             )
         
         return instruction
@@ -634,6 +685,94 @@ Chapter Conclusion:"""
             pov_instruction = "in third person perspective (using 'he', 'she', 'they', character names)"
         
         return self._substitute_variables(reminder, pov_instruction=pov_instruction)
+    
+    def get_prose_style_instruction(self, prose_style: str = 'balanced') -> str:
+        """
+        Get prose style instruction from prose_styles section in YAML.
+        
+        This is injected into the system prompt to guide the AI's writing style.
+        
+        Args:
+            prose_style: The prose style key (e.g., 'balanced', 'dialogue_forward', etc.)
+            
+        Returns:
+            The prose style system instruction text
+        """
+        if not self._prompts_cache:
+            return ""
+        
+        prose_styles = self._prompts_cache.get("prose_styles", {})
+        style_config = prose_styles.get(prose_style or 'balanced', {})
+        
+        instruction = style_config.get("system_instruction", "").strip()
+        
+        if not instruction:
+            # Fallback to balanced if style not found
+            balanced_config = prose_styles.get("balanced", {})
+            instruction = balanced_config.get("system_instruction", "").strip()
+        
+        return instruction
+    
+    def get_prose_style_reminder(self, prose_style: str = 'balanced') -> str:
+        """
+        Get prose style reminder for task instructions.
+        
+        This is a short reminder injected into the final user message (task instruction).
+        
+        Args:
+            prose_style: The prose style key (e.g., 'balanced', 'dialogue_forward', etc.)
+            
+        Returns:
+            The prose style task reminder text
+        """
+        if not self._prompts_cache:
+            return ""
+        
+        prose_styles = self._prompts_cache.get("prose_styles", {})
+        style_config = prose_styles.get(prose_style or 'balanced', {})
+        
+        reminder = style_config.get("task_reminder", "").strip()
+        
+        if not reminder:
+            # Fallback to balanced if style not found
+            balanced_config = prose_styles.get("balanced", {})
+            reminder = balanced_config.get("task_reminder", "").strip()
+        
+        return reminder
+    
+    def get_all_prose_styles(self) -> list:
+        """
+        Get all prose styles from prompts.yml for frontend display.
+        
+        Returns a list of prose style definitions with key, name, description, and example.
+        This allows the frontend to dynamically display available styles without hardcoding.
+        
+        Returns:
+            List of prose style dictionaries with keys: key, name, description, example
+        """
+        if not self._prompts_cache:
+            return []
+        
+        prose_styles = self._prompts_cache.get("prose_styles", {})
+        
+        result = []
+        for key, config in prose_styles.items():
+            result.append({
+                "key": key,
+                "name": config.get("name", key.replace("_", " ").title()),
+                "description": config.get("description", ""),
+                "example": config.get("example", "").strip()
+            })
+        
+        # Sort by a sensible order (balanced first, then alphabetical)
+        def sort_key(item):
+            if item["key"] == "balanced":
+                return "0"  # First
+            return item["name"]
+        
+        result.sort(key=sort_key)
+        
+        return result
     
     def _get_yaml_prompt(self, template_key: str, prompt_type: str) -> str:
         """Get prompt from YAML file"""
