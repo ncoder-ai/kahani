@@ -413,6 +413,8 @@ export default function TTSSettingsModal({ isOpen, onClose, onSaved }: TTSSettin
       
       console.log('Saving TTS settings:', {
         provider_type: fullSettings.provider_type,
+        voice_id: fullSettings.voice_id,
+        api_url: fullSettings.api_url,
         extra_params: fullSettings.extra_params,
         chatterboxValues: settings.provider_type === 'chatterbox' ? {
           exaggeration: chatterboxExaggeration,
