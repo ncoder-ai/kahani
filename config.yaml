@@ -233,6 +233,7 @@ user_defaults:
     choices_count: 4
     alert_on_high_context: true
     use_extraction_llm_for_summary: false
+    separate_choice_generation: false
   ui_preferences:
     color_theme: "pure-dark"
     font_size: "medium"

@@ -533,7 +533,8 @@ Write a compelling continuation that follows naturally from the scene above. Foc
         enhancement_guidance: str, 
         scene_length_description: str = "medium (100-150 words)",
         choices_count: int = 4,
-        prose_style: str = 'balanced'
+        prose_style: str = 'balanced',
+        skip_choices_reminder: bool = False
     ) -> str:
         """
         Get task instruction for guided enhancement from scene_base.task_guided_enhancement.
@@ -547,6 +548,7 @@ Write a compelling continuation that follows naturally from the scene above. Foc
             scene_length_description: Target scene length description
             choices_count: Number of choices to generate
             prose_style: The prose style to use for the reminder
+            skip_choices_reminder: If True, don't append choices reminder (for separate choice generation)
             
         Returns:
             The task instruction text with variables substituted and choices reminder appended
@@ -582,10 +584,11 @@ Write approximately {scene_length_description} in length.
                 prose_style_reminder=prose_style_reminder
             )
         
-        # Append choices reminder
-        choices_reminder = self.get_user_choices_reminder(choices_count=choices_count)
-        if choices_reminder:
-            instruction = instruction + "\n\n" + choices_reminder
+        # Append choices reminder unless skipped (for separate choice generation)
+        if not skip_choices_reminder:
+            choices_reminder = self.get_user_choices_reminder(choices_count=choices_count)
+            if choices_reminder:
+                instruction = instruction + "\n\n" + choices_reminder
         
         return instruction
     

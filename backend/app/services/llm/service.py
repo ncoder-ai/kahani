@@ -1427,10 +1427,11 @@ class UnifiedLLMService:
         """
         CHOICES_MARKER = "###CHOICES###"
         
-        # Get scene length and choices count from user settings
+        # Get scene length, choices count, and separate choice generation setting from user settings
         generation_prefs = user_settings.get("generation_preferences", {})
         scene_length = generation_prefs.get("scene_length", "medium")
         choices_count = generation_prefs.get("choices_count", 4)
+        separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
         scene_length_description = self._get_scene_length_description(scene_length)
         
         # Get prose_style from writing preset (default to balanced)
@@ -1510,9 +1511,13 @@ class UnifiedLLMService:
                 scene_length_description=scene_length_description
             )
             
-            choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
-            if choices_reminder:
-                task_content = task_content + "\n\n" + choices_reminder
+            # Only append choices reminder if separate_choice_generation is NOT enabled
+            if not separate_choice_generation:
+                choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
+                if choices_reminder:
+                    task_content = task_content + "\n\n" + choices_reminder
+            else:
+                logger.info(f"[SCENE WITH CHOICES] Separate choice generation enabled - skipping choices reminder in task")
             
             messages.append({"role": "user", "content": task_content})
             
@@ -1565,6 +1570,10 @@ class UnifiedLLMService:
             parsed_choices = self._parse_choices_from_json(choices_text)
             if parsed_choices:
                 logger.info(f"[CHOICES] Successfully parsed {len(parsed_choices)} choices")
+                # If separate_choice_generation is enabled, discard inline choices
+                if separate_choice_generation:
+                    logger.info(f"[CHOICES] Separate choice generation enabled - discarding {len(parsed_choices)} inline choices")
+                    return (scene_content, None)
                 return (scene_content, parsed_choices)
             else:
                 # Check if response might have been truncated
@@ -1954,6 +1963,55 @@ class UnifiedLLMService:
             logger.warning(f"[CHOICES PARSE] Error fixing incomplete JSON: {e}")
             return None
     
+    def _fix_malformed_json_escaping(self, text: str) -> str:
+        """
+        Fix common LLM JSON escaping issues:
+        - Mixed quote escaping like \"' or \'
+        - Double-escaped quotes like \\"
+        - Unescaped quotes inside strings
+        """
+        # Fix patterns like \"' (escaped double quote followed by single quote)
+        text = re.sub(r'\\"\'', '"', text)
+        text = re.sub(r'\'\"', '"', text)
+        # Fix escaped single quotes that shouldn't be escaped in JSON
+        text = re.sub(r"\\\'", "'", text)
+        # Fix double-escaped quotes
+        text = re.sub(r'\\\\\"', '\\"', text)
+        # Fix patterns like \'' (escaped single quote followed by single quote)
+        text = re.sub(r"\\''", "'", text)
+        return text
+    
+    def _extract_choices_with_regex(self, text: str) -> Optional[List[str]]:
+        """
+        Fallback method to extract choices using regex when JSON parsing fails.
+        Looks for quoted strings that appear to be choices.
+        """
+        # Try to find strings in quotes (both double and single)
+        # Pattern matches: "text" or 'text' with reasonable content
+        choices = []
+        
+        # First try double-quoted strings
+        double_quoted = re.findall(r'"([^"]{10,300})"', text)
+        for match in double_quoted:
+            cleaned = match.strip()
+            # Filter out things that look like JSON keys or formatting
+            if cleaned and not cleaned.startswith('{') and not cleaned.endswith(':') and 'choices' not in cleaned.lower():
+                choices.append(cleaned)
+        
+        # If we didn't get enough, try single-quoted strings
+        if len(choices) < 2:
+            single_quoted = re.findall(r"'([^']{10,300})'", text)
+            for match in single_quoted:
+                cleaned = match.strip()
+                if cleaned and cleaned not in choices and not cleaned.startswith('{'):
+                    choices.append(cleaned)
+        
+        if len(choices) >= 2:
+            logger.info(f"[CHOICES PARSE] Regex fallback extracted {len(choices)} choices")
+            return choices[:6]  # Limit to reasonable number
+        
+        return None
+    
     def _parse_choices_from_json(self, text: str) -> Optional[List[str]]:
         """
         Parse choices from JSON array string.
@@ -2013,6 +2071,8 @@ class UnifiedLLMService:
                     for i, choice in enumerate(choices):
                         if isinstance(choice, str):
                             cleaned = choice.strip()
+                            # Remove any leading/trailing quotes that might have been double-escaped
+                            cleaned = cleaned.strip('"\'')
                             if len(cleaned) > 5:  # Minimum reasonable choice length
                                 cleaned_choices.append(cleaned)
                             else:
@@ -2029,7 +2089,38 @@ class UnifiedLLMService:
                     logger.warning(f"[CHOICES PARSE] Invalid format: got {type(choices)}, length: {len(choices) if isinstance(choices, list) else 'N/A'}")
                 return None
             
-            # Try to find JSON array - look for pattern like ["choice1", "choice2"]
+            # === STRATEGY 1: Try to parse as {"choices": [...]} wrapper first ===
+            # This is the format we request in the prompt
+            try:
+                parsed = json.loads(text)
+                if isinstance(parsed, dict) and "choices" in parsed:
+                    choices = parsed["choices"]
+                    result = validate_and_return_choices(choices)
+                    if result:
+                        return result
+            except json.JSONDecodeError:
+                pass
+            
+            # === STRATEGY 2: Try with malformed escaping fixes ===
+            fixed_text = self._fix_malformed_json_escaping(text)
+            if fixed_text != text:
+                try:
+                    parsed = json.loads(fixed_text)
+                    if isinstance(parsed, dict) and "choices" in parsed:
+                        choices = parsed["choices"]
+                        result = validate_and_return_choices(choices)
+                        if result:
+                            logger.info("[CHOICES PARSE] Succeeded after fixing malformed escaping")
+                            return result
+                    elif isinstance(parsed, list):
+                        result = validate_and_return_choices(parsed)
+                        if result:
+                            logger.info("[CHOICES PARSE] Succeeded after fixing malformed escaping (array)")
+                            return result
+                except json.JSONDecodeError:
+                    pass
+            
+            # === STRATEGY 3: Try to find JSON array directly ===
             # First check if we have an incomplete array (starts with [ but doesn't end with ])
             incomplete_match = None
             if text.strip().startswith('[') and not text.strip().endswith(']'):
@@ -2050,12 +2141,22 @@ class UnifiedLLMService:
                 
                 try:
                     choices = json.loads(json_str)
-                    # CRITICAL FIX: Validate and return here - this was missing!
                     return validate_and_return_choices(choices)
                 except json.JSONDecodeError as e:
                     logger.warning(f"[CHOICES PARSE] JSON decode error: {e}, JSON string: {json_str[:200]}")
-                    # Try to fix common JSON issues
-                    # Remove trailing commas
+                    
+                    # Try with malformed escaping fixes
+                    fixed_json_str = self._fix_malformed_json_escaping(json_str)
+                    try:
+                        choices = json.loads(fixed_json_str)
+                        result = validate_and_return_choices(choices)
+                        if result:
+                            logger.info("[CHOICES PARSE] Succeeded after fixing array escaping")
+                            return result
+                    except json.JSONDecodeError:
+                        pass
+                    
+                    # Try to fix common JSON issues - remove trailing commas
                     json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
                     try:
                         choices = json.loads(json_str)
@@ -2063,20 +2164,13 @@ class UnifiedLLMService:
                     except json.JSONDecodeError as e2:
                         logger.warning(f"[CHOICES PARSE] Still failed after cleanup: {e2}")
                         # Try to fix incomplete JSON
-                        json_str = self._fix_incomplete_json_array(json_str)
-                        if json_str:
+                        fixed_json = self._fix_incomplete_json_array(json_str)
+                        if fixed_json:
                             try:
-                                choices = json.loads(json_str)
+                                choices = json.loads(fixed_json)
                                 return validate_and_return_choices(choices)
                             except json.JSONDecodeError:
                                 pass
-                        # Fallback: try parsing the raw text directly
-                        logger.debug(f"[CHOICES PARSE] Trying fallback: parse raw text directly")
-                        try:
-                            choices = json.loads(text.strip())
-                            return validate_and_return_choices(choices)
-                        except json.JSONDecodeError:
-                            pass
             elif incomplete_match:
                 # We have an incomplete array, try to fix it
                 logger.warning(f"[CHOICES PARSE] Incomplete JSON array detected, attempting to fix. Text preview: {incomplete_match[:200]}")
@@ -2088,22 +2182,22 @@ class UnifiedLLMService:
                     except json.JSONDecodeError as e:
                         logger.warning(f"[CHOICES PARSE] Failed to parse fixed incomplete JSON: {e}")
             
-            # Final fallback: try parsing the entire text as JSON (might be plain JSON without markdown)
-            logger.debug(f"[CHOICES PARSE] Trying final fallback: parse entire text as JSON")
-            try:
-                choices = json.loads(text.strip())
-                return validate_and_return_choices(choices)
-            except json.JSONDecodeError:
-                pass
+            # === STRATEGY 4: Regex fallback - extract quoted strings directly ===
+            logger.info("[CHOICES PARSE] Trying regex fallback to extract choices")
+            regex_choices = self._extract_choices_with_regex(original_text)
+            if regex_choices:
+                return regex_choices
             
             # If we get here, all parsing attempts failed
             # Check if text looks like it was cut off (incomplete JSON)
             if text.strip().startswith('[') and not text.strip().endswith(']'):
                 logger.warning(f"[CHOICES PARSE] Incomplete JSON array detected (starts with '[' but doesn't end with ']'). Text may have been truncated. Text preview: {text[:200]}")
+            elif text.strip().startswith('{') and not text.strip().endswith('}'):
+                logger.warning(f"[CHOICES PARSE] Incomplete JSON object detected. Text may have been truncated. Text preview: {text[:200]}")
             elif '```json' in text.lower() or '```' in text:
-                logger.warning(f"[CHOICES PARSE] Markdown code block found but no valid JSON array inside. Text preview: {text[:200]}")
+                logger.warning(f"[CHOICES PARSE] Markdown code block found but no valid JSON inside. Text preview: {text[:200]}")
             else:
-                logger.warning(f"[CHOICES PARSE] No JSON array found in text. Text preview: {text[:200]}")
+                logger.warning(f"[CHOICES PARSE] No valid JSON found in text. Text preview: {text[:200]}")
             
             return None
         except (json.JSONDecodeError, ValueError, AttributeError, Exception) as e:
@@ -2128,10 +2222,11 @@ class UnifiedLLMService:
         """
         CHOICES_MARKER = "###CHOICES###"
         
-        # Get scene length and choices count from user settings
+        # Get scene length, choices count, and separate choice generation setting from user settings
         generation_prefs = user_settings.get("generation_preferences", {})
         scene_length = generation_prefs.get("scene_length", "medium")
         choices_count = generation_prefs.get("choices_count", 4)
+        separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
         scene_length_description = self._get_scene_length_description(scene_length)
         
         # Extract immediate_situation from context for template variable
@@ -2201,10 +2296,11 @@ class UnifiedLLMService:
                 immediate_situation=immediate_situation or "",
                 scene_length_description=scene_length_description
             )
-            # Append choices reminder
-            choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
-            if choices_reminder:
-                task_instruction = task_instruction + "\n\n" + choices_reminder
+            # Only append choices reminder if separate_choice_generation is NOT enabled
+            if not separate_choice_generation:
+                choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
+                if choices_reminder:
+                    task_instruction = task_instruction + "\n\n" + choices_reminder
             
             _, user_prompt = prompt_manager.get_prompt_pair(
                 "scene_with_immediate", "scene_with_immediate",
@@ -2266,6 +2362,11 @@ class UnifiedLLMService:
                 choices_text = ''.join(choices_buffer).strip()
                 parsed_choices = self._parse_choices_from_json(choices_text)
             
+            # If separate_choice_generation is enabled, discard any inline choices
+            if separate_choice_generation and parsed_choices:
+                logger.info(f"[CHOICES TEXT COMPLETION] Separate choice generation enabled - discarding {len(parsed_choices)} inline choices")
+                parsed_choices = None
+            
             yield ("", True, parsed_choices)
             return
         
@@ -2288,9 +2389,14 @@ class UnifiedLLMService:
             scene_length_description=scene_length_description
         )
         
-        choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
-        if choices_reminder:
-            task_content = task_content + "\n\n" + choices_reminder
+        # Only append choices reminder if separate_choice_generation is NOT enabled
+        # When enabled, choices will be generated in a separate LLM call for higher quality
+        if not separate_choice_generation:
+            choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
+            if choices_reminder:
+                task_content = task_content + "\n\n" + choices_reminder
+        else:
+            logger.info(f"[SCENE WITH CHOICES STREAMING] Separate choice generation enabled - skipping choices reminder in task")
         
         messages.append({"role": "user", "content": task_content})
         
@@ -2406,6 +2512,13 @@ class UnifiedLLMService:
             else:
                 logger.warning(f"[CHOICES STREAMING] Marker found but choices_buffer is empty")
         
+        # If separate_choice_generation is enabled, discard any inline choices and return None
+        # This signals to the caller to use the separate generate_choices() function
+        if separate_choice_generation:
+            if parsed_choices:
+                logger.info(f"[CHOICES STREAMING] Separate choice generation enabled - discarding {len(parsed_choices)} inline choices")
+            parsed_choices = None
+        
         # Yield final completion with parsed choices
         yield ("", True, parsed_choices)
     
@@ -2426,10 +2539,11 @@ class UnifiedLLMService:
         # Log inputs for debugging
         logger.info(f"Variant generation - context type: {type(context)}")
         
-        # Get scene length and choices count from user settings
+        # Get scene length, choices count, and separate choice generation setting from user settings
         generation_prefs = user_settings.get("generation_preferences", {})
         scene_length = generation_prefs.get("scene_length", "medium")
         choices_count = generation_prefs.get("choices_count", 4)
+        separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
         scene_length_description = self._get_scene_length_description(scene_length)
         
         # Check if this is guided enhancement (has enhancement_guidance) or simple variant
@@ -2490,7 +2604,8 @@ class UnifiedLLMService:
                 enhancement_guidance=enhancement_guidance,
                 scene_length_description=scene_length_description,
                 choices_count=choices_count,
-                prose_style=prose_style
+                prose_style=prose_style,
+                skip_choices_reminder=separate_choice_generation
             )
             logger.info(f"[GUIDED ENHANCEMENT] Using multi-message structure with enhancement task")
         else:
@@ -2506,10 +2621,11 @@ class UnifiedLLMService:
                 scene_length_description=scene_length_description
             )
             
-            # Append choices reminder for simple variant
-            choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
-            if choices_reminder:
-                task_content = task_content + "\n\n" + choices_reminder
+            # Only append choices reminder if separate_choice_generation is NOT enabled
+            if not separate_choice_generation:
+                choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
+                if choices_reminder:
+                    task_content = task_content + "\n\n" + choices_reminder
         
         messages.append({"role": "user", "content": task_content})
         
@@ -2594,6 +2710,11 @@ class UnifiedLLMService:
             else:
                 logger.warning(f"[CHOICES VARIANT] Marker found but choices_buffer is empty")
         
+        # If separate_choice_generation is enabled, discard any inline choices
+        if separate_choice_generation and parsed_choices:
+            logger.info(f"[CHOICES VARIANT] Separate choice generation enabled - discarding {len(parsed_choices)} inline choices")
+            parsed_choices = None
+        
         yield ("", True, parsed_choices)
     
     async def generate_continuation_with_choices_streaming(
@@ -2624,10 +2745,11 @@ class UnifiedLLMService:
             if active_preset and hasattr(active_preset, 'pov') and active_preset.pov:
                 pov = active_preset.pov
         
-        # Get choices count and scene length from user settings
+        # Get choices count, scene length, and separate choice generation setting from user settings
         generation_prefs = user_settings.get("generation_preferences", {})
         choices_count = generation_prefs.get("choices_count", 4)
         scene_length = generation_prefs.get("scene_length", "medium")
+        separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
         scene_length_map = {"short": "short (50-100 words)", "medium": "medium (100-150 words)", "long": "long (150-250 words)"}
         scene_length_description = scene_length_map.get(scene_length, "medium (100-150 words)")
         
@@ -2667,7 +2789,11 @@ class UnifiedLLMService:
         cleaned_scene_content = self._clean_scene_numbers(cleaned_scene_content)
         
         # Build final message inline (like generate_choices does)
-        choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
+        # Only include choices reminder if separate_choice_generation is NOT enabled
+        if separate_choice_generation:
+            choices_reminder_text = ""
+        else:
+            choices_reminder_text = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
         
         final_message = f"""=== CURRENT SCENE TO CONTINUE ===
 {cleaned_scene_content}
@@ -2679,7 +2805,7 @@ Write a compelling continuation that follows naturally from the scene above.
 Focus on engaging narrative and dialogue. Do not repeat previous content.
 Write approximately {scene_length_description} in length.
 
-{choices_reminder}"""
+{choices_reminder_text}"""
         
         messages.append({"role": "user", "content": final_message})
         
@@ -2778,6 +2904,11 @@ Write approximately {scene_length_description} in length.
                 logger.warning(f"[CHOICES CONTINUATION] Marker NOT found")
             else:
                 logger.warning(f"[CHOICES CONTINUATION] Marker found but choices_buffer is empty")
+        
+        # If separate_choice_generation is enabled, discard any inline choices
+        if separate_choice_generation and parsed_choices:
+            logger.info(f"[CHOICES CONTINUATION] Separate choice generation enabled - discarding {len(parsed_choices)} inline choices")
+            parsed_choices = None
         
         yield ("", True, parsed_choices)
     
@@ -3010,8 +3141,11 @@ Based on the scene above, generate {choices_count} narrative choices for what ha
 
 {choices_reminder}
 
-Output ONLY valid JSON in this exact format:
-{{"choices": ["choice 1", "choice 2", "choice 3", "choice 4"]}}"""
+IMPORTANT: Output ONLY a valid JSON object. Use double quotes for strings. No escaped quotes inside choice text.
+Example format:
+{{"choices": ["You decide to move forward carefully", "You signal your companion to wait", "You examine the control panel", "You retreat to a safer position"]}}
+
+Now generate {choices_count} choices as JSON:"""
         
         messages.append({"role": "user", "content": final_message})
         
