@@ -111,6 +111,7 @@ async def get_character_suggestions(
     
     # Verify story ownership
     from ..models import Story, StoryBranch
+    from ..models.npc_tracking import NPCTracking
     from sqlalchemy import and_
     story = db.query(Story).filter(
         Story.id == story_id,
@@ -131,6 +132,26 @@ async def get_character_suggestions(
         )
     ).first()
     branch_id = active_branch.id if active_branch else None
+    
+    # DEBUG: Log branch info
+    logger.info(f"[CHAR-SUGGEST] story_id={story_id}, story.current_branch_id={story.current_branch_id}, active_branch_id={branch_id}")
+    
+    # DEBUG: Log all branches for this story
+    all_branches = db.query(StoryBranch).filter(StoryBranch.story_id == story_id).all()
+    for b in all_branches:
+        logger.info(f"[CHAR-SUGGEST]   Branch {b.id}: name='{b.name}', is_active={b.is_active}, is_main={b.is_main}")
+    
+    # DEBUG: Log all NPCTracking records for this story (grouped by branch)
+    all_npcs = db.query(NPCTracking).filter(NPCTracking.story_id == story_id).all()
+    logger.info(f"[CHAR-SUGGEST] Total NPCTracking records for story {story_id}: {len(all_npcs)}")
+    npc_by_branch = {}
+    for npc in all_npcs:
+        bid = npc.branch_id
+        if bid not in npc_by_branch:
+            npc_by_branch[bid] = []
+        npc_by_branch[bid].append(npc.character_name)
+    for bid, names in npc_by_branch.items():
+        logger.info(f"[CHAR-SUGGEST]   Branch {bid}: {len(names)} NPCs - {names[:10]}{'...' if len(names) > 10 else ''}")
     
     # Get user settings
     user_settings = db.query(UserSettings).filter(
@@ -156,9 +177,13 @@ async def get_character_suggestions(
         # Sort by importance score
         suggestions.sort(key=lambda x: x.get('importance_score', 0), reverse=True)
         
-        logger.info(f"Retrieved {len(suggestions)} character suggestions from NPC tracking (no LLM call needed)")
+        logger.info(f"[CHAR-SUGGEST] Retrieved {len(suggestions)} suggestions for branch_id={branch_id}")
+        for s in suggestions[:5]:
+            logger.info(f"[CHAR-SUGGEST]   - {s.get('name')}: importance={s.get('importance_score')}, first_scene={s.get('first_appearance_scene')}, last_scene={s.get('last_appearance_scene')}")
     except Exception as e:
         logger.error(f"Failed to get NPC suggestions: {e}")
+        import traceback
+        logger.error(f"[CHAR-SUGGEST] Traceback: {traceback.format_exc()}")
         # Return empty list if NPC tracking fails
         suggestions = []
     

@@ -86,6 +86,12 @@ class NPCTrackingService:
             - scenes_processed: Number of scenes processed
             - extraction_successful: Whether extraction completed
         """
+        logger.info(f"[NPC-EXTRACT-BATCH] Starting batch extraction: story_id={story_id}, branch_id={branch_id}, num_scenes={len(scenes)}")
+        if scenes:
+            scene_ids = [s[0] for s in scenes]
+            scene_seqs = [s[1] for s in scenes]
+            logger.info(f"[NPC-EXTRACT-BATCH] Scene IDs: {scene_ids}, Sequences: {scene_seqs}")
+        
         if not scenes:
             return {
                 "npcs_tracked": 0,
@@ -103,6 +109,7 @@ class NPCTrackingService:
                     StoryCharacter.branch_id.is_(None)
                 ))
             story_characters = char_query.all()
+            logger.info(f"[NPC-EXTRACT-BATCH] Found {len(story_characters)} explicit characters to exclude")
             
             explicit_character_names = set()
             for sc in story_characters:
@@ -167,6 +174,7 @@ class NPCTrackingService:
                     
                     # Store mention with IntegrityError handling
                     try:
+                        logger.info(f"[NPC-EXTRACT-BATCH] Creating NPCMention: name='{npc_name}', story_id={story_id}, branch_id={branch_id}, scene_id={scene_id}, seq={scene_sequence}")
                         mention = NPCMention(
                             story_id=story_id,
                             branch_id=branch_id,
@@ -1341,6 +1349,8 @@ Return ONLY the JSON, no other text."""
             entity_type: Filter by entity type ("CHARACTER" or "ENTITY"), defaults to "CHARACTER"
             branch_id: Optional branch ID for filtering
         """
+        logger.info(f"[NPC-SUGGESTIONS] Getting suggestions: story_id={story_id}, branch_id={branch_id}, min_importance={min_importance}, entity_type={entity_type}")
+        
         try:
             # Query with entity type filter (handle NULL values and missing column for backward compatibility)
             from sqlalchemy import or_
@@ -1352,12 +1362,18 @@ Return ONLY the JSON, no other text."""
                 NPCTracking.importance_score >= min_importance
             )
             
+            # DEBUG: Count before branch filter
+            count_before_branch = query.count()
+            logger.info(f"[NPC-SUGGESTIONS] NPCs before branch filter: {count_before_branch}")
+            
             # Filter by branch if specified (including NULL branch_id for shared NPCs)
             if branch_id:
                 query = query.filter(or_(
                     NPCTracking.branch_id == branch_id,
                     NPCTracking.branch_id.is_(None)
                 ))
+                count_after_branch = query.count()
+                logger.info(f"[NPC-SUGGESTIONS] NPCs after branch filter (branch_id={branch_id} OR NULL): {count_after_branch}")
             
             # Add entity_type filter if column exists in database
             # Check if column exists by inspecting the table

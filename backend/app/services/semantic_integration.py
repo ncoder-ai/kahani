@@ -1028,6 +1028,9 @@ async def batch_process_scene_extractions(
             )
         ).first()
         branch_id = active_branch.id if active_branch else None
+        logger.warning(f"[EXTRACTION] branch_id was None, looked up active branch: {branch_id} (branch name: {active_branch.name if active_branch else 'N/A'})")
+    else:
+        logger.warning(f"[EXTRACTION] branch_id provided: {branch_id}")
     
     try:
         # DEBUG: Log query parameters
