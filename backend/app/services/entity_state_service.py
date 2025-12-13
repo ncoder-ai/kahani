@@ -12,7 +12,7 @@ import time
 import uuid
 from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
-from sqlalchemy import and_
+from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
 from ..models import (
     Character, CharacterState, LocationState, ObjectState,
@@ -127,10 +127,13 @@ class EntityStateService:
         logger.info(f"[ENTITY:START] trace_id={trace_id} story_id={story_id} scene_id={scene_id} sequence={scene_sequence} branch_id={branch_id}")
         
         try:
-            # Get story characters for context (filtered by branch)
+            # Get story characters for context (filtered by branch, including NULL branch_id for shared characters)
             char_query = db.query(StoryCharacter).filter(StoryCharacter.story_id == story_id)
             if branch_id:
-                char_query = char_query.filter(StoryCharacter.branch_id == branch_id)
+                char_query = char_query.filter(or_(
+                    StoryCharacter.branch_id == branch_id,
+                    StoryCharacter.branch_id.is_(None)
+                ))
             story_characters = char_query.all()
             
             character_names = [
@@ -397,13 +400,16 @@ class EntityStateService:
             if not char_name:
                 return
             
-            # Find character by name in this story (filtered by branch)
+            # Find character by name in this story (filtered by branch, including NULL branch_id for shared characters)
             char_query = db.query(StoryCharacter).join(Character).filter(
                 StoryCharacter.story_id == story_id,
                 Character.name == char_name
             )
             if branch_id:
-                char_query = char_query.filter(StoryCharacter.branch_id == branch_id)
+                char_query = char_query.filter(or_(
+                    StoryCharacter.branch_id == branch_id,
+                    StoryCharacter.branch_id.is_(None)
+                ))
             story_char = char_query.first()
             
             if not story_char:
@@ -658,13 +664,16 @@ class EntityStateService:
             # Update owner if specified
             if obj_update.get("owner"):
                 owner_name = obj_update["owner"]
-                # Find character ID by name (filter by branch to avoid cross-branch contamination)
+                # Find character ID by name (filter by branch, including NULL branch_id for shared characters)
                 story_char_query = db.query(StoryCharacter).join(Character).filter(
                     StoryCharacter.story_id == story_id,
                     Character.name == owner_name
                 )
                 if branch_id:
-                    story_char_query = story_char_query.filter(StoryCharacter.branch_id == branch_id)
+                    story_char_query = story_char_query.filter(or_(
+                        StoryCharacter.branch_id == branch_id,
+                        StoryCharacter.branch_id.is_(None)
+                    ))
                 story_char = story_char_query.first()
                 if story_char:
                     obj_state.current_owner_id = story_char.character_id

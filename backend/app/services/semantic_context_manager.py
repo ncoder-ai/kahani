@@ -9,7 +9,7 @@ import logging
 from typing import List, Dict, Any, Optional, Tuple
 from sqlalchemy.orm import Session
 
-from sqlalchemy import and_
+from sqlalchemy import and_, or_
 from .context_manager import ContextManager
 from .semantic_memory import get_semantic_memory_service
 from ..models import Scene, SceneVariant, StoryFlow, Character, StoryCharacter, ChapterStatus, StoryBranch
@@ -426,10 +426,13 @@ class SemanticContextManager(ContextManager):
         if branch_id is None:
             branch_id = self._get_active_branch_id(db, story_id)
         
-        # Get story characters (filtered by branch)
+        # Get story characters (filtered by branch, including NULL branch_id for shared characters)
         char_query = db.query(StoryCharacter).filter(StoryCharacter.story_id == story_id)
         if branch_id:
-            char_query = char_query.filter(StoryCharacter.branch_id == branch_id)
+            char_query = char_query.filter(or_(
+                StoryCharacter.branch_id == branch_id,
+                StoryCharacter.branch_id.is_(None)
+            ))
         story_characters = char_query.all()
         
         # Separate into active (chapter) and inactive (story only) characters
@@ -897,22 +900,31 @@ class SemanticContextManager(ContextManager):
         try:
             from ..models import CharacterState, LocationState, ObjectState, Character
             
-            # Get all entity states for this story (filtered by branch)
+            # Get all entity states for this story (filtered by branch, including NULL branch_id for shared entities)
             # Order by updated_at DESC to ensure we get the latest states
             # (though typically there's one state per entity, ordering ensures we get most recent if duplicates exist)
             char_state_query = db.query(CharacterState).filter(CharacterState.story_id == story_id)
             if branch_id:
-                char_state_query = char_state_query.filter(CharacterState.branch_id == branch_id)
+                char_state_query = char_state_query.filter(or_(
+                    CharacterState.branch_id == branch_id,
+                    CharacterState.branch_id.is_(None)
+                ))
             character_states = char_state_query.order_by(CharacterState.updated_at.desc()).all()
             
             loc_state_query = db.query(LocationState).filter(LocationState.story_id == story_id)
             if branch_id:
-                loc_state_query = loc_state_query.filter(LocationState.branch_id == branch_id)
+                loc_state_query = loc_state_query.filter(or_(
+                    LocationState.branch_id == branch_id,
+                    LocationState.branch_id.is_(None)
+                ))
             location_states = loc_state_query.order_by(LocationState.updated_at.desc()).all()
             
             obj_state_query = db.query(ObjectState).filter(ObjectState.story_id == story_id)
             if branch_id:
-                obj_state_query = obj_state_query.filter(ObjectState.branch_id == branch_id)
+                obj_state_query = obj_state_query.filter(or_(
+                    ObjectState.branch_id == branch_id,
+                    ObjectState.branch_id.is_(None)
+                ))
             object_states = obj_state_query.order_by(ObjectState.updated_at.desc()).all()
             
             if not character_states and not location_states and not object_states:

@@ -1,7 +1,7 @@
 import logging
 from typing import List, Dict, Any, Optional, Tuple
 from sqlalchemy.orm import Session
-from sqlalchemy import and_
+from sqlalchemy import and_, or_
 from ..models import Story, Scene, Character, StoryCharacter, StoryBranch
 from ..services.llm.service import UnifiedLLMService
 from ..services.llm.prompts import prompt_manager
@@ -198,10 +198,13 @@ class ContextManager:
                 scene_query = scene_query.filter(Scene.branch_id == branch_id)
             scenes = scene_query.order_by(Scene.sequence_number).all()
         
-        # Get story characters (filtered by branch)
+        # Get story characters (filtered by branch, including NULL branch_id for shared characters)
         char_query = db.query(StoryCharacter).filter(StoryCharacter.story_id == story_id)
         if branch_id:
-            char_query = char_query.filter(StoryCharacter.branch_id == branch_id)
+            char_query = char_query.filter(or_(
+                StoryCharacter.branch_id == branch_id,
+                StoryCharacter.branch_id.is_(None)
+            ))
         story_characters = char_query.all()
         
         # Separate into active (chapter) and inactive (story only) characters

@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from datetime import datetime
 
-from sqlalchemy import and_
+from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
 from ..models import (
     NPCMention, NPCTracking, NPCTrackingSnapshot, StoryCharacter, Character, Scene, Story, StoryBranch
@@ -94,11 +94,14 @@ class NPCTrackingService:
             }
         
         try:
-            # Get list of explicit characters in the story (filtered by branch)
+            # Get list of explicit characters in the story (filtered by branch, including NULL branch_id for shared characters)
             from ..models import StoryCharacter, Character
             char_query = db.query(StoryCharacter).filter(StoryCharacter.story_id == story_id)
             if branch_id:
-                char_query = char_query.filter(StoryCharacter.branch_id == branch_id)
+                char_query = char_query.filter(or_(
+                    StoryCharacter.branch_id == branch_id,
+                    StoryCharacter.branch_id.is_(None)
+                ))
             story_characters = char_query.all()
             
             explicit_character_names = set()
@@ -414,10 +417,13 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
             branch_id = active_branch.id if active_branch else None
         
         try:
-            # Get list of explicit characters in the story (filtered by branch)
+            # Get list of explicit characters in the story (filtered by branch, including NULL branch_id for shared characters)
             char_query = db.query(StoryCharacter).filter(StoryCharacter.story_id == story_id)
             if branch_id:
-                char_query = char_query.filter(StoryCharacter.branch_id == branch_id)
+                char_query = char_query.filter(or_(
+                    StoryCharacter.branch_id == branch_id,
+                    StoryCharacter.branch_id.is_(None)
+                ))
             story_characters = char_query.all()
             
             explicit_character_names = set()

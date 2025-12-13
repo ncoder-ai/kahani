@@ -3671,9 +3671,8 @@ async def restore_npc_tracking_in_background(
         # Increased from 0.1s to 0.3s for better reliability under load
         await asyncio.sleep(0.3)
         
-        from ..database import SessionLocal
-        bg_db = SessionLocal()
-        try:
+        from ..database import get_background_db
+        with get_background_db() as bg_db:
             from ..models import Story, NPCTracking, NPCTrackingSnapshot, Scene
             
             # Find the last remaining scene's sequence number (filtered by branch)
@@ -3745,8 +3744,6 @@ async def restore_npc_tracking_in_background(
                 npc_delete_query.delete()
                 bg_db.commit()
                 logger.info(f"[DELETE-BG] No remaining scenes, deleted all NPC tracking for story {story_id}, branch {branch_id}")
-        finally:
-            bg_db.close()
     except Exception as e:
         logger.error(f"[DELETE-BG] Failed to restore NPC tracking in background: {e}")
         import traceback
@@ -3764,9 +3761,8 @@ async def cleanup_semantic_data_in_background(
         # Increased from 0.1s to 0.3s for better reliability under load
         await asyncio.sleep(0.3)
         
-        from ..database import SessionLocal
-        bg_db = SessionLocal()
-        try:
+        from ..database import get_background_db
+        with get_background_db() as bg_db:
             from ..services.semantic_integration import cleanup_scene_embeddings
             
             logger.info(f"[DELETE-BG] Starting semantic cleanup for {len(scene_ids)} scenes (story {story_id})")
@@ -3780,8 +3776,6 @@ async def cleanup_semantic_data_in_background(
                     # Continue with other scenes even if one fails
             
             logger.info(f"[DELETE-BG] Completed semantic cleanup for {len(scene_ids)} scenes (story {story_id})")
-        finally:
-            bg_db.close()
     except Exception as e:
         logger.error(f"[DELETE-BG] Failed to cleanup semantic data in background: {e}")
         import traceback
@@ -3804,9 +3798,8 @@ async def restore_entity_states_in_background(
         # Increased from 0.1s to 0.3s for better reliability under load
         await asyncio.sleep(0.3)
         
-        from ..database import SessionLocal
-        bg_db = SessionLocal()
-        try:
+        from ..database import get_background_db
+        with get_background_db() as bg_db:
             from ..models import Story, UserSettings, Scene
             from ..services.entity_state_service import EntityStateService
             
@@ -3872,8 +3865,6 @@ async def restore_entity_states_in_background(
                 obj_delete_query.delete()
                 bg_db.commit()
                 logger.info(f"[DELETE-BG] No remaining scenes, cleared entity states for story {story_id}, branch {branch_id}")
-        finally:
-            bg_db.close()
     except Exception as e:
         logger.error(f"[DELETE-BG] Failed to restore entity states in background: {e}")
         import traceback
