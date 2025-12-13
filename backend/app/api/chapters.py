@@ -1096,9 +1096,15 @@ async def get_chapter_context_status(
         # Don't overwrite a valid stored value with 0
         if actual_context_size > 0:
             chapter.context_tokens_used = actual_context_size
-            db.commit()
+            try:
+                db.commit()
+                logger.info(f"[CONTEXT STATUS] Recalculated context size for chapter {chapter_id}: {actual_context_size} tokens")
+            except Exception as commit_error:
+                # Non-blocking: if commit fails (e.g., database locked), just log and continue
+                # The context size value is still accurate for this response
+                logger.warning(f"[CONTEXT STATUS] Failed to persist context size update (non-critical): {commit_error}")
+                db.rollback()
             current_tokens = actual_context_size
-            logger.info(f"[CONTEXT STATUS] Recalculated context size for chapter {chapter_id}: {actual_context_size} tokens")
         else:
             # Calculation returned 0, which might be an error
             # Use stored value if it exists and is > 0, otherwise use 0
