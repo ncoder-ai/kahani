@@ -1406,9 +1406,11 @@ class UnifiedLLMService:
         
         # Add the final task message from prompts.yml (most dynamic - changes every scene)
         has_immediate = bool(immediate_situation and immediate_situation.strip())
+        tone = context.get('tone', '')
         task_content = prompt_manager.get_task_instruction(
             has_immediate=has_immediate,
             prose_style=prose_style,
+            tone=tone,
             immediate_situation=immediate_situation or "",
             scene_length_description=scene_length_description
         )
@@ -1532,9 +1534,11 @@ class UnifiedLLMService:
             
             # Get task instruction and choices reminder from prompts.yml
             has_immediate = bool(immediate_situation and immediate_situation.strip())
+            tone = context.get('tone', '')
             task_content = prompt_manager.get_task_instruction(
                 has_immediate=has_immediate,
                 prose_style=prose_style,
+                tone=tone,
                 immediate_situation=immediate_situation or "",
                 scene_length_description=scene_length_description
             )
@@ -1689,9 +1693,11 @@ class UnifiedLLMService:
         
         # Add the final task message from prompts.yml (most dynamic - changes every scene)
         has_immediate = bool(immediate_situation and immediate_situation.strip())
+        tone = context.get('tone', '')
         task_content = prompt_manager.get_task_instruction(
             has_immediate=has_immediate,
             prose_style=prose_style,
+            tone=tone,
             immediate_situation=immediate_situation or "",
             scene_length_description=scene_length_description
         )
@@ -1785,9 +1791,11 @@ class UnifiedLLMService:
                 template_key = "scene_without_immediate"
             
             # Get task instruction from prompts.yml
+            tone = context.get('tone', '')
             task_instruction = prompt_manager.get_task_instruction(
                 has_immediate=has_immediate,
                 prose_style=prose_style,
+                tone=tone,
                 immediate_situation=immediate_situation or "",
                 scene_length_description=scene_length_description
             )
@@ -2318,9 +2326,11 @@ class UnifiedLLMService:
             
             # Get task instruction from prompts.yml
             has_immediate = bool(immediate_situation and immediate_situation.strip())
+            tone = context.get('tone', '')
             task_instruction = prompt_manager.get_task_instruction(
                 has_immediate=has_immediate,
                 prose_style=prose_style,
+                tone=tone,
                 immediate_situation=immediate_situation or "",
                 scene_length_description=scene_length_description
             )
@@ -2410,9 +2420,11 @@ class UnifiedLLMService:
         
         # Get task instruction and choices reminder from prompts.yml
         has_immediate = bool(immediate_situation and immediate_situation.strip())
+        tone = context.get('tone', '')
         task_content = prompt_manager.get_task_instruction(
             has_immediate=has_immediate,
             prose_style=prose_style,
+            tone=tone,
             immediate_situation=immediate_situation or "",
             scene_length_description=scene_length_description
         )
@@ -2625,6 +2637,7 @@ class UnifiedLLMService:
         messages.extend(context_messages)
         
         # === ONLY THIS FINAL MESSAGE IS DIFFERENT ===
+        tone = context.get('tone', '')
         if enhancement_guidance:
             # Guided enhancement: use task_guided_enhancement from prompts.yml
             task_content = prompt_manager.get_enhancement_task_instruction(
@@ -2633,6 +2646,7 @@ class UnifiedLLMService:
                 scene_length_description=scene_length_description,
                 choices_count=choices_count,
                 prose_style=prose_style,
+                tone=tone,
                 skip_choices_reminder=separate_choice_generation
             )
             logger.info(f"[GUIDED ENHANCEMENT] Using multi-message structure with enhancement task")
@@ -2645,6 +2659,7 @@ class UnifiedLLMService:
             task_content = prompt_manager.get_task_instruction(
                 has_immediate=has_immediate,
                 prose_style=prose_style,
+                tone=tone,
                 immediate_situation=immediate_situation or "",
                 scene_length_description=scene_length_description
             )
@@ -2762,16 +2777,20 @@ class UnifiedLLMService:
         """
         CHOICES_MARKER = "###CHOICES###"
         
-        # Get POV from writing preset (SAME as scene generation - critical for cache hits)
+        # Get POV and prose_style from writing preset (SAME as scene generation - critical for cache hits)
         pov = 'third'
+        prose_style = 'balanced'
         if db and user_id:
             from ...models.writing_style_preset import WritingStylePreset
             active_preset = db.query(WritingStylePreset).filter(
                 WritingStylePreset.user_id == user_id,
                 WritingStylePreset.is_active == True
             ).first()
-            if active_preset and hasattr(active_preset, 'pov') and active_preset.pov:
-                pov = active_preset.pov
+            if active_preset:
+                if hasattr(active_preset, 'pov') and active_preset.pov:
+                    pov = active_preset.pov
+                if hasattr(active_preset, 'prose_style') and active_preset.prose_style:
+                    prose_style = active_preset.prose_style
         
         # Get choices count, scene length, and separate choice generation setting from user settings
         generation_prefs = user_settings.get("generation_preferences", {})
@@ -2823,6 +2842,11 @@ class UnifiedLLMService:
         else:
             choices_reminder_text = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
         
+        # Get prose style and tone reminders
+        prose_style_reminder = prompt_manager.get_prose_style_reminder(prose_style)
+        tone = context.get('tone', '')
+        tone_reminder = prompt_manager.get_tone_reminder(tone)
+        
         final_message = f"""=== CURRENT SCENE TO CONTINUE ===
 {cleaned_scene_content}
 
@@ -2832,6 +2856,9 @@ class UnifiedLLMService:
 Write a compelling continuation that follows naturally from the scene above.
 Focus on engaging narrative and dialogue. Do not repeat previous content.
 Write approximately {scene_length_description} in length.
+
+{prose_style_reminder}
+{tone_reminder}
 
 {choices_reminder_text}"""
         
@@ -2968,16 +2995,20 @@ Write approximately {scene_length_description} in length.
         Yields:
             str: Scene content chunks as they're generated
         """
-        # Get POV from writing preset (SAME as scene generation - critical for cache hits)
+        # Get POV and prose_style from writing preset (SAME as scene generation - critical for cache hits)
         pov = 'third'
+        prose_style = 'balanced'
         if db and user_id:
             from ...models.writing_style_preset import WritingStylePreset
             active_preset = db.query(WritingStylePreset).filter(
                 WritingStylePreset.user_id == user_id,
                 WritingStylePreset.is_active == True
             ).first()
-            if active_preset and hasattr(active_preset, 'pov') and active_preset.pov:
-                pov = active_preset.pov
+            if active_preset:
+                if hasattr(active_preset, 'pov') and active_preset.pov:
+                    pov = active_preset.pov
+                if hasattr(active_preset, 'prose_style') and active_preset.prose_style:
+                    prose_style = active_preset.prose_style
         
         # Get scene length from user settings (for consistency with other generation methods)
         generation_prefs = user_settings.get("generation_preferences", {})
@@ -3016,6 +3047,11 @@ Write approximately {scene_length_description} in length.
         # Chapter context is already in the multi-message structure, so we just need the task
         chapter_number = chapter_info.get("chapter_number", 1)
         
+        # Get prose style and tone reminders
+        prose_style_reminder = prompt_manager.get_prose_style_reminder(prose_style)
+        tone = context.get('tone', '')
+        tone_reminder = prompt_manager.get_tone_reminder(tone)
+        
         final_message = f"""=== CHAPTER CONCLUSION INSTRUCTION ===
 
 Write a compelling conclusion for Chapter {chapter_number} that:
@@ -3026,6 +3062,9 @@ Write a compelling conclusion for Chapter {chapter_number} that:
 
 Write approximately {scene_length_description} in length.
 Write ONLY narrative content. Do not include any choices, options, or questions for the reader.
+
+{prose_style_reminder}
+{tone_reminder}
 
 Chapter Conclusion:"""
         

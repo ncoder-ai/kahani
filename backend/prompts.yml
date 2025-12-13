@@ -416,6 +416,7 @@ scene_base:
     4. DO NOT repeat text from recent scenes
     5. Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
     6. {prose_style_reminder}
+    7. {tone_reminder}
     
     Write an engaging scene ({scene_length_description}) that elaborates on the above.
 
@@ -424,6 +425,7 @@ scene_base:
     Write an engaging scene ({scene_length_description}) that continues naturally from the previous events. If this is the first scene, establish the story world and introduce the characters naturally.
     
     {prose_style_reminder}
+    {tone_reminder}
 
   # Task instruction for scene continuation (context sent separately in multi-message)
   # Used by generate_continuation_with_choices_streaming()
@@ -438,6 +440,7 @@ scene_base:
     Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
     
     {prose_style_reminder}
+    {tone_reminder}
   # Task instruction for guided enhancement (context sent separately in multi-message)
   # Used by generate_scene_variants_with_choices_streaming() when enhancement_guidance is provided
   task_guided_enhancement: |
@@ -453,6 +456,7 @@ scene_base:
     Write approximately {scene_length_description} in length.
     
     {prose_style_reminder}
+    {tone_reminder}
 
   # Task instruction for chapter conclusion (context sent separately in multi-message)
   # Used by generate_concluding_scene_streaming()
@@ -477,6 +481,7 @@ scene_base:
     8. Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
     
     {prose_style_reminder}
+    {tone_reminder}
     
     IMPORTANT: This is a CHAPTER ending, not a STORY ending. The conclusion should:
     - Provide closure for the chapter's specific events and character arcs

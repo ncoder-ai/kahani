@@ -442,13 +442,14 @@ class PromptManager:
             return self._substitute_variables(reminder, **template_vars)
         return reminder
     
-    def get_task_instruction(self, has_immediate: bool, prose_style: str = 'balanced', **template_vars) -> str:
+    def get_task_instruction(self, has_immediate: bool, prose_style: str = 'balanced', tone: str = None, **template_vars) -> str:
         """
         Get task instruction for multi-message structure from scene_base.
         
         Args:
             has_immediate: Whether there's an immediate_situation (determines which template)
             prose_style: The prose style to use for the reminder
+            tone: The story's tone (e.g., 'lighthearted', 'dark', 'mysterious')
             **template_vars: Variables to substitute (e.g., immediate_situation, scene_length_description)
             
         Returns:
@@ -461,10 +462,12 @@ class PromptManager:
         template_key = "task_with_immediate" if has_immediate else "task_without_immediate"
         instruction = scene_base.get(template_key, "").strip()
         
-        # Get prose style reminder and add to template vars
+        # Get prose style reminder and tone reminder, add to template vars
         prose_style_reminder = self.get_prose_style_reminder(prose_style)
+        tone_reminder = self.get_tone_reminder(tone)
         template_vars_with_style = dict(template_vars)
         template_vars_with_style['prose_style_reminder'] = prose_style_reminder
+        template_vars_with_style['tone_reminder'] = tone_reminder
         
         if instruction and template_vars_with_style:
             return self._substitute_variables(instruction, **template_vars_with_style)
@@ -475,7 +478,8 @@ class PromptManager:
         current_scene_content: str, 
         continuation_prompt: str, 
         choices_count: int = 4,
-        prose_style: str = 'balanced'
+        prose_style: str = 'balanced',
+        tone: str = None
     ) -> str:
         """
         Get task instruction for scene continuation from scene_base.task_continuation.
@@ -488,6 +492,7 @@ class PromptManager:
             continuation_prompt: User's continuation instruction
             choices_count: Number of choices to generate
             prose_style: The prose style to use for the reminder
+            tone: The story's tone (e.g., 'lighthearted', 'dark', 'mysterious')
             
         Returns:
             The task instruction text with variables substituted and choices reminder appended
@@ -498,8 +503,9 @@ class PromptManager:
         scene_base = self._prompts_cache.get("scene_base", {})
         instruction = scene_base.get("task_continuation", "").strip()
         
-        # Get prose style reminder
+        # Get prose style reminder and tone reminder
         prose_style_reminder = self.get_prose_style_reminder(prose_style)
+        tone_reminder = self.get_tone_reminder(tone)
         
         if not instruction:
             # Fallback if template not found
@@ -511,13 +517,15 @@ class PromptManager:
 
 Write a compelling continuation that follows naturally from the scene above. Focus on engaging narrative. Do not repeat previous content.
 
-{prose_style_reminder}"""
+{prose_style_reminder}
+{tone_reminder}"""
         else:
             instruction = self._substitute_variables(
                 instruction, 
                 current_scene_content=current_scene_content,
                 continuation_prompt=continuation_prompt,
-                prose_style_reminder=prose_style_reminder
+                prose_style_reminder=prose_style_reminder,
+                tone_reminder=tone_reminder
             )
         
         # Append choices reminder
@@ -534,6 +542,7 @@ Write a compelling continuation that follows naturally from the scene above. Foc
         scene_length_description: str = "medium (100-150 words)",
         choices_count: int = 4,
         prose_style: str = 'balanced',
+        tone: str = None,
         skip_choices_reminder: bool = False
     ) -> str:
         """
@@ -548,6 +557,7 @@ Write a compelling continuation that follows naturally from the scene above. Foc
             scene_length_description: Target scene length description
             choices_count: Number of choices to generate
             prose_style: The prose style to use for the reminder
+            tone: The story's tone (e.g., 'lighthearted', 'dark', 'mysterious')
             skip_choices_reminder: If True, don't append choices reminder (for separate choice generation)
             
         Returns:
@@ -559,8 +569,9 @@ Write a compelling continuation that follows naturally from the scene above. Foc
         scene_base = self._prompts_cache.get("scene_base", {})
         instruction = scene_base.get("task_guided_enhancement", "").strip()
         
-        # Get prose style reminder
+        # Get prose style reminder and tone reminder
         prose_style_reminder = self.get_prose_style_reminder(prose_style)
+        tone_reminder = self.get_tone_reminder(tone)
         
         if not instruction:
             # Fallback if template not found
@@ -574,14 +585,16 @@ Rewrite the scene above incorporating the requested enhancement.
 Maintain the same core events and outcomes. Keep consistency with established story elements.
 Write approximately {scene_length_description} in length.
 
-{prose_style_reminder}"""
+{prose_style_reminder}
+{tone_reminder}"""
         else:
             instruction = self._substitute_variables(
                 instruction, 
                 original_scene=original_scene,
                 enhancement_guidance=enhancement_guidance,
                 scene_length_description=scene_length_description,
-                prose_style_reminder=prose_style_reminder
+                prose_style_reminder=prose_style_reminder,
+                tone_reminder=tone_reminder
             )
         
         # Append choices reminder unless skipped (for separate choice generation)
@@ -599,7 +612,8 @@ Write approximately {scene_length_description} in length.
         chapter_location: str = "Unknown",
         chapter_time_period: str = "Unknown",
         chapter_scenario: str = "None",
-        prose_style: str = 'balanced'
+        prose_style: str = 'balanced',
+        tone: str = None
     ) -> str:
         """
         Get task instruction for chapter conclusion from scene_base.task_chapter_conclusion.
@@ -614,6 +628,7 @@ Write approximately {scene_length_description} in length.
             chapter_time_period: The chapter time period
             chapter_scenario: The chapter scenario
             prose_style: The prose style to use for the reminder
+            tone: The story's tone (e.g., 'lighthearted', 'dark', 'mysterious')
             
         Returns:
             The task instruction text with variables substituted
@@ -624,8 +639,9 @@ Write approximately {scene_length_description} in length.
         scene_base = self._prompts_cache.get("scene_base", {})
         instruction = scene_base.get("task_chapter_conclusion", "").strip()
         
-        # Get prose style reminder
+        # Get prose style reminder and tone reminder
         prose_style_reminder = self.get_prose_style_reminder(prose_style)
+        tone_reminder = self.get_tone_reminder(tone)
         
         if not instruction:
             # Fallback if template not found
@@ -642,6 +658,7 @@ Create a chapter conclusion that brings Chapter {chapter_number} to a natural an
 Write ONLY the narrative content. Do not include any choices, options, or questions for the reader.
 
 {prose_style_reminder}
+{tone_reminder}
 
 Chapter Conclusion:"""
         else:
@@ -652,7 +669,8 @@ Chapter Conclusion:"""
                 chapter_location=chapter_location,
                 chapter_time_period=chapter_time_period,
                 chapter_scenario=chapter_scenario,
-                prose_style_reminder=prose_style_reminder
+                prose_style_reminder=prose_style_reminder,
+                tone_reminder=tone_reminder
             )
         
         return instruction
@@ -742,6 +760,27 @@ Chapter Conclusion:"""
             reminder = balanced_config.get("task_reminder", "").strip()
         
         return reminder
+    
+    def get_tone_reminder(self, tone: str = None) -> str:
+        """
+        Get tone reminder for task instructions.
+        
+        This creates a short reminder about the story's tone that's injected 
+        into the final user message (task instruction).
+        
+        Args:
+            tone: The story's tone (e.g., 'lighthearted', 'dark', 'mysterious')
+            
+        Returns:
+            The tone reminder text, or empty string if no tone specified
+        """
+        if not tone:
+            return ""
+        
+        # Capitalize first letter for display
+        tone_display = tone.capitalize()
+        
+        return f"TONE: Maintain a {tone_display} tone throughout the scene."
     
     def get_all_prose_styles(self) -> list:
         """
