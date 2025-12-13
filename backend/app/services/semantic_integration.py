@@ -9,6 +9,7 @@ import logging
 from typing import Optional, Dict, Any, List, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import or_
 from datetime import datetime
 
 from .semantic_context_manager import SemanticContextManager, create_semantic_context_manager
@@ -1075,11 +1076,14 @@ async def batch_process_scene_extractions(
             Scene.is_deleted == False
         )
         if branch_id:
-            active_flow_query = active_flow_query.filter(StoryFlow.branch_id == branch_id)
+            active_flow_query = active_flow_query.filter(or_(
+                StoryFlow.branch_id == branch_id,
+                StoryFlow.branch_id.is_(None)
+            ))
         active_scenes_in_chapter = active_flow_query.count()
         logger.warning(f"[EXTRACTION] Active scenes in chapter+range (via StoryFlow): {active_scenes_in_chapter}")
         
-        # Get all scenes in the chapter within the sequence range
+        # Get all scenes in the chapter within the sequence range (including NULL branch_id for shared scenes)
         # Try querying via StoryFlow first (to match how scenes_count is calculated)
         flow_query = db.query(Scene).join(StoryFlow).filter(
             StoryFlow.story_id == story_id,
@@ -1090,10 +1094,13 @@ async def batch_process_scene_extractions(
             Scene.is_deleted == False
         )
         if branch_id:
-            flow_query = flow_query.filter(StoryFlow.branch_id == branch_id)
+            flow_query = flow_query.filter(or_(
+                StoryFlow.branch_id == branch_id,
+                StoryFlow.branch_id.is_(None)
+            ))
         scenes_via_flow = flow_query.order_by(Scene.sequence_number).all()
         
-        # Fallback to direct Scene query if StoryFlow query returns nothing
+        # Fallback to direct Scene query if StoryFlow query returns nothing (including NULL branch_id for shared scenes)
         if not scenes_via_flow:
             logger.warning(f"[EXTRACTION] StoryFlow query returned no scenes, trying direct Scene query")
             scene_query = db.query(Scene).filter(
@@ -1104,7 +1111,10 @@ async def batch_process_scene_extractions(
                 Scene.is_deleted == False
             )
             if branch_id:
-                scene_query = scene_query.filter(Scene.branch_id == branch_id)
+                scene_query = scene_query.filter(or_(
+                    Scene.branch_id == branch_id,
+                    Scene.branch_id.is_(None)
+                ))
             scenes = scene_query.order_by(Scene.sequence_number).all()
         else:
             scenes = scenes_via_flow
@@ -1129,7 +1139,10 @@ async def batch_process_scene_extractions(
                     StoryFlow.is_active == True
                 )
                 if branch_id:
-                    flow_query = flow_query.filter(StoryFlow.branch_id == branch_id)
+                    flow_query = flow_query.filter(or_(
+                        StoryFlow.branch_id == branch_id,
+                        StoryFlow.branch_id.is_(None)
+                    ))
                 flow_entry = flow_query.first()
                 
                 if not flow_entry or not flow_entry.scene_variant_id:

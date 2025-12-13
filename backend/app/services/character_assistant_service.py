@@ -10,7 +10,7 @@ import json
 import re
 from typing import Dict, Any, List, Optional, Tuple
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, desc, func
+from sqlalchemy import and_, desc, func, or_
 from ..models import (
     Character, StoryCharacter, Scene, SceneVariant, Chapter, Story
 )
@@ -607,13 +607,16 @@ class CharacterAssistantService:
         """Get the active variant for a scene."""
         from ..models import StoryFlow
         
-        # Try to get active variant from StoryFlow first
+        # Try to get active variant from StoryFlow first (including NULL branch_id for shared scenes)
         flow_query = db.query(StoryFlow).filter(
             StoryFlow.scene_id == scene_id,
             StoryFlow.is_active == True
         )
         if branch_id:
-            flow_query = flow_query.filter(StoryFlow.branch_id == branch_id)
+            flow_query = flow_query.filter(or_(
+                StoryFlow.branch_id == branch_id,
+                StoryFlow.branch_id.is_(None)
+            ))
         flow = flow_query.first()
         
         if flow and flow.scene_variant_id:
@@ -766,7 +769,7 @@ class CharacterAssistantService:
                         scene_id = result.get('scene_id')
                         scene = db.query(Scene).filter(Scene.id == scene_id).first()
                         # Filter by branch
-                        if scene and (branch_id is None or scene.branch_id == branch_id):
+                        if scene and (branch_id is None or scene.branch_id == branch_id or scene.branch_id is None):
                             variant = self._get_active_variant(db, scene.id, branch_id=branch_id)
                             if variant and variant.content:
                                 # Verify character is actually mentioned
@@ -783,7 +786,7 @@ class CharacterAssistantService:
         except Exception as e:
             logger.warning(f"Semantic search failed, falling back to text search: {e}")
         
-        # Fallback: text search but limit results to avoid timeouts
+        # Fallback: text search but limit results to avoid timeouts (including NULL branch_id for shared scenes)
         scenes = []
         scene_query = db.query(Scene).filter(
             and_(
@@ -792,7 +795,10 @@ class CharacterAssistantService:
             )
         )
         if branch_id:
-            scene_query = scene_query.filter(Scene.branch_id == branch_id)
+            scene_query = scene_query.filter(or_(
+                Scene.branch_id == branch_id,
+                Scene.branch_id.is_(None)
+            ))
         story_scenes = scene_query.order_by(Scene.sequence_number).all()
         
         for scene in story_scenes:
