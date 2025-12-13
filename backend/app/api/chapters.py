@@ -1111,6 +1111,10 @@ async def get_chapter_context_status(
                 logger.info(f"[CONTEXT STATUS] Chapter {chapter_id} has no context tokens yet (new chapter or no scenes)")
     except Exception as e:
         logger.error(f"[CONTEXT STATUS] Failed to recalculate context size for chapter {chapter_id}: {e}", exc_info=True)
+        # Rollback failed transaction to reset session state (prevents PendingRollbackError cascade)
+        db.rollback()
+        # Refresh chapter from DB after rollback to get clean state
+        db.refresh(chapter)
         # Fallback to stored value if calculation fails
         if chapter.context_tokens_used and chapter.context_tokens_used > 0:
             current_tokens = chapter.context_tokens_used

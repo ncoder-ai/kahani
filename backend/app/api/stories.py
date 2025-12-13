@@ -3834,22 +3834,13 @@ async def restore_entity_states_in_background(
             last_remaining_scene = last_remaining_scene_query.order_by(Scene.sequence_number.desc()).first()
             
             if last_remaining_scene:
-                batch_threshold = user_settings.get("context_summary_threshold", 5)
-                last_sequence = last_remaining_scene.sequence_number
-                is_complete_batch = (last_sequence % batch_threshold) == 0
-                
-                if is_complete_batch:
-                    # Complete batch - recalculate (will re-extract)
-                    await entity_service.recalculate_entity_states_from_batches(
-                        bg_db, story_id, user_id, user_settings, max_deleted_seq, branch_id=branch_id
-                    )
-                    logger.info(f"[DELETE-BG] Recalculated entity states (complete batch) for story {story_id}, branch {branch_id}")
-                else:
-                    # Incomplete batch - only restore, don't re-extract
-                    entity_service.restore_from_last_complete_batch(
-                        bg_db, story_id, max_deleted_seq, branch_id=branch_id
-                    )
-                    logger.info(f"[DELETE-BG] Restored entity states from last complete batch (incomplete batch remains) for story {story_id}, branch {branch_id}")
+                # Always restore from last complete batch - no re-extraction needed
+                # Scenes already had their entities extracted before deletion, and batch
+                # snapshots contain the correct state at that point in time
+                entity_service.restore_from_last_complete_batch(
+                    bg_db, story_id, max_deleted_seq, branch_id=branch_id
+                )
+                logger.info(f"[DELETE-BG] Restored entity states from last complete batch for story {story_id}, branch {branch_id}")
             else:
                 # No remaining scenes - just clear entity states for this branch
                 from ..models import CharacterState, LocationState, ObjectState
