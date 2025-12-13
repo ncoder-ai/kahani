@@ -483,15 +483,43 @@ class SemanticContextManager(ContextManager):
                 # No chapter specified - treat all as active
                 active_characters.append(char_data)
         
-        # Add important NPCs that crossed threshold (always as active)
+        # Add important NPCs with tiered recency-based inclusion
         try:
             from .npc_tracking_service import NPCTrackingService
             npc_service = NPCTrackingService(user_id=self.user_id, user_settings=self.user_settings)
-            npc_characters = npc_service.get_important_npcs_for_context(db, story_id, branch_id=branch_id)
-            active_characters.extend(npc_characters)
-            logger.warning(f"[CONTEXT BUILD] Added {len(npc_characters)} important NPCs to context (total characters now: {len(active_characters)})")
-            if npc_characters:
-                logger.warning(f"[CONTEXT BUILD] NPCs added: {[npc.get('name', 'Unknown') for npc in npc_characters]}")
+            
+            # Get current scene sequence for recency calculation
+            # Query the latest scene for this story
+            from sqlalchemy import desc
+            latest_scene = db.query(Scene).filter(
+                Scene.story_id == story_id,
+                Scene.is_deleted == False
+            ).order_by(desc(Scene.sequence_number)).first()
+            current_scene_sequence = latest_scene.sequence_number if latest_scene else 0
+            
+            # Get tiered NPCs (active with full details, inactive with brief mention)
+            tiered_npcs = npc_service.get_tiered_npcs_for_context(
+                db=db,
+                story_id=story_id,
+                current_scene_sequence=current_scene_sequence,
+                chapter_id=chapter_id,
+                branch_id=branch_id
+            )
+            
+            active_npc_characters = tiered_npcs.get("active_npcs", [])
+            inactive_npc_characters = tiered_npcs.get("inactive_npcs", [])
+            
+            # Add active NPCs to active characters
+            active_characters.extend(active_npc_characters)
+            
+            # Add inactive NPCs to inactive characters
+            inactive_characters.extend(inactive_npc_characters)
+            
+            logger.info(f"[SEMANTIC CONTEXT BUILD] Added {len(active_npc_characters)} active NPCs and {len(inactive_npc_characters)} inactive NPCs to context")
+            if active_npc_characters:
+                logger.info(f"[SEMANTIC CONTEXT BUILD] Active NPCs: {[npc.get('name', 'Unknown') for npc in active_npc_characters]}")
+            if inactive_npc_characters:
+                logger.info(f"[SEMANTIC CONTEXT BUILD] Inactive NPCs: {[npc.get('name', 'Unknown') for npc in inactive_npc_characters]}")
         except Exception as e:
             logger.warning(f"Failed to include NPCs in context: {e}")
         

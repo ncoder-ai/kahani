@@ -974,20 +974,30 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
         self,
         db: Session,
         story_id: int,
-        tracking: NPCTracking
+        tracking: NPCTracking,
+        apply_recency_factor: bool = True
     ):
         """
         Calculate importance score (0-100 scale):
         - More mentions = higher score
         - More scenes = higher score
         - Dialogue/actions boost score
+        - Optional recency factor that decays score for NPCs not seen recently
         
         Formula: 
         - Base score (0-70): mention count + scene coverage
         - Significance bonus (0-30): dialogue + actions
+        - Recency factor (optional): multiplier based on scenes since last appearance
+        
+        Args:
+            db: Database session
+            story_id: Story ID
+            tracking: NPCTracking record to update
+            apply_recency_factor: If True, apply recency decay to the score
         """
         try:
             import math
+            from sqlalchemy import desc
             
             # Get total scenes in story (excluding deleted)
             total_scenes = db.query(Scene).filter(
@@ -1044,8 +1054,48 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
             
             tracking.significance_score = significance_score
             
-            # COMBINED SCORE (0-100)
-            tracking.importance_score = min(frequency_score + significance_score, 100.0)
+            # BASE COMBINED SCORE (0-100)
+            base_score = min(frequency_score + significance_score, 100.0)
+            
+            # RECENCY FACTOR (optional): Apply decay for NPCs not seen recently
+            # This makes NPCs naturally "fade" if they haven't appeared, but preserves
+            # their base importance so they can quickly regain prominence if they reappear
+            if apply_recency_factor and tracking.last_appearance_scene is not None:
+                # Get current scene sequence
+                latest_scene = db.query(Scene).filter(
+                    Scene.story_id == story_id,
+                    Scene.is_deleted == False
+                ).order_by(desc(Scene.sequence_number)).first()
+                
+                if latest_scene:
+                    current_scene = latest_scene.sequence_number
+                    scenes_since_appearance = current_scene - (tracking.last_appearance_scene or 0)
+                    
+                    # Use inactive_recency_window as the decay window
+                    # NPCs within this window get full score, beyond it they decay
+                    decay_window = self.user_settings.get("npc_inactive_recency_window", 
+                                                          settings.npc_inactive_recency_window)
+                    
+                    if scenes_since_appearance <= decay_window:
+                        # Within window - no decay
+                        recency_factor = 1.0
+                    else:
+                        # Beyond window - apply gradual decay
+                        # Score decays to minimum of 30% over additional decay_window scenes
+                        excess_scenes = scenes_since_appearance - decay_window
+                        decay_rate = min(excess_scenes / decay_window, 1.0)  # 0 to 1
+                        recency_factor = max(0.3, 1.0 - (decay_rate * 0.7))  # Decays from 1.0 to 0.3
+                    
+                    # Apply recency factor
+                    tracking.importance_score = base_score * recency_factor
+                    
+                    if recency_factor < 1.0:
+                        logger.debug(f"NPC '{tracking.character_name}': base_score={base_score:.1f}, "
+                                   f"recency_factor={recency_factor:.2f}, final_score={tracking.importance_score:.1f}")
+                else:
+                    tracking.importance_score = base_score
+            else:
+                tracking.importance_score = base_score
             
         except Exception as e:
             logger.error(f"Failed to calculate importance score: {e}")
@@ -1483,6 +1533,9 @@ Return ONLY the JSON, no other text."""
         """
         Get most important NPCs formatted for context inclusion.
         
+        DEPRECATED: Use get_tiered_npcs_for_context() for recency-aware NPC inclusion.
+        This method is kept for backward compatibility and returns all threshold-crossing NPCs.
+        
         Returns format compatible with explicit character format.
         Only includes NPCs that have crossed threshold, ordered by importance score.
         Excludes NPCs that have been converted to explicit characters.
@@ -1496,6 +1549,47 @@ Return ONLY the JSON, no other text."""
         Returns:
             List of NPCs formatted as characters, sorted by importance (most important first)
         """
+        # Delegate to tiered method and return only active NPCs for backward compatibility
+        result = self.get_tiered_npcs_for_context(
+            db=db,
+            story_id=story_id,
+            current_scene_sequence=None,  # No recency filtering
+            chapter_id=None,
+            limit=limit,
+            branch_id=branch_id
+        )
+        return result.get("active_npcs", [])
+    
+    def get_tiered_npcs_for_context(
+        self,
+        db: Session,
+        story_id: int,
+        current_scene_sequence: Optional[int] = None,
+        chapter_id: Optional[int] = None,
+        limit: int = 10,
+        branch_id: int = None
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Get NPCs formatted for context inclusion with tiered recency-based filtering.
+        
+        Returns NPCs in three tiers based on recency:
+        - TIER 1 (Active): Appeared in last N scenes OR in current chapter - full details
+        - TIER 2 (Inactive): Appeared in last M scenes but not Tier 1 - brief mention (name + role)
+        - TIER 3 (Dormant): Haven't appeared in last M scenes - excluded from context
+        
+        Args:
+            db: Database session
+            story_id: Story ID
+            current_scene_sequence: Current scene sequence number for recency calculation
+            chapter_id: Current chapter ID for chapter-awareness
+            limit: Maximum number of NPCs per tier (default: 10)
+            branch_id: Optional branch ID for filtering
+            
+        Returns:
+            Dictionary with:
+            - active_npcs: List of NPCs with full details (Tier 1)
+            - inactive_npcs: List of NPCs with brief details (Tier 2)
+        """
         try:
             from sqlalchemy import desc
             
@@ -1503,61 +1597,112 @@ Return ONLY the JSON, no other text."""
             if branch_id is None:
                 branch_id = self._get_active_branch_id(db, story_id)
             
-            # Log threshold being used
-            logger.warning(f"[NPC CONTEXT] Importance threshold: {self.importance_threshold}")
+            # Get recency window settings from user settings or config defaults
+            active_window = self.user_settings.get("npc_active_recency_window", settings.npc_active_recency_window)
+            inactive_window = self.user_settings.get("npc_inactive_recency_window", settings.npc_inactive_recency_window)
+            use_chapter_awareness = self.user_settings.get("npc_use_chapter_awareness", settings.npc_use_chapter_awareness)
             
-            # Get ALL NPCs for this story/branch to show what's available
-            all_query = db.query(NPCTracking).filter(
-                NPCTracking.story_id == story_id,
-                NPCTracking.converted_to_character == False
-            )
-            if branch_id:
-                all_query = all_query.filter(NPCTracking.branch_id == branch_id)
-            all_npcs = all_query.order_by(desc(NPCTracking.importance_score)).all()
+            # If no current scene sequence provided, get the latest scene sequence
+            if current_scene_sequence is None:
+                latest_scene = db.query(Scene).filter(
+                    Scene.story_id == story_id,
+                    Scene.is_deleted == False
+                ).order_by(desc(Scene.sequence_number)).first()
+                current_scene_sequence = latest_scene.sequence_number if latest_scene else 0
             
-            # Log all NPCs with their scores and threshold status
-            logger.warning(f"[NPC CONTEXT] Total NPCs in story (branch {branch_id}): {len(all_npcs)}")
-            for npc in all_npcs:
-                threshold_status = "✓ CROSSED" if npc.crossed_threshold else "✗ BELOW"
-                logger.warning(f"[NPC CONTEXT]   - {npc.character_name}: importance_score={npc.importance_score:.2f}, threshold={self.importance_threshold:.2f}, status={threshold_status}")
+            # Get NPCs in current chapter (if chapter awareness is enabled)
+            chapter_npc_names = set()
+            if use_chapter_awareness and chapter_id:
+                # Get all scenes in this chapter
+                chapter_scenes = db.query(Scene).filter(
+                    Scene.chapter_id == chapter_id,
+                    Scene.is_deleted == False
+                ).all()
+                chapter_scene_ids = [s.id for s in chapter_scenes]
+                
+                # Get NPCs that appear in any of these scenes
+                if chapter_scene_ids:
+                    chapter_mentions = db.query(NPCMention.character_name).filter(
+                        NPCMention.scene_id.in_(chapter_scene_ids)
+                    ).distinct().all()
+                    chapter_npc_names = {m[0].lower() for m in chapter_mentions}
             
-            # Get NPCs that crossed threshold, ordered by importance score (most important first)
+            # Log configuration
+            logger.info(f"[NPC TIERED] Config: active_window={active_window}, inactive_window={inactive_window}, "
+                       f"chapter_awareness={use_chapter_awareness}, current_scene={current_scene_sequence}")
+            
+            # Get ALL NPCs that crossed threshold for this story/branch
             npcs_query = db.query(NPCTracking).filter(
                 NPCTracking.story_id == story_id,
                 NPCTracking.crossed_threshold == True,
-                NPCTracking.converted_to_character == False  # Exclude converted NPCs
+                NPCTracking.converted_to_character == False
             )
             if branch_id:
                 npcs_query = npcs_query.filter(NPCTracking.branch_id == branch_id)
-            npcs = npcs_query.order_by(desc(NPCTracking.importance_score)).limit(limit).all()
+            all_npcs = npcs_query.order_by(desc(NPCTracking.importance_score)).all()
             
-            logger.warning(f"[NPC CONTEXT] NPCs that crossed threshold: {len(npcs)} (limit: {limit})")
+            logger.info(f"[NPC TIERED] Total NPCs that crossed threshold: {len(all_npcs)}")
             
-            characters = []
-            for npc in npcs:
-                profile = npc.extracted_profile or {}
+            # Categorize NPCs into tiers
+            active_npcs = []
+            inactive_npcs = []
+            dormant_count = 0
+            
+            for npc in all_npcs:
+                last_appearance = npc.last_appearance_scene or 0
+                scenes_since_appearance = current_scene_sequence - last_appearance
                 
-                # Format as character for context
-                character = {
-                    "name": npc.character_name,
-                    "role": profile.get("role", "NPC"),
-                    "description": profile.get("description", ""),
-                    "personality": ", ".join(profile.get("personality", [])),
-                    "background": profile.get("background", ""),
-                    "goals": profile.get("goals", ""),
-                    "relationships": profile.get("relationships", {})
-                }
+                # Check if NPC is in current chapter
+                in_current_chapter = npc.character_name.lower() in chapter_npc_names
                 
-                characters.append(character)
-                logger.warning(f"[NPC CONTEXT]   INCLUDED: {npc.character_name} (score: {npc.importance_score:.2f})")
+                # Determine tier
+                is_active = False
+                is_inactive = False
+                
+                # Tier 1: Active - appeared recently OR in current chapter
+                if scenes_since_appearance <= active_window or in_current_chapter:
+                    is_active = True
+                # Tier 2: Inactive - appeared within inactive window but not active
+                elif scenes_since_appearance <= inactive_window:
+                    is_inactive = True
+                # Tier 3: Dormant - excluded
+                else:
+                    dormant_count += 1
+                
+                tier_label = "ACTIVE" if is_active else ("INACTIVE" if is_inactive else "DORMANT")
+                chapter_note = " (in chapter)" if in_current_chapter else ""
+                logger.debug(f"[NPC TIERED]   {npc.character_name}: last_scene={last_appearance}, "
+                           f"scenes_ago={scenes_since_appearance}, tier={tier_label}{chapter_note}")
+                
+                if is_active and len(active_npcs) < limit:
+                    profile = npc.extracted_profile or {}
+                    active_npcs.append({
+                        "name": npc.character_name,
+                        "role": profile.get("role", "NPC"),
+                        "description": profile.get("description", ""),
+                        "personality": ", ".join(profile.get("personality", [])),
+                        "background": profile.get("background", ""),
+                        "goals": profile.get("goals", ""),
+                        "relationships": profile.get("relationships", {})
+                    })
+                elif is_inactive and len(inactive_npcs) < limit:
+                    profile = npc.extracted_profile or {}
+                    inactive_npcs.append({
+                        "name": npc.character_name,
+                        "role": profile.get("role", "NPC")
+                    })
             
-            if len(characters) == 0:
-                logger.warning(f"[NPC CONTEXT] No NPCs included in context - check if any NPCs have crossed threshold ({self.importance_threshold})")
+            logger.info(f"[NPC TIERED] Result: {len(active_npcs)} active, {len(inactive_npcs)} inactive, "
+                       f"{dormant_count} dormant (excluded)")
             
-            logger.warning(f"[NPC CONTEXT] Returning {len(characters)} NPCs for context inclusion")
-            return characters
+            return {
+                "active_npcs": active_npcs,
+                "inactive_npcs": inactive_npcs
+            }
             
         except Exception as e:
-            logger.error(f"Failed to get NPCs for context: {e}")
-            return []
+            logger.error(f"Failed to get tiered NPCs for context: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return {"active_npcs": [], "inactive_npcs": []}
 

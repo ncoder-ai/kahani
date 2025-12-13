@@ -121,6 +121,9 @@ def flatten_yaml_config(yaml_config: dict) -> dict:
     flattened['npc_importance_threshold'] = npc.get('importance_threshold')
     flattened['npc_auto_extract_profile'] = npc.get('auto_extract_profile')
     flattened['npc_prompt_user'] = npc.get('prompt_user')
+    flattened['npc_active_recency_window'] = npc.get('active_recency_window', 5)
+    flattened['npc_inactive_recency_window'] = npc.get('inactive_recency_window', 15)
+    flattened['npc_use_chapter_awareness'] = npc.get('use_chapter_awareness', True)
     
     # CORS
     cors = yaml_config.get('cors', {})
@@ -245,6 +248,9 @@ class Settings(BaseSettings):
     npc_importance_threshold: float
     npc_auto_extract_profile: bool
     npc_prompt_user: bool
+    npc_active_recency_window: int  # Scenes for Tier 1 (full details)
+    npc_inactive_recency_window: int  # Scenes for Tier 2 (brief mention)
+    npc_use_chapter_awareness: bool  # NPCs in current chapter always active
     
     # CORS
     cors_origins: str
