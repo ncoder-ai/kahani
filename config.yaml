@@ -138,6 +138,10 @@ npc_tracking:
   importance_threshold: 1.0
   auto_extract_profile: true
   prompt_user: false
+  # Recency-based NPC inclusion settings
+  active_recency_window: 5       # Scenes - NPCs seen within this window get full details
+  inactive_recency_window: 15    # Scenes - NPCs seen within this window get brief mention
+  use_chapter_awareness: true    # NPCs appearing in current chapter are always active
 
 # ----------------------------------------------------------------------------
 # SPEECH-TO-TEXT (STT)
