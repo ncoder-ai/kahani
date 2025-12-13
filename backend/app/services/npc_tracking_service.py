@@ -759,10 +759,13 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
         """
         from difflib import SequenceMatcher
         
-        # Get all existing NPCs for this story (filtered by branch)
+        # Get all existing NPCs for this story (filtered by branch, including NULL branch_id for shared NPCs)
         npc_query = db.query(NPCTracking).filter(NPCTracking.story_id == story_id)
         if branch_id:
-            npc_query = npc_query.filter(NPCTracking.branch_id == branch_id)
+            npc_query = npc_query.filter(or_(
+                NPCTracking.branch_id == branch_id,
+                NPCTracking.branch_id.is_(None)
+            ))
         existing_npcs = npc_query.all()
         
         name_lower = character_name.lower().strip()
@@ -825,7 +828,10 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
                 NPCTracking.character_name == character_name
             )
             if branch_id:
-                track_query = track_query.filter(NPCTracking.branch_id == branch_id)
+                track_query = track_query.filter(or_(
+                    NPCTracking.branch_id == branch_id,
+                    NPCTracking.branch_id.is_(None)
+                ))
             tracking = track_query.first()
             
             if not tracking:
@@ -925,10 +931,13 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
             branch_id: Optional branch ID for filtering
         """
         try:
-            # Get all current NPC tracking records for this story (filtered by branch)
+            # Get all current NPC tracking records for this story (filtered by branch, including NULL branch_id for shared NPCs)
             npc_query = db.query(NPCTracking).filter(NPCTracking.story_id == story_id)
             if branch_id:
-                npc_query = npc_query.filter(NPCTracking.branch_id == branch_id)
+                npc_query = npc_query.filter(or_(
+                    NPCTracking.branch_id == branch_id,
+                    NPCTracking.branch_id.is_(None)
+                ))
             all_npcs = npc_query.all()
             
             # Build snapshot data
@@ -1343,9 +1352,12 @@ Return ONLY the JSON, no other text."""
                 NPCTracking.importance_score >= min_importance
             )
             
-            # Filter by branch if specified
+            # Filter by branch if specified (including NULL branch_id for shared NPCs)
             if branch_id:
-                query = query.filter(NPCTracking.branch_id == branch_id)
+                query = query.filter(or_(
+                    NPCTracking.branch_id == branch_id,
+                    NPCTracking.branch_id.is_(None)
+                ))
             
             # Add entity_type filter if column exists in database
             # Check if column exists by inspecting the table
@@ -1637,14 +1649,17 @@ Return ONLY the JSON, no other text."""
             logger.info(f"[NPC TIERED] Config: active_window={active_window}, inactive_window={inactive_window}, "
                        f"chapter_awareness={use_chapter_awareness}, current_scene={current_scene_sequence}")
             
-            # Get ALL NPCs that crossed threshold for this story/branch
+            # Get ALL NPCs that crossed threshold for this story/branch (including NULL branch_id for shared NPCs)
             npcs_query = db.query(NPCTracking).filter(
                 NPCTracking.story_id == story_id,
                 NPCTracking.crossed_threshold == True,
                 NPCTracking.converted_to_character == False
             )
             if branch_id:
-                npcs_query = npcs_query.filter(NPCTracking.branch_id == branch_id)
+                npcs_query = npcs_query.filter(or_(
+                    NPCTracking.branch_id == branch_id,
+                    NPCTracking.branch_id.is_(None)
+                ))
             all_npcs = npcs_query.order_by(desc(NPCTracking.importance_score)).all()
             
             logger.info(f"[NPC TIERED] Total NPCs that crossed threshold: {len(all_npcs)}")
