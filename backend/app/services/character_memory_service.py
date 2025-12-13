@@ -8,6 +8,7 @@ for maintaining character consistency across long narratives.
 import logging
 import re
 import json
+import asyncio
 from typing import List, Dict, Any, Optional, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -824,7 +825,7 @@ If no moments found, return {{"moments": []}}. Return ONLY the JSON, no other te
             logger.error(f"Failed to get character relationships: {e}")
             return []
     
-    def delete_character_moments(self, scene_id: int, db: Session):
+    async def delete_character_moments(self, scene_id: int, db: Session):
         """
         Delete all character moments for a scene
         
@@ -842,7 +843,9 @@ If no moments found, return {{"moments": []}}. Return ONLY the JSON, no other te
                 for moment in moments:
                     try:
                         # Delete embedding from ChromaDB using embedding_id
-                        self.semantic_memory.character_moments_collection.delete(
+                        # Wrap in asyncio.to_thread to avoid blocking the event loop
+                        await asyncio.to_thread(
+                            self.semantic_memory.character_moments_collection.delete,
                             ids=[moment.embedding_id]
                         )
                         logger.debug(f"Deleted character moment embedding {moment.embedding_id} from ChromaDB")

@@ -1300,12 +1300,12 @@ async def cleanup_scene_embeddings(scene_id: int, db: Session):
         plot_service = get_plot_thread_service()
         semantic_memory = get_semantic_memory_service()
         
-        # Delete character moments
-        char_service.delete_character_moments(scene_id, db)
+        # Delete character moments (async to avoid blocking event loop)
+        await char_service.delete_character_moments(scene_id, db)
         logger.debug(f"[CLEANUP] Deleted character moments for scene {scene_id}")
         
-        # Delete plot events
-        plot_service.delete_plot_events(scene_id, db)
+        # Delete plot events (async to avoid blocking event loop)
+        await plot_service.delete_plot_events(scene_id, db)
         logger.debug(f"[CLEANUP] Deleted plot events for scene {scene_id}")
         
         # Delete NPC mentions

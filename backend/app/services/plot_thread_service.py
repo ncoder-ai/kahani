@@ -9,6 +9,7 @@ import logging
 import re
 import json
 import hashlib
+import asyncio
 from typing import List, Dict, Any, Optional, Tuple
 from sqlalchemy.orm import Session
 from datetime import datetime
@@ -1070,7 +1071,7 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
             logger.error(f"Failed to get plot timeline: {e}")
             return []
     
-    def delete_plot_events(self, scene_id: int, db: Session):
+    async def delete_plot_events(self, scene_id: int, db: Session):
         """
         Delete all plot events for a scene
         
@@ -1088,7 +1089,9 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
                 for event in events:
                     try:
                         # Delete embedding from ChromaDB using embedding_id
-                        self.semantic_memory.plot_events_collection.delete(
+                        # Wrap in asyncio.to_thread to avoid blocking the event loop
+                        await asyncio.to_thread(
+                            self.semantic_memory.plot_events_collection.delete,
                             ids=[event.embedding_id]
                         )
                         logger.debug(f"Deleted plot event embedding {event.embedding_id} from ChromaDB")
