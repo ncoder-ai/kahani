@@ -390,14 +390,21 @@ class SemanticContextManager(ContextManager):
             else:
                 logger.info("[SEMANTIC CONTEXT] summary_content was filtered to empty, not adding to context")
         
-        if entity_states_content:
-            context_parts.append(f"\n{entity_states_content}")
+        # Build combined "Relevant Context" section (semantic events + entity states)
+        # This section is placed immediately before Recent Scenes for maximum recency emphasis
+        relevant_context_parts = []
         
         if semantic_content:
-            context_parts.append(f"\nRelevant Past Events:\n{semantic_content}")
+            relevant_context_parts.append(f"Relevant Past Events:\n{semantic_content}")
         
         if character_content:
-            context_parts.append(f"\nCharacter Context:\n{character_content}")
+            relevant_context_parts.append(f"Character Context:\n{character_content}")
+        
+        if entity_states_content:
+            relevant_context_parts.append(entity_states_content)
+        
+        if relevant_context_parts:
+            context_parts.append(f"\nRelevant Context:\n" + "\n\n".join(relevant_context_parts))
         
         context_parts.append(f"\nRecent Scenes:\n{combined_recent_content}")
         
@@ -1098,51 +1105,79 @@ class SemanticContextManager(ContextManager):
                             used_tokens += loc_tokens
             
             # Object States (if tokens available)
-            # Filter to only show CURRENT objects (recently updated or possessed by characters)
+            # STRICT FILTERING: Only include objects that are highly relevant to current scene
+            # This prevents LLM fixation on objects mentioned long ago
             if object_states and used_tokens < token_budget * 0.9:
-                # Filter objects by recency and current ownership
+                # Collect current character locations for location-based object matching
+                current_character_locations = set()
+                
+                # Get locations from character states
+                for char_state in character_states:
+                    if char_state.current_location:
+                        current_character_locations.add(char_state.current_location.lower())
+                
+                # Also add current locations from location states (those with occupants)
+                for loc_state in location_states:
+                    if loc_state.current_occupants and len(loc_state.current_occupants) > 0:
+                        if loc_state.location_name:
+                            current_character_locations.add(loc_state.location_name.lower())
+                
+                # Apply STRICT object filtering - must meet at least one criterion:
+                # 1. Currently owned/held by a character
+                # 2. Updated in the last 3 scenes (very recent interaction)
+                # 3. In the same location where characters are currently present
+                OBJECT_RECENCY_WINDOW = 3  # Much tighter than general recency window
                 filtered_objects = []
                 
                 for obj_state in object_states:
                     include = False
+                    include_reason = None
                     
-                    # Check if object was updated recently (within recency window)
-                    if current_scene_sequence is not None and obj_state.last_updated_scene is not None:
-                        scene_age = current_scene_sequence - obj_state.last_updated_scene
-                        if scene_age <= self.location_recency_window:
-                            include = True
-                    
-                    # Always include if possessed by a character (active object)
+                    # Criterion 1: Currently owned/held by a character (highest priority)
                     if obj_state.current_owner_id:
                         include = True
+                        include_reason = "owned"
+                    
+                    # Criterion 2: Updated very recently (within 3 scenes)
+                    elif current_scene_sequence is not None and obj_state.last_updated_scene is not None:
+                        scene_age = current_scene_sequence - obj_state.last_updated_scene
+                        if scene_age <= OBJECT_RECENCY_WINDOW:
+                            include = True
+                            include_reason = f"recent (age={scene_age})"
+                    
+                    # Criterion 3: In the same location as current characters
+                    if not include and obj_state.current_location:
+                        obj_location_lower = obj_state.current_location.lower()
+                        if obj_location_lower in current_character_locations:
+                            include = True
+                            include_reason = "same_location"
                     
                     if include:
-                        filtered_objects.append(obj_state)
+                        filtered_objects.append((obj_state, include_reason))
+                        logger.debug(f"[ENTITY STATES] Including object '{obj_state.object_name}': {include_reason}")
                 
-                # Limit to 2-3 most recently relevant objects
+                # Limit to 3 most relevant objects
                 filtered_objects = filtered_objects[:3]
                 
                 if filtered_objects:
-                    entity_parts.append("\n\nNotable Objects:")
-                    for obj_state in filtered_objects:
-                        obj_text = f"\n{obj_state.object_name}:"
-                        
-                        if obj_state.current_location:
-                            obj_text += f"\n  Location: {obj_state.current_location}"
-                        
-                        # Include owner if available
+                    entity_parts.append("\n\nActive Objects:")
+                    for obj_state, reason in filtered_objects:
+                        # Minimal format to reduce object prominence
+                        # Just name + owner OR location, no condition/significance
                         if obj_state.current_owner_id and db:
                             try:
-                                from ..models import Character
                                 owner = db.query(Character).filter(Character.id == obj_state.current_owner_id).first()
                                 if owner:
-                                    obj_text += f"\n  Owner: {owner.name}"
+                                    obj_text = f"\n- {obj_state.object_name} (held by {owner.name})"
+                                else:
+                                    obj_text = f"\n- {obj_state.object_name}"
                             except Exception as e:
                                 logger.warning(f"Failed to fetch owner for object {obj_state.object_name}: {e}")
-                                # Continue without owner name
-                        
-                        # NOTE: condition and significance are intentionally excluded from context
-                        # to prevent interpretive/hallucinated descriptions from influencing scene generation
+                                obj_text = f"\n- {obj_state.object_name}"
+                        elif obj_state.current_location:
+                            obj_text = f"\n- {obj_state.object_name} (in {obj_state.current_location})"
+                        else:
+                            obj_text = f"\n- {obj_state.object_name}"
                         
                         obj_tokens = self.count_tokens(obj_text)
                         if used_tokens + obj_tokens > token_budget:
@@ -1150,6 +1185,8 @@ class SemanticContextManager(ContextManager):
                         
                         entity_parts.append(obj_text)
                         used_tokens += obj_tokens
+                
+                logger.info(f"[ENTITY STATES] Object filtering: {len(object_states)} total -> {len(filtered_objects)} included (char locations: {current_character_locations})")
             
             if len(entity_parts) > 0:
                 return "\n".join(entity_parts)

@@ -1071,74 +1071,93 @@ class UnifiedLLMService:
         """
         Comprehensive cleaning of LLM-generated scene content.
         Removes various junk patterns that LLMs commonly add to scenes.
+        Uses multi-pass cleaning to catch nested patterns.
         """
         if not content:
             return content
         
         original_content = content
         
-        # === HEADER/PREFIX PATTERNS (at start of content) ===
-        
-        # Scene numbers and titles: "Scene 7:", "Scene 7: The Escape", "### Scene 7 ###", "SCENE 1"
-        content = re.sub(r'^#{1,6}\s*Scene\s+\d+[^#\n]*#{0,6}\s*\n?', '', content, flags=re.IGNORECASE).strip()
-        content = re.sub(r'^Scene\s+\d+(?:\s*[:\-]\s*[^\n]*)?\s*\n', '', content, flags=re.IGNORECASE).strip()
-        
-        # Standalone numbers as titles: "7:", "7. The Beginning"
-        content = re.sub(r'^\d+[:.]\s*[A-Z][^.\n]*(\n|$)', '', content).strip()
-        
-        # Scene expansion markers: "### SCENE EXPANSION ###", "=== SCENE EXPANSION ==="
-        content = re.sub(r'^[#=\-\*]{2,}\s*SCENE\s*(?:EXPANSION|CONTINUATION|CONTENT|START|BEGIN)[^#=\-\*\n]*[#=\-\*]*\s*\n?', '', content, flags=re.IGNORECASE).strip()
-        
-        # Regenerated/Revised scene markers: "=== REGENERATED SCENE ===", "### REVISED SCENE ###"
-        # Also handles common typos like "REGNERATED" (missing first E)
-        content = re.sub(r'^[#=\-\*]{2,}\s*(?:REGE?NERATED|REVISED|UPDATED|NEW|REWRITTEN)\s*SCENE[^#=\-\*\n]*[#=\-\*]*\s*\n?', '', content, flags=re.IGNORECASE).strip()
-        
-        # Generic section markers at start: "### SCENE ###", "=== SCENE ==="
-        content = re.sub(r'^[#=\-\*]{2,}\s*SCENE\s*\d*\s*[#=\-\*]*\s*\n?', '', content, flags=re.IGNORECASE).strip()
-        
-        # "Continue scene" prefixes: "Continue scene:", "Continuing the scene:"
-        content = re.sub(r'^(?:Continue|Continuing|Continued)\s+(?:the\s+)?scene[:\s]*\n?', '', content, flags=re.IGNORECASE).strip()
-        
-        # "Here is" prefixes: "Here is the scene:", "Here's the continuation:"
-        content = re.sub(r'^Here(?:\'s|\s+is)\s+(?:the\s+)?(?:scene|continuation|next\s+part|story)[:\s]*\n?', '', content, flags=re.IGNORECASE).strip()
-        
-        # Instruction acknowledgments: "Understood, here's the scene:", "Got it. Here's the scene:"
-        content = re.sub(r'^(?:Understood|Got\s+it|Okay|Sure|Certainly)[.,!]?\s*(?:Here(?:\'s|\s+is)[^:]*:)?\s*\n?', '', content, flags=re.IGNORECASE).strip()
-        
-        # Chapter/Part markers at start: "Chapter 7:", "Part 3:"
-        content = re.sub(r'^(?:Chapter|Part)\s+\d+[:\s].*?(\n|$)', '', content, flags=re.IGNORECASE).strip()
-        
-        # === INSTRUCTION TAGS (can appear anywhere) ===
-        
-        # Llama-style instruction tags: [/inst], [inst], <<SYS>>, <</SYS>>
-        content = re.sub(r'\[/?inst\]', '', content, flags=re.IGNORECASE)
-        content = re.sub(r'<<?/?SYS>>?', '', content, flags=re.IGNORECASE)
-        
-        # Assistant/User role markers that leak through
-        content = re.sub(r'^(?:Assistant|AI|Model):\s*', '', content, flags=re.IGNORECASE | re.MULTILINE).strip()
-        
-        # === TRAILING JUNK PATTERNS ===
-        
-        # "End of scene" markers: "--- End of Scene ---", "=== END ==="
-        content = re.sub(r'\n?[#=\-\*]{2,}\s*(?:END|FIN|THE\s+END)\s*(?:OF\s+SCENE)?[^#=\-\*\n]*[#=\-\*]*\s*$', '', content, flags=re.IGNORECASE).strip()
-        
-        # "To be continued" markers
-        content = re.sub(r'\n?\s*(?:\[|\()?(?:To\s+be\s+continued|TBC|Continued\s+in\s+next\s+scene)(?:\]|\))?\s*\.?\s*$', '', content, flags=re.IGNORECASE).strip()
-        
-        # Word count annotations: "(Word count: 150)", "[~200 words]"
-        content = re.sub(r'\n?\s*(?:\[|\()?\s*(?:~?\s*\d+\s*words?|word\s*count[:\s]*\d+)\s*(?:\]|\))?\s*$', '', content, flags=re.IGNORECASE).strip()
-        
-        # === EMBEDDED METADATA (anywhere in content) ===
-        
-        # Scene numbers embedded: "### Scene 113 ###" in middle of text
-        content = re.sub(r'\n[#=\-\*]{2,}\s*SCENE\s+\d+\s*[#=\-\*]*\s*\n', '\n', content, flags=re.IGNORECASE)
-        
-        # Remove multiple consecutive blank lines (normalize to max 2)
-        content = re.sub(r'\n{3,}', '\n\n', content)
+        # Multi-pass cleaning to catch nested patterns (max 3 passes)
+        for pass_num in range(3):
+            old_content = content
+            
+            # === HEADER/PREFIX PATTERNS (at start of content) ===
+            # Order matters: most specific patterns first, most general last
+            
+            # Markdown scene headers with numbers: "### SCENE 113 ###", "## SCENE 7 ##"
+            # Must come BEFORE generic scene markers to catch specific pattern
+            content = re.sub(r'^#{1,6}\s*SCENE\s+\d+\s*#{1,6}\s*\n?', '', content, flags=re.IGNORECASE).strip()
+            
+            # Scene numbers and titles: "Scene 7:", "Scene 7: The Escape", "### Scene 7 ###", "SCENE 1"
+            content = re.sub(r'^#{1,6}\s*Scene\s+\d+[^#\n]*#{0,6}\s*\n?', '', content, flags=re.IGNORECASE).strip()
+            content = re.sub(r'^Scene\s+\d+(?:\s*[:\-]\s*[^\n]*)?\s*\n', '', content, flags=re.IGNORECASE).strip()
+            
+            # Standalone numbers as titles: "7:", "7. The Beginning"
+            content = re.sub(r'^\d+[:.]\s*[A-Z][^.\n]*(\n|$)', '', content).strip()
+            
+            # Scene response markers: "=== SCENE RESPONSE ==="
+            content = re.sub(r'^[#=\-\*]{2,}\s*SCENE\s+RESPONSE\s*[#=\-\*]*\s*\n?', '', content, flags=re.IGNORECASE).strip()
+            
+            # Scene expansion markers: "### SCENE EXPANSION ###", "=== SCENE EXPANSION ==="
+            content = re.sub(r'^[#=\-\*]{2,}\s*SCENE\s*(?:EXPANSION|CONTINUATION|CONTENT|START|BEGIN)[^#=\-\*\n]*[#=\-\*]*\s*\n?', '', content, flags=re.IGNORECASE).strip()
+            
+            # Regenerated/Revised scene markers: "=== REGENERATED SCENE ===", "### REVISED SCENE ###"
+            # Also handles typos like "REGNERATED" and makes "SCENE" word optional
+            content = re.sub(r'^[#=\-\*]{2,}\s*(?:REGE?NERATED|REVISED|UPDATED|NEW|REWRITTEN)(?:\s+SCENE)?[^#=\-\*\n]*[#=\-\*]*\s*\n?', '', content, flags=re.IGNORECASE).strip()
+            
+            # Generic section markers at start: "### SCENE ###", "=== SCENE ==="
+            content = re.sub(r'^[#=\-\*]{2,}\s*SCENE\s*\d*\s*[#=\-\*]*\s*\n?', '', content, flags=re.IGNORECASE).strip()
+            
+            # "Continue scene" prefixes: "Continue scene:", "Continuing the scene:"
+            content = re.sub(r'^(?:Continue|Continuing|Continued)\s+(?:the\s+)?scene[:\s]*\n?', '', content, flags=re.IGNORECASE).strip()
+            
+            # "Here is" prefixes: "Here is the scene:", "Here's the continuation:"
+            content = re.sub(r'^Here(?:\'s|\s+is)\s+(?:the\s+)?(?:scene|continuation|next\s+part|story)[:\s]*\n?', '', content, flags=re.IGNORECASE).strip()
+            
+            # Instruction acknowledgments: "Understood, here's the scene:", "Got it. Here's the scene:"
+            content = re.sub(r'^(?:Understood|Got\s+it|Okay|Sure|Certainly)[.,!]?\s*(?:Here(?:\'s|\s+is)[^:]*:)?\s*\n?', '', content, flags=re.IGNORECASE).strip()
+            
+            # Chapter/Part markers at start: "Chapter 7:", "Part 3:"
+            content = re.sub(r'^(?:Chapter|Part)\s+\d+[:\s].*?(\n|$)', '', content, flags=re.IGNORECASE).strip()
+            
+            # === INSTRUCTION TAGS (can appear anywhere) ===
+            
+            # Llama-style instruction tags: [/inst], [inst], <<SYS>>, <</SYS>>
+            content = re.sub(r'\[/?inst\]', '', content, flags=re.IGNORECASE)
+            content = re.sub(r'<<?/?SYS>>?', '', content, flags=re.IGNORECASE)
+            
+            # Assistant/User role markers that leak through
+            content = re.sub(r'^(?:Assistant|AI|Model):\s*', '', content, flags=re.IGNORECASE | re.MULTILINE).strip()
+            
+            # === TRAILING JUNK PATTERNS ===
+            
+            # "End of scene" markers: "--- End of Scene ---", "=== END ==="
+            content = re.sub(r'\n?[#=\-\*]{2,}\s*(?:END|FIN|THE\s+END)\s*(?:OF\s+SCENE)?[^#=\-\*\n]*[#=\-\*]*\s*$', '', content, flags=re.IGNORECASE).strip()
+            
+            # "To be continued" markers
+            content = re.sub(r'\n?\s*(?:\[|\()?(?:To\s+be\s+continued|TBC|Continued\s+in\s+next\s+scene)(?:\]|\))?\s*\.?\s*$', '', content, flags=re.IGNORECASE).strip()
+            
+            # Word count annotations: "(Word count: 150)", "[~200 words]"
+            content = re.sub(r'\n?\s*(?:\[|\()?\s*(?:~?\s*\d+\s*words?|word\s*count[:\s]*\d+)\s*(?:\]|\))?\s*$', '', content, flags=re.IGNORECASE).strip()
+            
+            # === EMBEDDED METADATA (anywhere in content) ===
+            
+            # Scene numbers embedded: "### Scene 113 ###" in middle of text
+            content = re.sub(r'\n[#=\-\*]{2,}\s*SCENE\s+\d+\s*[#=\-\*]*\s*\n', '\n', content, flags=re.IGNORECASE)
+            
+            # Remove multiple consecutive blank lines (normalize to max 2)
+            content = re.sub(r'\n{3,}', '\n\n', content)
+            
+            # Check if any changes were made this pass
+            if content == old_content:
+                logger.debug(f"[SCENE_CLEAN] Cleaning converged after {pass_num + 1} pass(es)")
+                break
         
         # Log if significant cleaning occurred
-        if len(original_content) - len(content) > 50:
-            logger.debug(f"Scene cleaning removed {len(original_content) - len(content)} characters")
+        if len(original_content) - len(content) > 10:
+            removed_preview = original_content[:150].replace('\n', '\\n')
+            logger.info(f"[SCENE_CLEAN] Removed {len(original_content) - len(content)} chars. Preview: {removed_preview}")
         
         return content.strip()
     
@@ -1167,21 +1186,29 @@ class UnifiedLLMService:
         
         stripped = chunk.strip()
         
-        # Scene number patterns at start of chunk
+        # Markdown scene headers with numbers: "### SCENE 113 ###" (most specific first)
+        if stripped.startswith('#'):
+            if re.match(r'^#{1,6}\s*SCENE\s+\d+', stripped, re.IGNORECASE):
+                cleaned = re.sub(r'^#{1,6}\s*SCENE\s+\d+\s*#{1,6}\s*\n?', '', chunk, flags=re.IGNORECASE)
+                return cleaned
+            if re.match(r'^#{1,6}\s*Scene\s+\d+', stripped, re.IGNORECASE):
+                cleaned = re.sub(r'^#{1,6}\s*Scene\s+\d+[^#\n]*#{0,6}\s*\n?', '', chunk, flags=re.IGNORECASE)
+                return cleaned
+        
+        # Scene number patterns at start of chunk: "Scene 123:", "SCENE 42"
         if stripped.startswith(('Scene ', 'SCENE ', 'scene ')):
             if re.match(r'^Scene\s+\d+[:\-\s]', chunk, re.IGNORECASE):
                 cleaned = re.sub(r'^Scene\s+\d+[:\-\s]*[^\n]*\n?', '', chunk, flags=re.IGNORECASE)
                 return cleaned
         
-        # Markdown scene headers: "### Scene 7 ###", "## Scene 7"
-        if stripped.startswith('#'):
-            if re.match(r'^#{1,6}\s*Scene\s+\d+', stripped, re.IGNORECASE):
-                cleaned = re.sub(r'^#{1,6}\s*Scene\s+\d+[^#\n]*#{0,6}\s*\n?', '', chunk, flags=re.IGNORECASE)
-                return cleaned
+        # Scene response markers: "=== SCENE RESPONSE ==="
+        if 'SCENE RESPONSE' in stripped.upper():
+            cleaned = re.sub(r'^[#=\-\*]{2,}\s*SCENE\s+RESPONSE\s*[#=\-\*]*\s*\n?', '', chunk, flags=re.IGNORECASE)
+            return cleaned
         
-        # Scene expansion markers
-        if any(marker in stripped.upper() for marker in ['SCENE EXPANSION', 'SCENE CONTINUATION', 'REGENERATED SCENE', 'REVISED SCENE']):
-            cleaned = re.sub(r'^[#=\-\*]{2,}\s*(?:REGENERATED|REVISED|SCENE)\s*(?:EXPANSION|CONTINUATION)?[^#=\-\*\n]*[#=\-\*]*\s*\n?', '', chunk, flags=re.IGNORECASE)
+        # Scene expansion markers and regenerated variants
+        if any(marker in stripped.upper() for marker in ['SCENE EXPANSION', 'SCENE CONTINUATION', 'REGENERATED SCENE', 'REGNERATED SCENE', 'REVISED SCENE']):
+            cleaned = re.sub(r'^[#=\-\*]{2,}\s*(?:REGE?NERATED|REVISED|SCENE)\s*(?:EXPANSION|CONTINUATION)?[^#=\-\*\n]*[#=\-\*]*\s*\n?', '', chunk, flags=re.IGNORECASE)
             return cleaned
         
         # "Continue scene" prefix
@@ -3538,50 +3565,17 @@ Now generate {choices_count} choices as JSON:"""
                 "content": "=== CHAPTER CONTEXT ===\n" + "\n\n".join(summary_parts)
             })
         
-        # === MESSAGE 3: Entity States (changes every N scenes when extraction runs) ===
-        entity_parts = []
+        # === MESSAGES 3+: Scene Batches (batch-aligned for optimal caching) ===
+        # Note: Entity states and relevant events are now combined in "Relevant Context" section
+        # which is placed immediately before Recent Scenes
         previous_scenes_text = context.get("previous_scenes", "")
         
+        # Extract the combined "Relevant Context" section (contains semantic events + entity states)
+        # This is the new format from SemanticContextManager
+        relevant_context_match = None
         if previous_scenes_text:
-            # Extract entity states sections from previous_scenes
-            # These are formatted by SemanticContextManager._get_entity_states()
-            
-            # Character states
-            entity_states_match = re.search(
-                r'CURRENT CHARACTER STATES:(.*?)(?=\n\n(?:CURRENT LOCATIONS|Notable Objects|Recent Scenes|Relevant Past Events)|$)', 
-                previous_scenes_text, re.DOTALL
-            )
-            if entity_states_match:
-                entity_parts.append(f"CURRENT CHARACTER STATES:{entity_states_match.group(1).strip()}")
-            
-            # Locations
-            locations_match = re.search(
-                r'CURRENT LOCATIONS:(.*?)(?=\n\n(?:Notable Objects|Recent Scenes|Relevant Past Events|CURRENT CHARACTER STATES)|$)',
-                previous_scenes_text, re.DOTALL
-            )
-            if locations_match:
-                entity_parts.append(f"CURRENT LOCATIONS:{locations_match.group(1).strip()}")
-            
-            # Objects
-            objects_match = re.search(
-                r'Notable Objects:(.*?)(?=\n\n(?:Recent Scenes|Relevant Past Events|CURRENT CHARACTER STATES|CURRENT LOCATIONS)|$)',
-                previous_scenes_text, re.DOTALL
-            )
-            if objects_match:
-                entity_parts.append(f"Notable Objects:{objects_match.group(1).strip()}")
-        
-        if entity_parts:
-            messages.append({
-                "role": "user",
-                "content": "=== CURRENT STATE ===\n" + "\n\n".join(entity_parts)
-            })
-        
-        # === MESSAGES 4+: Scene Batches (batch-aligned for optimal caching) ===
-        # Extract semantic/relevant events for later (will be added between completed batches and recent scenes)
-        relevant_match = None
-        if previous_scenes_text:
-            relevant_match = re.search(
-                r'Relevant Past Events:(.*?)(?=\n\n(?:Recent Scenes|CURRENT CHARACTER STATES|CURRENT LOCATIONS|Notable Objects)|$)',
+            relevant_context_match = re.search(
+                r'Relevant Context:\n(.*?)(?=\n\nRecent Scenes:|$)',
                 previous_scenes_text, re.DOTALL
             )
         
@@ -3602,28 +3596,28 @@ Now generate {choices_count} choices as JSON:"""
                     # Add completed batches first
                     messages.extend(completed_batches)
                     
-                    # Add Relevant Past Events between completed batches and recent scenes
-                    if relevant_match:
+                    # Add Relevant Context (combined semantic + entity states) before recent scenes
+                    if relevant_context_match:
                         messages.append({
                             "role": "user",
-                            "content": "=== RELEVANT PAST EVENTS ===\n" + relevant_match.group(1).strip()
+                            "content": "=== RELEVANT CONTEXT ===\n" + relevant_context_match.group(1).strip()
                         })
                     
                     # Add recent scenes last (most relevant, closest to instruction)
                     messages.append(recent_scenes_batch)
                 elif len(scene_messages) == 1:
                     # Only one batch (the recent scenes batch)
-                    # Add Relevant Past Events before it if it exists
-                    if relevant_match:
+                    # Add Relevant Context before it if it exists
+                    if relevant_context_match:
                         messages.append({
                             "role": "user",
-                            "content": "=== RELEVANT PAST EVENTS ===\n" + relevant_match.group(1).strip()
+                            "content": "=== RELEVANT CONTEXT ===\n" + relevant_context_match.group(1).strip()
                         })
                     messages.extend(scene_messages)
                 else:
                     # No scene messages (shouldn't happen, but handle gracefully)
                     messages.extend(scene_messages)
-            elif not relevant_match:
+            elif not relevant_context_match:
                 # No structured sections found, use the whole previous_scenes as-is
                 # This handles the case where context_manager returns simple scene list
                 messages.append({
@@ -3631,11 +3625,11 @@ Now generate {choices_count} choices as JSON:"""
                     "content": "=== STORY PROGRESS ===\n" + previous_scenes_text
                 })
             else:
-                # We have relevant_match but no recent scenes - add relevant events
-                if relevant_match:
+                # We have relevant_context_match but no recent scenes - add relevant context
+                if relevant_context_match:
                     messages.append({
                         "role": "user",
-                        "content": "=== RELEVANT PAST EVENTS ===\n" + relevant_match.group(1).strip()
+                        "content": "=== RELEVANT CONTEXT ===\n" + relevant_context_match.group(1).strip()
                     })
         
         return messages
@@ -3714,10 +3708,10 @@ Now generate {choices_count} choices as JSON:"""
             actual_start = min(actual_scene_nums)
             actual_end = max(actual_scene_nums)
             
-            # Format scenes
+            # Format scenes without "Scene X:" prefix to avoid teaching LLM bad habits
             formatted_scenes = []
             for scene_num, content in scenes_in_batch:
-                formatted_scenes.append(f"Scene {scene_num}:  {content}")
+                formatted_scenes.append(content)
             
             batch_content = "\n\n".join(formatted_scenes)
             
@@ -3911,66 +3905,83 @@ Now generate {choices_count} choices as JSON:"""
             # Parse previous_scenes_text into organized sections
             import re
             
-            # Extract Current Chapter Summary (if present)
-            # Support both old "IMPORTANT OBJECTS:" and new "Notable Objects:" for backward compatibility
-            # Note: Sections may have leading newlines, so we match them flexibly
-            current_chapter_summary_match = re.search(r'Current Chapter Summary[^:]*:\s*(.*?)(?=\n+(?:Recent Scenes|Relevant Past Events|CURRENT CHARACTER STATES|CURRENT LOCATIONS|IMPORTANT OBJECTS|Notable Objects)|$)', previous_scenes_text, re.DOTALL)
+            # Try NEW format first: "Relevant Context:" combined section
+            relevant_context_match = re.search(r'Relevant Context:\n(.*?)(?=\n\nRecent Scenes:|$)', previous_scenes_text, re.DOTALL)
+            recent_scenes_match = re.search(r'Recent Scenes:(.*?)$', previous_scenes_text, re.DOTALL)
+            
+            # Extract Current Chapter Summary (if present) - works with both old and new format
+            current_chapter_summary_match = re.search(r'Current Chapter Summary[^:]*:\s*(.*?)(?=\n+(?:Recent Scenes|Relevant Context|Relevant Past Events|CURRENT CHARACTER STATES|CURRENT LOCATIONS|IMPORTANT OBJECTS|Notable Objects|Active Objects)|$)', previous_scenes_text, re.DOTALL)
             current_chapter_summary = current_chapter_summary_match.group(1).strip() if current_chapter_summary_match else None
             
-            # Extract Recent Scenes section
-            recent_scenes_match = re.search(r'Recent Scenes:\s*(.*?)(?=\n+(?:Relevant Past Events|CURRENT CHARACTER STATES|CURRENT LOCATIONS|IMPORTANT OBJECTS|Notable Objects)|$)', previous_scenes_text, re.DOTALL)
-            recent_scenes_content = recent_scenes_match.group(1).strip() if recent_scenes_match else None
-            
-            # Extract Relevant Past Events (semantic search results)
-            relevant_events_match = re.search(r'Relevant Past Events:\s*(.*?)(?=\n+(?:Recent Scenes|CURRENT CHARACTER STATES|CURRENT LOCATIONS|IMPORTANT OBJECTS|Notable Objects)|$)', previous_scenes_text, re.DOTALL)
-            relevant_events_content = relevant_events_match.group(1).strip() if relevant_events_match else None
-            
-            # Extract Entity States sections (may have leading newlines)
-            entity_states_match = re.search(r'\n*(CURRENT CHARACTER STATES:.*?)(?=\n+(?:CURRENT LOCATIONS|IMPORTANT OBJECTS|Notable Objects|Recent Scenes|Relevant Past Events)|$)', previous_scenes_text, re.DOTALL)
-            entity_states_content = entity_states_match.group(1).strip() if entity_states_match else None
-            
-            locations_match = re.search(r'\n*CURRENT LOCATIONS:\s*(.*?)(?=\n+(?:IMPORTANT OBJECTS|Notable Objects|Recent Scenes|Relevant Past Events|CURRENT CHARACTER STATES)|$)', previous_scenes_text, re.DOTALL)
-            locations_content = locations_match.group(1).strip() if locations_match else None
-            
-            # Support both old and new object header names (may have leading newlines)
-            # Try new format first, then fall back to old format
-            objects_match = re.search(r'\n*Notable Objects:\s*(.*?)(?=\n+(?:Recent Scenes|Relevant Past Events|CURRENT CHARACTER STATES|CURRENT LOCATIONS)|$)', previous_scenes_text, re.DOTALL)
-            if not objects_match:
-                objects_match = re.search(r'\n*IMPORTANT OBJECTS:\s*(.*?)(?=\n+(?:Recent Scenes|Relevant Past Events|CURRENT CHARACTER STATES|CURRENT LOCATIONS)|$)', previous_scenes_text, re.DOTALL)
-            objects_content = objects_match.group(1).strip() if objects_match else None
-            
-            # Build organized context sections
-            # NEW ORDER: Entity states come BEFORE chapter progress and scenes (reduces recency bias)
-            
-            # Add Current State section if we have entity states (positioned early as reference material)
-            if entity_states_content or locations_content or objects_content:
-                context_parts.append("Current State:")
+            if relevant_context_match:
+                # NEW FORMAT: Combined "Relevant Context" section
+                relevant_context_content = relevant_context_match.group(1).strip()
+                recent_scenes_content = recent_scenes_match.group(1).strip() if recent_scenes_match else None
                 
-                if entity_states_content:
-                    context_parts.append(f"  {entity_states_content.replace(chr(10), chr(10) + '  ')}")
-                
-                if locations_content:
-                    context_parts.append(f"\n  CURRENT LOCATIONS:\n  {locations_content.replace(chr(10), chr(10) + '  ')}")
-                
-                if objects_content:
-                    context_parts.append(f"\n  Notable Objects:\n  {objects_content.replace(chr(10), chr(10) + '  ')}")
-            
-            # Add Current Chapter Progress (positioned after entity states, before scenes)
-            if current_chapter_summary or recent_scenes_content or relevant_events_content:
-                context_parts.append("\nCurrent Chapter Progress:")
-                
+                # Add Current Chapter Progress (positioned before relevant context)
                 if current_chapter_summary:
+                    context_parts.append("Current Chapter Progress:")
                     context_parts.append(f"  Current Chapter Summary:\n  {current_chapter_summary.replace(chr(10), chr(10) + '  ')}")
                 
-                if relevant_events_content:
-                    context_parts.append(f"\n  Relevant Past Events (from semantic search):\n  {relevant_events_content.replace(chr(10), chr(10) + '  ')}")
+                # Add Relevant Context (combined semantic events + entity states)
+                if relevant_context_content:
+                    context_parts.append(f"\nRelevant Context:\n{relevant_context_content}")
                 
+                # Add Recent Scenes
                 if recent_scenes_content:
-                    context_parts.append(f"\n  Recent Scenes:\n  {recent_scenes_content.replace(chr(10), chr(10) + '  ')}")
-            
-            # If parsing failed, fall back to original format
-            if not (current_chapter_summary or recent_scenes_content or relevant_events_content or entity_states_content):
-                context_parts.append(f"Previous Events:\n{previous_scenes_text}")
+                    context_parts.append(f"\nRecent Scenes:\n{recent_scenes_content}")
+            else:
+                # OLD FORMAT (backward compatibility): Separate sections
+                recent_scenes_content = re.search(r'Recent Scenes:\s*(.*?)(?=\n+(?:Relevant Past Events|CURRENT CHARACTER STATES|CURRENT LOCATIONS|IMPORTANT OBJECTS|Notable Objects)|$)', previous_scenes_text, re.DOTALL)
+                recent_scenes_content = recent_scenes_content.group(1).strip() if recent_scenes_content else None
+                
+                # Extract Relevant Past Events (semantic search results)
+                relevant_events_match = re.search(r'Relevant Past Events:\s*(.*?)(?=\n+(?:Recent Scenes|CURRENT CHARACTER STATES|CURRENT LOCATIONS|IMPORTANT OBJECTS|Notable Objects)|$)', previous_scenes_text, re.DOTALL)
+                relevant_events_content = relevant_events_match.group(1).strip() if relevant_events_match else None
+                
+                # Extract Entity States sections (may have leading newlines)
+                entity_states_match = re.search(r'\n*(CURRENT CHARACTER STATES:.*?)(?=\n+(?:CURRENT LOCATIONS|IMPORTANT OBJECTS|Notable Objects|Recent Scenes|Relevant Past Events)|$)', previous_scenes_text, re.DOTALL)
+                entity_states_content = entity_states_match.group(1).strip() if entity_states_match else None
+                
+                locations_match = re.search(r'\n*CURRENT LOCATIONS:\s*(.*?)(?=\n+(?:IMPORTANT OBJECTS|Notable Objects|Recent Scenes|Relevant Past Events|CURRENT CHARACTER STATES)|$)', previous_scenes_text, re.DOTALL)
+                locations_content = locations_match.group(1).strip() if locations_match else None
+                
+                # Support both old and new object header names (may have leading newlines)
+                objects_match = re.search(r'\n*(?:Notable Objects|Active Objects):\s*(.*?)(?=\n+(?:Recent Scenes|Relevant Past Events|CURRENT CHARACTER STATES|CURRENT LOCATIONS)|$)', previous_scenes_text, re.DOTALL)
+                if not objects_match:
+                    objects_match = re.search(r'\n*IMPORTANT OBJECTS:\s*(.*?)(?=\n+(?:Recent Scenes|Relevant Past Events|CURRENT CHARACTER STATES|CURRENT LOCATIONS)|$)', previous_scenes_text, re.DOTALL)
+                objects_content = objects_match.group(1).strip() if objects_match else None
+                
+                # Build organized context sections
+                # Add Current State section if we have entity states
+                if entity_states_content or locations_content or objects_content:
+                    context_parts.append("Current State:")
+                    
+                    if entity_states_content:
+                        context_parts.append(f"  {entity_states_content.replace(chr(10), chr(10) + '  ')}")
+                    
+                    if locations_content:
+                        context_parts.append(f"\n  CURRENT LOCATIONS:\n  {locations_content.replace(chr(10), chr(10) + '  ')}")
+                    
+                    if objects_content:
+                        context_parts.append(f"\n  Active Objects:\n  {objects_content.replace(chr(10), chr(10) + '  ')}")
+                
+                # Add Current Chapter Progress
+                if current_chapter_summary or recent_scenes_content or relevant_events_content:
+                    context_parts.append("\nCurrent Chapter Progress:")
+                    
+                    if current_chapter_summary:
+                        context_parts.append(f"  Current Chapter Summary:\n  {current_chapter_summary.replace(chr(10), chr(10) + '  ')}")
+                    
+                    if relevant_events_content:
+                        context_parts.append(f"\n  Relevant Past Events (from semantic search):\n  {relevant_events_content.replace(chr(10), chr(10) + '  ')}")
+                    
+                    if recent_scenes_content:
+                        context_parts.append(f"\n  Recent Scenes:\n  {recent_scenes_content.replace(chr(10), chr(10) + '  ')}")
+                
+                # If parsing failed, fall back to original format
+                if not (current_chapter_summary or recent_scenes_content or relevant_events_content or entity_states_content):
+                    context_parts.append(f"Previous Events:\n{previous_scenes_text}")
         
         return "\n\n".join(context_parts)
     
