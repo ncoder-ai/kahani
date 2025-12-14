@@ -1086,9 +1086,11 @@ class UnifiedLLMService:
             # Remove ANY line that starts with markdown-style headers
             # These are NEVER legitimate prose - always LLM junk
             # Must come FIRST before other patterns
+            # Exception: Preserve ###CHOICES### marker (used for choice generation)
             
             # Remove lines starting with 2+ hash marks (##, ###, ####, etc.)
-            content = re.sub(r'^#{2,}[^\n]*\n?', '', content, flags=re.MULTILINE).strip()
+            # But NOT ###CHOICES### (negative lookahead)
+            content = re.sub(r'^#{2,}(?!#*CHOICES###)[^\n]*\n?', '', content, flags=re.MULTILINE | re.IGNORECASE).strip()
             
             # Remove lines starting with 2+ equals signs (==, ===, ====, etc.)
             content = re.sub(r'^={2,}[^\n]*\n?', '', content, flags=re.MULTILINE).strip()

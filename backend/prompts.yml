@@ -354,8 +354,9 @@ scene_base:
     - {pov_perspective}
     - Clear paragraph breaks
     - Start directly with narrative
-    - DO NOT use markdown headers (###, ===, ---, ***) anywhere in your response
-    - DO NOT include meta-labels like "SCENE START" or "NEW SCENE"
+    - DO NOT use markdown headers (###, ===, ---, ***) in the scene narrative itself
+    - DO NOT include meta-labels like "SCENE START" or "NEW SCENE" in the scene
+    - ONLY exception: Use ###CHOICES### marker when generating choices (as instructed below)
     
     SCENE CONTENT: Write pure narrative. End with action, dialogue, or description.
   
@@ -821,8 +822,8 @@ chapter_conclusion:
     - DO NOT include choices, options, or "Do you:" prompts in the scene content
     - DO NOT ask questions to the reader like "What will you do?" or "What's your choice?"
     - DO NOT include phrases like "Choose your response:" or "The decision is yours"
-    - DO NOT use markdown headers (###, ===, ---, ***) anywhere in your response
-    - DO NOT include meta-labels like "SCENE START" or "NEW SCENE"
+    - DO NOT use markdown headers (###, ===, ---, ***) in the scene narrative itself
+    - DO NOT include meta-labels like "SCENE START" or "NEW SCENE" in the scene
     - Start directly with the narrative content
     - End with narrative action, dialogue, or description that feels like a chapter ending
     
