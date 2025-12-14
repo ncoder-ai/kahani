@@ -1082,6 +1082,24 @@ class UnifiedLLMService:
         for pass_num in range(3):
             old_content = content
             
+            # === AGGRESSIVE MARKDOWN HEADER REMOVAL ===
+            # Remove ANY line that starts with markdown-style headers
+            # These are NEVER legitimate prose - always LLM junk
+            # Must come FIRST before other patterns
+            
+            # Remove lines starting with 2+ hash marks (##, ###, ####, etc.)
+            content = re.sub(r'^#{2,}[^\n]*\n?', '', content, flags=re.MULTILINE).strip()
+            
+            # Remove lines starting with 2+ equals signs (==, ===, ====, etc.)
+            content = re.sub(r'^={2,}[^\n]*\n?', '', content, flags=re.MULTILINE).strip()
+            
+            # Remove lines starting with 2+ dashes (--, ---, ----, etc.)
+            content = re.sub(r'^-{2,}[^\n]*\n?', '', content, flags=re.MULTILINE).strip()
+            
+            # Remove lines starting with 2+ asterisks (**, ***, ****, etc.)
+            # Preserves single * for thoughts
+            content = re.sub(r'^\*{2,}[^\n]*\n?', '', content, flags=re.MULTILINE).strip()
+            
             # === HEADER/PREFIX PATTERNS (at start of content) ===
             # Order matters: most specific patterns first, most general last
             
@@ -1185,6 +1203,12 @@ class UnifiedLLMService:
             return chunk
         
         stripped = chunk.strip()
+        
+        # === AGGRESSIVE MARKDOWN HEADER REMOVAL ===
+        # If chunk starts with markdown headers, it's LLM junk - skip entire chunk
+        if stripped.startswith(('##', '==', '--', '**')):
+            # This entire chunk is a markdown header - return empty string
+            return ''
         
         # Markdown scene headers with numbers: "### SCENE 113 ###" (most specific first)
         if stripped.startswith('#'):
