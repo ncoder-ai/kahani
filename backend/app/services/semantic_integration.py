@@ -322,7 +322,8 @@ async def _try_combined_extraction(
     user_id: int,
     user_settings: Dict[str, Any],
     db: Session,
-    results: Dict[str, Any]
+    results: Dict[str, Any],
+    branch_id: Optional[int] = None
 ) -> bool:
     """
     Try to extract character moments, NPCs, and plot events in a single combined LLM call.
@@ -335,6 +336,7 @@ async def _try_combined_extraction(
         user_settings: User settings
         db: Database session
         results: Results dictionary to update
+        branch_id: Optional branch ID for filtering (if not provided, uses active branch)
         
     Returns:
         True if combined extraction succeeded, False otherwise
@@ -927,7 +929,7 @@ async def _try_combined_extraction(
                     for char_update in entity_states_data['characters']:
                         try:
                             await entity_service._update_character_state(
-                                db, story_id, last_sequence, char_update
+                                db, story_id, last_sequence, char_update, branch_id=branch_id
                             )
                             total_entity_states += 1
                         except Exception as e:
@@ -939,7 +941,7 @@ async def _try_combined_extraction(
                     for loc_update in entity_states_data['locations']:
                         try:
                             await entity_service._update_location_state(
-                                db, story_id, last_sequence, loc_update
+                                db, story_id, last_sequence, loc_update, branch_id=branch_id
                             )
                             total_entity_states += 1
                         except Exception as e:
@@ -951,7 +953,7 @@ async def _try_combined_extraction(
                     for obj_update in entity_states_data['objects']:
                         try:
                             await entity_service._update_object_state(
-                                db, story_id, last_sequence, obj_update
+                                db, story_id, last_sequence, obj_update, branch_id=branch_id
                             )
                             total_entity_states += 1
                         except Exception as e:
@@ -1194,7 +1196,8 @@ async def batch_process_scene_extractions(
                     user_id=user_id,
                     user_settings=user_settings,
                     db=db,
-                    results=results
+                    results=results,
+                    branch_id=branch_id
                 )
                 if combined_success:
                     logger.warning(f"[EXTRACTION] Combined extraction successful!")
