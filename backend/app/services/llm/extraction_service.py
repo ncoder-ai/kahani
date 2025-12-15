@@ -629,7 +629,8 @@ If no NPCs found, return {{"npcs": []}}. Return ONLY the JSON, no other text."""
         scene_content: str,
         scene_sequence: int,
         character_names: List[str],
-        system_prompt: str = "You are a precise story analysis assistant. Extract entity state changes and return only valid JSON. Focus on quality over quantity - extract only truly significant entities and states."
+        chapter_location: str = None,
+        system_prompt: str = None
     ) -> Dict[str, Any]:
         """
         Extract entity state changes from a scene
@@ -638,7 +639,8 @@ If no NPCs found, return {{"npcs": []}}. Return ONLY the JSON, no other text."""
             scene_content: Scene text to analyze
             scene_sequence: Scene sequence number
             character_names: List of known character names
-            system_prompt: System prompt for the model
+            chapter_location: Chapter-level location for hierarchical context
+            system_prompt: System prompt for the model (optional, uses prompts.yml if not provided)
             
         Returns:
             Dictionary with 'characters', 'locations', 'objects' arrays
@@ -646,103 +648,30 @@ If no NPCs found, return {{"npcs": []}}. Return ONLY the JSON, no other text."""
         try:
             from litellm import acompletion
             
-            prompt = f"""Analyze this story scene and extract entity state changes.
+            # Get prompts from centralized prompts.yml
+            if system_prompt is None:
+                system_prompt = prompt_manager.get_prompt("entity_state_extraction.extraction_service", "system")
+                if not system_prompt:
+                    system_prompt = "You are a precise story state tracker. Extract entity states as JSON. Focus on FACTS, not interpretation."
+            
+            prompt = prompt_manager.get_prompt(
+                "entity_state_extraction.extraction_service", "user",
+                scene_sequence=scene_sequence,
+                scene_content=scene_content,
+                character_names=', '.join(character_names),
+                chapter_location=chapter_location or "Unknown"
+            )
+            
+            # Fallback if template not found
+            if not prompt:
+                prompt = f"""Chapter Location: {chapter_location or "Unknown"}
 
-Scene (Sequence #{scene_sequence}):
+Scene #{scene_sequence}:
 {scene_content}
 
 Known Characters: {', '.join(character_names)}
 
-Extract the following as JSON:
-1. Character state changes (location, emotional state, possessions, knowledge, relationships)
-2. Location information (name, condition, atmosphere, occupants)
-3. Important objects (name, location, owner, condition)
-
-CRITICAL INSTRUCTIONS FOR CHARACTER STATE EXTRACTION:
-All character descriptions MUST be:
-- FACTUAL: Only what is explicitly stated or directly observable
-- CONCISE: 1-5 words for states (e.g., "angry", "wounded", "exhausted")
-- OBJECTIVE: No interpretations, symbolism, or inferred meanings
-
-For "location": Use room/building names only
-  * GOOD: "bedroom", "kitchen", "forest clearing"
-  * BAD: "next to the bed", "by the window", "at the table"
-
-For "emotional_state": Single words or short phrases
-  * GOOD: "angry", "sad", "determined", "confused"
-  * BAD: "feeling complex emotions about recent events"
-
-CRITICAL INSTRUCTIONS FOR LOCATION EXTRACTION:
-ONLY extract locations that are:
-- Rooms (bedroom, kitchen, living room, office)
-- Buildings (house, castle, tower, shop)
-- Outdoor areas (forest, courtyard, street, park)
-- Named places (Blackwood Manor, Crystal Tower)
-
-DO NOT extract:
-- Furniture (table, chair, bed, sofa)
-- Parts of rooms (corner, doorway, window, headboard)
-- Spatial references (next to X, by the Y, near Z)
-- Temporary positions (where character is standing)
-
-CRITICAL INSTRUCTIONS FOR OBJECT EXTRACTION:
-DO NOT extract:
-- Body parts (hands, eyes, face, arms, legs, head, etc.) - NEVER extract these
-- Furniture (tables, chairs, beds - unless central to plot)
-- Everyday items mentioned casually (phones, keys, cups, pens)
-- Parts of objects (door handle, table leg, window pane)
-- Natural features (trees, rocks, grass - unless named/magical)
-- Clothing items (unless explicitly given/taken/significant)
-
-ONLY extract objects that are:
-- Weapons or tools actively used (guns, swords, knives, tools)
-- Magical/special items with powers (artifacts, enchanted items)
-- Plot devices (letters, maps, documents, keys to important places)
-- Items explicitly given/taken between characters
-- Objects mentioned 3+ times AND used in actions
-
-For "condition": ONLY factual physical condition (1-3 words)
-  * GOOD: "damaged", "intact", "locked", "broken", "pristine"
-  * BAD: "silent confirmation of a rendezvous" (interpretive)
-
-For "significance": ONLY factual role in scene (1 sentence max)
-  * GOOD: "used by Rambo to call backup", "carried by Sarah"
-  * BAD: "symbol of active planning and intention" (symbolic)
-
-Return ONLY valid JSON in this exact format:
-{{
-  "characters": [
-    {{
-      "name": "character name",
-      "location": "room/building name or null",
-      "emotional_state": "1-3 word state or null",
-      "physical_condition": "1-3 word condition or null",
-      "possessions_gained": ["item1", "item2"],
-      "possessions_lost": ["item3"],
-      "knowledge_gained": ["fact1", "fact2"],
-      "relationship_changes": {{"other_char": "relationship description"}}
-    }}
-  ],
-  "locations": [
-    {{
-      "name": "room/building/area name (consistent naming)",
-      "condition": "1-3 word condition or null",
-      "atmosphere": "1-5 word atmosphere or null",
-      "occupants": ["character1", "character2"]
-    }}
-  ],
-  "objects": [
-    {{
-      "name": "object name (weapons/artifacts/plot-items only)",
-      "location": "where it is",
-      "owner": "who has it or null",
-      "condition": "1-3 word factual condition or null",
-      "significance": "factual role in scene (1 sentence max) or null"
-    }}
-  ]
-}}
-
-If no changes for a category, use empty array. Return ONLY the JSON, no other text."""
+Extract entity states as JSON with characters, locations, objects arrays."""
             
             params = self._get_generation_params()
             response = await acompletion(

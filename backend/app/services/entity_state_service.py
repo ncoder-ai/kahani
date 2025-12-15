@@ -89,7 +89,8 @@ class EntityStateService:
         scene_id: int,
         scene_sequence: int,
         scene_content: str,
-        branch_id: int = None
+        branch_id: int = None,
+        chapter_location: str = None
     ) -> Dict[str, Any]:
         """
         Extract state changes from a scene and update all entity states.
@@ -101,6 +102,7 @@ class EntityStateService:
             scene_sequence: Scene sequence number
             scene_content: Scene content text
             branch_id: Optional branch ID (if not provided, uses active branch)
+            chapter_location: Optional chapter location for hierarchical context
             
         Returns:
             Dictionary with extraction results
@@ -146,6 +148,7 @@ class EntityStateService:
                 scene_content,
                 scene_sequence,
                 character_names,
+                chapter_location=chapter_location,
                 trace_id=trace_id
             )
             
@@ -248,11 +251,19 @@ class EntityStateService:
         scene_content: str,
         scene_sequence: int,
         character_names: List[str],
+        chapter_location: str = None,
         trace_id: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """
         Use LLM to extract state changes from a scene.
         Tries extraction model first, falls back to main LLM if enabled.
+        
+        Args:
+            scene_content: Scene text to analyze
+            scene_sequence: Scene sequence number
+            character_names: List of known character names
+            chapter_location: Chapter-level location for hierarchical context
+            trace_id: Optional trace ID for logging
         
         Returns JSON with character, location, and object updates.
         """
@@ -266,7 +277,8 @@ class EntityStateService:
                 state_changes = await extraction_service.extract_entity_states(
                     scene_content=scene_content,
                     scene_sequence=scene_sequence,
-                    character_names=character_names
+                    character_names=character_names,
+                    chapter_location=chapter_location
                 )
                 
                 # Validate state changes
@@ -297,7 +309,8 @@ class EntityStateService:
                 "entity_state_extraction.single", "user",
                 scene_sequence=scene_sequence,
                 scene_content=scene_content,
-                character_names=', '.join(character_names)
+                character_names=', '.join(character_names),
+                chapter_location=chapter_location or "Unknown"
             )
 
             response = await self.llm_service.generate(
@@ -1133,6 +1146,7 @@ class EntityStateService:
                 }
             
             # Complete batch - re-extract entity states for remaining scenes
+            from ..models import Chapter
             scenes_processed = 0
             for scene in remaining_scenes:
                 # Get active variant content
@@ -1143,12 +1157,21 @@ class EntityStateService:
                 
                 if flow and flow.scene_variant:
                     scene_content = flow.scene_variant.content
+                    
+                    # Get chapter location for hierarchical context
+                    chapter_location = None
+                    if scene.chapter_id:
+                        chapter = db.query(Chapter).filter(Chapter.id == scene.chapter_id).first()
+                        if chapter and chapter.location_name:
+                            chapter_location = chapter.location_name
+                    
                     await self.extract_and_update_states(
                         db=db,
                         story_id=story_id,
                         scene_id=scene.id,
                         scene_sequence=scene.sequence_number,
-                        scene_content=scene_content
+                        scene_content=scene_content,
+                        chapter_location=chapter_location
                     )
                     scenes_processed += 1
             

@@ -258,7 +258,15 @@ async def process_scene_embeddings(
         if not skip_entity_states:
             try:
                 from .entity_state_service import EntityStateService
+                from ..models import Chapter
                 entity_service = EntityStateService(user_id=user_id, user_settings=user_settings)
+                
+                # Get chapter location for hierarchical context
+                chapter_location = None
+                if chapter_id:
+                    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+                    if chapter and chapter.location_name:
+                        chapter_location = chapter.location_name
                 
                 entity_results = await entity_service.extract_and_update_states(
                     db=db,
@@ -266,7 +274,8 @@ async def process_scene_embeddings(
                     scene_id=scene_id,
                     scene_sequence=sequence_number,
                     scene_content=scene_content,
-                    branch_id=branch_id
+                    branch_id=branch_id,
+                    chapter_location=chapter_location
                 )
                 
                 results['entity_states'] = entity_results.get('extraction_successful', False)

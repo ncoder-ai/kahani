@@ -1137,146 +1137,128 @@ entity_state_extraction:
   # Single scene extraction (used by entity_state_service.py main LLM fallback)
   single:
     system: |
-      You are a precise story analysis assistant. Extract entity state changes and return only valid JSON.
-      Focus on quality over quantity - extract only truly significant entities and states.
+      You are a precise story state tracker. Extract entity states as JSON.
+      Focus on FACTS only - no interpretation, no purple prose, no emotional analysis.
     
     user: |
-      Analyze this story scene and extract entity state changes.
+      Chapter Location Context: {chapter_location}
       
       Scene (Sequence #{scene_sequence}):
       {scene_content}
       
       Known Characters: {character_names}
       
-      Extract the following as JSON:
-      1. Character state changes (location, emotional state, current attire, possessions, knowledge, relationships)
-      2. Location information (name, condition, atmosphere, occupants)
-      3. Important objects (name, location, owner, condition)
+      Extract entity states as JSON.
       
-      CRITICAL INSTRUCTIONS FOR CHARACTER STATE EXTRACTION:
-      All character descriptions MUST be:
-      - FACTUAL: Only what is explicitly stated or directly observable in the text
-      - CONCISE: 1-5 words for states (e.g., "angry", "wounded", "exhausted")
-      - OBJECTIVE: No interpretations, symbolism, or inferred meanings
+      CRITICAL - LOCATION HIERARCHY:
+      Characters are IN "{chapter_location}" unless they explicitly leave.
+      Use "{chapter_location}" as the primary location for all characters.
+      Only use sub-locations (rooms within building) if characters move between them.
       
-      For "location": Use room/building names (e.g., "bedroom", "kitchen", "Blackwood Manor")
-        * GOOD: "bedroom", "kitchen", "forest clearing"
-        * BAD: "next to the bed", "by the window", "at the table"
+      For "location":
+        * GOOD: "{chapter_location}" (use chapter location as default)
+        * GOOD: "bedroom", "living room" (if character moves to specific room)
+        * BAD: "chaise", "sofa", "bed", "chair" (furniture is NOT a location)
+        * BAD: "next to the bed", "by the window" (spatial reference, not location)
       
-      For "emotional_state": Single words or short phrases only
-        * GOOD: "angry", "sad", "determined", "confused"
-        * BAD: "feeling a complex mix of emotions about recent events"
+      CRITICAL - NO PURPLE PROSE:
       
-      For "physical_condition": Concise observable states only
-        * GOOD: "wounded", "exhausted", "healthy"
-        * BAD: "appears to be in good health based on his actions"
+      For "emotional_state": Single emotion words ONLY (1-2 words max)
+        * GOOD: "aroused", "nervous", "confident", "hesitant", "excited"
+        * BAD: "feeling a shift from passive to active role" (interpretation)
+        * BAD: "responds positively to authority" (behavioral description)
+        * BAD: "authoritative" (this describes behavior, not emotion)
       
-      For "current_attire": Extract ONLY what is explicitly mentioned in the scene text
-        * GOOD: "wearing a torn red jacket", "shirtless", "in uniform"
-        * BAD: "dressed in standard field gear" (if not explicitly stated)
-        * Use null if no clothing is mentioned
+      For "physical_condition": Observable physical state ONLY (1-3 words)
+        * GOOD: "tired", "sweating", "nude", "clothed"
+        * BAD: "compliant" (behavior, not physical condition)
+        * BAD: "exerted" (vague - use specific like "sweating" or "breathing hard")
       
-      CRITICAL INSTRUCTIONS FOR LOCATION EXTRACTION:
-      ONLY extract locations that are:
-      - Rooms (bedroom, kitchen, living room, office, bathroom)
-      - Buildings (house, castle, tower, shop, barn)
-      - Outdoor areas (forest, courtyard, street, park, field)
-      - Named places (Blackwood Manor, Crystal Tower, Main Street)
+      For "current_attire": ONLY physical clothing items currently worn
+        * GOOD: "nude", "wearing lingerie", "shirtless", "in a dress"
+        * GOOD: "wearing shirt and pants", "in underwear only"
+        * BAD: "wearing perfume and sweat" (not clothing items)
+        * BAD: "dressed provocatively" (interpretation, not description)
+        * BAD: "wearing formal attire" (too vague - specify actual items)
+        * Use "nude" if character is naked, null if attire not mentioned
       
-      DO NOT extract:
-      - Furniture (table, chair, bed, sofa, desk)
-      - Parts of rooms (corner, doorway, window, headboard, ceiling)
-      - Spatial references (next to X, by the Y, near Z, under the table)
-      - Temporary positions (where character is standing/sitting)
+      For "knowledge_gained": ONLY new factual information character learned
+        * GOOD: "learned Robert is a photographer", "discovered room has cameras"
+        * GOOD: "found out Jack invited others", "realized Character_B was watching"
+        * BAD: "commands Character_A to submit" (action, not knowledge)
+        * BAD: "responds positively to X" (behavior, not knowledge)
+        * BAD: "feels a shift in role" (feeling, not factual knowledge)
+        * BAD: "likes being spanked" (preference discovered is OK, but phrase as "discovered she enjoys X")
       
-      Use consistent naming:
-        * GOOD: "bedroom" (consistent across scenes)
-        * BAD: "Sarah's bedroom" then "the bedroom" then "her room"
+      CRITICAL - OBJECT OWNERSHIP DECAY:
+      Objects are only "held" if character is ACTIVELY using them in THIS scene.
+      - If an object was used earlier but not mentioned now, set owner to null
+      - If character puts down/sets aside an object, add to possessions_lost
+      - Phone/camera/video: Only mark as "held" if actively being used right now
       
-      CRITICAL INSTRUCTIONS FOR OBJECT EXTRACTION:
-      DO NOT extract:
-      - Body parts (hands, eyes, face, arms, legs, head, fingers, etc.)
-      - Furniture (tables, chairs, beds, sofas - unless central to plot action)
-      - Everyday items mentioned casually (phones, keys, cups, pens)
-      - Parts of objects (door handle, table leg, window pane)
-      - Natural features (trees, rocks, grass - unless named/magical)
-      - Clothing items (unless explicitly given/taken/significant to plot)
+      DO NOT extract as objects:
+      - Furniture (table, chair, bed, sofa, chaise, couch, ottoman)
+      - Body parts (hands, eyes, face, arms, legs)
+      - Everyday items mentioned casually (phones, keys, cups - unless plot-critical)
       
-      ONLY extract objects that are:
-      - Weapons or tools actively used (guns, swords, knives, tools)
-      - Magical/special items with powers (artifacts, enchanted items)
-      - Plot devices (letters, maps, documents, keys to important places)
-      - Items explicitly given/taken between characters
-      - Objects mentioned 3+ times AND used in actions
-      
-      For "condition": ONLY factual physical condition (1-3 words)
-        * GOOD: "damaged", "intact", "locked", "broken", "pristine"
-        * BAD: "silent confirmation of a rendezvous" (interpretive)
-      
-      For "significance": ONLY factual role in scene (1 sentence max)
-        * GOOD: "used by Rambo to call backup", "carried by Sarah"
-        * BAD: "symbol of active planning and intention" (symbolic)
-      
-      EXTRACTION EXAMPLES:
-      
-      Scene: "Sarah drew her pistol and aimed at the door. Her hands trembled."
-      
-      CORRECT extraction:
-      {{
-        "objects": [
-          {{
-            "name": "pistol",
-            "owner": "Sarah",
-            "condition": null,
-            "significance": "drawn and aimed at door"
-          }}
-        ]
-      }}
-      
-      INCORRECT extraction (DO NOT DO THIS):
-      {{
-        "objects": [
-          {{"name": "hands"}},  # ❌ Body part - never extract
-          {{"name": "door"}},   # ❌ Part of room - not an object
-          {{"condition": "trembling with fear"}}  # ❌ Interpretive - use factual only
-        ]
-      }}
-      
-      Return ONLY valid JSON in this exact format:
+      Return ONLY valid JSON:
       {{
         "characters": [
           {{
             "name": "character name",
-            "location": "room/building name or null",
-            "emotional_state": "1-3 word state or null",
-            "physical_condition": "1-3 word condition or null",
-            "current_attire": "factual clothing description from text only, or null",
-            "possessions_gained": ["item1", "item2"],
-            "possessions_lost": ["item3"],
-            "knowledge_gained": ["fact1", "fact2"],
-            "relationship_changes": {{"other_char": "relationship description"}}
+            "location": "{chapter_location} or specific room",
+            "emotional_state": "1-2 word emotion or null",
+            "physical_condition": "1-3 word physical state or null",
+            "current_attire": "specific clothing items or nude or null",
+            "possessions_gained": ["item"],
+            "possessions_lost": ["item"],
+            "knowledge_gained": ["factual info learned"],
+            "relationship_changes": {{"other_char": "change"}}
           }}
         ],
         "locations": [
           {{
-            "name": "room/building/area name (consistent naming)",
-            "condition": "1-3 word condition or null",
-            "atmosphere": "1-5 word atmosphere or null",
-            "occupants": ["character1", "character2"]
+            "name": "{chapter_location}",
+            "condition": "1-3 words or null",
+            "atmosphere": "1-3 words or null",
+            "occupants": ["character names"]
           }}
         ],
-        "objects": [
-          {{
-            "name": "object name (weapons/artifacts/plot-items only)",
-            "location": "where it is",
-            "owner": "who has it or null",
-            "condition": "1-3 word factual condition or null",
-            "significance": "factual role in scene (1 sentence max) or null"
-          }}
-        ]
+        "objects": []
       }}
       
-      If no changes for a category, use empty array. Return ONLY the JSON, no other text.
+      If no changes for a category, use empty array. Return ONLY JSON.
+
+  # Extraction service template (used by extraction_service.py for small local models)
+  extraction_service:
+    system: |
+      You are a precise story state tracker. Extract entity states as JSON.
+      Focus on FACTS only - no interpretation, no purple prose.
+    
+    user: |
+      Chapter Location: {chapter_location}
+      
+      Scene #{scene_sequence}:
+      {scene_content}
+      
+      Known Characters: {character_names}
+      
+      LOCATION RULES:
+      - Use "{chapter_location}" as default location for all characters
+      - Furniture (chaise, sofa, bed, chair) is NOT a location
+      - Only use room names if character moves to different room
+      
+      NO PURPLE PROSE - use single words only:
+      - emotional_state: "nervous", "excited", "calm" (NOT "feeling a shift in role")
+      - physical_condition: "tired", "sweating" (NOT "compliant" or "exerted")
+      - current_attire: "nude", "wearing dress" (NOT "wearing perfume and sweat")
+      - knowledge_gained: facts learned (NOT actions or behaviors)
+      
+      OBJECT RULES:
+      - Only include objects actively used in THIS scene
+      - If object not mentioned, character no longer has it (add to possessions_lost)
+      
+      Return JSON with characters, locations, objects arrays.
 
   # Batch/combined extraction (used by extraction_service.py and semantic_integration.py)
   batch:

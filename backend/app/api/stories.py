@@ -348,7 +348,7 @@ async def invalidate_and_regenerate_extractions_for_scene(
             logger.info(f"[MODIFY] No valid batch found, starting entity state recalculation from scene 1")
         
         # Re-extract entity states from start_sequence onwards
-        from ..models import Scene as SceneModel
+        from ..models import Scene as SceneModel, Chapter
         scenes_to_reprocess = db.query(SceneModel).filter(
             SceneModel.story_id == story_id,
             SceneModel.sequence_number >= start_sequence
@@ -362,12 +362,20 @@ async def invalidate_and_regenerate_extractions_for_scene(
             ).first()
             
             if flow_to_process and flow_to_process.scene_variant:
+                # Get chapter location for hierarchical context
+                chapter_location = None
+                if scene_to_process.chapter_id:
+                    chapter = db.query(Chapter).filter(Chapter.id == scene_to_process.chapter_id).first()
+                    if chapter and chapter.location_name:
+                        chapter_location = chapter.location_name
+                
                 await entity_service.extract_and_update_states(
                     db=db,
                     story_id=story_id,
                     scene_id=scene_to_process.id,
                     scene_sequence=scene_to_process.sequence_number,
-                    scene_content=flow_to_process.scene_variant.content
+                    scene_content=flow_to_process.scene_variant.content,
+                    chapter_location=chapter_location
                 )
                 scenes_processed += 1
         
