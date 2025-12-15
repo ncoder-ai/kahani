@@ -1280,29 +1280,23 @@ async def generate_chapter_summary(chapter_id: int, db: Session, user_id: int) -
         # Prepare context for LLM with previous chapters for continuity
         combined_content = "\n\n".join(scene_contents)
         
-        # Build prompt with context from previous chapters
+        # Build context section from previous chapters
         context_section = ""
         if previous_summaries:
-            context_section = f"""
-Previous Chapters (for context - maintain consistency with these):
-{chr(10).join(previous_summaries)}
-
-"""
+            context_section = f"Previous Chapters (for context):\n{chr(10).join(previous_summaries)}\n\n"
         
-        prompt = f"""Summarize Chapter {chapter.chapter_number} below into a concise summary that captures the key events, character developments, and plot progression.
-        
-{context_section}Current Chapter {chapter.chapter_number}: {chapter.title or 'Untitled'}
-        
-Scenes to Summarize:
-{combined_content}
-        
-Instructions:
-- Summarize ONLY Chapter {chapter.chapter_number}'s content
-- Maintain consistency with characters and events from previous chapters
-- Capture key events, character developments, and plot progression
-- Keep summary to 2-3 paragraphs
-        
-Summary:"""
+        # Get user prompt from prompts.yml with template variables
+        prompt = prompt_manager.get_prompt(
+            "chapter_summary", "user",
+            user_id=user_id, db=db,
+            context_section=context_section,
+            chapter_number=chapter.chapter_number,
+            chapter_title=chapter.title or 'Untitled',
+            scenes_content=combined_content
+        )
+        if not prompt:
+            # Fallback if template not found
+            prompt = f"{context_section}Chapter {chapter.chapter_number}: {chapter.title or 'Untitled'}\n\nScenes:\n{combined_content}\n\nSummarize this chapter factually."
         
         # Get user settings
         from ..models import UserSettings
@@ -1563,38 +1557,33 @@ async def generate_chapter_summary_incremental(chapter_id: int, db: Session, use
         existing_summary = chapter.auto_summary
         
         if existing_summary:
-            # Incremental update: extend existing summary
-            prompt = f"""You are creating a cohesive chapter summary. You have an existing summary and new scenes to incorporate.
-{previous_chapter_text}
-Existing Chapter Summary (Scenes 1-{last_summary_count}):
-{existing_summary}
-
-New Scenes to Add (Scenes {last_summary_count + 1}-{chapter.scenes_count}):
-{new_scenes_text}
-
-Instructions:
-- Create a cohesive summary that combines the existing summary with the new scenes
-- Maintain narrative flow and chronological order
-- Highlight key events, character developments, and plot progression
-- Keep the summary engaging and comprehensive (3-4 paragraphs)
-- Focus on what happens in THIS chapter only
-
-Updated Chapter {chapter.chapter_number} Summary:"""
+            # Incremental update: extend existing summary using template
+            prompt = prompt_manager.get_prompt(
+                "chapter_summary_incremental", "user",
+                user_id=user_id, db=db,
+                previous_chapter_text=previous_chapter_text,
+                last_summary_count=last_summary_count,
+                existing_summary=existing_summary,
+                new_scenes_start=last_summary_count + 1,
+                new_scenes_end=chapter.scenes_count,
+                new_scenes_text=new_scenes_text
+            )
+            template_key = "chapter_summary_incremental"
         else:
-            # First summary: create from scratch
-            prompt = f"""Summarize the following scenes from Chapter {chapter.chapter_number} into a cohesive summary.
-{previous_chapter_text}
-Chapter {chapter.chapter_number}: {chapter.title or 'Untitled'}
-
-Scenes to Summarize:
-{new_scenes_text}
-
-Instructions:
-- Summarize ONLY Chapter {chapter.chapter_number}'s content
-- Capture key events, character developments, and plot progression
-- Keep summary engaging and comprehensive (2-3 paragraphs)
-
-Chapter {chapter.chapter_number} Summary:"""
+            # First summary: create from scratch using template
+            prompt = prompt_manager.get_prompt(
+                "chapter_summary_initial", "user",
+                user_id=user_id, db=db,
+                previous_chapter_text=previous_chapter_text,
+                chapter_number=chapter.chapter_number,
+                chapter_title=chapter.title or 'Untitled',
+                new_scenes_text=new_scenes_text
+            )
+            template_key = "chapter_summary_initial"
+        
+        # Fallback if template not found
+        if not prompt:
+            prompt = f"{previous_chapter_text}Chapter {chapter.chapter_number}: {chapter.title or 'Untitled'}\n\nScenes:\n{new_scenes_text}\n\nSummarize factually."
         
         # Get user settings
         from ..models import UserSettings
@@ -1606,11 +1595,11 @@ Chapter {chapter.chapter_number} Summary:"""
             if user:
                 user_settings['allow_nsfw'] = user.allow_nsfw
         
-        # Get system prompt from prompts.yml
-        system_prompt = prompt_manager.get_prompt("chapter_summary", "system", user_id=user_id, db=db)
+        # Get system prompt from prompts.yml using the appropriate template
+        system_prompt = prompt_manager.get_prompt(template_key, "system", user_id=user_id, db=db)
         if not system_prompt:
             # Fallback if template not found
-            system_prompt = "You are a helpful assistant that creates cohesive narrative summaries."
+            system_prompt = "You are a story state tracker. Extract facts, not prose."
         
         # Generate summary for this batch - check if user wants to use extraction LLM
         llm_start = time.perf_counter()
@@ -2169,18 +2158,15 @@ async def generate_story_so_far(chapter_id: int, db: Session, user_id: int) -> O
     # Combine previous chapter summaries
     combined_story = "=== Previous Chapters ===\n" + "\n\n".join(previous_summaries)
     
-    # Build prompt for story so far
-    prompt = f"""Create a cohesive "Story So Far" summary from the following chapter summaries. This should read as a continuous narrative that helps the reader understand where the story currently stands.
-
-{combined_story}
-
-Instructions:
-- Combine all chapter summaries into a flowing narrative
-- Maintain chronological order
-- Highlight key plot points and character developments
-- Keep the summary engaging and comprehensive (3-4 paragraphs)
-
-Story So Far:"""
+    # Get user prompt from prompts.yml with template variables
+    prompt = prompt_manager.get_prompt(
+        "story_so_far", "user",
+        user_id=user_id, db=db,
+        combined_chapters=combined_story
+    )
+    if not prompt:
+        # Fallback if template not found
+        prompt = f"{combined_story}\n\nConsolidate into a factual story summary."
     
     # Get user settings
     from ..models import UserSettings
@@ -2197,7 +2183,7 @@ Story So Far:"""
     system_prompt = prompt_manager.get_prompt("story_so_far", "system", user_id=user_id, db=db)
     if not system_prompt:
         # Fallback if template not found
-        system_prompt = "You are a helpful assistant that creates cohesive story summaries from chapter summaries."
+        system_prompt = "You are a story state tracker. Consolidate chapter facts into a single state document."
     
     # Generate story so far - check if user wants to use extraction LLM
     use_extraction_llm = user_settings.get('generation_preferences', {}).get('use_extraction_llm_for_summary', False) if user_settings else False

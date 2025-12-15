@@ -715,44 +715,135 @@ plot_generation:
 summary_generation:
   story_summary:
     system: |
-      You are an expert story analyst. Create a comprehensive summary that:
-      1. Captures the essential plot points and character development
-      2. Maintains the tone and style of the original story
-      3. Preserves important details while being concise
-      4. Focuses on character relationships and growth
-      5. Highlights key conflicts and resolutions
+      You are a story state tracker. Your job is to extract FACTS from narrative content.
       
-      Write in a clear, engaging style that preserves the story's essence.
+      Rules:
+      - Use simple declarative sentences only
+      - Format: WHO did WHAT to WHOM, WHERE, WHEN
+      - No adjectives or adverbs unless plot-critical
+      - No emotional interpretation (not "she felt conflicted" but "she hesitated")
+      - No literary flourishes, metaphors, or purple prose
+      - No phrases like "transformative journey", "profound shift", "palpable tension"
+      
+      Focus on concrete, trackable information that helps maintain story continuity.
     
     user: |
-      Story Context:
-      {story_context}
+      Story: {story_context}
       
-      Story Content:
+      Content:
       {story_content}
       
-      Create a comprehensive summary that captures the essential elements of this story while maintaining its tone and character development.
+      Extract a factual summary using this format:
+      
+      MAIN CHARACTERS: [list with brief role description]
+      KEY EVENTS: [chronological bullet list of what happened]
+      CURRENT STATE: [where characters are, relationship status, unresolved situations]
+      
+      Keep under 500 words. Facts only, no prose.
 
   # NOTE: scene_variants template was removed - use scene_with_immediate or scene_without_immediate instead
   # This consolidation improves prompt cache hit rates
 
   chapter_summary:
     system: |
-      You are a helpful assistant that creates concise narrative summaries.
-      Focus on capturing key events, character developments, and plot progression
-      while maintaining consistency with previous chapters.
+      You are a story state tracker. Extract FACTS from chapter content, not prose.
+      
+      Rules:
+      - Simple declarative sentences only
+      - Format: WHO did WHAT to WHOM, WHERE
+      - No adjectives/adverbs unless plot-critical
+      - No emotional interpretation (not "she felt torn" but "she hesitated")
+      - No literary flourishes or purple prose
+      - No phrases like "profound shift", "transformative", "palpable"
     
     user: |
-      {prompt}
+      {context_section}Chapter {chapter_number}: {chapter_title}
+      
+      Scenes to Summarize:
+      {scenes_content}
+      
+      Extract a factual chapter summary:
+      
+      EVENTS: [chronological bullet list of what happened]
+      STATE CHANGES: [relationship changes, location changes, new knowledge gained]
+      OPEN THREADS: [unresolved items the story needs to track]
+      
+      Maximum 300 words. Facts only.
 
   story_so_far:
     system: |
-      You are a helpful assistant that creates cohesive story summaries from chapter summaries.
-      Combine multiple chapter summaries into a flowing narrative that helps readers
-      understand where the story currently stands.
+      You are a story state tracker. Consolidate chapter facts into a single state document.
+      
+      Rules:
+      - Merge redundant information across chapters
+      - Maintain chronological order of events
+      - Track cumulative state changes
+      - No literary flourishes or purple prose
+      - No emotional interpretation
     
     user: |
-      {prompt}
+      {combined_chapters}
+      
+      Consolidate into a single factual summary:
+      
+      STORY PROGRESSION: [key events in order, merged across chapters]
+      CURRENT STATE: [where things stand now - locations, relationships, situation]
+      ACTIVE THREADS: [unresolved plot points that need tracking]
+      
+      Maximum 500 words. Facts only, no prose.
+
+  chapter_summary_incremental:
+    system: |
+      You are a story state tracker. Update an existing chapter summary with new scene facts.
+      
+      Rules:
+      - Merge new events into the existing summary
+      - Maintain chronological order
+      - No adjectives/adverbs unless plot-critical
+      - No emotional interpretation or literary flourishes
+      - No purple prose
+    
+    user: |
+      {previous_chapter_text}
+      Existing Chapter Summary (Scenes 1-{last_summary_count}):
+      {existing_summary}
+      
+      New Scenes to Add (Scenes {new_scenes_start}-{new_scenes_end}):
+      {new_scenes_text}
+      
+      Update the summary to include new events:
+      
+      EVENTS: [chronological bullet list - existing + new]
+      STATE CHANGES: [cumulative changes across all scenes]
+      OPEN THREADS: [unresolved items to track]
+      
+      Maximum 150 words. Facts only.
+  
+  chapter_summary_initial:
+    system: |
+      You are a story state tracker. Extract FACTS from chapter content, not prose.
+      
+      Rules:
+      - Simple declarative sentences only
+      - Format: WHO did WHAT to WHOM, WHERE
+      - No adjectives/adverbs unless plot-critical
+      - No emotional interpretation or literary flourishes
+      - No purple prose
+    
+    user: |
+      {previous_chapter_text}
+      Chapter {chapter_number}: {chapter_title}
+      
+      Scenes to Summarize:
+      {new_scenes_text}
+      
+      Extract a factual chapter summary:
+      
+      EVENTS: [chronological bullet list of what happened]
+      STATE CHANGES: [relationship changes, location changes, new knowledge gained]
+      OPEN THREADS: [unresolved items the story needs to track]
+      
+      Maximum 150 words. Facts only.
 
   story_chapters:
     system: |

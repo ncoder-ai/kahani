@@ -453,18 +453,22 @@ async def update_story_summary_from_chapters(story_id: int, db: Session, user_id
         # Combine chapter summaries
         combined_summaries = "\n\n".join(chapter_summaries)
         
-        # Generate story-level summary
-        prompt = f"""Create a comprehensive story summary from the following chapter summaries. This should capture the overall narrative arc, key plot points, character development, and major themes of the entire story.
-
-Story Title: {story.title}
-Genre: {story.genre or 'Unknown'}
-Total Chapters: {len(chapters)}
-Total Scenes: {total_scenes}
-
-Chapter Summaries:
-{combined_summaries}
-
-Provide a cohesive, well-structured summary that reads as a complete narrative overview (3-5 paragraphs):"""
+        # Build story context for template
+        story_context = f"Title: {story.title}, Genre: {story.genre or 'Unknown'}, Chapters: {len(chapters)}, Scenes: {total_scenes}"
+        
+        # Get prompts from prompts.yml
+        system_prompt = prompt_manager.get_prompt("story_summary", "system", user_id=user_id, db=db)
+        if not system_prompt:
+            system_prompt = "You are a story state tracker. Extract facts, not prose."
+        
+        prompt = prompt_manager.get_prompt(
+            "story_summary", "user",
+            user_id=user_id, db=db,
+            story_context=story_context,
+            story_content=combined_summaries
+        )
+        if not prompt:
+            prompt = f"Story: {story_context}\n\nChapter Summaries:\n{combined_summaries}\n\nCreate a factual story summary."
         
         logger.info(f"[STORY SUMMARY] Auto-updating story summary from {len(chapter_summaries)} chapters for story {story_id}")
         
@@ -472,7 +476,7 @@ Provide a cohesive, well-structured summary that reads as a complete narrative o
             prompt=prompt,
             user_id=user_id,
             user_settings=user_settings,
-            system_prompt="You are a helpful assistant that creates comprehensive story summaries from chapter summaries.",
+            system_prompt=system_prompt,
             max_tokens=800  # More tokens for full story summary
         )
         
