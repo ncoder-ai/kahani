@@ -298,6 +298,8 @@ backend/app/*.log
 *.backup*
 *.bundle
 migrations_backup/
+backend/data-backup/
+postgres_backup.tar.gz
 
 # Log files (additional patterns)
 *.log

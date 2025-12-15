@@ -4934,6 +4934,17 @@ Chapter Conclusion:"""
                     affected_chapter_ids.add(scene.chapter_id)
             logger.info(f"[DELETE:CONTEXT] trace_id={trace_id} affected_chapters={list(affected_chapter_ids)}")
             
+            # Phase 2.5: Clear leads_to_scene_id references in SceneChoice before deleting scenes
+            # This prevents foreign key constraint violations
+            if scenes_to_delete:
+                from ...models import SceneChoice
+                scene_ids_to_delete = [s.id for s in scenes_to_delete]
+                phase_start = time.perf_counter()
+                leads_to_cleared = db.query(SceneChoice).filter(
+                    SceneChoice.leads_to_scene_id.in_(scene_ids_to_delete)
+                ).update({SceneChoice.leads_to_scene_id: None}, synchronize_session='fetch')
+                logger.info(f"[DELETE:PHASE] trace_id={trace_id} phase=clear_leads_to_refs duration_ms={(time.perf_counter()-phase_start)*1000:.2f} refs_cleared={leads_to_cleared}")
+            
             # Phase 3: Delete each scene individually to trigger cascade relationships
             phase_start = time.perf_counter()
             scenes_deleted = 0

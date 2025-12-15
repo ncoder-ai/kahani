@@ -2360,6 +2360,16 @@ async def delete_chapter_content(
     max_deleted_seq = max(scene.sequence_number for scene in scenes) if scenes else 1
     logger.info(f"[CHAPTER:CONTENT:DELETE:PREP] trace_id={trace_id} scene_ids={scene_ids_to_cleanup[:10]}{'...' if len(scene_ids_to_cleanup) > 10 else ''} seq_range={min_deleted_seq}-{max_deleted_seq}")
     
+    # Phase 2.5: Clear leads_to_scene_id references in SceneChoice before deleting scenes
+    # This prevents foreign key constraint violations
+    if scene_ids_to_cleanup:
+        from ..models import SceneChoice
+        phase_start = time.perf_counter()
+        leads_to_cleared = db.query(SceneChoice).filter(
+            SceneChoice.leads_to_scene_id.in_(scene_ids_to_cleanup)
+        ).update({SceneChoice.leads_to_scene_id: None}, synchronize_session='fetch')
+        logger.info(f"[CHAPTER:CONTENT:DELETE:PHASE] trace_id={trace_id} phase=clear_leads_to_refs duration_ms={(time.perf_counter()-phase_start)*1000:.2f} refs_cleared={leads_to_cleared}")
+    
     # Phase 3: Delete scenes (CASCADE will handle related database records)
     phase_start = time.perf_counter()
     total_scenes = len(scenes)
@@ -2555,6 +2565,16 @@ async def delete_chapter(
         ChapterSummaryBatch.chapter_id == chapter_id
     ).delete()
     logger.info(f"[CHAPTER:DELETE:PHASE] trace_id={trace_id} phase=delete_batches duration_ms={(time.perf_counter()-phase_start)*1000:.2f} batches_deleted={batches_deleted}")
+    
+    # Phase 4.5: Clear leads_to_scene_id references in SceneChoice before deleting scenes
+    # This prevents foreign key constraint violations
+    if scene_ids_to_cleanup:
+        from ..models import SceneChoice
+        phase_start = time.perf_counter()
+        leads_to_cleared = db.query(SceneChoice).filter(
+            SceneChoice.leads_to_scene_id.in_(scene_ids_to_cleanup)
+        ).update({SceneChoice.leads_to_scene_id: None}, synchronize_session='fetch')
+        logger.info(f"[CHAPTER:DELETE:PHASE] trace_id={trace_id} phase=clear_leads_to_refs duration_ms={(time.perf_counter()-phase_start)*1000:.2f} refs_cleared={leads_to_cleared}")
     
     # Phase 5: Delete all scenes in this chapter (CASCADE will handle variants, story flow, etc.)
     phase_start = time.perf_counter()
