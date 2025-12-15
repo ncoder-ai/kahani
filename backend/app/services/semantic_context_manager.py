@@ -146,6 +146,7 @@ class SemanticContextManager(ContextManager):
                     # Include scenes from all chapters with chapter_number <= scene's chapter number
                     scene_query = db.query(Scene).join(Chapter).filter(
                         Scene.story_id == story_id,
+                        Scene.is_deleted == False,
                         Chapter.chapter_number <= scene_chapter.chapter_number,
                         Scene.id != exclude_scene_id  # Exclude the specific scene
                     )
@@ -157,6 +158,7 @@ class SemanticContextManager(ContextManager):
                     # Fallback: if chapter not found, get all scenes except excluded one
                     scene_query = db.query(Scene).filter(
                         Scene.story_id == story_id,
+                        Scene.is_deleted == False,
                         Scene.id != exclude_scene_id
                     )
                     if branch_id:
@@ -167,6 +169,7 @@ class SemanticContextManager(ContextManager):
                 # Scene not found or has no chapter - fall back to simple exclusion
                 scene_query = db.query(Scene).filter(
                     Scene.story_id == story_id,
+                    Scene.is_deleted == False,
                     Scene.id != exclude_scene_id
                 )
                 if branch_id:
@@ -185,6 +188,7 @@ class SemanticContextManager(ContextManager):
                 # This ensures we include previous chapters but exclude future chapters
                 scene_query = db.query(Scene).join(Chapter).filter(
                     Scene.story_id == story_id,
+                    Scene.is_deleted == False,
                     Chapter.chapter_number <= active_chapter.chapter_number
                 )
                 if branch_id:
@@ -195,6 +199,7 @@ class SemanticContextManager(ContextManager):
                 # Fallback: if chapter not found, only get scenes from that chapter_id
                 scene_query = db.query(Scene).filter(
                     Scene.story_id == story_id,
+                    Scene.is_deleted == False,
                     Scene.chapter_id == chapter_id
                 )
                 if branch_id:
@@ -205,7 +210,10 @@ class SemanticContextManager(ContextManager):
             # Note: continues_from_previous is handled in base context building
             # Semantic search still searches across all chapters (limit_to_chapter_id controls this separately)
         else:
-            scene_query = db.query(Scene).filter(Scene.story_id == story_id)
+            scene_query = db.query(Scene).filter(
+                Scene.story_id == story_id,
+                Scene.is_deleted == False
+            )
             if branch_id:
                 scene_query = scene_query.filter(Scene.branch_id == branch_id)
             scenes = scene_query.order_by(Scene.sequence_number).all()
@@ -306,7 +314,8 @@ class SemanticContextManager(ContextManager):
         semantic_content = await self._get_semantic_scenes(
             story_id, recent_scenes, semantic_tokens, db, 
             exclude_all_recent_sequences=all_recent_scene_sequences,
-            limit_to_chapter_id=chapter_id if limit_semantic_to_chapter else None
+            limit_to_chapter_id=chapter_id if limit_semantic_to_chapter else None,
+            branch_id=branch_id
         )
         semantic_used_tokens = self.count_tokens(semantic_content) if semantic_content else 0
         
@@ -642,7 +651,8 @@ class SemanticContextManager(ContextManager):
         token_budget: int,
         db: Session,
         exclude_all_recent_sequences: Optional[List[int]] = None,
-        limit_to_chapter_id: Optional[int] = None
+        limit_to_chapter_id: Optional[int] = None,
+        branch_id: Optional[int] = None
     ) -> Optional[str]:
         """
         Get semantically relevant scenes from the past
@@ -652,6 +662,9 @@ class SemanticContextManager(ContextManager):
             recent_scenes: Recent scenes to use as query
             token_budget: Available tokens
             db: Database session
+            exclude_all_recent_sequences: Scene sequences to exclude
+            limit_to_chapter_id: Optional chapter ID to limit search
+            branch_id: Optional branch ID to filter results (only return scenes from this branch)
             
         Returns:
             Formatted string of relevant scenes or None
@@ -697,8 +710,9 @@ class SemanticContextManager(ContextManager):
             # Search for similar scenes
             # If limit_to_chapter_id is provided, only search within that chapter (for context size calculation)
             # Otherwise, search across entire story (normal behavior)
-            # Request more results than needed so we can filter by similarity threshold
-            search_top_k = self.semantic_top_k * 2  # Get 2x results to filter
+            # Request more results than needed so we can filter by similarity threshold and branch
+            # Use 10x to ensure we get enough candidates after branch filtering (legacy data has no branch_id)
+            search_top_k = self.semantic_top_k * 10  # Get 10x results to filter by branch
             
             similar_scenes = await self.semantic_memory.search_similar_scenes(
                 query_text=query_content,
@@ -716,17 +730,33 @@ class SemanticContextManager(ContextManager):
             current_scene_sequence = recent_scenes[-1].sequence_number if recent_scenes else None
             filtered_results = []
             
+            # Log how many scenes we're starting with
+            logger.info(f"[SEMANTIC SEARCH] Processing {len(similar_scenes)} candidates for story {story_id}, branch_id filter: {branch_id}")
+            
+            filtered_by_similarity = 0
+            filtered_by_branch = 0
+            filtered_by_age = 0
+            filtered_by_missing = 0
+            
             for result in similar_scenes:
                 similarity_score = result.get('similarity_score', 0.0)
                 
                 # Filter out low similarity results
                 if similarity_score < self.semantic_min_similarity:
                     logger.debug(f"[SEMANTIC SEARCH] Filtered out scene {result.get('scene_id')} - similarity {similarity_score:.2f} < threshold {self.semantic_min_similarity}")
+                    filtered_by_similarity += 1
                     continue
                 
                 # Get scene sequence for age filtering
                 scene = db.query(Scene).filter(Scene.id == result['scene_id']).first()
                 if not scene:
+                    filtered_by_missing += 1
+                    continue
+                
+                # Filter by branch_id if specified (prevents cross-branch contamination)
+                if branch_id is not None and scene.branch_id != branch_id:
+                    logger.debug(f"[SEMANTIC SEARCH] Filtered out scene {scene.sequence_number} - wrong branch (scene branch: {scene.branch_id}, current branch: {branch_id})")
+                    filtered_by_branch += 1
                     continue
                 
                 # Optional: Filter out very old scenes unless similarity is very high
@@ -735,12 +765,16 @@ class SemanticContextManager(ContextManager):
                     # If scene is >50 scenes old, require higher similarity (>0.6)
                     if scene_age > 50 and similarity_score < 0.6:
                         logger.debug(f"[SEMANTIC SEARCH] Filtered out old scene {scene.sequence_number} (age {scene_age}) - similarity {similarity_score:.2f} < 0.6")
+                        filtered_by_age += 1
                         continue
                 
                 filtered_results.append(result)
             
+            # Log filter statistics
+            logger.info(f"[SEMANTIC SEARCH] Filter stats for story {story_id}: similarity={filtered_by_similarity}, branch={filtered_by_branch}, age={filtered_by_age}, missing={filtered_by_missing}, passed={len(filtered_results)}")
+            
             if not filtered_results:
-                logger.info(f"[SEMANTIC SEARCH] No scenes passed similarity threshold {self.semantic_min_similarity} for story {story_id}")
+                logger.info(f"[SEMANTIC SEARCH] No scenes passed filters for story {story_id} (branch_id={branch_id})")
                 return None
             
             # Sort filtered results by sequence_number (chronological order) before processing
@@ -907,32 +941,49 @@ class SemanticContextManager(ContextManager):
         try:
             from ..models import CharacterState, LocationState, ObjectState, Character
             
-            # Get all entity states for this story (filtered by branch, including NULL branch_id for shared entities)
+            # Get all entity states for this story (filtered by branch)
             # Order by updated_at DESC to ensure we get the latest states
             # (though typically there's one state per entity, ordering ensures we get most recent if duplicates exist)
+            
+            # First try to get states for specific branch
             char_state_query = db.query(CharacterState).filter(CharacterState.story_id == story_id)
             if branch_id:
-                char_state_query = char_state_query.filter(or_(
-                    CharacterState.branch_id == branch_id,
-                    CharacterState.branch_id.is_(None)
-                ))
+                char_state_query = char_state_query.filter(CharacterState.branch_id == branch_id)
             character_states = char_state_query.order_by(CharacterState.updated_at.desc()).all()
+            
+            # If no branch-specific states found, fall back to NULL branch_id states (legacy data)
+            if branch_id and not character_states:
+                logger.info(f"[ENTITY STATES] No character states for branch {branch_id}, falling back to NULL branch_id states")
+                character_states = db.query(CharacterState).filter(
+                    CharacterState.story_id == story_id,
+                    CharacterState.branch_id.is_(None)
+                ).order_by(CharacterState.updated_at.desc()).all()
             
             loc_state_query = db.query(LocationState).filter(LocationState.story_id == story_id)
             if branch_id:
-                loc_state_query = loc_state_query.filter(or_(
-                    LocationState.branch_id == branch_id,
-                    LocationState.branch_id.is_(None)
-                ))
+                loc_state_query = loc_state_query.filter(LocationState.branch_id == branch_id)
             location_states = loc_state_query.order_by(LocationState.updated_at.desc()).all()
+            
+            # If no branch-specific states found, fall back to NULL branch_id states (legacy data)
+            if branch_id and not location_states:
+                logger.info(f"[ENTITY STATES] No location states for branch {branch_id}, falling back to NULL branch_id states")
+                location_states = db.query(LocationState).filter(
+                    LocationState.story_id == story_id,
+                    LocationState.branch_id.is_(None)
+                ).order_by(LocationState.updated_at.desc()).all()
             
             obj_state_query = db.query(ObjectState).filter(ObjectState.story_id == story_id)
             if branch_id:
-                obj_state_query = obj_state_query.filter(or_(
-                    ObjectState.branch_id == branch_id,
-                    ObjectState.branch_id.is_(None)
-                ))
+                obj_state_query = obj_state_query.filter(ObjectState.branch_id == branch_id)
             object_states = obj_state_query.order_by(ObjectState.updated_at.desc()).all()
+            
+            # If no branch-specific states found, fall back to NULL branch_id states (legacy data)
+            if branch_id and not object_states:
+                logger.info(f"[ENTITY STATES] No object states for branch {branch_id}, falling back to NULL branch_id states")
+                object_states = db.query(ObjectState).filter(
+                    ObjectState.story_id == story_id,
+                    ObjectState.branch_id.is_(None)
+                ).order_by(ObjectState.updated_at.desc()).all()
             
             if not character_states and not location_states and not object_states:
                 return None
@@ -950,13 +1001,17 @@ class SemanticContextManager(ContextManager):
                     # Include if updated recently OR if it's a main character (always show main characters)
                     include = True
                     if current_scene_sequence is not None and char_state.last_updated_scene is not None:
-                        scene_age = current_scene_sequence - char_state.last_updated_scene
-                        # Only include if updated within recency window (or if main character)
-                        if scene_age > self.location_recency_window:
-                            # Still include if it's likely a main character (has significant state)
-                            if not (char_state.current_goal or char_state.possessions or 
-                                   (char_state.knowledge and len(char_state.knowledge) > 0)):
-                                include = False
+                        # Skip entity states that reference scenes beyond current branch's range
+                        if char_state.last_updated_scene > current_scene_sequence:
+                            include = False  # Scene doesn't exist in current branch context
+                        else:
+                            scene_age = current_scene_sequence - char_state.last_updated_scene
+                            # Only include if updated within recency window (or if main character)
+                            if scene_age > self.location_recency_window:
+                                # Still include if it's likely a main character (has significant state)
+                                if not (char_state.current_goal or char_state.possessions or 
+                                       (char_state.knowledge and len(char_state.knowledge) > 0)):
+                                    include = False
                     
                     if include:
                         filtered_char_states.append(char_state)
@@ -1038,6 +1093,11 @@ class SemanticContextManager(ContextManager):
                 
                 for loc_state in location_states:
                     is_current = False
+                    
+                    # Skip entity states that reference scenes beyond current branch's range
+                    if current_scene_sequence is not None and loc_state.last_updated_scene is not None:
+                        if loc_state.last_updated_scene > current_scene_sequence:
+                            continue  # Scene doesn't exist in current branch context
                     
                     # Check if location was updated recently (within recency window)
                     if current_scene_sequence is not None and loc_state.last_updated_scene is not None:
@@ -1132,6 +1192,11 @@ class SemanticContextManager(ContextManager):
                 for obj_state in object_states:
                     include = False
                     include_reason = None
+                    
+                    # Skip entity states that reference scenes beyond current branch's range
+                    if current_scene_sequence is not None and obj_state.last_updated_scene is not None:
+                        if obj_state.last_updated_scene > current_scene_sequence:
+                            continue  # Scene doesn't exist in current branch context
                     
                     # Criterion 1: Currently owned/held by a character (highest priority)
                     if obj_state.current_owner_id:

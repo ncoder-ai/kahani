@@ -138,6 +138,7 @@ async def process_scene_embeddings(
                     metadata={
                         'sequence': sequence_number,
                         'chapter_id': chapter_id or 0,
+                        'branch_id': branch_id or 0,  # Branch ID for branch-specific filtering
                         'characters': []  # Could be enhanced later
                     }
                 )

@@ -183,6 +183,7 @@ class SemanticMemoryService:
                 "variant_id": variant_id,
                 "sequence": metadata.get("sequence", 0),
                 "chapter_id": metadata.get("chapter_id", 0),
+                "branch_id": metadata.get("branch_id", 0),  # Branch ID for branch-specific filtering
                 "timestamp": metadata.get("timestamp", datetime.utcnow().isoformat()),
                 "characters": str(metadata.get("characters", [])),  # ChromaDB requires string metadata
                 "content_length": len(content)
@@ -211,6 +212,7 @@ class SemanticMemoryService:
         top_k: int = 5,
         exclude_sequences: Optional[List[int]] = None,
         chapter_id: Optional[int] = None,
+        branch_id: Optional[int] = None,
         use_reranking: bool = True
     ) -> List[Dict[str, Any]]:
         """
@@ -226,6 +228,7 @@ class SemanticMemoryService:
             top_k: Number of results to return
             exclude_sequences: Scene sequences to exclude (e.g., recent scenes)
             chapter_id: Optional chapter filter
+            branch_id: Optional branch filter (only return scenes from this branch)
             use_reranking: Whether to use cross-encoder reranking
             
         Returns:
@@ -240,15 +243,18 @@ class SemanticMemoryService:
             query_embedding = await self.generate_embedding(query_text)
             
             # Build where filter
+            # Note: branch_id filtering is done post-query in semantic_context_manager
+            # because existing embeddings don't have branch_id metadata
+            filters = [{"story_id": {"$eq": story_id}}]
             if chapter_id is not None:
-                where_filter = {
-                    "$and": [
-                        {"story_id": {"$eq": story_id}},
-                        {"chapter_id": {"$eq": chapter_id}}
-                    ]
-                }
+                filters.append({"chapter_id": {"$eq": chapter_id}})
+            # Don't filter by branch_id in ChromaDB - existing embeddings lack this metadata
+            # Branch filtering is done in _get_semantic_scenes() after retrieving scenes
+            
+            if len(filters) > 1:
+                where_filter = {"$and": filters}
             else:
-                where_filter = {"story_id": {"$eq": story_id}}
+                where_filter = filters[0]
             
             # Query collection - run in thread pool
             results = await asyncio.to_thread(

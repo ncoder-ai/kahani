@@ -1377,7 +1377,11 @@ Summary:"""
         
         # Update chapter's auto_summary (just this chapter's content)
         chapter.auto_summary = summary
-        chapter.last_summary_scene_count = chapter.scenes_count
+        # Store the max sequence number of scenes that were summarized (not the count)
+        if scenes:
+            chapter.last_summary_scene_count = max(s.sequence_number for s in scenes)
+        else:
+            chapter.last_summary_scene_count = 0
         db.commit()
         summary_text = summary
         
@@ -2305,76 +2309,141 @@ async def delete_chapter_content(
     db: Session = Depends(get_db)
 ):
     """Delete all scenes in a chapter (for structured mode - rewrite chapter)"""
+    import time
+    import uuid
     
-    logger.info(f"[CHAPTER] Deleting content for chapter {chapter_id}")
+    op_start = time.perf_counter()
+    trace_id = f"chapter-content-del-{uuid.uuid4()}"
+    logger.info(f"[CHAPTER:CONTENT:DELETE:START] trace_id={trace_id} story_id={story_id} chapter_id={chapter_id} user_id={current_user.id}")
     
-    # Verify story ownership
+    # Phase 1: Verify story ownership
+    phase_start = time.perf_counter()
     story = db.query(Story).filter(
         Story.id == story_id,
         Story.owner_id == current_user.id
     ).first()
+    logger.info(f"[CHAPTER:CONTENT:DELETE:PHASE] trace_id={trace_id} phase=query_story duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
     
     if not story:
         raise HTTPException(status_code=404, detail="Story not found")
     
+    phase_start = time.perf_counter()
     chapter = db.query(Chapter).filter(
         Chapter.id == chapter_id,
         Chapter.story_id == story_id
     ).first()
+    logger.info(f"[CHAPTER:CONTENT:DELETE:PHASE] trace_id={trace_id} phase=query_chapter duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
     
     if not chapter:
         raise HTTPException(status_code=404, detail="Chapter not found")
     
     # Verify chapter belongs to active branch (branch consistency check)
     if story.current_branch_id and chapter.branch_id != story.current_branch_id:
-        logger.warning(f"[CHAPTER] Attempt to delete scenes from chapter {chapter_id} from branch {chapter.branch_id} while active branch is {story.current_branch_id}")
+        logger.warning(f"[CHAPTER:CONTENT:DELETE:ERROR] trace_id={trace_id} branch_mismatch chapter_branch={chapter.branch_id} active_branch={story.current_branch_id}")
         raise HTTPException(
             status_code=400,
             detail=f"Cannot delete scenes from chapter in inactive branch. Please switch to the chapter's branch first."
         )
     
-    # Delete all scenes in this chapter (filter by branch_id to avoid cross-branch deletion)
+    # Phase 2: Query scenes to delete
+    phase_start = time.perf_counter()
     scene_query = db.query(Scene).filter(Scene.chapter_id == chapter_id)
     if chapter.branch_id:
         scene_query = scene_query.filter(Scene.branch_id == chapter.branch_id)
     scenes = scene_query.all()
     scene_count = len(scenes)
+    logger.info(f"[CHAPTER:CONTENT:DELETE:PHASE] trace_id={trace_id} phase=query_scenes duration_ms={(time.perf_counter()-phase_start)*1000:.2f} scenes_found={scene_count}")
     
-    # Collect scene IDs for background semantic cleanup BEFORE deleting
+    # Collect scene IDs and sequence numbers for background cleanup BEFORE deleting
     scene_ids_to_cleanup = [scene.id for scene in scenes]
+    min_deleted_seq = min(scene.sequence_number for scene in scenes) if scenes else 1
+    max_deleted_seq = max(scene.sequence_number for scene in scenes) if scenes else 1
+    logger.info(f"[CHAPTER:CONTENT:DELETE:PREP] trace_id={trace_id} scene_ids={scene_ids_to_cleanup[:10]}{'...' if len(scene_ids_to_cleanup) > 10 else ''} seq_range={min_deleted_seq}-{max_deleted_seq}")
     
-    # Delete scenes (CASCADE will handle related database records)
-    for scene in scenes:
+    # Phase 3: Delete scenes (CASCADE will handle related database records)
+    phase_start = time.perf_counter()
+    total_scenes = len(scenes)
+    batch_log_interval = max(1, total_scenes // 10) if total_scenes > 10 else 1
+    
+    logger.info(f"[CHAPTER:CONTENT:DELETE:SCENE_LOOP:START] trace_id={trace_id} total_scenes={total_scenes}")
+    for i, scene in enumerate(scenes):
+        scene_start = time.perf_counter()
         db.delete(scene)
+        scene_duration = (time.perf_counter() - scene_start) * 1000
+        
+        if (i + 1) % batch_log_interval == 0 or scene_duration > 100:
+            elapsed_ms = (time.perf_counter() - phase_start) * 1000
+            logger.info(f"[CHAPTER:CONTENT:DELETE:PROGRESS] trace_id={trace_id} progress={i+1}/{total_scenes} elapsed_ms={elapsed_ms:.2f} last_scene_ms={scene_duration:.2f}")
     
-    # Recalculate scenes_count from active StoryFlow (should be 0 after deletion)
+    loop_duration = (time.perf_counter() - phase_start) * 1000
+    logger.info(f"[CHAPTER:CONTENT:DELETE:SCENE_LOOP:END] trace_id={trace_id} scenes_deleted={total_scenes} duration_ms={loop_duration:.2f}")
+    
+    # Phase 4: Recalculate scenes_count from active StoryFlow (should be 0 after deletion)
+    phase_start = time.perf_counter()
     chapter.scenes_count = llm_service.get_active_scene_count(db, story_id, chapter_id, branch_id=chapter.branch_id)
+    logger.info(f"[CHAPTER:CONTENT:DELETE:PHASE] trace_id={trace_id} phase=recalc_scene_count duration_ms={(time.perf_counter()-phase_start)*1000:.2f} new_count={chapter.scenes_count}")
     
-    # Delete all summary batches for this chapter (CASCADE should handle this, but explicit is clearer)
+    # Phase 5: Delete all summary batches for this chapter
+    phase_start = time.perf_counter()
     batches_deleted = db.query(ChapterSummaryBatch).filter(
         ChapterSummaryBatch.chapter_id == chapter_id
     ).delete()
-    if batches_deleted > 0:
-        logger.info(f"[CHAPTER] Deleted {batches_deleted} summary batch(es) for chapter {chapter_id}")
+    logger.info(f"[CHAPTER:CONTENT:DELETE:PHASE] trace_id={trace_id} phase=delete_batches duration_ms={(time.perf_counter()-phase_start)*1000:.2f} batches_deleted={batches_deleted}")
     
     # Reset chapter metrics
     chapter.context_tokens_used = 0
     chapter.auto_summary = None
     chapter.last_summary_scene_count = 0
-    chapter.last_extraction_scene_count = 0  # Also reset extraction count
+    chapter.last_extraction_scene_count = 0
     chapter.status = ChapterStatus.ACTIVE
     
+    # Phase 6: Commit
+    phase_start = time.perf_counter()
+    logger.info(f"[CHAPTER:CONTENT:DELETE:COMMIT:START] trace_id={trace_id}")
     db.commit()
+    commit_duration = (time.perf_counter() - phase_start) * 1000
+    logger.info(f"[CHAPTER:CONTENT:DELETE:COMMIT:END] trace_id={trace_id} commit_duration_ms={commit_duration:.2f}")
     
-    # Schedule semantic cleanup in background (don't block response)
+    # Schedule background cleanup tasks (don't block response)
     if scene_ids_to_cleanup:
+        # 1. Semantic cleanup (embeddings, character moments, plot events)
+        logger.info(f"[CHAPTER:CONTENT:DELETE:BG_SCHEDULE] trace_id={trace_id} task=semantic_cleanup scene_count={len(scene_ids_to_cleanup)}")
         background_tasks.add_task(
             cleanup_semantic_data_in_background,
             scene_ids=scene_ids_to_cleanup,
             story_id=story_id
         )
+        
+        # 2. NPC tracking restoration
+        from .stories import restore_npc_tracking_in_background
+        logger.info(f"[CHAPTER:CONTENT:DELETE:BG_SCHEDULE] trace_id={trace_id} task=npc_tracking")
+        background_tasks.add_task(
+            restore_npc_tracking_in_background,
+            story_id=story_id,
+            sequence_number=min_deleted_seq,
+            branch_id=chapter.branch_id
+        )
+        
+        # 3. Entity states restoration
+        from .stories import restore_entity_states_in_background, get_or_create_user_settings
+        user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+        logger.info(f"[CHAPTER:CONTENT:DELETE:BG_SCHEDULE] trace_id={trace_id} task=entity_states")
+        background_tasks.add_task(
+            restore_entity_states_in_background,
+            story_id=story_id,
+            sequence_number=min_deleted_seq,
+            min_deleted_seq=min_deleted_seq,
+            max_deleted_seq=max_deleted_seq,
+            user_id=current_user.id,
+            user_settings=user_settings,
+            branch_id=chapter.branch_id
+        )
     
-    logger.info(f"[CHAPTER] Deleted {scene_count} scenes from chapter {chapter_id}")
+    total_duration = (time.perf_counter() - op_start) * 1000
+    if total_duration > 10000:
+        logger.warning(f"[CHAPTER:CONTENT:DELETE:SLOW] trace_id={trace_id} duration_ms={total_duration:.2f} scenes_deleted={scene_count}")
+    else:
+        logger.info(f"[CHAPTER:CONTENT:DELETE:END] trace_id={trace_id} duration_ms={total_duration:.2f} scenes_deleted={scene_count}")
     
     return {
         "message": "Chapter content deleted successfully",
@@ -2403,30 +2472,38 @@ async def delete_chapter(
     
     Use with caution!
     """
+    import time
+    import uuid
     
-    logger.info(f"[CHAPTER:DELETE:START] story_id={story_id} chapter_id={chapter_id} user_id={current_user.id}")
+    op_start = time.perf_counter()
+    trace_id = f"chapter-del-{uuid.uuid4()}"
+    logger.info(f"[CHAPTER:DELETE:START] trace_id={trace_id} story_id={story_id} chapter_id={chapter_id} user_id={current_user.id}")
     
-    # Verify story ownership
+    # Phase 1: Verify story ownership
+    phase_start = time.perf_counter()
     story = db.query(Story).filter(
         Story.id == story_id,
         Story.owner_id == current_user.id
     ).first()
+    logger.info(f"[CHAPTER:DELETE:PHASE] trace_id={trace_id} phase=query_story duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
     
     if not story:
-        logger.error(f"[CHAPTER:DELETE:ERROR] story_id={story_id} chapter_id={chapter_id} error=story_not_found")
+        logger.error(f"[CHAPTER:DELETE:ERROR] trace_id={trace_id} story_id={story_id} chapter_id={chapter_id} error=story_not_found")
         raise HTTPException(status_code=404, detail="Story not found")
     
+    phase_start = time.perf_counter()
     chapter = db.query(Chapter).filter(
         Chapter.id == chapter_id,
         Chapter.story_id == story_id
     ).first()
+    logger.info(f"[CHAPTER:DELETE:PHASE] trace_id={trace_id} phase=query_chapter duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
     
     if not chapter:
         raise HTTPException(status_code=404, detail="Chapter not found")
     
     # Verify chapter belongs to active branch (branch consistency check)
     if story.current_branch_id and chapter.branch_id != story.current_branch_id:
-        logger.warning(f"[CHAPTER] Attempt to delete chapter {chapter_id} from branch {chapter.branch_id} while active branch is {story.current_branch_id}")
+        logger.warning(f"[CHAPTER:DELETE:ERROR] trace_id={trace_id} branch_mismatch chapter_branch={chapter.branch_id} active_branch={story.current_branch_id}")
         raise HTTPException(
             status_code=400,
             detail=f"Cannot delete chapter from inactive branch. Please switch to the chapter's branch first."
@@ -2439,6 +2516,7 @@ async def delete_chapter(
     ).count()
     
     if chapter_count <= 1:
+        logger.warning(f"[CHAPTER:DELETE:ERROR] trace_id={trace_id} cannot_delete_only_chapter")
         raise HTTPException(
             status_code=400,
             detail="Cannot delete the only chapter in the story. Stories must have at least one chapter."
@@ -2447,37 +2525,63 @@ async def delete_chapter(
     # Store chapter info for logging
     chapter_number = chapter.chapter_number
     chapter_title = chapter.title
+    logger.info(f"[CHAPTER:DELETE:CONTEXT] trace_id={trace_id} chapter_number={chapter_number} chapter_title={chapter_title} branch_id={chapter.branch_id}")
     
-    # Get all scenes for background cleanup (filter by branch_id)
+    # Phase 2: Get all scenes for background cleanup (filter by branch_id)
+    phase_start = time.perf_counter()
     scene_query = db.query(Scene).filter(Scene.chapter_id == chapter_id)
     if chapter.branch_id:
         scene_query = scene_query.filter(Scene.branch_id == chapter.branch_id)
     scenes = scene_query.all()
     scene_ids_to_cleanup = [scene.id for scene in scenes]
+    min_deleted_seq = min(scene.sequence_number for scene in scenes) if scenes else 1
+    max_deleted_seq = max(scene.sequence_number for scene in scenes) if scenes else 1
     scene_count = len(scenes)
+    logger.info(f"[CHAPTER:DELETE:PHASE] trace_id={trace_id} phase=query_scenes duration_ms={(time.perf_counter()-phase_start)*1000:.2f} scenes_found={scene_count}")
+    logger.info(f"[CHAPTER:DELETE:PREP] trace_id={trace_id} scene_ids={scene_ids_to_cleanup[:10]}{'...' if len(scene_ids_to_cleanup) > 10 else ''} seq_range={min_deleted_seq}-{max_deleted_seq}")
     
-    # Delete chapter-character associations
+    # Phase 3: Delete chapter-character associations
+    phase_start = time.perf_counter()
     db.execute(
         chapter_characters.delete().where(
             chapter_characters.c.chapter_id == chapter_id
         )
     )
+    logger.info(f"[CHAPTER:DELETE:PHASE] trace_id={trace_id} phase=delete_chapter_characters duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
     
-    # Delete all summary batches for this chapter
+    # Phase 4: Delete all summary batches for this chapter
+    phase_start = time.perf_counter()
     batches_deleted = db.query(ChapterSummaryBatch).filter(
         ChapterSummaryBatch.chapter_id == chapter_id
     ).delete()
+    logger.info(f"[CHAPTER:DELETE:PHASE] trace_id={trace_id} phase=delete_batches duration_ms={(time.perf_counter()-phase_start)*1000:.2f} batches_deleted={batches_deleted}")
     
-    # Delete all scenes in this chapter (CASCADE will handle variants, story flow, etc.)
-    for scene in scenes:
+    # Phase 5: Delete all scenes in this chapter (CASCADE will handle variants, story flow, etc.)
+    phase_start = time.perf_counter()
+    total_scenes = len(scenes)
+    batch_log_interval = max(1, total_scenes // 10) if total_scenes > 10 else 1
+    
+    logger.info(f"[CHAPTER:DELETE:SCENE_LOOP:START] trace_id={trace_id} total_scenes={total_scenes}")
+    for i, scene in enumerate(scenes):
+        scene_start = time.perf_counter()
         db.delete(scene)
+        scene_duration = (time.perf_counter() - scene_start) * 1000
+        
+        if (i + 1) % batch_log_interval == 0 or scene_duration > 100:
+            elapsed_ms = (time.perf_counter() - phase_start) * 1000
+            logger.info(f"[CHAPTER:DELETE:PROGRESS] trace_id={trace_id} progress={i+1}/{total_scenes} elapsed_ms={elapsed_ms:.2f} last_scene_ms={scene_duration:.2f}")
     
-    # Delete the chapter itself
+    loop_duration = (time.perf_counter() - phase_start) * 1000
+    logger.info(f"[CHAPTER:DELETE:SCENE_LOOP:END] trace_id={trace_id} scenes_deleted={total_scenes} duration_ms={loop_duration:.2f}")
+    
+    # Phase 6: Delete the chapter itself
+    phase_start = time.perf_counter()
     db.delete(chapter)
+    logger.info(f"[CHAPTER:DELETE:PHASE] trace_id={trace_id} phase=delete_chapter duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
     
     # If this was the active chapter, we need to activate another one
     if chapter.status == ChapterStatus.ACTIVE:
-        # Find the most recent chapter (by chapter_number) to activate
+        phase_start = time.perf_counter()
         new_active = db.query(Chapter).filter(
             Chapter.story_id == story_id,
             Chapter.branch_id == chapter.branch_id,
@@ -2486,19 +2590,55 @@ async def delete_chapter(
         
         if new_active:
             new_active.status = ChapterStatus.ACTIVE
-            logger.info(f"[CHAPTER] Activated chapter {new_active.id} (Chapter {new_active.chapter_number}) after deleting active chapter")
+            logger.info(f"[CHAPTER:DELETE:PHASE] trace_id={trace_id} phase=activate_new_chapter duration_ms={(time.perf_counter()-phase_start)*1000:.2f} new_active_chapter={new_active.id}")
     
+    # Phase 7: Commit
+    phase_start = time.perf_counter()
+    logger.info(f"[CHAPTER:DELETE:COMMIT:START] trace_id={trace_id}")
     db.commit()
+    commit_duration = (time.perf_counter() - phase_start) * 1000
+    logger.info(f"[CHAPTER:DELETE:COMMIT:END] trace_id={trace_id} commit_duration_ms={commit_duration:.2f}")
     
-    # Schedule semantic cleanup in background (don't block response)
+    # Schedule background cleanup tasks (don't block response)
     if scene_ids_to_cleanup:
+        # 1. Semantic cleanup (embeddings, character moments, plot events)
+        logger.info(f"[CHAPTER:DELETE:BG_SCHEDULE] trace_id={trace_id} task=semantic_cleanup scene_count={len(scene_ids_to_cleanup)}")
         background_tasks.add_task(
             cleanup_semantic_data_in_background,
             scene_ids=scene_ids_to_cleanup,
             story_id=story_id
         )
+        
+        # 2. NPC tracking restoration
+        from .stories import restore_npc_tracking_in_background
+        logger.info(f"[CHAPTER:DELETE:BG_SCHEDULE] trace_id={trace_id} task=npc_tracking")
+        background_tasks.add_task(
+            restore_npc_tracking_in_background,
+            story_id=story_id,
+            sequence_number=min_deleted_seq,
+            branch_id=chapter.branch_id
+        )
+        
+        # 3. Entity states restoration
+        from .stories import restore_entity_states_in_background, get_or_create_user_settings
+        user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+        logger.info(f"[CHAPTER:DELETE:BG_SCHEDULE] trace_id={trace_id} task=entity_states")
+        background_tasks.add_task(
+            restore_entity_states_in_background,
+            story_id=story_id,
+            sequence_number=min_deleted_seq,
+            min_deleted_seq=min_deleted_seq,
+            max_deleted_seq=max_deleted_seq,
+            user_id=current_user.id,
+            user_settings=user_settings,
+            branch_id=chapter.branch_id
+        )
     
-    logger.info(f"[CHAPTER] Deleted chapter {chapter_id} (Chapter {chapter_number}: {chapter_title}) with {scene_count} scenes and {batches_deleted} summary batches")
+    total_duration = (time.perf_counter() - op_start) * 1000
+    if total_duration > 10000:
+        logger.warning(f"[CHAPTER:DELETE:SLOW] trace_id={trace_id} duration_ms={total_duration:.2f} scenes_deleted={scene_count} batches_deleted={batches_deleted}")
+    else:
+        logger.info(f"[CHAPTER:DELETE:END] trace_id={trace_id} duration_ms={total_duration:.2f} chapter_number={chapter_number} scenes_deleted={scene_count} batches_deleted={batches_deleted}")
     
     return {
         "message": "Chapter deleted successfully",
@@ -2511,34 +2651,63 @@ async def delete_chapter(
 
 async def cleanup_semantic_data_in_background(scene_ids: list, story_id: int):
     """Background task to clean up semantic data for deleted scenes"""
+    import time
+    import uuid
+    
+    trace_id = f"chapter-semantic-bg-{uuid.uuid4()}"
+    task_start = time.perf_counter()
+    total_scenes = len(scene_ids)
+    
+    logger.info(f"[CHAPTER-BG:SEMANTIC:START] trace_id={trace_id} story_id={story_id} scene_count={total_scenes} scene_ids={scene_ids[:5]}{'...' if total_scenes > 5 else ''}")
+    
     try:
         import asyncio
         # Delay to ensure database commits from main session are visible
-        # Increased from 0.1s to 0.3s for better reliability under load
         await asyncio.sleep(0.3)
+        logger.info(f"[CHAPTER-BG:SEMANTIC:PHASE] trace_id={trace_id} phase=delay_complete")
         
         from ..database import SessionLocal
         bg_db = SessionLocal()
         try:
             from ..services.semantic_integration import cleanup_scene_embeddings
             
-            logger.info(f"[CHAPTER-BG] Starting semantic cleanup for {len(scene_ids)} scenes (story {story_id})")
+            # Determine logging interval (every 10% or every scene if < 10)
+            batch_log_interval = max(1, total_scenes // 10) if total_scenes > 10 else 1
             
-            for scene_id in scene_ids:
+            cleanup_start = time.perf_counter()
+            cleaned_count = 0
+            failed_count = 0
+            
+            for i, scene_id in enumerate(scene_ids):
+                scene_start = time.perf_counter()
                 try:
                     await cleanup_scene_embeddings(scene_id, bg_db)
-                    logger.debug(f"[CHAPTER-BG] Cleaned up semantic data for scene {scene_id}")
+                    cleaned_count += 1
+                    scene_duration = (time.perf_counter() - scene_start) * 1000
+                    
+                    # Log progress at intervals or if cleanup takes > 500ms
+                    if (i + 1) % batch_log_interval == 0 or scene_duration > 500:
+                        elapsed_ms = (time.perf_counter() - cleanup_start) * 1000
+                        logger.info(f"[CHAPTER-BG:SEMANTIC:PROGRESS] trace_id={trace_id} progress={i+1}/{total_scenes} ({((i+1)/total_scenes*100):.1f}%) elapsed_ms={elapsed_ms:.2f} last_scene_ms={scene_duration:.2f}")
                 except Exception as e:
-                    logger.warning(f"[CHAPTER-BG] Failed to cleanup semantic data for scene {scene_id}: {e}")
+                    failed_count += 1
+                    logger.warning(f"[CHAPTER-BG:SEMANTIC:SCENE_ERROR] trace_id={trace_id} scene_id={scene_id} error={e}")
                     # Continue with other scenes even if one fails
             
-            logger.info(f"[CHAPTER-BG] Completed semantic cleanup for {len(scene_ids)} scenes (story {story_id})")
+            cleanup_duration = (time.perf_counter() - cleanup_start) * 1000
+            total_duration = (time.perf_counter() - task_start) * 1000
+            
+            if failed_count > 0:
+                logger.warning(f"[CHAPTER-BG:SEMANTIC:END] trace_id={trace_id} total_duration_ms={total_duration:.2f} cleaned={cleaned_count} failed={failed_count}")
+            else:
+                logger.info(f"[CHAPTER-BG:SEMANTIC:END] trace_id={trace_id} total_duration_ms={total_duration:.2f} cleaned={cleaned_count} avg_per_scene_ms={cleanup_duration/max(1,cleaned_count):.2f}")
         finally:
             bg_db.close()
     except Exception as e:
-        logger.error(f"[CHAPTER-BG] Failed to cleanup semantic data in background: {e}")
+        total_duration = (time.perf_counter() - task_start) * 1000
+        logger.error(f"[CHAPTER-BG:SEMANTIC:ERROR] trace_id={trace_id} duration_ms={total_duration:.2f} error={e}")
         import traceback
-        logger.error(f"[CHAPTER-BG] Traceback: {traceback.format_exc()}")
+        logger.error(f"[CHAPTER-BG:SEMANTIC:TRACEBACK] trace_id={trace_id} {traceback.format_exc()}")
 
 
 @router.get("/{story_id}/available-characters")
