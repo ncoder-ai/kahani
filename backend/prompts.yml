@@ -633,19 +633,17 @@ choice_generation:
     Generate exactly {choices_count} choices as a JSON array.
   
   user: |
-    Story Context:
-    {context}
-    
-    ####### CURRENT SCENE #######
+    === SCENE JUST GENERATED ===
     {scene_content}
-    ################################
-    
+
+    === GENERATE CHOICES ===
     Generate {choices_count} organic choices for what happens next.
     
     Remember: Subtle variations within the moment's flow, not dramatic forks.
     Use specific details from the scene. Each choice: 1 sentence, max 15 words.
     
-    Format: ["Choice 1", "Choice 2", ...]
+    Output ONLY a valid JSON object in this format:
+    {{"choices": ["Choice 1", "Choice 2", "Choice 3", "Choice 4"]}}
 
 # Plot Structure Prompts
 plot_generation:

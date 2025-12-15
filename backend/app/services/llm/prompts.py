@@ -79,12 +79,15 @@ class PromptManager:
             prompt_type: Type of prompt ('system' or 'user')
             user_id: User ID to check for active writing style preset
             db: Database session for querying presets
-            **template_vars: Variables to substitute in the prompt
+            **template_vars: Variables to substitute in the prompt (includes skip_choices for system prompts)
         
         Returns:
             The requested prompt text with variables substituted
         """
         prompt_text = ""
+        
+        # Extract skip_choices from template_vars (for system prompts)
+        skip_choices = template_vars.pop('skip_choices', False)
         
         # Handle SYSTEM prompts - use writing style presets for specific generation types only
         if prompt_type == "system":
@@ -131,8 +134,8 @@ class PromptManager:
                             prose_style_instruction = self.get_prose_style_instruction(prose_style)
                             
                             # Get technical requirements from YAML (with POV substitution)
-                            # Pass prose_style to compose the system prompt correctly
-                            yaml_full_prompt = self._compose_scene_system_prompt(template_key, prose_style)
+                            # Pass prose_style and skip_choices to compose the system prompt correctly
+                            yaml_full_prompt = self._compose_scene_system_prompt(template_key, prose_style, skip_choices=skip_choices)
                             if not yaml_full_prompt:
                                 yaml_full_prompt = self._get_yaml_prompt(template_key, "system")
                             technical_requirements = self._extract_technical_requirements(yaml_full_prompt, pov)
@@ -183,7 +186,7 @@ class PromptManager:
             # For templates with technical requirements, extract style and combine with technical requirements
             # For others, use full prompt as-is
             # Use default 'balanced' prose style when no user preset
-            yaml_full_prompt = self._compose_scene_system_prompt(template_key, 'balanced')
+            yaml_full_prompt = self._compose_scene_system_prompt(template_key, 'balanced', skip_choices=skip_choices)
             if not yaml_full_prompt:
                 yaml_full_prompt = self._get_yaml_prompt(template_key, "system")
             if yaml_full_prompt:
@@ -357,14 +360,14 @@ class PromptManager:
         # If no technical markers found, return empty (no technical requirements)
         return ""
     
-    def _compose_scene_system_prompt(self, template_key: str, prose_style: str = 'balanced') -> str:
+    def _compose_scene_system_prompt(self, template_key: str, prose_style: str = 'balanced', skip_choices: bool = False) -> str:
         """
         Compose a scene system prompt from base components.
         
         For scene types that use the composable structure, this combines:
         - scene_base.system (core writing instructions with prose_style_instruction)
         - scene_base.formatting (standard formatting rules)
-        - scene_base.choices (choices generation instructions)
+        - scene_base.choices (choices generation instructions) - optional based on skip_choices
         
         Note: {pov_instruction} placeholder is left intact for later substitution
         by _substitute_variables() with the actual POV from template vars.
@@ -372,6 +375,7 @@ class PromptManager:
         Args:
             template_key: The scene template key
             prose_style: The prose style to inject into the system prompt
+            skip_choices: If True, don't append scene_base.choices section (for separate_choice_generation mode)
             
         Returns:
             Composed system prompt or empty string if not a composable scene type
@@ -413,10 +417,10 @@ class PromptManager:
         composed = base_system
         if formatting:
             composed += "\n\n" + formatting
-        if choices:
+        if choices and not skip_choices:
             composed += "\n\n" + choices
         
-        logger.debug(f"[PROMPTS] Composed scene system prompt for {template_key} with prose_style={prose_style} (length: {len(composed)})")
+        logger.debug(f"[PROMPTS] Composed scene system prompt for {template_key} with prose_style={prose_style}, skip_choices={skip_choices} (length: {len(composed)})")
         return composed
     
     def _get_user_choices_reminder(self) -> str:

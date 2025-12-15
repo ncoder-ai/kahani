@@ -1519,7 +1519,8 @@ class UnifiedLLMService:
             user_id=user_id,
             db=db,
             scene_length_description=scene_length_description,
-            choices_count=choices_count
+            choices_count=choices_count,
+            skip_choices=separate_choice_generation
         )
         
         # Add buffer for choices section when generating scene with choices
@@ -2328,7 +2329,8 @@ class UnifiedLLMService:
             user_id=user_id,
             db=db,
             scene_length_description=scene_length_description,
-            choices_count=choices_count
+            choices_count=choices_count,
+            skip_choices=separate_choice_generation
         )
         
         # Enhance system prompt with POV instruction for choices (from template)
@@ -2644,7 +2646,8 @@ class UnifiedLLMService:
             user_id=user_id,
             db=db,
             scene_length_description=scene_length_description,
-            choices_count=choices_count
+            choices_count=choices_count,
+            skip_choices=separate_choice_generation
         )
         
         # Enhance system prompt with POV instruction for choices (from template)
@@ -2832,7 +2835,8 @@ class UnifiedLLMService:
             user_id=user_id,
             db=db,
             scene_length_description=scene_length_description,
-            choices_count=choices_count
+            choices_count=choices_count,
+            skip_choices=separate_choice_generation
         )
         
         # Add POV consistency requirement to system prompt (from template)
@@ -3184,10 +3188,11 @@ Chapter Conclusion:"""
             if active_preset and hasattr(active_preset, 'pov') and active_preset.pov:
                 pov = active_preset.pov
         
-        # Get choices count and scene length from user settings
+        # Get choices count, scene length, and separate_choice_generation setting from user settings
         generation_prefs = user_settings.get("generation_preferences", {})
         choices_count = generation_prefs.get("choices_count", 4)
         scene_length = generation_prefs.get("scene_length", "medium")
+        separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
         scene_length_map = {"short": "short (50-100 words)", "medium": "medium (100-150 words)", "long": "long (150-250 words)"}
         scene_length_description = scene_length_map.get(scene_length, "medium (100-150 words)")
         
@@ -3199,7 +3204,8 @@ Chapter Conclusion:"""
             user_id=user_id,
             db=db,
             scene_length_description=scene_length_description,
-            choices_count=choices_count
+            choices_count=choices_count,
+            skip_choices=separate_choice_generation
         )
         
         # Add POV consistency requirement to system prompt (from template)
@@ -3220,25 +3226,16 @@ Chapter Conclusion:"""
         
         # === ONLY THIS FINAL MESSAGE IS DIFFERENT ===
         # Instead of task instruction, we send the new scene + choice generation request
-        choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
-        
         # Clean scene content to remove any instruction tags or formatting artifacts
         cleaned_scene_content = self._clean_instruction_tags(scene_content)
         cleaned_scene_content = self._clean_scene_numbers(cleaned_scene_content)
         
-        final_message = f"""=== SCENE JUST GENERATED ===
-{cleaned_scene_content}
-
-=== GENERATE CHOICES ===
-Based on the scene above, generate {choices_count} narrative choices for what happens next.
-
-{choices_reminder}
-
-IMPORTANT: Output ONLY a valid JSON object. Use double quotes for strings. No escaped quotes inside choice text.
-Example format:
-{{"choices": ["You decide to move forward carefully", "You signal your companion to wait", "You examine the control panel", "You retreat to a safer position"]}}
-
-Now generate {choices_count} choices as JSON:"""
+        # Use choice_generation.user template from YAML instead of hardcoded text
+        final_message = prompt_manager.get_prompt(
+            "choice_generation", "user",
+            scene_content=cleaned_scene_content,
+            choices_count=choices_count
+        )
         
         messages.append({"role": "user", "content": final_message})
         
