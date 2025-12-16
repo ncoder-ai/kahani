@@ -389,6 +389,58 @@ async def list_providers():
     return result
 
 
+@router.get("/health-status")
+async def get_tts_health_status(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get TTS provider health and circuit breaker status.
+    
+    Returns information about all circuit breakers for TTS providers,
+    including their current state, failure counts, and last state change.
+    
+    This is useful for debugging TTS issues and understanding if the
+    circuit breaker is preventing requests due to provider failures.
+    """
+    from app.utils.circuit_breaker import get_all_circuit_breakers
+    
+    # Get user's TTS settings to show their configured provider
+    tts_settings = db.query(TTSSettings).filter(
+        TTSSettings.user_id == current_user.id
+    ).first()
+    
+    configured_provider = None
+    configured_url = None
+    if tts_settings:
+        configured_provider = tts_settings.tts_provider_type
+        configured_url = tts_settings.tts_api_url
+    
+    # Get all circuit breaker states
+    all_breakers = get_all_circuit_breakers()
+    
+    # Filter to TTS-related circuit breakers
+    tts_breakers = {
+        name: state for name, state in all_breakers.items()
+        if name.startswith("tts-")
+    }
+    
+    return {
+        "configured_provider": configured_provider,
+        "configured_url": configured_url,
+        "circuit_breakers": tts_breakers,
+        "total_breakers": len(tts_breakers),
+        "healthy": all(
+            breaker["state"] == "closed" 
+            for breaker in tts_breakers.values()
+        ) if tts_breakers else True,
+        "message": "All TTS providers healthy" if not tts_breakers or all(
+            breaker["state"] == "closed" 
+            for breaker in tts_breakers.values()
+        ) else "Some TTS providers are experiencing issues"
+    }
+
+
 @router.post("/test-connection")
 async def test_connection(
     settings_request: TTSSettingsRequest,
@@ -1068,12 +1120,26 @@ async def generate_and_stream_chunks(
                 except ValueError:
                     pass
             
+            # Track consecutive failures to abort early if provider is down
+            consecutive_failures = 0
+            max_consecutive_failures = 3
+            
             # Generate each chunk and stream immediately
             for i, text_chunk in enumerate(text_chunks, start=1):
                 # Check if session has been cancelled
                 session = tts_session_manager.get_session(session_id)
                 if not session or session.is_cancelled:
                     logger.info(f"[GEN] Generation cancelled for session {session_id} at chunk {i}/{total_chunks}")
+                    break
+                
+                # Abort if too many consecutive failures (provider likely down)
+                if consecutive_failures >= max_consecutive_failures:
+                    logger.error(f"[GEN] Aborting generation after {consecutive_failures} consecutive failures")
+                    await tts_session_manager.send_message(session_id, {
+                        "type": "error",
+                        "message": f"TTS service is experiencing issues. Aborted after {consecutive_failures} consecutive failures.",
+                        "is_provider_error": True
+                    })
                     break
                 
                 try:
@@ -1115,6 +1181,9 @@ async def generate_and_stream_chunks(
                     if not audio_data:
                         raise Exception(f"Failed to generate audio for chunk {i}")
                     
+                    # Success! Reset consecutive failure counter
+                    consecutive_failures = 0
+                    
                     # Convert to base64 for WebSocket transmission
                     audio_base64 = base64.b64encode(audio_data).decode('utf-8')
                     
@@ -1142,13 +1211,27 @@ async def generate_and_stream_chunks(
                     })
                     
                 except Exception as chunk_error:
-                    logger.error(f"Error generating chunk {i}: {chunk_error}")
+                    consecutive_failures += 1
+                    logger.error(f"Error generating chunk {i}: {chunk_error} (consecutive failures: {consecutive_failures})")
+                    
+                    # Check if this looks like a circuit breaker error
+                    error_msg = str(chunk_error)
+                    is_circuit_breaker_error = "circuit breaker" in error_msg.lower() or "temporarily unavailable" in error_msg.lower()
+                    
                     await tts_session_manager.send_message(session_id, {
                         "type": "error",
-                        "message": f"Failed to generate chunk {i}",
-                        "chunk_number": i
+                        "message": f"Failed to generate chunk {i}: {error_msg}",
+                        "chunk_number": i,
+                        "consecutive_failures": consecutive_failures,
+                        "is_provider_error": is_circuit_breaker_error
                     })
-                    # Continue with other chunks
+                    
+                    # If circuit breaker is open, abort immediately
+                    if is_circuit_breaker_error:
+                        logger.error(f"[GEN] Circuit breaker open, aborting generation")
+                        break
+                    
+                    # Continue with other chunks for non-circuit-breaker errors
                     continue
             
             # Send completion message only if we got at least one chunk

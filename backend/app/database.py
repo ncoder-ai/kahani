@@ -81,8 +81,16 @@ if is_sqlite:
     logger.info(f"SQLite database configured with WAL mode and NullPool: {database_url}")
 else:
     # Non-SQLite database (PostgreSQL, MySQL, etc.)
-    engine = create_engine(database_url)
-    logger.info(f"Database configured: {database_url}")
+    # Configure connection pool to handle concurrent requests better
+    engine = create_engine(
+        database_url,
+        pool_size=10,           # Increased from default 5 - base pool size
+        max_overflow=20,        # Increased from default 10 - additional connections when pool exhausted
+        pool_timeout=10,        # Reduced from default 30s - fail faster to avoid hanging
+        pool_pre_ping=True,     # Verify connections are alive before using them
+        pool_recycle=3600,      # Recycle connections after 1 hour to avoid stale connections
+    )
+    logger.info(f"PostgreSQL/MySQL database configured with connection pool (size=10, max_overflow=20): {database_url}")
 
 # Create SessionLocal class
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

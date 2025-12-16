@@ -20,6 +20,7 @@ from ..base import (
     TTSProviderAPIError
 )
 from ..registry import TTSProviderRegistry
+from app.utils.circuit_breaker import get_circuit_breaker, CircuitBreakerOpenError
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,16 @@ class OpenAICompatibleProvider(TTSProviderBase):
             f"text_length={len(request.text)}"
         )
         
-        try:
+        # Get circuit breaker for this TTS provider
+        circuit_breaker = get_circuit_breaker(
+            name=f"tts-{self.config.api_url}",
+            failure_threshold=3,      # Open after 3 failures
+            recovery_timeout=30,      # Try again after 30s
+            timeout=self.config.timeout
+        )
+        
+        async def _make_request():
+            """Inner function to make the actual HTTP request"""
             async with httpx.AsyncClient(timeout=self.config.timeout) as client:
                 headers = {
                     "Content-Type": "application/json",
@@ -119,7 +129,15 @@ class OpenAICompatibleProvider(TTSProviderBase):
                         "actual_format": actual_format.value
                     }
                 )
-                
+        
+        # Execute request through circuit breaker
+        try:
+            return await circuit_breaker.call(_make_request)
+        except CircuitBreakerOpenError as e:
+            # Circuit is open - TTS service is down
+            error_msg = f"TTS service temporarily unavailable: {str(e)}"
+            logger.error(error_msg)
+            raise TTSProviderAPIError(error_msg)
         except httpx.TimeoutException:
             error_msg = f"Request timed out after {self.config.timeout} seconds"
             logger.error(error_msg)
@@ -128,6 +146,9 @@ class OpenAICompatibleProvider(TTSProviderBase):
             error_msg = f"Request failed: {str(e)}"
             logger.error(error_msg)
             raise TTSProviderAPIError(error_msg)
+        except TTSProviderAPIError:
+            # Re-raise TTS errors as-is
+            raise
         except Exception as e:
             error_msg = f"Unexpected error: {str(e)}"
             logger.error(error_msg)
