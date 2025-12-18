@@ -9,7 +9,7 @@ import logging
 from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
 from datetime import datetime
-import litellm
+from litellm import acompletion
 
 from ..models.brainstorm_session import BrainstormSession
 from ..services.llm.service import UnifiedLLMService
@@ -158,7 +158,7 @@ class BrainstormService:
                 gen_params["timeout"] = timeout_value
                 
                 # Call LLM with proper chat messages format
-                response = await litellm.acompletion(**gen_params)
+                response = await acompletion(**gen_params)
                 ai_response = response.choices[0].message.content
             else:
                 # Text completion mode - build conversation as text (fallback)
