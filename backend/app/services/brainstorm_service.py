@@ -105,10 +105,16 @@ class BrainstormService:
         # Add user message to history
         session.add_message("user", user_message)
         self.db.commit()
+        self.db.refresh(session)  # Refresh to ensure we have latest messages
         
         try:
             # Get conversation context (includes all messages including the just-added user message)
             conversation_history = session.get_conversation_context()
+            
+            # Debug: Log conversation history
+            logger.debug(f"[BRAINSTORM] Session {session_id} - Conversation history: {len(conversation_history)} messages")
+            for i, msg in enumerate(conversation_history):
+                logger.debug(f"[BRAINSTORM] Message {i}: {msg['role']} - {msg['content'][:50]}...")
             
             # Get prompts
             system_prompt = prompt_manager.get_prompt("brainstorm.chat", "system")
@@ -135,12 +141,20 @@ class BrainstormService:
                     messages.append({"role": "system", "content": get_nsfw_prevention_prompt()})
                 
                 # Add all conversation history as proper message turns
+                logger.debug(f"[BRAINSTORM] Building messages array from {len(conversation_history)} conversation messages")
                 for msg in conversation_history:
                     # Map our roles to chat API roles
-                    if msg["role"] == "user":
-                        messages.append({"role": "user", "content": msg["content"]})
-                    elif msg["role"] == "assistant":
-                        messages.append({"role": "assistant", "content": msg["content"]})
+                    role = msg.get("role", "")
+                    content = msg.get("content", "")
+                    if role == "user":
+                        messages.append({"role": "user", "content": content})
+                    elif role == "assistant":
+                        messages.append({"role": "assistant", "content": content})
+                    else:
+                        logger.warning(f"[BRAINSTORM] Unknown message role: {role}")
+                
+                logger.debug(f"[BRAINSTORM] Final messages array has {len(messages)} messages (including system)")
+                logger.debug(f"[BRAINSTORM] Last 3 messages: {messages[-3:] if len(messages) >= 3 else messages}")
                 
                 # Get generation parameters
                 gen_params = client.get_generation_params(
