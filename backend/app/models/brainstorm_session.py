@@ -5,7 +5,7 @@ Stores AI brainstorming sessions where users explore story ideas through
 conversational interaction before creating a full story.
 """
 from sqlalchemy import Column, Integer, String, DateTime, JSON, ForeignKey, Text
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, attributes
 from datetime import datetime
 
 from ..database import Base
