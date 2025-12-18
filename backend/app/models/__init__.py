@@ -18,6 +18,7 @@ from .tts_settings import TTSSettings, SceneAudio
 from .semantic_memory import CharacterMemory, PlotEvent, SceneEmbedding, MomentType, EventType
 from .entity_state import CharacterState, LocationState, ObjectState, EntityStateBatch
 from .npc_tracking import NPCMention, NPCTracking, NPCTrackingSnapshot
+from .brainstorm_session import BrainstormSession
 
 __all__ = [
     "Base",
@@ -32,5 +33,6 @@ __all__ = [
     "TTSSettings", "SceneAudio",
     "CharacterMemory", "PlotEvent", "SceneEmbedding", "MomentType", "EventType",
     "CharacterState", "LocationState", "ObjectState", "EntityStateBatch",
-    "NPCMention", "NPCTracking", "NPCTrackingSnapshot"
+    "NPCMention", "NPCTracking", "NPCTrackingSnapshot",
+    "BrainstormSession"
 ]

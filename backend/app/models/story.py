@@ -86,5 +86,8 @@ class Story(Base):
     branches = relationship("StoryBranch", back_populates="story", cascade="all, delete-orphan", order_by="StoryBranch.created_at", foreign_keys="StoryBranch.story_id")
     current_branch = relationship("StoryBranch", foreign_keys=[current_branch_id], post_update=True)
     
+    # Brainstorm Session (if story was created from brainstorm)
+    brainstorm_session = relationship("BrainstormSession", back_populates="story", uselist=False)
+    
     def __repr__(self):
         return f"<Story(id={self.id}, title='{self.title}', owner_id={self.owner_id})>"

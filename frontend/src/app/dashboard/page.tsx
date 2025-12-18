@@ -248,7 +248,13 @@ function DashboardContent() {
             Create immersive stories with AI assistance and bring your imagination to life
           </p>
           
-          <div className="flex justify-center gap-4">
+          <div className="flex justify-center gap-4 flex-wrap">
+            <button
+              onClick={() => router.push('/brainstorm')}
+              className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white px-8 py-4 rounded-2xl font-semibold text-lg transform hover:scale-105 transition-all duration-200 shadow-lg"
+            >
+              💡 Brainstorm New Story
+            </button>
             <button
               onClick={handleCreateStory}
               className="theme-btn-primary px-8 py-4 rounded-2xl font-semibold text-lg transform hover:scale-105 transition-all duration-200 shadow-lg"

@@ -1911,6 +1911,117 @@ class ApiClient {
     }>(`/api/stories/${storyId}/branches/${branchId}/stats`);
   }
 
+  // ====== BRAINSTORM METHODS ======
+  
+  async createBrainstormSession() {
+    return this.request<{
+      session_id: number;
+      status: string;
+      message_count: number;
+      created_at: string;
+    }>('/api/brainstorm/session', {
+      method: 'POST'
+    });
+  }
+
+  async getBrainstormSession(sessionId: number) {
+    return this.request<{
+      session_id: number;
+      status: string;
+      messages: Array<{ role: string; content: string; timestamp: string }>;
+      extracted_elements: any;
+      story_id: number | null;
+      created_at: string;
+      updated_at: string;
+    }>(`/api/brainstorm/session/${sessionId}`);
+  }
+
+  async deleteBrainstormSession(sessionId: number) {
+    return this.request<{
+      success: boolean;
+      message: string;
+    }>(`/api/brainstorm/session/${sessionId}`, {
+      method: 'DELETE'
+    });
+  }
+
+  async sendBrainstormMessage(sessionId: number, message: string) {
+    return this.request<{
+      session_id: number;
+      user_message: string;
+      ai_response: string;
+      message_count: number;
+    }>('/api/brainstorm/chat', {
+      method: 'POST',
+      body: JSON.stringify({ session_id: sessionId, message })
+    });
+  }
+
+  async extractBrainstormElements(sessionId: number) {
+    return this.request<{
+      session_id: number;
+      elements: {
+        genre: string;
+        tone: string;
+        characters: Array<{
+          name: string;
+          role: string;
+          description: string;
+          personality_traits?: string[];
+        }>;
+        scenario: string;
+        world_setting: string;
+        suggested_titles: string[];
+        description: string;
+        plot_points: string[];
+        themes: string[];
+        conflicts: string[];
+      };
+      status: string;
+    }>('/api/brainstorm/extract', {
+      method: 'POST',
+      body: JSON.stringify({ session_id: sessionId })
+    });
+  }
+
+  async updateBrainstormElements(sessionId: number, elements: any) {
+    return this.request<{
+      session_id: number;
+      elements: any;
+    }>('/api/brainstorm/elements/update', {
+      method: 'POST',
+      body: JSON.stringify({ session_id: sessionId, elements })
+    });
+  }
+
+  async completeBrainstormSession(sessionId: number, storyId: number) {
+    return this.request<{
+      session_id: number;
+      status: string;
+      story_id: number;
+    }>('/api/brainstorm/complete', {
+      method: 'POST',
+      body: JSON.stringify({ session_id: sessionId, story_id: storyId })
+    });
+  }
+
+  async listBrainstormSessions(skip: number = 0, limit: number = 10) {
+    return this.request<Array<{
+      session_id: number;
+      status: string;
+      message_count: number;
+      has_elements: boolean;
+      story_id: number | null;
+      created_at: string;
+      updated_at: string;
+    }>>(`/api/brainstorm/sessions/list?skip=${skip}&limit=${limit}`);
+  }
+
+  async getBrainstormExtractedElements(sessionId: number) {
+    const session = await this.getBrainstormSession(sessionId);
+    return session.extracted_elements;
+  }
+
   // Generic HTTP methods
   async get<T>(endpoint: string): Promise<T> {
     return this.request<T>(endpoint, { method: 'GET' });

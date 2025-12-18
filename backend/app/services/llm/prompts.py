@@ -861,7 +861,9 @@ Chapter Conclusion:"""
             "character_assistant.detection": ("character_assistant", "detection"),
             "character_assistant.generation": ("character_assistant", "generation"),
             "entity_state_extraction.single": ("entity_state_extraction", "single"),
-            "entity_state_extraction.batch": ("entity_state_extraction", "batch")
+            "entity_state_extraction.batch": ("entity_state_extraction", "batch"),
+            "brainstorm.chat": ("brainstorm", "chat"),
+            "brainstorm.extract": ("brainstorm", "extract")
         }
         
         if template_key not in yaml_mapping:

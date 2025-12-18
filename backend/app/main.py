@@ -192,7 +192,7 @@ async def health_check():
     }
 
 # Import and include routers
-from .api import auth, stories, characters, summaries, chapters, websocket, semantic_search, admin, character_assistant, branches
+from .api import auth, stories, characters, summaries, chapters, websocket, semantic_search, admin, character_assistant, branches, brainstorm
 from .api import settings as settings_router, stt_websocket, config
 from .routers import prompt_templates, writing_presets, tts
 
@@ -203,6 +203,7 @@ app.include_router(chapters.router, prefix="/api/stories", tags=["chapters"])
 app.include_router(branches.router, prefix="/api", tags=["branches"])
 app.include_router(characters.router, prefix="/api/characters", tags=["characters"])
 app.include_router(character_assistant.router, prefix="/api/stories", tags=["character-assistant"])
+app.include_router(brainstorm.router, prefix="/api", tags=["brainstorm"])
 app.include_router(settings_router.router, prefix="/api/settings", tags=["settings"])
 app.include_router(config.router, prefix="/api/config", tags=["config"])
 app.include_router(summaries.router, prefix="/api", tags=["summaries"])

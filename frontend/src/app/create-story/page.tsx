@@ -92,10 +92,44 @@ function CreateStoryContent() {
     }
   }, [user]);
 
-  // Load existing draft on component mount
+  // Load existing draft or brainstorm data on component mount
   useEffect(() => {
     const loadDraft = async () => {
       try {
+        // Check if we have brainstorm session to load
+        const brainstormSessionId = searchParams.get('brainstorm_session_id');
+        
+        if (brainstormSessionId) {
+          // Load brainstorm data and pre-populate
+          const elements = await apiClient.getBrainstormExtractedElements(parseInt(brainstormSessionId));
+          
+          if (elements) {
+            setStoryData({
+              story_mode: 'dynamic',
+              genre: elements.genre || '',
+              tone: elements.tone || '',
+              characters: elements.characters || [],
+              scenario: elements.scenario || '',
+              title: elements.suggested_titles?.[0] || '',
+              description: elements.description || '',
+              world_setting: elements.world_setting || '',
+              initial_premise: elements.description || '',
+              plot_points: elements.plot_points || [],
+            });
+            
+            // Calculate first incomplete step
+            let startStep = 6; // Default to review
+            if (!elements.genre) startStep = 1;
+            else if (!elements.characters || elements.characters.length === 0) startStep = 2;
+            else if (!elements.scenario) startStep = 3;
+            else if (!elements.suggested_titles || elements.suggested_titles.length === 0) startStep = 4;
+            
+            setCurrentStep(startStep);
+          }
+          setIsLoadingDraft(false);
+          return;
+        }
+        
         // Check if we have a specific story ID to load
         const storyIdParam = searchParams.get('story_id');
         
@@ -329,6 +363,15 @@ function CreateStoryContent() {
                 )}
                 {draftStoryId && !isSavingDraft && (
                   <span className="text-green-400 text-xs">✓ Draft Saved</span>
+                )}
+                {currentStep <= 2 && !storyData.genre && (
+                  <a
+                    href="/brainstorm"
+                    className="text-sm text-white/60 hover:text-white/80 flex items-center gap-1 transition-colors"
+                  >
+                    <span>Need help getting started?</span>
+                    <span className="theme-accent-primary">Try AI Brainstorming</span>
+                  </a>
                 )}
               </div>
             </div>

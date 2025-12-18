@@ -47,6 +47,7 @@ class User(Base):
     tts_settings = relationship("TTSSettings", back_populates="user", uselist=False, cascade="all, delete-orphan")
     prompt_templates = relationship("PromptTemplate", back_populates="user", cascade="all, delete-orphan")
     writing_style_presets = relationship("WritingStylePreset", back_populates="user", cascade="all, delete-orphan")
+    brainstorm_sessions = relationship("BrainstormSession", back_populates="user", cascade="all, delete-orphan")
     
     # Self-referential relationship for approval tracking
     approved_by = relationship("User", remote_side=[id], foreign_keys=[approved_by_id])
