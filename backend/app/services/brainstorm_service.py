@@ -273,10 +273,15 @@ class BrainstormService:
             
             # Parse JSON response
             response_clean = clean_llm_json(response)
+            logger.info(f"[BRAINSTORM] Raw LLM response: {response[:500]}...")
+            logger.info(f"[BRAINSTORM] Cleaned response: {response_clean[:500]}...")
+            
             extracted_elements = json.loads(response_clean)
+            logger.info(f"[BRAINSTORM] Parsed elements: {json.dumps(extracted_elements, indent=2)}")
             
             # Validate and normalize extracted elements
             normalized_elements = self._normalize_extracted_elements(extracted_elements)
+            logger.info(f"[BRAINSTORM] Normalized elements: {json.dumps(normalized_elements, indent=2)}")
             
             # Update session with extracted elements
             session.update_extracted_elements(normalized_elements)
