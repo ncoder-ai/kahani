@@ -442,7 +442,7 @@ function CreateStoryContent() {
           </div>
           
           {/* Character Count Display */}
-          {storyData.characters.length > 0 && (
+          {storyData.characters && storyData.characters.length > 0 && (
             <div className="mt-3 flex items-center justify-center">
               <div className="bg-white/10 rounded-full px-4 py-2 text-white/80 text-sm">
                 {storyData.characters.length} character{storyData.characters.length !== 1 ? 's' : ''} added: {' '}
