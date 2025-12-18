@@ -79,7 +79,10 @@ export default function CharacterSetup({ storyData, onUpdate, onNext, onBack }: 
     try {
       setLoadingLibrary(true);
       // Load both user's characters and public templates
+      console.log('[CharacterSetup] Loading characters with params: skip=0, limit=100, includePublic=true, templatesOnly=false');
       const characters = await apiClient.getCharacters(0, 100, true, false);
+      console.log('[CharacterSetup] Loaded characters:', characters.length, 'characters');
+      console.log('[CharacterSetup] Characters:', characters.map(c => ({ id: c.id, name: c.name, is_template: c.is_template })));
       setPersistentCharacters(characters);
     } catch (error) {
       console.error('Failed to load character library:', error);
