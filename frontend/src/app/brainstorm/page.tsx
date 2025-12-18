@@ -8,8 +8,9 @@ import apiClient from '@/lib/api';
 import RouteProtection from '@/components/RouteProtection';
 import BrainstormChat from '@/components/brainstorm/BrainstormChat';
 import RefinementWizard from '@/components/brainstorm/RefinementWizard';
+import CharacterReview from '@/components/brainstorm/CharacterReview';
 
-type BrainstormPhase = 'chat' | 'refining';
+type BrainstormPhase = 'chat' | 'refining' | 'character_review';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -174,6 +175,37 @@ function BrainstormContent() {
     }
   };
 
+  const handleProceedToCharacterReview = () => {
+    // Move to character review phase if there are characters
+    if (extractedElements?.characters && extractedElements.characters.length > 0) {
+      setPhase('character_review');
+    } else {
+      // Skip character review if no characters
+      handleStartStory();
+    }
+  };
+
+  const handleCharacterReviewComplete = async (characterMappings: any[]) => {
+    // Update extracted elements with character IDs
+    const updatedElements = {
+      ...extractedElements,
+      characterMappings: characterMappings
+    };
+    setExtractedElements(updatedElements);
+    
+    // Save the character mappings to the session
+    if (sessionId) {
+      try {
+        await apiClient.updateBrainstormElements(sessionId, updatedElements);
+      } catch (error) {
+        console.error('Failed to save character mappings:', error);
+      }
+    }
+    
+    // Proceed to story creation
+    handleStartStory();
+  };
+
   const handleStartStory = async () => {
     if (!sessionId || !extractedElements) return;
 
@@ -185,6 +217,10 @@ function BrainstormContent() {
 
   const handleBackToChat = () => {
     setPhase('chat');
+  };
+
+  const handleBackToRefining = () => {
+    setPhase('refining');
   };
 
   if (!user) {
@@ -235,15 +271,23 @@ function BrainstormContent() {
               isLoading={isLoading || isExtracting}
             />
           </div>
-        ) : (
+        ) : phase === 'refining' ? (
           <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 max-h-[calc(100vh-200px)] overflow-y-auto">
             <RefinementWizard
               elements={extractedElements}
               onUpdate={handleUpdateElements}
-              onStartStory={handleStartStory}
+              onStartStory={handleProceedToCharacterReview}
               onBackToChat={handleBackToChat}
               sessionId={sessionId}
               isCreatingStory={isCreatingStory}
+            />
+          </div>
+        ) : (
+          <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 max-h-[calc(100vh-200px)] overflow-y-auto p-8">
+            <CharacterReview
+              characters={extractedElements?.characters || []}
+              onComplete={handleCharacterReviewComplete}
+              onBack={handleBackToRefining}
             />
           </div>
         )}

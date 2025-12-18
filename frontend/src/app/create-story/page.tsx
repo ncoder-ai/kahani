@@ -104,11 +104,43 @@ function CreateStoryContent() {
           const elements = await apiClient.getBrainstormExtractedElements(parseInt(brainstormSessionId));
           
           if (elements) {
+            // Process character mappings to get actual character IDs
+            const characters = [];
+            if (elements.characterMappings && Array.isArray(elements.characterMappings)) {
+              for (const mapping of elements.characterMappings) {
+                if (mapping.action === 'create' && mapping.newCharacterId) {
+                  characters.push({
+                    id: mapping.newCharacterId,
+                    name: mapping.brainstormChar.name,
+                    role: mapping.brainstormChar.role,
+                    description: mapping.brainstormChar.description
+                  });
+                } else if (mapping.action === 'use_existing' && mapping.existingCharacterId) {
+                  // Fetch the existing character details
+                  try {
+                    const char = await apiClient.getCharacter(mapping.existingCharacterId);
+                    characters.push({
+                      id: char.id,
+                      name: char.name,
+                      role: mapping.brainstormChar.role, // Use the role from brainstorm
+                      description: char.description
+                    });
+                  } catch (error) {
+                    console.error('Failed to load character:', error);
+                  }
+                }
+                // Skip characters with action === 'skip'
+              }
+            } else if (elements.characters && Array.isArray(elements.characters)) {
+              // Fallback: use characters as-is if no mappings (shouldn't happen with new flow)
+              characters.push(...elements.characters);
+            }
+            
             setStoryData({
               story_mode: 'dynamic',
               genre: elements.genre || '',
               tone: elements.tone || '',
-              characters: elements.characters || [],
+              characters: characters,
               scenario: elements.scenario || '',
               title: elements.suggested_titles?.[0] || '',
               description: elements.description || '',
@@ -120,7 +152,7 @@ function CreateStoryContent() {
             // Calculate first incomplete step
             let startStep = 6; // Default to review
             if (!elements.genre) startStep = 1;
-            else if (!elements.characters || elements.characters.length === 0) startStep = 2;
+            else if (characters.length === 0) startStep = 2;
             else if (!elements.scenario) startStep = 3;
             else if (!elements.suggested_titles || elements.suggested_titles.length === 0) startStep = 4;
             
