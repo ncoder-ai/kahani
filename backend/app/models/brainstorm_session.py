@@ -69,6 +69,9 @@ class BrainstormSession(Base):
         }
         self.messages.append(message)
         self.updated_at = datetime.utcnow()
+        
+        # Mark the JSON field as modified so SQLAlchemy knows to save it
+        attributes.flag_modified(self, 'messages')
     
     def get_conversation_context(self, max_messages: int = None) -> list:
         """
