@@ -70,6 +70,9 @@ class BrainstormService:
             BrainstormSession.id == session_id,
             BrainstormSession.user_id == self.user_id
         ).first()
+        if session:
+            # Ensure we have the latest data from database
+            self.db.refresh(session)
         return session
     
     def delete_session(self, session_id: int) -> bool:
