@@ -4325,11 +4325,15 @@ async def finalize_draft_story(
                     # Don't fail story finalization if NPC marking fails
     
     # Mark as active
+    logger.info(f"[FINALIZE] Setting story {story_id} to ACTIVE status")
     story.status = StoryStatus.ACTIVE
     story.creation_step = 6  # Completed
+    logger.info(f"[FINALIZE] Story {story_id} status updated: {story.status}, step: {story.creation_step}")
     
     db.commit()
     db.refresh(story)
+    
+    logger.info(f"[FINALIZE] Story {story_id} committed. Final status: {story.status}, step: {story.creation_step}")
     
     return {
         "id": story.id,

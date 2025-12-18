@@ -97,15 +97,23 @@ function DashboardContent() {
     // Find the story in our local state to check its creation status
     const story = stories.find(s => s.id === storyId);
     
-    // Only redirect to creation flow if:
-    // 1. Story is explicitly marked as draft
-    // 2. Has a creation_step field (meaning it's in the creation flow)
-    // 3. Creation step is less than 5 (not completed)
-    // Stories from brainstorm won't have creation_step, so they go directly to story view
-    if (story && story.status === 'draft' && story.creation_step !== undefined && story.creation_step < 5) {
+    console.log('[Dashboard] Story clicked:', {
+      id: storyId,
+      status: story?.status,
+      creation_step: story?.creation_step
+    });
+    
+    // Only redirect to creation flow if story is explicitly a draft AND incomplete
+    // Stories with status='active' or creation_step=6 should always go to story view
+    if (story && 
+        story.status === 'draft' && 
+        story.creation_step !== undefined && 
+        story.creation_step < 6) {  // Changed from < 5 to < 6
+      console.log('[Dashboard] Redirecting to create-story (incomplete draft)');
       router.push(`/create-story?story_id=${storyId}`);
     } else {
       // Story is fully created or from brainstorm, go to story view
+      console.log('[Dashboard] Redirecting to story view');
       router.push(`/story/${storyId}`);
     }
   };

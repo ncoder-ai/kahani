@@ -306,12 +306,17 @@ function CreateStoryContent() {
     try {
       let finalizedStoryId: number;
       
+      console.log('[CreateStory] Finalizing story, draftStoryId:', draftStoryId);
+      
       if (draftStoryId) {
         // Finalize the existing draft
+        console.log('[CreateStory] Calling finalizeDraftStory...');
         const response = await apiClient.finalizeDraftStory(draftStoryId);
+        console.log('[CreateStory] Finalize response:', response);
         finalizedStoryId = response.id;
       } else {
         // Fallback: create story directly if no draft
+        console.log('[CreateStory] No draft ID, creating story directly...');
         const response = await apiClient.createStory({
           title: storyData.title,
           description: storyData.description,
@@ -319,14 +324,17 @@ function CreateStoryContent() {
           tone: storyData.tone,
           world_setting: storyData.world_setting,
         });
+        console.log('[CreateStory] Create response:', response);
         finalizedStoryId = response.id;
       }
       
       // Redirect to the story page with chapter setup flag
       // The story page will check if the first chapter needs setup and show the wizard
+      console.log('[CreateStory] Redirecting to story page:', finalizedStoryId);
       router.push(`/story/${finalizedStoryId}?setup_chapter=true`);
     } catch (error) {
-      console.error('Failed to create story:', error);
+      console.error('[CreateStory] Failed to create story:', error);
+      alert('Failed to create story. Please try again.');
     } finally {
       setIsLoading(false);
     }
