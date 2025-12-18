@@ -14,6 +14,8 @@ from litellm import acompletion
 from ..models.brainstorm_session import BrainstormSession
 from ..services.llm.service import UnifiedLLMService
 from ..services.llm.prompts import PromptManager
+from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
+from ...config import settings
 
 logger = logging.getLogger(__name__)
 prompt_manager = PromptManager()
@@ -120,7 +122,6 @@ class BrainstormService:
                 messages = []
                 
                 # Handle system prompt with NSFW filter if needed
-                from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
                 user_allow_nsfw = self.user_settings.get('allow_nsfw', False) if self.user_settings else False
                 
                 if system_prompt and system_prompt.strip():
@@ -153,7 +154,6 @@ class BrainstormService:
                 if self.user_settings:
                     llm_settings = self.user_settings.get('llm_settings', {})
                     user_timeout = llm_settings.get('timeout_total')
-                from ...config import settings
                 timeout_value = user_timeout if user_timeout is not None else settings.llm_timeout_total
                 gen_params["timeout"] = timeout_value
                 
