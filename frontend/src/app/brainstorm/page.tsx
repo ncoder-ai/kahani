@@ -71,19 +71,37 @@ function BrainstormContent() {
           const newSession = await apiClient.createBrainstormSession();
           setSessionId(newSession.session_id);
           
-          // Send initial AI greeting
+          // Generate initial AI greeting to start the conversation
           if (newSession.session_id) {
-            const greeting = await apiClient.sendBrainstormMessage(
-              newSession.session_id,
-              "Hello! I'm ready to brainstorm."
-            );
-            setMessages([
-              {
-                role: 'assistant',
-                content: greeting.ai_response,
-                timestamp: new Date().toISOString()
-              }
-            ]);
+            try {
+              // Send a starter message that encourages idea generation
+              const greeting = await apiClient.sendBrainstormMessage(
+                newSession.session_id,
+                "I want to create a new story. Can you help me brainstorm some ideas?"
+              );
+              setMessages([
+                {
+                  role: 'user',
+                  content: "I want to create a new story. Can you help me brainstorm some ideas?",
+                  timestamp: new Date().toISOString()
+                },
+                {
+                  role: 'assistant',
+                  content: greeting.ai_response,
+                  timestamp: new Date().toISOString()
+                }
+              ]);
+            } catch (error) {
+              console.error('Failed to generate initial greeting:', error);
+              // Fallback greeting if API fails
+              setMessages([
+                {
+                  role: 'assistant',
+                  content: "Hi! I'm excited to help you brainstorm your story. Let's start by exploring what excites you - are you thinking about a specific genre? A character? A world? Or maybe a theme or conflict? Share what's on your mind and I'll generate some creative ideas to build on!",
+                  timestamp: new Date().toISOString()
+                }
+              ]);
+            }
           }
         }
       } catch (error) {
