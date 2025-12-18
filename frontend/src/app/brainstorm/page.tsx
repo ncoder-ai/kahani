@@ -61,7 +61,8 @@ function BrainstormContent() {
           // Load existing session
           const session = await apiClient.getBrainstormSession(parseInt(existingSessionId));
           setSessionId(session.session_id);
-          setMessages(session.messages || []);
+          // Cast messages to correct type
+          setMessages((session.messages || []) as Message[]);
           if (session.extracted_elements) {
             setExtractedElements(session.extracted_elements);
             setPhase('refining');
