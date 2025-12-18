@@ -43,6 +43,7 @@ interface CharacterSetupProps {
 }
 
 interface Character {
+  id?: number;
   name: string;
   role: string;
   description: string;
@@ -77,7 +78,8 @@ export default function CharacterSetup({ storyData, onUpdate, onNext, onBack }: 
   const loadCharacterLibrary = async () => {
     try {
       setLoadingLibrary(true);
-      const characters = await apiClient.getCharacters(0, 50, true, true); // Include public, templates only
+      // Load both user's characters and public templates
+      const characters = await apiClient.getCharacters(0, 100, true, false);
       setPersistentCharacters(characters);
     } catch (error) {
       console.error('Failed to load character library:', error);

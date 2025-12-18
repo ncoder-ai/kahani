@@ -25,6 +25,7 @@ export interface StoryData {
   world_setting: string;
   initial_premise?: string;
   characters: Array<{
+    id?: number;
     name: string;
     role: string;
     description: string;
