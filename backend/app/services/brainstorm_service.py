@@ -9,6 +9,7 @@ import logging
 from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
 from datetime import datetime
+import litellm
 
 from ..models.brainstorm_session import BrainstormSession
 from ..services.llm.service import UnifiedLLMService
@@ -104,30 +105,80 @@ class BrainstormService:
         self.db.commit()
         
         try:
-            # Get conversation context
+            # Get conversation context (includes all messages including the just-added user message)
             conversation_history = session.get_conversation_context()
             
             # Get prompts
             system_prompt = prompt_manager.get_prompt("brainstorm.chat", "system")
             
-            # Build conversation context for prompt
-            conversation_text = ""
-            for msg in conversation_history[:-1]:  # Exclude the just-added user message
-                role_label = "User" if msg["role"] == "user" else "AI"
-                conversation_text += f"{role_label}: {msg['content']}\n\n"
+            # Get LLM client to check completion mode
+            client = self.llm_service.get_user_client(self.user_id, self.user_settings)
             
-            # Add current user message
-            conversation_text += f"User: {user_message}\n\nAI:"
-            
-            # Generate AI response
-            ai_response = await self.llm_service.generate(
-                prompt=conversation_text,
-                user_id=self.user_id,
-                user_settings=self.user_settings,
-                system_prompt=system_prompt,
-                max_tokens=self.user_settings.get('generation_preferences', {}).get('max_tokens', 1000),
-                temperature=0.8  # Higher temperature for creative brainstorming
-            )
+            # For chat mode, use proper messages array for multi-turn conversation
+            if client.completion_mode == "chat":
+                # Build messages array for proper multi-turn conversation
+                messages = []
+                
+                # Handle system prompt with NSFW filter if needed
+                from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
+                user_allow_nsfw = self.user_settings.get('allow_nsfw', False) if self.user_settings else False
+                
+                if system_prompt and system_prompt.strip():
+                    final_system_prompt = system_prompt.strip()
+                    # Inject NSFW filter if user doesn't have NSFW permissions
+                    if should_inject_nsfw_filter(user_allow_nsfw):
+                        final_system_prompt = final_system_prompt + "\n\n" + get_nsfw_prevention_prompt()
+                    messages.append({"role": "system", "content": final_system_prompt})
+                elif should_inject_nsfw_filter(user_allow_nsfw):
+                    # No system prompt provided, but we need to inject NSFW filter
+                    messages.append({"role": "system", "content": get_nsfw_prevention_prompt()})
+                
+                # Add all conversation history as proper message turns
+                for msg in conversation_history:
+                    # Map our roles to chat API roles
+                    if msg["role"] == "user":
+                        messages.append({"role": "user", "content": msg["content"]})
+                    elif msg["role"] == "assistant":
+                        messages.append({"role": "assistant", "content": msg["content"]})
+                
+                # Get generation parameters
+                gen_params = client.get_generation_params(
+                    self.user_settings.get('generation_preferences', {}).get('max_tokens', 1000),
+                    0.8  # Higher temperature for creative brainstorming
+                )
+                gen_params["messages"] = messages
+                
+                # Get timeout
+                user_timeout = None
+                if self.user_settings:
+                    llm_settings = self.user_settings.get('llm_settings', {})
+                    user_timeout = llm_settings.get('timeout_total')
+                from ...config import settings
+                timeout_value = user_timeout if user_timeout is not None else settings.llm_timeout_total
+                gen_params["timeout"] = timeout_value
+                
+                # Call LLM with proper chat messages format
+                response = await litellm.acompletion(**gen_params)
+                ai_response = response.choices[0].message.content
+            else:
+                # Text completion mode - build conversation as text (fallback)
+                conversation_text = ""
+                for msg in conversation_history[:-1]:  # Exclude the just-added user message
+                    role_label = "User" if msg["role"] == "user" else "AI"
+                    conversation_text += f"{role_label}: {msg['content']}\n\n"
+                
+                # Add current user message
+                conversation_text += f"User: {user_message}\n\nAI:"
+                
+                # Generate AI response using standard method
+                ai_response = await self.llm_service.generate(
+                    prompt=conversation_text,
+                    user_id=self.user_id,
+                    user_settings=self.user_settings,
+                    system_prompt=system_prompt,
+                    max_tokens=self.user_settings.get('generation_preferences', {}).get('max_tokens', 1000),
+                    temperature=0.8  # Higher temperature for creative brainstorming
+                )
             
             # Add AI response to history
             session.add_message("assistant", ai_response)
