@@ -209,11 +209,7 @@ class BrainstormService:
                     temperature=0.8  # Higher temperature for creative brainstorming
                 )
             
-            # Add AI response to history
-            session.add_message("assistant", ai_response)
-            self.db.commit()
-            
-            logger.info(f"[BRAINSTORM] Session {session_id} - exchanged messages")
+            logger.info(f"[BRAINSTORM] Session {session_id} - exchanged messages, total: {len(session.messages)}")
             
             return {
                 "session_id": session.id,
