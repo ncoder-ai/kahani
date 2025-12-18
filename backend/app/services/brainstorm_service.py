@@ -184,6 +184,11 @@ class BrainstormService:
                 # Call LLM with proper chat messages format
                 response = await acompletion(**gen_params)
                 ai_response = response.choices[0].message.content
+                
+                # Save assistant response to conversation history
+                session.add_message("assistant", ai_response)
+                self.db.commit()
+                self.db.refresh(session)
             else:
                 # Text completion mode - build conversation as text (fallback)
                 conversation_text = ""
