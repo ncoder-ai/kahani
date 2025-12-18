@@ -114,10 +114,12 @@ class BrainstormService:
             # Get conversation context (includes all messages including the just-added user message)
             conversation_history = session.get_conversation_context()
             
-            # Debug: Log conversation history
-            logger.debug(f"[BRAINSTORM] Session {session_id} - Conversation history: {len(conversation_history)} messages")
-            for i, msg in enumerate(conversation_history):
-                logger.debug(f"[BRAINSTORM] Message {i}: {msg['role']} - {msg['content'][:50]}...")
+            # Log conversation history for debugging
+            logger.info(f"[BRAINSTORM] Session {session_id} - Conversation history: {len(conversation_history)} messages")
+            if len(conversation_history) == 0:
+                logger.warning(f"[BRAINSTORM] WARNING: No conversation history found for session {session_id}!")
+            for i, msg in enumerate(conversation_history[-5:]):  # Log last 5 messages
+                logger.info(f"[BRAINSTORM] Message {i}: {msg.get('role', 'unknown')} - {msg.get('content', '')[:100]}...")
             
             # Get prompts
             system_prompt = prompt_manager.get_prompt("brainstorm.chat", "system")
@@ -144,7 +146,10 @@ class BrainstormService:
                     messages.append({"role": "system", "content": get_nsfw_prevention_prompt()})
                 
                 # Add all conversation history as proper message turns
-                logger.debug(f"[BRAINSTORM] Building messages array from {len(conversation_history)} conversation messages")
+                logger.info(f"[BRAINSTORM] Building messages array from {len(conversation_history)} conversation messages")
+                if len(conversation_history) == 0:
+                    logger.error(f"[BRAINSTORM] ERROR: Conversation history is empty! This will cause context loss!")
+                
                 for msg in conversation_history:
                     # Map our roles to chat API roles
                     role = msg.get("role", "")
@@ -154,10 +159,12 @@ class BrainstormService:
                     elif role == "assistant":
                         messages.append({"role": "assistant", "content": content})
                     else:
-                        logger.warning(f"[BRAINSTORM] Unknown message role: {role}")
+                        logger.warning(f"[BRAINSTORM] Unknown message role: {role}, skipping message")
                 
-                logger.debug(f"[BRAINSTORM] Final messages array has {len(messages)} messages (including system)")
-                logger.debug(f"[BRAINSTORM] Last 3 messages: {messages[-3:] if len(messages) >= 3 else messages}")
+                logger.info(f"[BRAINSTORM] Final messages array has {len(messages)} messages (1 system + {len(messages)-1} conversation)")
+                if len(messages) > 1:
+                    logger.info(f"[BRAINSTORM] Last user message: {messages[-1] if messages[-1].get('role') == 'user' else 'N/A'}")
+                    logger.info(f"[BRAINSTORM] Last assistant message: {[m for m in messages if m.get('role') == 'assistant'][-1] if any(m.get('role') == 'assistant' for m in messages) else 'N/A'}")
                 
                 # Get generation parameters
                 gen_params = client.get_generation_params(
