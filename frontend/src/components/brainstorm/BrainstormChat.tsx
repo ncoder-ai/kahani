@@ -11,7 +11,7 @@ interface Message {
 
 interface BrainstormChatProps {
   messages: Message[];
-  onSendMessage: (message: string) => Promise<void>;
+  onSendMessage: (message: string, generateIdeas?: boolean) => Promise<void>;
   onRefineIdeas: () => void;
   isLoading: boolean;
 }
@@ -36,7 +36,10 @@ export default function BrainstormChat({
 
     setIsSending(true);
     try {
-      await onSendMessage(inputMessage);
+      // First user message should trigger structured idea generation
+      const shouldGenerateIdeas = messages.length === 1; // Only assistant greeting exists
+      
+      await onSendMessage(inputMessage, shouldGenerateIdeas);
       setInputMessage('');
     } catch (error) {
       console.error('Failed to send message:', error);

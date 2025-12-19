@@ -85,7 +85,7 @@ function BrainstormContent() {
     }
   }, [user, searchParams]);
 
-  const handleSendMessage = async (message: string) => {
+  const handleSendMessage = async (message: string, generateIdeas: boolean = false) => {
     if (!sessionId) return;
 
     // Add user message immediately
@@ -98,7 +98,7 @@ function BrainstormContent() {
 
     try {
       setIsLoading(true);
-      const response = await apiClient.sendBrainstormMessage(sessionId, message);
+      const response = await apiClient.sendBrainstormMessage(sessionId, message, generateIdeas);
       
       // Add AI response
       const aiMessage: Message = {

@@ -28,6 +28,7 @@ class ChatMessageRequest(BaseModel):
     """Request for sending a chat message."""
     session_id: int
     message: str
+    generate_ideas: bool = False
 
 
 class ExtractElementsRequest(BaseModel):
@@ -192,7 +193,8 @@ async def send_chat_message(
         service = BrainstormService(current_user.id, user_settings, db)
         result = await service.send_message(
             session_id=request.session_id,
-            user_message=request.message
+            user_message=request.message,
+            generate_ideas=request.generate_ideas
         )
         
         return result

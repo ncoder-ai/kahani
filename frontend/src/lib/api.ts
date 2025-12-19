@@ -1946,7 +1946,7 @@ class ApiClient {
     });
   }
 
-  async sendBrainstormMessage(sessionId: number, message: string) {
+  async sendBrainstormMessage(sessionId: number, message: string, generateIdeas: boolean = false) {
     return this.request<{
       session_id: number;
       user_message: string;
@@ -1954,7 +1954,22 @@ class ApiClient {
       message_count: number;
     }>('/api/brainstorm/chat', {
       method: 'POST',
-      body: JSON.stringify({ session_id: sessionId, message })
+      body: JSON.stringify({ session_id: sessionId, message, generate_ideas: generateIdeas })
+    });
+  }
+
+  async generateCharactersForSession(sessionId: number) {
+    return this.request<{
+      session_id: number;
+      characters: Array<{
+        name: string;
+        role: string;
+        description: string;
+        personality_traits: string[];
+      }>;
+      count: number;
+    }>(`/api/brainstorm/sessions/${sessionId}/generate-characters`, {
+      method: 'POST'
     });
   }
 

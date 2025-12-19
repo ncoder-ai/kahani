@@ -132,46 +132,51 @@ export default function BrainstormMessage({ role, content, timestamp, onSelectId
   const isUser = role === 'user';
   const [selectedIdea, setSelectedIdea] = useState<string | null>(null);
 
-  // Detect if this message contains story ideas (First Idea:, Second Idea:, Third Idea: pattern)
+  // Detect if this message contains story ideas
   const hasStoryIdeas = !isUser && (
-    content.includes('First Idea:') || 
-    content.includes('**First Idea:**') ||
-    (content.match(/Idea \d+:/gi)?.length || 0) >= 2
+    content.includes('**Idea 1:') || 
+    content.includes('**Idea 2:') ||
+    content.includes('First Idea:') ||
+    (content.match(/\*\*Idea \d+:/g)?.length || 0) >= 2
   );
 
-  // Extract story ideas if present
+  // Extract story ideas with title and synopsis
   const extractIdeas = () => {
     if (!hasStoryIdeas) return [];
     
-    const ideas: Array<{title: string, content: string}> = [];
+    const ideas: Array<{title: string, synopsis: string}> = [];
     
-    // Split by common idea markers
-    const sections = content.split(/(?=(?:First|Second|Third) Idea:|Idea \d+:)/gi);
+    // Split by idea markers: **Idea 1:**, **Idea 2:**, etc.
+    const sections = content.split(/(?=\*\*Idea \d+:)/);
     
     sections.forEach((section) => {
-      // Match "First Idea:" or "Idea 1:" patterns
-      const titleMatch = section.match(/^(?:First|Second|Third|Idea \d+):\s*(.+?)$/m);
+      // Match **Idea N: Title**
+      const titleMatch = section.match(/\*\*Idea \d+:\s*(.+?)\*\*/);
       if (titleMatch) {
-        const title = titleMatch[1].replace(/\*\*/g, '').trim();
-        // Get the content after the title line
-        const contentLines = section.split('\n').slice(1).join('\n').trim();
-        const desc = contentLines.substring(0, 200) + (contentLines.length > 200 ? '...' : '');
+        const title = titleMatch[1].trim();
         
-        if (title && desc) {
-          ideas.push({ title, content: desc });
+        // Get synopsis (text after the title line, before next idea or end)
+        const synopsisText = section
+          .replace(/\*\*Idea \d+:.+?\*\*/, '') // Remove title
+          .trim()
+          .split('\n\n')[0] // Get first paragraph
+          .trim();
+        
+        if (title && synopsisText && synopsisText.length > 10) {
+          ideas.push({ title, synopsis: synopsisText });
         }
       }
     });
     
-    return ideas.filter(idea => idea.title && idea.content);
+    return ideas;
   };
 
   const ideas = extractIdeas();
 
-  const handleIdeaClick = (idea: {title: string, content: string}) => {
+  const handleIdeaClick = (idea: {title: string, synopsis: string}) => {
     setSelectedIdea(idea.title);
     if (onSelectIdea) {
-      onSelectIdea(`I'd like to explore: ${idea.title}\n\n${idea.content}`);
+      onSelectIdea(`I'd like to explore: ${idea.title}\n\n${idea.synopsis}`);
     }
   };
 
@@ -195,27 +200,27 @@ export default function BrainstormMessage({ role, content, timestamp, onSelectId
                   {formatContent(content)}
                 </div>
                 
-                {/* Render clickable idea buttons if story ideas detected */}
+                {/* Render clickable idea cards with title and synopsis */}
                 {ideas.length > 0 && (
-                  <div className="mt-4 space-y-2">
+                  <div className="mt-4 space-y-3">
                     <p className="text-xs text-purple-300 font-medium">👆 Click an idea to explore it further:</p>
                     {ideas.map((idea, index) => (
                       <button
                         key={index}
                         onClick={() => handleIdeaClick(idea)}
                         disabled={selectedIdea !== null}
-                        className={`w-full text-left p-3 rounded-lg transition-all border-2 ${
+                        className={`w-full text-left p-4 rounded-lg transition-all border-2 ${
                           selectedIdea === idea.title
-                            ? 'bg-purple-500/30 border-purple-400'
+                            ? 'bg-purple-500/30 border-purple-400 shadow-lg'
                             : selectedIdea
                             ? 'bg-white/5 border-white/10 opacity-50 cursor-not-allowed'
                             : 'bg-white/5 border-white/20 hover:bg-purple-500/20 hover:border-purple-400'
                         }`}
                       >
-                        <div className="font-semibold text-sm mb-1">{idea.title}</div>
-                        <div className="text-xs text-white/70 line-clamp-2">{idea.content}</div>
+                        <div className="font-semibold text-base mb-2 text-white">{idea.title}</div>
+                        <div className="text-sm text-white/80 leading-relaxed">{idea.synopsis}</div>
                         {selectedIdea === idea.title && (
-                          <div className="text-xs text-purple-300 mt-2">✓ Selected</div>
+                          <div className="text-xs text-purple-300 mt-3 font-medium">✓ Selected</div>
                         )}
                       </button>
                     ))}

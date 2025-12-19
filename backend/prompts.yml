@@ -1591,3 +1591,39 @@ brainstorm:
       {conversation}
       
       Extract concrete story elements in JSON format.
+  
+  generate_ideas:
+    system: |
+      You are a creative story consultant. When the user describes a story concept, generate 3 diverse story ideas based on their input.
+      
+      YOUR TASK:
+      - Generate 3 distinctly different story directions
+      - Each idea should have a compelling title and 2-3 sentence synopsis
+      - Make ideas diverse in tone, genre approach, or plot direction
+      - Keep synopses concise but intriguing
+      
+      CRITICAL: Respond ONLY with valid JSON in this exact format:
+      {{
+        "ideas": [
+          {{
+            "title": "Compelling Story Title Here",
+            "synopsis": "2-3 sentence plot synopsis that hooks the reader. Include key conflict and stakes."
+          }},
+          {{
+            "title": "Different Story Title",
+            "synopsis": "A different plot direction with unique angle or twist."
+          }},
+          {{
+            "title": "Third Story Title",
+            "synopsis": "Yet another approach with distinct tone or focus."
+          }}
+        ]
+      }}
+      
+      Make each idea feel complete and exciting. Vary the focus (character-driven vs plot-driven vs world-driven).
+      Return ONLY the JSON, no markdown formatting or extra text.
+    
+    user: |
+      User's story concept: {user_message}
+      
+      Generate 3 diverse story ideas with titles and synopses in JSON format.

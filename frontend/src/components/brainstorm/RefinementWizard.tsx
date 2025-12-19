@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Check, X } from 'lucide-react';
 import IdeaCard from './IdeaCard';
 import ElementEditor from './ElementEditor';
+import apiClient from '@/lib/api';
 
 interface ExtractedElements {
   genre: string;
@@ -92,18 +93,7 @@ export default function RefinementWizard({
     
     setIsGeneratingCharacters(true);
     try {
-      const response = await fetch(`/api/brainstorm/sessions/${sessionId}/generate-characters`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to generate characters');
-      }
-      
-      const data = await response.json();
+      const data = await apiClient.generateCharactersForSession(sessionId);
       
       // Merge new characters with existing ones
       const existingCharacters = elements.characters || [];

@@ -90,7 +90,8 @@ class BrainstormService:
     async def send_message(
         self,
         session_id: int,
-        user_message: str
+        user_message: str,
+        generate_ideas: bool = False
     ) -> Dict[str, Any]:
         """
         Send a user message and get AI response.
@@ -98,6 +99,7 @@ class BrainstormService:
         Args:
             session_id: The brainstorming session ID
             user_message: The user's message
+            generate_ideas: If True, generate structured story ideas (title + synopsis)
             
         Returns:
             Dictionary with AI response and updated session
@@ -112,6 +114,60 @@ class BrainstormService:
         self.db.refresh(session)  # Refresh to ensure we have latest messages
         
         try:
+            # Check if we should generate structured story ideas
+            if generate_ideas and len(session.messages) <= 2:
+                logger.info(f"[BRAINSTORM] Generating structured story ideas for session {session_id}")
+                
+                # Get idea generation prompts
+                system_prompt = prompt_manager.get_prompt("brainstorm.generate_ideas", "system")
+                user_prompt = prompt_manager.get_prompt(
+                    "brainstorm.generate_ideas", "user",
+                    user_message=user_message
+                )
+                
+                # Generate ideas with LLM
+                response = await self.llm_service.generate(
+                    prompt=user_prompt,
+                    user_id=self.user_id,
+                    user_settings=self.user_settings,
+                    system_prompt=system_prompt,
+                    max_tokens=1000,
+                    temperature=0.8
+                )
+                
+                # Parse JSON response
+                try:
+                    response_clean = clean_llm_json(response)
+                    logger.info(f"[BRAINSTORM] Raw ideas response: {response[:200]}...")
+                    logger.info(f"[BRAINSTORM] Cleaned ideas response: {response_clean[:200]}...")
+                    
+                    ideas_data = json.loads(response_clean)
+                    
+                    # Format as markdown for display
+                    formatted_response = "Here are 3 story directions based on your idea:\n\n"
+                    for i, idea in enumerate(ideas_data.get('ideas', []), 1):
+                        formatted_response += f"**Idea {i}: {idea['title']}**\n{idea['synopsis']}\n\n"
+                    
+                    # Save formatted response
+                    session.add_message("assistant", formatted_response)
+                    self.db.commit()
+                    self.db.refresh(session)
+                    
+                    logger.info(f"[BRAINSTORM] Generated {len(ideas_data.get('ideas', []))} story ideas")
+                    
+                    return {
+                        "session_id": session.id,
+                        "user_message": user_message,
+                        "ai_response": formatted_response,
+                        "message_count": len(session.messages)
+                    }
+                    
+                except json.JSONDecodeError as e:
+                    logger.error(f"[BRAINSTORM] Failed to parse ideas JSON: {str(e)}")
+                    logger.error(f"[BRAINSTORM] Raw response: {response}")
+                    # Fall through to regular conversation mode
+            
+            # Regular conversation mode
             # Get conversation context (includes all messages including the just-added user message)
             conversation_history = session.get_conversation_context()
             
