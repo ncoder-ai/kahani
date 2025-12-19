@@ -898,13 +898,16 @@ export default function StoryPage() {
             setShowChapterWizard(true);
           }
         }
-      } catch (err) {
+      } catch (err: any) {
         // No active chapter found - this is expected for new stories
-        if (err instanceof Error && (err.message.includes('404') || err.message.includes('No active chapter'))) {
+        const is404Error = err?.status === 404 || 
+                          (err instanceof Error && (err.message.includes('404') || err.message.includes('No active chapter')));
+        
+        if (is404Error) {
           setActiveChapter(null);
           // Show chapter wizard for new stories or when no active chapter exists
           setShowChapterWizard(true);
-          // Don't log this as an error - it's expected behavior
+          // Don't log this as an error - it's expected behavior for new stories
         } else {
           // Only log unexpected errors
           console.error('Failed to load active chapter:', err);
