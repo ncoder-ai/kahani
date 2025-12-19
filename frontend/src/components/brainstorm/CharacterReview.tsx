@@ -87,9 +87,15 @@ export default function CharacterReview({ characters, preSelectedCharacterIds = 
       
       // Filter out AI-generated characters that match pre-selected character names
       const preSelectedNames = chars.map(c => c.name.toLowerCase());
+      console.log('[CharacterReview] Pre-selected character names:', preSelectedNames);
+      console.log('[CharacterReview] AI-generated characters:', characters.map(c => c.name));
+      
       const filteredCharacters = characters.filter(
         char => !preSelectedNames.includes(char.name.toLowerCase())
       );
+      
+      console.log('[CharacterReview] After filtering:', filteredCharacters.map(c => c.name));
+      console.log('[CharacterReview] Filtered out', characters.length - filteredCharacters.length, 'duplicate characters');
       
       setCharacterMappings(
         filteredCharacters.map(char => ({
@@ -97,8 +103,6 @@ export default function CharacterReview({ characters, preSelectedCharacterIds = 
           action: 'create'
         }))
       );
-      
-      console.log('[CharacterReview] Filtered out', characters.length - filteredCharacters.length, 'duplicate characters');
     } catch (error) {
       console.error('Failed to load pre-selected characters:', error);
     }
