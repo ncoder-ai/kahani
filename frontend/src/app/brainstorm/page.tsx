@@ -246,16 +246,11 @@ function BrainstormContent() {
         }
       }
       
-      // Update the draft with character data
+      // Update the draft with character data if any
       if (characters.length > 0) {
         await apiClient.createOrUpdateDraftStory({
           story_id: storyResponse.id,
           title: extractedElements.suggested_titles?.[0] || 'Untitled Story',
-          description: extractedElements.description || '',
-          genre: extractedElements.genre || '',
-          tone: extractedElements.tone || '',
-          world_setting: extractedElements.world_setting || '',
-          initial_premise: extractedElements.description || '',
           characters: characters,
           step: 6
         });
