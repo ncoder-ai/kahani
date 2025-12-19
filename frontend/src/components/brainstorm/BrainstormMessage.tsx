@@ -129,26 +129,26 @@ export default function BrainstormMessage({ role, content, timestamp }: Brainsto
   const isUser = role === 'user';
 
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}>
-      <div className={`max-w-[80%] rounded-2xl p-4 ${
+    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-3 md:mb-4`}>
+      <div className={`max-w-[85%] md:max-w-[80%] rounded-xl md:rounded-2xl p-3 md:p-4 ${
         isUser 
           ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white' 
           : 'bg-white/10 text-white border border-white/20'
       }`}>
-        <div className="flex items-start space-x-3">
-          <div className="text-2xl flex-shrink-0">
+        <div className="flex items-start space-x-2 md:space-x-3">
+          <div className="text-xl md:text-2xl flex-shrink-0">
             {isUser ? '👤' : '🤖'}
           </div>
           <div className="flex-1 min-w-0">
             {isUser ? (
-              <p className="whitespace-pre-wrap text-white leading-relaxed">{content}</p>
+              <p className="whitespace-pre-wrap text-white leading-relaxed text-sm md:text-base">{content}</p>
             ) : (
-              <div className="space-y-1">
+              <div className="space-y-1 text-sm md:text-base">
                 {formatContent(content)}
               </div>
             )}
             {timestamp && (
-              <p className={`text-xs mt-3 ${isUser ? 'text-white/70' : 'text-white/50'}`}>
+              <p className={`text-xs mt-2 md:mt-3 ${isUser ? 'text-white/70' : 'text-white/50'}`}>
                 {new Date(timestamp).toLocaleTimeString()}
               </p>
             )}

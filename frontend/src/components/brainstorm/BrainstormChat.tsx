@@ -57,23 +57,23 @@ export default function BrainstormChat({
 
   return (
     <div className="flex flex-col h-full">
-      {/* Chat Header */}
-      <div className="bg-white/10 backdrop-blur-md border-b border-white/20 p-4">
+      {/* Chat Header - Hidden on mobile, visible on desktop */}
+      <div className="hidden md:block bg-white/10 backdrop-blur-md border-b border-white/20 p-4">
         <h2 className="text-xl font-bold text-white">Story Brainstorming</h2>
         <p className="text-white/70 text-sm">
           Chat with AI to explore your story ideas
         </p>
       </div>
 
-      {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-4">
+      {/* Messages Area - More compact padding on mobile */}
+      <div className="flex-1 overflow-y-auto p-3 md:p-6 space-y-3 md:space-y-4">
         {messages.length === 0 && (
-          <div className="text-center py-12">
-            <div className="text-6xl mb-4">💡</div>
-            <h3 className="text-xl font-semibold text-white mb-2">
+          <div className="text-center py-8 md:py-12 px-4">
+            <div className="text-4xl md:text-6xl mb-3 md:mb-4">💡</div>
+            <h3 className="text-lg md:text-xl font-semibold text-white mb-2">
               Let's Brainstorm Your Story!
             </h3>
-            <p className="text-white/70 max-w-md mx-auto">
+            <p className="text-white/70 text-sm md:text-base max-w-md mx-auto">
               Tell me about your story idea. What excites you? What kind of story do you want to create?
             </p>
           </div>
@@ -106,9 +106,9 @@ export default function BrainstormChat({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Area */}
-      <div className="bg-white/10 backdrop-blur-md border-t border-white/20 p-4">
-        <div className="flex items-end space-x-3">
+      {/* Input Area - Compact on mobile */}
+      <div className="bg-white/10 backdrop-blur-md border-t border-white/20 p-2 md:p-4">
+        <div className="flex items-end space-x-2 md:space-x-3">
           <textarea
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
@@ -116,27 +116,27 @@ export default function BrainstormChat({
             placeholder="Share your story ideas..."
             rows={2}
             disabled={isSending}
-            className="flex-1 p-3 bg-white/10 border border-white/30 rounded-xl text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none disabled:opacity-50"
+            className="flex-1 p-2 md:p-3 bg-white/10 border border-white/30 rounded-lg md:rounded-xl text-sm md:text-base text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none disabled:opacity-50"
           />
           <button
             onClick={handleSend}
             disabled={!inputMessage.trim() || isSending}
-            className="px-6 py-3 theme-btn-primary rounded-xl font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-4 md:px-6 py-2 md:py-3 theme-btn-primary rounded-lg md:rounded-xl font-semibold text-sm md:text-base transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Send
           </button>
         </div>
         
         {canRefine && (
-          <div className="mt-4 text-center">
+          <div className="mt-3 md:mt-4">
             <button
               onClick={onRefineIdeas}
               disabled={isLoading}
-              className="px-8 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl hover:from-green-600 hover:to-emerald-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
+              className="w-full px-4 md:px-8 py-2.5 md:py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg md:rounded-xl hover:from-green-600 hover:to-emerald-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed font-semibold text-sm md:text-base"
             >
               ✨ Refine Ideas & Extract Elements
             </button>
-            <p className="text-white/60 text-sm mt-2">
+            <p className="text-white/60 text-xs md:text-sm mt-1.5 md:mt-2 text-center hidden md:block">
               Ready to structure your ideas? AI will extract story elements from this conversation.
             </p>
           </div>

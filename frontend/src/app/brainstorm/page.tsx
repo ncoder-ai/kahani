@@ -348,37 +348,38 @@ function BrainstormContent() {
 
   return (
     <div className="min-h-screen theme-bg-primary pt-16">
-      {/* Header */}
+      {/* Header - Compact on mobile, full on desktop */}
       <div className="bg-white/10 backdrop-blur-md border-b border-white/20">
-        <div className="max-w-7xl mx-auto px-6 py-4">
+        <div className="max-w-7xl mx-auto px-3 md:px-6 py-2 md:py-4">
           <div className="flex justify-between items-center">
-            <div>
-              <h1 className="text-2xl font-bold text-white">Story Brainstorming</h1>
-              <p className="text-white/60 text-sm">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-lg md:text-2xl font-bold text-white truncate">Story Brainstorming</h1>
+              <p className="text-white/60 text-xs md:text-sm hidden md:block">
                 Phase: <span className="text-white/80 capitalize">{phase}</span>
               </p>
             </div>
             <button
               onClick={() => router.push('/dashboard')}
-              className="px-4 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors"
+              className="px-3 py-1.5 md:px-4 md:py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors text-sm md:text-base flex-shrink-0 ml-2"
             >
-              ← Back to Dashboard
+              <span className="hidden md:inline">← Back to Dashboard</span>
+              <span className="md:hidden">← Back</span>
             </button>
           </div>
         </div>
       </div>
 
       {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-6 py-8">
+      <div className="max-w-7xl mx-auto px-2 md:px-6 py-2 md:py-8">
         {phase === 'character_selection' ? (
-          <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 max-h-[calc(100vh-200px)] overflow-y-auto p-8">
+          <div className="bg-white/10 backdrop-blur-md rounded-lg md:rounded-2xl border border-white/20 max-h-[calc(100vh-140px)] md:max-h-[calc(100vh-200px)] overflow-y-auto p-4 md:p-8">
             <CharacterSelection
               onContinue={handleCharacterSelectionComplete}
               onSkip={handleCharacterSelectionSkip}
             />
           </div>
         ) : phase === 'chat' ? (
-          <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 h-[calc(100vh-200px)]">
+          <div className="bg-white/10 backdrop-blur-md rounded-lg md:rounded-2xl border border-white/20 h-[calc(100vh-140px)] md:h-[calc(100vh-200px)]">
             <BrainstormChat
               messages={messages}
               onSendMessage={handleSendMessage}
@@ -387,7 +388,7 @@ function BrainstormContent() {
             />
           </div>
         ) : phase === 'refining' ? (
-          <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 max-h-[calc(100vh-200px)] overflow-y-auto">
+          <div className="bg-white/10 backdrop-blur-md rounded-lg md:rounded-2xl border border-white/20 max-h-[calc(100vh-140px)] md:max-h-[calc(100vh-200px)] overflow-y-auto">
             <RefinementWizard
               elements={extractedElements}
               onUpdate={handleUpdateElements}
@@ -398,7 +399,7 @@ function BrainstormContent() {
             />
           </div>
         ) : (
-          <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 max-h-[calc(100vh-200px)] overflow-y-auto p-8">
+          <div className="bg-white/10 backdrop-blur-md rounded-lg md:rounded-2xl border border-white/20 max-h-[calc(100vh-140px)] md:max-h-[calc(100vh-200px)] overflow-y-auto p-4 md:p-8">
             <CharacterReview
               characters={extractedElements?.characters || []}
               preSelectedCharacterIds={preSelectedCharacterIds}
