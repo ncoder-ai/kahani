@@ -4269,28 +4269,40 @@ async def finalize_draft_story(
         logger.info(f"[FINALIZE] Processing {len(characters_data)} characters for story {story_id}")
         
         for char_data in characters_data:
-            # Check if character already exists for this story
-            existing_char = db.query(Character).filter(
-                Character.name == char_data.get('name'),
-                Character.creator_id == current_user.id
-            ).first()
-            
-            if existing_char:
-                # Use existing character
-                character = existing_char
-                logger.info(f"[FINALIZE] Using existing character: {character.name} (ID: {character.id})")
+            # If character has an ID, use it directly (from brainstorm flow)
+            if 'id' in char_data and char_data['id']:
+                character = db.query(Character).filter(
+                    Character.id == char_data['id']
+                ).first()
+                
+                if character:
+                    logger.info(f"[FINALIZE] Using character by ID: {character.name} (ID: {character.id})")
+                else:
+                    logger.warning(f"[FINALIZE] Character ID {char_data['id']} not found, skipping")
+                    continue
             else:
-                # Create new character (without role - role is story-specific)
-                character = Character(
-                    name=char_data.get('name', 'Unnamed'),
-                    description=char_data.get('description', ''),
-                    creator_id=current_user.id,
-                    is_template=False,
-                    is_public=False
-                )
-                db.add(character)
-                db.flush()  # Get the character ID
-                logger.info(f"[FINALIZE] Created new character: {character.name} (ID: {character.id})")
+                # Check if character already exists by name
+                existing_char = db.query(Character).filter(
+                    Character.name == char_data.get('name'),
+                    Character.creator_id == current_user.id
+                ).first()
+                
+                if existing_char:
+                    # Use existing character
+                    character = existing_char
+                    logger.info(f"[FINALIZE] Using existing character by name: {character.name} (ID: {character.id})")
+                else:
+                    # Create new character (without role - role is story-specific)
+                    character = Character(
+                        name=char_data.get('name', 'Unnamed'),
+                        description=char_data.get('description', ''),
+                        creator_id=current_user.id,
+                        is_template=False,
+                        is_public=False
+                    )
+                    db.add(character)
+                    db.flush()  # Get the character ID
+                    logger.info(f"[FINALIZE] Created new character: {character.name} (ID: {character.id})")
             
             # Check if StoryCharacter relationship already exists
             existing_story_char = db.query(StoryCharacter).filter(
