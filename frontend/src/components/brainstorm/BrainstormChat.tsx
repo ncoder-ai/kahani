@@ -57,15 +57,7 @@ export default function BrainstormChat({
 
   return (
     <div className="flex flex-col h-full">
-      {/* Chat Header - Hidden on mobile, visible on desktop */}
-      <div className="hidden md:block bg-white/10 backdrop-blur-md border-b border-white/20 p-4">
-        <h2 className="text-xl font-bold text-white">Story Brainstorming</h2>
-        <p className="text-white/70 text-sm">
-          Chat with AI to explore your story ideas
-        </p>
-      </div>
-
-      {/* Messages Area - More compact padding on mobile */}
+      {/* Messages Area - Full height, no header */}
       <div className="flex-1 overflow-y-auto p-3 md:p-6 space-y-3 md:space-y-4">
         {messages.length === 0 && (
           <div className="text-center py-8 md:py-12 px-4">
@@ -85,6 +77,10 @@ export default function BrainstormChat({
             role={message.role}
             content={message.content}
             timestamp={message.timestamp}
+            onSelectIdea={(idea) => {
+              // Auto-fill the input with the selected idea
+              setInputMessage(idea);
+            }}
           />
         ))}
         

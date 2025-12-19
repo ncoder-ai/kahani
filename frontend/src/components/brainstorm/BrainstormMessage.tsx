@@ -1,9 +1,12 @@
 'use client';
 
+import { useState } from 'react';
+
 interface BrainstormMessageProps {
   role: 'user' | 'assistant';
   content: string;
   timestamp?: string;
+  onSelectIdea?: (idea: string) => void;
 }
 
 function formatContent(content: string) {
@@ -125,8 +128,52 @@ function formatContent(content: string) {
   return formatted;
 }
 
-export default function BrainstormMessage({ role, content, timestamp }: BrainstormMessageProps) {
+export default function BrainstormMessage({ role, content, timestamp, onSelectIdea }: BrainstormMessageProps) {
   const isUser = role === 'user';
+  const [selectedIdea, setSelectedIdea] = useState<string | null>(null);
+
+  // Detect if this message contains story ideas (First Idea:, Second Idea:, Third Idea: pattern)
+  const hasStoryIdeas = !isUser && (
+    content.includes('First Idea:') || 
+    content.includes('**First Idea:**') ||
+    (content.match(/Idea \d+:/gi)?.length || 0) >= 2
+  );
+
+  // Extract story ideas if present
+  const extractIdeas = () => {
+    if (!hasStoryIdeas) return [];
+    
+    const ideas: Array<{title: string, content: string}> = [];
+    
+    // Split by common idea markers
+    const sections = content.split(/(?=(?:First|Second|Third) Idea:|Idea \d+:)/gi);
+    
+    sections.forEach((section) => {
+      // Match "First Idea:" or "Idea 1:" patterns
+      const titleMatch = section.match(/^(?:First|Second|Third|Idea \d+):\s*(.+?)$/m);
+      if (titleMatch) {
+        const title = titleMatch[1].replace(/\*\*/g, '').trim();
+        // Get the content after the title line
+        const contentLines = section.split('\n').slice(1).join('\n').trim();
+        const desc = contentLines.substring(0, 200) + (contentLines.length > 200 ? '...' : '');
+        
+        if (title && desc) {
+          ideas.push({ title, content: desc });
+        }
+      }
+    });
+    
+    return ideas.filter(idea => idea.title && idea.content);
+  };
+
+  const ideas = extractIdeas();
+
+  const handleIdeaClick = (idea: {title: string, content: string}) => {
+    setSelectedIdea(idea.title);
+    if (onSelectIdea) {
+      onSelectIdea(`I'd like to explore: ${idea.title}\n\n${idea.content}`);
+    }
+  };
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-3 md:mb-4`}>
@@ -143,9 +190,38 @@ export default function BrainstormMessage({ role, content, timestamp }: Brainsto
             {isUser ? (
               <p className="whitespace-pre-wrap text-white leading-relaxed text-sm md:text-base">{content}</p>
             ) : (
-              <div className="space-y-1 text-sm md:text-base">
-                {formatContent(content)}
-              </div>
+              <>
+                <div className="space-y-1 text-sm md:text-base">
+                  {formatContent(content)}
+                </div>
+                
+                {/* Render clickable idea buttons if story ideas detected */}
+                {ideas.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    <p className="text-xs text-purple-300 font-medium">👆 Click an idea to explore it further:</p>
+                    {ideas.map((idea, index) => (
+                      <button
+                        key={index}
+                        onClick={() => handleIdeaClick(idea)}
+                        disabled={selectedIdea !== null}
+                        className={`w-full text-left p-3 rounded-lg transition-all border-2 ${
+                          selectedIdea === idea.title
+                            ? 'bg-purple-500/30 border-purple-400'
+                            : selectedIdea
+                            ? 'bg-white/5 border-white/10 opacity-50 cursor-not-allowed'
+                            : 'bg-white/5 border-white/20 hover:bg-purple-500/20 hover:border-purple-400'
+                        }`}
+                      >
+                        <div className="font-semibold text-sm mb-1">{idea.title}</div>
+                        <div className="text-xs text-white/70 line-clamp-2">{idea.content}</div>
+                        {selectedIdea === idea.title && (
+                          <div className="text-xs text-purple-300 mt-2">✓ Selected</div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
             {timestamp && (
               <p className={`text-xs mt-2 md:mt-3 ${isUser ? 'text-white/70' : 'text-white/50'}`}>
