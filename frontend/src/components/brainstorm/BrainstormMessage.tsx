@@ -136,8 +136,11 @@ export default function BrainstormMessage({ role, content, timestamp, onSelectId
   const hasStoryIdeas = !isUser && (
     content.includes('**Idea 1:') || 
     content.includes('**Idea 2:') ||
+    content.includes('Option 1:') ||
+    content.includes('Option 2:') ||
     content.includes('First Idea:') ||
-    (content.match(/\*\*Idea \d+:/g)?.length || 0) >= 2
+    (content.match(/\*\*Idea \d+:/g)?.length || 0) >= 2 ||
+    (content.match(/Option \d+:/g)?.length || 0) >= 2
   );
 
   // Extract story ideas with title and synopsis
@@ -146,10 +149,35 @@ export default function BrainstormMessage({ role, content, timestamp, onSelectId
     
     const ideas: Array<{title: string, synopsis: string}> = [];
     
-    // Split by idea markers: **Idea 1:**, **Idea 2:**, etc.
-    const sections = content.split(/(?=\*\*Idea \d+:)/);
+    // Try to match "Option N:" format first
+    const optionSections = content.split(/(?=Option \d+:)/);
     
-    sections.forEach((section) => {
+    if (optionSections.length >= 3) {
+      // Parse Option format
+      optionSections.forEach((section) => {
+        const match = section.match(/Option \d+:\s*In\s+"(.+?)"/);
+        if (match) {
+          const title = match[1].trim();
+          // Get the rest of the text after the title
+          const synopsisText = section
+            .replace(/Option \d+:\s*In\s+".+?",?\s*/, '')
+            .trim()
+            .split(/\n\n|Which of these/)[0] // Stop at next section or question
+            .trim();
+          
+          if (title && synopsisText && synopsisText.length > 20) {
+            ideas.push({ title, synopsis: synopsisText });
+          }
+        }
+      });
+      
+      if (ideas.length > 0) return ideas;
+    }
+    
+    // Fallback to **Idea N:** format
+    const ideaSections = content.split(/(?=\*\*Idea \d+:)/);
+    
+    ideaSections.forEach((section) => {
       // Match **Idea N: Title**
       const titleMatch = section.match(/\*\*Idea \d+:\s*(.+?)\*\*/);
       if (titleMatch) {
