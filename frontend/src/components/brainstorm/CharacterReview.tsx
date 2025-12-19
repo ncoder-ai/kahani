@@ -37,6 +37,7 @@ interface CharacterMapping {
 
 interface CharacterReviewProps {
   characters: BrainstormCharacter[];
+  preSelectedCharacterIds?: number[];
   onComplete: (characterMappings: CharacterMapping[]) => void;
   onBack: () => void;
 }
@@ -52,7 +53,7 @@ const CHARACTER_ROLE_ICONS: Record<string, string> = {
   other: '👤'
 };
 
-export default function CharacterReview({ characters, onComplete, onBack }: CharacterReviewProps) {
+export default function CharacterReview({ characters, preSelectedCharacterIds = [], onComplete, onBack }: CharacterReviewProps) {
   const [characterMappings, setCharacterMappings] = useState<CharacterMapping[]>(
     characters.map(char => ({
       brainstormChar: char,
@@ -60,6 +61,7 @@ export default function CharacterReview({ characters, onComplete, onBack }: Char
     }))
   );
   const [persistentCharacters, setPersistentCharacters] = useState<PersistentCharacter[]>([]);
+  const [preSelectedCharacters, setPreSelectedCharacters] = useState<PersistentCharacter[]>([]);
   const [loadingLibrary, setLoadingLibrary] = useState(false);
   const [creatingCharacters, setCreatingCharacters] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState<number | null>(null);
@@ -67,7 +69,21 @@ export default function CharacterReview({ characters, onComplete, onBack }: Char
 
   useEffect(() => {
     loadCharacterLibrary();
+    loadPreSelectedCharacters();
   }, []);
+
+  const loadPreSelectedCharacters = async () => {
+    if (preSelectedCharacterIds.length === 0) return;
+    
+    try {
+      const chars = await Promise.all(
+        preSelectedCharacterIds.map(id => apiClient.getCharacter(id))
+      );
+      setPreSelectedCharacters(chars);
+    } catch (error) {
+      console.error('Failed to load pre-selected characters:', error);
+    }
+  };
 
   const loadCharacterLibrary = async () => {
     try {
@@ -173,12 +189,68 @@ export default function CharacterReview({ characters, onComplete, onBack }: Char
       <div className="text-center mb-8">
         <h2 className="text-3xl font-bold text-white mb-2">Review Characters</h2>
         <p className="text-white/70">
-          For each character, choose to create a new character, use an existing one, or skip
+          {preSelectedCharacters.length > 0 
+            ? 'Your pre-selected characters will be automatically included. Review AI-suggested characters below.'
+            : 'For each character, choose to create a new character, use an existing one, or skip'
+          }
         </p>
       </div>
 
-      <div className="space-y-4">
-        {characterMappings.map((mapping, index) => {
+      {/* Pre-selected Characters Section */}
+      {preSelectedCharacters.length > 0 && (
+        <div className="space-y-4 mb-8">
+          <div className="flex items-center gap-2 mb-4">
+            <h3 className="text-xl font-semibold text-white">Your Characters</h3>
+            <span className="text-sm px-3 py-1 rounded-full bg-green-500/20 text-green-300 border border-green-500/30">
+              {preSelectedCharacters.length} pre-selected
+            </span>
+          </div>
+          {preSelectedCharacters.map((char) => (
+            <div
+              key={char.id}
+              className="theme-bg-secondary rounded-lg p-6 border-2 border-green-500/30 bg-green-500/5"
+            >
+              <div className="flex items-start gap-4">
+                <div className="text-4xl">👤</div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <h3 className="text-xl font-semibold text-white">{char.name}</h3>
+                    <span className="text-sm px-2 py-1 rounded-full bg-green-500/20 text-green-300">
+                      ✓ Auto-included
+                    </span>
+                  </div>
+                  <p className="text-white/70 mb-3">{char.description}</p>
+                  {char.personality_traits && char.personality_traits.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {char.personality_traits.map((trait, i) => (
+                        <span
+                          key={i}
+                          className="text-xs px-2 py-1 bg-white/10 text-white/80 rounded"
+                        >
+                          {trait}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* AI-Generated Characters Section */}
+      {characterMappings.length > 0 && (
+        <div className="space-y-4">
+          {preSelectedCharacters.length > 0 && (
+            <div className="flex items-center gap-2 mb-4">
+              <h3 className="text-xl font-semibold text-white">AI-Suggested Characters</h3>
+              <span className="text-sm px-3 py-1 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                {characterMappings.length} suggested
+              </span>
+            </div>
+          )}
+          {characterMappings.map((mapping, index) => {
           const char = mapping.brainstormChar;
           const existingChar = mapping.existingCharacterId 
             ? getExistingCharacter(mapping.existingCharacterId)
@@ -291,7 +363,8 @@ export default function CharacterReview({ characters, onComplete, onBack }: Char
             </div>
           );
         })}
-      </div>
+        </div>
+      )}
 
       {/* Action Buttons */}
       <div className="flex justify-between pt-6">

@@ -50,18 +50,19 @@ class BrainstormService:
         self.db = db
         self.llm_service = UnifiedLLMService()
     
-    def create_session(self) -> BrainstormSession:
-        """Create a new brainstorming session."""
+    def create_session(self, pre_selected_character_ids: List[int] = None) -> BrainstormSession:
+        """Create a new brainstorming session with optional pre-selected characters."""
         session = BrainstormSession(
             user_id=self.user_id,
             messages=[],
-            status='exploring'
+            status='exploring',
+            extracted_elements={'preselected_character_ids': pre_selected_character_ids or []}
         )
         self.db.add(session)
         self.db.commit()
         self.db.refresh(session)
         
-        logger.info(f"[BRAINSTORM] Created new session {session.id} for user {self.user_id}")
+        logger.info(f"[BRAINSTORM] Created new session {session.id} for user {self.user_id} with {len(pre_selected_character_ids or [])} pre-selected characters")
         return session
     
     def get_session(self, session_id: int) -> Optional[BrainstormSession]:
@@ -124,6 +125,21 @@ class BrainstormService:
             # Get prompts
             system_prompt = prompt_manager.get_prompt("brainstorm.chat", "system")
             
+            # Add pre-selected character context if any
+            preselected_char_ids = session.extracted_elements.get('preselected_character_ids', []) if session.extracted_elements else []
+            character_context = ""
+            if preselected_char_ids:
+                from ..models.character import Character
+                characters = self.db.query(Character).filter(Character.id.in_(preselected_char_ids)).all()
+                if characters:
+                    character_context = "\n\nThe user wants to use these existing characters in their story:\n"
+                    for char in characters:
+                        character_context += f"\n- **{char.name}**: {char.description}"
+                        if char.personality_traits:
+                            character_context += f" (Personality: {', '.join(char.personality_traits)})"
+                    character_context += "\n\nPlease generate story ideas that incorporate these characters, while also suggesting additional characters if needed for the story."
+                    logger.info(f"[BRAINSTORM] Added {len(characters)} pre-selected characters to context")
+            
             # Get LLM client to check completion mode
             client = self.llm_service.get_user_client(self.user_id, self.user_settings)
             
@@ -136,14 +152,14 @@ class BrainstormService:
                 user_allow_nsfw = self.user_settings.get('allow_nsfw', False) if self.user_settings else False
                 
                 if system_prompt and system_prompt.strip():
-                    final_system_prompt = system_prompt.strip()
+                    final_system_prompt = system_prompt.strip() + character_context
                     # Inject NSFW filter if user doesn't have NSFW permissions
                     if should_inject_nsfw_filter(user_allow_nsfw):
                         final_system_prompt = final_system_prompt + "\n\n" + get_nsfw_prevention_prompt()
                     messages.append({"role": "system", "content": final_system_prompt})
                 elif should_inject_nsfw_filter(user_allow_nsfw):
                     # No system prompt provided, but we need to inject NSFW filter
-                    messages.append({"role": "system", "content": get_nsfw_prevention_prompt()})
+                    messages.append({"role": "system", "content": get_nsfw_prevention_prompt() + character_context})
                 
                 # Add all conversation history as proper message turns
                 logger.info(f"[BRAINSTORM] Building messages array from {len(conversation_history)} conversation messages")
@@ -199,15 +215,23 @@ class BrainstormService:
                 # Add current user message
                 conversation_text += f"User: {user_message}\n\nAI:"
                 
+                # Add character context to system prompt for text completion mode
+                final_system_prompt = system_prompt + character_context if system_prompt else character_context
+                
                 # Generate AI response using standard method
                 ai_response = await self.llm_service.generate(
                     prompt=conversation_text,
                     user_id=self.user_id,
                     user_settings=self.user_settings,
-                    system_prompt=system_prompt,
+                    system_prompt=final_system_prompt,
                     max_tokens=self.user_settings.get('generation_preferences', {}).get('max_tokens', 1000),
                     temperature=0.8  # Higher temperature for creative brainstorming
                 )
+                
+                # Save assistant response to conversation history
+                session.add_message("assistant", ai_response)
+                self.db.commit()
+                self.db.refresh(session)
             
             logger.info(f"[BRAINSTORM] Session {session_id} - exchanged messages, total: {len(session.messages)}")
             

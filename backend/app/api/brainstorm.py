@@ -46,15 +46,24 @@ class CompleteSessionRequest(BaseModel):
     story_id: int
 
 
+class CreateSessionRequest(BaseModel):
+    """Request for creating a new session."""
+    pre_selected_character_ids: list[int] = []
+
+
 # ====== SESSION MANAGEMENT ======
 
 @router.post("/session")
 async def create_brainstorm_session(
+    request: CreateSessionRequest = Body(default=CreateSessionRequest()),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
     Create a new brainstorming session.
+    
+    Args:
+        request: Optional pre-selected character IDs
     
     Returns:
         New session data with ID
@@ -65,7 +74,7 @@ async def create_brainstorm_session(
         
         # Create service and session
         service = BrainstormService(current_user.id, user_settings, db)
-        session = service.create_session()
+        session = service.create_session(pre_selected_character_ids=request.pre_selected_character_ids)
         
         return {
             "session_id": session.id,

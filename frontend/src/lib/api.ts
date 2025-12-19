@@ -1913,14 +1913,15 @@ class ApiClient {
 
   // ====== BRAINSTORM METHODS ======
   
-  async createBrainstormSession() {
+  async createBrainstormSession(preSelectedCharacterIds?: number[]) {
     return this.request<{
       session_id: number;
       status: string;
       message_count: number;
       created_at: string;
     }>('/api/brainstorm/session', {
-      method: 'POST'
+      method: 'POST',
+      body: preSelectedCharacterIds ? JSON.stringify({ pre_selected_character_ids: preSelectedCharacterIds }) : undefined
     });
   }
 

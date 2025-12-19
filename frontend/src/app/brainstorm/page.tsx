@@ -9,8 +9,9 @@ import RouteProtection from '@/components/RouteProtection';
 import BrainstormChat from '@/components/brainstorm/BrainstormChat';
 import RefinementWizard from '@/components/brainstorm/RefinementWizard';
 import CharacterReview from '@/components/brainstorm/CharacterReview';
+import CharacterSelection from '@/components/brainstorm/CharacterSelection';
 
-type BrainstormPhase = 'chat' | 'refining' | 'character_review';
+type BrainstormPhase = 'character_selection' | 'chat' | 'refining' | 'character_review';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -23,7 +24,7 @@ function BrainstormContent() {
   const searchParams = useSearchParams();
   const { user } = useAuthStore();
   
-  const [phase, setPhase] = useState<BrainstormPhase>('chat');
+  const [phase, setPhase] = useState<BrainstormPhase>('character_selection');
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [extractedElements, setExtractedElements] = useState<any>(null);
@@ -31,6 +32,7 @@ function BrainstormContent() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [isCreatingStory, setIsCreatingStory] = useState(false);
   const [userSettings, setUserSettings] = useState<any>(null);
+  const [preSelectedCharacterIds, setPreSelectedCharacterIds] = useState<number[]>([]);
 
   // Apply UI settings
   useUISettings(userSettings?.ui_preferences || null);
@@ -59,7 +61,7 @@ function BrainstormContent() {
         const existingSessionId = searchParams.get('session_id');
         
         if (existingSessionId) {
-          // Load existing session
+          // Load existing session - skip character selection
           const session = await apiClient.getBrainstormSession(parseInt(existingSessionId));
           setSessionId(session.session_id);
           // Cast messages to correct type
@@ -67,45 +69,11 @@ function BrainstormContent() {
           if (session.extracted_elements) {
             setExtractedElements(session.extracted_elements);
             setPhase('refining');
-          }
-        } else {
-          // Create new session
-          const newSession = await apiClient.createBrainstormSession();
-          setSessionId(newSession.session_id);
-          
-          // Generate initial AI greeting to start the conversation
-          if (newSession.session_id) {
-            try {
-              // Send a starter message that encourages idea generation
-              const greeting = await apiClient.sendBrainstormMessage(
-                newSession.session_id,
-                "I want to create a new story. Can you help me brainstorm some ideas?"
-              );
-              setMessages([
-                {
-                  role: 'user',
-                  content: "I want to create a new story. Can you help me brainstorm some ideas?",
-                  timestamp: new Date().toISOString()
-                },
-                {
-                  role: 'assistant',
-                  content: greeting.ai_response,
-                  timestamp: new Date().toISOString()
-                }
-              ]);
-            } catch (error) {
-              console.error('Failed to generate initial greeting:', error);
-              // Fallback greeting if API fails
-              setMessages([
-                {
-                  role: 'assistant',
-                  content: "Hi! I'm excited to help you brainstorm your story. Let's start by exploring what excites you - are you thinking about a specific genre? A character? A world? Or maybe a theme or conflict? Share what's on your mind and I'll generate some creative ideas to build on!",
-                  timestamp: new Date().toISOString()
-                }
-              ]);
-            }
+          } else {
+            setPhase('chat');
           }
         }
+        // For new sessions, stay on character_selection phase (don't create session yet)
       } catch (error) {
         console.error('Failed to initialize session:', error);
         alert('Failed to start brainstorming session. Please try again.');
@@ -229,6 +197,21 @@ function BrainstormContent() {
       // Prepare character data for finalization
       // The finalize endpoint will handle linking characters to the story
       const characters = [];
+      
+      // Add pre-selected characters first
+      if (preSelectedCharacterIds && preSelectedCharacterIds.length > 0) {
+        for (const charId of preSelectedCharacterIds) {
+          characters.push({
+            id: charId,
+            name: '', // Will be populated by backend
+            role: 'existing',
+            description: ''
+          });
+        }
+        console.log('[Brainstorm] Added', preSelectedCharacterIds.length, 'pre-selected characters');
+      }
+      
+      // Add AI-generated characters from character review
       if (extractedElements.characterMappings && Array.isArray(extractedElements.characterMappings)) {
         for (const mapping of extractedElements.characterMappings) {
           const characterId = mapping.action === 'create' 
@@ -244,6 +227,7 @@ function BrainstormContent() {
             });
           }
         }
+        console.log('[Brainstorm] Added', extractedElements.characterMappings.length, 'AI-generated characters');
       }
       
       // Update the draft with character data if any
@@ -282,19 +266,98 @@ function BrainstormContent() {
     setPhase('refining');
   };
 
+  const handleCharacterSelectionComplete = async (selectedIds: number[]) => {
+    try {
+      setPreSelectedCharacterIds(selectedIds);
+      
+      // Create session with pre-selected characters
+      const newSession = await apiClient.createBrainstormSession(selectedIds);
+      setSessionId(newSession.session_id);
+      
+      // Generate initial AI greeting with character context
+      if (newSession.session_id) {
+        try {
+          const greeting = await apiClient.sendBrainstormMessage(
+            newSession.session_id,
+            "I want to create a new story. Can you help me brainstorm some ideas?"
+          );
+          setMessages([
+            {
+              role: 'user',
+              content: "I want to create a new story. Can you help me brainstorm some ideas?",
+              timestamp: new Date().toISOString()
+            },
+            {
+              role: 'assistant',
+              content: greeting.ai_response,
+              timestamp: new Date().toISOString()
+            }
+          ]);
+        } catch (error) {
+          console.error('Failed to generate initial greeting:', error);
+          setMessages([
+            {
+              role: 'assistant',
+              content: "Hi! I'm excited to help you brainstorm your story. Let's start by exploring what excites you!",
+              timestamp: new Date().toISOString()
+            }
+          ]);
+        }
+      }
+      
+      setPhase('chat');
+    } catch (error) {
+      console.error('Failed to start session with characters:', error);
+      alert('Failed to start brainstorming session. Please try again.');
+    }
+  };
+
+  const handleCharacterSelectionSkip = async () => {
+    try {
+      // Create session without pre-selected characters
+      const newSession = await apiClient.createBrainstormSession();
+      setSessionId(newSession.session_id);
+      
+      // Generate initial AI greeting
+      if (newSession.session_id) {
+        try {
+          const greeting = await apiClient.sendBrainstormMessage(
+            newSession.session_id,
+            "I want to create a new story. Can you help me brainstorm some ideas?"
+          );
+          setMessages([
+            {
+              role: 'user',
+              content: "I want to create a new story. Can you help me brainstorm some ideas?",
+              timestamp: new Date().toISOString()
+            },
+            {
+              role: 'assistant',
+              content: greeting.ai_response,
+              timestamp: new Date().toISOString()
+            }
+          ]);
+        } catch (error) {
+          console.error('Failed to generate initial greeting:', error);
+          setMessages([
+            {
+              role: 'assistant',
+              content: "Hi! I'm excited to help you brainstorm your story. Let's start by exploring what excites you!",
+              timestamp: new Date().toISOString()
+            }
+          ]);
+        }
+      }
+      
+      setPhase('chat');
+    } catch (error) {
+      console.error('Failed to start session:', error);
+      alert('Failed to start brainstorming session. Please try again.');
+    }
+  };
+
   if (!user) {
     return null;
-  }
-
-  if (!sessionId) {
-    return (
-      <div className="min-h-screen theme-bg-primary flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-white/80">Starting brainstorm session...</p>
-        </div>
-      </div>
-    );
   }
 
   return (
@@ -321,7 +384,14 @@ function BrainstormContent() {
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-6 py-8">
-        {phase === 'chat' ? (
+        {phase === 'character_selection' ? (
+          <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 max-h-[calc(100vh-200px)] overflow-y-auto p-8">
+            <CharacterSelection
+              onContinue={handleCharacterSelectionComplete}
+              onSkip={handleCharacterSelectionSkip}
+            />
+          </div>
+        ) : phase === 'chat' ? (
           <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 h-[calc(100vh-200px)]">
             <BrainstormChat
               messages={messages}
@@ -345,6 +415,7 @@ function BrainstormContent() {
           <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 max-h-[calc(100vh-200px)] overflow-y-auto p-8">
             <CharacterReview
               characters={extractedElements?.characters || []}
+              preSelectedCharacterIds={preSelectedCharacterIds}
               onComplete={handleCharacterReviewComplete}
               onBack={handleBackToRefining}
             />
