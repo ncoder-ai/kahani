@@ -54,14 +54,9 @@ const CHARACTER_ROLE_ICONS: Record<string, string> = {
 };
 
 export default function CharacterReview({ characters, preSelectedCharacterIds = [], onComplete, onBack }: CharacterReviewProps) {
-  const [characterMappings, setCharacterMappings] = useState<CharacterMapping[]>(
-    characters.map(char => ({
-      brainstormChar: char,
-      action: 'create' // Default to creating new characters
-    }))
-  );
   const [persistentCharacters, setPersistentCharacters] = useState<PersistentCharacter[]>([]);
   const [preSelectedCharacters, setPreSelectedCharacters] = useState<PersistentCharacter[]>([]);
+  const [characterMappings, setCharacterMappings] = useState<CharacterMapping[]>([]);
   const [loadingLibrary, setLoadingLibrary] = useState(false);
   const [creatingCharacters, setCreatingCharacters] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState<number | null>(null);
@@ -73,13 +68,37 @@ export default function CharacterReview({ characters, preSelectedCharacterIds = 
   }, []);
 
   const loadPreSelectedCharacters = async () => {
-    if (preSelectedCharacterIds.length === 0) return;
+    if (preSelectedCharacterIds.length === 0) {
+      // No pre-selected characters, use all AI-generated characters
+      setCharacterMappings(
+        characters.map(char => ({
+          brainstormChar: char,
+          action: 'create'
+        }))
+      );
+      return;
+    }
     
     try {
       const chars = await Promise.all(
         preSelectedCharacterIds.map(id => apiClient.getCharacter(id))
       );
       setPreSelectedCharacters(chars);
+      
+      // Filter out AI-generated characters that match pre-selected character names
+      const preSelectedNames = chars.map(c => c.name.toLowerCase());
+      const filteredCharacters = characters.filter(
+        char => !preSelectedNames.includes(char.name.toLowerCase())
+      );
+      
+      setCharacterMappings(
+        filteredCharacters.map(char => ({
+          brainstormChar: char,
+          action: 'create'
+        }))
+      );
+      
+      console.log('[CharacterReview] Filtered out', characters.length - filteredCharacters.length, 'duplicate characters');
     } catch (error) {
       console.error('Failed to load pre-selected characters:', error);
     }
