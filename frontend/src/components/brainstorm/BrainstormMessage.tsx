@@ -150,15 +150,15 @@ export default function BrainstormMessage({ role, content, timestamp, onSelectId
     
     // FORMAT B/C: "1. Title:" or "**1. Title:**" (numbered with title and colon)
     // This is the most common recent format
-    const numberedPattern = /(\*\*)?(\d+)\.\s+(.+?):(\*\*)?\s*([\s\S]*?)(?=(?:\*\*)?\d+\.|Which|$)/g;
+    const numberedPattern = /(\*\*)?(\d+)\.\s+(.+?):(\*\*)?\s*([\s\S]*?)(?=\n\n(?:\*\*)?\d+\.|Which of these|$)/g;
     const numberedMatches = Array.from(content.matchAll(numberedPattern));
     
     if (numberedMatches.length >= 2) {
       numberedMatches.forEach(match => {
         const title = match[3].replace(/\*\*/g, '').trim();
         const synopsisRaw = match[5].trim();
-        // Get first paragraph or until double newline
-        const synopsis = synopsisRaw.split(/\n\n/)[0].trim();
+        // Get text until double newline or end
+        const synopsis = synopsisRaw.split(/\n\n(?=\d+\.|\*\*\d+\.)/)[0].trim();
         
         if (title && synopsis && synopsis.length > 20) {
           ideas.push({ title, synopsis });
@@ -289,13 +289,10 @@ export default function BrainstormMessage({ role, content, timestamp, onSelectId
                       <button
                         key={index}
                         onClick={() => handleIdeaClick(idea)}
-                        disabled={selectedIdea !== null}
                         className={`w-full text-left p-4 rounded-lg transition-all border-2 ${
                           selectedIdea === idea.title
                             ? 'bg-purple-500/30 border-purple-400 shadow-lg'
-                            : selectedIdea
-                            ? 'bg-white/5 border-white/10 opacity-50 cursor-not-allowed'
-                            : 'bg-white/5 border-white/20 hover:bg-purple-500/20 hover:border-purple-400'
+                            : 'bg-white/5 border-white/20 hover:bg-purple-500/20 hover:border-purple-400 cursor-pointer'
                         }`}
                       >
                         <div className="font-semibold text-base mb-2 text-white">{idea.title}</div>
