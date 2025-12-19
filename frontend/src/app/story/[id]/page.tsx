@@ -2674,7 +2674,7 @@ export default function StoryPage() {
       />
 
       {/* Main Story Container */}
-      <div className="max-w-4xl mx-auto flex flex-col" style={{ height: 'calc(100vh - 40px)' }}>
+      <div className="max-w-4xl mx-auto flex flex-col pt-10 md:pt-12" style={{ height: '100vh' }}>
         {/* Story Content Area */}
         <div className="flex-1 p-4 md:p-6 overflow-y-auto" ref={storyContentRef} style={{ overscrollBehaviorY: 'contain' }}>
           <div className="min-h-full">

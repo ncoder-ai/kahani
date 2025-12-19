@@ -28,7 +28,7 @@ interface RefinementWizardProps {
   onUpdate: (elements: ExtractedElements) => void;
   onStartStory: () => void;
   onBackToChat: () => void;
-  sessionId: number;
+  sessionId: number | null;
   isCreatingStory: boolean;
 }
 
