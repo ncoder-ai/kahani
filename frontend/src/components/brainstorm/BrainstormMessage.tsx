@@ -132,69 +132,91 @@ export default function BrainstormMessage({ role, content, timestamp, onSelectId
   const isUser = role === 'user';
   const [selectedIdea, setSelectedIdea] = useState<string | null>(null);
 
-  // Detect if this message contains story ideas
+  // Detect if this message contains story ideas (multiple formats)
   const hasStoryIdeas = !isUser && (
-    content.includes('**Idea 1:') || 
-    content.includes('**Idea 2:') ||
-    content.includes('Option 1:') ||
-    content.includes('Option 2:') ||
-    content.includes('First Idea:') ||
-    (content.match(/\*\*Idea \d+:/g)?.length || 0) >= 2 ||
-    (content.match(/Option \d+:/g)?.length || 0) >= 2
+    // Format A: Option N:
+    (content.match(/Option \d+:/g)?.length || 0) >= 2 ||
+    // Format B/C: Numbered bold titles "1. Title:" or "**1. Title:**"
+    (content.match(/^\*?\*?\d+\.\s+.+?:\*?\*?/gm)?.length || 0) >= 2 ||
+    // Format D: **Idea N: Title**
+    (content.match(/\*\*Idea \d+:/g)?.length || 0) >= 2
   );
 
-  // Extract story ideas with title and synopsis
+  // Extract story ideas with title and synopsis - handles multiple formats
   const extractIdeas = () => {
     if (!hasStoryIdeas) return [];
     
     const ideas: Array<{title: string, synopsis: string}> = [];
     
-    // Try to match "Option N:" format first
-    const optionSections = content.split(/(?=Option \d+:)/);
+    // FORMAT B/C: "1. Title:" or "**1. Title:**" (numbered with title and colon)
+    // This is the most common recent format
+    const numberedPattern = /(\*\*)?(\d+)\.\s+(.+?):(\*\*)?\s*([\s\S]*?)(?=(?:\*\*)?\d+\.|Which|$)/g;
+    const numberedMatches = Array.from(content.matchAll(numberedPattern));
     
-    if (optionSections.length >= 3) {
-      // Parse Option format
-      optionSections.forEach((section) => {
-        const match = section.match(/Option \d+:\s*In\s+"(.+?)"/);
-        if (match) {
-          const title = match[1].trim();
-          // Get the rest of the text after the title
-          const synopsisText = section
-            .replace(/Option \d+:\s*In\s+".+?",?\s*/, '')
-            .trim()
-            .split(/\n\n|Which of these/)[0] // Stop at next section or question
-            .trim();
-          
-          if (title && synopsisText && synopsisText.length > 20) {
-            ideas.push({ title, synopsis: synopsisText });
+    if (numberedMatches.length >= 2) {
+      numberedMatches.forEach(match => {
+        const title = match[3].replace(/\*\*/g, '').trim();
+        const synopsisRaw = match[5].trim();
+        // Get first paragraph or until double newline
+        const synopsis = synopsisRaw.split(/\n\n/)[0].trim();
+        
+        if (title && synopsis && synopsis.length > 20) {
+          ideas.push({ title, synopsis });
+        }
+      });
+      
+      if (ideas.length >= 2) return ideas;
+    }
+    
+    // FORMAT A: "Option N:" followed by prose
+    // Use first sentence or ~60 chars as title, rest as synopsis
+    const optionPattern = /Option (\d+):\s*([\s\S]*?)(?=Option \d+:|Which|$)/g;
+    const optionMatches = Array.from(content.matchAll(optionPattern));
+    
+    if (optionMatches.length >= 2) {
+      optionMatches.forEach(match => {
+        const fullText = match[2].trim();
+        // Try to extract title from "In "Title"" pattern
+        const quotedTitleMatch = fullText.match(/In\s+"([^"]+)"/);
+        
+        if (quotedTitleMatch) {
+          const title = quotedTitleMatch[1];
+          const synopsis = fullText.replace(/In\s+"[^"]+",?\s*/, '').trim();
+          if (title && synopsis.length > 20) {
+            ideas.push({ title, synopsis });
+          }
+        } else {
+          // No quoted title - use first sentence as title
+          const sentences = fullText.split(/[.!?]\s+/);
+          if (sentences.length >= 2) {
+            const title = sentences[0].substring(0, 60).trim();
+            const synopsis = sentences.slice(1).join('. ').trim();
+            if (title && synopsis.length > 20) {
+              ideas.push({ title, synopsis });
+            }
           }
         }
       });
       
-      if (ideas.length > 0) return ideas;
+      if (ideas.length >= 2) return ideas;
     }
     
-    // Fallback to **Idea N:** format
-    const ideaSections = content.split(/(?=\*\*Idea \d+:)/);
+    // FORMAT D: **Idea N: Title** followed by synopsis
+    const ideaPattern = /\*\*Idea (\d+):\s*(.+?)\*\*\s*([\s\S]*?)(?=\*\*Idea \d+:|$)/g;
+    const ideaMatches = Array.from(content.matchAll(ideaPattern));
     
-    ideaSections.forEach((section) => {
-      // Match **Idea N: Title**
-      const titleMatch = section.match(/\*\*Idea \d+:\s*(.+?)\*\*/);
-      if (titleMatch) {
-        const title = titleMatch[1].trim();
+    if (ideaMatches.length >= 2) {
+      ideaMatches.forEach(match => {
+        const title = match[2].trim();
+        const synopsis = match[3].trim().split(/\n\n/)[0].trim();
         
-        // Get synopsis (text after the title line, before next idea or end)
-        const synopsisText = section
-          .replace(/\*\*Idea \d+:.+?\*\*/, '') // Remove title
-          .trim()
-          .split('\n\n')[0] // Get first paragraph
-          .trim();
-        
-        if (title && synopsisText && synopsisText.length > 10) {
-          ideas.push({ title, synopsis: synopsisText });
+        if (title && synopsis && synopsis.length > 10) {
+          ideas.push({ title, synopsis });
         }
-      }
-    });
+      });
+      
+      if (ideas.length >= 2) return ideas;
+    }
     
     return ideas;
   };
