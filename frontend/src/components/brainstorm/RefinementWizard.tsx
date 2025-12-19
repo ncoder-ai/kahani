@@ -92,22 +92,11 @@ export default function RefinementWizard({
     
     setIsGeneratingCharacters(true);
     try {
-      // TODO: This endpoint needs to be created in the backend
-      // POST /api/brainstorm/sessions/{session_id}/generate-characters
-      // It should analyze the existing story elements and generate appropriate characters
-      
       const response = await fetch(`/api/brainstorm/sessions/${sessionId}/generate-characters`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          genre: elements.genre,
-          tone: elements.tone,
-          description: elements.description,
-          scenario: elements.scenario,
-          world_setting: elements.world_setting
-        })
+        }
       });
       
       if (!response.ok) {
@@ -116,10 +105,13 @@ export default function RefinementWizard({
       
       const data = await response.json();
       
-      // Update elements with generated characters
+      // Merge new characters with existing ones
+      const existingCharacters = elements.characters || [];
+      const newCharacters = data.characters || [];
+      
       onUpdate({
         ...elements,
-        characters: data.characters || []
+        characters: [...existingCharacters, ...newCharacters]
       });
     } catch (error) {
       console.error('Failed to generate characters:', error);

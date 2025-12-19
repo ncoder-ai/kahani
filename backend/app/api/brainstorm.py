@@ -14,6 +14,7 @@ from ..dependencies import get_current_user
 from ..models.user import User
 from ..models.brainstorm_session import BrainstormSession
 from ..services.brainstorm_service import BrainstormService
+from ..services.character_generation_service import CharacterGenerationService
 from ..api.stories import get_or_create_user_settings
 
 logger = logging.getLogger(__name__)
@@ -360,4 +361,99 @@ async def list_user_sessions(
     except Exception as e:
         logger.error(f"[BRAINSTORM:LIST] Error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to list sessions: {str(e)}")
+
+
+# ====== CHARACTER GENERATION ======
+
+@router.post("/sessions/{session_id}/generate-characters")
+async def generate_characters_for_session(
+    session_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Generate additional characters based on the story elements in the brainstorm session.
+    
+    Uses the existing character generation service to create characters that fit
+    the story's genre, tone, and world setting.
+    
+    Args:
+        session_id: The brainstorming session ID
+        
+    Returns:
+        List of generated characters
+    """
+    try:
+        # Get user settings
+        user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+        
+        # Get session
+        brainstorm_service = BrainstormService(current_user.id, user_settings, db)
+        session = brainstorm_service.get_session(session_id)
+        
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Get extracted elements
+        elements = session.extracted_elements or {}
+        
+        # Build story context for character generation
+        story_context = {
+            'genre': elements.get('genre', ''),
+            'tone': elements.get('tone', ''),
+            'world_setting': elements.get('world_setting', ''),
+            'description': elements.get('description', ''),
+            'scenario': elements.get('scenario', '')
+        }
+        
+        # Build a prompt for character generation based on story elements
+        character_prompt = f"Generate 2-3 diverse characters for this story"
+        if story_context.get('description'):
+            character_prompt += f": {story_context['description'][:200]}"
+        
+        # Use character generation service
+        char_gen_service = CharacterGenerationService(current_user.id, user_settings)
+        
+        # Generate multiple characters (we'll call it 2-3 times)
+        generated_characters = []
+        num_characters = 3
+        
+        for i in range(num_characters):
+            try:
+                char_data = await char_gen_service.generate_character_from_prompt(
+                    user_prompt=character_prompt,
+                    story_context=story_context,
+                    previous_generation=generated_characters[-1] if generated_characters else None
+                )
+                
+                # Format for brainstorm session (simpler format)
+                brainstorm_char = {
+                    'name': char_data.get('name', f'Character {i+1}'),
+                    'role': 'other',  # Default role
+                    'description': char_data.get('description', ''),
+                    'personality_traits': char_data.get('personality_traits', [])
+                }
+                
+                generated_characters.append(brainstorm_char)
+                
+            except Exception as e:
+                logger.warning(f"[BRAINSTORM:GEN_CHAR] Failed to generate character {i+1}: {str(e)}")
+                continue
+        
+        if not generated_characters:
+            raise HTTPException(status_code=500, detail="Failed to generate any characters")
+        
+        logger.info(f"[BRAINSTORM:GEN_CHAR] Generated {len(generated_characters)} characters for session {session_id}")
+        
+        return {
+            "session_id": session_id,
+            "characters": generated_characters,
+            "count": len(generated_characters)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[BRAINSTORM:GEN_CHAR] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to generate characters: {str(e)}")
 
