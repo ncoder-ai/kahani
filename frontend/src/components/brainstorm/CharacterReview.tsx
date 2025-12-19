@@ -86,13 +86,40 @@ export default function CharacterReview({ characters, preSelectedCharacterIds = 
       setPreSelectedCharacters(chars);
       
       // Filter out AI-generated characters that match pre-selected character names
+      // Use fuzzy matching to catch variations like "Sheriff Reynolds" vs "Sheriff Kate Reynolds"
       const preSelectedNames = chars.map(c => c.name.toLowerCase());
       console.log('[CharacterReview] Pre-selected character names:', preSelectedNames);
       console.log('[CharacterReview] AI-generated characters:', characters.map(c => c.name));
       
-      const filteredCharacters = characters.filter(
-        char => !preSelectedNames.includes(char.name.toLowerCase())
-      );
+      const filteredCharacters = characters.filter(char => {
+        const aiName = char.name.toLowerCase();
+        
+        // Check for exact match
+        if (preSelectedNames.includes(aiName)) {
+          return false;
+        }
+        
+        // Check if any pre-selected name contains the AI name or vice versa
+        // This catches cases like "Sheriff Reynolds" vs "Sheriff Kate Reynolds"
+        for (const preSelectedName of preSelectedNames) {
+          // If the AI name is contained in a pre-selected name (e.g., "Sheriff Reynolds" in "Sheriff Kate Reynolds")
+          if (preSelectedName.includes(aiName) || aiName.includes(preSelectedName)) {
+            // Additional check: make sure it's not a false positive (e.g., "John" matching "Johnson")
+            // Only match if they share significant words (2+ characters)
+            const aiWords = aiName.split(/\s+/).filter(w => w.length > 2);
+            const preSelectedWords = preSelectedName.split(/\s+/).filter(w => w.length > 2);
+            
+            // If they share 2+ significant words, consider it a match
+            const sharedWords = aiWords.filter(w => preSelectedWords.includes(w));
+            if (sharedWords.length >= 2) {
+              console.log(`[CharacterReview] Filtering out "${char.name}" - matches pre-selected "${chars.find(c => c.name.toLowerCase() === preSelectedName)?.name}"`);
+              return false;
+            }
+          }
+        }
+        
+        return true;
+      });
       
       console.log('[CharacterReview] After filtering:', filteredCharacters.map(c => c.name));
       console.log('[CharacterReview] Filtered out', characters.length - filteredCharacters.length, 'duplicate characters');
