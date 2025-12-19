@@ -154,42 +154,52 @@ function BrainstormContent() {
   };
 
   const handleCharacterReviewComplete = async (characterMappings: any[]) => {
+    console.log('[Brainstorm] Character review completed with mappings:', characterMappings);
+    
     // Update extracted elements with character IDs
     const updatedElements = {
       ...extractedElements,
       characterMappings: characterMappings
     };
+    
+    console.log('[Brainstorm] Updated elements with character mappings:', updatedElements);
     setExtractedElements(updatedElements);
     
     // Save the character mappings to the session
     if (sessionId) {
       try {
         await apiClient.updateBrainstormElements(sessionId, updatedElements);
+        console.log('[Brainstorm] Saved character mappings to session');
       } catch (error) {
         console.error('Failed to save character mappings:', error);
       }
     }
     
-    // Proceed to story creation
-    handleStartStory();
+    // CRITICAL: Pass updatedElements directly to avoid stale state issue
+    // React state updates are asynchronous, so we can't rely on extractedElements being updated
+    handleStartStory(updatedElements);
   };
 
-  const handleStartStory = async () => {
-    if (!sessionId || !extractedElements) return;
+  const handleStartStory = async (elementsToUse?: any) => {
+    // Use passed elements or fall back to state (for direct calls)
+    const elements = elementsToUse || extractedElements;
+    
+    if (!sessionId || !elements) return;
 
     setIsCreatingStory(true);
     
     try {
       console.log('[Brainstorm] Creating story from brainstorm data...');
+      console.log('[Brainstorm] Using elements:', elements);
       
       // Create the story (will be DRAFT initially)
       const storyResponse = await apiClient.createStory({
-        title: extractedElements.suggested_titles?.[0] || 'Untitled Story',
-        description: extractedElements.description || '',
-        genre: extractedElements.genre || '',
-        tone: extractedElements.tone || '',
-        world_setting: extractedElements.world_setting || '',
-        initial_premise: extractedElements.description || '',
+        title: elements.suggested_titles?.[0] || 'Untitled Story',
+        description: elements.description || '',
+        genre: elements.genre || '',
+        tone: elements.tone || '',
+        world_setting: elements.world_setting || '',
+        initial_premise: elements.description || '',
       });
       
       console.log('[Brainstorm] Story created:', storyResponse);
@@ -199,7 +209,7 @@ function BrainstormContent() {
       const characters = [];
       
       console.log('[Brainstorm] Pre-selected character IDs:', preSelectedCharacterIds);
-      console.log('[Brainstorm] Character mappings:', extractedElements.characterMappings);
+      console.log('[Brainstorm] Character mappings:', elements.characterMappings);
       
       // Add pre-selected characters first
       if (preSelectedCharacterIds && preSelectedCharacterIds.length > 0) {
@@ -215,8 +225,8 @@ function BrainstormContent() {
       }
       
       // Add AI-generated characters from character review
-      if (extractedElements.characterMappings && Array.isArray(extractedElements.characterMappings)) {
-        for (const mapping of extractedElements.characterMappings) {
+      if (elements.characterMappings && Array.isArray(elements.characterMappings)) {
+        for (const mapping of elements.characterMappings) {
           const characterId = mapping.action === 'create' 
             ? mapping.newCharacterId 
             : mapping.existingCharacterId;
