@@ -65,33 +65,39 @@ export default function ElementEditor({
         );
       
       case 'list':
+        const listValue = Array.isArray(editedValue) ? editedValue : [];
         return (
           <div className="space-y-2">
-            {Array.isArray(editedValue) && editedValue.map((item, index) => (
-              <div key={index} className="flex items-center space-x-2">
-                <input
-                  type="text"
-                  value={item}
-                  onChange={(e) => {
-                    const newList = [...editedValue];
-                    newList[index] = e.target.value;
-                    setEditedValue(newList);
-                  }}
-                  className="flex-1 p-2 bg-white/10 border border-white/30 rounded text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                />
-                <button
-                  onClick={() => {
-                    const newList = editedValue.filter((_: any, i: number) => i !== index);
-                    setEditedValue(newList);
-                  }}
-                  className="text-red-400 hover:text-red-300"
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
+            {listValue.length > 0 ? (
+              listValue.map((item, index) => (
+                <div key={index} className="flex items-center space-x-2">
+                  <input
+                    type="text"
+                    value={item}
+                    onChange={(e) => {
+                      const newList = [...listValue];
+                      newList[index] = e.target.value;
+                      setEditedValue(newList);
+                    }}
+                    className="flex-1 p-2 bg-white/10 border border-white/30 rounded text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                  <button
+                    onClick={() => {
+                      const newList = listValue.filter((_: any, i: number) => i !== index);
+                      setEditedValue(newList);
+                    }}
+                    className="text-red-400 hover:text-red-300 p-1"
+                    title="Remove item"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))
+            ) : (
+              <p className="text-white/50 text-sm italic">No items yet. Click "Add Item" to start.</p>
+            )}
             <button
-              onClick={() => setEditedValue([...(editedValue || []), ''])}
+              onClick={() => setEditedValue([...listValue, ''])}
               className="px-3 py-2 bg-white/10 text-white rounded hover:bg-white/20 transition-colors text-sm"
             >
               + Add Item

@@ -3227,24 +3227,30 @@ export default function StoryPage() {
       )}
 
       {/* Chapter Wizard Modal */}
-      {showChapterWizard && (
-        <ChapterWizard
-          storyId={storyId}
-          chapterNumber={activeChapter?.chapter_number || 1}
-          chapterId={activeChapter?.id || undefined}
-          initialData={{
-            title: activeChapter?.title || undefined,
-            description: activeChapter?.description || undefined,
-            characters: activeChapter?.characters || [],
-            location_name: activeChapter?.location_name || undefined,
-            time_period: activeChapter?.time_period || undefined,
-            scenario: activeChapter?.scenario || undefined,
-            continues_from_previous: activeChapter?.continues_from_previous !== undefined ? activeChapter.continues_from_previous : true
-          }}
-          onComplete={handleChapterWizardComplete}
-          onCancel={handleChapterWizardCancel}
-        />
-      )}
+      {showChapterWizard && (() => {
+        // Check if we have a brainstorm scenario to pre-populate
+        const brainstormScenario = searchParams?.get('brainstorm_scenario');
+        const decodedScenario = brainstormScenario ? decodeURIComponent(brainstormScenario) : undefined;
+        
+        return (
+          <ChapterWizard
+            storyId={storyId}
+            chapterNumber={activeChapter?.chapter_number || 1}
+            chapterId={activeChapter?.id || undefined}
+            initialData={{
+              title: activeChapter?.title || undefined,
+              description: activeChapter?.description || undefined,
+              characters: activeChapter?.characters || [],
+              location_name: activeChapter?.location_name || undefined,
+              time_period: activeChapter?.time_period || undefined,
+              scenario: activeChapter?.scenario || decodedScenario || undefined,
+              continues_from_previous: activeChapter?.continues_from_previous !== undefined ? activeChapter.continues_from_previous : true
+            }}
+            onComplete={handleChapterWizardComplete}
+            onCancel={handleChapterWizardCancel}
+          />
+        );
+      })()}
 
       {/* TTS Settings Modal */}
       <TTSSettingsModal

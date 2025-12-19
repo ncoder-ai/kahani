@@ -86,35 +86,49 @@ export default function CharacterReview({ characters, preSelectedCharacterIds = 
       setPreSelectedCharacters(chars);
       
       // Filter out AI-generated characters that match pre-selected character names
-      // Use fuzzy matching to catch variations like "Sheriff Reynolds" vs "Sheriff Kate Reynolds"
+      // Use improved fuzzy matching to catch variations
       const preSelectedNames = chars.map(c => c.name.toLowerCase());
       console.log('[CharacterReview] Pre-selected character names:', preSelectedNames);
       console.log('[CharacterReview] AI-generated characters:', characters.map(c => c.name));
       
       const filteredCharacters = characters.filter(char => {
-        const aiName = char.name.toLowerCase();
+        const aiName = char.name.toLowerCase().trim();
         
         // Check for exact match
         if (preSelectedNames.includes(aiName)) {
+          console.log(`[CharacterReview] Filtering out "${char.name}" - exact match`);
           return false;
         }
         
-        // Check if any pre-selected name contains the AI name or vice versa
-        // This catches cases like "Sheriff Reynolds" vs "Sheriff Kate Reynolds"
+        // Check each pre-selected character
         for (const preSelectedName of preSelectedNames) {
-          // If the AI name is contained in a pre-selected name (e.g., "Sheriff Reynolds" in "Sheriff Kate Reynolds")
+          // Case 1: Substring match (one name fully contained in another)
+          // This catches "Character_B" in "Character_B Saran" or vice versa
           if (preSelectedName.includes(aiName) || aiName.includes(preSelectedName)) {
-            // Additional check: make sure it's not a false positive (e.g., "John" matching "Johnson")
-            // Only match if they share significant words (2+ characters)
-            const aiWords = aiName.split(/\s+/).filter(w => w.length > 2);
-            const preSelectedWords = preSelectedName.split(/\s+/).filter(w => w.length > 2);
-            
-            // If they share 2+ significant words, consider it a match
-            const sharedWords = aiWords.filter(w => preSelectedWords.includes(w));
-            if (sharedWords.length >= 2) {
-              console.log(`[CharacterReview] Filtering out "${char.name}" - matches pre-selected "${chars.find(c => c.name.toLowerCase() === preSelectedName)?.name}"`);
-              return false;
-            }
+            console.log(`[CharacterReview] Filtering out "${char.name}" - substring match with "${chars.find(c => c.name.toLowerCase() === preSelectedName)?.name}"`);
+            return false;
+          }
+          
+          // Case 2: Word-based matching for more complex cases
+          const aiWords = aiName.split(/\s+/).filter(w => w.length > 2);
+          const preSelectedWords = preSelectedName.split(/\s+/).filter(w => w.length > 2);
+          
+          if (aiWords.length === 0 || preSelectedWords.length === 0) continue;
+          
+          const sharedWords = aiWords.filter(w => preSelectedWords.includes(w));
+          
+          // If AI name is a single word and it matches any word in pre-selected name
+          // This catches "Kate" matching "Kate Reynolds" or "Smith" matching "Dr. Smith"
+          if (aiWords.length === 1 && sharedWords.length >= 1) {
+            console.log(`[CharacterReview] Filtering out "${char.name}" - single word match with "${chars.find(c => c.name.toLowerCase() === preSelectedName)?.name}"`);
+            return false;
+          }
+          
+          // If they share 2+ significant words (existing logic for multi-word names)
+          // This catches "Sheriff Reynolds" matching "Sheriff Kate Reynolds"
+          if (sharedWords.length >= 2) {
+            console.log(`[CharacterReview] Filtering out "${char.name}" - multi-word match with "${chars.find(c => c.name.toLowerCase() === preSelectedName)?.name}"`);
+            return false;
           }
         }
         

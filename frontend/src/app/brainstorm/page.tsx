@@ -143,13 +143,21 @@ function BrainstormContent() {
     }
   };
 
-  const handleProceedToCharacterReview = () => {
+  const handleProceedToCharacterReview = (selectedTitle?: string) => {
+    // Store selected title in extracted elements
+    if (selectedTitle && extractedElements) {
+      setExtractedElements({
+        ...extractedElements,
+        selectedTitle
+      });
+    }
+    
     // Move to character review phase if there are characters
     if (extractedElements?.characters && extractedElements.characters.length > 0) {
       setPhase('character_review');
     } else {
       // Skip character review if no characters
-      handleStartStory();
+      handleStartStory(extractedElements, selectedTitle);
     }
   };
 
@@ -180,7 +188,7 @@ function BrainstormContent() {
     handleStartStory(updatedElements);
   };
 
-  const handleStartStory = async (elementsToUse?: any) => {
+  const handleStartStory = async (elementsToUse?: any, selectedTitle?: string) => {
     // Use passed elements or fall back to state (for direct calls)
     const elements = elementsToUse || extractedElements;
     
@@ -191,10 +199,14 @@ function BrainstormContent() {
     try {
       console.log('[Brainstorm] Creating story from brainstorm data...');
       console.log('[Brainstorm] Using elements:', elements);
+      console.log('[Brainstorm] Selected title:', selectedTitle);
+      
+      // Use selected title, or fall back to first suggested title, or 'Untitled Story'
+      const finalTitle = selectedTitle || elements.selectedTitle || elements.suggested_titles?.[0] || 'Untitled Story';
       
       // Create the story (will be DRAFT initially)
       const storyResponse = await apiClient.createStory({
-        title: elements.suggested_titles?.[0] || 'Untitled Story',
+        title: finalTitle,
         description: elements.description || '',
         genre: elements.genre || '',
         tone: elements.tone || '',
@@ -257,7 +269,7 @@ function BrainstormContent() {
       if (characters.length > 0) {
         await apiClient.createOrUpdateDraftStory({
           story_id: storyResponse.id,
-          title: extractedElements.suggested_titles?.[0] || 'Untitled Story',
+          title: finalTitle,
           characters: characters,
           step: 6
         });
@@ -272,8 +284,12 @@ function BrainstormContent() {
       await apiClient.completeBrainstormSession(sessionId, storyResponse.id);
       console.log('[Brainstorm] Session completed and linked to story');
       
-      // Redirect to story page with chapter setup flag
-      router.push(`/story/${storyResponse.id}?setup_chapter=true`);
+      // Redirect to story page with chapter setup flag and optional scenario
+      const queryParams = new URLSearchParams({ setup_chapter: 'true' });
+      if (elements.useScenarioForChapter && elements.scenario) {
+        queryParams.set('brainstorm_scenario', encodeURIComponent(elements.scenario));
+      }
+      router.push(`/story/${storyResponse.id}?${queryParams.toString()}`);
     } catch (error) {
       console.error('[Brainstorm] Failed to create story:', error);
       alert('Failed to create story. Please try again.');
@@ -348,38 +364,37 @@ function BrainstormContent() {
 
   return (
     <div className="min-h-screen theme-bg-primary pt-16">
-      {/* Header - Compact on mobile, full on desktop */}
-      <div className="bg-white/10 backdrop-blur-md border-b border-white/20">
-        <div className="max-w-7xl mx-auto px-3 md:px-6 py-2 md:py-4">
+      {/* Header - Hidden on mobile (persistent banner shows context), compact on desktop */}
+      <div className="hidden md:block bg-white/10 backdrop-blur-md border-b border-white/20">
+        <div className="max-w-7xl mx-auto px-6 py-2">
           <div className="flex justify-between items-center">
             <div className="min-w-0 flex-1">
-              <h1 className="text-lg md:text-2xl font-bold text-white truncate">Story Brainstorming</h1>
-              <p className="text-white/60 text-xs md:text-sm hidden md:block">
+              <h1 className="text-xl font-bold text-white truncate">Story Brainstorming</h1>
+              <p className="text-white/60 text-xs">
                 Phase: <span className="text-white/80 capitalize">{phase}</span>
               </p>
             </div>
             <button
               onClick={() => router.push('/dashboard')}
-              className="px-3 py-1.5 md:px-4 md:py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors text-sm md:text-base flex-shrink-0 ml-2"
+              className="px-4 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors text-sm flex-shrink-0 ml-2"
             >
-              <span className="hidden md:inline">← Back to Dashboard</span>
-              <span className="md:hidden">← Back</span>
+              ← Back to Dashboard
             </button>
           </div>
         </div>
       </div>
 
       {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-2 md:px-6 py-2 md:py-8">
+      <div className="max-w-7xl mx-auto px-2 md:px-6 py-2 md:py-4">
         {phase === 'character_selection' ? (
-          <div className="bg-white/10 backdrop-blur-md rounded-lg md:rounded-2xl border border-white/20 max-h-[calc(100vh-140px)] md:max-h-[calc(100vh-200px)] overflow-y-auto p-4 md:p-8">
+          <div className="bg-white/10 backdrop-blur-md rounded-lg md:rounded-2xl border border-white/20 max-h-[calc(100vh-80px)] md:max-h-[calc(100vh-180px)] overflow-y-auto p-4 md:p-8">
             <CharacterSelection
               onContinue={handleCharacterSelectionComplete}
               onSkip={handleCharacterSelectionSkip}
             />
           </div>
         ) : phase === 'chat' ? (
-          <div className="bg-white/10 backdrop-blur-md rounded-lg md:rounded-2xl border border-white/20 h-[calc(100vh-140px)] md:h-[calc(100vh-200px)]">
+          <div className="bg-white/10 backdrop-blur-md rounded-lg md:rounded-2xl border border-white/20 h-[calc(100vh-80px)] md:h-[calc(100vh-180px)]">
             <BrainstormChat
               messages={messages}
               onSendMessage={handleSendMessage}
@@ -388,7 +403,7 @@ function BrainstormContent() {
             />
           </div>
         ) : phase === 'refining' ? (
-          <div className="bg-white/10 backdrop-blur-md rounded-lg md:rounded-2xl border border-white/20 max-h-[calc(100vh-140px)] md:max-h-[calc(100vh-200px)] overflow-y-auto">
+          <div className="bg-white/10 backdrop-blur-md rounded-lg md:rounded-2xl border border-white/20 max-h-[calc(100vh-80px)] md:max-h-[calc(100vh-180px)] overflow-y-auto">
             <RefinementWizard
               elements={extractedElements}
               onUpdate={handleUpdateElements}
@@ -399,7 +414,7 @@ function BrainstormContent() {
             />
           </div>
         ) : (
-          <div className="bg-white/10 backdrop-blur-md rounded-lg md:rounded-2xl border border-white/20 max-h-[calc(100vh-140px)] md:max-h-[calc(100vh-200px)] overflow-y-auto p-4 md:p-8">
+          <div className="bg-white/10 backdrop-blur-md rounded-lg md:rounded-2xl border border-white/20 max-h-[calc(100vh-80px)] md:max-h-[calc(100vh-180px)] overflow-y-auto p-4 md:p-8">
             <CharacterReview
               characters={extractedElements?.characters || []}
               preSelectedCharacterIds={preSelectedCharacterIds}
