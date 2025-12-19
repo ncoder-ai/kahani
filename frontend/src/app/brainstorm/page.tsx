@@ -198,6 +198,9 @@ function BrainstormContent() {
       // The finalize endpoint will handle linking characters to the story
       const characters = [];
       
+      console.log('[Brainstorm] Pre-selected character IDs:', preSelectedCharacterIds);
+      console.log('[Brainstorm] Character mappings:', extractedElements.characterMappings);
+      
       // Add pre-selected characters first
       if (preSelectedCharacterIds && preSelectedCharacterIds.length > 0) {
         for (const charId of preSelectedCharacterIds) {
@@ -208,7 +211,7 @@ function BrainstormContent() {
             description: ''
           });
         }
-        console.log('[Brainstorm] Added', preSelectedCharacterIds.length, 'pre-selected characters');
+        console.log('[Brainstorm] Added', preSelectedCharacterIds.length, 'pre-selected characters:', characters);
       }
       
       // Add AI-generated characters from character review
@@ -218,6 +221,12 @@ function BrainstormContent() {
             ? mapping.newCharacterId 
             : mapping.existingCharacterId;
           
+          console.log('[Brainstorm] Processing mapping:', { 
+            name: mapping.brainstormChar.name, 
+            action: mapping.action, 
+            characterId 
+          });
+          
           if (characterId) {
             characters.push({
               id: characterId,
@@ -225,10 +234,14 @@ function BrainstormContent() {
               role: mapping.brainstormChar.role,
               description: mapping.brainstormChar.description
             });
+          } else {
+            console.warn('[Brainstorm] Skipping character - no ID:', mapping.brainstormChar.name);
           }
         }
-        console.log('[Brainstorm] Added', extractedElements.characterMappings.length, 'AI-generated characters');
+        console.log('[Brainstorm] After processing mappings, total characters:', characters.length);
       }
+      
+      console.log('[Brainstorm] Final character list to save:', characters);
       
       // Update the draft with character data if any
       if (characters.length > 0) {
@@ -238,7 +251,7 @@ function BrainstormContent() {
           characters: characters,
           step: 6
         });
-        console.log('[Brainstorm] Updated draft with character data');
+        console.log('[Brainstorm] Updated draft with', characters.length, 'characters');
       }
       
       // Finalize the story to set it to ACTIVE and link characters
