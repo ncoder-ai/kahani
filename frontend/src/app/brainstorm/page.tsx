@@ -211,8 +211,72 @@ function BrainstormContent() {
 
     setIsCreatingStory(true);
     
-    // Navigate to create-story with brainstorm session ID
-    router.push(`/create-story?brainstorm_session_id=${sessionId}`);
+    try {
+      console.log('[Brainstorm] Creating story from brainstorm data...');
+      
+      // Create the story (will be DRAFT initially)
+      const storyResponse = await apiClient.createStory({
+        title: extractedElements.suggested_titles?.[0] || 'Untitled Story',
+        description: extractedElements.description || '',
+        genre: extractedElements.genre || '',
+        tone: extractedElements.tone || '',
+        world_setting: extractedElements.world_setting || '',
+        initial_premise: extractedElements.description || '',
+      });
+      
+      console.log('[Brainstorm] Story created:', storyResponse);
+      
+      // Prepare character data for finalization
+      // The finalize endpoint will handle linking characters to the story
+      const characters = [];
+      if (extractedElements.characterMappings && Array.isArray(extractedElements.characterMappings)) {
+        for (const mapping of extractedElements.characterMappings) {
+          const characterId = mapping.action === 'create' 
+            ? mapping.newCharacterId 
+            : mapping.existingCharacterId;
+          
+          if (characterId) {
+            characters.push({
+              id: characterId,
+              name: mapping.brainstormChar.name,
+              role: mapping.brainstormChar.role,
+              description: mapping.brainstormChar.description
+            });
+          }
+        }
+      }
+      
+      // Update the draft with character data
+      if (characters.length > 0) {
+        await apiClient.createOrUpdateDraftStory({
+          story_id: storyResponse.id,
+          title: extractedElements.suggested_titles?.[0] || 'Untitled Story',
+          description: extractedElements.description || '',
+          genre: extractedElements.genre || '',
+          tone: extractedElements.tone || '',
+          world_setting: extractedElements.world_setting || '',
+          initial_premise: extractedElements.description || '',
+          characters: characters,
+          step: 6
+        });
+        console.log('[Brainstorm] Updated draft with character data');
+      }
+      
+      // Finalize the story to set it to ACTIVE and link characters
+      await apiClient.finalizeDraftStory(storyResponse.id);
+      console.log('[Brainstorm] Story finalized as ACTIVE');
+      
+      // Complete the brainstorm session
+      await apiClient.completeBrainstormSession(sessionId, storyResponse.id);
+      console.log('[Brainstorm] Session completed and linked to story');
+      
+      // Redirect to story page with chapter setup flag
+      router.push(`/story/${storyResponse.id}?setup_chapter=true`);
+    } catch (error) {
+      console.error('[Brainstorm] Failed to create story:', error);
+      alert('Failed to create story. Please try again.');
+      setIsCreatingStory(false);
+    }
   };
 
   const handleBackToChat = () => {
