@@ -4336,6 +4336,16 @@ async def finalize_draft_story(
                     logger.warning(f"Failed to mark NPC as converted during finalization: {e}")
                     # Don't fail story finalization if NPC marking fails
     
+    # Ensure the story has a main branch (required for chapters)
+    from ..services.branch_service import get_branch_service
+    branch_service = get_branch_service()
+    main_branch = branch_service.ensure_main_branch(db, story_id)
+    
+    # Set the story's current branch to the main branch
+    if not story.current_branch_id:
+        story.current_branch_id = main_branch.id
+        logger.info(f"[FINALIZE] Set current_branch_id={main_branch.id} for story {story_id}")
+    
     # Mark as active
     logger.info(f"[FINALIZE] Setting story {story_id} to ACTIVE status")
     story.status = StoryStatus.ACTIVE
