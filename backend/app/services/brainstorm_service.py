@@ -115,6 +115,7 @@ class BrainstormService:
         
         try:
             # Check if we should generate structured story ideas
+            logger.info(f"[BRAINSTORM] generate_ideas={generate_ideas}, message_count={len(session.messages)}")
             if generate_ideas and len(session.messages) <= 2:
                 logger.info(f"[BRAINSTORM] Generating structured story ideas for session {session_id}")
                 

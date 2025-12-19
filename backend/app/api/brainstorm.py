@@ -190,6 +190,7 @@ async def send_chat_message(
         user_settings = get_or_create_user_settings(current_user.id, db, current_user)
         
         # Send message and get response
+        logger.info(f"[BRAINSTORM API] Received chat request - session_id={request.session_id}, generate_ideas={request.generate_ideas}, message_len={len(request.message)}")
         service = BrainstormService(current_user.id, user_settings, db)
         result = await service.send_message(
             session_id=request.session_id,

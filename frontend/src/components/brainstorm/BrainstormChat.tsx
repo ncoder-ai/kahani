@@ -37,7 +37,9 @@ export default function BrainstormChat({
     setIsSending(true);
     try {
       // First user message should trigger structured idea generation
-      const shouldGenerateIdeas = messages.length === 1; // Only assistant greeting exists
+      const shouldGenerateIdeas = messages.length === 0; // No messages yet - this is the first one
+      
+      console.log('[BrainstormChat] Sending message, shouldGenerateIdeas:', shouldGenerateIdeas, 'messages.length:', messages.length);
       
       await onSendMessage(inputMessage, shouldGenerateIdeas);
       setInputMessage('');
