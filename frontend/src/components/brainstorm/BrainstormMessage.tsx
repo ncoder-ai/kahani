@@ -223,6 +223,35 @@ export default function BrainstormMessage({ role, content, timestamp, onSelectId
 
   const ideas = extractIdeas();
 
+  // If we found ideas, strip them from the content to avoid duplication
+  const getDisplayContent = () => {
+    if (ideas.length === 0) return content;
+    
+    // Remove the ideas section from content
+    // Look for the pattern that starts the ideas and remove everything after
+    let cleanContent = content;
+    
+    // Try to find where the ideas start
+    const patterns = [
+      /\*?\*?\d+\.\s+.+?:/,  // Numbered titles
+      /Option \d+:/,          // Option format
+      /\*\*Idea \d+:/         // Idea format
+    ];
+    
+    for (const pattern of patterns) {
+      const match = cleanContent.match(pattern);
+      if (match && match.index !== undefined) {
+        // Keep everything before the first idea
+        cleanContent = cleanContent.substring(0, match.index).trim();
+        break;
+      }
+    }
+    
+    return cleanContent;
+  };
+
+  const displayContent = getDisplayContent();
+
   const handleIdeaClick = (idea: {title: string, synopsis: string}) => {
     setSelectedIdea(idea.title);
     if (onSelectIdea) {
@@ -246,9 +275,11 @@ export default function BrainstormMessage({ role, content, timestamp, onSelectId
               <p className="whitespace-pre-wrap text-white leading-relaxed text-sm md:text-base">{content}</p>
             ) : (
               <>
-                <div className="space-y-1 text-sm md:text-base">
-                  {formatContent(content)}
-                </div>
+                {displayContent && (
+                  <div className="space-y-1 text-sm md:text-base">
+                    {formatContent(displayContent)}
+                  </div>
+                )}
                 
                 {/* Render clickable idea cards with title and synopsis */}
                 {ideas.length > 0 && (
