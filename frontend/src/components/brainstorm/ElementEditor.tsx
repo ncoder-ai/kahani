@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 
 interface ElementEditorProps {
   title: string;
@@ -20,8 +21,18 @@ export default function ElementEditor({
   options = []
 }: ElementEditorProps) {
   const [editedValue, setEditedValue] = useState(value);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    console.log('[ElementEditor] Mounted with title:', title, 'type:', type, 'value:', value);
+    return () => {
+      console.log('[ElementEditor] Unmounting');
+    };
+  }, [title, type, value]);
 
   const handleSave = () => {
+    console.log('[ElementEditor] Saving value:', editedValue);
     onSave(editedValue);
   };
 
@@ -110,8 +121,15 @@ export default function ElementEditor({
     }
   };
 
-  return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[100] p-4">
+  if (!mounted) return null;
+
+  const modalContent = (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[100] p-4" onClick={(e) => {
+      // Close on backdrop click
+      if (e.target === e.currentTarget) {
+        onCancel();
+      }
+    }}>
       <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-xl max-w-2xl w-full border border-white/20 p-6 shadow-2xl">
         <h3 className="text-xl font-bold text-white mb-4">Edit {title}</h3>
         
@@ -136,5 +154,8 @@ export default function ElementEditor({
       </div>
     </div>
   );
+
+  // Use portal to render at document body level
+  return createPortal(modalContent, document.body);
 }
 

@@ -52,11 +52,17 @@ export default function RefinementWizard({
   const router = useRouter();
 
   const handleSave = (field: string, value: any) => {
+    console.log('[RefinementWizard] Saving field:', field, 'with value:', value);
     onUpdate({
       ...elements,
       [field]: value
     });
     setEditingField(null);
+  };
+
+  const handleEdit = (field: string) => {
+    console.log('[RefinementWizard] Opening editor for field:', field);
+    setEditingField(field);
   };
 
   const getCharacterRoleIcon = (role: string) => {
@@ -198,50 +204,72 @@ export default function RefinementWizard({
         </IdeaCard>
       )}
 
-      {/* Characters - Always show, with generate button if empty */}
+      {/* Characters - Always show, with generate button */}
       <IdeaCard 
         title="Characters" 
         icon="👥"
       >
         {elements.characters && elements.characters.length > 0 ? (
-          <div className="space-y-3">
-            {elements.characters.map((character, index) => (
-              <div key={index} className="p-3 bg-white/5 rounded-lg">
-                <div className="flex items-start space-x-3">
-                  <span className="text-2xl">
-                    {getCharacterRoleIcon(character.role)}
-                  </span>
-                  <div className="flex-1">
-                    <div className="flex justify-between items-start">
-                      <h4 className="font-semibold text-white">{character.name}</h4>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-purple-300 capitalize">{character.role}</span>
-                        <button
-                          onClick={() => handleRemoveCharacter(index)}
-                          className="text-red-400 hover:text-red-300 transition-colors p-1 hover:bg-red-500/10 rounded"
-                          title="Remove character"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
+          <>
+            <div className="space-y-3">
+              {elements.characters.map((character, index) => (
+                <div key={index} className="p-3 bg-white/5 rounded-lg">
+                  <div className="flex items-start space-x-3">
+                    <span className="text-2xl">
+                      {getCharacterRoleIcon(character.role)}
+                    </span>
+                    <div className="flex-1">
+                      <div className="flex justify-between items-start">
+                        <h4 className="font-semibold text-white">{character.name}</h4>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-purple-300 capitalize">{character.role}</span>
+                          <button
+                            onClick={() => handleRemoveCharacter(index)}
+                            className="text-red-400 hover:text-red-300 transition-colors p-1 hover:bg-red-500/10 rounded"
+                            title="Remove character"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
+                      {character.description && (
+                        <p className="text-sm text-white/70 mt-1">{character.description}</p>
+                      )}
+                      {character.personality_traits && character.personality_traits.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {character.personality_traits.map((trait, i) => (
+                            <span key={i} className="text-xs px-2 py-1 bg-purple-500/20 text-purple-200 rounded">
+                              {trait}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    {character.description && (
-                      <p className="text-sm text-white/70 mt-1">{character.description}</p>
-                    )}
-                    {character.personality_traits && character.personality_traits.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-2">
-                        {character.personality_traits.map((trait, i) => (
-                          <span key={i} className="text-xs px-2 py-1 bg-purple-500/20 text-purple-200 rounded">
-                            {trait}
-                          </span>
-                        ))}
-                      </div>
-                    )}
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+            {/* Generate More Characters Button */}
+            <div className="mt-4 pt-4 border-t border-white/10">
+              <button
+                onClick={handleGenerateCharacters}
+                disabled={isGeneratingCharacters}
+                className="w-full px-4 py-2.5 bg-purple-600/20 hover:bg-purple-600/30 disabled:bg-gray-600/20 disabled:opacity-50 text-purple-300 hover:text-purple-200 border border-purple-500/30 rounded-lg font-medium transition-colors text-sm"
+              >
+                {isGeneratingCharacters ? (
+                  <div className="flex items-center justify-center space-x-2">
+                    <div className="w-4 h-4 border-2 border-purple-300/30 border-t-purple-300 rounded-full animate-spin"></div>
+                    <span>Generating...</span>
+                  </div>
+                ) : (
+                  '✨ Generate More Characters'
+                )}
+              </button>
+              <p className="text-xs text-white/50 mt-2 text-center">
+                AI will create additional characters for your story
+              </p>
+            </div>
+          </>
         ) : (
           <div className="text-center py-8">
             <p className="text-white/60 mb-4">No characters generated yet</p>
@@ -311,7 +339,7 @@ export default function RefinementWizard({
         <IdeaCard 
           title="Themes" 
           icon="💭"
-          onEdit={() => setEditingField('themes')}
+          onEdit={() => handleEdit('themes')}
         >
           <div className="flex flex-wrap gap-2">
             {elements.themes.map((theme, index) => (
@@ -328,7 +356,7 @@ export default function RefinementWizard({
         <IdeaCard 
           title="Conflicts" 
           icon="⚡"
-          onEdit={() => setEditingField('conflicts')}
+          onEdit={() => handleEdit('conflicts')}
         >
           <ul className="space-y-2">
             {elements.conflicts.map((conflict, index) => (
@@ -346,7 +374,7 @@ export default function RefinementWizard({
         <IdeaCard 
           title="Plot Points" 
           icon="📈"
-          onEdit={() => setEditingField('plot_points')}
+          onEdit={() => handleEdit('plot_points')}
         >
           <ol className="space-y-2">
             {elements.plot_points.map((point, index) => (
@@ -399,19 +427,25 @@ export default function RefinementWizard({
 
       {/* Element Editor Modal */}
       {editingField && (
-        <ElementEditor
-          title={editingField.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-          value={(elements as any)[editingField]}
-          onSave={(value) => handleSave(editingField, value)}
-          onCancel={() => setEditingField(null)}
-          type={
-            ['suggested_titles', 'themes', 'conflicts', 'plot_points'].includes(editingField) 
-              ? 'list' 
-              : ['scenario', 'world_setting', 'description'].includes(editingField)
-              ? 'textarea'
-              : 'text'
-          }
-        />
+        <>
+          {console.log('[RefinementWizard] Rendering ElementEditor for:', editingField)}
+          <ElementEditor
+            title={editingField.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+            value={(elements as any)[editingField]}
+            onSave={(value) => handleSave(editingField, value)}
+            onCancel={() => {
+              console.log('[RefinementWizard] Canceling edit');
+              setEditingField(null);
+            }}
+            type={
+              ['suggested_titles', 'themes', 'conflicts', 'plot_points'].includes(editingField) 
+                ? 'list' 
+                : ['scenario', 'world_setting', 'description'].includes(editingField)
+                ? 'textarea'
+                : 'text'
+            }
+          />
+        </>
       )}
     </div>
   );
