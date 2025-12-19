@@ -270,40 +270,24 @@ function BrainstormContent() {
     try {
       setPreSelectedCharacterIds(selectedIds);
       
-      // Create session with pre-selected characters
+      // Create session with pre-selected characters (no LLM call yet)
       const newSession = await apiClient.createBrainstormSession(selectedIds);
       setSessionId(newSession.session_id);
       
-      // Generate initial AI greeting with character context
-      if (newSession.session_id) {
-        try {
-          const greeting = await apiClient.sendBrainstormMessage(
-            newSession.session_id,
-            "I want to create a new story. Can you help me brainstorm some ideas?"
-          );
-          setMessages([
-            {
-              role: 'user',
-              content: "I want to create a new story. Can you help me brainstorm some ideas?",
-              timestamp: new Date().toISOString()
-            },
-            {
-              role: 'assistant',
-              content: greeting.ai_response,
-              timestamp: new Date().toISOString()
-            }
-          ]);
-        } catch (error) {
-          console.error('Failed to generate initial greeting:', error);
-          setMessages([
-            {
-              role: 'assistant',
-              content: "Hi! I'm excited to help you brainstorm your story. Let's start by exploring what excites you!",
-              timestamp: new Date().toISOString()
-            }
-          ]);
+      // Show a simple greeting without calling LLM
+      // User will provide their story idea first
+      const characterCount = selectedIds.length;
+      const greetingMessage = characterCount > 0
+        ? `Great! I see you've selected ${characterCount} character${characterCount !== 1 ? 's' : ''} to include in your story. Now, tell me about the story you want to create - what's the theme, genre, or concept you have in mind?`
+        : "Hi! I'm excited to help you brainstorm your story. Tell me about the story you want to create - what's the theme, genre, or concept you have in mind?";
+      
+      setMessages([
+        {
+          role: 'assistant',
+          content: greetingMessage,
+          timestamp: new Date().toISOString()
         }
-      }
+      ]);
       
       setPhase('chat');
     } catch (error) {
@@ -314,40 +298,19 @@ function BrainstormContent() {
 
   const handleCharacterSelectionSkip = async () => {
     try {
-      // Create session without pre-selected characters
+      // Create session without pre-selected characters (no LLM call yet)
       const newSession = await apiClient.createBrainstormSession();
       setSessionId(newSession.session_id);
       
-      // Generate initial AI greeting
-      if (newSession.session_id) {
-        try {
-          const greeting = await apiClient.sendBrainstormMessage(
-            newSession.session_id,
-            "I want to create a new story. Can you help me brainstorm some ideas?"
-          );
-          setMessages([
-            {
-              role: 'user',
-              content: "I want to create a new story. Can you help me brainstorm some ideas?",
-              timestamp: new Date().toISOString()
-            },
-            {
-              role: 'assistant',
-              content: greeting.ai_response,
-              timestamp: new Date().toISOString()
-            }
-          ]);
-        } catch (error) {
-          console.error('Failed to generate initial greeting:', error);
-          setMessages([
-            {
-              role: 'assistant',
-              content: "Hi! I'm excited to help you brainstorm your story. Let's start by exploring what excites you!",
-              timestamp: new Date().toISOString()
-            }
-          ]);
+      // Show a simple greeting without calling LLM
+      // User will provide their story idea first
+      setMessages([
+        {
+          role: 'assistant',
+          content: "Hi! I'm excited to help you brainstorm your story. Tell me about the story you want to create - what's the theme, genre, or concept you have in mind?",
+          timestamp: new Date().toISOString()
         }
-      }
+      ]);
       
       setPhase('chat');
     } catch (error) {

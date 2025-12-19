@@ -70,13 +70,13 @@ export default function CharacterSelection({ onContinue, onSkip }: CharacterSele
       {/* Header */}
       <div className="text-center">
         <h2 className="text-3xl font-bold text-white mb-2">
-          Select Existing Characters
+          Do you want to use existing characters?
         </h2>
         <p className="text-white/70">
-          Choose characters from your library to include in your story. The AI will use them as context when generating ideas.
+          Choose characters from your library to include in your story. The AI will incorporate them when generating story ideas based on your theme.
         </p>
         <p className="text-white/50 text-sm mt-2">
-          Optional - you can skip this step and let the AI create all characters
+          Optional - you can skip this step if you want the AI to create all characters
         </p>
       </div>
 
@@ -199,7 +199,7 @@ export default function CharacterSelection({ onContinue, onSkip }: CharacterSele
           onClick={onSkip}
           className="px-6 py-3 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors border border-white/20"
         >
-          Skip - Let AI Create Characters
+          Skip - No Existing Characters
         </button>
         <button
           onClick={handleContinue}
@@ -212,7 +212,7 @@ export default function CharacterSelection({ onContinue, onSkip }: CharacterSele
             }
           `}
         >
-          Continue with {selectedIds.size} Character{selectedIds.size !== 1 ? 's' : ''}
+          Continue with {selectedIds.size > 0 ? selectedIds.size : ''} {selectedIds.size > 0 ? `Character${selectedIds.size !== 1 ? 's' : ''}` : 'Selected Characters'}
         </button>
       </div>
     </div>
