@@ -1,5 +1,5 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Enum, Table
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Enum, Table, JSON
+from sqlalchemy.orm import relationship, attributes
 from sqlalchemy.sql import func
 from ..database import Base
 import enum
@@ -49,6 +49,11 @@ class Chapter(Base):
     time_period = Column(String(100), nullable=True)  # Time of day, era, etc.
     scenario = Column(Text, nullable=True)  # Chapter-specific scenario
     continues_from_previous = Column(Boolean, default=True)  # Whether chapter directly follows previous chapter
+    
+    # Chapter plot guidance (from brainstorming)
+    chapter_plot = Column(JSON, nullable=True)  # Structured plot: summary, key_events, climax, resolution
+    arc_phase_id = Column(String(100), nullable=True)  # Links to story arc phase
+    brainstorm_session_id = Column(Integer, ForeignKey("chapter_brainstorm_sessions.id", ondelete="SET NULL"), nullable=True)
     
     # Status and metrics
     status = Column(Enum(ChapterStatus), default=ChapterStatus.ACTIVE)

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { X, Plus, Check, MapPin, Clock, FileText } from 'lucide-react';
-import apiClient from '@/lib/api';
+import apiClient, { StoryArc } from '@/lib/api';
 import CharacterQuickAdd from '@/components/CharacterQuickAdd';
 
 interface Character {
@@ -17,6 +17,8 @@ interface ChapterWizardProps {
   storyId: number;
   chapterNumber?: number;
   chapterId?: number; // If provided, indicates edit mode
+  storyArc?: StoryArc | null;
+  onBrainstorm?: () => void;
   initialData?: {
     title?: string;
     description?: string;
@@ -25,6 +27,8 @@ interface ChapterWizardProps {
     time_period?: string;
     scenario?: string;
     continues_from_previous?: boolean;
+    arc_phase_id?: string;
+    chapter_plot?: any;
   };
   onComplete: (data: {
     title?: string;
@@ -36,6 +40,7 @@ interface ChapterWizardProps {
     time_period?: string;
     scenario?: string;
     continues_from_previous?: boolean;
+    arc_phase_id?: string;
   }, onStatusUpdate?: (status: { message: string; step: string }) => void) => Promise<void> | void;
   onCancel: () => void;
 }
@@ -44,11 +49,14 @@ export default function ChapterWizard({
   storyId,
   chapterNumber,
   chapterId,
+  storyArc,
+  onBrainstorm,
   initialData,
   onComplete,
   onCancel
 }: ChapterWizardProps) {
   const [title, setTitle] = useState(initialData?.title || `Chapter ${chapterNumber || 1}`);
+  const [selectedArcPhaseId, setSelectedArcPhaseId] = useState<string | undefined>(initialData?.arc_phase_id);
   const [description, setDescription] = useState(initialData?.description || '');
   const [selectedCharacterIds, setSelectedCharacterIds] = useState<number[]>(
     initialData?.characters?.map(c => c.id) || []
@@ -202,7 +210,8 @@ export default function ChapterWizard({
         location_name: locationName.trim() || undefined,
         time_period: timePeriod.trim() || undefined,
         scenario: scenario.trim() || undefined,
-        continues_from_previous: continuesFromPrevious
+        continues_from_previous: continuesFromPrevious,
+        arc_phase_id: selectedArcPhaseId
       }, handleStatusUpdate);
     } catch (error) {
       // If there's an error, re-enable the button
@@ -239,6 +248,65 @@ export default function ChapterWizard({
         </div>
 
         <div className="space-y-6">
+          {/* Brainstorm Button */}
+          {onBrainstorm && (
+            <div className="bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-500/30 rounded-lg p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-white font-medium">Need help planning this chapter?</h3>
+                  <p className="text-white/60 text-sm">Brainstorm with AI to develop your chapter plot</p>
+                </div>
+                <button
+                  onClick={onBrainstorm}
+                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors"
+                >
+                  💡 Brainstorm
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Story Arc Phase Selector */}
+          {storyArc && storyArc.phases && storyArc.phases.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-white/80 mb-2">
+                Story Arc Phase (optional)
+              </label>
+              <select
+                value={selectedArcPhaseId || ''}
+                onChange={(e) => setSelectedArcPhaseId(e.target.value || undefined)}
+                className="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-pink-500"
+              >
+                <option value="" className="bg-gray-800">No specific phase</option>
+                {storyArc.phases.map((phase) => (
+                  <option key={phase.id} value={phase.id} className="bg-gray-800">
+                    {phase.name}
+                  </option>
+                ))}
+              </select>
+              {selectedArcPhaseId && storyArc.phases.find(p => p.id === selectedArcPhaseId) && (
+                <p className="mt-2 text-sm text-white/60">
+                  {storyArc.phases.find(p => p.id === selectedArcPhaseId)?.description}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Chapter Plot Display */}
+          {initialData?.chapter_plot && (
+            <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+              <h3 className="text-white font-medium mb-2 flex items-center gap-2">
+                <FileText className="w-4 h-4" />
+                Chapter Plot
+              </h3>
+              <p className="text-white/80 text-sm">
+                {typeof initialData.chapter_plot === 'string' 
+                  ? initialData.chapter_plot 
+                  : initialData.chapter_plot.summary || 'Plot defined from brainstorming'}
+              </p>
+            </div>
+          )}
+
           {/* Title */}
           <div>
             <label className="block text-sm font-medium text-white/80 mb-2">

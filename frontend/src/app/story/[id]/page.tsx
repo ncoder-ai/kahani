@@ -9,7 +9,7 @@ import { useAuthStore, useStoryStore, useHasHydrated } from '@/store';
 import { useGlobalTTS } from '@/contexts/GlobalTTSContext';
 import { useStoryActions, StoryActions } from '@/contexts/StoryContext';
 import { useUISettings } from '@/hooks/useUISettings';
-import apiClient, { getApiBaseUrl } from '@/lib/api';
+import apiClient, { getApiBaseUrl, StoryArc } from '@/lib/api';
 import CharacterQuickAdd from '@/components/CharacterQuickAdd';
 import { ContextInfo } from '@/components/ContextInfo';
 import FormattedText from '@/components/FormattedText';
@@ -42,6 +42,16 @@ const TTSSettingsModal = dynamic(() => import('@/components/TTSSettingsModal'), 
 });
 
 const StorySettingsModal = dynamic(() => import('@/components/StorySettingsModal'), {
+  loading: () => null,
+  ssr: false
+});
+
+const StoryArcViewer = dynamic(() => import('@/components/StoryArcViewer'), {
+  loading: () => null,
+  ssr: false
+});
+
+const ChapterBrainstormModal = dynamic(() => import('@/components/ChapterBrainstormModal'), {
   loading: () => null,
   ssr: false
 });
@@ -112,6 +122,7 @@ interface Story {
   world_setting: string;
   status: string;
   scenes: Scene[];
+  story_arc?: StoryArc | null;
   flow_info?: {
     total_scenes: number;
     has_variants: boolean;
@@ -150,6 +161,8 @@ export default function StoryPage() {
   const [showCharacterQuickAdd, setShowCharacterQuickAdd] = useState(false);
   const [showCharacterWizard, setShowCharacterWizard] = useState(false);
   const [showCharacterBanner, setShowCharacterBanner] = useState(false);
+  const [showChapterBrainstormModal, setShowChapterBrainstormModal] = useState(false);
+  const [brainstormChapterId, setBrainstormChapterId] = useState<number | undefined>(undefined);
   const [currentChapterId, setCurrentChapterId] = useState<number | undefined>(undefined);
   const [storyCharacters, setStoryCharacters] = useState<Array<{name: string, role: string, description: string}>>([]);
   const [isGeneratingMoreOptions, setIsGeneratingMoreOptions] = useState(false);
@@ -2671,6 +2684,7 @@ export default function StoryPage() {
           // The actual switching happens in ChapterSidebar component
         }}
         currentChapterId={activeChapterId ?? undefined}
+        storyArc={story?.story_arc}
       />
 
       {/* Main Story Container */}
@@ -3237,6 +3251,11 @@ export default function StoryPage() {
             storyId={storyId}
             chapterNumber={activeChapter?.chapter_number || 1}
             chapterId={activeChapter?.id || undefined}
+            storyArc={story?.story_arc}
+            onBrainstorm={() => {
+              setBrainstormChapterId(activeChapter?.id);
+              setShowChapterBrainstormModal(true);
+            }}
             initialData={{
               title: activeChapter?.title || undefined,
               description: activeChapter?.description || undefined,
@@ -3244,7 +3263,9 @@ export default function StoryPage() {
               location_name: activeChapter?.location_name || undefined,
               time_period: activeChapter?.time_period || undefined,
               scenario: activeChapter?.scenario || decodedScenario || undefined,
-              continues_from_previous: activeChapter?.continues_from_previous !== undefined ? activeChapter.continues_from_previous : true
+              continues_from_previous: activeChapter?.continues_from_previous !== undefined ? activeChapter.continues_from_previous : true,
+              arc_phase_id: (activeChapter as any)?.arc_phase_id,
+              chapter_plot: (activeChapter as any)?.chapter_plot
             }}
             onComplete={handleChapterWizardComplete}
             onCancel={handleChapterWizardCancel}
@@ -3270,6 +3291,25 @@ export default function StoryPage() {
           loadStory(); // Reload story after save
         }}
       />
+      
+      {/* Chapter Brainstorm Modal */}
+      {showChapterBrainstormModal && (
+        <ChapterBrainstormModal
+          isOpen={showChapterBrainstormModal}
+          onClose={() => {
+            setShowChapterBrainstormModal(false);
+            setBrainstormChapterId(undefined);
+          }}
+          storyId={storyId}
+          chapterId={brainstormChapterId}
+          storyArc={story?.story_arc}
+          onPlotApplied={() => {
+            setShowChapterBrainstormModal(false);
+            setBrainstormChapterId(undefined);
+            loadStory(); // Reload to get updated chapter plot
+          }}
+        />
+      )}
       
       {/* Story Summary Modal */}
       {showSummaryModal && (

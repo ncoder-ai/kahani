@@ -10,13 +10,25 @@ import BrainstormChat from '@/components/brainstorm/BrainstormChat';
 import RefinementWizard from '@/components/brainstorm/RefinementWizard';
 import CharacterReview from '@/components/brainstorm/CharacterReview';
 import CharacterSelection from '@/components/brainstorm/CharacterSelection';
+import StoryArcEditor from '@/components/brainstorm/StoryArcEditor';
+import { StoryArc } from '@/lib/api';
 
-type BrainstormPhase = 'character_selection' | 'chat' | 'refining' | 'character_review';
+type BrainstormPhase = 'character_selection' | 'chat' | 'refining' | 'character_review' | 'arc_generation';
 
 interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+}
+
+function formatTimeAgo(date: Date): string {
+  const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000);
+  
+  if (seconds < 60) return 'just now';
+  if (seconds < 120) return '1 min ago';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} mins ago`;
+  if (seconds < 7200) return '1 hour ago';
+  return `${Math.floor(seconds / 3600)} hours ago`;
 }
 
 function BrainstormContent() {
@@ -33,6 +45,10 @@ function BrainstormContent() {
   const [isCreatingStory, setIsCreatingStory] = useState(false);
   const [userSettings, setUserSettings] = useState<any>(null);
   const [preSelectedCharacterIds, setPreSelectedCharacterIds] = useState<number[]>([]);
+  const [storyArc, setStoryArc] = useState<StoryArc | null>(null);
+  const [isGeneratingArc, setIsGeneratingArc] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Apply UI settings
   useUISettings(userSettings?.ui_preferences || null);
@@ -107,6 +123,9 @@ function BrainstormContent() {
         timestamp: new Date().toISOString()
       };
       setMessages(prev => [...prev, aiMessage]);
+      
+      // Update last saved timestamp (messages are saved on the backend)
+      setLastSavedAt(new Date());
     } catch (error) {
       console.error('Failed to send message:', error);
       throw error;
@@ -156,9 +175,44 @@ function BrainstormContent() {
     if (extractedElements?.characters && extractedElements.characters.length > 0) {
       setPhase('character_review');
     } else {
-      // Skip character review if no characters
-      handleStartStory(extractedElements, selectedTitle);
+      // Skip character review, go to arc generation
+      handleProceedToArcGeneration(extractedElements);
     }
+  };
+
+  const handleProceedToArcGeneration = (elements?: any) => {
+    const elementsToUse = elements || extractedElements;
+    setExtractedElements(elementsToUse);
+    setPhase('arc_generation');
+  };
+
+  const handleGenerateArc = async (structureType: string) => {
+    // Arc generation will happen after story is created
+    // For now, just store the structure type preference
+    setIsGeneratingArc(true);
+    
+    // Simulate a brief delay for UX
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Create a placeholder arc that will be generated after story creation
+    const placeholderArc: StoryArc = {
+      structure_type: structureType as 'three_act' | 'five_act' | 'hero_journey' | 'custom',
+      phases: [],
+      generated_at: new Date().toISOString(),
+      last_modified_at: new Date().toISOString()
+    };
+    
+    setStoryArc(placeholderArc);
+    setIsGeneratingArc(false);
+  };
+
+  const handleArcConfirm = () => {
+    // Proceed to create the story with arc preferences
+    handleStartStory(extractedElements, extractedElements?.selectedTitle);
+  };
+
+  const handleArcChange = (arc: StoryArc) => {
+    setStoryArc(arc);
   };
 
   const handleCharacterReviewComplete = async (characterMappings: any[]) => {
@@ -185,7 +239,8 @@ function BrainstormContent() {
     
     // CRITICAL: Pass updatedElements directly to avoid stale state issue
     // React state updates are asynchronous, so we can't rely on extractedElements being updated
-    handleStartStory(updatedElements);
+    // Move to arc generation phase instead of directly creating story
+    handleProceedToArcGeneration(updatedElements);
   };
 
   const handleStartStory = async (elementsToUse?: any, selectedTitle?: string) => {
@@ -280,6 +335,18 @@ function BrainstormContent() {
       await apiClient.finalizeDraftStory(storyResponse.id);
       console.log('[Brainstorm] Story finalized as ACTIVE');
       
+      // Generate story arc if structure type was selected
+      if (storyArc?.structure_type) {
+        try {
+          console.log('[Brainstorm] Generating story arc with structure:', storyArc.structure_type);
+          await apiClient.generateStoryArc(storyResponse.id, storyArc.structure_type);
+          console.log('[Brainstorm] Story arc generated');
+        } catch (arcError) {
+          console.error('[Brainstorm] Failed to generate arc (non-fatal):', arcError);
+          // Continue anyway - arc generation is optional
+        }
+      }
+      
       // Complete the brainstorm session
       await apiClient.completeBrainstormSession(sessionId, storyResponse.id);
       console.log('[Brainstorm] Session completed and linked to story');
@@ -370,9 +437,36 @@ function BrainstormContent() {
           <div className="flex justify-between items-center">
             <div className="min-w-0 flex-1">
               <h1 className="text-xl font-bold text-white truncate">Story Brainstorming</h1>
-              <p className="text-white/60 text-xs">
-                Phase: <span className="text-white/80 capitalize">{phase}</span>
-              </p>
+              <div className="flex items-center gap-3 text-xs">
+                <span className="text-white/60">
+                  Phase: <span className="text-white/80 capitalize">{phase.replace('_', ' ')}</span>
+                </span>
+                {/* Save indicator */}
+                {sessionId && (
+                  <span className="flex items-center gap-1">
+                    {isSaving ? (
+                      <>
+                        <svg className="animate-spin h-3 w-3 text-purple-400" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                        <span className="text-purple-400">Saving...</span>
+                      </>
+                    ) : lastSavedAt ? (
+                      <>
+                        <svg className="h-3 w-3 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span className="text-green-400/80">
+                          Saved {formatTimeAgo(lastSavedAt)}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-white/40">Auto-save enabled</span>
+                    )}
+                  </span>
+                )}
+              </div>
             </div>
             <button
               onClick={() => router.push('/dashboard')}
@@ -413,7 +507,7 @@ function BrainstormContent() {
               isCreatingStory={isCreatingStory}
             />
           </div>
-        ) : (
+        ) : phase === 'character_review' ? (
           <div className="bg-white/10 backdrop-blur-md rounded-lg md:rounded-2xl border border-white/20 max-h-[calc(100vh-80px)] md:max-h-[calc(100vh-180px)] overflow-y-auto p-4 md:p-8">
             <CharacterReview
               characters={extractedElements?.characters || []}
@@ -422,6 +516,15 @@ function BrainstormContent() {
               onBack={handleBackToRefining}
             />
           </div>
+        ) : (
+          <StoryArcEditor
+            arc={storyArc}
+            onArcChange={handleArcChange}
+            onGenerate={handleGenerateArc}
+            onConfirm={handleArcConfirm}
+            isGenerating={isGeneratingArc || isCreatingStory}
+            storyTitle={extractedElements?.selectedTitle || extractedElements?.suggested_titles?.[0]}
+          />
         )}
       </div>
     </div>

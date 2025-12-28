@@ -3627,6 +3627,36 @@ Chapter Conclusion:"""
                 "content": "=== CHAPTER CONTEXT ===\n" + "\n\n".join(summary_parts)
             })
         
+        # === MESSAGE 2.5: Chapter Plot Guidance (from brainstorming) ===
+        chapter_plot = context.get("chapter_plot")
+        arc_phase = context.get("arc_phase")
+        
+        if chapter_plot or arc_phase:
+            plot_parts = []
+            
+            if arc_phase:
+                plot_parts.append(f"Story Arc Phase: {arc_phase.get('name', 'Unknown')}")
+                if arc_phase.get('description'):
+                    plot_parts.append(f"Phase Goal: {arc_phase['description']}")
+            
+            if chapter_plot:
+                if chapter_plot.get('summary'):
+                    plot_parts.append(f"Chapter Summary: {chapter_plot['summary']}")
+                if chapter_plot.get('key_events'):
+                    events = chapter_plot['key_events']
+                    if isinstance(events, list):
+                        plot_parts.append(f"Key Events to Include: {', '.join(events)}")
+                if chapter_plot.get('climax'):
+                    plot_parts.append(f"Chapter Climax: {chapter_plot['climax']}")
+                if chapter_plot.get('resolution'):
+                    plot_parts.append(f"Chapter Resolution: {chapter_plot['resolution']}")
+            
+            if plot_parts:
+                messages.append({
+                    "role": "user",
+                    "content": "=== CHAPTER PLOT GUIDANCE ===\n" + "\n".join(plot_parts) + "\n\nGuide scenes naturally toward these goals while maintaining engaging moment-to-moment storytelling."
+                })
+        
         # === MESSAGES 3+: Scene Batches (batch-aligned for optimal caching) ===
         # Note: Entity states and relevant events are now combined in "Relevant Context" section
         # which is placed immediately before Recent Scenes

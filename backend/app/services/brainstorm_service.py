@@ -12,6 +12,7 @@ from datetime import datetime
 from litellm import acompletion
 
 from ..models.brainstorm_session import BrainstormSession
+from ..models.story import Story
 from ..services.llm.service import UnifiedLLMService
 from ..services.llm.prompts import PromptManager
 from ..utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
@@ -485,4 +486,219 @@ class BrainstormService:
                 normalized[list_field] = []
         
         return normalized
+    
+    def get_user_sessions(self, include_completed: bool = False) -> List[Dict[str, Any]]:
+        """
+        Get all brainstorming sessions for the current user.
+        
+        Args:
+            include_completed: If True, include completed sessions
+            
+        Returns:
+            List of session summaries
+        """
+        query = self.db.query(BrainstormSession).filter(
+            BrainstormSession.user_id == self.user_id
+        )
+        
+        if not include_completed:
+            query = query.filter(BrainstormSession.status != 'completed')
+        
+        sessions = query.order_by(BrainstormSession.updated_at.desc()).all()
+        
+        result = []
+        for session in sessions:
+            # Generate a summary from the conversation
+            summary = self._generate_session_summary(session)
+            
+            result.append({
+                "id": session.id,
+                "status": session.status,
+                "message_count": len(session.messages) if session.messages else 0,
+                "summary": summary,
+                "created_at": session.created_at.isoformat() if session.created_at else None,
+                "updated_at": session.updated_at.isoformat() if session.updated_at else None,
+                "story_id": session.story_id,
+                "has_extracted_elements": bool(session.extracted_elements and 
+                    session.extracted_elements.get('genre') or 
+                    session.extracted_elements.get('characters'))
+            })
+        
+        logger.info(f"[BRAINSTORM] Retrieved {len(result)} sessions for user {self.user_id}")
+        return result
+    
+    def _generate_session_summary(self, session: BrainstormSession) -> str:
+        """Generate a brief summary of the brainstorming session."""
+        if not session.messages:
+            return "New brainstorming session"
+        
+        # Get the first user message as the topic
+        first_user_msg = None
+        for msg in session.messages:
+            if msg.get('role') == 'user':
+                first_user_msg = msg.get('content', '')
+                break
+        
+        if first_user_msg:
+            # Truncate to first 100 chars
+            summary = first_user_msg[:100]
+            if len(first_user_msg) > 100:
+                summary += "..."
+            return summary
+        
+        # If extracted elements exist, use genre/description
+        if session.extracted_elements:
+            genre = session.extracted_elements.get('genre', '')
+            desc = session.extracted_elements.get('description', '')
+            if genre and desc:
+                return f"{genre}: {desc[:80]}..."
+            elif genre:
+                return f"{genre} story"
+        
+        return f"Brainstorming session ({len(session.messages)} messages)"
+    
+    async def generate_story_arc(
+        self,
+        story_id: int,
+        structure_type: str = 'three_act'
+    ) -> Dict[str, Any]:
+        """
+        Generate a story arc for an existing story.
+        
+        Args:
+            story_id: The story ID to generate arc for
+            structure_type: Type of arc structure (three_act, five_act, hero_journey)
+            
+        Returns:
+            Generated story arc data
+        """
+        # Get the story
+        story = self.db.query(Story).filter(
+            Story.id == story_id,
+            Story.owner_id == self.user_id
+        ).first()
+        
+        if not story:
+            raise ValueError(f"Story {story_id} not found")
+        
+        # Build character list for prompt
+        characters_text = ""
+        if story.story_characters:
+            for sc in story.story_characters:
+                char = sc.character
+                if char:
+                    characters_text += f"- {char.name} ({sc.role or 'unknown role'}): {char.description or 'No description'}\n"
+        
+        # Get arc generation prompts
+        system_prompt = prompt_manager.get_prompt("brainstorm.story_arc", "system")
+        user_prompt = prompt_manager.get_prompt(
+            "brainstorm.story_arc", "user",
+            structure_type=structure_type,
+            title=story.title or "Untitled",
+            genre=story.genre or "General Fiction",
+            tone=story.tone or "Balanced",
+            description=story.description or story.initial_premise or "",
+            characters=characters_text or "No characters defined yet",
+            scenario=story.scenario or story.initial_premise or "",
+            themes=", ".join(story.story_context.get('themes', [])) if story.story_context else "",
+            conflicts=", ".join(story.story_context.get('conflicts', [])) if story.story_context else ""
+        )
+        
+        try:
+            # Call LLM to generate arc
+            response = await self.llm_service.generate(
+                prompt=user_prompt,
+                user_id=self.user_id,
+                user_settings=self.user_settings,
+                system_prompt=system_prompt,
+                max_tokens=2000,
+                temperature=0.7
+            )
+            
+            # Parse JSON response
+            response_clean = clean_llm_json(response)
+            arc_data = json.loads(response_clean)
+            
+            # Add timestamps
+            arc_data['generated_at'] = datetime.utcnow().isoformat()
+            arc_data['last_modified_at'] = datetime.utcnow().isoformat()
+            
+            # Save to story
+            story.story_arc = arc_data
+            self.db.commit()
+            
+            logger.info(f"[BRAINSTORM] Generated {structure_type} story arc for story {story_id}")
+            
+            return {
+                "story_id": story_id,
+                "arc": arc_data
+            }
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"[BRAINSTORM] Failed to parse arc JSON: {str(e)}")
+            logger.error(f"[BRAINSTORM] Raw response: {response}")
+            raise ValueError("Failed to generate story arc - invalid response format")
+        except Exception as e:
+            logger.error(f"[BRAINSTORM] Error generating story arc: {str(e)}")
+            raise
+    
+    def update_story_arc(
+        self,
+        story_id: int,
+        arc_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Update the story arc (user edits).
+        
+        Args:
+            story_id: The story ID
+            arc_data: Updated arc data
+            
+        Returns:
+            Updated arc data
+        """
+        story = self.db.query(Story).filter(
+            Story.id == story_id,
+            Story.owner_id == self.user_id
+        ).first()
+        
+        if not story:
+            raise ValueError(f"Story {story_id} not found")
+        
+        # Update timestamp
+        arc_data['last_modified_at'] = datetime.utcnow().isoformat()
+        
+        # Preserve generated_at if it exists
+        if story.story_arc and 'generated_at' in story.story_arc:
+            arc_data['generated_at'] = story.story_arc['generated_at']
+        
+        story.update_story_arc(arc_data)
+        self.db.commit()
+        
+        logger.info(f"[BRAINSTORM] Updated story arc for story {story_id}")
+        
+        return {
+            "story_id": story_id,
+            "arc": arc_data
+        }
+    
+    def get_story_arc(self, story_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Get the story arc for a story.
+        
+        Args:
+            story_id: The story ID
+            
+        Returns:
+            Story arc data or None
+        """
+        story = self.db.query(Story).filter(
+            Story.id == story_id,
+            Story.owner_id == self.user_id
+        ).first()
+        
+        if not story:
+            raise ValueError(f"Story {story_id} not found")
+        
+        return story.story_arc
 

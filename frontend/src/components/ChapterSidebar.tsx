@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, BookOpen, AlertCircle, Edit2, Save, X, Plus, CheckCircle, RefreshCw, Trash2 } from 'lucide-react';
-import apiClient, { getApiBaseUrl } from '@/lib/api';
+import apiClient, { getApiBaseUrl, StoryArc } from '@/lib/api';
 import { getAuthToken } from '@/utils/jwt';
 import dynamic from 'next/dynamic';
 
@@ -56,9 +56,10 @@ interface ChapterSidebarProps {
   onChapterChange?: () => void; // Callback when a new chapter is created
   onChapterSelect?: (chapterId: number) => void; // Callback when user selects a chapter to view
   currentChapterId?: number; // Currently selected chapter for viewing
+  storyArc?: StoryArc | null; // Story arc for display
 }
 
-export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterChange, onChapterSelect, currentChapterId }: ChapterSidebarProps) {
+export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterChange, onChapterSelect, currentChapterId, storyArc }: ChapterSidebarProps) {
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [activeChapter, setActiveChapter] = useState<Chapter | null>(null);
   const [contextStatus, setContextStatus] = useState<ChapterContextStatus | null>(null);
@@ -946,6 +947,29 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
                     )}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Story Arc Viewer */}
+            {storyArc && storyArc.phases && storyArc.phases.length > 0 && (
+              <div className="p-4 border-b border-slate-700">
+                <h3 className="text-sm font-semibold text-gray-400 uppercase mb-3">Story Arc</h3>
+                <div className="space-y-2">
+                  {storyArc.phases.map((phase, index) => (
+                    <div
+                      key={phase.id}
+                      className="p-2 rounded-lg bg-slate-800/50 border border-slate-700"
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-purple-600/20 text-purple-300">
+                          Phase {index + 1}
+                        </span>
+                        <span className="font-medium text-sm text-white">{phase.name}</span>
+                      </div>
+                      <p className="text-xs text-gray-400 line-clamp-2">{phase.description}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 

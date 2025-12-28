@@ -106,6 +106,54 @@ export enum ApiErrorType {
 }
 
 /**
+ * Story Arc interfaces
+ */
+export interface ArcPhase {
+  id: string;
+  name: string;
+  description: string;
+  key_events: string[];
+  characters_involved: string[];
+  estimated_chapters: number;
+  order: number;
+}
+
+export interface StoryArc {
+  structure_type: 'three_act' | 'five_act' | 'hero_journey' | 'custom';
+  phases: ArcPhase[];
+  generated_at: string;
+  last_modified_at: string;
+}
+
+/**
+ * Chapter Plot interfaces (from brainstorming)
+ */
+export interface CharacterArc {
+  character_name: string;
+  development: string;
+}
+
+export interface NewCharacterSuggestion {
+  name: string;
+  role: string;
+  description: string;
+  reason: string;
+}
+
+export interface ChapterPlot {
+  summary: string;
+  opening_situation: string;
+  key_events: string[];
+  climax: string;
+  resolution: string;
+  character_arcs: CharacterArc[];
+  new_character_suggestions: NewCharacterSuggestion[];
+  recommended_characters: string[];
+  mood?: string;
+  location?: string;
+}
+
+/**
  * Custom API Error with additional context
  */
 export class ApiError extends Error {
@@ -2036,6 +2084,147 @@ class ApiClient {
   async getBrainstormExtractedElements(sessionId: number) {
     const session = await this.getBrainstormSession(sessionId);
     return session.extracted_elements;
+  }
+
+  // Get user's brainstorm sessions with summaries (for dashboard)
+  async getBrainstormSessions(includeCompleted: boolean = false) {
+    return this.request<{
+      sessions: Array<{
+        id: number;
+        status: string;
+        message_count: number;
+        summary: string;
+        created_at: string;
+        updated_at: string;
+        story_id: number | null;
+        has_extracted_elements: boolean;
+      }>;
+      count: number;
+    }>(`/api/brainstorm/sessions?include_completed=${includeCompleted}`);
+  }
+
+  // ====== STORY ARC METHODS ======
+
+  async generateStoryArc(storyId: number, structureType: string = 'three_act') {
+    return this.request<{
+      story_id: number;
+      arc: StoryArc;
+    }>(`/api/stories/${storyId}/arc/generate`, {
+      method: 'POST',
+      body: JSON.stringify({ structure_type: structureType })
+    });
+  }
+
+  async updateStoryArc(storyId: number, arcData: StoryArc) {
+    return this.request<{
+      story_id: number;
+      arc: StoryArc;
+    }>(`/api/stories/${storyId}/arc`, {
+      method: 'PUT',
+      body: JSON.stringify({ arc_data: arcData })
+    });
+  }
+
+  async getStoryArc(storyId: number) {
+    return this.request<{
+      story_id: number;
+      arc: StoryArc | null;
+    }>(`/api/stories/${storyId}/arc`);
+  }
+
+  // ====== CHAPTER BRAINSTORM METHODS ======
+
+  async createChapterBrainstormSession(storyId: number, arcPhaseId?: string) {
+    return this.request<{
+      session_id: number;
+      story_id: number;
+      arc_phase_id: string | null;
+      status: string;
+      created_at: string;
+    }>(`/api/stories/${storyId}/chapters/brainstorm`, {
+      method: 'POST',
+      body: JSON.stringify({ arc_phase_id: arcPhaseId })
+    });
+  }
+
+  async getChapterBrainstormSessions(storyId: number) {
+    return this.request<{
+      story_id: number;
+      sessions: Array<{
+        id: number;
+        story_id: number;
+        chapter_id: number | null;
+        arc_phase_id: string | null;
+        status: string;
+        message_count: number;
+        has_extracted_plot: boolean;
+        created_at: string;
+        updated_at: string | null;
+      }>;
+      count: number;
+    }>(`/api/stories/${storyId}/chapters/brainstorm/sessions`);
+  }
+
+  async getChapterBrainstormSession(storyId: number, sessionId: number) {
+    return this.request<{
+      session_id: number;
+      story_id: number;
+      chapter_id: number | null;
+      arc_phase_id: string | null;
+      status: string;
+      messages: Array<{ role: string; content: string; timestamp: string }>;
+      extracted_plot: ChapterPlot | null;
+      created_at: string;
+      updated_at: string | null;
+    }>(`/api/stories/${storyId}/chapters/brainstorm/${sessionId}`);
+  }
+
+  async sendChapterBrainstormMessage(storyId: number, sessionId: number, message: string) {
+    return this.request<{
+      session_id: number;
+      user_message: string;
+      ai_response: string;
+      message_count: number;
+    }>(`/api/stories/${storyId}/chapters/brainstorm/${sessionId}/message`, {
+      method: 'POST',
+      body: JSON.stringify({ message })
+    });
+  }
+
+  async extractChapterPlot(storyId: number, sessionId: number) {
+    return this.request<{
+      session_id: number;
+      extracted_plot: ChapterPlot;
+      status: string;
+    }>(`/api/stories/${storyId}/chapters/brainstorm/${sessionId}/extract`, {
+      method: 'POST'
+    });
+  }
+
+  async applyChapterBrainstorm(storyId: number, sessionId: number, chapterId: number) {
+    return this.request<any>(`/api/stories/${storyId}/chapters/brainstorm/${sessionId}/apply`, {
+      method: 'POST',
+      body: JSON.stringify({ chapter_id: chapterId })
+    });
+  }
+
+  async updateChapterBrainstormPlot(storyId: number, sessionId: number, plotData: ChapterPlot) {
+    return this.request<{
+      session_id: number;
+      extracted_plot: ChapterPlot;
+    }>(`/api/stories/${storyId}/chapters/brainstorm/${sessionId}/plot`, {
+      method: 'PUT',
+      body: JSON.stringify({ plot_data: plotData })
+    });
+  }
+
+  async deleteChapterBrainstormSession(storyId: number, sessionId: number) {
+    return this.request<{
+      success: boolean;
+      message: string;
+    }>(`/api/stories/${storyId}/chapters/brainstorm/${sessionId}`, {
+      method: 'DELETE'
+    });
   }
 
   // Generic HTTP methods

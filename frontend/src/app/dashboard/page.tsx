@@ -22,6 +22,8 @@ function DashboardContent() {
   const [userSettings, setUserSettings] = useState<any>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingStoryId, setEditingStoryId] = useState<number | null>(null);
+  const [brainstormSessions, setBrainstormSessions] = useState<any[]>([]);
+  const [loadingSessions, setLoadingSessions] = useState(false);
 
   // Apply UI settings (theme, font size, etc.)
   useUISettings(userSettings?.ui_preferences || null);
@@ -36,7 +38,20 @@ function DashboardContent() {
     
     loadStories();
     loadUserSettings();
+    loadBrainstormSessions();
   }, [user, hasHydrated, router]);
+
+  const loadBrainstormSessions = async () => {
+    try {
+      setLoadingSessions(true);
+      const response = await apiClient.getBrainstormSessions(false);
+      setBrainstormSessions(response.sessions || []);
+    } catch (error) {
+      console.error('Failed to load brainstorm sessions:', error);
+    } finally {
+      setLoadingSessions(false);
+    }
+  };
 
   const loadUserSettings = async () => {
     try {
@@ -288,6 +303,47 @@ function DashboardContent() {
             )}
           </div>
         </div>
+
+        {/* Continue Brainstorming Section */}
+        {brainstormSessions.length > 0 && (
+          <div className="mb-12">
+            <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+              💡 Continue Brainstorming
+              <span className="text-sm font-normal text-white/60">
+                ({brainstormSessions.length} session{brainstormSessions.length !== 1 ? 's' : ''})
+              </span>
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {brainstormSessions.map((session) => (
+                <button
+                  key={session.id}
+                  onClick={() => router.push(`/brainstorm?session_id=${session.id}`)}
+                  className="bg-gradient-to-r from-green-500/10 to-emerald-500/10 backdrop-blur-md border border-green-500/30 rounded-xl p-4 text-left hover:from-green-500/20 hover:to-emerald-500/20 transition-all group"
+                >
+                  <div className="flex items-start justify-between mb-2">
+                    <span className="text-green-400 text-sm font-medium capitalize">
+                      {session.status}
+                    </span>
+                    <span className="text-white/40 text-xs">
+                      {session.message_count} messages
+                    </span>
+                  </div>
+                  <p className="text-white/80 text-sm line-clamp-2 mb-2">
+                    {session.summary}
+                  </p>
+                  <div className="flex items-center justify-between text-xs text-white/50">
+                    <span>
+                      {session.updated_at ? new Date(session.updated_at).toLocaleDateString() : 'Recently'}
+                    </span>
+                    <span className="text-green-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                      Continue →
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Stories Grid */}
         {isLoading ? (

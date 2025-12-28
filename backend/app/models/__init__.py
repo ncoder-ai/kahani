@@ -19,6 +19,7 @@ from .semantic_memory import CharacterMemory, PlotEvent, SceneEmbedding, MomentT
 from .entity_state import CharacterState, LocationState, ObjectState, EntityStateBatch
 from .npc_tracking import NPCMention, NPCTracking, NPCTrackingSnapshot
 from .brainstorm_session import BrainstormSession
+from .chapter_brainstorm_session import ChapterBrainstormSession
 
 __all__ = [
     "Base",
@@ -34,5 +35,6 @@ __all__ = [
     "CharacterMemory", "PlotEvent", "SceneEmbedding", "MomentType", "EventType",
     "CharacterState", "LocationState", "ObjectState", "EntityStateBatch",
     "NPCMention", "NPCTracking", "NPCTrackingSnapshot",
-    "BrainstormSession"
+    "BrainstormSession",
+    "ChapterBrainstormSession"
 ]

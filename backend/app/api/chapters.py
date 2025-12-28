@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Body
 from fastapi.responses import StreamingResponse
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from ..database import get_db
 from ..models import Story, Chapter, Scene, User, ChapterStatus, StoryMode, StoryCharacter, Character, ChapterSummaryBatch
@@ -2830,3 +2830,342 @@ async def get_active_chapter(
         )
     
     return build_chapter_response(chapter, db)
+
+
+# ====== CHAPTER BRAINSTORM ENDPOINTS ======
+
+class ChapterBrainstormCreateRequest(BaseModel):
+    """Request for creating a chapter brainstorm session."""
+    arc_phase_id: Optional[str] = None
+
+class ChapterBrainstormMessageRequest(BaseModel):
+    """Request for sending a message in chapter brainstorm."""
+    message: str
+
+class ChapterBrainstormApplyRequest(BaseModel):
+    """Request for applying brainstorm to chapter."""
+    chapter_id: int
+
+class ChapterBrainstormUpdatePlotRequest(BaseModel):
+    """Request for updating extracted plot."""
+    plot_data: Dict[str, Any]
+
+
+@router.post("/{story_id}/chapters/brainstorm")
+async def create_chapter_brainstorm_session(
+    story_id: int,
+    request: ChapterBrainstormCreateRequest = Body(default=ChapterBrainstormCreateRequest()),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Create a new chapter brainstorming session.
+    
+    Args:
+        story_id: The story ID
+        request: Optional arc phase ID to target
+        
+    Returns:
+        New session data
+    """
+    try:
+        from ..services.chapter_brainstorm_service import ChapterBrainstormService
+        from ..api.stories import get_or_create_user_settings
+        
+        user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+        service = ChapterBrainstormService(current_user.id, user_settings, db)
+        
+        session = service.create_session(
+            story_id=story_id,
+            arc_phase_id=request.arc_phase_id
+        )
+        
+        return {
+            "session_id": session.id,
+            "story_id": session.story_id,
+            "arc_phase_id": session.arc_phase_id,
+            "status": session.status,
+            "created_at": session.created_at.isoformat()
+        }
+        
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"[CHAPTER_BRAINSTORM:CREATE] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to create session: {str(e)}")
+
+
+@router.get("/{story_id}/chapters/brainstorm/sessions")
+async def list_chapter_brainstorm_sessions(
+    story_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    List chapter brainstorming sessions for a story.
+    
+    Args:
+        story_id: The story ID
+        
+    Returns:
+        List of session summaries
+    """
+    try:
+        from ..services.chapter_brainstorm_service import ChapterBrainstormService
+        from ..api.stories import get_or_create_user_settings
+        
+        user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+        service = ChapterBrainstormService(current_user.id, user_settings, db)
+        
+        sessions = service.get_sessions_for_story(story_id)
+        
+        return {
+            "story_id": story_id,
+            "sessions": sessions,
+            "count": len(sessions)
+        }
+        
+    except Exception as e:
+        logger.error(f"[CHAPTER_BRAINSTORM:LIST] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to list sessions: {str(e)}")
+
+
+@router.get("/{story_id}/chapters/brainstorm/{session_id}")
+async def get_chapter_brainstorm_session(
+    story_id: int,
+    session_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get a chapter brainstorming session.
+    
+    Args:
+        story_id: The story ID
+        session_id: The session ID
+        
+    Returns:
+        Session data including messages and extracted plot
+    """
+    try:
+        from ..services.chapter_brainstorm_service import ChapterBrainstormService
+        from ..api.stories import get_or_create_user_settings
+        
+        user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+        service = ChapterBrainstormService(current_user.id, user_settings, db)
+        
+        session = service.get_session(session_id)
+        
+        if not session or session.story_id != story_id:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        return {
+            "session_id": session.id,
+            "story_id": session.story_id,
+            "chapter_id": session.chapter_id,
+            "arc_phase_id": session.arc_phase_id,
+            "status": session.status,
+            "messages": session.messages,
+            "extracted_plot": session.extracted_plot,
+            "created_at": session.created_at.isoformat(),
+            "updated_at": session.updated_at.isoformat() if session.updated_at else None
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[CHAPTER_BRAINSTORM:GET] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get session: {str(e)}")
+
+
+@router.post("/{story_id}/chapters/brainstorm/{session_id}/message")
+async def send_chapter_brainstorm_message(
+    story_id: int,
+    session_id: int,
+    request: ChapterBrainstormMessageRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Send a message in chapter brainstorming and get AI response.
+    
+    Args:
+        story_id: The story ID
+        session_id: The session ID
+        request: Message content
+        
+    Returns:
+        AI response and updated message count
+    """
+    try:
+        from ..services.chapter_brainstorm_service import ChapterBrainstormService
+        from ..api.stories import get_or_create_user_settings
+        
+        user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+        service = ChapterBrainstormService(current_user.id, user_settings, db)
+        
+        result = await service.send_message(
+            session_id=session_id,
+            user_message=request.message
+        )
+        
+        return result
+        
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"[CHAPTER_BRAINSTORM:MESSAGE] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to send message: {str(e)}")
+
+
+@router.post("/{story_id}/chapters/brainstorm/{session_id}/extract")
+async def extract_chapter_plot(
+    story_id: int,
+    session_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Extract structured chapter plot from brainstorming conversation.
+    
+    Args:
+        story_id: The story ID
+        session_id: The session ID
+        
+    Returns:
+        Extracted chapter plot
+    """
+    try:
+        from ..services.chapter_brainstorm_service import ChapterBrainstormService
+        from ..api.stories import get_or_create_user_settings
+        
+        user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+        service = ChapterBrainstormService(current_user.id, user_settings, db)
+        
+        result = await service.extract_chapter_plot(session_id=session_id)
+        
+        return result
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"[CHAPTER_BRAINSTORM:EXTRACT] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to extract plot: {str(e)}")
+
+
+@router.post("/{story_id}/chapters/brainstorm/{session_id}/apply")
+async def apply_brainstorm_to_chapter(
+    story_id: int,
+    session_id: int,
+    request: ChapterBrainstormApplyRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Apply extracted plot to a chapter.
+    
+    Args:
+        story_id: The story ID
+        session_id: The session ID
+        request: Chapter ID to apply to
+        
+    Returns:
+        Updated chapter data
+    """
+    try:
+        from ..services.chapter_brainstorm_service import ChapterBrainstormService
+        from ..api.stories import get_or_create_user_settings
+        
+        user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+        service = ChapterBrainstormService(current_user.id, user_settings, db)
+        
+        chapter = service.apply_to_chapter(
+            session_id=session_id,
+            chapter_id=request.chapter_id
+        )
+        
+        return build_chapter_response(chapter, db)
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"[CHAPTER_BRAINSTORM:APPLY] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to apply plot: {str(e)}")
+
+
+@router.put("/{story_id}/chapters/brainstorm/{session_id}/plot")
+async def update_chapter_brainstorm_plot(
+    story_id: int,
+    session_id: int,
+    request: ChapterBrainstormUpdatePlotRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update the extracted plot (user edits).
+    
+    Args:
+        story_id: The story ID
+        session_id: The session ID
+        request: Updated plot data
+        
+    Returns:
+        Updated plot data
+    """
+    try:
+        from ..services.chapter_brainstorm_service import ChapterBrainstormService
+        from ..api.stories import get_or_create_user_settings
+        
+        user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+        service = ChapterBrainstormService(current_user.id, user_settings, db)
+        
+        result = service.update_extracted_plot(
+            session_id=session_id,
+            plot_data=request.plot_data
+        )
+        
+        return result
+        
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"[CHAPTER_BRAINSTORM:UPDATE_PLOT] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to update plot: {str(e)}")
+
+
+@router.delete("/{story_id}/chapters/brainstorm/{session_id}")
+async def delete_chapter_brainstorm_session(
+    story_id: int,
+    session_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a chapter brainstorming session.
+    
+    Args:
+        story_id: The story ID
+        session_id: The session ID
+        
+    Returns:
+        Success confirmation
+    """
+    try:
+        from ..services.chapter_brainstorm_service import ChapterBrainstormService
+        from ..api.stories import get_or_create_user_settings
+        
+        user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+        service = ChapterBrainstormService(current_user.id, user_settings, db)
+        
+        success = service.delete_session(session_id)
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        return {"success": True, "message": "Session deleted"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[CHAPTER_BRAINSTORM:DELETE] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to delete session: {str(e)}")

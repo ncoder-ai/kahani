@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, JSON, Enum
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, attributes
 from sqlalchemy.sql import func
 from ..database import Base
 import enum
@@ -88,6 +88,25 @@ class Story(Base):
     
     # Brainstorm Session (if story was created from brainstorm)
     brainstorm_session = relationship("BrainstormSession", back_populates="story", uselist=False)
+    
+    # Story Arc - AI-generated narrative structure
+    story_arc = Column(JSON, nullable=True)
+    
+    def update_story_arc(self, arc_data: dict):
+        """Update the story arc data."""
+        if self.story_arc is None:
+            self.story_arc = {}
+        self.story_arc.update(arc_data)
+        attributes.flag_modified(self, 'story_arc')
+    
+    def get_arc_phase(self, phase_id: str) -> dict:
+        """Get a specific arc phase by ID."""
+        if not self.story_arc or 'phases' not in self.story_arc:
+            return None
+        for phase in self.story_arc.get('phases', []):
+            if phase.get('id') == phase_id:
+                return phase
+        return None
     
     def __repr__(self):
         return f"<Story(id={self.id}, title='{self.title}', owner_id={self.owner_id})>"

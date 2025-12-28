@@ -366,6 +366,42 @@ async def list_user_sessions(
         raise HTTPException(status_code=500, detail=f"Failed to list sessions: {str(e)}")
 
 
+@router.get("/sessions")
+async def get_user_brainstorm_sessions(
+    include_completed: bool = False,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get user's brainstorming sessions with summaries.
+    
+    This endpoint returns sessions with generated summaries for display
+    on the dashboard, allowing users to resume incomplete sessions.
+    
+    Args:
+        include_completed: If True, include completed sessions
+        
+    Returns:
+        List of session summaries with context
+    """
+    try:
+        # Get user settings
+        user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+        
+        # Get sessions using service method
+        service = BrainstormService(current_user.id, user_settings, db)
+        sessions = service.get_user_sessions(include_completed=include_completed)
+        
+        return {
+            "sessions": sessions,
+            "count": len(sessions)
+        }
+        
+    except Exception as e:
+        logger.error(f"[BRAINSTORM:SESSIONS] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get sessions: {str(e)}")
+
+
 # ====== CHARACTER GENERATION ======
 
 @router.post("/sessions/{session_id}/generate-characters")

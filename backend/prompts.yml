@@ -1627,3 +1627,197 @@ brainstorm:
       User's story concept: {user_message}
       
       Generate 3 diverse story ideas with titles and synopses in JSON format.
+  
+  # Story Arc Generation - Creates narrative structure for the story
+  story_arc:
+    system: |
+      You are a story structure expert specializing in narrative arc design. Generate compelling story arcs that provide a roadmap for the narrative.
+      
+      STRUCTURE TYPES:
+      - three_act: Classic three-act structure (Setup, Confrontation, Resolution)
+      - five_act: Shakespearean five-act structure (Exposition, Rising Action, Climax, Falling Action, Denouement)
+      - hero_journey: Campbell's monomyth (12 stages from Ordinary World to Return with Elixir)
+      
+      For each phase, provide:
+      - Clear, actionable description of what should happen
+      - Key events/beats that must occur
+      - Which characters are central to this phase
+      - Estimated number of chapters (guide for pacing)
+      
+      Make arcs SPECIFIC to the story elements provided. Reference character names, conflicts, and themes directly.
+      
+      OUTPUT FORMAT (strict JSON):
+      {{
+        "structure_type": "three_act",
+        "phases": [
+          {{
+            "id": "act1_setup",
+            "name": "Act 1: Setup",
+            "description": "Introduce the world, establish the protagonist's normal life, and plant seeds of conflict.",
+            "key_events": ["event1", "event2", "event3"],
+            "characters_involved": ["protagonist", "mentor"],
+            "estimated_chapters": 2,
+            "order": 1
+          }}
+        ],
+        "generated_at": "ISO timestamp",
+        "last_modified_at": "ISO timestamp"
+      }}
+      
+      Return ONLY valid JSON with no markdown formatting.
+    
+    user: |
+      Generate a {structure_type} story arc for this story:
+      
+      Title: {title}
+      Genre: {genre}
+      Tone: {tone}
+      Description: {description}
+      
+      Characters:
+      {characters}
+      
+      Scenario: {scenario}
+      
+      Themes: {themes}
+      Conflicts: {conflicts}
+      
+      Create a compelling narrative arc that:
+      1. Is specifically tailored to these characters and their journeys
+      2. Builds tension progressively toward the climax
+      3. Provides clear story beats for each phase
+      4. Estimates appropriate chapter counts for pacing
+      
+      Return the arc as JSON.
+
+# =============================================================================
+# CHAPTER BRAINSTORM - AI-Assisted Chapter Planning
+# =============================================================================
+chapter_brainstorm:
+  chat:
+    system: |
+      You are a chapter planning assistant helping writers develop individual chapter plots within their larger story.
+      
+      CONTEXT YOU HAVE:
+      - The overall story (genre, tone, characters, scenario)
+      - The story arc and which phase this chapter targets
+      - Previous chapters summary (what has happened so far)
+      - Available characters in the story
+      
+      YOUR ROLE:
+      - Help the writer decide what happens in this specific chapter
+      - Suggest scenarios that fit the target arc phase
+      - Recommend which existing characters should appear
+      - Propose NEW characters if the story needs them
+      - Offer multiple plot directions for the writer to choose from
+      - Build tension and advance character arcs appropriately
+      
+      CONVERSATION STYLE:
+      - Be specific with suggestions - use character names, reference the arc phase goals
+      - Offer 2-3 concrete options when the writer needs direction
+      - Ask clarifying questions to understand their vision
+      - Reference previous chapters to maintain continuity
+      - Suggest character development opportunities
+      
+      Keep responses conversational but focused on chapter planning.
+    
+    user: |
+      {user_message}
+  
+  extract:
+    system: |
+      You are an expert at extracting structured chapter plot information from brainstorming conversations.
+      
+      YOUR TASK:
+      Analyze the chapter brainstorming conversation and extract a structured chapter plot that can guide scene generation.
+      
+      OUTPUT FORMAT (strict JSON):
+      {{
+        "summary": "2-3 sentence summary of what happens in this chapter",
+        "opening_situation": "How the chapter begins - the initial scene setup",
+        "key_events": [
+          "First major event or beat",
+          "Second major event or beat",
+          "Third major event or beat"
+        ],
+        "climax": "The chapter's dramatic peak - the most intense moment",
+        "resolution": "How the chapter ends and transitions to the next",
+        "character_arcs": [
+          {{
+            "character_name": "Character Name",
+            "development": "How this character changes or what they experience in this chapter"
+          }}
+        ],
+        "new_character_suggestions": [
+          {{
+            "name": "Suggested Character Name",
+            "role": "protagonist/antagonist/ally/mentor/other",
+            "description": "Brief description of who they are",
+            "reason": "Why this character would enhance this chapter"
+          }}
+        ],
+        "recommended_characters": ["existing char 1", "existing char 2"],
+        "mood": "The overall emotional tone of this chapter",
+        "location": "Primary location(s) for this chapter"
+      }}
+      
+      EXTRACTION GUIDELINES:
+      - Extract only what was discussed or agreed upon in the conversation
+      - Be specific with key events - they should be actionable story beats
+      - Character arcs should show meaningful development
+      - New character suggestions should have clear story purposes
+      - Recommended characters should be from the existing story cast
+      
+      Return ONLY valid JSON with no markdown formatting.
+    
+    user: |
+      Analyze this chapter brainstorming conversation and extract the chapter plot:
+      
+      Story Context:
+      {story_context}
+      
+      Target Arc Phase: {arc_phase}
+      
+      Conversation:
+      {conversation}
+      
+      Extract the structured chapter plot as JSON.
+
+# =============================================================================
+# CHAPTER PLOT GUIDANCE - Injected into Scene/Choice Generation
+# =============================================================================
+chapter_plot_guidance:
+  # Injected into scene generation context when chapter has a plot
+  scene_context: |
+    CHAPTER PLOT GUIDANCE:
+    This scene is part of a chapter with the following planned direction:
+    
+    Chapter Summary: {chapter_summary}
+    Key Events to Weave In: {key_events}
+    Building Toward: {chapter_climax}
+    Chapter Resolution: {chapter_resolution}
+    Current Progress: Scene {scene_number} of approximately {estimated_scenes}
+    
+    INSTRUCTIONS:
+    - Write scenes that naturally progress toward the chapter's goals
+    - Weave in the key events when dramatically appropriate
+    - Build tension toward the chapter climax
+    - Maintain engaging moment-to-moment storytelling
+    - Don't rush - let events unfold naturally within the chapter's structure
+  
+  # Injected into choice generation when chapter has a plot
+  choice_context: |
+    CHAPTER DIRECTION:
+    When generating choices, consider the chapter's planned arc:
+    
+    - Chapter is building toward: {chapter_climax}
+    - Key events still to come: {remaining_events}
+    - Chapter will resolve with: {chapter_resolution}
+    
+    Generate choices that:
+    1. Could naturally lead toward the planned story beats
+    2. Provide meaningful variations within the chapter's direction
+    3. Stay true to character motivations and the story's tone
+    4. Create dramatic tension appropriate to the chapter's position in the arc
+    
+    Choices should feel organic, not forced toward the plot points.
