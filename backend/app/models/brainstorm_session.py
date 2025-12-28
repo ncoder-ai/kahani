@@ -45,7 +45,7 @@ class BrainstormSession(Base):
     extracted_elements = Column(JSON, default=dict, nullable=True)
     
     # Session status: 'exploring' (chat phase), 'refining' (editing extracted elements), 'completed' (used to create story)
-    status = Column(String(50), default='exploring', nullable=False, index=True)
+    status = Column(String(100), default='exploring', nullable=False, index=True)
     
     # Optional link to created story (if user proceeded to create story from this session)
     story_id = Column(Integer, ForeignKey("stories.id"), nullable=True, index=True)

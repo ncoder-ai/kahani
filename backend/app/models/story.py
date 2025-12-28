@@ -34,8 +34,8 @@ class Story(Base):
     story_mode = Column(Enum(StoryMode), default=StoryMode.DYNAMIC)  # New field
     
     # Story metadata
-    genre = Column(String(50))
-    tone = Column(String(50))
+    genre = Column(String(200))
+    tone = Column(String(200))
     target_length = Column(String(20))  # short, medium, long
     summary = Column(Text)  # AI-generated summary of the story
     

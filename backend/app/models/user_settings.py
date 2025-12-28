@@ -25,13 +25,13 @@ class UserSettings(Base):
     # LLM API Configuration
     llm_api_url = Column(String(500), nullable=True)  # No default URL - user must provide
     llm_api_key = Column(String(500), nullable=True)
-    llm_api_type = Column(String(50), nullable=True)
+    llm_api_type = Column(String(100), nullable=True)
     llm_model_name = Column(String(200), nullable=True)
     
     # Text Completion Settings
     completion_mode = Column(String(20), nullable=True)
     text_completion_template = Column(Text, nullable=True)
-    text_completion_preset = Column(String(50), nullable=True)
+    text_completion_preset = Column(String(100), nullable=True)
     
     # Context Management Settings
     context_max_tokens = Column(Integer, nullable=True)
@@ -57,7 +57,7 @@ class UserSettings(Base):
     # Story Generation Preferences
     default_genre = Column(String(100), nullable=True)
     default_tone = Column(String(100), nullable=True)
-    preferred_scene_length = Column(String(50), nullable=True)
+    preferred_scene_length = Column(String(100), nullable=True)
     enable_auto_choices = Column(Boolean, nullable=True)
     choices_count = Column(Integer, nullable=True)
     alert_on_high_context = Column(Boolean, nullable=True)  # Alert user to create new chapter when context is high
@@ -105,7 +105,7 @@ class UserSettings(Base):
     
     # Engine-Specific Settings
     engine_settings = Column(Text, nullable=True)
-    current_engine = Column(String(50), nullable=True)
+    current_engine = Column(String(100), nullable=True)
     
     # Relationships
     user = relationship("User", back_populates="settings")

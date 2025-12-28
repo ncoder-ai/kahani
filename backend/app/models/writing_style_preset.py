@@ -34,7 +34,7 @@ class WritingStylePreset(Base):
     system_prompt = Column(Text, nullable=False)
     summary_system_prompt = Column(Text, nullable=True)
     pov = Column(String(20), nullable=True)  # 'first', 'second', 'third', or None for default
-    prose_style = Column(String(50), nullable=True, default='balanced')  # Writing style: balanced, dialogue_forward, etc.
+    prose_style = Column(String(100), nullable=True, default='balanced')  # Writing style: balanced, dialogue_forward, etc.
     is_active = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
