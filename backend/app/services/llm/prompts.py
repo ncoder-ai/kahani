@@ -865,7 +865,9 @@ Chapter Conclusion:"""
             "brainstorm.chat": ("brainstorm", "chat"),
             "brainstorm.extract": ("brainstorm", "extract"),
             "brainstorm.generate_ideas": ("brainstorm", "generate_ideas"),
-            "brainstorm.story_arc": ("brainstorm", "story_arc")
+            "brainstorm.story_arc": ("brainstorm", "story_arc"),
+            "chapter_brainstorm.chat": ("chapter_brainstorm", "chat"),
+            "chapter_brainstorm.extract": ("chapter_brainstorm", "extract")
         }
         
         if template_key not in yaml_mapping:
