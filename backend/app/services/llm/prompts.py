@@ -863,7 +863,9 @@ Chapter Conclusion:"""
             "entity_state_extraction.single": ("entity_state_extraction", "single"),
             "entity_state_extraction.batch": ("entity_state_extraction", "batch"),
             "brainstorm.chat": ("brainstorm", "chat"),
-            "brainstorm.extract": ("brainstorm", "extract")
+            "brainstorm.extract": ("brainstorm", "extract"),
+            "brainstorm.generate_ideas": ("brainstorm", "generate_ideas"),
+            "brainstorm.story_arc": ("brainstorm", "story_arc")
         }
         
         if template_key not in yaml_mapping:
