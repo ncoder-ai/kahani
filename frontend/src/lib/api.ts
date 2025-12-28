@@ -1994,6 +1994,16 @@ class ApiClient {
     });
   }
 
+  async deleteBrainstormSessions(sessionIds: number[]) {
+    // Delete multiple sessions in parallel
+    const results = await Promise.allSettled(
+      sessionIds.map(id => this.deleteBrainstormSession(id))
+    );
+    const succeeded = results.filter(r => r.status === 'fulfilled').length;
+    const failed = results.filter(r => r.status === 'rejected').length;
+    return { succeeded, failed, total: sessionIds.length };
+  }
+
   async sendBrainstormMessage(sessionId: number, message: string, generateIdeas: boolean = false) {
     return this.request<{
       session_id: number;

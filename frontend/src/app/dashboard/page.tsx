@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore, useStoryStore, useHasHydrated } from '@/store';
-import { X } from 'lucide-react';
+import { X, Trash2, CheckSquare, Square } from 'lucide-react';
 import apiClient, { getApiBaseUrl } from '@/lib/api';
 import RouteProtection from '@/components/RouteProtection';
 import { useUISettings } from '@/hooks/useUISettings';
@@ -24,6 +24,9 @@ function DashboardContent() {
   const [editingStoryId, setEditingStoryId] = useState<number | null>(null);
   const [brainstormSessions, setBrainstormSessions] = useState<any[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
+  const [selectedBrainstormIds, setSelectedBrainstormIds] = useState<Set<number>>(new Set());
+  const [isDeletingBrainstorms, setIsDeletingBrainstorms] = useState(false);
+  const [brainstormSelectMode, setBrainstormSelectMode] = useState(false);
 
   // Apply UI settings (theme, font size, etc.)
   useUISettings(userSettings?.ui_preferences || null);
@@ -51,6 +54,62 @@ function DashboardContent() {
     } finally {
       setLoadingSessions(false);
     }
+  };
+
+  const toggleBrainstormSelection = (sessionId: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedBrainstormIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(sessionId)) {
+        newSet.delete(sessionId);
+      } else {
+        newSet.add(sessionId);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleSelectAllBrainstorms = () => {
+    if (selectedBrainstormIds.size === brainstormSessions.length) {
+      setSelectedBrainstormIds(new Set());
+    } else {
+      setSelectedBrainstormIds(new Set(brainstormSessions.map(s => s.id)));
+    }
+  };
+
+  const handleDeleteSelectedBrainstorms = async () => {
+    if (selectedBrainstormIds.size === 0) return;
+    
+    const count = selectedBrainstormIds.size;
+    if (!confirm(`Are you sure you want to delete ${count} brainstorm session${count !== 1 ? 's' : ''}?\n\nThis action cannot be undone.`)) {
+      return;
+    }
+
+    setIsDeletingBrainstorms(true);
+    try {
+      const result = await apiClient.deleteBrainstormSessions(Array.from(selectedBrainstormIds));
+      
+      // Reload sessions
+      await loadBrainstormSessions();
+      
+      // Clear selection and exit select mode
+      setSelectedBrainstormIds(new Set());
+      setBrainstormSelectMode(false);
+      
+      if (result.failed > 0) {
+        alert(`Deleted ${result.succeeded} session${result.succeeded !== 1 ? 's' : ''}. ${result.failed} failed to delete.`);
+      }
+    } catch (error) {
+      console.error('Failed to delete brainstorm sessions:', error);
+      alert('Failed to delete some sessions. Please try again.');
+    } finally {
+      setIsDeletingBrainstorms(false);
+    }
+  };
+
+  const cancelBrainstormSelectMode = () => {
+    setBrainstormSelectMode(false);
+    setSelectedBrainstormIds(new Set());
   };
 
   const loadUserSettings = async () => {
@@ -307,39 +366,108 @@ function DashboardContent() {
         {/* Continue Brainstorming Section */}
         {brainstormSessions.length > 0 && (
           <div className="mb-12">
-            <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-              💡 Continue Brainstorming
-              <span className="text-sm font-normal text-white/60">
-                ({brainstormSessions.length} session{brainstormSessions.length !== 1 ? 's' : ''})
-              </span>
-            </h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                💡 Continue Brainstorming
+                <span className="text-sm font-normal text-white/60">
+                  ({brainstormSessions.length} session{brainstormSessions.length !== 1 ? 's' : ''})
+                </span>
+              </h3>
+              
+              <div className="flex items-center gap-2">
+                {brainstormSelectMode ? (
+                  <>
+                    <button
+                      onClick={toggleSelectAllBrainstorms}
+                      className="text-white/70 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/10 transition-colors text-sm flex items-center gap-1.5"
+                    >
+                      {selectedBrainstormIds.size === brainstormSessions.length ? (
+                        <CheckSquare className="w-4 h-4" />
+                      ) : (
+                        <Square className="w-4 h-4" />
+                      )}
+                      {selectedBrainstormIds.size === brainstormSessions.length ? 'Deselect All' : 'Select All'}
+                    </button>
+                    <button
+                      onClick={handleDeleteSelectedBrainstorms}
+                      disabled={selectedBrainstormIds.size === 0 || isDeletingBrainstorms}
+                      className="bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg text-sm flex items-center gap-1.5 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      {isDeletingBrainstorms ? 'Deleting...' : `Delete (${selectedBrainstormIds.size})`}
+                    </button>
+                    <button
+                      onClick={cancelBrainstormSelectMode}
+                      className="text-white/70 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/10 transition-colors text-sm"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => setBrainstormSelectMode(true)}
+                    className="text-white/70 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/10 transition-colors text-sm flex items-center gap-1.5"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Manage
+                  </button>
+                )}
+              </div>
+            </div>
+            
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {brainstormSessions.map((session) => (
-                <button
+                <div
                   key={session.id}
-                  onClick={() => router.push(`/brainstorm?session_id=${session.id}`)}
-                  className="bg-gradient-to-r from-green-500/10 to-emerald-500/10 backdrop-blur-md border border-green-500/30 rounded-xl p-4 text-left hover:from-green-500/20 hover:to-emerald-500/20 transition-all group"
+                  onClick={(e) => {
+                    if (brainstormSelectMode) {
+                      toggleBrainstormSelection(session.id, e);
+                    } else {
+                      router.push(`/brainstorm?session_id=${session.id}`);
+                    }
+                  }}
+                  className={`relative bg-gradient-to-r from-green-500/10 to-emerald-500/10 backdrop-blur-md border rounded-xl p-4 text-left transition-all group cursor-pointer ${
+                    selectedBrainstormIds.has(session.id)
+                      ? 'border-red-500 ring-2 ring-red-500/30'
+                      : 'border-green-500/30 hover:from-green-500/20 hover:to-emerald-500/20'
+                  }`}
                 >
+                  {/* Selection checkbox */}
+                  {brainstormSelectMode && (
+                    <div 
+                      className="absolute top-2 right-2 z-10"
+                      onClick={(e) => toggleBrainstormSelection(session.id, e)}
+                    >
+                      {selectedBrainstormIds.has(session.id) ? (
+                        <CheckSquare className="w-5 h-5 text-red-400" />
+                      ) : (
+                        <Square className="w-5 h-5 text-white/40 hover:text-white/70" />
+                      )}
+                    </div>
+                  )}
+                  
                   <div className="flex items-start justify-between mb-2">
                     <span className="text-green-400 text-sm font-medium capitalize">
                       {session.status}
                     </span>
-                    <span className="text-white/40 text-xs">
+                    <span className={`text-white/40 text-xs ${brainstormSelectMode ? 'mr-6' : ''}`}>
                       {session.message_count} messages
                     </span>
                   </div>
                   <p className="text-white/80 text-sm line-clamp-2 mb-2">
-                    {session.summary}
+                    {session.summary || 'Brainstorming session...'}
                   </p>
                   <div className="flex items-center justify-between text-xs text-white/50">
                     <span>
                       {session.updated_at ? new Date(session.updated_at).toLocaleDateString() : 'Recently'}
                     </span>
-                    <span className="text-green-400 opacity-0 group-hover:opacity-100 transition-opacity">
-                      Continue →
-                    </span>
+                    {!brainstormSelectMode && (
+                      <span className="text-green-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                        Continue →
+                      </span>
+                    )}
                   </div>
-                </button>
+                </div>
               ))}
             </div>
           </div>
