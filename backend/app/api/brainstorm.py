@@ -402,6 +402,50 @@ async def get_user_brainstorm_sessions(
         raise HTTPException(status_code=500, detail=f"Failed to get sessions: {str(e)}")
 
 
+# ====== STORY ARC GENERATION ======
+
+class GenerateArcFromSessionRequest(BaseModel):
+    """Request for generating story arc from session."""
+    structure_type: str = "three_act"  # three_act, five_act, hero_journey
+
+
+@router.post("/sessions/{session_id}/generate-arc")
+async def generate_arc_from_session(
+    session_id: int,
+    request: GenerateArcFromSessionRequest = Body(default=GenerateArcFromSessionRequest()),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Generate a story arc from the brainstorm session's extracted elements.
+    
+    This allows generating an arc before the story is created.
+    
+    Args:
+        session_id: The brainstorming session ID
+        request: Arc generation options (structure type)
+        
+    Returns:
+        Generated story arc
+    """
+    try:
+        user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+        service = BrainstormService(current_user.id, user_settings, db)
+        
+        result = await service.generate_arc_from_session(
+            session_id=session_id,
+            structure_type=request.structure_type
+        )
+        
+        return result
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"[BRAINSTORM:GEN_ARC] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to generate story arc: {str(e)}")
+
+
 # ====== CHARACTER GENERATION ======
 
 @router.post("/sessions/{session_id}/generate-characters")

@@ -701,4 +701,103 @@ class BrainstormService:
             raise ValueError(f"Story {story_id} not found")
         
         return story.story_arc
+    
+    async def generate_arc_from_session(
+        self,
+        session_id: int,
+        structure_type: str = 'three_act'
+    ) -> Dict[str, Any]:
+        """
+        Generate a story arc from brainstorm session's extracted elements.
+        
+        This allows generating an arc before the story is created.
+        
+        Args:
+            session_id: The brainstorm session ID
+            structure_type: Type of arc structure (three_act, five_act, hero_journey)
+            
+        Returns:
+            Generated story arc data
+        """
+        session = self.get_session(session_id)
+        if not session:
+            raise ValueError(f"Session {session_id} not found")
+        
+        if not session.extracted_elements:
+            raise ValueError("Session has no extracted elements. Please extract story elements first.")
+        
+        elements = session.extracted_elements
+        
+        # Build character list for prompt
+        characters_text = ""
+        if elements.get('characters'):
+            for char in elements['characters']:
+                name = char.get('name', 'Unknown')
+                role = char.get('role', 'unknown role')
+                desc = char.get('description', 'No description')
+                characters_text += f"- {name} ({role}): {desc}\n"
+        
+        # Get themes and conflicts
+        themes = ", ".join(elements.get('themes', []))
+        conflicts = ", ".join(elements.get('conflicts', []))
+        plot_points = "\n".join([f"- {p}" for p in elements.get('plot_points', [])])
+        
+        # Get arc generation prompts
+        system_prompt = prompt_manager.get_prompt("brainstorm.story_arc", "system")
+        user_prompt = prompt_manager.get_prompt(
+            "brainstorm.story_arc", "user",
+            structure_type=structure_type,
+            title=elements.get('selectedTitle') or elements.get('suggested_titles', ['Untitled'])[0] if elements.get('suggested_titles') else "Untitled",
+            genre=elements.get('genre', 'General Fiction'),
+            tone=elements.get('tone', 'Balanced'),
+            description=elements.get('description', ''),
+            characters=characters_text or "No characters defined yet",
+            scenario=elements.get('scenario', ''),
+            themes=themes,
+            conflicts=conflicts,
+            plot_points=plot_points,
+            world_setting=elements.get('world_setting', '')
+        )
+        
+        try:
+            # Call LLM to generate arc
+            response = await self.llm_service.generate(
+                prompt=user_prompt,
+                user_id=self.user_id,
+                user_settings=self.user_settings,
+                system_prompt=system_prompt,
+                max_tokens=2000,
+                temperature=0.7
+            )
+            
+            # Parse JSON response
+            response_clean = clean_llm_json(response)
+            arc_data = json.loads(response_clean)
+            
+            # Ensure structure_type is set
+            arc_data['structure_type'] = structure_type
+            
+            # Add timestamps
+            arc_data['generated_at'] = datetime.utcnow().isoformat()
+            arc_data['last_modified_at'] = datetime.utcnow().isoformat()
+            
+            # Save to session's extracted elements
+            elements['story_arc'] = arc_data
+            session.update_extracted_elements(elements)
+            self.db.commit()
+            
+            logger.info(f"[BRAINSTORM] Generated {structure_type} story arc from session {session_id}")
+            
+            return {
+                "session_id": session_id,
+                "arc": arc_data
+            }
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"[BRAINSTORM] Failed to parse arc JSON: {str(e)}")
+            logger.error(f"[BRAINSTORM] Raw response: {response}")
+            raise ValueError("Failed to generate story arc - invalid response format")
+        except Exception as e:
+            logger.error(f"[BRAINSTORM] Error generating story arc from session: {str(e)}")
+            raise
 

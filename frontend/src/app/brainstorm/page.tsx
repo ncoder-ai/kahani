@@ -187,23 +187,33 @@ function BrainstormContent() {
   };
 
   const handleGenerateArc = async (structureType: string) => {
-    // Arc generation will happen after story is created
-    // For now, just store the structure type preference
+    if (!sessionId) {
+      console.error('[Brainstorm] No session ID available for arc generation');
+      return;
+    }
+    
     setIsGeneratingArc(true);
     
-    // Simulate a brief delay for UX
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    // Create a placeholder arc that will be generated after story creation
-    const placeholderArc: StoryArc = {
-      structure_type: structureType as 'three_act' | 'five_act' | 'hero_journey' | 'custom',
-      phases: [],
-      generated_at: new Date().toISOString(),
-      last_modified_at: new Date().toISOString()
-    };
-    
-    setStoryArc(placeholderArc);
-    setIsGeneratingArc(false);
+    try {
+      console.log('[Brainstorm] Generating arc with structure type:', structureType);
+      const result = await apiClient.generateArcFromSession(sessionId, structureType);
+      
+      console.log('[Brainstorm] Arc generated:', result.arc);
+      setStoryArc(result.arc);
+      
+      // Also update extracted elements with the arc
+      const updatedElements = {
+        ...extractedElements,
+        story_arc: result.arc
+      };
+      setExtractedElements(updatedElements);
+      
+    } catch (error) {
+      console.error('[Brainstorm] Failed to generate arc:', error);
+      alert('Failed to generate story arc. Please try again.');
+    } finally {
+      setIsGeneratingArc(false);
+    }
   };
 
   const handleArcConfirm = () => {

@@ -1678,9 +1678,11 @@ brainstorm:
       {characters}
       
       Scenario: {scenario}
+      World Setting: {world_setting}
       
       Themes: {themes}
       Conflicts: {conflicts}
+      Plot Points: {plot_points}
       
       Create a compelling narrative arc that:
       1. Is specifically tailored to these characters and their journeys

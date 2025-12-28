@@ -2115,6 +2115,16 @@ class ApiClient {
 
   // ====== STORY ARC METHODS ======
 
+  async generateArcFromSession(sessionId: number, structureType: string = 'three_act') {
+    return this.request<{
+      session_id: number;
+      arc: StoryArc;
+    }>(`/api/brainstorm/sessions/${sessionId}/generate-arc`, {
+      method: 'POST',
+      body: JSON.stringify({ structure_type: structureType })
+    });
+  }
+
   async generateStoryArc(storyId: number, structureType: string = 'three_act') {
     return this.request<{
       story_id: number;
