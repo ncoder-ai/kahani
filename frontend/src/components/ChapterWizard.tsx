@@ -30,6 +30,7 @@ interface ChapterWizardProps {
     continues_from_previous?: boolean;
     arc_phase_id?: string;
     chapter_plot?: any;
+    recommended_characters?: string[];  // Character names from brainstorm
   };
   onComplete: (data: {
     title?: string;
@@ -61,7 +62,10 @@ export default function ChapterWizard({
 }: ChapterWizardProps) {
   const [title, setTitle] = useState(initialData?.title || `Chapter ${chapterNumber || 1}`);
   const [selectedArcPhaseId, setSelectedArcPhaseId] = useState<string | undefined>(initialData?.arc_phase_id);
-  const [description, setDescription] = useState(initialData?.description || '');
+  // Use plot summary as description if no explicit description provided
+  const [description, setDescription] = useState(
+    initialData?.description || initialData?.chapter_plot?.summary || ''
+  );
   const [selectedCharacterIds, setSelectedCharacterIds] = useState<number[]>(
     initialData?.characters?.map(c => c.id) || []
   );
@@ -84,6 +88,54 @@ export default function ChapterWizard({
   useEffect(() => {
     loadAvailableData();
   }, [storyId]);
+
+  // Update form fields when brainstorm plot is applied
+  useEffect(() => {
+    if (initialData?.chapter_plot) {
+      console.log('[ChapterWizard] Brainstorm plot applied, updating fields');
+      
+      // Update description from plot summary if description is empty
+      if (!description && initialData.chapter_plot.summary) {
+        setDescription(initialData.chapter_plot.summary);
+      }
+      
+      // Update location from plot if location is empty
+      if (!locationName && initialData.location_name) {
+        setLocationName(initialData.location_name);
+      }
+      
+      // Update time/mood from plot if empty
+      if (!timePeriod && initialData.time_period) {
+        setTimePeriod(initialData.time_period);
+      }
+      
+      // Update scenario from plot's opening_situation if empty
+      if (!scenario && initialData.scenario) {
+        setScenario(initialData.scenario);
+      }
+    }
+  }, [initialData?.chapter_plot]);
+
+  // Auto-select characters based on recommended_characters from brainstorm
+  useEffect(() => {
+    if (availableCharacters.length > 0 && initialData?.recommended_characters && initialData.recommended_characters.length > 0) {
+      const recommendedNames = initialData.recommended_characters.map(name => name.toLowerCase());
+      const matchingCharacterIds = availableCharacters
+        .filter(char => recommendedNames.some(recName => 
+          char.name.toLowerCase().includes(recName) || recName.includes(char.name.toLowerCase())
+        ))
+        .map(char => char.id);
+      
+      if (matchingCharacterIds.length > 0) {
+        console.log('[ChapterWizard] Auto-selecting characters from brainstorm:', matchingCharacterIds);
+        setSelectedCharacterIds(prev => {
+          // Merge with existing selections, avoiding duplicates
+          const newIds = new Set([...prev, ...matchingCharacterIds]);
+          return Array.from(newIds);
+        });
+      }
+    }
+  }, [availableCharacters, initialData?.recommended_characters]);
 
   const loadAvailableData = async () => {
     try {

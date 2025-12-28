@@ -3262,13 +3262,16 @@ export default function StoryPage() {
               title: activeChapter?.title || undefined,
               description: activeChapter?.description || undefined,
               characters: activeChapter?.characters || [],
-              location_name: activeChapter?.location_name || undefined,
-              time_period: activeChapter?.time_period || undefined,
-              scenario: activeChapter?.scenario || decodedScenario || undefined,
+              // Use brainstorm plot data if available, otherwise use existing chapter data
+              location_name: brainstormPlot?.location || activeChapter?.location_name || undefined,
+              time_period: brainstormPlot?.mood || activeChapter?.time_period || undefined,  // Use mood as time/atmosphere
+              scenario: brainstormPlot?.opening_situation || activeChapter?.scenario || decodedScenario || undefined,
               continues_from_previous: activeChapter?.continues_from_previous !== undefined ? activeChapter.continues_from_previous : true,
               arc_phase_id: (activeChapter as any)?.arc_phase_id,
               // Use brainstorm plot if available, otherwise use chapter's existing plot
-              chapter_plot: brainstormPlot || (activeChapter as any)?.chapter_plot
+              chapter_plot: brainstormPlot || (activeChapter as any)?.chapter_plot,
+              // Pass recommended characters from brainstorm
+              recommended_characters: brainstormPlot?.recommended_characters || []
             }}
             brainstormSessionId={brainstormSessionId}
             onComplete={(data) => {
