@@ -345,15 +345,15 @@ function BrainstormContent() {
       await apiClient.finalizeDraftStory(storyResponse.id);
       console.log('[Brainstorm] Story finalized as ACTIVE');
       
-      // Generate story arc if structure type was selected
-      if (storyArc?.structure_type) {
+      // Save the story arc if we have one from brainstorm
+      if (storyArc && storyArc.phases && storyArc.phases.length > 0) {
         try {
-          console.log('[Brainstorm] Generating story arc with structure:', storyArc.structure_type);
-          await apiClient.generateStoryArc(storyResponse.id, storyArc.structure_type);
-          console.log('[Brainstorm] Story arc generated');
+          console.log('[Brainstorm] Saving story arc with', storyArc.phases.length, 'phases');
+          await apiClient.updateStoryArc(storyResponse.id, storyArc);
+          console.log('[Brainstorm] Story arc saved');
         } catch (arcError) {
-          console.error('[Brainstorm] Failed to generate arc (non-fatal):', arcError);
-          // Continue anyway - arc generation is optional
+          console.error('[Brainstorm] Failed to save arc (non-fatal):', arcError);
+          // Continue anyway - arc is optional
         }
       }
       

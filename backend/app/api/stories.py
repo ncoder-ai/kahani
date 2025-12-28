@@ -661,7 +661,8 @@ async def get_story(
             "has_variants": any(scene['has_multiple_variants'] for scene in scenes)
         },
         "branch": branch_info,
-        "current_branch_id": active_branch_id
+        "current_branch_id": active_branch_id,
+        "story_arc": story.story_arc
     }
 
 @router.put("/{story_id}")
