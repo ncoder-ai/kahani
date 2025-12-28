@@ -491,7 +491,8 @@ async def get_stories(
     if not include_archived:
         query = query.filter(Story.status != StoryStatus.ARCHIVED)
     
-    stories = query.offset(skip).limit(limit).all()
+    # Order by most recently updated first
+    stories = query.order_by(Story.updated_at.desc()).offset(skip).limit(limit).all()
     
     return [
         {

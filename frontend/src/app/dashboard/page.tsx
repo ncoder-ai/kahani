@@ -135,7 +135,7 @@ function DashboardContent() {
       }
       
       // Make direct fetch request with explicit Authorization header - include all stories (active and archived)
-      const response = await fetch(`${await getApiBaseUrl()}/api/stories/?skip=0&limit=10&include_archived=true`, {
+      const response = await fetch(`${await getApiBaseUrl()}/api/stories/?skip=0&limit=50&include_archived=true`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
