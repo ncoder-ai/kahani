@@ -139,14 +139,39 @@ export default function ChapterBrainstormModal({
     }
   };
 
+  const [isApplying, setIsApplying] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
+
   const handleApplyPlot = async () => {
-    if (extractedPlot && sessionId && chapterId) {
-      try {
-        await apiClient.applyChapterBrainstorm(storyId, sessionId, chapterId);
-        onPlotApplied();
-      } catch (error) {
-        console.error('Failed to apply plot:', error);
-      }
+    console.log('[ChapterBrainstorm] Apply plot clicked', { extractedPlot: !!extractedPlot, sessionId, chapterId });
+    
+    if (!extractedPlot) {
+      setApplyError('No plot to apply. Please extract the plot first.');
+      return;
+    }
+    
+    if (!sessionId) {
+      setApplyError('Session not found. Please try again.');
+      return;
+    }
+    
+    if (!chapterId) {
+      setApplyError('No chapter selected. Please create or select a chapter first, then open brainstorm from the chapter wizard.');
+      return;
+    }
+    
+    setIsApplying(true);
+    setApplyError(null);
+    
+    try {
+      await apiClient.applyChapterBrainstorm(storyId, sessionId, chapterId);
+      console.log('[ChapterBrainstorm] Plot applied successfully');
+      onPlotApplied();
+    } catch (error) {
+      console.error('Failed to apply plot:', error);
+      setApplyError('Failed to apply plot. Please try again.');
+    } finally {
+      setIsApplying(false);
     }
   };
 
@@ -395,6 +420,21 @@ export default function ChapterBrainstormModal({
                   </div>
                 )}
 
+                {/* Error Message */}
+                {applyError && (
+                  <div className="bg-red-500/20 border border-red-500/50 rounded-xl p-4 text-red-300">
+                    {applyError}
+                  </div>
+                )}
+
+                {/* No Chapter Warning */}
+                {!chapterId && (
+                  <div className="bg-yellow-500/20 border border-yellow-500/50 rounded-xl p-4 text-yellow-300">
+                    <p className="font-medium">No chapter selected</p>
+                    <p className="text-sm mt-1">Close this modal and open brainstorm from the chapter wizard to apply the plot to a specific chapter.</p>
+                  </div>
+                )}
+
                 {/* Actions */}
                 <div className="flex gap-4 justify-center pt-4">
                   <button
@@ -405,9 +445,10 @@ export default function ChapterBrainstormModal({
                   </button>
                   <button
                     onClick={handleApplyPlot}
-                    className="px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold rounded-xl hover:from-green-500 hover:to-emerald-500 transition-all"
+                    disabled={isApplying || !chapterId}
+                    className="px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold rounded-xl hover:from-green-500 hover:to-emerald-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    ✓ Apply to Chapter
+                    {isApplying ? 'Applying...' : '✓ Apply to Chapter'}
                   </button>
                 </div>
               </div>
