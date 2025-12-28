@@ -389,7 +389,9 @@ class ChapterBrainstormService:
         }
     
     def _build_story_context(self, story_id: int, arc_phase_id: str = None) -> str:
-        """Build context string with story, arc, and previous chapters."""
+        """Build comprehensive context string with story, arc, and previous chapters."""
+        from ..models import Scene, SceneVariant, StoryFlow
+        
         story = self.db.query(Story).filter(Story.id == story_id).first()
         if not story:
             return "Story not found"
@@ -404,6 +406,8 @@ class ChapterBrainstormService:
             context_parts.append(f"Description: {story.description}")
         if story.scenario:
             context_parts.append(f"Scenario: {story.scenario}")
+        if story.world_setting:
+            context_parts.append(f"World Setting: {story.world_setting}")
         
         # Characters
         if story.story_characters:
@@ -413,27 +417,71 @@ class ChapterBrainstormService:
                 if char:
                     context_parts.append(f"- {char.name} ({sc.role or 'unknown'}): {char.description or 'No description'}")
         
-        # Story arc
+        # Story arc - highlight the target phase
         if story.story_arc:
             context_parts.append("\nSTORY ARC:")
             context_parts.append(f"Structure: {story.story_arc.get('structure_type', 'Unknown')}")
             
             phases = story.story_arc.get('phases', [])
             for phase in phases:
-                marker = ">>> " if phase.get('id') == arc_phase_id else "    "
-                context_parts.append(f"{marker}{phase.get('name', 'Unknown')}: {phase.get('description', '')[:100]}...")
+                is_target = phase.get('id') == arc_phase_id
+                marker = ">>> TARGET PHASE: " if is_target else "    "
+                phase_desc = phase.get('description', '')[:150] if not is_target else phase.get('description', '')
+                context_parts.append(f"{marker}{phase.get('name', 'Unknown')}")
+                context_parts.append(f"      {phase_desc}")
+                if is_target and phase.get('key_events'):
+                    context_parts.append(f"      Key events for this phase: {', '.join(phase.get('key_events', [])[:5])}")
         
-        # Previous chapters summary
+        # Previous chapters with actual content summaries
         chapters = self.db.query(Chapter).filter(
             Chapter.story_id == story_id
         ).order_by(Chapter.chapter_number).all()
         
         if chapters:
-            context_parts.append("\nPREVIOUS CHAPTERS:")
-            for ch in chapters[-5:]:  # Last 5 chapters
-                summary = ch.auto_summary or ch.description or "No summary"
-                context_parts.append(f"- Chapter {ch.chapter_number}: {ch.title or 'Untitled'}")
-                context_parts.append(f"  {summary[:150]}...")
+            context_parts.append("\nWHAT HAS HAPPENED SO FAR:")
+            for ch in chapters:
+                # Get chapter summary - prefer auto_summary, then story_so_far, then description
+                chapter_summary = ch.auto_summary or ch.story_so_far or ch.description
+                
+                if chapter_summary:
+                    context_parts.append(f"\nChapter {ch.chapter_number}: {ch.title or 'Untitled'}")
+                    context_parts.append(f"  {chapter_summary[:300]}...")
+                else:
+                    # If no summary, get a brief from actual scene content
+                    scenes = self.db.query(Scene).filter(
+                        Scene.chapter_id == ch.id
+                    ).order_by(Scene.sequence_number).limit(3).all()
+                    
+                    if scenes:
+                        context_parts.append(f"\nChapter {ch.chapter_number}: {ch.title or 'Untitled'}")
+                        # Get content from active variants
+                        scene_snippets = []
+                        for scene in scenes:
+                            # Get active variant content
+                            active_flow = self.db.query(StoryFlow).filter(
+                                StoryFlow.scene_id == scene.id,
+                                StoryFlow.is_active == True
+                            ).first()
+                            if active_flow:
+                                variant = self.db.query(SceneVariant).filter(
+                                    SceneVariant.id == active_flow.active_variant_id
+                                ).first()
+                                if variant and variant.content:
+                                    scene_snippets.append(variant.content[:100])
+                        
+                        if scene_snippets:
+                            context_parts.append(f"  {' ... '.join(scene_snippets)[:300]}...")
+                        else:
+                            context_parts.append(f"  (No scene content yet)")
+                    else:
+                        context_parts.append(f"\nChapter {ch.chapter_number}: {ch.title or 'Untitled'}")
+                        context_parts.append(f"  (No scenes written yet)")
+            
+            # Add count info
+            total_chapters = len(chapters)
+            context_parts.append(f"\n(Total: {total_chapters} chapter{'s' if total_chapters != 1 else ''} written so far)")
+        else:
+            context_parts.append("\nSTORY PROGRESS: This will be the first chapter.")
         
         return "\n".join(context_parts)
     
