@@ -163,6 +163,8 @@ export default function StoryPage() {
   const [showCharacterBanner, setShowCharacterBanner] = useState(false);
   const [showChapterBrainstormModal, setShowChapterBrainstormModal] = useState(false);
   const [brainstormChapterId, setBrainstormChapterId] = useState<number | undefined>(undefined);
+  const [brainstormPlot, setBrainstormPlot] = useState<any>(null);  // Plot from brainstorm to use in chapter creation
+  const [brainstormSessionId, setBrainstormSessionId] = useState<number | undefined>(undefined);
   const [currentChapterId, setCurrentChapterId] = useState<number | undefined>(undefined);
   const [storyCharacters, setStoryCharacters] = useState<Array<{name: string, role: string, description: string}>>([]);
   const [isGeneratingMoreOptions, setIsGeneratingMoreOptions] = useState(false);
@@ -3265,10 +3267,22 @@ export default function StoryPage() {
               scenario: activeChapter?.scenario || decodedScenario || undefined,
               continues_from_previous: activeChapter?.continues_from_previous !== undefined ? activeChapter.continues_from_previous : true,
               arc_phase_id: (activeChapter as any)?.arc_phase_id,
-              chapter_plot: (activeChapter as any)?.chapter_plot
+              // Use brainstorm plot if available, otherwise use chapter's existing plot
+              chapter_plot: brainstormPlot || (activeChapter as any)?.chapter_plot
             }}
-            onComplete={handleChapterWizardComplete}
-            onCancel={handleChapterWizardCancel}
+            brainstormSessionId={brainstormSessionId}
+            onComplete={(data) => {
+              // Clear brainstorm data after completion
+              setBrainstormPlot(null);
+              setBrainstormSessionId(undefined);
+              handleChapterWizardComplete(data);
+            }}
+            onCancel={() => {
+              // Clear brainstorm data on cancel too
+              setBrainstormPlot(null);
+              setBrainstormSessionId(undefined);
+              handleChapterWizardCancel();
+            }}
           />
         );
       })()}
@@ -3303,10 +3317,19 @@ export default function StoryPage() {
           storyId={storyId}
           chapterId={brainstormChapterId}
           storyArc={story?.story_arc}
-          onPlotApplied={() => {
+          onPlotApplied={(plot, sessionId) => {
             setShowChapterBrainstormModal(false);
             setBrainstormChapterId(undefined);
-            loadStory(); // Reload to get updated chapter plot
+            
+            if (plot) {
+              // Plot returned for new chapter - store it for ChapterWizard
+              setBrainstormPlot(plot);
+              setBrainstormSessionId(sessionId);
+              console.log('[Story] Brainstorm plot saved for new chapter:', plot);
+            } else {
+              // Plot was applied to existing chapter
+              loadStory(); // Reload to get updated chapter plot
+            }
           }}
         />
       )}

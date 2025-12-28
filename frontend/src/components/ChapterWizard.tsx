@@ -19,6 +19,7 @@ interface ChapterWizardProps {
   chapterId?: number; // If provided, indicates edit mode
   storyArc?: StoryArc | null;
   onBrainstorm?: () => void;
+  brainstormSessionId?: number;  // Session ID if plot came from brainstorm
   initialData?: {
     title?: string;
     description?: string;
@@ -41,6 +42,8 @@ interface ChapterWizardProps {
     scenario?: string;
     continues_from_previous?: boolean;
     arc_phase_id?: string;
+    chapter_plot?: any;  // Include plot in completion data
+    brainstorm_session_id?: number;
   }, onStatusUpdate?: (status: { message: string; step: string }) => void) => Promise<void> | void;
   onCancel: () => void;
 }
@@ -51,6 +54,7 @@ export default function ChapterWizard({
   chapterId,
   storyArc,
   onBrainstorm,
+  brainstormSessionId,
   initialData,
   onComplete,
   onCancel
@@ -211,7 +215,9 @@ export default function ChapterWizard({
         time_period: timePeriod.trim() || undefined,
         scenario: scenario.trim() || undefined,
         continues_from_previous: continuesFromPrevious,
-        arc_phase_id: selectedArcPhaseId
+        arc_phase_id: selectedArcPhaseId,
+        chapter_plot: initialData?.chapter_plot,  // Pass through the brainstorm plot
+        brainstorm_session_id: brainstormSessionId
       }, handleStatusUpdate);
     } catch (error) {
       // If there's an error, re-enable the button
@@ -248,19 +254,38 @@ export default function ChapterWizard({
         </div>
 
         <div className="space-y-6">
-          {/* Brainstorm Button */}
+          {/* Brainstorm Button / Plot Applied Indicator */}
           {onBrainstorm && (
-            <div className="bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-500/30 rounded-lg p-4">
+            <div className={`border rounded-lg p-4 ${
+              initialData?.chapter_plot 
+                ? 'bg-gradient-to-r from-emerald-500/20 to-green-500/20 border-emerald-500/50' 
+                : 'bg-gradient-to-r from-green-500/10 to-emerald-500/10 border-green-500/30'
+            }`}>
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-white font-medium">Need help planning this chapter?</h3>
-                  <p className="text-white/60 text-sm">Brainstorm with AI to develop your chapter plot</p>
+                  {initialData?.chapter_plot ? (
+                    <>
+                      <h3 className="text-emerald-300 font-medium flex items-center gap-2">
+                        ✓ Chapter Plot Applied
+                      </h3>
+                      <p className="text-white/60 text-sm">{initialData.chapter_plot.summary?.slice(0, 100)}...</p>
+                    </>
+                  ) : (
+                    <>
+                      <h3 className="text-white font-medium">Need help planning this chapter?</h3>
+                      <p className="text-white/60 text-sm">Brainstorm with AI to develop your chapter plot</p>
+                    </>
+                  )}
                 </div>
                 <button
                   onClick={onBrainstorm}
-                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors"
+                  className={`px-4 py-2 text-white rounded-lg text-sm font-medium transition-colors ${
+                    initialData?.chapter_plot 
+                      ? 'bg-emerald-600 hover:bg-emerald-700' 
+                      : 'bg-green-600 hover:bg-green-700'
+                  }`}
                 >
-                  💡 Brainstorm
+                  {initialData?.chapter_plot ? '✏️ Edit Plot' : '💡 Brainstorm'}
                 </button>
               </div>
             </div>
