@@ -3195,8 +3195,9 @@ class EventToggleRequest(BaseModel):
     completed: bool
 
 
-@router.get("/{chapter_id}/progress", response_model=ChapterProgressResponse)
+@router.get("/{story_id}/chapters/{chapter_id}/progress", response_model=ChapterProgressResponse)
 async def get_chapter_progress(
+    story_id: int,
     chapter_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -3207,14 +3208,15 @@ async def get_chapter_progress(
     Returns progress information including completed events, remaining events,
     and progress percentage.
     """
-    # Get the chapter and verify ownership
-    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+    # Verify story ownership
+    story = db.query(Story).filter(Story.id == story_id, Story.owner_id == current_user.id).first()
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    
+    # Get the chapter
+    chapter = db.query(Chapter).filter(Chapter.id == chapter_id, Chapter.story_id == story_id).first()
     if not chapter:
         raise HTTPException(status_code=404, detail="Chapter not found")
-    
-    story = db.query(Story).filter(Story.id == chapter.story_id).first()
-    if not story or story.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized to access this chapter")
     
     try:
         from ..services.chapter_progress_service import ChapterProgressService
@@ -3226,8 +3228,9 @@ async def get_chapter_progress(
         raise HTTPException(status_code=500, detail=f"Failed to get progress: {str(e)}")
 
 
-@router.put("/{chapter_id}/progress/events")
+@router.put("/{story_id}/chapters/{chapter_id}/progress/events")
 async def toggle_event_completion(
+    story_id: int,
     chapter_id: int,
     request: EventToggleRequest,
     current_user: User = Depends(get_current_user),
@@ -3239,14 +3242,15 @@ async def toggle_event_completion(
     This allows users to manually mark events as complete or incomplete,
     overriding the automatic detection.
     """
-    # Get the chapter and verify ownership
-    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+    # Verify story ownership
+    story = db.query(Story).filter(Story.id == story_id, Story.owner_id == current_user.id).first()
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    
+    # Get the chapter
+    chapter = db.query(Chapter).filter(Chapter.id == chapter_id, Chapter.story_id == story_id).first()
     if not chapter:
         raise HTTPException(status_code=404, detail="Chapter not found")
-    
-    story = db.query(Story).filter(Story.id == chapter.story_id).first()
-    if not story or story.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized to modify this chapter")
     
     if not chapter.chapter_plot:
         raise HTTPException(status_code=400, detail="Chapter has no plot to track")

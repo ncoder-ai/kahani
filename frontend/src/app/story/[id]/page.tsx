@@ -3593,6 +3593,7 @@ export default function StoryPage() {
       
       {/* Chapter Progress Indicator */}
       <ChapterProgressIndicator
+        storyId={storyId}
         chapterId={activeChapterId}
         enabled={userSettings?.generation_preferences?.enable_chapter_plot_tracking !== false}
       />

@@ -5,6 +5,7 @@ import { ChapterProgress } from '@/lib/api';
 import apiClient from '@/lib/api';
 
 interface ChapterProgressIndicatorProps {
+  storyId: number;
   chapterId: number | null;
   enabled: boolean;
   onProgressChange?: (progress: ChapterProgress | null) => void;
@@ -17,6 +18,7 @@ interface ChapterProgressIndicatorProps {
  * to a bottom sheet (mobile) or floating panel (desktop) when tapped.
  */
 export default function ChapterProgressIndicator({
+  storyId,
   chapterId,
   enabled,
   onProgressChange
@@ -28,7 +30,7 @@ export default function ChapterProgressIndicator({
 
   // Fetch progress when chapter changes
   const fetchProgress = useCallback(async () => {
-    if (!chapterId || !enabled) {
+    if (!storyId || !chapterId || !enabled) {
       setProgress(null);
       return;
     }
@@ -37,7 +39,7 @@ export default function ChapterProgressIndicator({
     setError(null);
 
     try {
-      const data = await apiClient.getChapterProgress(chapterId);
+      const data = await apiClient.getChapterProgress(storyId, chapterId);
       setProgress(data);
       onProgressChange?.(data);
     } catch (err) {
@@ -47,7 +49,7 @@ export default function ChapterProgressIndicator({
     } finally {
       setIsLoading(false);
     }
-  }, [chapterId, enabled, onProgressChange]);
+  }, [storyId, chapterId, enabled, onProgressChange]);
 
   useEffect(() => {
     fetchProgress();
@@ -55,10 +57,11 @@ export default function ChapterProgressIndicator({
 
   // Toggle event completion
   const handleToggleEvent = async (event: string, currentlyCompleted: boolean) => {
-    if (!chapterId) return;
+    if (!storyId || !chapterId) return;
 
     try {
       const updatedProgress = await apiClient.toggleEventCompletion(
+        storyId,
         chapterId,
         event,
         !currentlyCompleted

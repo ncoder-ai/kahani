@@ -2261,12 +2261,12 @@ class ApiClient {
   }
 
   // Chapter Progress Methods
-  async getChapterProgress(chapterId: number): Promise<ChapterProgress> {
-    return this.request<ChapterProgress>(`/api/chapters/${chapterId}/progress`);
+  async getChapterProgress(storyId: number, chapterId: number): Promise<ChapterProgress> {
+    return this.request<ChapterProgress>(`/api/stories/${storyId}/chapters/${chapterId}/progress`);
   }
 
-  async toggleEventCompletion(chapterId: number, event: string, completed: boolean): Promise<ChapterProgress> {
-    return this.request<ChapterProgress>(`/api/chapters/${chapterId}/progress/events`, {
+  async toggleEventCompletion(storyId: number, chapterId: number, event: string, completed: boolean): Promise<ChapterProgress> {
+    return this.request<ChapterProgress>(`/api/stories/${storyId}/chapters/${chapterId}/progress/events`, {
       method: 'PUT',
       body: JSON.stringify({ event, completed })
     });
