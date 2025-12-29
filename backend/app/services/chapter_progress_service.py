@@ -236,13 +236,19 @@ class ChapterProgressService:
                 parts.append(f"All key events complete. Move toward climax: {progress['climax']}")
             return "\n".join(parts)
         
+        # At 0% progress (no events completed yet), don't list events
+        # Let CHAPTER PLOT GUIDANCE handle the full plan - avoid rushing
+        if completed_count == 0:
+            parts.append("Let the story unfold naturally toward the chapter goals above. No rush.")
+            return "\n".join(parts)
+        
         # Format remaining events as a concise list
         if progress_pct < 50:
             # Subtle - just list remaining without pressure
             remaining_str = ", ".join(remaining_events[:3])
             if len(remaining_events) > 3:
                 remaining_str += f" (+{len(remaining_events) - 3} more)"
-            parts.append(f"Remaining to weave in: {remaining_str}")
+            parts.append(f"Remaining to weave in when natural: {remaining_str}")
         
         elif progress_pct < 80:
             # Moderate - suggest incorporating soon
