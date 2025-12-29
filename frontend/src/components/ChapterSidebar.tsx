@@ -11,6 +11,11 @@ const ChapterWizard = dynamic(() => import('@/components/ChapterWizard'), {
   ssr: false
 });
 
+const ChapterBrainstormModal = dynamic(() => import('@/components/ChapterBrainstormModal'), {
+  loading: () => null,
+  ssr: false
+});
+
 interface Chapter {
   id: number;
   story_id: number;
@@ -94,6 +99,12 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
   // Chapter activation state
   const [chapterToActivate, setChapterToActivate] = useState<Chapter | null>(null);
   const [isActivatingChapter, setIsActivatingChapter] = useState(false);
+  
+  // Chapter brainstorm state
+  const [showBrainstormModal, setShowBrainstormModal] = useState(false);
+  const [brainstormChapterId, setBrainstormChapterId] = useState<number | undefined>(undefined);
+  const [brainstormPlot, setBrainstormPlot] = useState<any>(null);
+  const [brainstormSessionId, setBrainstormSessionId] = useState<number | undefined>(undefined);
 
   useEffect(() => {
     loadChapters();
@@ -1185,20 +1196,72 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
           storyId={storyId}
           chapterNumber={editingChapterId ? activeChapter?.chapter_number : (chapters.length + 1)}
           chapterId={editingChapterId || undefined}
+          storyArc={storyArc}
+          onBrainstorm={() => {
+            setBrainstormChapterId(editingChapterId || undefined);
+            setShowBrainstormModal(true);
+          }}
+          brainstormSessionId={brainstormSessionId}
           initialData={editingChapterId && activeChapter ? {
             title: activeChapter.title || undefined,
             description: activeChapter.description || undefined,
             characters: activeChapter.characters || [],
-            location_name: activeChapter.location_name || undefined,
+            location_name: brainstormPlot?.location || activeChapter.location_name || undefined,
             time_period: activeChapter.time_period || undefined,
-            scenario: activeChapter.scenario || undefined,
-            continues_from_previous: activeChapter.continues_from_previous !== undefined ? activeChapter.continues_from_previous : true
+            scenario: brainstormPlot?.opening_situation || activeChapter.scenario || undefined,
+            continues_from_previous: activeChapter.continues_from_previous !== undefined ? activeChapter.continues_from_previous : true,
+            chapter_plot: brainstormPlot || (activeChapter as any)?.chapter_plot,
+            recommended_characters: brainstormPlot?.recommended_characters || [],
+            mood: brainstormPlot?.mood || undefined
           } : {
             title: newChapterTitle || undefined,
-            description: newChapterDescription || undefined
+            description: newChapterDescription || undefined,
+            chapter_plot: brainstormPlot,
+            recommended_characters: brainstormPlot?.recommended_characters || [],
+            mood: brainstormPlot?.mood || undefined,
+            location_name: brainstormPlot?.location || undefined,
+            scenario: brainstormPlot?.opening_situation || undefined
           }}
-          onComplete={(data, onStatusUpdate) => handleChapterWizardComplete(data, onStatusUpdate)}
-          onCancel={handleChapterWizardCancel}
+          onComplete={(data, onStatusUpdate) => {
+            // Clear brainstorm data after completion
+            setBrainstormPlot(null);
+            setBrainstormSessionId(undefined);
+            handleChapterWizardComplete(data, onStatusUpdate);
+          }}
+          onCancel={() => {
+            // Clear brainstorm data on cancel too
+            setBrainstormPlot(null);
+            setBrainstormSessionId(undefined);
+            handleChapterWizardCancel();
+          }}
+        />
+      )}
+      
+      {/* Chapter Brainstorm Modal */}
+      {showBrainstormModal && (
+        <ChapterBrainstormModal
+          isOpen={showBrainstormModal}
+          onClose={() => {
+            setShowBrainstormModal(false);
+            setBrainstormChapterId(undefined);
+          }}
+          storyId={storyId}
+          chapterId={brainstormChapterId}
+          storyArc={storyArc}
+          onPlotApplied={(plot, sessionId) => {
+            setShowBrainstormModal(false);
+            setBrainstormChapterId(undefined);
+            
+            if (plot) {
+              // Plot returned for new/existing chapter - store it for ChapterWizard
+              setBrainstormPlot(plot);
+              setBrainstormSessionId(sessionId);
+              console.log('[ChapterSidebar] Brainstorm plot saved:', plot);
+            } else {
+              // Plot was applied to existing chapter
+              loadChapters(); // Reload to get updated chapter plot
+            }
+          }}
         />
       )}
 
