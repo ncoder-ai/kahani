@@ -222,67 +222,70 @@ export default function ChapterProgressIndicator({
               </div>
             </div>
 
-            {/* Events list */}
-            <div className="px-4 pb-4 overflow-y-auto max-h-48 md:max-h-56">
-              <div className="space-y-2">
-                {progress.key_events.map((event, index) => {
-                  const isCompleted = progress.completed_events.includes(event);
-                  return (
-                    <button
-                      key={index}
-                      onClick={() => handleToggleEvent(event, isCompleted)}
-                      className={`
-                        w-full flex items-start gap-3 p-2 rounded-lg
-                        text-left transition-colors
-                        ${isCompleted 
-                          ? 'bg-emerald-500/10 hover:bg-emerald-500/20' 
-                          : 'bg-white/5 hover:bg-white/10'
-                        }
-                      `}
-                      style={{ minHeight: '44px' }}
-                    >
-                      {/* Checkbox */}
-                      <div className={`
-                        flex-shrink-0 w-5 h-5 rounded-full border-2 mt-0.5
-                        flex items-center justify-center transition-colors
-                        ${isCompleted 
-                          ? 'bg-emerald-500 border-emerald-500' 
-                          : 'border-gray-500'
-                        }
-                      `}>
-                        {isCompleted && (
-                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                          </svg>
-                        )}
-                      </div>
-                      {/* Event text */}
-                      <span className={`text-sm ${isCompleted ? 'text-gray-400 line-through' : 'text-white'}`}>
-                        {event}
-                      </span>
-                    </button>
-                  );
-                })}
+            {/* Scrollable content area */}
+            <div className="overflow-y-auto max-h-[40vh] md:max-h-64">
+              {/* Events list */}
+              <div className="px-4 pb-4">
+                <div className="space-y-2">
+                  {progress.key_events.map((event, index) => {
+                    const isCompleted = progress.completed_events.includes(event);
+                    return (
+                      <button
+                        key={index}
+                        onClick={() => handleToggleEvent(event, isCompleted)}
+                        className={`
+                          w-full flex items-start gap-3 p-2 rounded-lg
+                          text-left transition-colors
+                          ${isCompleted 
+                            ? 'bg-emerald-500/10 hover:bg-emerald-500/20' 
+                            : 'bg-white/5 hover:bg-white/10'
+                          }
+                        `}
+                        style={{ minHeight: '44px' }}
+                      >
+                        {/* Checkbox */}
+                        <div className={`
+                          flex-shrink-0 w-5 h-5 rounded-full border-2 mt-0.5
+                          flex items-center justify-center transition-colors
+                          ${isCompleted 
+                            ? 'bg-emerald-500 border-emerald-500' 
+                            : 'border-gray-500'
+                          }
+                        `}>
+                          {isCompleted && (
+                            <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </div>
+                        {/* Event text */}
+                        <span className={`text-sm ${isCompleted ? 'text-gray-400 line-through' : 'text-white'}`}>
+                          {event}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
 
-            {/* Climax & Resolution */}
-            {(progress.climax || progress.resolution) && (
-              <div className="px-4 pb-4 pt-2 border-t border-white/10">
-                {progress.climax && (
-                  <div className="mb-2">
-                    <span className="text-xs text-amber-400 font-medium">Building toward:</span>
-                    <p className="text-sm text-gray-300 mt-0.5">{progress.climax}</p>
-                  </div>
-                )}
-                {progress.resolution && (
-                  <div>
-                    <span className="text-xs text-emerald-400 font-medium">Resolution:</span>
-                    <p className="text-sm text-gray-300 mt-0.5">{progress.resolution}</p>
-                  </div>
-                )}
-              </div>
-            )}
+              {/* Climax & Resolution - inside scrollable area */}
+              {(progress.climax || progress.resolution) && (
+                <div className="px-4 pb-4 pt-2 border-t border-white/10">
+                  {progress.climax && (
+                    <div className="mb-2">
+                      <span className="text-xs text-amber-400 font-medium">Building toward:</span>
+                      <p className="text-sm text-gray-300 mt-0.5 break-words">{progress.climax}</p>
+                    </div>
+                  )}
+                  {progress.resolution && (
+                    <div>
+                      <span className="text-xs text-emerald-400 font-medium">Resolution:</span>
+                      <p className="text-sm text-gray-300 mt-0.5 break-words">{progress.resolution}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
 
             {/* Close button (mobile) */}
             <div className="p-4 border-t border-white/10 md:hidden">

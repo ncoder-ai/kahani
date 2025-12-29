@@ -158,10 +158,10 @@ export default function RefinementWizard({
                     : 'bg-white/5 hover:bg-white/10 border-2 border-transparent'
                 }`}
               >
-                <div className="flex items-center justify-between">
-                  <span className="font-medium">{title}</span>
+                <div className="flex items-start gap-2">
+                  <span className="font-medium flex-1 break-words">{title}</span>
                   {selectedTitle === title && (
-                    <Check className="w-5 h-5 text-purple-400 flex-shrink-0 ml-2" />
+                    <Check className="w-5 h-5 text-purple-400 flex-shrink-0 mt-0.5" />
                   )}
                 </div>
               </button>
