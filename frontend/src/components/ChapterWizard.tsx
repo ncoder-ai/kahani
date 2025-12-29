@@ -31,6 +31,7 @@ interface ChapterWizardProps {
     arc_phase_id?: string;
     chapter_plot?: any;
     recommended_characters?: string[];  // Character names from brainstorm
+    mood?: string;  // Emotional tone from brainstorm (separate from time_period)
   };
   onComplete: (data: {
     title?: string;
@@ -104,15 +105,13 @@ export default function ChapterWizard({
         setLocationName(initialData.location_name);
       }
       
-      // Update time/mood from plot if empty
-      if (!timePeriod && initialData.time_period) {
-        setTimePeriod(initialData.time_period);
-      }
-      
       // Update scenario from plot's opening_situation if empty
       if (!scenario && initialData.scenario) {
         setScenario(initialData.scenario);
       }
+      
+      // Note: mood is displayed in the plot summary section, not as time_period
+      // time_period is for things like "morning", "night", "1920s" - not emotional tone
     }
   }, [initialData?.chapter_plot]);
 
@@ -314,13 +313,23 @@ export default function ChapterWizard({
                 : 'bg-gradient-to-r from-green-500/10 to-emerald-500/10 border-green-500/30'
             }`}>
               <div className="flex items-center justify-between">
-                <div>
+                <div className="flex-1 mr-4">
                   {initialData?.chapter_plot ? (
                     <>
                       <h3 className="text-emerald-300 font-medium flex items-center gap-2">
                         ✓ Chapter Plot Applied
                       </h3>
-                      <p className="text-white/60 text-sm">{initialData.chapter_plot.summary?.slice(0, 100)}...</p>
+                      <p className="text-white/60 text-sm mt-1">{initialData.chapter_plot.summary?.slice(0, 150)}...</p>
+                      {initialData.mood && (
+                        <p className="text-white/50 text-xs mt-1">
+                          <span className="text-purple-300">Mood:</span> {initialData.mood}
+                        </p>
+                      )}
+                      {initialData.chapter_plot.location && (
+                        <p className="text-white/50 text-xs">
+                          <span className="text-blue-300">Location:</span> {initialData.chapter_plot.location}
+                        </p>
+                      )}
                     </>
                   ) : (
                     <>
@@ -331,7 +340,7 @@ export default function ChapterWizard({
                 </div>
                 <button
                   onClick={onBrainstorm}
-                  className={`px-4 py-2 text-white rounded-lg text-sm font-medium transition-colors ${
+                  className={`px-4 py-2 text-white rounded-lg text-sm font-medium transition-colors flex-shrink-0 ${
                     initialData?.chapter_plot 
                       ? 'bg-emerald-600 hover:bg-emerald-700' 
                       : 'bg-green-600 hover:bg-green-700'
