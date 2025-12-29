@@ -571,6 +571,20 @@ class SemanticContextManager(ContextManager):
             base_context["chapter_time_period"] = chapter.time_period
             base_context["chapter_scenario"] = chapter.scenario
             
+            # Add chapter plot guidance if available (from brainstorming)
+            if hasattr(chapter, 'chapter_plot') and chapter.chapter_plot:
+                base_context["chapter_plot"] = chapter.chapter_plot
+                logger.info(f"[SEMANTIC CONTEXT BUILD] Chapter {chapter.chapter_number}: Including chapter_plot guidance")
+            
+            # Add arc phase details if available
+            if hasattr(chapter, 'arc_phase_id') and chapter.arc_phase_id:
+                # Get the arc phase from the story
+                if story.story_arc:
+                    arc_phase = story.get_arc_phase(chapter.arc_phase_id)
+                    if arc_phase:
+                        base_context["arc_phase"] = arc_phase
+                        logger.info(f"[SEMANTIC CONTEXT BUILD] Chapter {chapter.chapter_number}: Including arc phase '{arc_phase.get('name', 'Unknown')}'")
+            
             # Check if chapter continues from previous (controls summary inclusion)
             continues_from_previous = getattr(chapter, 'continues_from_previous', True)
             

@@ -123,6 +123,46 @@ class ExtractionLLMService:
             else:
                 return False, f"Connection failed: {error_msg}", response_time
     
+    async def generate(
+        self,
+        prompt: str,
+        system_prompt: str = "",
+        max_tokens: Optional[int] = None
+    ) -> str:
+        """
+        Generic text generation method for extraction tasks.
+        
+        Args:
+            prompt: The user prompt
+            system_prompt: Optional system prompt
+            max_tokens: Maximum tokens for response
+            
+        Returns:
+            Generated text response
+        """
+        try:
+            from litellm import acompletion
+            
+            params = self._get_generation_params(max_tokens=max_tokens)
+            
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": prompt})
+            
+            response = await acompletion(
+                **params,
+                messages=messages,
+                timeout=self.timeout.total
+            )
+            
+            content = response.choices[0].message.content
+            return content.strip() if content else ""
+            
+        except Exception as e:
+            logger.error(f"Extraction model generation failed: {e}")
+            raise
+    
     async def extract_plot_events(
         self, 
         scene_content: str, 

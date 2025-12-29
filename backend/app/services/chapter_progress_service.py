@@ -264,11 +264,12 @@ class ChapterProgressService:
     ) -> List[str]:
         """
         Use LLM to identify which key events occurred in the scene.
+        Uses extraction LLM if configured, otherwise falls back to main LLM.
         
         Args:
             scene_content: The generated scene text
             key_events: List of planned key events to check for
-            llm_service: The LLM service to use for extraction
+            llm_service: The LLM service to use for extraction (fallback)
             user_id: User ID for LLM call
             user_settings: User settings for LLM call
             
@@ -287,15 +288,50 @@ class ChapterProgressService:
                 key_events=json.dumps(key_events, indent=2)
             )
             
-            # Make LLM call
-            response = await llm_service.generate(
-                prompt=user_prompt,
-                user_id=user_id,
-                user_settings=user_settings,
-                system_prompt=system_prompt,
-                max_tokens=500,
-                temperature=0.3  # Low temperature for consistent extraction
-            )
+            # Check if extraction LLM is enabled
+            extraction_enabled = user_settings.get('extraction_model_settings', {}).get('enabled', False)
+            
+            response = None
+            
+            if extraction_enabled:
+                try:
+                    from .llm.extraction_service import ExtractionLLMService
+                    
+                    logger.info(f"[PLOT_PROGRESS] Using extraction LLM for event extraction (user_id={user_id})")
+                    
+                    # Get extraction model settings
+                    ext_settings = user_settings.get('extraction_model_settings', {})
+                    extraction_service = ExtractionLLMService(
+                        url=ext_settings.get('url', 'http://localhost:1234/v1'),
+                        model=ext_settings.get('model_name', 'qwen2.5-3b-instruct'),
+                        api_key=ext_settings.get('api_key', ''),
+                        temperature=ext_settings.get('temperature', 0.3),
+                        max_tokens=ext_settings.get('max_tokens', 500)
+                    )
+                    
+                    # Generate with extraction model
+                    response = await extraction_service.generate(
+                        prompt=user_prompt,
+                        system_prompt=system_prompt,
+                        max_tokens=500
+                    )
+                    
+                    logger.info(f"[PLOT_PROGRESS] Successfully extracted events with extraction LLM")
+                    
+                except Exception as e:
+                    logger.warning(f"[PLOT_PROGRESS] Extraction LLM failed, falling back to main LLM: {e}")
+                    response = None  # Fall through to main LLM
+            
+            # Use main LLM if extraction LLM not enabled or failed
+            if response is None:
+                response = await llm_service.generate(
+                    prompt=user_prompt,
+                    user_id=user_id,
+                    user_settings=user_settings,
+                    system_prompt=system_prompt,
+                    max_tokens=500,
+                    temperature=0.3  # Low temperature for consistent extraction
+                )
             
             # Parse response as JSON array
             cleaned = clean_llm_json(response)
