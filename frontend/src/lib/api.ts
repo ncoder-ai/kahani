@@ -1521,6 +1521,8 @@ class ApiClient {
       time_period?: string;
       scenario?: string;
       continues_from_previous?: boolean;
+      chapter_plot?: any;  // Structured plot from brainstorming
+      brainstorm_session_id?: number;  // Link to brainstorm session
     },
     onStatusUpdate?: (status: { message: string; step: string }) => void
   ) {

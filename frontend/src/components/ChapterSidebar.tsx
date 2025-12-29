@@ -397,6 +397,8 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
       time_period?: string;
       scenario?: string;
       continues_from_previous?: boolean;
+      chapter_plot?: any;
+      brainstorm_session_id?: number;
     },
     onStatusUpdate?: (status: { message: string; step: string }) => void
   ) => {
@@ -449,7 +451,9 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
             location_name: chapterData.location_name,
             time_period: chapterData.time_period,
             scenario: chapterData.scenario,
-            continues_from_previous: chapterData.continues_from_previous
+            continues_from_previous: chapterData.continues_from_previous,
+            chapter_plot: chapterData.chapter_plot,
+            brainstorm_session_id: chapterData.brainstorm_session_id
           },
           onStatusUpdate || handleStatusUpdate
         );

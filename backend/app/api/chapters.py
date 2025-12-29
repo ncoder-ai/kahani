@@ -34,6 +34,8 @@ class ChapterCreate(BaseModel):
     time_period: Optional[str] = None
     scenario: Optional[str] = None
     continues_from_previous: Optional[bool] = True  # Default to True
+    chapter_plot: Optional[Dict[str, Any]] = None  # Structured plot from brainstorming
+    brainstorm_session_id: Optional[int] = None  # Link to brainstorm session
 
 class ChapterUpdate(BaseModel):
     title: Optional[str] = None
@@ -332,7 +334,9 @@ async def create_chapter(
                     continues_from_previous=chapter_data.continues_from_previous if chapter_data.continues_from_previous is not None else True,
                     status=ChapterStatus.ACTIVE,
                     context_tokens_used=0,
-                    scenes_count=0
+                    scenes_count=0,
+                    chapter_plot=chapter_data.chapter_plot,
+                    brainstorm_session_id=chapter_data.brainstorm_session_id
                 )
                 
                 db.add(new_chapter)
