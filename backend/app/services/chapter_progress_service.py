@@ -164,12 +164,13 @@ class ChapterProgressService:
         Returns:
             Updated progress data
         """
-        # Get existing progress or initialize
-        progress_data = chapter.plot_progress or {
-            "completed_events": [],
-            "scene_count": 0,
-            "climax_reached": False,
-            "last_updated": None
+        # Get existing progress or initialize - make a copy to ensure SQLAlchemy detects the change
+        existing_progress = chapter.plot_progress or {}
+        progress_data = {
+            "completed_events": list(existing_progress.get("completed_events", [])),
+            "scene_count": existing_progress.get("scene_count", 0),
+            "climax_reached": existing_progress.get("climax_reached", False),
+            "last_updated": existing_progress.get("last_updated")
         }
         
         completed_events = set(progress_data.get("completed_events", []))
@@ -182,13 +183,19 @@ class ChapterProgressService:
         progress_data["completed_events"] = list(completed_events)
         progress_data["last_updated"] = datetime.utcnow().isoformat()
         
-        # Save to database
+        # Assign a new dict to ensure SQLAlchemy detects the change
         chapter.plot_progress = progress_data
+        
+        # Force SQLAlchemy to detect the change by flagging the attribute as modified
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(chapter, "plot_progress")
+        
         self.db.commit()
+        self.db.refresh(chapter)
         
         logger.info(f"Toggled event '{event[:50]}...' to {completed} for chapter {chapter.id}")
         
-        return progress_data
+        return chapter.plot_progress
     
     def generate_pacing_guidance(self, chapter: Chapter) -> str:
         """
