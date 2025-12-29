@@ -153,6 +153,19 @@ export interface ChapterPlot {
   location?: string;
 }
 
+export interface ChapterProgress {
+  has_plot: boolean;
+  completed_events: string[];
+  total_events: number;
+  progress_percentage: number;
+  remaining_events: string[];
+  climax_reached: boolean;
+  scene_count: number;
+  climax?: string;
+  resolution?: string;
+  key_events: string[];
+}
+
 /**
  * Custom API Error with additional context
  */
@@ -2244,6 +2257,18 @@ class ApiClient {
       message: string;
     }>(`/api/stories/${storyId}/chapters/brainstorm/${sessionId}`, {
       method: 'DELETE'
+    });
+  }
+
+  // Chapter Progress Methods
+  async getChapterProgress(chapterId: number): Promise<ChapterProgress> {
+    return this.request<ChapterProgress>(`/api/chapters/${chapterId}/progress`);
+  }
+
+  async toggleEventCompletion(chapterId: number, event: string, completed: boolean): Promise<ChapterProgress> {
+    return this.request<ChapterProgress>(`/api/chapters/${chapterId}/progress/events`, {
+      method: 'PUT',
+      body: JSON.stringify({ event, completed })
     });
   }
 

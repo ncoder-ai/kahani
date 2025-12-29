@@ -2,7 +2,7 @@ import logging
 from typing import List, Dict, Any, Optional, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
-from ..models import Story, Scene, Character, StoryCharacter, StoryBranch
+from ..models import Story, Scene, Character, StoryCharacter, StoryBranch, Chapter
 from ..services.llm.service import UnifiedLLMService
 from ..services.llm.prompts import prompt_manager
 from ..database import get_db
@@ -987,8 +987,27 @@ Appearance: {char.get('appearance', '')}
             "current_chapter_summary": full_context.get("current_chapter_summary"),
             # Add chapter plot guidance (from brainstorming)
             "chapter_plot": full_context.get("chapter_plot"),
-            "arc_phase": full_context.get("arc_phase")
+            "arc_phase": full_context.get("arc_phase"),
+            # Pacing guidance will be added below if enabled
+            "pacing_guidance": None
         }
+        
+        # Add pacing guidance if chapter plot tracking is enabled
+        gen_prefs = self.user_settings.get("generation_preferences", {})
+        enable_plot_tracking = gen_prefs.get("enable_chapter_plot_tracking", True)
+        
+        if enable_plot_tracking and chapter_id and scene_context.get("chapter_plot"):
+            try:
+                from .chapter_progress_service import ChapterProgressService
+                chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+                if chapter:
+                    progress_service = ChapterProgressService(db)
+                    pacing_guidance = progress_service.generate_pacing_guidance(chapter)
+                    if pacing_guidance:
+                        scene_context["pacing_guidance"] = pacing_guidance
+                        logger.info(f"[CONTEXT BUILD] Added pacing guidance for chapter {chapter_id}")
+            except Exception as e:
+                logger.warning(f"[CONTEXT BUILD] Failed to generate pacing guidance: {e}")
         
         # Log what's in the context
         logger.info(f"[CONTEXT BUILD] Scene generation context - story_so_far: {'present' if scene_context.get('story_so_far') else 'None'}, previous_chapter_summary: {'present' if scene_context.get('previous_chapter_summary') else 'None'}, current_chapter_summary: {'present' if scene_context.get('current_chapter_summary') else 'None'}")

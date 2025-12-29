@@ -3724,6 +3724,15 @@ Chapter Conclusion:"""
                         "content": "=== RELEVANT CONTEXT ===\n" + relevant_context_match.group(1).strip()
                     })
         
+        # Add pacing guidance at the end (dynamic, changes each scene)
+        # This is placed AFTER all cached messages to preserve cache hits
+        pacing_guidance = context.get("pacing_guidance")
+        if pacing_guidance:
+            messages.append({
+                "role": "user",
+                "content": f"=== CURRENT PROGRESS ===\n{pacing_guidance}"
+            })
+        
         return messages
     
     def _batch_scenes_as_messages(self, scenes_text: str, batch_size: int = 10) -> List[Dict[str, str]]:

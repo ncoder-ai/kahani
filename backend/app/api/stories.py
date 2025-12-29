@@ -842,6 +842,53 @@ async def run_extractions_in_background(
         import traceback
         logger.error(f"[EXTRACTION] Traceback: {traceback.format_exc()}")
 
+
+async def run_plot_progress_extraction(
+    chapter_id: int,
+    scene_content: str,
+    user_id: int,
+    user_settings: dict
+):
+    """Run plot progress extraction in background after scene generation"""
+    try:
+        import asyncio
+        # Small delay to ensure database commits are visible
+        await asyncio.sleep(0.2)
+        
+        from ..database import SessionLocal
+        from ..services.chapter_progress_service import ChapterProgressService
+        
+        progress_db = SessionLocal()
+        try:
+            # Get the chapter
+            chapter = progress_db.query(Chapter).filter(Chapter.id == chapter_id).first()
+            if not chapter or not chapter.chapter_plot:
+                logger.warning(f"[PLOT_PROGRESS] Chapter {chapter_id} not found or has no plot")
+                return
+            
+            # Create progress service and extract completed events
+            progress_service = ChapterProgressService(progress_db)
+            
+            # Use the LLM service for extraction
+            updated_progress = await progress_service.extract_and_update_progress(
+                chapter=chapter,
+                scene_content=scene_content,
+                llm_service=llm_service,
+                user_id=user_id,
+                user_settings=user_settings
+            )
+            
+            if updated_progress:
+                completed_count = len(updated_progress.get("completed_events", []))
+                logger.info(f"[PLOT_PROGRESS] Updated chapter {chapter_id} progress: {completed_count} events completed")
+        finally:
+            progress_db.close()
+    except Exception as e:
+        logger.error(f"[PLOT_PROGRESS] Background extraction failed: {e}")
+        import traceback
+        logger.error(f"[PLOT_PROGRESS] Traceback: {traceback.format_exc()}")
+
+
 @router.post("/{story_id}/scenes")
 async def generate_scene(
     story_id: int,
@@ -1791,6 +1838,26 @@ async def generate_scene_streaming_endpoint(
                     # Send error status to frontend
                     yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'error', 'message': 'Extraction failed'})}\n\n"
                     # Don't fail scene generation if extraction fails
+            
+            # Plot progress extraction (if enabled and chapter has plot)
+            if active_chapter and active_chapter.chapter_plot:
+                try:
+                    generation_prefs = user_settings.get("generation_preferences", {}) if user_settings else {}
+                    enable_plot_tracking = generation_prefs.get("enable_chapter_plot_tracking", True)
+                    
+                    if enable_plot_tracking:
+                        # Run plot progress extraction in background
+                        background_tasks.add_task(
+                            run_plot_progress_extraction,
+                            chapter_id=active_chapter.id,
+                            scene_content=full_content.rstrip(),
+                            user_id=current_user.id,
+                            user_settings=user_settings or {}
+                        )
+                        logger.info(f"[PLOT_PROGRESS] Scheduled plot progress extraction for chapter {active_chapter.id}")
+                except Exception as e:
+                    logger.error(f"[PLOT_PROGRESS] Failed to schedule plot progress extraction: {e}")
+                    # Don't fail scene generation if plot tracking fails
             
             # Send [DONE] as the LAST event after all extraction status events
             yield "data: [DONE]\n\n"

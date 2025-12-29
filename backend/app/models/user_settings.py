@@ -63,6 +63,7 @@ class UserSettings(Base):
     alert_on_high_context = Column(Boolean, nullable=True)  # Alert user to create new chapter when context is high
     use_extraction_llm_for_summary = Column(Boolean, nullable=True)  # Use extraction LLM instead of main LLM for summaries
     separate_choice_generation = Column(Boolean, nullable=True)  # Generate choices in separate LLM call for higher quality
+    enable_chapter_plot_tracking = Column(Boolean, nullable=True)  # Track plot progress and guide LLM pacing
     
     # UI Preferences
     color_theme = Column(String(30), nullable=True)
@@ -172,7 +173,8 @@ class UserSettings(Base):
                 "choices_count": self.choices_count if self.choices_count is not None else gen_defaults.get("choices_count", 4),
                 "alert_on_high_context": self.alert_on_high_context if self.alert_on_high_context is not None else gen_defaults.get("alert_on_high_context", True),
                 "use_extraction_llm_for_summary": self.use_extraction_llm_for_summary if self.use_extraction_llm_for_summary is not None else gen_defaults.get("use_extraction_llm_for_summary", False),
-                "separate_choice_generation": self.separate_choice_generation if self.separate_choice_generation is not None else gen_defaults.get("separate_choice_generation", False)
+                "separate_choice_generation": self.separate_choice_generation if self.separate_choice_generation is not None else gen_defaults.get("separate_choice_generation", False),
+                "enable_chapter_plot_tracking": self.enable_chapter_plot_tracking if self.enable_chapter_plot_tracking is not None else gen_defaults.get("enable_chapter_plot_tracking", True)
             },
             "ui_preferences": {
                 "color_theme": self.color_theme if self.color_theme is not None else ui_defaults.get("color_theme", "pure-dark"),
@@ -319,6 +321,8 @@ class UserSettings(Base):
             self.use_extraction_llm_for_summary = gen.get("use_extraction_llm_for_summary", False)
         if self.separate_choice_generation is None:
             self.separate_choice_generation = gen.get("separate_choice_generation", False)
+        if self.enable_chapter_plot_tracking is None:
+            self.enable_chapter_plot_tracking = gen.get("enable_chapter_plot_tracking", True)
         
         # UI Preferences
         ui = user_defaults.get("ui_preferences", {})

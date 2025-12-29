@@ -3169,3 +3169,100 @@ async def delete_chapter_brainstorm_session(
     except Exception as e:
         logger.error(f"[CHAPTER_BRAINSTORM:DELETE] Error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to delete session: {str(e)}")
+
+
+# =============================================================================
+# Chapter Plot Progress Endpoints
+# =============================================================================
+
+class ChapterProgressResponse(BaseModel):
+    """Response model for chapter progress"""
+    has_plot: bool
+    completed_events: List[str]
+    total_events: int
+    progress_percentage: float
+    remaining_events: List[str]
+    climax_reached: bool
+    scene_count: int
+    climax: Optional[str] = None
+    resolution: Optional[str] = None
+    key_events: List[str] = []
+
+
+class EventToggleRequest(BaseModel):
+    """Request model for toggling event completion"""
+    event: str
+    completed: bool
+
+
+@router.get("/{chapter_id}/progress", response_model=ChapterProgressResponse)
+async def get_chapter_progress(
+    chapter_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get the plot progress for a chapter.
+    
+    Returns progress information including completed events, remaining events,
+    and progress percentage.
+    """
+    # Get the chapter and verify ownership
+    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+    if not chapter:
+        raise HTTPException(status_code=404, detail="Chapter not found")
+    
+    story = db.query(Story).filter(Story.id == chapter.story_id).first()
+    if not story or story.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this chapter")
+    
+    try:
+        from ..services.chapter_progress_service import ChapterProgressService
+        progress_service = ChapterProgressService(db)
+        progress = progress_service.get_chapter_progress(chapter)
+        return progress
+    except Exception as e:
+        logger.error(f"[CHAPTER_PROGRESS:GET] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get progress: {str(e)}")
+
+
+@router.put("/{chapter_id}/progress/events")
+async def toggle_event_completion(
+    chapter_id: int,
+    request: EventToggleRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Manually toggle the completion status of a plot event.
+    
+    This allows users to manually mark events as complete or incomplete,
+    overriding the automatic detection.
+    """
+    # Get the chapter and verify ownership
+    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+    if not chapter:
+        raise HTTPException(status_code=404, detail="Chapter not found")
+    
+    story = db.query(Story).filter(Story.id == chapter.story_id).first()
+    if not story or story.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to modify this chapter")
+    
+    if not chapter.chapter_plot:
+        raise HTTPException(status_code=400, detail="Chapter has no plot to track")
+    
+    try:
+        from ..services.chapter_progress_service import ChapterProgressService
+        progress_service = ChapterProgressService(db)
+        updated_progress = progress_service.toggle_event_completion(
+            chapter=chapter,
+            event=request.event,
+            completed=request.completed
+        )
+        
+        # Return full progress info
+        progress = progress_service.get_chapter_progress(chapter)
+        return progress
+    except Exception as e:
+        logger.error(f"[CHAPTER_PROGRESS:TOGGLE] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to update event: {str(e)}")

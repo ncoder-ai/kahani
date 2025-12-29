@@ -28,6 +28,7 @@ export interface GenerationPreferences {
   alert_on_high_context?: boolean;
   use_extraction_llm_for_summary?: boolean;
   separate_choice_generation?: boolean;
+  enable_chapter_plot_tracking?: boolean;  // Track plot progress and guide LLM pacing (default: true)
 }
 
 export interface ExportSettings {

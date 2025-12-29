@@ -55,6 +55,9 @@ class Chapter(Base):
     arc_phase_id = Column(String(100), nullable=True)  # Links to story arc phase
     brainstorm_session_id = Column(Integer, ForeignKey("chapter_brainstorm_sessions.id", ondelete="SET NULL"), nullable=True)
     
+    # Plot progress tracking
+    plot_progress = Column(JSON, nullable=True)  # {"completed_events": [...], "scene_count": N, "last_updated": "..."}
+    
     # Status and metrics
     status = Column(Enum(ChapterStatus), default=ChapterStatus.ACTIVE)
     context_tokens_used = Column(Integer, default=0)

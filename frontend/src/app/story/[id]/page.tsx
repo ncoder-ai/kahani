@@ -55,6 +55,11 @@ const ChapterBrainstormModal = dynamic(() => import('@/components/ChapterBrainst
   loading: () => null,
   ssr: false
 });
+
+const ChapterProgressIndicator = dynamic(() => import('@/components/ChapterProgressIndicator'), {
+  loading: () => null,
+  ssr: false
+});
 import { BookOpen, ChevronRight, X, AlertCircle, Sparkles, Volume2, Trash2, Edit2 } from 'lucide-react';
 import { 
   BookOpenIcon, 
@@ -3585,6 +3590,12 @@ export default function StoryPage() {
           </div>
         </div>
       )}
+      
+      {/* Chapter Progress Indicator */}
+      <ChapterProgressIndicator
+        chapterId={activeChapterId}
+        enabled={userSettings?.generation_preferences?.enable_chapter_plot_tracking !== false}
+      />
     </div>
   );
 }

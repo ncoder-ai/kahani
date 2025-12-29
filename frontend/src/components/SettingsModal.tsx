@@ -2775,6 +2775,27 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   )}
                 </div>
 
+                {/* Chapter Plot Tracking */}
+                <div className="space-y-4 mb-8 pt-6 border-t border-gray-700">
+                  <h4 className="text-md font-semibold text-white mb-3">Chapter Plot Tracking</h4>
+                  
+                  <div>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={generationPrefs.enable_chapter_plot_tracking ?? true}
+                        onChange={(e) => setGenerationPrefs({ ...generationPrefs, enable_chapter_plot_tracking: e.target.checked })}
+                        className="w-4 h-4 rounded"
+                      />
+                      <span className="text-sm text-white">Enable plot progress tracking</span>
+                    </label>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Track which chapter events have occurred and guide the AI toward remaining plot points.
+                      Disable for completely freeform storytelling without plot guidance.
+                    </p>
+                  </div>
+                </div>
+
                 {/* Context Management */}
                 <div className="space-y-6 mb-8 pt-6 border-t border-gray-700">
                   <h4 className="text-md font-semibold text-white mb-3">Context Management</h4>

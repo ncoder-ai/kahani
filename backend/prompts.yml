@@ -1832,3 +1832,30 @@ chapter_plot_guidance:
     4. Create dramatic tension appropriate to the chapter's position in the arc
     
     Choices should feel organic, not forced toward the plot points.
+
+# =============================================================================
+# CHAPTER PROGRESS - Event Extraction for Plot Tracking
+# =============================================================================
+chapter_progress:
+  event_extraction:
+    system: |
+      You analyze story scenes to identify which planned plot events have occurred.
+      Return ONLY a JSON array of event descriptions that were clearly depicted in the scene.
+      Be conservative - only include events that definitively happened, not hints or foreshadowing.
+      
+      GUIDELINES:
+      - An event is "completed" if it clearly happened in the scene
+      - Partial progress or hints do NOT count as completion
+      - The event description in your response must EXACTLY match one from the provided list
+      - If no events occurred, return an empty array: []
+    
+    user: |
+      Scene content:
+      {scene_content}
+      
+      Planned events to check for:
+      {key_events}
+      
+      Which of these events occurred in this scene? Return as JSON array.
+      Example: ["event 1 description", "event 3 description"]
+      If none occurred, return: []
