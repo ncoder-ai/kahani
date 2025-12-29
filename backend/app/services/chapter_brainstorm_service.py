@@ -56,7 +56,8 @@ class ChapterBrainstormService:
     def create_session(
         self,
         story_id: int,
-        arc_phase_id: str = None
+        arc_phase_id: str = None,
+        chapter_id: int = None
     ) -> ChapterBrainstormSession:
         """
         Create a new chapter brainstorming session.
@@ -64,6 +65,7 @@ class ChapterBrainstormService:
         Args:
             story_id: The story ID
             arc_phase_id: Optional arc phase this chapter targets
+            chapter_id: Optional chapter ID if editing an existing chapter
             
         Returns:
             New ChapterBrainstormSession
@@ -81,6 +83,7 @@ class ChapterBrainstormService:
             story_id=story_id,
             user_id=self.user_id,
             arc_phase_id=arc_phase_id,
+            chapter_id=chapter_id,  # Track which chapter is being edited
             messages=[],
             status='brainstorming'
         )
@@ -88,7 +91,7 @@ class ChapterBrainstormService:
         self.db.commit()
         self.db.refresh(session)
         
-        logger.info(f"[CHAPTER_BRAINSTORM] Created session {session.id} for story {story_id}, arc_phase={arc_phase_id}")
+        logger.info(f"[CHAPTER_BRAINSTORM] Created session {session.id} for story {story_id}, arc_phase={arc_phase_id}, chapter_id={chapter_id}")
         return session
     
     def get_session(self, session_id: int) -> Optional[ChapterBrainstormSession]:
@@ -160,8 +163,8 @@ class ChapterBrainstormService:
         self.db.refresh(session)
         
         try:
-            # Build full story context
-            story_context = self._build_story_context(session.story_id, session.arc_phase_id)
+            # Build full story context (pass chapter_id to know if editing existing chapter)
+            story_context = self._build_story_context(session.story_id, session.arc_phase_id, session.chapter_id)
             
             # Get conversation history
             conversation_history = session.get_conversation_context()
@@ -253,8 +256,8 @@ class ChapterBrainstormService:
             # Format conversation
             conversation_text = self._format_conversation(session.messages)
             
-            # Build story context
-            story_context = self._build_story_context(session.story_id, session.arc_phase_id)
+            # Build story context (pass chapter_id to know if editing existing chapter)
+            story_context = self._build_story_context(session.story_id, session.arc_phase_id, session.chapter_id)
             
             # Get arc phase details
             arc_phase_text = ""
@@ -388,13 +391,24 @@ class ChapterBrainstormService:
             "extracted_plot": normalized_plot
         }
     
-    def _build_story_context(self, story_id: int, arc_phase_id: str = None) -> str:
-        """Build comprehensive context string with story, arc, and previous chapters."""
+    def _build_story_context(self, story_id: int, arc_phase_id: str = None, editing_chapter_id: int = None) -> str:
+        """Build comprehensive context string with story, arc, and previous chapters.
+        
+        Args:
+            story_id: The story ID
+            arc_phase_id: Optional arc phase this chapter targets
+            editing_chapter_id: If provided, indicates we're editing an existing chapter (not creating new)
+        """
         from ..models import Scene, SceneVariant, StoryFlow
         
         story = self.db.query(Story).filter(Story.id == story_id).first()
         if not story:
             return "Story not found"
+        
+        # Get the chapter being edited (if any)
+        editing_chapter = None
+        if editing_chapter_id:
+            editing_chapter = self.db.query(Chapter).filter(Chapter.id == editing_chapter_id).first()
         
         context_parts = []
         
@@ -408,6 +422,11 @@ class ChapterBrainstormService:
             context_parts.append(f"Scenario: {story.scenario}")
         if story.world_setting:
             context_parts.append(f"World Setting: {story.world_setting}")
+        
+        # Indicate which chapter we're working on
+        if editing_chapter:
+            context_parts.append(f"\n*** EDITING CHAPTER {editing_chapter.chapter_number}: {editing_chapter.title or 'Untitled'} ***")
+            context_parts.append(f"(We are brainstorming/editing the plot for this existing chapter, NOT creating a new chapter)")
         
         # Characters
         if story.story_characters:
@@ -438,48 +457,55 @@ class ChapterBrainstormService:
         ).order_by(Chapter.chapter_number).all()
         
         if chapters:
-            context_parts.append("\nWHAT HAS HAPPENED SO FAR:")
-            for ch in chapters:
-                # Get chapter summary - prefer auto_summary, then story_so_far, then description
-                chapter_summary = ch.auto_summary or ch.story_so_far or ch.description
-                
-                if chapter_summary:
-                    context_parts.append(f"\nChapter {ch.chapter_number}: {ch.title or 'Untitled'}")
-                    context_parts.append(f"  {chapter_summary[:300]}...")
-                else:
-                    # If no summary, get a brief from actual scene content
-                    scenes = self.db.query(Scene).filter(
-                        Scene.chapter_id == ch.id
-                    ).order_by(Scene.sequence_number).limit(3).all()
-                    
-                    if scenes:
-                        context_parts.append(f"\nChapter {ch.chapter_number}: {ch.title or 'Untitled'}")
-                        # Get content from active variants
-                        scene_snippets = []
-                        for scene in scenes:
-                            # Get active variant content
-                            active_flow = self.db.query(StoryFlow).filter(
-                                StoryFlow.scene_id == scene.id,
-                                StoryFlow.is_active == True
-                            ).first()
-                            if active_flow:
-                                variant = self.db.query(SceneVariant).filter(
-                                    SceneVariant.id == active_flow.active_variant_id
-                                ).first()
-                                if variant and variant.content:
-                                    scene_snippets.append(variant.content[:100])
-                        
-                        if scene_snippets:
-                            context_parts.append(f"  {' ... '.join(scene_snippets)[:300]}...")
-                        else:
-                            context_parts.append(f"  (No scene content yet)")
-                    else:
-                        context_parts.append(f"\nChapter {ch.chapter_number}: {ch.title or 'Untitled'}")
-                        context_parts.append(f"  (No scenes written yet)")
+            # Filter out the chapter being edited from "previous chapters"
+            previous_chapters = [ch for ch in chapters if ch.id != editing_chapter_id] if editing_chapter_id else chapters
             
-            # Add count info
-            total_chapters = len(chapters)
-            context_parts.append(f"\n(Total: {total_chapters} chapter{'s' if total_chapters != 1 else ''} written so far)")
+            if previous_chapters:
+                context_parts.append("\nWHAT HAS HAPPENED IN OTHER CHAPTERS:")
+                for ch in previous_chapters:
+                    # Get chapter summary - prefer auto_summary, then story_so_far, then description
+                    chapter_summary = ch.auto_summary or ch.story_so_far or ch.description
+                    
+                    if chapter_summary:
+                        context_parts.append(f"\nChapter {ch.chapter_number}: {ch.title or 'Untitled'}")
+                        context_parts.append(f"  {chapter_summary[:300]}...")
+                    else:
+                        # If no summary, get a brief from actual scene content
+                        scenes = self.db.query(Scene).filter(
+                            Scene.chapter_id == ch.id
+                        ).order_by(Scene.sequence_number).limit(3).all()
+                        
+                        if scenes:
+                            context_parts.append(f"\nChapter {ch.chapter_number}: {ch.title or 'Untitled'}")
+                            # Get content from active variants
+                            scene_snippets = []
+                            for scene in scenes:
+                                # Get active variant content
+                                active_flow = self.db.query(StoryFlow).filter(
+                                    StoryFlow.scene_id == scene.id,
+                                    StoryFlow.is_active == True
+                                ).first()
+                                if active_flow:
+                                    variant = self.db.query(SceneVariant).filter(
+                                        SceneVariant.id == active_flow.active_variant_id
+                                    ).first()
+                                    if variant and variant.content:
+                                        scene_snippets.append(variant.content[:100])
+                            
+                            if scene_snippets:
+                                context_parts.append(f"  {' ... '.join(scene_snippets)[:300]}...")
+                            else:
+                                context_parts.append(f"  (No scene content yet)")
+                        else:
+                            context_parts.append(f"\nChapter {ch.chapter_number}: {ch.title or 'Untitled'}")
+                            context_parts.append(f"  (No scenes written yet)")
+            
+            if editing_chapter:
+                context_parts.append(f"\n(Editing Chapter {editing_chapter.chapter_number} of {len(chapters)} total chapters)")
+            else:
+                total_chapters = len(chapters)
+                context_parts.append(f"\n(Total: {total_chapters} chapter{'s' if total_chapters != 1 else ''} written so far)")
+                context_parts.append(f"(You are planning Chapter {total_chapters + 1})")
         else:
             context_parts.append("\nSTORY PROGRESS: This will be the first chapter.")
         

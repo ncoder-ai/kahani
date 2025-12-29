@@ -90,16 +90,19 @@ export default function ChapterBrainstormModal({
     setIsLoading(true);
     
     try {
+      // Pass chapterId to let the backend know we're editing an existing chapter
       const response = await apiClient.createChapterBrainstormSession(
         storyId, 
-        arcPhase?.id
+        arcPhase?.id,
+        chapterId  // This tells the backend which chapter we're editing (if any)
       );
       setSessionId(response.session_id);
       
-      // Add initial greeting
+      // Customize greeting based on whether we're editing or creating
+      const chapterContext = chapterId ? 'this chapter' : 'your next chapter';
       const greeting = arcPhase 
-        ? `I'll help you plan a chapter for the "${arcPhase.name}" phase of your story. This phase focuses on: ${arcPhase.description}\n\nWhat aspects of this chapter would you like to explore? Consider:\n• Key events that should happen\n• Which characters should appear\n• The emotional journey of this chapter`
-        : "I'll help you plan your next chapter. What's on your mind? Tell me about:\n• What you want to happen in this chapter\n• Any characters you want to focus on\n• The mood or tone you're going for";
+        ? `I'll help you plan ${chapterContext} for the "${arcPhase.name}" phase of your story. This phase focuses on: ${arcPhase.description}\n\nWhat aspects of this chapter would you like to explore? Consider:\n• Key events that should happen\n• Which characters should appear\n• The emotional journey of this chapter`
+        : `I'll help you plan ${chapterContext}. What's on your mind? Tell me about:\n• What you want to happen in this chapter\n• Any characters you want to focus on\n• The mood or tone you're going for`;
       
       setMessages([{ role: 'assistant', content: greeting }]);
       setPhase('chat');

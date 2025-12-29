@@ -2852,6 +2852,7 @@ async def get_active_chapter(
 class ChapterBrainstormCreateRequest(BaseModel):
     """Request for creating a chapter brainstorm session."""
     arc_phase_id: Optional[str] = None
+    chapter_id: Optional[int] = None  # If editing an existing chapter
 
 class ChapterBrainstormMessageRequest(BaseModel):
     """Request for sending a message in chapter brainstorm."""
@@ -2878,7 +2879,7 @@ async def create_chapter_brainstorm_session(
     
     Args:
         story_id: The story ID
-        request: Optional arc phase ID to target
+        request: Optional arc phase ID to target, and optional chapter_id if editing existing chapter
         
     Returns:
         New session data
@@ -2892,12 +2893,14 @@ async def create_chapter_brainstorm_session(
         
         session = service.create_session(
             story_id=story_id,
-            arc_phase_id=request.arc_phase_id
+            arc_phase_id=request.arc_phase_id,
+            chapter_id=request.chapter_id  # Pass chapter_id if editing existing chapter
         )
         
         return {
             "session_id": session.id,
             "story_id": session.story_id,
+            "chapter_id": session.chapter_id,
             "arc_phase_id": session.arc_phase_id,
             "status": session.status,
             "created_at": session.created_at.isoformat()

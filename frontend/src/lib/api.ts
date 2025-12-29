@@ -2172,16 +2172,17 @@ class ApiClient {
 
   // ====== CHAPTER BRAINSTORM METHODS ======
 
-  async createChapterBrainstormSession(storyId: number, arcPhaseId?: string) {
+  async createChapterBrainstormSession(storyId: number, arcPhaseId?: string, chapterId?: number) {
     return this.request<{
       session_id: number;
       story_id: number;
+      chapter_id: number | null;
       arc_phase_id: string | null;
       status: string;
       created_at: string;
     }>(`/api/stories/${storyId}/chapters/brainstorm`, {
       method: 'POST',
-      body: JSON.stringify({ arc_phase_id: arcPhaseId })
+      body: JSON.stringify({ arc_phase_id: arcPhaseId, chapter_id: chapterId })
     });
   }
 
