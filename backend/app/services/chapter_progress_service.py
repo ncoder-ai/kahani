@@ -201,6 +201,8 @@ class ChapterProgressService:
         """
         Generate adaptive pacing guidance based on chapter progress.
         
+        Shows only REMAINING events (not duplicating CHAPTER PLOT GUIDANCE) with progress metrics.
+        
         The guidance becomes more directive as the chapter progresses:
         - < 50% progress: Subtle reminder of remaining events
         - 50-80% progress: Moderate suggestion to incorporate events
@@ -218,41 +220,45 @@ class ChapterProgressService:
             return ""
         
         remaining_events = progress["remaining_events"]
-        
-        # If all events are covered, no guidance needed
-        if not remaining_events:
-            # But if climax not reached, guide toward it
-            if not progress["climax_reached"] and progress.get("climax"):
-                return f"All key events have occurred. Now move toward the climax: {progress['climax']}"
-            return ""
-        
+        completed_count = len(progress["completed_events"])
+        total_events = progress["total_events"]
+        scene_count = progress["scene_count"]
         progress_pct = progress["progress_percentage"]
-        climax = progress.get("climax", "")
+        
+        parts = []
+        
+        # Progress summary line
+        parts.append(f"Progress: {completed_count}/{total_events} events completed, Scene {scene_count}")
+        
+        # If all events are covered, guide toward climax/resolution
+        if not remaining_events:
+            if not progress["climax_reached"] and progress.get("climax"):
+                parts.append(f"All key events complete. Move toward climax: {progress['climax']}")
+            return "\n".join(parts)
         
         # Format remaining events as a concise list
-        remaining_str = ", ".join(remaining_events[:3])  # Limit to first 3 for brevity
-        if len(remaining_events) > 3:
-            remaining_str += f" (+{len(remaining_events) - 3} more)"
-        
         if progress_pct < 50:
-            # Subtle - just remind of what's coming
-            return f"Story beats to weave in naturally: {remaining_str}"
+            # Subtle - just list remaining without pressure
+            remaining_str = ", ".join(remaining_events[:3])
+            if len(remaining_events) > 3:
+                remaining_str += f" (+{len(remaining_events) - 3} more)"
+            parts.append(f"Remaining to weave in: {remaining_str}")
         
         elif progress_pct < 80:
             # Moderate - suggest incorporating soon
-            guidance = f"The chapter is progressing well ({int(progress_pct)}% complete). "
-            guidance += f"Consider incorporating these elements soon: {remaining_str}."
-            if climax:
-                guidance += f" Building toward: {climax}"
-            return guidance
+            remaining_str = ", ".join(remaining_events)
+            parts.append(f"Still needed: {remaining_str}")
+            if progress.get("climax"):
+                parts.append(f"Building toward: {progress['climax']}")
         
         else:
             # Directive - explicitly prompt
-            guidance = f"IMPORTANT: The chapter is nearing its conclusion ({int(progress_pct)}% complete). "
-            guidance += f"Now is the time to address: {remaining_str}."
-            if climax:
-                guidance += f" Move toward the climax: {climax}"
-            return guidance
+            remaining_str = ", ".join(remaining_events)
+            parts.append(f"PRIORITY - Address now: {remaining_str}")
+            if progress.get("climax"):
+                parts.append(f"Climax approaching: {progress['climax']}")
+        
+        return "\n".join(parts)
     
     async def extract_completed_events(
         self,
