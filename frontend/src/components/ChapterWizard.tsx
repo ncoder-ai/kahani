@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { X, Plus, Check, MapPin, Clock, FileText } from 'lucide-react';
 import apiClient, { StoryArc } from '@/lib/api';
 import CharacterQuickAdd from '@/components/CharacterQuickAdd';
@@ -90,48 +90,80 @@ export default function ChapterWizard({
     loadAvailableData();
   }, [storyId]);
 
-  // Update form fields when brainstorm plot is applied
+  // Track previous plot to detect when a new brainstorm plot is applied
+  const prevPlotRef = useRef<any>(null);
+  const prevRecommendedCharsRef = useRef<string[] | undefined>(undefined);
+
+  // Update form fields when brainstorm plot is applied or changes
   useEffect(() => {
     if (initialData?.chapter_plot) {
-      console.log('[ChapterWizard] Brainstorm plot applied, updating fields');
+      const isNewPlot = prevPlotRef.current !== initialData.chapter_plot;
       
-      // Update description from plot summary if description is empty
-      if (!description && initialData.chapter_plot.summary) {
-        setDescription(initialData.chapter_plot.summary);
+      if (isNewPlot) {
+        console.log('[ChapterWizard] New brainstorm plot detected, updating fields');
+        prevPlotRef.current = initialData.chapter_plot;
+        
+        // Update description from plot summary
+        if (initialData.chapter_plot.summary) {
+          setDescription(initialData.chapter_plot.summary);
+        }
+        
+        // Update location from plot
+        if (initialData.location_name) {
+          setLocationName(initialData.location_name);
+        } else if (initialData.chapter_plot.location) {
+          setLocationName(initialData.chapter_plot.location);
+        }
+        
+        // Update scenario from plot's opening_situation
+        if (initialData.scenario) {
+          setScenario(initialData.scenario);
+        } else if (initialData.chapter_plot.opening_situation) {
+          setScenario(initialData.chapter_plot.opening_situation);
+        }
+        
+        // Note: mood is displayed in the plot summary section, not as time_period
+        // time_period is for things like "morning", "night", "1920s" - not emotional tone
       }
-      
-      // Update location from plot if location is empty
-      if (!locationName && initialData.location_name) {
-        setLocationName(initialData.location_name);
-      }
-      
-      // Update scenario from plot's opening_situation if empty
-      if (!scenario && initialData.scenario) {
-        setScenario(initialData.scenario);
-      }
-      
-      // Note: mood is displayed in the plot summary section, not as time_period
-      // time_period is for things like "morning", "night", "1920s" - not emotional tone
     }
-  }, [initialData?.chapter_plot]);
+  }, [initialData?.chapter_plot, initialData?.location_name, initialData?.scenario]);
+
+  // Update arc phase when it changes from brainstorm
+  useEffect(() => {
+    if (initialData?.arc_phase_id && initialData.arc_phase_id !== selectedArcPhaseId) {
+      console.log('[ChapterWizard] Arc phase updated from brainstorm:', initialData.arc_phase_id);
+      setSelectedArcPhaseId(initialData.arc_phase_id);
+    }
+  }, [initialData?.arc_phase_id]);
 
   // Auto-select characters based on recommended_characters from brainstorm
   useEffect(() => {
     if (availableCharacters.length > 0 && initialData?.recommended_characters && initialData.recommended_characters.length > 0) {
-      const recommendedNames = initialData.recommended_characters.map(name => name.toLowerCase());
-      const matchingCharacterIds = availableCharacters
-        .filter(char => recommendedNames.some(recName => 
-          char.name.toLowerCase().includes(recName) || recName.includes(char.name.toLowerCase())
-        ))
-        .map(char => char.id);
+      // Check if recommended characters changed
+      const prevChars = prevRecommendedCharsRef.current;
+      const currentChars = initialData.recommended_characters;
+      const charsChanged = !prevChars || 
+        prevChars.length !== currentChars.length || 
+        !prevChars.every((c, i) => c === currentChars[i]);
       
-      if (matchingCharacterIds.length > 0) {
-        console.log('[ChapterWizard] Auto-selecting characters from brainstorm:', matchingCharacterIds);
-        setSelectedCharacterIds(prev => {
-          // Merge with existing selections, avoiding duplicates
-          const newIds = new Set([...prev, ...matchingCharacterIds]);
-          return Array.from(newIds);
-        });
+      if (charsChanged) {
+        prevRecommendedCharsRef.current = currentChars;
+        
+        const recommendedNames = currentChars.map(name => name.toLowerCase());
+        const matchingCharacterIds = availableCharacters
+          .filter(char => recommendedNames.some(recName => 
+            char.name.toLowerCase().includes(recName) || recName.includes(char.name.toLowerCase())
+          ))
+          .map(char => char.id);
+        
+        if (matchingCharacterIds.length > 0) {
+          console.log('[ChapterWizard] Auto-selecting characters from brainstorm:', matchingCharacterIds);
+          setSelectedCharacterIds(prev => {
+            // Merge with existing selections, avoiding duplicates
+            const newIds = new Set([...prev, ...matchingCharacterIds]);
+            return Array.from(newIds);
+          });
+        }
       }
     }
   }, [availableCharacters, initialData?.recommended_characters]);

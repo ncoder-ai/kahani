@@ -16,8 +16,10 @@ interface ChapterBrainstormModalProps {
   chapterId?: number;
   storyArc?: StoryArc | null;
   onClose: () => void;
-  onPlotApplied: (plot?: ChapterPlot, sessionId?: number) => void;  // Now passes plot data back
+  onPlotApplied: (plot?: ChapterPlot, sessionId?: number, arcPhaseId?: string) => void;  // Now passes plot data and arc phase back
   existingSessionId?: number;
+  existingPlot?: ChapterPlot | null;  // If editing an existing plot, skip to review phase
+  existingArcPhaseId?: string;  // The arc phase ID of existing chapter
 }
 
 export default function ChapterBrainstormModal({
@@ -27,16 +29,26 @@ export default function ChapterBrainstormModal({
   storyArc,
   onClose,
   onPlotApplied,
-  existingSessionId
+  existingSessionId,
+  existingPlot,
+  existingArcPhaseId
 }: ChapterBrainstormModalProps) {
   const [sessionId, setSessionId] = useState<number | null>(existingSessionId || null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedPhase, setSelectedPhase] = useState<ArcPhase | null>(null);
-  const [extractedPlot, setExtractedPlot] = useState<ChapterPlot | null>(null);
+  const [selectedPhase, setSelectedPhase] = useState<ArcPhase | null>(() => {
+    // Initialize selected phase from existing arc phase ID
+    if (existingArcPhaseId && storyArc?.phases) {
+      return storyArc.phases.find(p => p.id === existingArcPhaseId) || null;
+    }
+    return null;
+  });
+  const [extractedPlot, setExtractedPlot] = useState<ChapterPlot | null>(existingPlot || null);
   const [isExtracting, setIsExtracting] = useState(false);
-  const [phase, setPhase] = useState<'select_phase' | 'chat' | 'review'>('select_phase');
+  // If we have an existing plot, start in review mode; otherwise start with phase selection
+  const [phase, setPhase] = useState<'select_phase' | 'chat' | 'review'>(existingPlot ? 'review' : 'select_phase');
+  const [isEditingPlot, setIsEditingPlot] = useState(false);  // For inline editing in review phase
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -143,32 +155,30 @@ export default function ChapterBrainstormModal({
   const [applyError, setApplyError] = useState<string | null>(null);
 
   const handleApplyPlot = async () => {
-    console.log('[ChapterBrainstorm] Apply plot clicked', { extractedPlot: !!extractedPlot, sessionId, chapterId });
+    console.log('[ChapterBrainstorm] Apply plot clicked', { extractedPlot: !!extractedPlot, sessionId, chapterId, arcPhaseId: selectedPhase?.id });
     
     if (!extractedPlot) {
       setApplyError('No plot to apply. Please extract the plot first.');
       return;
     }
     
-    if (!sessionId) {
-      setApplyError('Session not found. Please try again.');
-      return;
-    }
+    // Session ID is optional when editing an existing plot
+    const hasSession = sessionId !== null;
     
     setIsApplying(true);
     setApplyError(null);
     
     try {
-      if (chapterId) {
-        // Chapter exists - apply directly to the chapter
+      if (chapterId && hasSession) {
+        // Chapter exists and we have a session - apply directly to the chapter
         await apiClient.applyChapterBrainstorm(storyId, sessionId, chapterId);
         console.log('[ChapterBrainstorm] Plot applied to existing chapter');
-        onPlotApplied();
+        onPlotApplied(undefined, undefined, selectedPhase?.id);
       } else {
-        // No chapter yet - pass the plot back to the caller (ChapterWizard)
-        // The caller will use this when creating the chapter
-        console.log('[ChapterBrainstorm] Passing plot back to caller for new chapter');
-        onPlotApplied(extractedPlot, sessionId || undefined);
+        // No chapter yet OR editing without session - pass the plot back to the caller
+        // The caller will use this when creating/updating the chapter
+        console.log('[ChapterBrainstorm] Passing plot back to caller');
+        onPlotApplied(extractedPlot, sessionId || undefined, selectedPhase?.id);
       }
     } catch (error) {
       console.error('Failed to apply plot:', error);
@@ -350,45 +360,129 @@ export default function ChapterBrainstormModal({
           {phase === 'review' && extractedPlot && (
             <div className="flex-1 overflow-y-auto p-6">
               <div className="max-w-2xl mx-auto space-y-6">
+                {/* Edit Toggle */}
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => setIsEditingPlot(!isEditingPlot)}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                      isEditingPlot 
+                        ? 'bg-purple-600 text-white' 
+                        : 'bg-white/10 text-white/70 hover:bg-white/20'
+                    }`}
+                  >
+                    {isEditingPlot ? '✓ Done Editing' : '✏️ Edit Plot'}
+                  </button>
+                </div>
+
                 {/* Summary */}
                 <div className="bg-white/5 rounded-xl p-4">
                   <h3 className="text-white font-semibold mb-2">Chapter Summary</h3>
-                  <p className="text-white/80">{extractedPlot.summary}</p>
+                  {isEditingPlot ? (
+                    <textarea
+                      value={extractedPlot.summary}
+                      onChange={(e) => setExtractedPlot({ ...extractedPlot, summary: e.target.value })}
+                      className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white resize-none focus:outline-none focus:border-purple-500"
+                      rows={3}
+                    />
+                  ) : (
+                    <p className="text-white/80">{extractedPlot.summary}</p>
+                  )}
                 </div>
 
                 {/* Opening */}
                 <div className="bg-white/5 rounded-xl p-4">
                   <h3 className="text-white font-semibold mb-2">Opening Situation</h3>
-                  <p className="text-white/80">{extractedPlot.opening_situation}</p>
+                  {isEditingPlot ? (
+                    <textarea
+                      value={extractedPlot.opening_situation}
+                      onChange={(e) => setExtractedPlot({ ...extractedPlot, opening_situation: e.target.value })}
+                      className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white resize-none focus:outline-none focus:border-purple-500"
+                      rows={2}
+                    />
+                  ) : (
+                    <p className="text-white/80">{extractedPlot.opening_situation}</p>
+                  )}
                 </div>
 
                 {/* Key Events */}
                 <div className="bg-white/5 rounded-xl p-4">
                   <h3 className="text-white font-semibold mb-2">Key Events</h3>
-                  <ul className="space-y-2">
-                    {extractedPlot.key_events.map((event, i) => (
-                      <li key={i} className="flex items-start gap-2 text-white/80">
-                        <span className="text-purple-400 mt-1">•</span>
-                        {event}
-                      </li>
-                    ))}
-                  </ul>
+                  {isEditingPlot ? (
+                    <div className="space-y-2">
+                      {extractedPlot.key_events.map((event, i) => (
+                        <div key={i} className="flex items-start gap-2">
+                          <span className="text-purple-400 mt-2">•</span>
+                          <input
+                            value={event}
+                            onChange={(e) => {
+                              const newEvents = [...extractedPlot.key_events];
+                              newEvents[i] = e.target.value;
+                              setExtractedPlot({ ...extractedPlot, key_events: newEvents });
+                            }}
+                            className="flex-1 bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-purple-500"
+                          />
+                          <button
+                            onClick={() => {
+                              const newEvents = extractedPlot.key_events.filter((_, idx) => idx !== i);
+                              setExtractedPlot({ ...extractedPlot, key_events: newEvents });
+                            }}
+                            className="p-2 text-red-400 hover:text-red-300"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        onClick={() => setExtractedPlot({ ...extractedPlot, key_events: [...extractedPlot.key_events, ''] })}
+                        className="text-purple-400 text-sm hover:text-purple-300"
+                      >
+                        + Add Event
+                      </button>
+                    </div>
+                  ) : (
+                    <ul className="space-y-2">
+                      {extractedPlot.key_events.map((event, i) => (
+                        <li key={i} className="flex items-start gap-2 text-white/80">
+                          <span className="text-purple-400 mt-1">•</span>
+                          {event}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
 
                 {/* Climax & Resolution */}
                 <div className="grid grid-cols-2 gap-4">
                   <div className="bg-white/5 rounded-xl p-4">
                     <h3 className="text-white font-semibold mb-2">Climax</h3>
-                    <p className="text-white/80">{extractedPlot.climax}</p>
+                    {isEditingPlot ? (
+                      <textarea
+                        value={extractedPlot.climax}
+                        onChange={(e) => setExtractedPlot({ ...extractedPlot, climax: e.target.value })}
+                        className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white resize-none focus:outline-none focus:border-purple-500"
+                        rows={2}
+                      />
+                    ) : (
+                      <p className="text-white/80">{extractedPlot.climax}</p>
+                    )}
                   </div>
                   <div className="bg-white/5 rounded-xl p-4">
                     <h3 className="text-white font-semibold mb-2">Resolution</h3>
-                    <p className="text-white/80">{extractedPlot.resolution}</p>
+                    {isEditingPlot ? (
+                      <textarea
+                        value={extractedPlot.resolution}
+                        onChange={(e) => setExtractedPlot({ ...extractedPlot, resolution: e.target.value })}
+                        className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white resize-none focus:outline-none focus:border-purple-500"
+                        rows={2}
+                      />
+                    ) : (
+                      <p className="text-white/80">{extractedPlot.resolution}</p>
+                    )}
                   </div>
                 </div>
 
                 {/* Character Arcs */}
-                {extractedPlot.character_arcs.length > 0 && (
+                {extractedPlot.character_arcs && extractedPlot.character_arcs.length > 0 && (
                   <div className="bg-white/5 rounded-xl p-4">
                     <h3 className="text-white font-semibold mb-2">Character Development</h3>
                     <div className="space-y-2">
@@ -403,7 +497,7 @@ export default function ChapterBrainstormModal({
                 )}
 
                 {/* New Character Suggestions */}
-                {extractedPlot.new_character_suggestions.length > 0 && (
+                {extractedPlot.new_character_suggestions && extractedPlot.new_character_suggestions.length > 0 && (
                   <div className="bg-white/5 rounded-xl p-4">
                     <h3 className="text-white font-semibold mb-2">Suggested New Characters</h3>
                     <div className="space-y-3">
@@ -431,7 +525,7 @@ export default function ChapterBrainstormModal({
                 )}
 
                 {/* Info about what will happen */}
-                {!chapterId && (
+                {!chapterId && !existingPlot && (
                   <div className="bg-blue-500/20 border border-blue-500/50 rounded-xl p-4 text-blue-300">
                     <p className="font-medium">Creating a new chapter</p>
                     <p className="text-sm mt-1">This plot will be used when you save the chapter. Click "Use This Plot" to continue.</p>
@@ -440,12 +534,21 @@ export default function ChapterBrainstormModal({
 
                 {/* Actions */}
                 <div className="flex gap-4 justify-center pt-4">
-                  <button
-                    onClick={() => setPhase('chat')}
-                    className="px-6 py-3 bg-white/10 text-white rounded-xl hover:bg-white/20 transition-all"
-                  >
-                    ← Back to Chat
-                  </button>
+                  {sessionId ? (
+                    <button
+                      onClick={() => setPhase('chat')}
+                      className="px-6 py-3 bg-white/10 text-white rounded-xl hover:bg-white/20 transition-all"
+                    >
+                      ← Back to Chat
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setPhase('select_phase')}
+                      className="px-6 py-3 bg-white/10 text-white rounded-xl hover:bg-white/20 transition-all"
+                    >
+                      ← Start New Brainstorm
+                    </button>
+                  )}
                   <button
                     onClick={handleApplyPlot}
                     disabled={isApplying}

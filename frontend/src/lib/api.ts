@@ -1628,6 +1628,9 @@ class ApiClient {
     time_period?: string;
     scenario?: string;
     continues_from_previous?: boolean;
+    chapter_plot?: any;  // Structured plot from brainstorming
+    brainstorm_session_id?: number;  // Link to brainstorm session
+    arc_phase_id?: string;  // Story arc phase this chapter belongs to
   }) {
     return this.request<{
       id: number;

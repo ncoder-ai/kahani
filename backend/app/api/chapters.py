@@ -48,6 +48,9 @@ class ChapterUpdate(BaseModel):
     time_period: Optional[str] = None
     scenario: Optional[str] = None
     continues_from_previous: Optional[bool] = None
+    chapter_plot: Optional[Dict[str, Any]] = None  # Structured plot from brainstorming
+    brainstorm_session_id: Optional[int] = None  # Link to brainstorm session
+    arc_phase_id: Optional[str] = None  # Story arc phase this chapter belongs to
 
 class CharacterInfo(BaseModel):
     id: int
@@ -559,6 +562,14 @@ async def update_chapter(
     
     if chapter_data.continues_from_previous is not None:
         chapter.continues_from_previous = chapter_data.continues_from_previous
+    
+    # Update brainstorm-related fields
+    if chapter_data.chapter_plot is not None:
+        chapter.chapter_plot = chapter_data.chapter_plot
+    if chapter_data.brainstorm_session_id is not None:
+        chapter.brainstorm_session_id = chapter_data.brainstorm_session_id
+    if chapter_data.arc_phase_id is not None:
+        chapter.arc_phase_id = chapter_data.arc_phase_id
     
     # Update character associations if provided
     if chapter_data.story_character_ids is not None:

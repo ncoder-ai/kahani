@@ -105,6 +105,7 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
   const [brainstormChapterId, setBrainstormChapterId] = useState<number | undefined>(undefined);
   const [brainstormPlot, setBrainstormPlot] = useState<any>(null);
   const [brainstormSessionId, setBrainstormSessionId] = useState<number | undefined>(undefined);
+  const [brainstormArcPhaseId, setBrainstormArcPhaseId] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     loadChapters();
@@ -399,6 +400,7 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
       continues_from_previous?: boolean;
       chapter_plot?: any;
       brainstorm_session_id?: number;
+      arc_phase_id?: string;
     },
     onStatusUpdate?: (status: { message: string; step: string }) => void
   ) => {
@@ -413,7 +415,10 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
           location_name: chapterData.location_name,
           time_period: chapterData.time_period,
           scenario: chapterData.scenario,
-          continues_from_previous: chapterData.continues_from_previous
+          continues_from_previous: chapterData.continues_from_previous,
+          chapter_plot: chapterData.chapter_plot,
+          brainstorm_session_id: chapterData.brainstorm_session_id,
+          arc_phase_id: chapterData.arc_phase_id
         });
         
         // Reload chapters to get updated list
@@ -1208,7 +1213,7 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
           brainstormSessionId={brainstormSessionId}
           initialData={editingChapterId && activeChapter ? {
             title: activeChapter.title || undefined,
-            description: activeChapter.description || undefined,
+            description: brainstormPlot?.summary || activeChapter.description || undefined,
             characters: activeChapter.characters || [],
             location_name: brainstormPlot?.location || activeChapter.location_name || undefined,
             time_period: activeChapter.time_period || undefined,
@@ -1216,26 +1221,30 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
             continues_from_previous: activeChapter.continues_from_previous !== undefined ? activeChapter.continues_from_previous : true,
             chapter_plot: brainstormPlot || (activeChapter as any)?.chapter_plot,
             recommended_characters: brainstormPlot?.recommended_characters || [],
-            mood: brainstormPlot?.mood || undefined
+            mood: brainstormPlot?.mood || undefined,
+            arc_phase_id: brainstormArcPhaseId || (activeChapter as any)?.arc_phase_id
           } : {
             title: newChapterTitle || undefined,
-            description: newChapterDescription || undefined,
+            description: brainstormPlot?.summary || newChapterDescription || undefined,
             chapter_plot: brainstormPlot,
             recommended_characters: brainstormPlot?.recommended_characters || [],
             mood: brainstormPlot?.mood || undefined,
             location_name: brainstormPlot?.location || undefined,
-            scenario: brainstormPlot?.opening_situation || undefined
+            scenario: brainstormPlot?.opening_situation || undefined,
+            arc_phase_id: brainstormArcPhaseId
           }}
           onComplete={(data, onStatusUpdate) => {
             // Clear brainstorm data after completion
             setBrainstormPlot(null);
             setBrainstormSessionId(undefined);
+            setBrainstormArcPhaseId(undefined);
             handleChapterWizardComplete(data, onStatusUpdate);
           }}
           onCancel={() => {
             // Clear brainstorm data on cancel too
             setBrainstormPlot(null);
             setBrainstormSessionId(undefined);
+            setBrainstormArcPhaseId(undefined);
             handleChapterWizardCancel();
           }}
         />
@@ -1252,18 +1261,26 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
           storyId={storyId}
           chapterId={brainstormChapterId}
           storyArc={storyArc}
-          onPlotApplied={(plot, sessionId) => {
+          existingPlot={editingChapterId && activeChapter ? (activeChapter as any)?.chapter_plot : brainstormPlot}
+          existingArcPhaseId={editingChapterId && activeChapter ? (activeChapter as any)?.arc_phase_id : brainstormArcPhaseId}
+          onPlotApplied={(plot, sessionId, arcPhaseId) => {
             setShowBrainstormModal(false);
             setBrainstormChapterId(undefined);
             
             if (plot) {
-              // Plot returned for new/existing chapter - store it for ChapterWizard
+              // Plot returned - store it for ChapterWizard
               setBrainstormPlot(plot);
               setBrainstormSessionId(sessionId);
-              console.log('[ChapterSidebar] Brainstorm plot saved:', plot);
+              setBrainstormArcPhaseId(arcPhaseId);
+              console.log('[ChapterSidebar] Brainstorm plot saved:', { plot, sessionId, arcPhaseId });
+              
+              // Reopen the ChapterWizard with the new plot data
+              setShowChapterWizard(true);
             } else {
-              // Plot was applied to existing chapter
+              // Plot was applied directly to existing chapter via API
+              setBrainstormArcPhaseId(arcPhaseId);
               loadChapters(); // Reload to get updated chapter plot
+              if (onChapterChange) onChapterChange();
             }
           }}
         />
