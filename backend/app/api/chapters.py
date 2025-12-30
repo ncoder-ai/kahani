@@ -3288,3 +3288,102 @@ async def toggle_event_completion(
     except Exception as e:
         logger.error(f"[CHAPTER_PROGRESS:TOGGLE] Error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to update event: {str(e)}")
+
+
+@router.post("/{story_id}/chapters/{chapter_id}/progress/extract")
+async def extract_chapter_progress(
+    story_id: int,
+    chapter_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Manually trigger plot event extraction for a chapter.
+    
+    This runs the extraction LLM on all scenes in the chapter to detect
+    which planned events have occurred.
+    """
+    # Verify story ownership
+    story = db.query(Story).filter(Story.id == story_id, Story.owner_id == current_user.id).first()
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    
+    # Get the chapter
+    chapter = db.query(Chapter).filter(Chapter.id == chapter_id, Chapter.story_id == story_id).first()
+    if not chapter:
+        raise HTTPException(status_code=404, detail="Chapter not found")
+    
+    if not chapter.chapter_plot:
+        raise HTTPException(status_code=400, detail="Chapter has no plot to track")
+    
+    try:
+        from ..services.chapter_progress_service import ChapterProgressService
+        from ..services.llm.service import UnifiedLLMService
+        from ..models import Scene, SceneVariant, StoryFlow, UserSettings
+        
+        # Get user settings
+        user_settings_obj = db.query(UserSettings).filter(UserSettings.user_id == current_user.id).first()
+        user_settings = user_settings_obj.to_dict() if user_settings_obj else {}
+        
+        progress_service = ChapterProgressService(db)
+        llm_service = UnifiedLLMService(user_settings=user_settings, user_id=current_user.id)
+        
+        # Get all scenes in the chapter
+        scenes = db.query(Scene).filter(
+            Scene.chapter_id == chapter_id,
+            Scene.is_deleted == False
+        ).order_by(Scene.sequence_number).all()
+        
+        logger.info(f"[CHAPTER_PROGRESS:EXTRACT] Manually extracting from {len(scenes)} scenes")
+        
+        key_events = chapter.chapter_plot.get("key_events", [])
+        all_extracted = []
+        
+        for scene in scenes:
+            # Get active variant content
+            flow = db.query(StoryFlow).filter(
+                StoryFlow.scene_id == scene.id,
+                StoryFlow.is_active == True
+            ).first()
+            
+            if not flow or not flow.scene_variant_id:
+                continue
+                
+            variant = db.query(SceneVariant).filter(
+                SceneVariant.id == flow.scene_variant_id
+            ).first()
+            
+            if not variant or not variant.content:
+                continue
+            
+            # Run extraction
+            extracted = await progress_service.extract_completed_events(
+                scene_content=variant.content,
+                key_events=key_events,
+                llm_service=llm_service,
+                user_id=current_user.id,
+                user_settings=user_settings
+            )
+            
+            if extracted:
+                all_extracted.extend(extracted)
+                logger.info(f"[CHAPTER_PROGRESS:EXTRACT] Scene {scene.sequence_number}: Found {len(extracted)} events")
+        
+        # Update progress with all extracted events
+        if all_extracted:
+            progress_service.update_progress(
+                chapter=chapter,
+                new_completed_events=list(set(all_extracted))  # Dedupe
+            )
+        
+        # Return updated progress
+        progress = progress_service.get_chapter_progress(chapter)
+        return {
+            "message": f"Extracted events from {len(scenes)} scenes",
+            "newly_detected": list(set(all_extracted)),
+            "progress": progress
+        }
+        
+    except Exception as e:
+        logger.error(f"[CHAPTER_PROGRESS:EXTRACT] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to extract progress: {str(e)}")
