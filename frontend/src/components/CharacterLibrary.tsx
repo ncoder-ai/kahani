@@ -160,36 +160,45 @@ export default function CharacterLibrary() {
         <div className="bg-white/10 rounded-xl p-6 mb-8">
           <div className="flex flex-wrap gap-4 items-center justify-between">
             <div className="flex flex-wrap gap-4 items-center">
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <button
                   type="button"
-                  onClick={() => setFilter('all')}
-                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setFilter('all');
+                  }}
+                  className={`px-4 py-2 rounded-lg font-medium transition-colors touch-manipulation min-h-[44px] ${
                     filter === 'all'
                       ? 'theme-btn-primary'
-                      : 'bg-white/20 text-white hover:bg-white/30'
+                      : 'bg-white/20 text-white hover:bg-white/30 active:bg-white/40'
                   }`}
                 >
                   All Characters
                 </button>
                 <button
                   type="button"
-                  onClick={() => setFilter('mine')}
-                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setFilter('mine');
+                  }}
+                  className={`px-4 py-2 rounded-lg font-medium transition-colors touch-manipulation min-h-[44px] ${
                     filter === 'mine'
                       ? 'theme-btn-primary'
-                      : 'bg-white/20 text-white hover:bg-white/30'
+                      : 'bg-white/20 text-white hover:bg-white/30 active:bg-white/40'
                   }`}
                 >
                   My Characters
                 </button>
                 <button
                   type="button"
-                  onClick={() => setFilter('public')}
-                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setFilter('public');
+                  }}
+                  className={`px-4 py-2 rounded-lg font-medium transition-colors touch-manipulation min-h-[44px] ${
                     filter === 'public'
                       ? 'theme-btn-primary'
-                      : 'bg-white/20 text-white hover:bg-white/30'
+                      : 'bg-white/20 text-white hover:bg-white/30 active:bg-white/40'
                   }`}
                 >
                   Public Gallery
@@ -215,17 +224,23 @@ export default function CharacterLibrary() {
               <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  onClick={selectAll}
-                  className="px-3 py-1.5 bg-white/20 text-white text-sm rounded hover:bg-white/30 transition-colors"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    selectAll();
+                  }}
+                  className="px-4 py-2 bg-white/20 text-white text-sm rounded hover:bg-white/30 active:bg-white/40 transition-colors touch-manipulation min-h-[44px]"
                 >
                   {selectedIds.size === characters.length ? 'Deselect All' : 'Select All'}
                 </button>
                 {selectedIds.size > 0 && (
                   <button
                     type="button"
-                    onClick={bulkDelete}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      bulkDelete();
+                    }}
                     disabled={isDeleting}
-                    className="px-4 py-1.5 bg-red-500/80 text-white text-sm rounded hover:bg-red-600 transition-colors flex items-center gap-2 disabled:opacity-50"
+                    className="px-4 py-2 bg-red-500/80 text-white text-sm rounded hover:bg-red-600 active:bg-red-700 transition-colors flex items-center gap-2 disabled:opacity-50 touch-manipulation min-h-[44px]"
                   >
                     <Trash2 className="w-4 h-4" />
                     {isDeleting ? 'Deleting...' : `Delete (${selectedIds.size})`}
@@ -310,21 +325,25 @@ export default function CharacterLibrary() {
                   <div className="flex gap-2">
                     <Link
                       href={`/characters/${character.id}`}
-                      className="px-3 py-1 bg-white/20 text-white text-sm rounded hover:bg-white/30 transition-colors"
+                      className="px-3 py-2 bg-white/20 text-white text-sm rounded hover:bg-white/30 active:bg-white/40 transition-colors touch-manipulation"
                     >
                       View
                     </Link>
                     <Link
                       href={`/characters/${character.id}/edit`}
-                      className="px-3 py-1 bg-blue-500/20 text-blue-300 text-sm rounded hover:bg-blue-500/30 transition-colors"
+                      className="px-3 py-2 bg-blue-500/20 text-blue-300 text-sm rounded hover:bg-blue-500/30 active:bg-blue-500/40 transition-colors touch-manipulation"
                     >
                       Edit
                     </Link>
                   </div>
                   <button
                     type="button"
-                    onClick={() => deleteCharacter(character.id)}
-                    className="px-3 py-1 bg-red-500/20 text-red-300 text-sm rounded hover:bg-red-500/30 transition-colors"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      deleteCharacter(character.id);
+                    }}
+                    className="px-4 py-2 bg-red-500/20 text-red-300 text-sm rounded hover:bg-red-500/30 active:bg-red-500/40 transition-colors touch-manipulation min-h-[44px] min-w-[44px]"
                   >
                     Delete
                   </button>
