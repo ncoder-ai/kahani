@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import apiClient from '@/lib/api';
 import { useUISettings } from '@/hooks/useUISettings';
 import Link from 'next/link';
-import { Trash2 } from 'lucide-react';
+import { Trash2, X } from 'lucide-react';
 
 interface Character {
   id: number;
@@ -22,6 +22,14 @@ interface Character {
   updated_at: string | null;
 }
 
+// Confirmation dialog state
+interface DeleteConfirmation {
+  type: 'single' | 'bulk';
+  characterId?: number;
+  characterName?: string;
+  count?: number;
+}
+
 export default function CharacterLibrary() {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [loading, setLoading] = useState(true);
@@ -30,6 +38,7 @@ export default function CharacterLibrary() {
   const [userSettings, setUserSettings] = useState<any>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteConfirmation | null>(null);
 
   // Apply UI settings (theme, font size, etc.)
   useUISettings(userSettings?.ui_preferences || null);
@@ -91,44 +100,55 @@ export default function CharacterLibrary() {
     }
   };
 
-  const deleteCharacter = async (id: number) => {
-    if (!window.confirm('Are you sure you want to delete this character?')) {
-      return;
-    }
-
-    try {
-      await apiClient.deleteCharacter(id);
-      setCharacters(characters.filter(char => char.id !== id));
-      setSelectedIds(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(id);
-        return newSet;
-      });
-    } catch (error) {
-      console.error('Failed to delete character:', error);
-      alert('Failed to delete character');
-    }
+  // Show confirmation dialog for single delete
+  const promptDeleteCharacter = (id: number) => {
+    const character = characters.find(c => c.id === id);
+    setDeleteConfirmation({
+      type: 'single',
+      characterId: id,
+      characterName: character?.name || 'this character'
+    });
   };
 
-  const bulkDelete = async () => {
+  // Show confirmation dialog for bulk delete
+  const promptBulkDelete = () => {
     if (selectedIds.size === 0) return;
-    
-    const count = selectedIds.size;
-    if (!window.confirm(`Are you sure you want to delete ${count} character${count > 1 ? 's' : ''}? This action cannot be undone.`)) {
-      return;
-    }
+    setDeleteConfirmation({
+      type: 'bulk',
+      count: selectedIds.size
+    });
+  };
+
+  // Actually perform the delete after confirmation
+  const confirmDelete = async () => {
+    if (!deleteConfirmation) return;
 
     setIsDeleting(true);
     try {
-      const result = await apiClient.bulkDeleteCharacters(Array.from(selectedIds));
-      setCharacters(characters.filter(char => !result.deleted_ids.includes(char.id)));
-      setSelectedIds(new Set());
+      if (deleteConfirmation.type === 'single' && deleteConfirmation.characterId) {
+        await apiClient.deleteCharacter(deleteConfirmation.characterId);
+        setCharacters(characters.filter(char => char.id !== deleteConfirmation.characterId));
+        setSelectedIds(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(deleteConfirmation.characterId!);
+          return newSet;
+        });
+      } else if (deleteConfirmation.type === 'bulk') {
+        const result = await apiClient.bulkDeleteCharacters(Array.from(selectedIds));
+        setCharacters(characters.filter(char => !result.deleted_ids.includes(char.id)));
+        setSelectedIds(new Set());
+      }
     } catch (error) {
-      console.error('Failed to delete characters:', error);
-      alert('Failed to delete some characters. They may be in use in stories.');
+      console.error('Failed to delete character(s):', error);
+      alert('Failed to delete. The character(s) may be in use in stories.');
     } finally {
       setIsDeleting(false);
+      setDeleteConfirmation(null);
     }
+  };
+
+  const cancelDelete = () => {
+    setDeleteConfirmation(null);
   };
 
   if (loading) {
@@ -237,7 +257,7 @@ export default function CharacterLibrary() {
                     type="button"
                     onClick={(e) => {
                       e.preventDefault();
-                      bulkDelete();
+                      promptBulkDelete();
                     }}
                     disabled={isDeleting}
                     className="px-4 py-2 bg-red-500/80 text-white text-sm rounded hover:bg-red-600 active:bg-red-700 transition-colors flex items-center gap-2 disabled:opacity-50 touch-manipulation min-h-[44px]"
@@ -341,7 +361,7 @@ export default function CharacterLibrary() {
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      deleteCharacter(character.id);
+                      promptDeleteCharacter(character.id);
                     }}
                     className="px-4 py-2 bg-red-500/20 text-red-300 text-sm rounded hover:bg-red-500/30 active:bg-red-500/40 transition-colors touch-manipulation min-h-[44px] min-w-[44px]"
                   >
@@ -353,6 +373,57 @@ export default function CharacterLibrary() {
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmation && (
+        <div 
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
+          onClick={cancelDelete}
+        >
+          <div 
+            className="bg-gray-800 rounded-xl p-6 max-w-sm w-full shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-start mb-4">
+              <h3 className="text-xl font-bold text-white">Confirm Delete</h3>
+              <button
+                type="button"
+                onClick={cancelDelete}
+                className="text-white/60 hover:text-white p-1 touch-manipulation"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <p className="text-white/80 mb-6">
+              {deleteConfirmation.type === 'single' 
+                ? `Are you sure you want to delete "${deleteConfirmation.characterName}"?`
+                : `Are you sure you want to delete ${deleteConfirmation.count} character${deleteConfirmation.count! > 1 ? 's' : ''}?`
+              }
+              <br />
+              <span className="text-red-400 text-sm">This action cannot be undone.</span>
+            </p>
+
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={cancelDelete}
+                className="px-4 py-2 bg-white/20 text-white rounded-lg hover:bg-white/30 active:bg-white/40 transition-colors touch-manipulation min-h-[44px]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                disabled={isDeleting}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 active:bg-red-800 transition-colors disabled:opacity-50 touch-manipulation min-h-[44px]"
+              >
+                {isDeleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
