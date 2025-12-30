@@ -1,7 +1,7 @@
 """Add enable_chapter_plot_tracking to user_settings
 
-Revision ID: 029_add_enable_chapter_plot_tracking
-Revises: 028_add_plot_progress
+Revision ID: 029_plot_tracking_setting
+Revises: 028_plot_progress
 Create Date: 2024-12-29
 
 """
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '029_add_enable_chapter_plot_tracking'
-down_revision = '028_add_plot_progress'
+revision = '029_plot_tracking_setting'
+down_revision = '028_plot_progress'
 branch_labels = None
 depends_on = None
 

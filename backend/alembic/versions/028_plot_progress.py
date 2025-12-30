@@ -1,7 +1,7 @@
 """Add plot_progress to chapters
 
-Revision ID: 028
-Revises: 027
+Revision ID: 028_plot_progress
+Revises: 027_story_arc_brainstorm
 Create Date: 2024-12-29
 
 """
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '028_add_plot_progress'
-down_revision = '027_add_story_arc_and_chapter_brainstorm'
+revision = '028_plot_progress'
+down_revision = '027_story_arc_brainstorm'
 branch_labels = None
 depends_on = None
 

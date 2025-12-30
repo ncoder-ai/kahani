@@ -1,6 +1,6 @@
 """Add story arc and chapter brainstorm support
 
-Revision ID: 027_add_story_arc_and_chapter_brainstorm
+Revision ID: 027_story_arc_brainstorm
 Revises: 026_expand_string_columns
 Create Date: 2024-12-28
 
@@ -15,7 +15,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '027_add_story_arc_and_chapter_brainstorm'
+revision = '027_story_arc_brainstorm'
 down_revision = '026_expand_string_columns'
 branch_labels = None
 depends_on = None
