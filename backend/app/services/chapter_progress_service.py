@@ -80,6 +80,19 @@ class ChapterProgressService:
         # Calculate progress percentage
         progress_percentage = (len(completed_events) / total_events * 100) if total_events > 0 else 0
         
+        # Get actual scene count from database (more accurate than stored value)
+        actual_scene_count = 0
+        try:
+            from ..models.scene import Scene
+            actual_scene_count = self.db.query(Scene).filter(
+                Scene.chapter_id == chapter.id,
+                Scene.is_deleted == False
+            ).count()
+        except Exception as e:
+            logger.warning(f"[CHAPTER PROGRESS] Failed to get scene count: {e}")
+            # Fall back to stored value
+            actual_scene_count = progress_data.get("scene_count", 0)
+        
         return {
             "has_plot": True,
             "completed_events": completed_events,
@@ -87,7 +100,7 @@ class ChapterProgressService:
             "progress_percentage": round(progress_percentage, 1),
             "remaining_events": remaining_events,
             "climax_reached": progress_data.get("climax_reached", False),
-            "scene_count": progress_data.get("scene_count", 0),
+            "scene_count": actual_scene_count,  # Use actual scene count, not stored
             "climax": chapter.chapter_plot.get("climax"),
             "resolution": chapter.chapter_plot.get("resolution"),
             "key_events": key_events
