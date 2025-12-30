@@ -1840,13 +1840,14 @@ chapter_progress:
   event_extraction:
     system: |
       You analyze story scenes to identify which planned plot events have occurred.
-      Return ONLY a JSON array of event descriptions that were clearly depicted in the scene.
-      Be conservative - only include events that definitively happened, not hints or foreshadowing.
+      Return ONLY a JSON array containing the EXACT event descriptions from the provided list.
       
       GUIDELINES:
-      - An event is "completed" if it clearly happened in the scene
-      - Partial progress or hints do NOT count as completion
-      - The event description in your response must EXACTLY match one from the provided list
+      - Check if the MEANING of each planned event is depicted in the scene
+      - The scene doesn't need to use the exact same words - look for semantic equivalence
+      - An event is "completed" if the core action clearly happened
+      - Partial progress or mere hints do NOT count as completion
+      - IMPORTANT: Copy the event text EXACTLY as written in the provided list
       - If no events occurred, return an empty array: []
     
     user: |
@@ -1856,6 +1857,9 @@ chapter_progress:
       Planned events to check for:
       {key_events}
       
-      Which of these events occurred in this scene? Return as JSON array.
-      Example: ["event 1 description", "event 3 description"]
-      If none occurred, return: []
+      Which of these planned events OCCURRED in this scene? 
+      Return ONLY the events that clearly happened as a JSON array.
+      COPY the event text exactly from the list above.
+      
+      Example response: ["Jack finds and touches a dark crystalline pyramid artifact, which begins glowing and triggers overwhelming Force visions in his mind"]
+      If none occurred: []

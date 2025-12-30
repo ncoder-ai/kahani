@@ -359,7 +359,9 @@ class ChapterProgressService:
                 )
             
             # Parse response as JSON array
+            logger.info(f"[PLOT_PROGRESS] Raw LLM response: {response[:500] if response else 'None'}...")
             cleaned = clean_llm_json(response)
+            logger.info(f"[PLOT_PROGRESS] Cleaned JSON: {cleaned[:300] if cleaned else 'None'}...")
             completed = json.loads(cleaned)
             
             if not isinstance(completed, list):
