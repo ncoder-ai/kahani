@@ -81,6 +81,8 @@ class ChapterResponse(BaseModel):
     time_period: Optional[str] = None
     scenario: Optional[str] = None
     continues_from_previous: Optional[bool] = True
+    chapter_plot: Optional[Dict[str, Any]] = None
+    arc_phase_id: Optional[str] = None
     
     class Config:
         from_attributes = True
@@ -129,7 +131,9 @@ def build_chapter_response(chapter: Chapter, db: Session) -> ChapterResponse:
         location_name=chapter.location_name,
         time_period=chapter.time_period,
         scenario=chapter.scenario,
-        continues_from_previous=getattr(chapter, 'continues_from_previous', True)
+        continues_from_previous=getattr(chapter, 'continues_from_previous', True),
+        chapter_plot=chapter.chapter_plot,
+        arc_phase_id=chapter.arc_phase_id
     )
 
 class ChapterContextStatus(BaseModel):

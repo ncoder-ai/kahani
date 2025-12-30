@@ -41,6 +41,8 @@ interface Chapter {
   time_period?: string | null;
   scenario?: string | null;
   continues_from_previous?: boolean;
+  chapter_plot?: any;
+  arc_phase_id?: string | null;
 }
 
 interface ChapterContextStatus {
@@ -1219,10 +1221,10 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
             time_period: activeChapter.time_period || undefined,
             scenario: brainstormPlot?.opening_situation || activeChapter.scenario || undefined,
             continues_from_previous: activeChapter.continues_from_previous !== undefined ? activeChapter.continues_from_previous : true,
-            chapter_plot: brainstormPlot || (activeChapter as any)?.chapter_plot,
+            chapter_plot: brainstormPlot || activeChapter.chapter_plot,
             recommended_characters: brainstormPlot?.recommended_characters || [],
             mood: brainstormPlot?.mood || undefined,
-            arc_phase_id: brainstormArcPhaseId || (activeChapter as any)?.arc_phase_id
+            arc_phase_id: brainstormArcPhaseId || activeChapter.arc_phase_id || undefined
           } : {
             title: newChapterTitle || undefined,
             description: brainstormPlot?.summary || newChapterDescription || undefined,
@@ -1261,8 +1263,8 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
           storyId={storyId}
           chapterId={brainstormChapterId}
           storyArc={storyArc}
-          existingPlot={editingChapterId && activeChapter ? (activeChapter as any)?.chapter_plot : brainstormPlot}
-          existingArcPhaseId={editingChapterId && activeChapter ? (activeChapter as any)?.arc_phase_id : brainstormArcPhaseId}
+          existingPlot={editingChapterId && activeChapter ? activeChapter.chapter_plot : brainstormPlot}
+          existingArcPhaseId={editingChapterId && activeChapter ? activeChapter.arc_phase_id || undefined : brainstormArcPhaseId}
           onPlotApplied={(plot, sessionId, arcPhaseId) => {
             setShowBrainstormModal(false);
             setBrainstormChapterId(undefined);
