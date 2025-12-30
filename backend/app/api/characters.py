@@ -253,6 +253,51 @@ async def delete_character(
     
     return {"message": "Character deleted successfully"}
 
+
+class BulkDeleteRequest(BaseModel):
+    character_ids: List[int]
+
+
+@router.delete("/bulk-delete")
+async def bulk_delete_characters(
+    request: BulkDeleteRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Bulk delete multiple characters (only characters owned by the user)"""
+    
+    if not request.character_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No character IDs provided"
+        )
+    
+    # Find all characters that belong to the current user
+    characters = db.query(Character).filter(
+        Character.id.in_(request.character_ids),
+        Character.creator_id == current_user.id
+    ).all()
+    
+    if not characters:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No characters found or you don't have permission to delete them"
+        )
+    
+    deleted_count = len(characters)
+    deleted_ids = [c.id for c in characters]
+    
+    for character in characters:
+        db.delete(character)
+    
+    db.commit()
+    
+    return {
+        "message": f"Successfully deleted {deleted_count} character(s)",
+        "deleted_ids": deleted_ids
+    }
+
+
 @router.post("/generate-with-ai", response_model=CharacterResponse)
 async def generate_character_with_ai(
     request: CharacterGenerationRequest,

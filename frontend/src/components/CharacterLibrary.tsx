@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import apiClient from '@/lib/api';
 import { useUISettings } from '@/hooks/useUISettings';
 import Link from 'next/link';
+import { Trash2 } from 'lucide-react';
 
 interface Character {
   id: number;
@@ -27,6 +28,8 @@ export default function CharacterLibrary() {
   const [filter, setFilter] = useState<'all' | 'mine' | 'public'>('all');
   const [templatesOnly, setTemplatesOnly] = useState(false);
   const [userSettings, setUserSettings] = useState<any>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Apply UI settings (theme, font size, etc.)
   useUISettings(userSettings?.ui_preferences || null);
@@ -59,10 +62,32 @@ export default function CharacterLibrary() {
       }
       
       setCharacters(filteredData);
+      // Clear selection when reloading
+      setSelectedIds(new Set());
     } catch (error) {
       console.error('Failed to load characters:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const toggleSelection = (id: number) => {
+    setSelectedIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  };
+
+  const selectAll = () => {
+    if (selectedIds.size === characters.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(characters.map(c => c.id)));
     }
   };
 
@@ -74,9 +99,35 @@ export default function CharacterLibrary() {
     try {
       await apiClient.deleteCharacter(id);
       setCharacters(characters.filter(char => char.id !== id));
+      setSelectedIds(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(id);
+        return newSet;
+      });
     } catch (error) {
       console.error('Failed to delete character:', error);
       alert('Failed to delete character');
+    }
+  };
+
+  const bulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    
+    const count = selectedIds.size;
+    if (!window.confirm(`Are you sure you want to delete ${count} character${count > 1 ? 's' : ''}? This action cannot be undone.`)) {
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      const result = await apiClient.bulkDeleteCharacters(Array.from(selectedIds));
+      setCharacters(characters.filter(char => !result.deleted_ids.includes(char.id)));
+      setSelectedIds(new Set());
+    } catch (error) {
+      console.error('Failed to delete characters:', error);
+      alert('Failed to delete some characters. They may be in use in stories.');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -107,52 +158,81 @@ export default function CharacterLibrary() {
 
         {/* Filters */}
         <div className="bg-white/10 rounded-xl p-6 mb-8">
-          <div className="flex flex-wrap gap-4 items-center">
-            <div className="flex gap-2">
-              <button
-                onClick={() => setFilter('all')}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                  filter === 'all'
-                    ? 'theme-btn-primary'
-                    : 'bg-white/20 text-white hover:bg-white/30'
-                }`}
-              >
-                All Characters
-              </button>
-              <button
-                onClick={() => setFilter('mine')}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                  filter === 'mine'
-                    ? 'theme-btn-primary'
-                    : 'bg-white/20 text-white hover:bg-white/30'
-                }`}
-              >
-                My Characters
-              </button>
-              <button
-                onClick={() => setFilter('public')}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                  filter === 'public'
-                    ? 'theme-btn-primary'
-                    : 'bg-white/20 text-white hover:bg-white/30'
-                }`}
-              >
-                Public Gallery
-              </button>
+          <div className="flex flex-wrap gap-4 items-center justify-between">
+            <div className="flex flex-wrap gap-4 items-center">
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setFilter('all')}
+                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                    filter === 'all'
+                      ? 'theme-btn-primary'
+                      : 'bg-white/20 text-white hover:bg-white/30'
+                  }`}
+                >
+                  All Characters
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilter('mine')}
+                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                    filter === 'mine'
+                      ? 'theme-btn-primary'
+                      : 'bg-white/20 text-white hover:bg-white/30'
+                  }`}
+                >
+                  My Characters
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilter('public')}
+                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                    filter === 'public'
+                      ? 'theme-btn-primary'
+                      : 'bg-white/20 text-white hover:bg-white/30'
+                  }`}
+                >
+                  Public Gallery
+                </button>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="templates-only"
+                  checked={templatesOnly}
+                  onChange={(e) => setTemplatesOnly(e.target.checked)}
+                  className="rounded"
+                />
+                <label htmlFor="templates-only" className="text-white text-sm">
+                  Templates only
+                </label>
+              </div>
             </div>
-            
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="templates-only"
-                checked={templatesOnly}
-                onChange={(e) => setTemplatesOnly(e.target.checked)}
-                className="rounded"
-              />
-              <label htmlFor="templates-only" className="text-white text-sm">
-                Templates only
-              </label>
-            </div>
+
+            {/* Bulk Actions */}
+            {characters.length > 0 && (
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={selectAll}
+                  className="px-3 py-1.5 bg-white/20 text-white text-sm rounded hover:bg-white/30 transition-colors"
+                >
+                  {selectedIds.size === characters.length ? 'Deselect All' : 'Select All'}
+                </button>
+                {selectedIds.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={bulkDelete}
+                    disabled={isDeleting}
+                    className="px-4 py-1.5 bg-red-500/80 text-white text-sm rounded hover:bg-red-600 transition-colors flex items-center gap-2 disabled:opacity-50"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    {isDeleting ? 'Deleting...' : `Delete (${selectedIds.size})`}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -170,8 +250,23 @@ export default function CharacterLibrary() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {characters.map((character) => (
-              <div key={character.id} className="bg-white/10 rounded-xl p-6 hover:bg-white/15 transition-colors">
-                <div className="flex justify-between items-start mb-4">
+              <div 
+                key={character.id} 
+                className={`bg-white/10 rounded-xl p-6 hover:bg-white/15 transition-colors relative ${
+                  selectedIds.has(character.id) ? 'ring-2 ring-blue-500' : ''
+                }`}
+              >
+                {/* Selection Checkbox */}
+                <div className="absolute top-4 left-4">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(character.id)}
+                    onChange={() => toggleSelection(character.id)}
+                    className="w-5 h-5 rounded border-white/30 bg-white/10 text-blue-500 focus:ring-blue-500 focus:ring-offset-0 cursor-pointer"
+                  />
+                </div>
+
+                <div className="flex justify-between items-start mb-4 pl-8">
                   <h3 className="text-xl font-bold text-white">{character.name}</h3>
                   <div className="flex gap-2">
                     {character.is_template && (
@@ -227,6 +322,7 @@ export default function CharacterLibrary() {
                     </Link>
                   </div>
                   <button
+                    type="button"
                     onClick={() => deleteCharacter(character.id)}
                     className="px-3 py-1 bg-red-500/20 text-red-300 text-sm rounded hover:bg-red-500/30 transition-colors"
                   >

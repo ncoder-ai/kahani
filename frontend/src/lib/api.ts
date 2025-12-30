@@ -1173,6 +1173,13 @@ class ApiClient {
     return this.request<{ message: string; }>(`/api/characters/${characterId}`, { method: 'DELETE' });
   }
 
+  async bulkDeleteCharacters(characterIds: number[]) {
+    return this.request<{ message: string; deleted_ids: number[]; }>(`/api/characters/bulk-delete`, {
+      method: 'DELETE',
+      body: JSON.stringify({ character_ids: characterIds })
+    });
+  }
+
   async updateCharacter(characterId: number, data: { name?: string; description?: string; personality_traits?: string[]; background?: string; goals?: string; fears?: string; appearance?: string; is_template?: boolean; is_public?: boolean; }) {
     return this.request<{ id: number; name: string; description: string; personality_traits: string[]; background: string; goals: string; fears: string; appearance: string; is_template: boolean; is_public: boolean; creator_id: number; created_at: string; updated_at: string | null; }>(`/api/characters/${characterId}`, { method: 'PUT', body: JSON.stringify(data) });
   }
