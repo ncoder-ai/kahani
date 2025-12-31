@@ -1863,3 +1863,50 @@ chapter_progress:
       
       Example response: ["Jack finds and touches a dark crystalline pyramid artifact, which begins glowing and triggers overwhelming Force visions in his mind"]
       If none occurred: []
+
+# =============================================================================
+# PACING - Chapter Plot Guidance and Progress-Based Pacing
+# =============================================================================
+pacing:
+  # Header for chapter plot guidance message
+  chapter_plot_header: |
+    === CHAPTER PLOT GUIDANCE ===
+  
+  # Footer with pacing instructions (appended after plot details)
+  chapter_plot_footer: |
+    
+    PACING INSTRUCTION: These story beats should unfold naturally across multiple scenes.
+    Focus on making THIS scene engaging on its own - don't rush to hit multiple plot points.
+    Let moments breathe with character development, atmosphere, and tension building.
+    One major story beat per scene is plenty. Sometimes a scene needs no plot advancement at all.
+  
+  # Progress summary line (always shown)
+  progress_summary: |
+    Chapter Progress: {completed_count}/{total_events} story beats completed, Scene {scene_count}
+  
+  # Early chapter (0% progress) - no events completed yet
+  progress_early: |
+    Focus on THIS SCENE: Establish atmosphere, ground the characters, build the world.
+    The chapter's story beats will emerge naturally - no need to rush into them.
+    Let the reader settle into the scene before any major plot developments.
+  
+  # Low progress (1-49%) - some events done, plenty remaining
+  progress_low: |
+    Story beats to weave in naturally (when the moment is right): {remaining_events}
+    Take your time - these should emerge organically from character actions and choices.
+  
+  # Mid progress (50-79%) - roughly half done
+  progress_mid: |
+    Story beats still ahead: {remaining_events}
+    Building toward: {climax}
+    The chapter is finding its rhythm - continue developing naturally.
+  
+  # High progress (80%+) - most events done, approaching climax
+  progress_high: |
+    Final story beats to address: {remaining_events}
+    The chapter is building toward its climax: {climax}
+  
+  # All events complete - guide toward climax/resolution
+  progress_complete: |
+    All key story beats have occurred. 
+    Guide the narrative toward the chapter's climax: {climax}

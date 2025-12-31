@@ -53,6 +53,50 @@ class PromptManager:
         """Reload prompts from file (useful for development)"""
         self._load_prompts()
     
+    def get_raw_prompt(self, template_key: str, **template_vars) -> str:
+        """
+        Get a raw prompt from YAML without system/user distinction.
+        Used for simple text templates like pacing guidance.
+        
+        Args:
+            template_key: Template identifier (e.g., 'pacing.chapter_plot_header')
+            **template_vars: Variables to substitute in the prompt
+            
+        Returns:
+            The prompt text with variables substituted, or empty string if not found
+        """
+        # Map template keys to YAML structure
+        yaml_mapping = {
+            "pacing.chapter_plot_header": ("pacing", "chapter_plot_header"),
+            "pacing.chapter_plot_footer": ("pacing", "chapter_plot_footer"),
+            "pacing.progress_summary": ("pacing", "progress_summary"),
+            "pacing.progress_early": ("pacing", "progress_early"),
+            "pacing.progress_low": ("pacing", "progress_low"),
+            "pacing.progress_mid": ("pacing", "progress_mid"),
+            "pacing.progress_high": ("pacing", "progress_high"),
+            "pacing.progress_complete": ("pacing", "progress_complete"),
+        }
+        
+        if template_key not in yaml_mapping:
+            logger.warning(f"[PROMPTS] Raw template key '{template_key}' not found")
+            return ""
+        
+        category, key = yaml_mapping[template_key]
+        
+        try:
+            prompt = self._prompts_cache.get(category, {}).get(key, "")
+            if isinstance(prompt, str):
+                prompt = prompt.strip()
+                # Substitute any template variables
+                if template_vars:
+                    for var_name, var_value in template_vars.items():
+                        prompt = prompt.replace(f"{{{var_name}}}", str(var_value))
+                return prompt
+            return ""
+        except Exception as e:
+            logger.error(f"[PROMPTS] Error getting raw prompt {template_key}: {e}")
+            return ""
+    
     def get_prompt(
         self, 
         template_key: str, 
@@ -868,7 +912,16 @@ Chapter Conclusion:"""
             "brainstorm.story_arc": ("brainstorm", "story_arc"),
             "chapter_brainstorm.chat": ("chapter_brainstorm", "chat"),
             "chapter_brainstorm.extract": ("chapter_brainstorm", "extract"),
-            "chapter_progress.event_extraction": ("chapter_progress", "event_extraction")
+            "chapter_progress.event_extraction": ("chapter_progress", "event_extraction"),
+            # Pacing prompts
+            "pacing.chapter_plot_header": ("pacing", "chapter_plot_header"),
+            "pacing.chapter_plot_footer": ("pacing", "chapter_plot_footer"),
+            "pacing.progress_summary": ("pacing", "progress_summary"),
+            "pacing.progress_early": ("pacing", "progress_early"),
+            "pacing.progress_low": ("pacing", "progress_low"),
+            "pacing.progress_mid": ("pacing", "progress_mid"),
+            "pacing.progress_high": ("pacing", "progress_high"),
+            "pacing.progress_complete": ("pacing", "progress_complete")
         }
         
         if template_key not in yaml_mapping:

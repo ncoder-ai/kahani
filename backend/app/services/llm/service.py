@@ -3645,16 +3645,22 @@ Chapter Conclusion:"""
                 if chapter_plot.get('key_events'):
                     events = chapter_plot['key_events']
                     if isinstance(events, list):
-                        plot_parts.append(f"Key Events to Include: {', '.join(events)}")
+                        # Format as story beats, not a checklist
+                        events_formatted = "\n  - ".join(events)
+                        plot_parts.append(f"Story Beats (weave in naturally across scenes):\n  - {events_formatted}")
                 if chapter_plot.get('climax'):
-                    plot_parts.append(f"Chapter Climax: {chapter_plot['climax']}")
+                    plot_parts.append(f"Building Toward: {chapter_plot['climax']}")
                 if chapter_plot.get('resolution'):
                     plot_parts.append(f"Chapter Resolution: {chapter_plot['resolution']}")
             
             if plot_parts:
+                # Get header and footer from prompts.yml
+                header = prompt_manager.get_raw_prompt("pacing.chapter_plot_header") or "=== CHAPTER PLOT GUIDANCE ==="
+                footer = prompt_manager.get_raw_prompt("pacing.chapter_plot_footer") or ""
+                
                 messages.append({
                     "role": "user",
-                    "content": "=== CHAPTER PLOT GUIDANCE ===\n" + "\n".join(plot_parts) + "\n\nGuide scenes naturally toward these goals while maintaining engaging moment-to-moment storytelling."
+                    "content": header.strip() + "\n" + "\n".join(plot_parts) + footer
                 })
         
         # === MESSAGES 3+: Scene Batches (batch-aligned for optimal caching) ===
