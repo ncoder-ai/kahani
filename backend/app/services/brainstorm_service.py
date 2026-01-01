@@ -51,19 +51,22 @@ class BrainstormService:
         self.db = db
         self.llm_service = UnifiedLLMService()
     
-    def create_session(self, pre_selected_character_ids: List[int] = None) -> BrainstormSession:
-        """Create a new brainstorming session with optional pre-selected characters."""
+    def create_session(self, pre_selected_character_ids: List[int] = None, content_rating: str = "sfw") -> BrainstormSession:
+        """Create a new brainstorming session with optional pre-selected characters and content rating."""
         session = BrainstormSession(
             user_id=self.user_id,
             messages=[],
             status='exploring',
-            extracted_elements={'preselected_character_ids': pre_selected_character_ids or []}
+            extracted_elements={
+                'preselected_character_ids': pre_selected_character_ids or [],
+                'content_rating': content_rating  # Store content rating in session
+            }
         )
         self.db.add(session)
         self.db.commit()
         self.db.refresh(session)
         
-        logger.info(f"[BRAINSTORM] Created new session {session.id} for user {self.user_id} with {len(pre_selected_character_ids or [])} pre-selected characters")
+        logger.info(f"[BRAINSTORM] Created new session {session.id} for user {self.user_id} with {len(pre_selected_character_ids or [])} pre-selected characters, content_rating={content_rating}")
         return session
     
     def get_session(self, session_id: int) -> Optional[BrainstormSession]:
@@ -207,15 +210,19 @@ class BrainstormService:
                 messages = []
                 
                 # Handle system prompt with NSFW filter if needed
+                # Check both user permission AND session's content_rating
                 user_allow_nsfw = self.user_settings.get('allow_nsfw', False) if self.user_settings else False
+                session_content_rating = session.extracted_elements.get('content_rating', 'sfw') if session.extracted_elements else 'sfw'
+                # Effective NSFW = user allows AND session is rated NSFW
+                effective_allow_nsfw = user_allow_nsfw and session_content_rating.lower() == 'nsfw'
                 
                 if system_prompt and system_prompt.strip():
                     final_system_prompt = system_prompt.strip() + character_context
-                    # Inject NSFW filter if user doesn't have NSFW permissions
-                    if should_inject_nsfw_filter(user_allow_nsfw):
+                    # Inject NSFW filter if content should be filtered
+                    if should_inject_nsfw_filter(effective_allow_nsfw):
                         final_system_prompt = final_system_prompt + "\n\n" + get_nsfw_prevention_prompt()
                     messages.append({"role": "system", "content": final_system_prompt})
-                elif should_inject_nsfw_filter(user_allow_nsfw):
+                elif should_inject_nsfw_filter(effective_allow_nsfw):
                     # No system prompt provided, but we need to inject NSFW filter
                     messages.append({"role": "system", "content": get_nsfw_prevention_prompt() + character_context})
                 

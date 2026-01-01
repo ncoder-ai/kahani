@@ -1986,7 +1986,7 @@ class ApiClient {
 
   // ====== BRAINSTORM METHODS ======
   
-  async createBrainstormSession(preSelectedCharacterIds?: number[]) {
+  async createBrainstormSession(preSelectedCharacterIds?: number[], contentRating?: 'sfw' | 'nsfw') {
     return this.request<{
       session_id: number;
       status: string;
@@ -1994,7 +1994,10 @@ class ApiClient {
       created_at: string;
     }>('/api/brainstorm/session', {
       method: 'POST',
-      body: preSelectedCharacterIds ? JSON.stringify({ pre_selected_character_ids: preSelectedCharacterIds }) : undefined
+      body: JSON.stringify({ 
+        pre_selected_character_ids: preSelectedCharacterIds || [],
+        content_rating: contentRating || 'sfw'
+      })
     });
   }
 

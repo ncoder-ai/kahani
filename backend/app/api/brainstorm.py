@@ -51,6 +51,7 @@ class CompleteSessionRequest(BaseModel):
 class CreateSessionRequest(BaseModel):
     """Request for creating a new session."""
     pre_selected_character_ids: list[int] = []
+    content_rating: str = "sfw"  # "sfw" or "nsfw"
 
 
 # ====== SESSION MANAGEMENT ======
@@ -74,15 +75,19 @@ async def create_brainstorm_session(
         # Get user settings
         user_settings = get_or_create_user_settings(current_user.id, db, current_user)
         
-        # Create service and session
+        # Create service and session with content rating
         service = BrainstormService(current_user.id, user_settings, db)
-        session = service.create_session(pre_selected_character_ids=request.pre_selected_character_ids)
+        session = service.create_session(
+            pre_selected_character_ids=request.pre_selected_character_ids,
+            content_rating=request.content_rating
+        )
         
         return {
             "session_id": session.id,
             "status": session.status,
             "message_count": len(session.messages),
-            "created_at": session.created_at.isoformat()
+            "created_at": session.created_at.isoformat(),
+            "content_rating": request.content_rating
         }
         
     except Exception as e:

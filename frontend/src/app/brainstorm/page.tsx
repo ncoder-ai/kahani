@@ -10,10 +10,11 @@ import BrainstormChat from '@/components/brainstorm/BrainstormChat';
 import RefinementWizard from '@/components/brainstorm/RefinementWizard';
 import CharacterReview from '@/components/brainstorm/CharacterReview';
 import CharacterSelection from '@/components/brainstorm/CharacterSelection';
+import ContentRatingSelection from '@/components/brainstorm/ContentRatingSelection';
 import StoryArcEditor from '@/components/brainstorm/StoryArcEditor';
 import { StoryArc } from '@/lib/api';
 
-type BrainstormPhase = 'character_selection' | 'chat' | 'refining' | 'character_review' | 'arc_generation';
+type BrainstormPhase = 'content_rating' | 'character_selection' | 'chat' | 'refining' | 'character_review' | 'arc_generation';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -36,7 +37,7 @@ function BrainstormContent() {
   const searchParams = useSearchParams();
   const { user } = useAuthStore();
   
-  const [phase, setPhase] = useState<BrainstormPhase>('character_selection');
+  const [phase, setPhase] = useState<BrainstormPhase>('content_rating');
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [extractedElements, setExtractedElements] = useState<any>(null);
@@ -49,6 +50,7 @@ function BrainstormContent() {
   const [isGeneratingArc, setIsGeneratingArc] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [contentRating, setContentRating] = useState<'sfw' | 'nsfw'>('sfw');
 
   // Apply UI settings
   useUISettings(userSettings?.ui_preferences || null);
@@ -77,11 +79,15 @@ function BrainstormContent() {
         const existingSessionId = searchParams.get('session_id');
         
         if (existingSessionId) {
-          // Load existing session - skip character selection
+          // Load existing session - skip content rating and character selection
           const session = await apiClient.getBrainstormSession(parseInt(existingSessionId));
           setSessionId(session.session_id);
           // Cast messages to correct type
           setMessages((session.messages || []) as Message[]);
+          // Load content rating from session if available
+          if (session.extracted_elements?.content_rating) {
+            setContentRating(session.extracted_elements.content_rating);
+          }
           if (session.extracted_elements) {
             setExtractedElements(session.extracted_elements);
             setPhase('refining');
@@ -89,7 +95,7 @@ function BrainstormContent() {
             setPhase('chat');
           }
         }
-        // For new sessions, stay on character_selection phase (don't create session yet)
+        // For new sessions, stay on content_rating phase (don't create session yet)
       } catch (error) {
         console.error('Failed to initialize session:', error);
         alert('Failed to start brainstorming session. Please try again.');
@@ -277,6 +283,7 @@ function BrainstormContent() {
         tone: elements.tone || '',
         world_setting: elements.world_setting || '',
         initial_premise: elements.description || '',
+        content_rating: contentRating, // Pass the content rating selected at the start
       });
       
       console.log('[Brainstorm] Story created:', storyResponse);
@@ -382,20 +389,28 @@ function BrainstormContent() {
     setPhase('refining');
   };
 
+  const handleContentRatingComplete = (rating: 'sfw' | 'nsfw') => {
+    setContentRating(rating);
+    setPhase('character_selection');
+  };
+
   const handleCharacterSelectionComplete = async (selectedIds: number[]) => {
     try {
       setPreSelectedCharacterIds(selectedIds);
       
-      // Create session with pre-selected characters (no LLM call yet)
-      const newSession = await apiClient.createBrainstormSession(selectedIds);
+      // Create session with pre-selected characters and content rating (no LLM call yet)
+      const newSession = await apiClient.createBrainstormSession(selectedIds, contentRating);
       setSessionId(newSession.session_id);
       
       // Show a simple greeting without calling LLM
       // User will provide their story idea first
       const characterCount = selectedIds.length;
+      const ratingNote = contentRating === 'sfw' 
+        ? " I'll keep the content family-friendly."
+        : " Since you've chosen mature content, I can explore darker themes freely.";
       const greetingMessage = characterCount > 0
-        ? `Great! I see you've selected ${characterCount} character${characterCount !== 1 ? 's' : ''} to include in your story. Now, tell me about the story you want to create - what's the theme, genre, or concept you have in mind?`
-        : "Hi! I'm excited to help you brainstorm your story. Tell me about the story you want to create - what's the theme, genre, or concept you have in mind?";
+        ? `Great! I see you've selected ${characterCount} character${characterCount !== 1 ? 's' : ''} to include in your story.${ratingNote} Now, tell me about the story you want to create - what's the theme, genre, or concept you have in mind?`
+        : `Hi! I'm excited to help you brainstorm your story.${ratingNote} Tell me about the story you want to create - what's the theme, genre, or concept you have in mind?`;
       
       setMessages([
         {
@@ -495,6 +510,12 @@ function BrainstormContent() {
             <CharacterSelection
               onContinue={handleCharacterSelectionComplete}
               onSkip={handleCharacterSelectionSkip}
+            />
+          </div>
+        ) : phase === 'content_rating' ? (
+          <div className="bg-white/10 backdrop-blur-md rounded-lg md:rounded-2xl border border-white/20 p-6 md:p-8">
+            <ContentRatingSelection
+              onContinue={handleContentRatingComplete}
             />
           </div>
         ) : phase === 'chat' ? (
