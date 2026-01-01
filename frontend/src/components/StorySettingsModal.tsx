@@ -53,8 +53,9 @@ export default function StorySettingsModal({ isOpen, onClose, storyId, onSaved }
       
       // Load user profile to check NSFW permission
       try {
-        const profile = await apiClient.getProfile();
-        setUserAllowsNsfw(profile.allow_nsfw || false);
+        const user = await apiClient.getCurrentUser();
+        // allow_nsfw is nested inside permissions object
+        setUserAllowsNsfw(user.permissions?.allow_nsfw || false);
       } catch {
         setUserAllowsNsfw(false);
       }
