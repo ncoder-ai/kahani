@@ -6,6 +6,7 @@ from ..models import User, Story, UserSettings, Scene, StoryBranch
 from ..dependencies import get_current_user
 from ..services.context_manager import ContextManager
 from ..services.llm.service import UnifiedLLMService
+from .stories import get_or_create_user_settings
 
 llm_service = UnifiedLLMService()
 from ..services.llm.prompts import prompt_manager
@@ -148,24 +149,9 @@ async def generate_ai_summary(
         if not scenes:
             raise HTTPException(status_code=400, detail="Story has no scenes to summarize")
         
-        # Get user settings as dictionary
-        user_settings = None
-        if hasattr(current_user, 'settings') and current_user.settings:
-            settings_obj = current_user.settings
-            user_settings = {
-                "api_type": settings_obj.llm_api_type,
-                "api_url": settings_obj.llm_api_url,
-                "api_key": settings_obj.llm_api_key,
-                "model_name": settings_obj.llm_model_name,
-                "max_tokens": settings_obj.llm_max_tokens,
-                "temperature": settings_obj.llm_temperature,
-                "top_p": settings_obj.llm_top_p
-            }
-        
-        # Ensure user_settings exists and add allow_nsfw from user to ensure NSFW filter is applied correctly
-        if user_settings is None:
-            user_settings = {}
-        user_settings['allow_nsfw'] = current_user.allow_nsfw
+        # Get user settings with story context for proper NSFW filtering
+        # This considers both user profile AND story content_rating
+        user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
         
         # Combine all scene content
         combined_text = "\n\n".join([
@@ -225,24 +211,9 @@ async def regenerate_story_summary(
             UserSettings.user_id == current_user.id
         ).first()
         
-        # Get user settings as dictionary for LLM
-        user_settings = None
-        if hasattr(current_user, 'settings') and current_user.settings:
-            settings_obj = current_user.settings
-            user_settings = {
-                "api_type": settings_obj.llm_api_type,
-                "api_url": settings_obj.llm_api_url,
-                "api_key": settings_obj.llm_api_key,
-                "model_name": settings_obj.llm_model_name,
-                "max_tokens": settings_obj.llm_max_tokens,
-                "temperature": settings_obj.llm_temperature,
-                "top_p": settings_obj.llm_top_p
-            }
-        
-        # Ensure user_settings exists and add allow_nsfw from user to ensure NSFW filter is applied correctly
-        if user_settings is None:
-            user_settings = {}
-        user_settings['allow_nsfw'] = current_user.allow_nsfw
+        # Get user settings with story context for proper NSFW filtering
+        # This considers both user profile AND story content_rating
+        user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
         
         # Initialize services
         context_manager = ContextManager()
@@ -395,26 +366,9 @@ async def update_story_summary_from_chapters(story_id: int, db: Session, user_id
             logger.info(f"[STORY SUMMARY] Story {story_id} has no chapters, skipping summary update")
             return
         
-        # Get user settings
-        user_settings_obj = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
-        user_settings = None
-        if user_settings_obj:
-            user_settings = {
-                "api_type": user_settings_obj.llm_api_type,
-                "api_url": user_settings_obj.llm_api_url,
-                "api_key": user_settings_obj.llm_api_key,
-                "model_name": user_settings_obj.llm_model_name,
-                "max_tokens": user_settings_obj.llm_max_tokens,
-                "temperature": user_settings_obj.llm_temperature,
-                "top_p": user_settings_obj.llm_top_p
-            }
-        
-        # Ensure user_settings exists and add allow_nsfw from user to ensure NSFW filter is applied correctly
-        if user_settings is None:
-            user_settings = {}
-        user = db.query(User).filter(User.id == user_id).first()
-        if user:
-            user_settings['allow_nsfw'] = user.allow_nsfw
+        # Get user settings with story context for proper NSFW filtering
+        # This considers both user profile AND story content_rating
+        user_settings = get_or_create_user_settings(user_id, db, story=story)
         
         # Collect chapter summaries
         chapter_summaries = []

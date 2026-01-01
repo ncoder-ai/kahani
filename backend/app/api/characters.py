@@ -3,9 +3,10 @@ from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from ..database import get_db
-from ..models import Character, StoryCharacter, User, UserSettings
+from ..models import Character, StoryCharacter, User, UserSettings, Story
 from ..dependencies import get_current_user
 from ..services.character_generation_service import CharacterGenerationService
+from .stories import get_or_create_user_settings
 import logging
 
 logger = logging.getLogger(__name__)
@@ -313,19 +314,17 @@ async def generate_character_with_ai(
         )
     
     try:
-        # Get user settings
-        user_settings = db.query(UserSettings).filter(
-            UserSettings.user_id == current_user.id
-        ).first()
+        # Get user settings with story context for proper NSFW filtering
+        # If story_context includes a story_id, fetch the story for content_rating
+        story = None
+        if request.story_context and request.story_context.get('story_id'):
+            story = db.query(Story).filter(
+                Story.id == request.story_context['story_id'],
+                Story.owner_id == current_user.id
+            ).first()
         
-        if not user_settings:
-            # Use default settings
-            user_settings_dict = UserSettings.get_defaults()
-        else:
-            user_settings_dict = user_settings.to_dict()
-        
-        # Add user permissions to settings for NSFW filtering
-        user_settings_dict['allow_nsfw'] = current_user.allow_nsfw
+        # This considers both user profile AND story content_rating (if story provided)
+        user_settings_dict = get_or_create_user_settings(current_user.id, db, current_user, story)
         
         # Create service instance
         service = CharacterGenerationService(current_user.id, user_settings_dict)

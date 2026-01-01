@@ -3,9 +3,10 @@ from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from ..database import get_db
-from ..models import Character, StoryCharacter, User, UserSettings
+from ..models import Character, StoryCharacter, User, UserSettings, Story
 from ..dependencies import get_current_user
 from ..services.character_assistant_service import CharacterAssistantService
+from .stories import get_or_create_user_settings
 import logging
 
 logger = logging.getLogger(__name__)
@@ -153,19 +154,9 @@ async def get_character_suggestions(
     for bid, names in npc_by_branch.items():
         logger.info(f"[CHAR-SUGGEST]   Branch {bid}: {len(names)} NPCs - {names[:10]}{'...' if len(names) > 10 else ''}")
     
-    # Get user settings
-    user_settings = db.query(UserSettings).filter(
-        UserSettings.user_id == current_user.id
-    ).first()
-    
-    if not user_settings:
-        # Use default settings
-        user_settings_dict = UserSettings.get_defaults()
-    else:
-        user_settings_dict = user_settings.to_dict()
-    
-    # Add user permissions to settings for NSFW filtering
-    user_settings_dict['allow_nsfw'] = current_user.allow_nsfw
+    # Get user settings with story context for proper NSFW filtering
+    # This considers both user profile AND story content_rating
+    user_settings_dict = get_or_create_user_settings(current_user.id, db, current_user, story)
     
     # Use NPC tracking data directly - no redundant LLM extraction
     # NPCTrackingService already extracts and tracks all characters during scene generation
@@ -214,7 +205,6 @@ async def analyze_character_details(
     """Analyze detailed character information using LLM."""
     
     # Verify story ownership
-    from ..models import Story
     story = db.query(Story).filter(
         Story.id == story_id,
         Story.owner_id == current_user.id
@@ -226,18 +216,9 @@ async def analyze_character_details(
             detail="Story not found"
         )
     
-    # Get user settings
-    user_settings = db.query(UserSettings).filter(
-        UserSettings.user_id == current_user.id
-    ).first()
-    
-    if not user_settings:
-        user_settings_dict = UserSettings.get_defaults()
-    else:
-        user_settings_dict = user_settings.to_dict()
-    
-    # Add user permissions to settings for NSFW filtering
-    user_settings_dict['allow_nsfw'] = current_user.allow_nsfw
+    # Get user settings with story context for proper NSFW filtering
+    # This considers both user profile AND story content_rating
+    user_settings_dict = get_or_create_user_settings(current_user.id, db, current_user, story)
     
     # First, check if NPC tracking has already extracted a profile
     # This avoids redundant LLM calls and uses pre-computed data
@@ -324,7 +305,6 @@ async def create_character_from_suggestion(
     """Create a character in the library and link it to the story."""
     
     # Verify story ownership
-    from ..models import Story
     story = db.query(Story).filter(
         Story.id == story_id,
         Story.owner_id == current_user.id
@@ -336,18 +316,9 @@ async def create_character_from_suggestion(
             detail="Story not found"
         )
     
-    # Get user settings
-    user_settings = db.query(UserSettings).filter(
-        UserSettings.user_id == current_user.id
-    ).first()
-    
-    if not user_settings:
-        user_settings_dict = UserSettings.get_defaults()
-    else:
-        user_settings_dict = user_settings.to_dict()
-    
-    # Add user permissions to settings for NSFW filtering
-    user_settings_dict['allow_nsfw'] = current_user.allow_nsfw
+    # Get user settings with story context for proper NSFW filtering
+    # This considers both user profile AND story content_rating
+    user_settings_dict = get_or_create_user_settings(current_user.id, db, current_user, story)
     
     # Check if character already exists
     existing_character = db.query(Character).filter(
@@ -433,7 +404,6 @@ async def check_character_importance(
     """Check if any new important characters are detected using NPC tracking."""
     
     # Verify story ownership
-    from ..models import Story
     story = db.query(Story).filter(
         Story.id == story_id,
         Story.owner_id == current_user.id
@@ -445,18 +415,9 @@ async def check_character_importance(
             detail="Story not found"
         )
     
-    # Get user settings
-    user_settings = db.query(UserSettings).filter(
-        UserSettings.user_id == current_user.id
-    ).first()
-    
-    if not user_settings:
-        user_settings_dict = UserSettings.get_defaults()
-    else:
-        user_settings_dict = user_settings.to_dict()
-    
-    # Add user permissions to settings for NSFW filtering
-    user_settings_dict['allow_nsfw'] = current_user.allow_nsfw
+    # Get user settings with story context for proper NSFW filtering
+    # This considers both user profile AND story content_rating
+    user_settings_dict = get_or_create_user_settings(current_user.id, db, current_user, story)
     
     # Check NPC tracking for characters that haven't been converted
     try:
@@ -498,7 +459,6 @@ async def recalculate_npc_scores(
     """Recalculate importance scores for all NPCs in a story."""
     try:
         # Verify story ownership
-        from ..models import Story
         story = db.query(Story).filter(
             Story.id == story_id,
             Story.owner_id == current_user.id
@@ -510,18 +470,9 @@ async def recalculate_npc_scores(
                 detail="Story not found"
             )
         
-        # Get user settings
-        user_settings = db.query(UserSettings).filter(
-            UserSettings.user_id == current_user.id
-        ).first()
-        
-        if not user_settings:
-            user_settings_dict = UserSettings.get_defaults()
-        else:
-            user_settings_dict = user_settings.to_dict()
-        
-        # Add user permissions to settings for NSFW filtering
-        user_settings_dict['allow_nsfw'] = current_user.allow_nsfw
+        # Get user settings with story context for proper NSFW filtering
+        # This considers both user profile AND story content_rating
+        user_settings_dict = get_or_create_user_settings(current_user.id, db, current_user, story)
         
         from ..services.npc_tracking_service import NPCTrackingService
         
