@@ -92,6 +92,11 @@ class Story(Base):
     # Story Arc - AI-generated narrative structure
     story_arc = Column(JSON, nullable=True)
     
+    # Content Rating - controls NSFW filter per story
+    # "sfw" = Safe for Work (family friendly, filters applied)
+    # "nsfw" = Not Safe for Work (mature content allowed if user permits)
+    content_rating = Column(String(10), default="sfw")
+    
     def update_story_arc(self, arc_data: dict):
         """Update the story arc data."""
         if self.story_arc is None:

@@ -691,11 +691,11 @@ class ApiClient {
     return this.request<any>(`/api/stories/${id}${params}`);
   }
 
-  async createStory(data: { title: string; description?: string; genre?: string; tone?: string; world_setting?: string; initial_premise?: string; }) {
+  async createStory(data: { title: string; description?: string; genre?: string; tone?: string; world_setting?: string; initial_premise?: string; content_rating?: string; }) {
     return this.request<any>(`/api/stories/`, { method: 'POST', body: JSON.stringify(data) });
   }
 
-  async updateStory(id: number, data: { title?: string; description?: string; genre?: string; tone?: string; world_setting?: string; initial_premise?: string; scenario?: string; }) {
+  async updateStory(id: number, data: { title?: string; description?: string; genre?: string; tone?: string; world_setting?: string; initial_premise?: string; scenario?: string; content_rating?: string; }) {
     return this.request<any>(`/api/stories/${id}`, { method: 'PUT', body: JSON.stringify(data) });
   }
 

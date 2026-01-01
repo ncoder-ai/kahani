@@ -24,7 +24,9 @@ export default function StorySettingsModal({ isOpen, onClose, storyId, onSaved }
     world_setting: '',
     initial_premise: '',
     scenario: '',
+    content_rating: 'sfw' as 'sfw' | 'nsfw',
   });
+  const [userAllowsNsfw, setUserAllowsNsfw] = useState(false);
 
   useEffect(() => {
     if (isOpen && storyId) {
@@ -36,8 +38,8 @@ export default function StorySettingsModal({ isOpen, onClose, storyId, onSaved }
     setIsLoading(true);
     setError(null);
     try {
+      // Load story data
       const story = await apiClient.getStory(storyId);
-      // Debug log
       setFormData({
         title: story.title || '',
         description: story.description ?? '',
@@ -46,7 +48,16 @@ export default function StorySettingsModal({ isOpen, onClose, storyId, onSaved }
         world_setting: story.world_setting ?? '',
         initial_premise: story.initial_premise ?? '',
         scenario: story.scenario ?? '',
+        content_rating: (story.content_rating || 'sfw') as 'sfw' | 'nsfw',
       });
+      
+      // Load user profile to check NSFW permission
+      try {
+        const profile = await apiClient.getProfile();
+        setUserAllowsNsfw(profile.allow_nsfw || false);
+      } catch {
+        setUserAllowsNsfw(false);
+      }
     } catch (err) {
       console.error('Failed to load story data:', err);
       setError(err instanceof Error ? err.message : 'Failed to load story data');
@@ -213,6 +224,50 @@ export default function StorySettingsModal({ isOpen, onClose, storyId, onSaved }
                     className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
                     placeholder="The scenario that sets up your story"
                   />
+                </div>
+
+                {/* Content Rating */}
+                <div className="border-t border-slate-700 pt-6">
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Content Rating
+                  </label>
+                  <div className="flex items-center gap-4">
+                    <button
+                      type="button"
+                      onClick={() => handleChange('content_rating', 'sfw')}
+                      className={`px-4 py-2 rounded-lg border transition-colors ${
+                        formData.content_rating === 'sfw'
+                          ? 'bg-green-600 border-green-500 text-white'
+                          : 'bg-slate-700 border-slate-600 text-gray-400 hover:border-slate-500'
+                      }`}
+                    >
+                      SFW
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => userAllowsNsfw && handleChange('content_rating', 'nsfw')}
+                      disabled={!userAllowsNsfw}
+                      className={`px-4 py-2 rounded-lg border transition-colors ${
+                        formData.content_rating === 'nsfw'
+                          ? 'bg-red-600 border-red-500 text-white'
+                          : userAllowsNsfw
+                            ? 'bg-slate-700 border-slate-600 text-gray-400 hover:border-slate-500'
+                            : 'bg-slate-800 border-slate-700 text-gray-500 cursor-not-allowed'
+                      }`}
+                    >
+                      NSFW
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    {formData.content_rating === 'sfw' 
+                      ? 'Content filters are enabled. Story will be family-friendly.'
+                      : 'Content filters are disabled. Mature content is allowed.'}
+                    {!userAllowsNsfw && (
+                      <span className="block mt-1 text-yellow-500">
+                        NSFW option requires NSFW permissions in your profile.
+                      </span>
+                    )}
+                  </p>
                 </div>
 
                 {/* Actions */}

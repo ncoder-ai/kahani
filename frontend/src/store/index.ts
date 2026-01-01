@@ -247,6 +247,7 @@ interface Story {
   description: string;
   genre: string;
   status: string;
+  content_rating?: string;  // "sfw" or "nsfw"
   creation_step: number;
   created_at: string;
   updated_at: string;

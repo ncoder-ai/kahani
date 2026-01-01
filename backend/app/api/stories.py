@@ -387,13 +387,14 @@ async def invalidate_and_regenerate_extractions_for_scene(
         db.rollback()
 
 
-def get_or_create_user_settings(user_id: int, db: Session, current_user: User = None) -> dict:
+def get_or_create_user_settings(user_id: int, db: Session, current_user: User = None, story: Story = None) -> dict:
     """Get user settings or create defaults if none exist
     
     Args:
         user_id: User ID
         db: Database session
         current_user: Optional User object - if provided, will add allow_nsfw to settings
+        story: Optional Story object - if provided, will compute effective allow_nsfw based on story's content_rating
     """
     user_settings_db = db.query(UserSettings).filter(
         UserSettings.user_id == user_id
@@ -412,16 +413,29 @@ def get_or_create_user_settings(user_id: int, db: Session, current_user: User = 
         logger.info(f"Created default UserSettings for user {user_id} with values from config.yaml")
         user_settings = user_settings_db.to_dict()
     
-    # Add user permissions to settings for NSFW filtering if current_user is provided
+    # Compute effective allow_nsfw based on user profile AND story content rating
+    # NSFW is only allowed if: user allows NSFW AND story is rated NSFW
+    user_allow_nsfw = False
     if current_user:
-        user_settings['allow_nsfw'] = current_user.allow_nsfw
-        logger.debug(f"Added allow_nsfw={current_user.allow_nsfw} to user_settings for user {user_id}")
+        user_allow_nsfw = current_user.allow_nsfw
     else:
         # If current_user not provided, try to get it from database
         user = db.query(User).filter(User.id == user_id).first()
         if user:
-            user_settings['allow_nsfw'] = user.allow_nsfw
-            logger.debug(f"Added allow_nsfw={user.allow_nsfw} to user_settings for user {user_id} (from DB)")
+            user_allow_nsfw = user.allow_nsfw
+    
+    # Compute effective NSFW permission
+    # If story is provided and has a content_rating, use it to determine effective NSFW
+    # Story must be explicitly marked as "nsfw" AND user must allow NSFW
+    if story and hasattr(story, 'content_rating') and story.content_rating:
+        effective_nsfw = user_allow_nsfw and story.content_rating.lower() == "nsfw"
+        logger.debug(f"Effective allow_nsfw for user {user_id}, story {story.id}: user={user_allow_nsfw}, story_rating={story.content_rating}, effective={effective_nsfw}")
+    else:
+        # No story provided - use user's setting directly
+        effective_nsfw = user_allow_nsfw
+        logger.debug(f"No story context - using user allow_nsfw={user_allow_nsfw} for user {user_id}")
+    
+    user_settings['allow_nsfw'] = effective_nsfw
     
     return user_settings
 
@@ -433,6 +447,7 @@ class StoryCreate(BaseModel):
     world_setting: Optional[str] = ""
     initial_premise: Optional[str] = ""
     story_mode: Optional[str] = "dynamic"  # dynamic or structured
+    content_rating: Optional[str] = None  # "sfw" or "nsfw" - defaults to user's allow_nsfw setting
 
 class StoryUpdate(BaseModel):
     title: Optional[str] = None
@@ -442,6 +457,7 @@ class StoryUpdate(BaseModel):
     world_setting: Optional[str] = None
     initial_premise: Optional[str] = None
     scenario: Optional[str] = None
+    content_rating: Optional[str] = None  # "sfw" or "nsfw"
 
 class ScenarioGenerateRequest(BaseModel):
     genre: Optional[str] = ""
@@ -501,6 +517,7 @@ async def get_stories(
             "description": story.description,
             "genre": story.genre,
             "status": story.status,
+            "content_rating": story.content_rating or "sfw",
             "creation_step": story.creation_step,
             "created_at": story.created_at,
             "updated_at": story.updated_at
@@ -537,6 +554,13 @@ async def create_story(
             detail=content_error
         )
     
+    # Determine content rating: use provided value, or inherit from user's allow_nsfw setting
+    if story_data.content_rating:
+        content_rating = story_data.content_rating.lower()
+    else:
+        # Default: if user allows NSFW, default to NSFW; otherwise SFW
+        content_rating = "nsfw" if current_user.allow_nsfw else "sfw"
+    
     story = Story(
         title=story_data.title,
         description=story_data.description,
@@ -545,7 +569,8 @@ async def create_story(
         tone=story_data.tone,
         world_setting=story_data.world_setting,
         initial_premise=story_data.initial_premise,
-        story_mode=story_data.story_mode or "dynamic"
+        story_mode=story_data.story_mode or "dynamic",
+        content_rating=content_rating
     )
     
     db.add(story)
@@ -556,6 +581,7 @@ async def create_story(
         "id": story.id,
         "title": story.title,
         "description": story.description,
+        "content_rating": story.content_rating,
         "message": "Story created successfully"
     }
 
@@ -656,6 +682,7 @@ async def get_story(
         "initial_premise": story.initial_premise or draft_data.get('initial_premise', '') or "",
         "scenario": story.scenario or draft_data.get('scenario', '') or "",
         "status": story.status,
+        "content_rating": story.content_rating or "sfw",
         "scenes": scenes,
         "flow_info": {
             "total_scenes": len(scenes),
@@ -727,6 +754,21 @@ async def update_story(
         story.initial_premise = story_data.initial_premise
     if story_data.scenario is not None:
         story.scenario = story_data.scenario
+    if story_data.content_rating is not None:
+        # Validate content rating value
+        rating = story_data.content_rating.lower()
+        if rating not in ("sfw", "nsfw"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="content_rating must be 'sfw' or 'nsfw'"
+            )
+        # Only allow NSFW if user has permission
+        if rating == "nsfw" and not current_user.allow_nsfw:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to create NSFW content"
+            )
+        story.content_rating = rating
     
     db.commit()
     db.refresh(story)
@@ -740,6 +782,7 @@ async def update_story(
         "world_setting": story.world_setting,
         "initial_premise": story.initial_premise,
         "scenario": story.scenario,
+        "content_rating": story.content_rating,
         "message": "Story updated successfully"
     }
 
@@ -923,8 +966,8 @@ async def generate_scene(
             detail="Story has no active branch. Please create a branch first."
         )
     
-    # Get user settings and include permission flags
-    user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+    # Get user settings and include permission flags (with story for content rating)
+    user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
     
     # Handle different content modes
     scene_content = ""
@@ -1311,8 +1354,8 @@ async def generate_scene_streaming_endpoint(
             detail="Story has no active branch. Please create a branch first."
         )
     
-    # Get user settings
-    user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+    # Get user settings (with story for content rating)
+    user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
     
     # Parse is_concluding (form data comes as string)
     is_concluding_bool = is_concluding.lower() == "true"
@@ -1878,8 +1921,8 @@ async def get_story_context_info(
         )
     
     try:
-        # Get user settings
-        user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+        # Get user settings (with story for content rating)
+        user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
         
         # Create context manager with user settings
         context_manager = ContextManager(user_settings=user_settings)
@@ -2014,8 +2057,8 @@ async def generate_more_choices(
             detail="Scene not found for this variant"
         )
     
-    # Get user settings
-    user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+    # Get user settings (with story for content rating)
+    user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
     
     # Create context manager with user settings
     context_manager = get_context_manager_for_user(user_settings, current_user.id)
@@ -2142,8 +2185,8 @@ async def regenerate_last_scene(
     last_flow_item = flow[-1]
     last_scene_id = last_flow_item['scene_id']
     
-    # Get user settings
-    user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+    # Get user settings (with story for content rating)
+    user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
     
     try:
         # Create a new variant for the last scene
@@ -2651,8 +2694,8 @@ async def create_scene_variant(
             detail="Story not found"
         )
     
-    # Get user settings
-    user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+    # Get user settings (with story for content rating)
+    user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
     
     try:
         # Get custom_prompt from the request model
@@ -2837,8 +2880,8 @@ async def create_scene_variant_streaming(
             detail="Story not found"
         )
     
-    # Get user settings
-    user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+    # Get user settings (with story for content rating)
+    user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
     
     async def generate_variant_stream():
         try:
@@ -3268,8 +3311,8 @@ async def continue_scene(
             detail="Scene not found"
         )
     
-    # Get user settings
-    user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+    # Get user settings (with story for content rating)
+    user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
     
     try:
         # Get the current active variant content
@@ -3368,8 +3411,8 @@ async def continue_scene_streaming(
             detail="Scene not found"
         )
     
-    # Get user settings
-    user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+    # Get user settings (with story for content rating)
+    user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
     
     async def generate_continuation_stream():
         try:
@@ -3520,8 +3563,8 @@ async def update_scene_variant(
             detail="Scene variant not found"
         )
     
-    # Get user settings
-    user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+    # Get user settings (with story for content rating)
+    user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
     
     try:
         # Store original content if this is the first edit
@@ -3626,8 +3669,8 @@ async def regenerate_scene_variant_choices(
             detail="Scene variant not found"
         )
     
-    # Get user settings
-    user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+    # Get user settings (with story for content rating)
+    user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
     
     try:
         # Verify we're using the correct variant

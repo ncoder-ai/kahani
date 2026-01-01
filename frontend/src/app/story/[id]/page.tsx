@@ -126,6 +126,7 @@ interface Story {
   tone: string;
   world_setting: string;
   status: string;
+  content_rating?: string;  // "sfw" or "nsfw"
   scenes: Scene[];
   story_arc?: StoryArc | null;
   flow_info?: {
@@ -370,8 +371,9 @@ export default function StoryPage() {
         lastGenerationTime,
         generationStartTime,
         extractionStatus,
-        // Story title for banner display
+        // Story title and content rating for banner display
         storyTitle: story.title,
+        contentRating: (story.content_rating || 'sfw') as 'sfw' | 'nsfw',
         // Branch-related props
         storyId: storyId,
         currentBranchId: currentBranchId,
