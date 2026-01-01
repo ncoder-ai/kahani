@@ -2892,7 +2892,12 @@ async def create_chapter_brainstorm_session(
         from ..services.chapter_brainstorm_service import ChapterBrainstormService
         from ..api.stories import get_or_create_user_settings
         
-        user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+        # Fetch story to get content_rating for NSFW filtering
+        story = db.query(Story).filter(Story.id == story_id).first()
+        if not story:
+            raise HTTPException(status_code=404, detail="Story not found")
+        
+        user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
         service = ChapterBrainstormService(current_user.id, user_settings, db)
         
         session = service.create_session(
@@ -3023,7 +3028,12 @@ async def send_chapter_brainstorm_message(
         from ..services.chapter_brainstorm_service import ChapterBrainstormService
         from ..api.stories import get_or_create_user_settings
         
-        user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+        # Fetch story to get content_rating for NSFW filtering
+        story = db.query(Story).filter(Story.id == story_id).first()
+        if not story:
+            raise HTTPException(status_code=404, detail="Story not found")
+        
+        user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
         service = ChapterBrainstormService(current_user.id, user_settings, db)
         
         result = await service.send_message(
@@ -3061,7 +3071,12 @@ async def extract_chapter_plot(
         from ..services.chapter_brainstorm_service import ChapterBrainstormService
         from ..api.stories import get_or_create_user_settings
         
-        user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+        # Fetch story to get content_rating for NSFW filtering
+        story = db.query(Story).filter(Story.id == story_id).first()
+        if not story:
+            raise HTTPException(status_code=404, detail="Story not found")
+        
+        user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
         service = ChapterBrainstormService(current_user.id, user_settings, db)
         
         result = await service.extract_chapter_plot(session_id=session_id)
