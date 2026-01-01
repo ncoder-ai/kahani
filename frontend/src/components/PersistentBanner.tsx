@@ -134,7 +134,7 @@ export default function PersistentBanner() {
                 <span className="hidden md:inline text-sm font-bold leading-none ml-1">Kahani</span>
               </button>
               
-              {/* Story title and content rating - smaller on mobile */}
+              {/* Story title - smaller on mobile */}
               {isClient && pathname?.startsWith('/story/') && storyActions?.storyTitle ? (
                 <>
                   <span className="text-white/40 flex-shrink-0 leading-none">•</span>
@@ -144,12 +144,6 @@ export default function PersistentBanner() {
                   >
                     {storyActions.storyTitle}
                   </span>
-                  {/* Content rating badge */}
-                  {storyActions.contentRating === 'nsfw' && (
-                    <span className="px-1.5 py-0.5 text-[9px] md:text-[10px] font-bold rounded bg-red-600/80 text-white flex-shrink-0 leading-none">
-                      18+
-                    </span>
-                  )}
                 </>
               ) : isClient && !pathname?.startsWith('/story/') ? (
                 <span className="text-white/80 text-sm hidden md:inline leading-none">

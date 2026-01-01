@@ -4355,6 +4355,14 @@ async def finalize_draft_story(
         story.scenario = draft_data['scenario']
         logger.info(f"[FINALIZE] Transferred scenario to story {story_id}")
     
+    # Set content_rating - use draft_data value if provided, otherwise default based on user's NSFW permission
+    if 'content_rating' in draft_data and draft_data.get('content_rating'):
+        story.content_rating = draft_data['content_rating']
+    elif not story.content_rating:
+        # Default: if user allows NSFW, default to NSFW; otherwise SFW
+        story.content_rating = "nsfw" if current_user.allow_nsfw else "sfw"
+        logger.info(f"[FINALIZE] Set default content_rating={story.content_rating} for story {story_id} (user allow_nsfw={current_user.allow_nsfw})")
+    
     # Process characters from draft_data and create StoryCharacter relationships
     characters_data = draft_data.get('characters', [])
     if characters_data:
