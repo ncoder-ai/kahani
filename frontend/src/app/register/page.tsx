@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/store';
@@ -18,6 +18,9 @@ export default function RegisterPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [passwordError, setPasswordError] = useState('');
+  
+  // Refs to handle mobile autofill race condition
+  const formRef = useRef<HTMLFormElement>(null);
   
   const router = useRouter();
   const { login } = useAuthStore();
@@ -52,18 +55,40 @@ export default function RegisterPage() {
     setIsLoading(true);
     setError('');
     
+    // CRITICAL: Read values directly from form to handle mobile autofill
+    // On iOS/mobile browsers, password managers may autofill without triggering onChange
+    const form = formRef.current;
+    const actualFormData = {
+      username: (form?.querySelector('#username') as HTMLInputElement)?.value || formData.username,
+      email: (form?.querySelector('#email') as HTMLInputElement)?.value || formData.email,
+      password: (form?.querySelector('#password') as HTMLInputElement)?.value || formData.password,
+      confirmPassword: (form?.querySelector('#confirmPassword') as HTMLInputElement)?.value || formData.confirmPassword,
+      displayName: (form?.querySelector('#displayName') as HTMLInputElement)?.value || formData.displayName,
+    };
+    
+    // Sync React state with actual values
+    setFormData(actualFormData);
+    
+    // Validate required fields
+    if (!actualFormData.email || !actualFormData.password || !actualFormData.username) {
+      setError('Please fill in all required fields.');
+      setIsLoading(false);
+      return;
+    }
+    
     // Validate passwords before submitting
-    if (!validatePasswords()) {
+    if (actualFormData.password !== actualFormData.confirmPassword) {
+      setPasswordError('Passwords do not match');
       setIsLoading(false);
       return;
     }
 
     try {
       const response = await apiClient.register({
-        username: formData.username,
-        email: formData.email,
-        password: formData.password,
-        display_name: formData.displayName,
+        username: actualFormData.username,
+        email: actualFormData.email,
+        password: actualFormData.password,
+        display_name: actualFormData.displayName,
       });
       
       // Update auth store with user and token
@@ -110,7 +135,7 @@ export default function RegisterPage() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form ref={formRef} onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label htmlFor="displayName" className="block text-sm font-medium text-white/80 mb-2">
                 Display Name
@@ -119,6 +144,7 @@ export default function RegisterPage() {
                 id="displayName"
                 name="displayName"
                 type="text"
+                autoComplete="name"
                 required
                 value={formData.displayName}
                 onChange={handleChange}
@@ -135,6 +161,7 @@ export default function RegisterPage() {
                 id="username"
                 name="username"
                 type="text"
+                autoComplete="username"
                 required
                 value={formData.username}
                 onChange={handleChange}
@@ -151,6 +178,7 @@ export default function RegisterPage() {
                 id="email"
                 name="email"
                 type="email"
+                autoComplete="email"
                 required
                 value={formData.email}
                 onChange={handleChange}
@@ -167,6 +195,7 @@ export default function RegisterPage() {
                 id="password"
                 name="password"
                 type="password"
+                autoComplete="new-password"
                 required
                 value={formData.password}
                 onChange={handleChange}
@@ -183,6 +212,7 @@ export default function RegisterPage() {
                 id="confirmPassword"
                 name="confirmPassword"
                 type="password"
+                autoComplete="new-password"
                 required
                 value={formData.confirmPassword}
                 onChange={handleChange}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, Suspense, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/store';
@@ -14,6 +14,11 @@ function LoginForm() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [sessionExpiredMessage, setSessionExpiredMessage] = useState(false);
+  
+  // Refs to handle mobile autofill race condition
+  // On iOS/mobile, autofill may not trigger onChange events, leaving React state empty
+  const emailRef = useRef<HTMLInputElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
   
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -37,6 +42,23 @@ function LoginForm() {
     setIsLoading(true);
     setError('');
 
+    // CRITICAL: Read values directly from DOM refs to handle mobile autofill
+    // On iOS/mobile browsers, password managers may autofill without triggering onChange,
+    // leaving React state empty. Reading from refs ensures we get the actual input values.
+    const actualEmail = emailRef.current?.value || email;
+    const actualPassword = passwordRef.current?.value || password;
+    
+    // Sync React state with actual values (for UI consistency)
+    if (actualEmail !== email) setEmail(actualEmail);
+    if (actualPassword !== password) setPassword(actualPassword);
+
+    // Validate that we have credentials
+    if (!actualEmail || !actualPassword) {
+      setError('Please enter both email and password.');
+      setIsLoading(false);
+      return;
+    }
+
     try {
       // Initialize API client if needed (this will fetch API URL with timeout)
       try {
@@ -53,7 +75,7 @@ function LoginForm() {
         // For other errors, continue and let login attempt show the error
       }
       
-      const response = await apiClient.login(email, password, rememberMe);
+      const response = await apiClient.login(actualEmail, actualPassword, rememberMe);
       
       // Set token in API client immediately
       apiClient.setToken(response.access_token);
@@ -164,8 +186,11 @@ function LoginForm() {
                 Email address
               </label>
               <input
+                ref={emailRef}
                 id="email"
+                name="email"
                 type="email"
+                autoComplete="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -179,8 +204,11 @@ function LoginForm() {
                 Password
               </label>
               <input
+                ref={passwordRef}
                 id="password"
+                name="password"
                 type="password"
+                autoComplete="current-password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
