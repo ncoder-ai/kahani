@@ -879,54 +879,124 @@ async def run_extractions_in_background(
             logger.warning(f"  - NPC tracking: {batch_results.get('npc_tracking', 0)}")
             logger.warning(f"  - Scene embeddings: {batch_results.get('scene_embeddings', 0)}")
             
-            # === PLOT PROGRESS EXTRACTION ===
-            # Run plot progress extraction if chapter has a plot and tracking is enabled
-            if extraction_chapter.chapter_plot:
-                generation_prefs = user_settings.get("generation_preferences", {}) if user_settings else {}
-                enable_plot_tracking = generation_prefs.get("enable_chapter_plot_tracking", True)
-                
-                if enable_plot_tracking and scenes_processed > 0:
-                    try:
-                        from ..services.chapter_progress_service import ChapterProgressService
-                        progress_service = ChapterProgressService(extraction_db)
-                        
-                        # Get scene content from the processed scenes for extraction
-                        # We use the scenes that were just extracted (from actual_from_sequence to actual_to_sequence)
-                        from ..models import SceneVariant
-                        for scene in scenes_in_chapter:
-                            if scene.sequence_number > actual_from_sequence and scene.sequence_number <= actual_to_sequence:
-                                # Get the active variant content
-                                flow_entry = extraction_db.query(StoryFlow).filter(
-                                    StoryFlow.scene_id == scene.id,
-                                    StoryFlow.is_active == True
-                                ).first()
-                                if flow_entry and flow_entry.scene_variant_id:
-                                    variant = extraction_db.query(SceneVariant).filter(
-                                        SceneVariant.id == flow_entry.scene_variant_id
-                                    ).first()
-                                    if variant and variant.content:
-                                        await progress_service.extract_and_update_progress(
-                                            chapter=extraction_chapter,
-                                            scene_content=variant.content,
-                                            llm_service=llm_service,
-                                            user_id=user_id,
-                                            user_settings=user_settings
-                                        )
-                        
-                        # Get updated progress for logging
-                        extraction_db.refresh(extraction_chapter)
-                        progress = extraction_chapter.plot_progress or {}
-                        completed_count = len(progress.get("completed_events", []))
-                        logger.info(f"[PLOT_PROGRESS] Updated chapter {chapter_id} progress: {completed_count} events completed")
-                    except Exception as e:
-                        logger.error(f"[PLOT_PROGRESS] Plot progress extraction failed: {e}")
-                        # Don't fail the overall extraction if plot tracking fails
+            # Note: Plot progress extraction now runs independently via run_plot_extraction_in_background
+            # based on plot_event_extraction_threshold setting
         finally:
             extraction_db.close()
     except Exception as e:
         logger.error(f"[EXTRACTION] Background extraction failed: {e}")
         import traceback
         logger.error(f"[EXTRACTION] Traceback: {traceback.format_exc()}")
+
+
+async def run_plot_extraction_in_background(
+    story_id: int,
+    chapter_id: int,
+    from_sequence: int,
+    to_sequence: int,
+    user_id: int,
+    user_settings: dict
+):
+    """Run plot event extraction in background, independent of entity extraction"""
+    try:
+        import asyncio
+        # Delay to ensure database commits from main session are visible
+        await asyncio.sleep(0.3)
+        
+        from ..database import SessionLocal
+        extraction_db = SessionLocal()
+        try:
+            # Reload chapter to get fresh data
+            extraction_chapter = extraction_db.query(Chapter).filter(Chapter.id == chapter_id).first()
+            if not extraction_chapter:
+                logger.error(f"[PLOT_EXTRACTION] Chapter {chapter_id} not found in background task")
+                return
+            
+            if not extraction_chapter.chapter_plot:
+                logger.warning(f"[PLOT_EXTRACTION] Chapter {chapter_id} has no plot, skipping")
+                return
+            
+            # Get actual sequence numbers of scenes in this chapter
+            from ..models import Scene, StoryFlow, SceneVariant
+            scenes_in_chapter = extraction_db.query(Scene).join(StoryFlow).filter(
+                StoryFlow.story_id == story_id,
+                StoryFlow.is_active == True,
+                Scene.chapter_id == chapter_id,
+                Scene.is_deleted == False
+            ).order_by(Scene.sequence_number).all()
+            
+            if not scenes_in_chapter:
+                logger.warning(f"[PLOT_EXTRACTION] No scenes found in chapter {chapter_id}, skipping")
+                return
+            
+            # Get actual sequence numbers
+            scene_sequence_numbers = [s.sequence_number for s in scenes_in_chapter]
+            max_sequence_in_chapter = max(scene_sequence_numbers)
+            min_sequence_in_chapter = min(scene_sequence_numbers)
+            
+            # Use last_plot_extraction_scene_count as from_sequence
+            actual_from_sequence = extraction_chapter.last_plot_extraction_scene_count or 0
+            if actual_from_sequence == 0 or actual_from_sequence >= max_sequence_in_chapter:
+                actual_from_sequence = min_sequence_in_chapter - 1
+            
+            actual_to_sequence = max_sequence_in_chapter
+            
+            # Safety check
+            if actual_from_sequence >= actual_to_sequence:
+                logger.warning(f"[PLOT_EXTRACTION] No scenes to process: from_sequence ({actual_from_sequence}) >= to_sequence ({actual_to_sequence})")
+                return
+            
+            logger.warning(f"[PLOT_EXTRACTION] Background task - Processing chapter {chapter_id}:")
+            logger.warning(f"  - Scenes in chapter: {len(scenes_in_chapter)} (sequences {min_sequence_in_chapter} to {max_sequence_in_chapter})")
+            logger.warning(f"  - Using from_sequence={actual_from_sequence}, to_sequence={actual_to_sequence}")
+            
+            # Extract plot progress for each scene in the range
+            from ..services.chapter_progress_service import ChapterProgressService
+            from ..services.llm.service import UnifiedLLMService
+            
+            progress_service = ChapterProgressService(extraction_db)
+            llm_service = UnifiedLLMService()
+            
+            scenes_processed = 0
+            for scene in scenes_in_chapter:
+                if scene.sequence_number > actual_from_sequence and scene.sequence_number <= actual_to_sequence:
+                    # Get the active variant content
+                    flow_entry = extraction_db.query(StoryFlow).filter(
+                        StoryFlow.scene_id == scene.id,
+                        StoryFlow.is_active == True
+                    ).first()
+                    if flow_entry and flow_entry.scene_variant_id:
+                        variant = extraction_db.query(SceneVariant).filter(
+                            SceneVariant.id == flow_entry.scene_variant_id
+                        ).first()
+                        if variant and variant.content:
+                            await progress_service.extract_and_update_progress(
+                                chapter=extraction_chapter,
+                                scene_content=variant.content,
+                                llm_service=llm_service,
+                                user_id=user_id,
+                                user_settings=user_settings
+                            )
+                            scenes_processed += 1
+            
+            # Update last_plot_extraction_scene_count
+            if scenes_processed > 0:
+                extraction_chapter.last_plot_extraction_scene_count = actual_to_sequence
+                extraction_db.commit()
+                logger.warning(f"[PLOT_EXTRACTION] Updated last_plot_extraction_scene_count to {actual_to_sequence} for chapter {chapter_id}")
+            
+            # Get updated progress for logging
+            extraction_db.refresh(extraction_chapter)
+            progress = extraction_chapter.plot_progress or {}
+            completed_count = len(progress.get("completed_events", []))
+            logger.info(f"[PLOT_EXTRACTION] Updated chapter {chapter_id} progress: {completed_count} events completed")
+            
+        finally:
+            extraction_db.close()
+    except Exception as e:
+        logger.error(f"[PLOT_EXTRACTION] Background plot extraction failed: {e}")
+        import traceback
+        logger.error(f"[PLOT_EXTRACTION] Traceback: {traceback.format_exc()}")
 
 
 @router.post("/{story_id}/scenes")
@@ -1801,8 +1871,8 @@ async def generate_scene_streaming_endpoint(
                                         await generate_chapter_summary_incremental(bg_chapter.id, bg_db, current_user.id)
                                         # Note: story_so_far is NOT regenerated here because it only includes previous chapters,
                                         # not the current chapter, so updating current chapter's summary doesn't affect it
-                                        
-                                        bg_chapter.last_summary_scene_count = bg_chapter.scenes_count
+                                        # Note: last_summary_scene_count is already updated by generate_chapter_summary_incremental
+                                        # via update_chapter_summary_from_batches(), so we don't need to set it here
                                         bg_db.commit()
                                         logger.info(f"[CHAPTER] Auto-summary generated for chapter {bg_chapter.id}")
                                 finally:
@@ -1879,8 +1949,65 @@ async def generate_scene_streaming_endpoint(
                     yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'error', 'message': 'Extraction failed'})}\n\n"
                     # Don't fail scene generation if extraction fails
             
-            # Note: Plot progress extraction now runs inside run_extractions_in_background
-            # when the extraction threshold is reached, aligned with character extraction
+            # === PLOT EVENT EXTRACTION (SEPARATE FROM ENTITY EXTRACTION) ===
+            # Check if plot event extraction should run independently
+            if active_chapter and active_chapter.chapter_plot:
+                try:
+                    # Get plot event extraction threshold from user settings
+                    plot_extraction_threshold = user_settings.get('context_settings', {}).get(
+                        'plot_event_extraction_threshold', 
+                        5  # Default threshold
+                    ) if user_settings else 5
+                    
+                    # Check if plot tracking is enabled
+                    generation_prefs = user_settings.get("generation_preferences", {}) if user_settings else {}
+                    enable_plot_tracking = generation_prefs.get("enable_chapter_plot_tracking", True)
+                    
+                    if enable_plot_tracking:
+                        # Get scenes in this chapter
+                        scenes_in_chapter = db.query(Scene).join(StoryFlow).filter(
+                            StoryFlow.story_id == story_id,
+                            StoryFlow.is_active == True,
+                            Scene.chapter_id == active_chapter.id,
+                            Scene.is_deleted == False
+                        ).order_by(Scene.sequence_number).all()
+                        
+                        if scenes_in_chapter:
+                            scene_sequence_numbers = [s.sequence_number for s in scenes_in_chapter]
+                            max_sequence_in_chapter = max(scene_sequence_numbers)
+                            last_plot_extraction_sequence = active_chapter.last_plot_extraction_scene_count or 0
+                            
+                            # Count scenes since last plot extraction
+                            scenes_since_plot_extraction = len([s for s in scene_sequence_numbers if s > last_plot_extraction_sequence])
+                            
+                            logger.warning(f"[PLOT_EXTRACTION] Scenes since last plot extraction: {scenes_since_plot_extraction}/{plot_extraction_threshold} for chapter {active_chapter.id}")
+                            
+                            if scenes_since_plot_extraction >= plot_extraction_threshold:
+                                logger.warning(f"[PLOT_EXTRACTION] ✓ SCHEDULED: Threshold reached ({scenes_since_plot_extraction}/{plot_extraction_threshold})")
+                                
+                                # Schedule plot extraction to run after response completes
+                                background_tasks.add_task(
+                                    run_plot_extraction_in_background,
+                                    story_id=story_id,
+                                    chapter_id=active_chapter.id,
+                                    from_sequence=last_plot_extraction_sequence,
+                                    to_sequence=max_sequence_in_chapter,
+                                    user_id=current_user.id,
+                                    user_settings=user_settings or {}
+                                )
+                                
+                                # Send status event
+                                plot_msg = f"Plot tracking ({scenes_since_plot_extraction}/{plot_extraction_threshold})"
+                                yield f"data: {json.dumps({'type': 'plot_extraction_status', 'status': 'scheduled', 'message': plot_msg})}\n\n"
+                            else:
+                                # Threshold not reached
+                                skip_msg = f"Plot tracking skipped ({scenes_since_plot_extraction}/{plot_extraction_threshold})"
+                                logger.warning(f"[PLOT_EXTRACTION] ✗ SKIPPED: {skip_msg}")
+                                yield f"data: {json.dumps({'type': 'plot_extraction_status', 'status': 'skipped', 'message': skip_msg})}\n\n"
+                except Exception as e:
+                    logger.error(f"[PLOT_EXTRACTION] Failed to check plot extraction: {e}")
+                    import traceback
+                    logger.error(f"[PLOT_EXTRACTION] Traceback: {traceback.format_exc()}")
             
             # Send [DONE] as the LAST event after all extraction status events
             yield "data: [DONE]\n\n"

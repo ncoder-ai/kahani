@@ -230,6 +230,7 @@ user_defaults:
     auto_extract_character_moments: true
     auto_extract_plot_events: true
     extraction_confidence_threshold: 70
+    plot_event_extraction_threshold: 5
   generation_preferences:
     default_genre: ""
     default_tone: ""

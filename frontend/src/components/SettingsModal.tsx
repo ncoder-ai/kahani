@@ -72,6 +72,7 @@ interface ContextSettings {
   auto_extract_character_moments?: boolean;
   auto_extract_plot_events?: boolean;
   extraction_confidence_threshold?: number;
+  plot_event_extraction_threshold?: number;
 }
 
 interface ExtractionModelSettings {
@@ -203,6 +204,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     auto_extract_character_moments: false,
     auto_extract_plot_events: false,
     extraction_confidence_threshold: 0.8,
+    plot_event_extraction_threshold: 5,
   });
   
   // Extraction Model Settings
@@ -384,6 +386,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             auto_extract_character_moments: settings.context_settings.auto_extract_character_moments || false,
             auto_extract_plot_events: settings.context_settings.auto_extract_plot_events || false,
             extraction_confidence_threshold: settings.context_settings.extraction_confidence_threshold ?? 0.8,
+            plot_event_extraction_threshold: settings.context_settings.plot_event_extraction_threshold ?? 5,
           });
         }
         
@@ -2909,6 +2912,25 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     />
                     <div className="text-xs text-gray-400 mt-1">
                       Run character/NPC extraction after this many scenes since last extraction. Batch processes all scenes since last extraction.
+                    </div>
+                  </div>
+
+                  {/* Plot Event Extraction Threshold */}
+                  <div>
+                    <label className="block text-sm font-medium text-white mb-2">
+                      Plot Event Extraction Threshold: {contextSettings.plot_event_extraction_threshold || 5} scenes
+                    </label>
+                    <input
+                      type="range"
+                      min="1"
+                      max="50"
+                      step="1"
+                      value={contextSettings.plot_event_extraction_threshold || 5}
+                      onChange={(e) => setContextSettings({ ...contextSettings, plot_event_extraction_threshold: parseInt(e.target.value) })}
+                      className="w-full"
+                    />
+                    <div className="text-xs text-gray-400 mt-1">
+                      Run plot event extraction after this many scenes since last extraction. Tracks chapter plot progress independently from entity extraction.
                     </div>
                   </div>
 

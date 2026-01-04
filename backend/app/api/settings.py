@@ -48,6 +48,7 @@ class ContextSettingsUpdate(BaseModel):
     auto_extract_character_moments: Optional[bool] = None
     auto_extract_plot_events: Optional[bool] = None
     extraction_confidence_threshold: Optional[int] = Field(default=None, ge=0, le=100)
+    plot_event_extraction_threshold: Optional[int] = Field(default=None, ge=1, le=50)
 
 class GenerationPreferencesUpdate(BaseModel):
     default_genre: Optional[str] = None
@@ -253,6 +254,8 @@ async def update_user_settings(
             user_settings.auto_extract_plot_events = ctx.auto_extract_plot_events
         if ctx.extraction_confidence_threshold is not None:
             user_settings.extraction_confidence_threshold = ctx.extraction_confidence_threshold
+        if ctx.plot_event_extraction_threshold is not None:
+            user_settings.plot_event_extraction_threshold = ctx.plot_event_extraction_threshold
     
     # Update generation preferences
     if settings_update.generation_preferences:

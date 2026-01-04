@@ -43,6 +43,7 @@ class Chapter(Base):
     auto_summary = Column(Text, nullable=True)  # Auto-generated summary (based on user's context_summary_threshold setting)
     last_summary_scene_count = Column(Integer, default=0)  # Track when we last generated summary
     last_extraction_scene_count = Column(Integer, default=0)  # Track when we last ran character/NPC extraction
+    last_plot_extraction_scene_count = Column(Integer, default=0)  # Track when we last ran plot event extraction
     
     # Chapter metadata
     location_name = Column(String(255), nullable=True)  # Primary location for this chapter

@@ -1676,7 +1676,7 @@ async def generate_chapter_summary_incremental(chapter_id: int, db: Session, use
         
         # Determine scene range for this batch
         batch_start = last_summary_count + 1
-        batch_end = chapter.scenes_count
+        batch_end = max(s.sequence_number for s in new_scenes)  # Use actual max sequence number, not count
         
         # Store this batch
         batch = ChapterSummaryBatch(

@@ -125,16 +125,24 @@ class ChapterProgressService:
         Returns:
             Updated progress data
         """
-        # Get existing progress or initialize
-        progress_data = chapter.plot_progress or {
-            "completed_events": [],
-            "scene_count": 0,
-            "climax_reached": False,
-            "last_updated": None
+        from sqlalchemy.orm.attributes import flag_modified
+        
+        # Refresh to get latest state from database
+        # This ensures we have the most recent plot_progress before updating
+        self.db.refresh(chapter)
+        
+        # Create a NEW dict (not reference) to ensure SQLAlchemy detects change
+        # This is critical - SQLAlchemy doesn't detect in-place mutations of JSON columns
+        existing_progress = chapter.plot_progress or {}
+        progress_data = {
+            "completed_events": list(existing_progress.get("completed_events", [])),
+            "scene_count": existing_progress.get("scene_count", 0),
+            "climax_reached": existing_progress.get("climax_reached", False),
+            "last_updated": existing_progress.get("last_updated")
         }
         
         # Merge new completed events (avoid duplicates)
-        existing_completed = set(progress_data.get("completed_events", []))
+        existing_completed = set(progress_data["completed_events"])
         existing_completed.update(new_completed_events)
         
         # Update scene count
@@ -152,9 +160,11 @@ class ChapterProgressService:
         progress_data["completed_events"] = list(existing_completed)
         progress_data["last_updated"] = datetime.utcnow().isoformat()
         
-        # Save to database
+        # Assign NEW dict and flag as modified to ensure SQLAlchemy persists the change
         chapter.plot_progress = progress_data
+        flag_modified(chapter, "plot_progress")
         self.db.commit()
+        self.db.refresh(chapter)
         
         logger.info(f"Updated chapter {chapter.id} progress: {len(existing_completed)} events completed")
         
@@ -448,6 +458,10 @@ class ChapterProgressService:
         """
         if not chapter.chapter_plot:
             return {}
+        
+        # Refresh chapter to get latest plot_progress from database
+        # This prevents reading stale data when processing multiple scenes in a loop
+        self.db.refresh(chapter)
         
         key_events = chapter.chapter_plot.get("key_events", [])
         
