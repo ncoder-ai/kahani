@@ -2069,24 +2069,28 @@ class UnifiedLLMService:
         """
         Fallback method to extract choices using regex when JSON parsing fails.
         Looks for quoted strings that appear to be choices.
+        Handles escaped quotes (\\") inside strings.
         """
-        # Try to find strings in quotes (both double and single)
-        # Pattern matches: "text" or 'text' with reasonable content
         choices = []
         
-        # First try double-quoted strings
-        double_quoted = re.findall(r'"([^"]{10,300})"', text)
+        # First try double-quoted strings, handling escaped quotes
+        # Pattern: (?:[^"\\]|\\.) matches either:
+        #   - [^"\\] = any char except quote or backslash
+        #   - \\. = backslash followed by any char (escaped char like \")
+        # Minimum 10 chars, no maximum limit
+        double_quoted = re.findall(r'"((?:[^"\\]|\\.){10,})"', text)
         for match in double_quoted:
-            cleaned = match.strip()
+            # Unescape: convert \" to " and \' to '
+            cleaned = match.replace('\\"', '"').replace("\\'", "'").strip()
             # Filter out things that look like JSON keys or formatting
             if cleaned and not cleaned.startswith('{') and not cleaned.endswith(':') and 'choices' not in cleaned.lower():
                 choices.append(cleaned)
         
         # If we didn't get enough, try single-quoted strings
         if len(choices) < 2:
-            single_quoted = re.findall(r"'([^']{10,300})'", text)
+            single_quoted = re.findall(r"'((?:[^'\\]|\\.){10,})'", text)
             for match in single_quoted:
-                cleaned = match.strip()
+                cleaned = match.replace('\\"', '"').replace("\\'", "'").strip()
                 if cleaned and cleaned not in choices and not cleaned.startswith('{'):
                     choices.append(cleaned)
         
