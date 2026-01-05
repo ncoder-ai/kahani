@@ -14,6 +14,7 @@ import logging
 import json
 import time
 import uuid
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -3899,117 +3900,151 @@ async def regenerate_scene_variant_choices(
         )
 
 
+# ====== BACKGROUND TASK FUNCTIONS ======
+
 async def restore_npc_tracking_in_background(
     story_id: int,
     sequence_number: int,
     branch_id: int = None
 ):
-    """Background task to restore NPC tracking from snapshot after scene deletion"""
-    import uuid
+    """Background task to restore NPC tracking from snapshot after scene deletion.
+    
+    Includes retry logic with exponential backoff for DB connection pool exhaustion.
+    """
     trace_id = f"npc-bg-{uuid.uuid4()}"
     task_start = time.perf_counter()
     
     logger.info(f"[DELETE-BG:NPC:START] trace_id={trace_id} story_id={story_id} sequence_number={sequence_number} branch_id={branch_id}")
     
+    # Retry configuration for DB connection pool exhaustion
+    max_retries = 3
+    base_delay = 1.0
+    
     try:
-        import asyncio
         # Delay to ensure database commits from main session are visible
         await asyncio.sleep(0.3)
         logger.info(f"[DELETE-BG:NPC:PHASE] trace_id={trace_id} phase=delay_complete")
         
         from ..database import get_background_db
-        with get_background_db() as bg_db:
-            from ..models import Story, NPCTracking, NPCTrackingSnapshot, Scene
-            
-            # Phase 1: Find the last remaining scene's sequence number (filtered by branch)
-            phase_start = time.perf_counter()
-            last_remaining_scene_query = bg_db.query(Scene).filter(
-                Scene.story_id == story_id,
-                Scene.sequence_number < sequence_number
-            )
-            if branch_id is not None:
-                last_remaining_scene_query = last_remaining_scene_query.filter(Scene.branch_id == branch_id)
-            last_remaining_scene = last_remaining_scene_query.order_by(Scene.sequence_number.desc()).first()
-            logger.info(f"[DELETE-BG:NPC:PHASE] trace_id={trace_id} phase=query_last_scene duration_ms={(time.perf_counter()-phase_start)*1000:.2f} found={last_remaining_scene is not None}")
-            
-            if last_remaining_scene:
-                # Phase 2: Get snapshot for the last remaining scene (filtered by branch)
-                phase_start = time.perf_counter()
-                snapshot_query = bg_db.query(NPCTrackingSnapshot).filter(
-                    NPCTrackingSnapshot.story_id == story_id,
-                    NPCTrackingSnapshot.scene_sequence == last_remaining_scene.sequence_number
-                )
-                if branch_id is not None:
-                    snapshot_query = snapshot_query.filter(NPCTrackingSnapshot.branch_id == branch_id)
-                snapshot = snapshot_query.first()
-                logger.info(f"[DELETE-BG:NPC:PHASE] trace_id={trace_id} phase=query_snapshot duration_ms={(time.perf_counter()-phase_start)*1000:.2f} found={snapshot is not None}")
-                
-                if snapshot:
-                    # Restore NPCTracking from snapshot
-                    snapshot_data = snapshot.snapshot_data or {}
-                    npc_count = len(snapshot_data)
-                    logger.info(f"[DELETE-BG:NPC:CONTEXT] trace_id={trace_id} snapshot_scene={last_remaining_scene.sequence_number} npcs_in_snapshot={npc_count}")
+        from ..models import NPCTracking, NPCTrackingSnapshot, Scene
+        
+        # Retry loop for DB connection acquisition
+        last_error = None
+        for attempt in range(max_retries):
+            try:
+                with get_background_db() as bg_db:
+                    logger.info(f"[DELETE-BG:NPC:DB] trace_id={trace_id} attempt={attempt+1}/{max_retries} connection_acquired")
                     
-                    # Phase 3: Delete all existing NPC tracking records for this story and branch
+                    # Phase 1: Find the last remaining scene's sequence number (filtered by branch)
                     phase_start = time.perf_counter()
-                    npc_delete_query = bg_db.query(NPCTracking).filter(
-                        NPCTracking.story_id == story_id
+                    last_remaining_scene_query = bg_db.query(Scene).filter(
+                        Scene.story_id == story_id,
+                        Scene.sequence_number < sequence_number
                     )
                     if branch_id is not None:
-                        npc_delete_query = npc_delete_query.filter(NPCTracking.branch_id == branch_id)
-                    deleted_count = npc_delete_query.delete()
-                    logger.info(f"[DELETE-BG:NPC:PHASE] trace_id={trace_id} phase=delete_existing duration_ms={(time.perf_counter()-phase_start)*1000:.2f} deleted={deleted_count}")
+                        last_remaining_scene_query = last_remaining_scene_query.filter(Scene.branch_id == branch_id)
+                    last_remaining_scene = last_remaining_scene_query.order_by(Scene.sequence_number.desc()).first()
+                    logger.info(f"[DELETE-BG:NPC:PHASE] trace_id={trace_id} phase=query_last_scene duration_ms={(time.perf_counter()-phase_start)*1000:.2f} found={last_remaining_scene is not None}")
                     
-                    # Phase 4: Restore from snapshot
-                    phase_start = time.perf_counter()
-                    restored_count = 0
-                    for character_name, npc_data in snapshot_data.items():
-                        tracking = NPCTracking(
-                            story_id=story_id,
-                            branch_id=branch_id,
-                            character_name=character_name,
-                            entity_type=npc_data.get("entity_type", "CHARACTER"),
-                            total_mentions=npc_data.get("total_mentions", 0),
-                            scene_count=npc_data.get("scene_count", 0),
-                            importance_score=npc_data.get("importance_score", 0.0),
-                            frequency_score=npc_data.get("frequency_score", 0.0),
-                            significance_score=npc_data.get("significance_score", 0.0),
-                            first_appearance_scene=npc_data.get("first_appearance_scene"),
-                            last_appearance_scene=npc_data.get("last_appearance_scene"),
-                            has_dialogue_count=npc_data.get("has_dialogue_count", 0),
-                            has_actions_count=npc_data.get("has_actions_count", 0),
-                            crossed_threshold=npc_data.get("crossed_threshold", False),
-                            user_prompted=npc_data.get("user_prompted", False),
-                            profile_extracted=npc_data.get("profile_extracted", False),
-                            converted_to_character=npc_data.get("converted_to_character", False),
-                            extracted_profile=npc_data.get("extracted_profile", {})
+                    if last_remaining_scene:
+                        # Phase 2: Get snapshot for the last remaining scene (filtered by branch)
+                        phase_start = time.perf_counter()
+                        snapshot_query = bg_db.query(NPCTrackingSnapshot).filter(
+                            NPCTrackingSnapshot.story_id == story_id,
+                            NPCTrackingSnapshot.scene_sequence == last_remaining_scene.sequence_number
                         )
-                        bg_db.add(tracking)
-                        restored_count += 1
-                    logger.info(f"[DELETE-BG:NPC:PHASE] trace_id={trace_id} phase=restore_npcs duration_ms={(time.perf_counter()-phase_start)*1000:.2f} restored={restored_count}")
+                        if branch_id is not None:
+                            snapshot_query = snapshot_query.filter(NPCTrackingSnapshot.branch_id == branch_id)
+                        snapshot = snapshot_query.first()
+                        logger.info(f"[DELETE-BG:NPC:PHASE] trace_id={trace_id} phase=query_snapshot duration_ms={(time.perf_counter()-phase_start)*1000:.2f} found={snapshot is not None}")
+                        
+                        if snapshot:
+                            # Restore NPCTracking from snapshot
+                            snapshot_data = snapshot.snapshot_data or {}
+                            npc_count = len(snapshot_data)
+                            logger.info(f"[DELETE-BG:NPC:CONTEXT] trace_id={trace_id} snapshot_scene={last_remaining_scene.sequence_number} npcs_in_snapshot={npc_count}")
+                            
+                            # Phase 3: Delete all existing NPC tracking records for this story and branch
+                            phase_start = time.perf_counter()
+                            npc_delete_query = bg_db.query(NPCTracking).filter(
+                                NPCTracking.story_id == story_id
+                            )
+                            if branch_id is not None:
+                                npc_delete_query = npc_delete_query.filter(NPCTracking.branch_id == branch_id)
+                            deleted_count = npc_delete_query.delete()
+                            logger.info(f"[DELETE-BG:NPC:PHASE] trace_id={trace_id} phase=delete_existing duration_ms={(time.perf_counter()-phase_start)*1000:.2f} deleted={deleted_count}")
+                            
+                            # Phase 4: Restore from snapshot
+                            phase_start = time.perf_counter()
+                            restored_count = 0
+                            for character_name, npc_data in snapshot_data.items():
+                                tracking = NPCTracking(
+                                    story_id=story_id,
+                                    branch_id=branch_id,
+                                    character_name=character_name,
+                                    entity_type=npc_data.get("entity_type", "CHARACTER"),
+                                    total_mentions=npc_data.get("total_mentions", 0),
+                                    scene_count=npc_data.get("scene_count", 0),
+                                    importance_score=npc_data.get("importance_score", 0.0),
+                                    frequency_score=npc_data.get("frequency_score", 0.0),
+                                    significance_score=npc_data.get("significance_score", 0.0),
+                                    first_appearance_scene=npc_data.get("first_appearance_scene"),
+                                    last_appearance_scene=npc_data.get("last_appearance_scene"),
+                                    has_dialogue_count=npc_data.get("has_dialogue_count", 0),
+                                    has_actions_count=npc_data.get("has_actions_count", 0),
+                                    crossed_threshold=npc_data.get("crossed_threshold", False),
+                                    user_prompted=npc_data.get("user_prompted", False),
+                                    profile_extracted=npc_data.get("profile_extracted", False),
+                                    converted_to_character=npc_data.get("converted_to_character", False),
+                                    extracted_profile=npc_data.get("extracted_profile", {})
+                                )
+                                bg_db.add(tracking)
+                                restored_count += 1
+                            logger.info(f"[DELETE-BG:NPC:PHASE] trace_id={trace_id} phase=restore_npcs duration_ms={(time.perf_counter()-phase_start)*1000:.2f} restored={restored_count}")
+                            
+                            # Phase 5: Commit
+                            phase_start = time.perf_counter()
+                            bg_db.commit()
+                            logger.info(f"[DELETE-BG:NPC:PHASE] trace_id={trace_id} phase=commit duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
+                            
+                            total_duration = (time.perf_counter() - task_start) * 1000
+                            logger.info(f"[DELETE-BG:NPC:END] trace_id={trace_id} total_duration_ms={total_duration:.2f} restored_from_scene={last_remaining_scene.sequence_number} npcs_restored={restored_count}")
+                        else:
+                            logger.warning(f"[DELETE-BG:NPC:WARNING] trace_id={trace_id} no_snapshot_found scene={last_remaining_scene.sequence_number}")
+                    else:
+                        # No remaining scenes - delete all NPC tracking for this branch
+                        phase_start = time.perf_counter()
+                        npc_delete_query = bg_db.query(NPCTracking).filter(
+                            NPCTracking.story_id == story_id
+                        )
+                        if branch_id is not None:
+                            npc_delete_query = npc_delete_query.filter(NPCTracking.branch_id == branch_id)
+                        deleted_count = npc_delete_query.delete()
+                        bg_db.commit()
+                        
+                        total_duration = (time.perf_counter() - task_start) * 1000
+                        logger.info(f"[DELETE-BG:NPC:END] trace_id={trace_id} total_duration_ms={total_duration:.2f} no_remaining_scenes npcs_deleted={deleted_count}")
                     
-                    # Phase 5: Commit
-                    phase_start = time.perf_counter()
-                    bg_db.commit()
-                    logger.info(f"[DELETE-BG:NPC:PHASE] trace_id={trace_id} phase=commit duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
+                    # Success - exit retry loop
+                    return
                     
-                    total_duration = (time.perf_counter() - task_start) * 1000
-                    logger.info(f"[DELETE-BG:NPC:END] trace_id={trace_id} total_duration_ms={total_duration:.2f} restored_from_scene={last_remaining_scene.sequence_number} npcs_restored={restored_count}")
+            except Exception as e:
+                last_error = e
+                error_str = str(e)
+                # Check if it's a pool exhaustion error
+                if "QueuePool limit" in error_str or "timeout" in error_str.lower():
+                    if attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)
+                        logger.warning(f"[DELETE-BG:NPC:RETRY] trace_id={trace_id} attempt={attempt+1}/{max_retries} "
+                                     f"pool_exhausted, retrying in {delay:.1f}s error={error_str[:100]}")
+                        await asyncio.sleep(delay)
+                    else:
+                        logger.error(f"[DELETE-BG:NPC:EXHAUSTED] trace_id={trace_id} all {max_retries} retries failed error={error_str}")
+                        raise
                 else:
-                    logger.warning(f"[DELETE-BG:NPC:WARNING] trace_id={trace_id} no_snapshot_found scene={last_remaining_scene.sequence_number}")
-            else:
-                # No remaining scenes - delete all NPC tracking for this branch
-                phase_start = time.perf_counter()
-                npc_delete_query = bg_db.query(NPCTracking).filter(
-                    NPCTracking.story_id == story_id
-                )
-                if branch_id is not None:
-                    npc_delete_query = npc_delete_query.filter(NPCTracking.branch_id == branch_id)
-                deleted_count = npc_delete_query.delete()
-                bg_db.commit()
-                
-                total_duration = (time.perf_counter() - task_start) * 1000
-                logger.info(f"[DELETE-BG:NPC:END] trace_id={trace_id} total_duration_ms={total_duration:.2f} no_remaining_scenes npcs_deleted={deleted_count}")
+                    # Not a pool error, re-raise immediately
+                    raise
+                    
     except Exception as e:
         total_duration = (time.perf_counter() - task_start) * 1000
         logger.error(f"[DELETE-BG:NPC:ERROR] trace_id={trace_id} duration_ms={total_duration:.2f} error={e}")
@@ -4021,54 +4056,86 @@ async def cleanup_semantic_data_in_background(
     scene_ids: list,
     story_id: int
 ):
-    """Background task to clean up semantic data for deleted scenes"""
-    import uuid
+    """Background task to clean up semantic data for deleted scenes.
+    
+    Includes retry logic with exponential backoff for DB connection pool exhaustion.
+    """
     trace_id = f"semantic-bg-{uuid.uuid4()}"
     task_start = time.perf_counter()
     total_scenes = len(scene_ids)
     
     logger.info(f"[DELETE-BG:SEMANTIC:START] trace_id={trace_id} story_id={story_id} scene_count={total_scenes} scene_ids={scene_ids[:5]}{'...' if total_scenes > 5 else ''}")
     
+    # Retry configuration for DB connection pool exhaustion
+    max_retries = 3
+    base_delay = 1.0
+    
     try:
-        import asyncio
         # Delay to ensure database commits from main session are visible
         await asyncio.sleep(0.3)
         logger.info(f"[DELETE-BG:SEMANTIC:PHASE] trace_id={trace_id} phase=delay_complete")
         
         from ..database import get_background_db
-        with get_background_db() as bg_db:
-            from ..services.semantic_integration import cleanup_scene_embeddings
-            
-            # Determine logging interval (every 10% or every scene if < 10)
-            batch_log_interval = max(1, total_scenes // 10) if total_scenes > 10 else 1
-            
-            cleanup_start = time.perf_counter()
-            cleaned_count = 0
-            failed_count = 0
-            
-            for i, scene_id in enumerate(scene_ids):
-                scene_start = time.perf_counter()
-                try:
-                    await cleanup_scene_embeddings(scene_id, bg_db)
-                    cleaned_count += 1
-                    scene_duration = (time.perf_counter() - scene_start) * 1000
+        from ..services.semantic_integration import cleanup_scene_embeddings
+        
+        # Retry loop for DB connection acquisition
+        last_error = None
+        for attempt in range(max_retries):
+            try:
+                with get_background_db() as bg_db:
+                    logger.info(f"[DELETE-BG:SEMANTIC:DB] trace_id={trace_id} attempt={attempt+1}/{max_retries} connection_acquired")
                     
-                    # Log progress at intervals or if cleanup takes > 500ms
-                    if (i + 1) % batch_log_interval == 0 or scene_duration > 500:
-                        elapsed_ms = (time.perf_counter() - cleanup_start) * 1000
-                        logger.info(f"[DELETE-BG:SEMANTIC:PROGRESS] trace_id={trace_id} progress={i+1}/{total_scenes} ({((i+1)/total_scenes*100):.1f}%) elapsed_ms={elapsed_ms:.2f} last_scene_ms={scene_duration:.2f} scene_id={scene_id}")
-                except Exception as e:
-                    failed_count += 1
-                    logger.warning(f"[DELETE-BG:SEMANTIC:SCENE_ERROR] trace_id={trace_id} scene_id={scene_id} error={e}")
-                    # Continue with other scenes even if one fails
-            
-            cleanup_duration = (time.perf_counter() - cleanup_start) * 1000
-            total_duration = (time.perf_counter() - task_start) * 1000
-            
-            if failed_count > 0:
-                logger.warning(f"[DELETE-BG:SEMANTIC:END] trace_id={trace_id} total_duration_ms={total_duration:.2f} cleanup_duration_ms={cleanup_duration:.2f} cleaned={cleaned_count} failed={failed_count}")
-            else:
-                logger.info(f"[DELETE-BG:SEMANTIC:END] trace_id={trace_id} total_duration_ms={total_duration:.2f} cleanup_duration_ms={cleanup_duration:.2f} cleaned={cleaned_count} avg_per_scene_ms={cleanup_duration/max(1,cleaned_count):.2f}")
+                    # Determine logging interval (every 10% or every scene if < 10)
+                    batch_log_interval = max(1, total_scenes // 10) if total_scenes > 10 else 1
+                    
+                    cleanup_start = time.perf_counter()
+                    cleaned_count = 0
+                    failed_count = 0
+                    
+                    for i, scene_id in enumerate(scene_ids):
+                        scene_start = time.perf_counter()
+                        try:
+                            await cleanup_scene_embeddings(scene_id, bg_db)
+                            cleaned_count += 1
+                            scene_duration = (time.perf_counter() - scene_start) * 1000
+                            
+                            # Log progress at intervals or if cleanup takes > 500ms
+                            if (i + 1) % batch_log_interval == 0 or scene_duration > 500:
+                                elapsed_ms = (time.perf_counter() - cleanup_start) * 1000
+                                logger.info(f"[DELETE-BG:SEMANTIC:PROGRESS] trace_id={trace_id} progress={i+1}/{total_scenes} ({((i+1)/total_scenes*100):.1f}%) elapsed_ms={elapsed_ms:.2f} last_scene_ms={scene_duration:.2f} scene_id={scene_id}")
+                        except Exception as e:
+                            failed_count += 1
+                            logger.warning(f"[DELETE-BG:SEMANTIC:SCENE_ERROR] trace_id={trace_id} scene_id={scene_id} error={e}")
+                            # Continue with other scenes even if one fails
+                    
+                    cleanup_duration = (time.perf_counter() - cleanup_start) * 1000
+                    total_duration = (time.perf_counter() - task_start) * 1000
+                    
+                    if failed_count > 0:
+                        logger.warning(f"[DELETE-BG:SEMANTIC:END] trace_id={trace_id} total_duration_ms={total_duration:.2f} cleanup_duration_ms={cleanup_duration:.2f} cleaned={cleaned_count} failed={failed_count}")
+                    else:
+                        logger.info(f"[DELETE-BG:SEMANTIC:END] trace_id={trace_id} total_duration_ms={total_duration:.2f} cleanup_duration_ms={cleanup_duration:.2f} cleaned={cleaned_count} avg_per_scene_ms={cleanup_duration/max(1,cleaned_count):.2f}")
+                    
+                    # Success - exit retry loop
+                    return
+                    
+            except Exception as e:
+                last_error = e
+                error_str = str(e)
+                # Check if it's a pool exhaustion error
+                if "QueuePool limit" in error_str or "timeout" in error_str.lower():
+                    if attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)
+                        logger.warning(f"[DELETE-BG:SEMANTIC:RETRY] trace_id={trace_id} attempt={attempt+1}/{max_retries} "
+                                     f"pool_exhausted, retrying in {delay:.1f}s error={error_str[:100]}")
+                        await asyncio.sleep(delay)
+                    else:
+                        logger.error(f"[DELETE-BG:SEMANTIC:EXHAUSTED] trace_id={trace_id} all {max_retries} retries failed error={error_str}")
+                        raise
+                else:
+                    # Not a pool error, re-raise immediately
+                    raise
+                    
     except Exception as e:
         total_duration = (time.perf_counter() - task_start) * 1000
         logger.error(f"[DELETE-BG:SEMANTIC:ERROR] trace_id={trace_id} duration_ms={total_duration:.2f} error={e}")
@@ -4085,90 +4152,122 @@ async def restore_entity_states_in_background(
     user_settings: dict,
     branch_id: int = None
 ):
-    """Background task to restore entity states after scene deletion"""
-    import uuid
+    """Background task to restore entity states after scene deletion.
+    
+    Includes retry logic with exponential backoff for DB connection pool exhaustion.
+    """
     trace_id = f"entity-bg-{uuid.uuid4()}"
     task_start = time.perf_counter()
     
     logger.info(f"[DELETE-BG:ENTITY:START] trace_id={trace_id} story_id={story_id} sequence_number={sequence_number} seq_range={min_deleted_seq}-{max_deleted_seq} branch_id={branch_id}")
     
+    # Retry configuration for DB connection pool exhaustion
+    max_retries = 3
+    base_delay = 1.0
+    
     try:
-        import asyncio
         # Delay to ensure database commits from main session are visible
         await asyncio.sleep(0.3)
         logger.info(f"[DELETE-BG:ENTITY:PHASE] trace_id={trace_id} phase=delay_complete")
         
         from ..database import get_background_db
-        with get_background_db() as bg_db:
-            from ..models import Story, UserSettings, Scene
-            from ..services.entity_state_service import EntityStateService
-            
-            # Phase 1: Get user settings if not provided
-            phase_start = time.perf_counter()
-            if not user_settings:
-                user_settings_obj = bg_db.query(UserSettings).filter(
-                    UserSettings.user_id == user_id
-                ).first()
-                if user_settings_obj:
-                    user_settings = user_settings_obj.to_dict()
-                else:
-                    logger.warning(f"[DELETE-BG:ENTITY:WARNING] trace_id={trace_id} no_user_settings user_id={user_id}")
+        from ..models import UserSettings, Scene, CharacterState, LocationState, ObjectState
+        from ..services.entity_state_service import EntityStateService
+        
+        # Retry loop for DB connection acquisition
+        last_error = None
+        for attempt in range(max_retries):
+            try:
+                with get_background_db() as bg_db:
+                    logger.info(f"[DELETE-BG:ENTITY:DB] trace_id={trace_id} attempt={attempt+1}/{max_retries} connection_acquired")
+                    
+                    # Phase 1: Get user settings if not provided
+                    phase_start = time.perf_counter()
+                    local_user_settings = user_settings
+                    if not local_user_settings:
+                        user_settings_obj = bg_db.query(UserSettings).filter(
+                            UserSettings.user_id == user_id
+                        ).first()
+                        if user_settings_obj:
+                            local_user_settings = user_settings_obj.to_dict()
+                        else:
+                            logger.warning(f"[DELETE-BG:ENTITY:WARNING] trace_id={trace_id} no_user_settings user_id={user_id}")
+                            return
+                    logger.info(f"[DELETE-BG:ENTITY:PHASE] trace_id={trace_id} phase=get_settings duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
+                    
+                    entity_service = EntityStateService(
+                        user_id=user_id,
+                        user_settings=local_user_settings
+                    )
+                    
+                    # Phase 2: Invalidate batches that overlap with deleted scenes (filtered by branch)
+                    phase_start = time.perf_counter()
+                    entity_service.invalidate_entity_batches_for_scenes(
+                        bg_db, story_id, min_deleted_seq, max_deleted_seq, branch_id=branch_id
+                    )
+                    logger.info(f"[DELETE-BG:ENTITY:PHASE] trace_id={trace_id} phase=invalidate_batches duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
+                    
+                    # Phase 3: Check if remaining scenes form a complete batch (filtered by branch)
+                    phase_start = time.perf_counter()
+                    last_remaining_scene_query = bg_db.query(Scene).filter(
+                        Scene.story_id == story_id,
+                        Scene.sequence_number < sequence_number
+                    )
+                    if branch_id is not None:
+                        last_remaining_scene_query = last_remaining_scene_query.filter(Scene.branch_id == branch_id)
+                    last_remaining_scene = last_remaining_scene_query.order_by(Scene.sequence_number.desc()).first()
+                    logger.info(f"[DELETE-BG:ENTITY:PHASE] trace_id={trace_id} phase=query_last_scene duration_ms={(time.perf_counter()-phase_start)*1000:.2f} found={last_remaining_scene is not None}")
+                    
+                    if last_remaining_scene:
+                        # Phase 4a: Restore from last complete batch
+                        phase_start = time.perf_counter()
+                        logger.info(f"[DELETE-BG:ENTITY:CONTEXT] trace_id={trace_id} last_scene_seq={last_remaining_scene.sequence_number}")
+                        entity_service.restore_from_last_complete_batch(
+                            bg_db, story_id, max_deleted_seq, branch_id=branch_id
+                        )
+                        logger.info(f"[DELETE-BG:ENTITY:PHASE] trace_id={trace_id} phase=restore_from_batch duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
+                        
+                        total_duration = (time.perf_counter() - task_start) * 1000
+                        logger.info(f"[DELETE-BG:ENTITY:END] trace_id={trace_id} total_duration_ms={total_duration:.2f} action=restored_from_batch")
+                    else:
+                        # Phase 4b: No remaining scenes - just clear entity states for this branch
+                        phase_start = time.perf_counter()
+                        char_delete_query = bg_db.query(CharacterState).filter(CharacterState.story_id == story_id)
+                        loc_delete_query = bg_db.query(LocationState).filter(LocationState.story_id == story_id)
+                        obj_delete_query = bg_db.query(ObjectState).filter(ObjectState.story_id == story_id)
+                        if branch_id is not None:
+                            char_delete_query = char_delete_query.filter(CharacterState.branch_id == branch_id)
+                            loc_delete_query = loc_delete_query.filter(LocationState.branch_id == branch_id)
+                            obj_delete_query = obj_delete_query.filter(ObjectState.branch_id == branch_id)
+                        char_deleted = char_delete_query.delete()
+                        loc_deleted = loc_delete_query.delete()
+                        obj_deleted = obj_delete_query.delete()
+                        bg_db.commit()
+                        logger.info(f"[DELETE-BG:ENTITY:PHASE] trace_id={trace_id} phase=clear_states duration_ms={(time.perf_counter()-phase_start)*1000:.2f} char={char_deleted} loc={loc_deleted} obj={obj_deleted}")
+                        
+                        total_duration = (time.perf_counter() - task_start) * 1000
+                        logger.info(f"[DELETE-BG:ENTITY:END] trace_id={trace_id} total_duration_ms={total_duration:.2f} action=cleared_all_states")
+                    
+                    # Success - exit retry loop
                     return
-            logger.info(f"[DELETE-BG:ENTITY:PHASE] trace_id={trace_id} phase=get_settings duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
-            
-            entity_service = EntityStateService(
-                user_id=user_id,
-                user_settings=user_settings
-            )
-            
-            # Phase 2: Invalidate batches that overlap with deleted scenes (filtered by branch)
-            phase_start = time.perf_counter()
-            entity_service.invalidate_entity_batches_for_scenes(
-                bg_db, story_id, min_deleted_seq, max_deleted_seq, branch_id=branch_id
-            )
-            logger.info(f"[DELETE-BG:ENTITY:PHASE] trace_id={trace_id} phase=invalidate_batches duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
-            
-            # Phase 3: Check if remaining scenes form a complete batch (filtered by branch)
-            phase_start = time.perf_counter()
-            last_remaining_scene_query = bg_db.query(Scene).filter(
-                Scene.story_id == story_id,
-                Scene.sequence_number < sequence_number
-            )
-            if branch_id is not None:
-                last_remaining_scene_query = last_remaining_scene_query.filter(Scene.branch_id == branch_id)
-            last_remaining_scene = last_remaining_scene_query.order_by(Scene.sequence_number.desc()).first()
-            logger.info(f"[DELETE-BG:ENTITY:PHASE] trace_id={trace_id} phase=query_last_scene duration_ms={(time.perf_counter()-phase_start)*1000:.2f} found={last_remaining_scene is not None}")
-            
-            if last_remaining_scene:
-                # Phase 4a: Restore from last complete batch
-                phase_start = time.perf_counter()
-                logger.info(f"[DELETE-BG:ENTITY:CONTEXT] trace_id={trace_id} last_scene_seq={last_remaining_scene.sequence_number}")
-                entity_service.restore_from_last_complete_batch(
-                    bg_db, story_id, max_deleted_seq, branch_id=branch_id
-                )
-                logger.info(f"[DELETE-BG:ENTITY:PHASE] trace_id={trace_id} phase=restore_from_batch duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
-                
-                total_duration = (time.perf_counter() - task_start) * 1000
-                logger.info(f"[DELETE-BG:ENTITY:END] trace_id={trace_id} total_duration_ms={total_duration:.2f} action=restored_from_batch")
-            else:
-                # Phase 4b: No remaining scenes - just clear entity states for this branch
-                phase_start = time.perf_counter()
-                from ..models import CharacterState, LocationState, ObjectState
-                char_delete_query = bg_db.query(CharacterState).filter(CharacterState.story_id == story_id)
-                loc_delete_query = bg_db.query(LocationState).filter(LocationState.story_id == story_id)
-                obj_delete_query = bg_db.query(ObjectState).filter(ObjectState.story_id == story_id)
-                if branch_id is not None:
-                    char_delete_query = char_delete_query.filter(CharacterState.branch_id == branch_id)
-                    loc_delete_query = loc_delete_query.filter(LocationState.branch_id == branch_id)
-                    obj_delete_query = obj_delete_query.filter(ObjectState.branch_id == branch_id)
-                char_deleted = char_delete_query.delete()
-                loc_deleted = loc_delete_query.delete()
-                obj_deleted = obj_delete_query.delete()
-                bg_db.commit()
-                logger.info(f"[DELETE-BG:ENTITY:PHASE] trace_id={trace_id} phase=clear_states duration_ms={(time.perf_counter()-phase_start)*1000:.2f} char={char_deleted} loc={loc_deleted} obj={obj_deleted}")
-                
-                total_duration = (time.perf_counter() - task_start) * 1000
-                logger.info(f"[DELETE-BG:ENTITY:END] trace_id={trace_id} total_duration_ms={total_duration:.2f} action=cleared_all_states")
+                    
+            except Exception as e:
+                last_error = e
+                error_str = str(e)
+                # Check if it's a pool exhaustion error
+                if "QueuePool limit" in error_str or "timeout" in error_str.lower():
+                    if attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)
+                        logger.warning(f"[DELETE-BG:ENTITY:RETRY] trace_id={trace_id} attempt={attempt+1}/{max_retries} "
+                                     f"pool_exhausted, retrying in {delay:.1f}s error={error_str[:100]}")
+                        await asyncio.sleep(delay)
+                    else:
+                        logger.error(f"[DELETE-BG:ENTITY:EXHAUSTED] trace_id={trace_id} all {max_retries} retries failed error={error_str}")
+                        raise
+                else:
+                    # Not a pool error, re-raise immediately
+                    raise
+                    
     except Exception as e:
         total_duration = (time.perf_counter() - task_start) * 1000
         logger.error(f"[DELETE-BG:ENTITY:ERROR] trace_id={trace_id} duration_ms={total_duration:.2f} error={e}")
@@ -4249,38 +4348,43 @@ async def delete_scenes_from_sequence(
             detail="Failed to delete scenes"
         )
     
-    # Phase 5: Schedule ALL cleanup/restoration tasks in background for fast response
+    # Phase 5: Schedule ALL cleanup/restoration tasks concurrently using asyncio.create_task
+    # Using create_task instead of BackgroundTasks.add_task to run tasks concurrently
+    # This prevents connection pool exhaustion from sequential task execution
     phase_start = time.perf_counter()
     
     # 1. Semantic cleanup (embeddings, character moments, plot events)
     if scene_ids_to_cleanup:
         logger.info(f"[SCENE:DELETE:BG_SCHEDULE] trace_id={trace_id} task=semantic_cleanup scene_count={len(scene_ids_to_cleanup)}")
-        background_tasks.add_task(
-            cleanup_semantic_data_in_background,
-            scene_ids=scene_ids_to_cleanup,
-            story_id=story_id
+        asyncio.create_task(
+            cleanup_semantic_data_in_background(
+                scene_ids=scene_ids_to_cleanup,
+                story_id=story_id
+            )
         )
     
     # 2. NPC tracking restoration
     logger.info(f"[SCENE:DELETE:BG_SCHEDULE] trace_id={trace_id} task=npc_tracking")
-    background_tasks.add_task(
-        restore_npc_tracking_in_background,
-        story_id=story_id,
-        sequence_number=sequence_number,
-        branch_id=branch_id
+    asyncio.create_task(
+        restore_npc_tracking_in_background(
+            story_id=story_id,
+            sequence_number=sequence_number,
+            branch_id=branch_id
+        )
     )
     
     # 3. Entity states restoration
     logger.info(f"[SCENE:DELETE:BG_SCHEDULE] trace_id={trace_id} task=entity_states")
-    background_tasks.add_task(
-        restore_entity_states_in_background,
-        story_id=story_id,
-        sequence_number=sequence_number,
-        min_deleted_seq=min_deleted_seq,
-        max_deleted_seq=max_deleted_seq,
-        user_id=current_user.id,
-        user_settings=user_settings,
-        branch_id=branch_id
+    asyncio.create_task(
+        restore_entity_states_in_background(
+            story_id=story_id,
+            sequence_number=sequence_number,
+            min_deleted_seq=min_deleted_seq,
+            max_deleted_seq=max_deleted_seq,
+            user_id=current_user.id,
+            user_settings=user_settings,
+            branch_id=branch_id
+        )
     )
     logger.info(f"[SCENE:DELETE:PHASE] trace_id={trace_id} phase=schedule_background duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
     
