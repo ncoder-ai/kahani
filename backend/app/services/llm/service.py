@@ -1196,21 +1196,32 @@ class UnifiedLLMService:
         content = re.sub(r'\[inst\]', '', content, flags=re.IGNORECASE)
         return content.strip()
     
-    def _clean_scene_numbers_chunk(self, chunk: str) -> str:
+    def _clean_scene_numbers_chunk(self, chunk: str, chars_processed: int = 0) -> str:
         """
         Clean scene numbers and junk from streaming chunks.
-        More conservative than full cleaning to avoid breaking mid-stream content.
+        Position-aware: aggressive cleaning only at start of response.
+        
+        Args:
+            chunk: The chunk to clean
+            chars_processed: Total characters processed so far (for position awareness)
         """
         if not chunk:
             return chunk
         
         stripped = chunk.strip()
         
-        # === AGGRESSIVE MARKDOWN HEADER REMOVAL ===
-        # If chunk starts with markdown headers, it's LLM junk - skip entire chunk
+        # === POSITION-AWARE MARKDOWN HEADER REMOVAL ===
+        # Only apply aggressive ## removal in first ~200 chars (where SCENE junk appears)
+        # After that, allow ## patterns through (for ###CHOICES### marker)
+        HEADER_REMOVAL_THRESHOLD = 200  # Only strip ## headers in first 200 chars
+        
         if stripped.startswith(('##', '==', '--', '**')):
-            # This entire chunk is a markdown header - return empty string
-            return ''
+            if chars_processed < HEADER_REMOVAL_THRESHOLD:
+                # Early in response - this is likely SCENE junk, strip it
+                return ''
+            else:
+                # Later in response - could be CHOICES marker, preserve it
+                pass  # Fall through to return chunk
         
         # Markdown scene headers with numbers: "### SCENE 113 ###" (most specific first)
         if stripped.startswith('#'):
@@ -1642,9 +1653,19 @@ class UnifiedLLMService:
                     logger.warning(f"[CHOICES] Marker found but parsing failed. Choices text length: {len(choices_text)}, preview: {choices_text[:200]}")
                 return (scene_content, None)
         else:
-            # No marker found, return scene without choices
-            logger.warning(f"[CHOICES] Marker NOT found in response. Response length: {len(cleaned_response)} chars")
-            return (cleaned_response, None)
+            # No marker found in cleaned response - try post-processing extraction from raw response
+            logger.warning(f"[CHOICES] Marker NOT found in cleaned response. Attempting post-processing extraction...")
+            scene_content, extracted_choices = self._extract_choices_from_response_end(response_text)
+            if extracted_choices:
+                logger.info(f"[CHOICES] Post-processing extracted {len(extracted_choices)} choices from response end")
+                # If separate_choice_generation is enabled, discard inline choices
+                if separate_choice_generation:
+                    logger.info(f"[CHOICES] Separate choice generation enabled - discarding {len(extracted_choices)} inline choices")
+                    return (scene_content, None)
+                return (scene_content, extracted_choices)
+            else:
+                logger.warning(f"[CHOICES] Could not extract choices from response. Response length: {len(cleaned_response)} chars")
+                return (cleaned_response, None)
     
     async def generate_scene_streaming(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> AsyncGenerator[str, None]:
         """
@@ -2267,6 +2288,54 @@ class UnifiedLLMService:
             logger.warning(f"[CHOICES PARSE] Failed to parse choices from JSON: {e}, text preview: {text[:200] if 'text' in locals() and text else 'empty'}")
             return None
     
+    def _extract_choices_from_response_end(self, full_text: str) -> Tuple[str, Optional[List[str]]]:
+        """
+        Extract choices from the end of a response.
+        Looks for choices in the last ~1500 chars where they typically appear.
+        
+        Returns:
+            Tuple of (scene_content, parsed_choices) where parsed_choices may be None
+        """
+        if not full_text:
+            return (full_text, None)
+        
+        # Only search in the last portion of the response
+        search_region = full_text[-1500:] if len(full_text) > 1500 else full_text
+        search_start = len(full_text) - len(search_region)
+        
+        # Try multiple marker patterns
+        marker_patterns = [
+            r'###\s*CHOICES\s*###',
+            r'##\s*CHOICES\s*##', 
+            r'#\s*CHOICES\s*#',
+            r'\n\s*CHOICES\s*:\s*\n',
+            r'\n\s*\*\*CHOICES\*\*\s*\n',
+        ]
+        
+        for pattern in marker_patterns:
+            match = re.search(pattern, search_region, re.IGNORECASE)
+            if match:
+                # Calculate position in full text
+                marker_pos = search_start + match.start()
+                scene = full_text[:marker_pos].strip()
+                choices_text = full_text[marker_pos + len(match.group()):].strip()
+                parsed = self._parse_choices_from_json(choices_text)
+                if parsed:
+                    logger.info(f"[CHOICES EXTRACTION] Found marker '{match.group().strip()}' at position {marker_pos}")
+                    return (scene, parsed)
+        
+        # Fallback: Look for JSON array at the very end
+        json_match = re.search(r'\[\s*"[^"]+"\s*(?:,\s*"[^"]+"\s*)+\]\s*$', search_region)
+        if json_match:
+            parsed = self._parse_choices_from_json(json_match.group())
+            if parsed and len(parsed) >= 2:
+                marker_pos = search_start + json_match.start()
+                scene = full_text[:marker_pos].strip()
+                logger.info(f"[CHOICES EXTRACTION] Found JSON array at end (position {marker_pos})")
+                return (scene, parsed)
+        
+        return (full_text, None)
+    
     async def generate_scene_with_choices_streaming(
         self, 
         context: Dict[str, Any], 
@@ -2476,6 +2545,7 @@ class UnifiedLLMService:
         rolling_buffer = ""  # Buffer to detect marker across chunks
         total_chunks = 0
         raw_chunks = []  # Collect raw chunks before cleaning
+        chars_processed = 0  # Track position in response for position-aware cleaning
         
         async for chunk in self._generate_stream_with_messages(
             messages=messages,
@@ -2485,7 +2555,11 @@ class UnifiedLLMService:
         ):
             total_chunks += 1
             raw_chunks.append(chunk)  # Capture raw chunk before cleaning
-            cleaned_chunk = self._clean_scene_numbers_chunk(chunk)
+            
+            # Pass position to cleaner for position-aware cleaning
+            cleaned_chunk = self._clean_scene_numbers_chunk(chunk, chars_processed)
+            chars_processed += len(chunk)  # Update position after cleaning
+            
             if not cleaned_chunk:
                 continue
             
@@ -2576,7 +2650,16 @@ class UnifiedLLMService:
                     logger.warning(f"[CHOICES STREAMING] Marker found but parsing failed. Choices text length: {len(choices_text)}, preview: {choices_text[:200]}")
         else:
             if not found_marker:
-                logger.warning(f"[CHOICES STREAMING] ERROR: ###CHOICES### marker not found after {total_chunks} chunks. Full response length: {len(full_response)} chars")
+                logger.warning(f"[CHOICES STREAMING] Marker not found during streaming after {total_chunks} chunks. Attempting post-processing extraction...")
+                # Try to extract choices from the end of the raw response
+                scene_content, extracted_choices = self._extract_choices_from_response_end(raw_full_response)
+                if extracted_choices:
+                    logger.info(f"[CHOICES STREAMING] Post-processing extracted {len(extracted_choices)} choices from response end")
+                    parsed_choices = extracted_choices
+                    # Update scene buffer with clean content (without choices)
+                    scene_buffer = [scene_content]
+                else:
+                    logger.warning(f"[CHOICES STREAMING] ERROR: Could not extract choices from response. Full response length: {len(full_response)} chars")
             else:
                 logger.warning(f"[CHOICES STREAMING] Marker found but choices_buffer is empty")
         
