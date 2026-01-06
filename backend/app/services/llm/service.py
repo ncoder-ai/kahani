@@ -1223,6 +1223,15 @@ class UnifiedLLMService:
                 # Later in response - could be CHOICES marker, preserve it
                 pass  # Fall through to return chunk
         
+        # Check for "START OF SCENE" and similar patterns early in response
+        # These patterns might appear in chunks that don't start with ##
+        # (e.g., when "############\nSTART OF SCENE\n############" is split across chunks)
+        if chars_processed < HEADER_REMOVAL_THRESHOLD:
+            if re.search(r'^(?:#+\s*)?START\s+OF\s+SCENE\s*(?:#+)?$', stripped, re.IGNORECASE):
+                return ''
+            if re.search(r'^(?:#+\s*)?(?:BEGIN|BEGINNING)\s+(?:OF\s+)?SCENE\s*(?:#+)?$', stripped, re.IGNORECASE):
+                return ''
+        
         # Markdown scene headers with numbers: "### SCENE 113 ###" (most specific first)
         if stripped.startswith('#'):
             if re.match(r'^#{1,6}\s*SCENE\s+\d+', stripped, re.IGNORECASE):
