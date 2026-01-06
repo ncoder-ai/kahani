@@ -82,15 +82,20 @@ if is_sqlite:
 else:
     # Non-SQLite database (PostgreSQL, MySQL, etc.)
     # Configure connection pool to handle concurrent requests better
+    # Pool settings are configurable via config.yaml for production tuning
+    pool_size = settings.db_pool_size
+    max_overflow = settings.db_max_overflow
+    pool_timeout = settings.db_pool_timeout
+    
     engine = create_engine(
         database_url,
-        pool_size=10,           # Increased from default 5 - base pool size
-        max_overflow=20,        # Increased from default 10 - additional connections when pool exhausted
-        pool_timeout=10,        # Reduced from default 30s - fail faster to avoid hanging
-        pool_pre_ping=True,     # Verify connections are alive before using them
-        pool_recycle=3600,      # Recycle connections after 1 hour to avoid stale connections
+        pool_size=pool_size,        # Base pool size (configurable, default: 20)
+        max_overflow=max_overflow,  # Additional connections when pool exhausted (configurable, default: 40)
+        pool_timeout=pool_timeout,  # Seconds to wait for connection (configurable, default: 30)
+        pool_pre_ping=True,         # Verify connections are alive before using them
+        pool_recycle=3600,          # Recycle connections after 1 hour to avoid stale connections
     )
-    logger.info(f"PostgreSQL/MySQL database configured with connection pool (size=10, max_overflow=20): {database_url}")
+    logger.info(f"PostgreSQL/MySQL database configured with connection pool (size={pool_size}, max_overflow={max_overflow}, timeout={pool_timeout}s, max_total={pool_size + max_overflow})")
 
 # Create SessionLocal class
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

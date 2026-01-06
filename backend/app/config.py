@@ -69,6 +69,11 @@ def flatten_yaml_config(yaml_config: dict) -> dict:
     else:
         flattened['database_url'] = db.get('database_url')
     
+    # Database connection pool settings (PostgreSQL only)
+    flattened['db_pool_size'] = db.get('pool_size', 20)
+    flattened['db_max_overflow'] = db.get('max_overflow', 40)
+    flattened['db_pool_timeout'] = db.get('pool_timeout', 30)
+    
     # Security
     security = yaml_config.get('security', {})
     flattened['jwt_algorithm'] = security.get('jwt_algorithm')
@@ -202,6 +207,10 @@ class Settings(BaseSettings):
     
     # Database
     database_url: str
+    # Connection pool settings (PostgreSQL only)
+    db_pool_size: int = 20
+    db_max_overflow: int = 40
+    db_pool_timeout: int = 30
     
     # Security
     jwt_secret_key: str  # Required, must be set via env var

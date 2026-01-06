@@ -52,9 +52,22 @@ cors:
 #
 # NOTE: DATABASE_URL environment variable always takes priority!
 #       This config.yaml value is only used if DATABASE_URL is not set
+#
+# Connection Pool Settings (PostgreSQL only):
+#   pool_size: Base number of connections to keep open (default: 10)
+#   max_overflow: Additional connections allowed when pool is exhausted (default: 20)
+#   pool_timeout: Seconds to wait for a connection before failing (default: 30)
+#
+#   Total max connections = pool_size + max_overflow
+#   For 20+ concurrent users, recommended: pool_size=20, max_overflow=40
+#   Note: Ensure PostgreSQL max_connections >= total across all app instances
 # ----------------------------------------------------------------------------
 database:
   database_url: "sqlite:///./data/kahani.db"
+  # PostgreSQL connection pool settings (ignored for SQLite)
+  pool_size: 20
+  max_overflow: 40
+  pool_timeout: 30
 
 # ----------------------------------------------------------------------------
 # SECURITY
