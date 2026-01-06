@@ -95,11 +95,11 @@ export default function ChapterProgressIndicator({
 
   return (
     <>
-      {/* Floating Badge - Bottom Right */}
+      {/* Floating Badge - Bottom Right (same vertical position as scroll-to-bottom button) */}
       <button
         onClick={() => setIsExpanded(true)}
         className={`
-          fixed bottom-20 right-4 z-40
+          fixed bottom-4 right-4 z-40
           w-12 h-12 rounded-full
           bg-black/40 backdrop-blur-sm
           border border-white/10

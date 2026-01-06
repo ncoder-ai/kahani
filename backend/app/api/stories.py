@@ -2652,6 +2652,54 @@ async def update_manual_choice(
     
     return {"message": "Manual choice updated", "choice_id": manual_choice.id}
 
+@router.put("/{story_id}/choices/{choice_id}")
+async def update_choice(
+    story_id: int,
+    choice_id: int,
+    choice_text: str = Form(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update an existing choice's text (AI-generated or user-created)"""
+    
+    # Verify story ownership
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    
+    # Find the choice
+    choice = db.query(SceneChoice).filter(
+        SceneChoice.id == choice_id
+    ).first()
+    
+    if not choice:
+        raise HTTPException(status_code=404, detail="Choice not found")
+    
+    # Verify the choice belongs to a scene in this story
+    scene = db.query(Scene).filter(Scene.id == choice.scene_id).first()
+    if not scene or scene.story_id != story_id:
+        raise HTTPException(status_code=404, detail="Choice not found in this story")
+    
+    # Update the choice text and mark as user-edited
+    choice.choice_text = choice_text.strip()
+    choice.is_user_created = True  # Mark as user-modified
+    
+    db.commit()
+    
+    return {
+        "message": "Choice updated",
+        "choice": {
+            "id": choice.id,
+            "text": choice.choice_text,
+            "order": choice.choice_order,
+            "is_user_created": choice.is_user_created
+        }
+    }
+
 @router.get("/{story_id}/scenes/{scene_id}/variants")
 async def get_scene_variants(
     story_id: int,

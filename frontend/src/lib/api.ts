@@ -1083,6 +1083,40 @@ class ApiClient {
     return response.json();
   }
 
+  async updateChoice(storyId: number, choiceId: number, choiceText: string) {
+    const formData = new FormData();
+    formData.append('choice_text', choiceText);
+    
+    const token = this.getToken();
+    const headers: HeadersInit = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    const response = await fetch(
+      `${this.baseURL}/api/stories/${storyId}/choices/${choiceId}`,
+      {
+        method: 'PUT',
+        headers,
+        body: formData,
+      }
+    );
+    
+    if (!response.ok) {
+      throw new Error('Failed to update choice');
+    }
+    
+    return response.json() as Promise<{
+      message: string;
+      choice: {
+        id: number;
+        text: string;
+        order: number;
+        is_user_created: boolean;
+      };
+    }>;
+  }
+
   async regenerateSceneVariantChoices(storyId: number, sceneId: number, variantId: number) {
     return this.request<{ message: string; choices: Array<{ id: number | null; text: string; order: number }> }>(`/api/stories/${storyId}/scenes/${sceneId}/variants/${variantId}/regenerate-choices`, {
       method: 'POST',

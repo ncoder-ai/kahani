@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { PlayIcon, ArrowPathIcon, PlusCircleIcon, StopIcon, SparklesIcon, TrashIcon, ClipboardIcon, XMarkIcon, FlagIcon, PencilIcon } from '@heroicons/react/24/outline';
+import { PlayIcon, ArrowPathIcon, PlusCircleIcon, StopIcon, SparklesIcon, TrashIcon, ClipboardIcon, XMarkIcon, FlagIcon, PencilIcon, CheckIcon } from '@heroicons/react/24/outline';
 import { GitFork, Volume2 } from 'lucide-react';
 import SceneDisplay from './SceneDisplay';
 import { SceneTTSButton } from './SceneTTSButton';
@@ -159,6 +159,10 @@ export default function SceneVariantDisplay({
   const [isRegeneratingChoices, setIsRegeneratingChoices] = useState(false);
   const [choicesVersion, setChoicesVersion] = useState(0);
   const [showGuidedOptions, setShowGuidedOptions] = useState(false);
+  // Editable choice state
+  const [editingChoiceId, setEditingChoiceId] = useState<number | null>(null);
+  const [editingChoiceText, setEditingChoiceText] = useState<string>('');
+  const [isSavingChoice, setIsSavingChoice] = useState(false);
   const sceneContentRef = useRef<HTMLDivElement>(null);
   const hasLoadedVariantsRef = useRef<Set<number>>(new Set());
   const lastTriggerRef = useRef<number>(0);
@@ -361,6 +365,67 @@ export default function SceneVariantDisplay({
     // All choices now come from variant data (including "more choices" stored in DB)
     return baseChoices;
   }, [variants, currentVariantId, isStreamingVariant, scene.choices, isGenerating, isStreaming, choicesVersion]);
+
+  // Get available choices with full data (including IDs) for editing
+  const getAvailableChoicesWithData = useCallback((): Array<{id: number; text: string; order: number; is_user_created?: boolean}> => {
+    // Hide choices when streaming a variant
+    if (isStreamingVariant) {
+      return [];
+    }
+    
+    // Find current variant
+    const currentVariant = variants.find(v => v.id === currentVariantId);
+    
+    // Use choices from current variant if available
+    if (currentVariant?.choices && currentVariant.choices.length > 0) {
+      return [...currentVariant.choices].sort((a, b) => a.order - b.order);
+    }
+    // Use scene choices if no variant-specific choices
+    else if (scene.choices && scene.choices.length > 0) {
+      return [...scene.choices].sort((a, b) => a.order - b.order);
+    }
+    
+    return [];
+  }, [variants, currentVariantId, isStreamingVariant, scene.choices, choicesVersion]);
+
+  // Handle starting to edit a choice
+  const handleStartEditChoice = useCallback((choice: {id: number; text: string}) => {
+    setEditingChoiceId(choice.id);
+    setEditingChoiceText(choice.text);
+  }, []);
+
+  // Handle saving an edited choice
+  const handleSaveEditChoice = useCallback(async () => {
+    if (!editingChoiceId || !editingChoiceText.trim() || isSavingChoice) return;
+    
+    setIsSavingChoice(true);
+    try {
+      await apiClient.updateChoice(storyId, editingChoiceId, editingChoiceText.trim());
+      
+      // Update local state optimistically
+      setVariants(prevVariants => prevVariants.map(variant => ({
+        ...variant,
+        choices: variant.choices.map(choice => 
+          choice.id === editingChoiceId 
+            ? { ...choice, text: editingChoiceText.trim(), is_user_created: true }
+            : choice
+        )
+      })));
+      setChoicesVersion(prev => prev + 1);
+      setEditingChoiceId(null);
+      setEditingChoiceText('');
+    } catch (error) {
+      console.error('Failed to update choice:', error);
+    } finally {
+      setIsSavingChoice(false);
+    }
+  }, [editingChoiceId, editingChoiceText, isSavingChoice, storyId]);
+
+  // Handle canceling choice edit
+  const handleCancelEditChoice = useCallback(() => {
+    setEditingChoiceId(null);
+    setEditingChoiceText('');
+  }, []);
 
   // Get manual choice from current variant
   const getManualChoice = useCallback((): string => {
@@ -1235,24 +1300,100 @@ export default function SceneVariantDisplay({
             <div className={'space-y-1.5 mb-4 transition-opacity duration-200 ' + (showChoicesDuringGeneration 
                 ? 'opacity-100 pointer-events-auto' 
                 : 'opacity-30 pointer-events-none')}>
-              {getAvailableChoices().length > 0 ? (
+              {getAvailableChoicesWithData().length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
-                  {getAvailableChoices().map((choice, index) => (
-                    <button
-                      key={index}
-                      onClick={() => {
-                        setSelectedChoice?.(choice);
-                        setShowChoicesDuringGeneration?.(false);
-                        onGenerateScene?.(choice);
-                      }}
-                      disabled={!showChoicesDuringGeneration || isGenerating || isStreaming}
-                      className={'w-full text-left p-2 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed group modern-choice-button compact ' + (layoutMode === 'modern' ? 'rounded-lg' : 'theme-btn-secondary hover:opacity-80 border border-gray-600 rounded-lg') + ' ' + (selectedChoice === choice ? 'ring-2 ring-pink-500 bg-pink-900/20' : '')}
-                    >
-                      <div className="flex items-center justify-between relative z-10">
-                        <span className="text-gray-200 text-xs leading-tight">{choice}</span>
-                        <PlayIcon className="w-3.5 h-3.5 text-pink-500 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 ml-2" />
+                  {getAvailableChoicesWithData().map((choice) => (
+                    editingChoiceId === choice.id ? (
+                      // Edit mode - show input field
+                      <div
+                        key={choice.id}
+                        className={'w-full p-2 transition-all duration-200 ' + (layoutMode === 'modern' ? 'rounded-lg' : 'theme-btn-secondary border border-pink-500 rounded-lg') + ' bg-gray-800/80'}
+                      >
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={editingChoiceText}
+                            onChange={(e) => setEditingChoiceText(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleSaveEditChoice();
+                              } else if (e.key === 'Escape') {
+                                handleCancelEditChoice();
+                              }
+                            }}
+                            autoFocus
+                            disabled={isSavingChoice}
+                            className="flex-1 bg-transparent outline-none text-gray-200 text-xs leading-tight placeholder-gray-500 min-w-0"
+                            placeholder="Edit choice..."
+                          />
+                          <button
+                            onClick={handleSaveEditChoice}
+                            disabled={isSavingChoice || !editingChoiceText.trim()}
+                            className="p-1 text-green-500 hover:text-green-400 disabled:text-gray-600 transition-colors flex-shrink-0"
+                            title="Save (Enter)"
+                          >
+                            {isSavingChoice ? (
+                              <div className="w-3.5 h-3.5 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                              <CheckIcon className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                          <button
+                            onClick={handleCancelEditChoice}
+                            disabled={isSavingChoice}
+                            className="p-1 text-gray-400 hover:text-gray-300 disabled:text-gray-600 transition-colors flex-shrink-0"
+                            title="Cancel (Esc)"
+                          >
+                            <XMarkIcon className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
-                    </button>
+                    ) : (
+                      // Display mode - show choice button with edit icon
+                      // On mobile: tap text to use choice, edit icon always visible
+                      // On desktop: hover reveals play button
+                      <div
+                        key={choice.id}
+                        className={'w-full text-left py-2 pl-2 pr-0 md:p-2 transition-all duration-200 group modern-choice-button compact cursor-pointer ' + (layoutMode === 'modern' ? 'rounded-lg' : 'theme-btn-secondary hover:opacity-80 border border-gray-600 rounded-lg') + ' ' + (selectedChoice === choice.text ? 'ring-2 ring-pink-500 bg-pink-900/20' : '') + ' ' + ((!showChoicesDuringGeneration || isGenerating || isStreaming) ? 'opacity-50 pointer-events-none' : '')}
+                        onClick={() => {
+                          if (!showChoicesDuringGeneration || isGenerating || isStreaming) return;
+                          setSelectedChoice?.(choice.text);
+                          setShowChoicesDuringGeneration?.(false);
+                          onGenerateScene?.(choice.text);
+                        }}
+                      >
+                        <div className="flex items-center justify-between relative z-10">
+                          <span className="text-gray-200 text-xs leading-tight flex-1 min-w-0">{choice.text}</span>
+                          {/* Edit button - always visible on mobile, hover on desktop */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (!showChoicesDuringGeneration || isGenerating || isStreaming) return;
+                              handleStartEditChoice(choice);
+                            }}
+                            className="px-2 py-1 text-gray-400 hover:text-purple-400 md:opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                            title="Edit choice"
+                          >
+                            <PencilIcon className="w-3.5 h-3.5" />
+                          </button>
+                          {/* Play button - desktop only, hidden on mobile since tap on text works */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (!showChoicesDuringGeneration || isGenerating || isStreaming) return;
+                              setSelectedChoice?.(choice.text);
+                              setShowChoicesDuringGeneration?.(false);
+                              onGenerateScene?.(choice.text);
+                            }}
+                            className="hidden md:block p-0.5 text-pink-500 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                            title="Use this choice"
+                          >
+                            <PlayIcon className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    )
                   ))}
                 </div>
               ) : (
