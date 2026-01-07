@@ -1808,13 +1808,17 @@ chapter_brainstorm:
       - For unconfirmed elements, extract from the conversation
       - Be specific with key events - they should be actionable story beats
       
-      CHARACTER HANDLING (IMPORTANT):
-      - "character_arcs": ONLY for characters that ALREADY EXIST in the story (listed in Story Context)
-      - "new_character_suggestions": For ANY character mentioned in the conversation that is NOT in the existing story cast
-      - "recommended_characters": Names of existing characters that should appear in this chapter
+      CHARACTER HANDLING (CRITICAL - READ CAREFULLY):
+      1. Look at the CHARACTERS section in Story Context - these are the ONLY existing characters
+      2. "character_arcs": ONLY use for characters from the CHARACTERS list above
+      3. "new_character_suggestions": Use for ANY character name mentioned in conversation that is NOT in CHARACTERS list
+      4. "recommended_characters": Names from CHARACTERS list that should appear
       
-      If a character is discussed in the brainstorm but is NOT listed in the Story Context's character list,
-      they MUST go in "new_character_suggestions", NOT in "character_arcs".
+      EXAMPLE: If Story Context lists "Jack, Risha, Admiral Vexis" as characters,
+      and the conversation mentions "Tomatoa", then Tomatoa MUST go in new_character_suggestions
+      because Tomatoa is NOT in the existing character list.
+      
+      DO NOT put new characters in character_arcs - they belong in new_character_suggestions!
       
       Return ONLY valid JSON with no markdown formatting.
     
