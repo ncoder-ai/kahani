@@ -40,6 +40,7 @@ interface CharacterReviewProps {
   preSelectedCharacterIds?: number[];
   onComplete: (characterMappings: CharacterMapping[]) => void;
   onBack: () => void;
+  continueButtonText?: string;
 }
 
 const CHARACTER_ROLE_ICONS: Record<string, string> = {
@@ -53,7 +54,7 @@ const CHARACTER_ROLE_ICONS: Record<string, string> = {
   other: '👤'
 };
 
-export default function CharacterReview({ characters, preSelectedCharacterIds = [], onComplete, onBack }: CharacterReviewProps) {
+export default function CharacterReview({ characters, preSelectedCharacterIds = [], onComplete, onBack, continueButtonText = 'Continue to Story Creation →' }: CharacterReviewProps) {
   const [persistentCharacters, setPersistentCharacters] = useState<PersistentCharacter[]>([]);
   const [preSelectedCharacters, setPreSelectedCharacters] = useState<PersistentCharacter[]>([]);
   const [characterMappings, setCharacterMappings] = useState<CharacterMapping[]>([]);
@@ -450,7 +451,7 @@ export default function CharacterReview({ characters, preSelectedCharacterIds = 
               Creating Characters...
             </>
           ) : (
-            'Continue to Story Creation →'
+            continueButtonText
           )}
         </button>
       </div>

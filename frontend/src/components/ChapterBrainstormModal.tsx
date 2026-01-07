@@ -1613,6 +1613,7 @@ export default function ChapterBrainstormModal({
                   handleApplyPlotWithCharacters(mappings);
                 }}
                 onBack={() => setPhase('review')}
+                continueButtonText="Apply Plot with Characters →"
               />
             </div>
           )}

@@ -820,13 +820,39 @@ class ChapterBrainstormService:
         if not story:
             return plot
         
-        existing_names = set()
+        existing_names = []
         if story.story_characters:
             for sc in story.story_characters:
                 if sc.character:
-                    existing_names.add(sc.character.name.lower().strip())
+                    existing_names.append(sc.character.name.lower().strip())
         
         logger.debug(f"[CHAPTER_BRAINSTORM] Existing characters in story: {existing_names}")
+        
+        def is_existing_character(char_name: str) -> bool:
+            """Check if a character name matches any existing character (fuzzy matching)."""
+            char_lower = char_name.lower().strip()
+            
+            for existing in existing_names:
+                # Exact match
+                if char_lower == existing:
+                    return True
+                
+                # Partial match: "Risha" matches "Risha Thorne"
+                # Check if the extracted name is contained in existing name
+                if char_lower in existing:
+                    return True
+                
+                # Check if existing name is contained in extracted name
+                if existing in char_lower:
+                    return True
+                
+                # Word-based matching: any significant word matches
+                char_words = set(w for w in char_lower.split() if len(w) > 2)
+                existing_words = set(w for w in existing.split() if len(w) > 2)
+                if char_words and existing_words and char_words & existing_words:
+                    return True
+            
+            return False
         
         # Separate character_arcs into existing and new
         existing_arcs = []
@@ -837,11 +863,10 @@ class ChapterBrainstormService:
             if not char_name or not char_name.strip():
                 continue
             
-            char_name_lower = char_name.lower().strip()
-            
             # Check if this character exists in the story
-            if char_name_lower in existing_names:
+            if is_existing_character(char_name):
                 existing_arcs.append(arc)
+                logger.debug(f"[CHAPTER_BRAINSTORM] Matched existing character: {char_name}")
             else:
                 # This is a new character - move to new_character_suggestions
                 new_suggestion = {
@@ -851,7 +876,8 @@ class ChapterBrainstormService:
                     "reason": "Mentioned in chapter brainstorm"
                 }
                 # Avoid duplicates
-                if not any(s.get("name", "").lower() == char_name_lower for s in new_suggestions):
+                char_lower = char_name.lower().strip()
+                if not any(s.get("name", "").lower().strip() == char_lower for s in new_suggestions):
                     new_suggestions.append(new_suggestion)
                     logger.info(f"[CHAPTER_BRAINSTORM] Detected new character: {char_name}")
         
