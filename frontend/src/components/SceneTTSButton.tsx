@@ -11,7 +11,7 @@ interface SceneTTSButtonProps {
 }
 
 export const SceneTTSButton: React.FC<SceneTTSButtonProps> = ({ sceneId, className = '' }) => {
-  const { playScene, stop, currentSceneId, isPlaying, isGenerating, error } = useGlobalTTS();
+  const { playScene, stop, clearError, currentSceneId, isPlaying, isGenerating, error } = useGlobalTTS();
   
   // Show as active only when this scene is currently playing (not just generating)
   const isThisScenePlaying = currentSceneId === sceneId && isPlaying;
@@ -74,6 +74,18 @@ export const SceneTTSButton: React.FC<SceneTTSButtonProps> = ({ sceneId, classNa
               <div className="text-xs font-semibold text-red-400 mb-1">TTS Error</div>
               <div className="text-xs text-red-300">{error}</div>
             </div>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                clearError();
+              }}
+              className="flex-shrink-0 p-0.5 rounded hover:bg-red-500/20 transition-colors"
+              title="Dismiss error"
+            >
+              <svg className="w-4 h-4 text-red-400 hover:text-red-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
         </div>
       )}

@@ -33,6 +33,7 @@ interface GlobalTTSContextType {
   stop: () => void;
   pause: () => void;
   resume: () => void;
+  clearError: () => void;
 }
 
 const GlobalTTSContext = createContext<GlobalTTSContextType | undefined>(undefined);
@@ -358,6 +359,14 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children }
     currentSessionIdRef.current = null;
     hasStartedPlayback.current = false;
     generationCompleteRef.current = false;
+    setError(null);
+  }, []);
+  
+  /**
+   * Clear error state without stopping playback
+   */
+  const clearError = useCallback(() => {
+    setError(null);
   }, []);
   
   /**
@@ -404,7 +413,8 @@ export const GlobalTTSProvider: React.FC<GlobalTTSProviderProps> = ({ children }
     connectToSession,
     stop,
     pause,
-    resume
+    resume,
+    clearError
   };
   
   return (
