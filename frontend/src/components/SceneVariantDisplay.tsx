@@ -1394,7 +1394,7 @@ export default function SceneVariantDisplay({
                         </div>
                       </div>
                     )
-                  ))}
+                  )}
                 </div>
               ) : (
                 <div className="text-center py-4">
