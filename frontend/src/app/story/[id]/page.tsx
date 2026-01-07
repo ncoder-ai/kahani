@@ -3070,8 +3070,9 @@ export default function StoryPage() {
                 </div>
               )}
               
-              {/* Thinking Box - Show when LLM is reasoning */}
-              {(isThinking || thinkingContent) && isStreaming && (
+              {/* Thinking Box - Show when LLM is reasoning or has reasoning content */}
+              {/* Persists after streaming ends so user can view the thinking */}
+              {(isThinking || thinkingContent) && (
                 <div className="thinking-container mt-8">
                   <ThinkingBox
                     thinking={thinkingContent}
