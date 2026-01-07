@@ -1181,8 +1181,8 @@ Chapter Conclusion:"""
         # Check user settings first for scene generation types
         # NOTE: scene_variants removed - now uses scene_with/without_immediate
         scene_generation_types = {
-            "scene_with_immediate", "scene_without_immediate", "scene", 
-            "scene_continuation"
+            "scene_generation", "scene_with_immediate", "scene_without_immediate", 
+            "scene", "scene_continuation"
         }
         
         if user_settings and template_key in scene_generation_types:
