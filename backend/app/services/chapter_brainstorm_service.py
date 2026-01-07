@@ -525,6 +525,9 @@ class ChapterBrainstormService:
             # Normalize the extracted plot
             normalized_plot = self._normalize_chapter_plot(extracted_plot)
             
+            # Auto-detect new characters by comparing character_arcs against story's existing characters
+            normalized_plot = self._detect_new_characters(session.story_id, normalized_plot)
+            
             # Update session
             session.update_extracted_plot(normalized_plot)
             session.status = 'extracted'
@@ -804,4 +807,57 @@ class ChapterBrainstormService:
                 normalized[list_field] = []
         
         return normalized
+
+    def _detect_new_characters(self, story_id: int, plot: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Auto-detect new characters by comparing character_arcs against story's existing characters.
+        
+        Any character in character_arcs that is NOT in the story's character list
+        gets moved to new_character_suggestions.
+        """
+        # Get existing character names from the story (case-insensitive)
+        story = self.db.query(Story).filter(Story.id == story_id).first()
+        if not story:
+            return plot
+        
+        existing_names = set()
+        if story.story_characters:
+            for sc in story.story_characters:
+                if sc.character:
+                    existing_names.add(sc.character.name.lower().strip())
+        
+        logger.debug(f"[CHAPTER_BRAINSTORM] Existing characters in story: {existing_names}")
+        
+        # Separate character_arcs into existing and new
+        existing_arcs = []
+        new_suggestions = list(plot.get("new_character_suggestions", []))  # Keep any LLM-suggested ones
+        
+        for arc in plot.get("character_arcs", []):
+            char_name = arc.get("character_name") or arc.get("name", "")
+            if not char_name or not char_name.strip():
+                continue
+            
+            char_name_lower = char_name.lower().strip()
+            
+            # Check if this character exists in the story
+            if char_name_lower in existing_names:
+                existing_arcs.append(arc)
+            else:
+                # This is a new character - move to new_character_suggestions
+                new_suggestion = {
+                    "name": char_name,
+                    "role": "other",  # Default role
+                    "description": arc.get("development", ""),
+                    "reason": "Mentioned in chapter brainstorm"
+                }
+                # Avoid duplicates
+                if not any(s.get("name", "").lower() == char_name_lower for s in new_suggestions):
+                    new_suggestions.append(new_suggestion)
+                    logger.info(f"[CHAPTER_BRAINSTORM] Detected new character: {char_name}")
+        
+        # Update the plot
+        plot["character_arcs"] = existing_arcs
+        plot["new_character_suggestions"] = new_suggestions
+        
+        return plot
 
