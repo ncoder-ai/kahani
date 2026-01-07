@@ -5478,12 +5478,28 @@ Chapter Conclusion:"""
                 if hasattr(chunk, 'choices') and len(chunk.choices) > 0:
                     delta = chunk.choices[0].delta
                     
+                    # Debug: Log first few chunks to see what fields are available
+                    if chunk_count <= 3:
+                        delta_attrs = [attr for attr in dir(delta) if not attr.startswith('_')]
+                        logger.debug(f"[STREAM DEBUG] Chunk {chunk_count} delta attrs: {delta_attrs}")
+                        if hasattr(delta, 'reasoning_content'):
+                            logger.debug(f"[STREAM DEBUG] reasoning_content: {delta.reasoning_content}")
+                        if hasattr(delta, 'reasoning'):
+                            logger.debug(f"[STREAM DEBUG] reasoning: {getattr(delta, 'reasoning', None)}")
+                    
                     # Check for reasoning_content in streaming chunks (LiteLLM support)
                     if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
                         has_reasoning = True
                         reasoning_chars += len(delta.reasoning_content)
                         # Yield reasoning with special prefix for frontend to detect
                         yield f"__THINKING__:{delta.reasoning_content}"
+                    
+                    # Also check for 'reasoning' field (some providers use this)
+                    if hasattr(delta, 'reasoning') and delta.reasoning:
+                        has_reasoning = True
+                        reasoning_text = str(delta.reasoning)
+                        reasoning_chars += len(reasoning_text)
+                        yield f"__THINKING__:{reasoning_text}"
                     
                     # Regular content
                     if hasattr(delta, 'content') and delta.content:
