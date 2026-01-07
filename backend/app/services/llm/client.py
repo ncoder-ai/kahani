@@ -237,22 +237,18 @@ class LLMClient:
                 params["extra_body"] = extra_body
         
         # Add reasoning/thinking parameters
-        # These are supported by LiteLLM for various providers (OpenRouter, Anthropic, DeepSeek, etc.)
+        # OpenRouter uses extra_body for reasoning parameters
         if self.reasoning_effort:
+            if "extra_body" not in params:
+                params["extra_body"] = {}
+            
             if self.reasoning_effort == "disabled":
-                # Disable reasoning entirely - OpenRouter uses include_reasoning
-                params["include_reasoning"] = False
-                # Also add to extra_body for OpenRouter compatibility
-                if "extra_body" not in params:
-                    params["extra_body"] = {}
+                # Disable reasoning entirely
                 params["extra_body"]["include_reasoning"] = False
                 logger.info("Reasoning disabled via include_reasoning=False")
             else:
-                # Pass reasoning effort level (low, medium, high)
-                params["reasoning_effort"] = self.reasoning_effort
-                # For OpenRouter, also set include_reasoning to true explicitly
-                if "extra_body" not in params:
-                    params["extra_body"] = {}
+                # Pass reasoning effort level (low, medium, high) via reasoning object
+                # OpenRouter expects: {"reasoning": {"effort": "low|medium|high"}}
                 params["extra_body"]["reasoning"] = {"effort": self.reasoning_effort}
                 logger.info(f"Reasoning effort set to: {self.reasoning_effort}")
         
