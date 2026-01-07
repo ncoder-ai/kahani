@@ -915,6 +915,14 @@ class UnifiedLLMService:
                         # Yield reasoning with special prefix for frontend to detect
                         yield f"__THINKING__:{reasoning_chunk}"
                 
+                # Also check for 'reasoning' field (OpenRouter uses this instead of reasoning_content)
+                if hasattr(chunk.choices[0].delta, 'reasoning'):
+                    reasoning_chunk = getattr(chunk.choices[0].delta, 'reasoning', None)
+                    if reasoning_chunk:
+                        has_reasoning = True
+                        reasoning_chars += len(reasoning_chunk)
+                        yield f"__THINKING__:{reasoning_chunk}"
+                
                 # Regular content
                 if chunk.choices[0].delta.content:
                     content_chars += len(chunk.choices[0].delta.content)
