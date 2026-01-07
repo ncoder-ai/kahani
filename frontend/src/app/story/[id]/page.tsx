@@ -3082,7 +3082,8 @@ export default function StoryPage() {
               )}
               
               {/* Streaming Content Display - Show at bottom after existing scenes */}
-              {isStreaming && streamingContent && (
+              {/* Also show when thinking but no content yet (to display the Thinking... indicator) */}
+              {isStreaming && (streamingContent || isThinking) && (
                 <div className="streaming-scene mt-8">
                   {/* Scene Separator for streaming */}
                   {story?.scenes && story.scenes.length > 0 && userSettings?.show_scene_titles === true && (
@@ -3105,8 +3106,8 @@ export default function StoryPage() {
                     </div>
                     
                     {/* Streaming indicator */}
-                    <div className="absolute top-0 right-0 bg-pink-600 text-white text-xs px-2 py-1 rounded-full animate-pulse">
-                      Generating...
+                    <div className={`absolute top-0 right-0 ${isThinking ? 'bg-purple-600' : 'bg-pink-600'} text-white text-xs px-2 py-1 rounded-full animate-pulse`}>
+                      {isThinking ? 'Thinking...' : 'Generating...'}
                     </div>
                   </div>
                 </div>
