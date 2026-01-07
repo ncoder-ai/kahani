@@ -129,9 +129,9 @@ export default function ThinkingBox({ thinking, isThinking, showContent }: Think
           <span>{isThinking ? 'Thinking...' : `View Thinking (${charCount.toLocaleString()} chars)`}</span>
         </div>
         {isExpanded ? (
-          <ChevronUpIcon className="toggle-icon" />
+          <ChevronUpIcon className="w-4 h-4 opacity-70" />
         ) : (
-          <ChevronDownIcon className="toggle-icon" />
+          <ChevronDownIcon className="w-4 h-4 opacity-70" />
         )}
       </button>
       
@@ -196,12 +196,6 @@ export default function ThinkingBox({ thinking, isThinking, showContent }: Think
           border-top-color: rgba(139, 92, 246, 0.9);
           border-radius: 50%;
           animation: spin 1s linear infinite;
-        }
-        
-        .toggle-icon {
-          width: 16px;
-          height: 16px;
-          opacity: 0.7;
         }
         
         .thinking-content {
