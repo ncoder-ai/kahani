@@ -59,58 +59,11 @@ export default function ThinkingBox({ thinking, isThinking, showContent }: Think
     }
   }, [isThinking, thinking]);
   
-  // Don't render if no thinking content and not currently thinking
-  if (!thinking && !isThinking) {
+  // Don't render if:
+  // - No thinking content and not currently thinking
+  // - showContent is false (the streaming area badge shows "Thinking..." already)
+  if (!showContent || (!thinking && !isThinking)) {
     return null;
-  }
-  
-  // Mode 2: Simple "Thinking..." indicator (showContent=false)
-  if (!showContent) {
-    if (!isThinking) return null; // Hide when done thinking
-    
-    return (
-      <div className="thinking-indicator">
-        <div className="thinking-indicator-content">
-          <div className="thinking-spinner" />
-          <span>Thinking...</span>
-        </div>
-        
-        <style jsx>{`
-          .thinking-indicator {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 12px 16px;
-            margin-bottom: 16px;
-            background: rgba(139, 92, 246, 0.1);
-            border: 1px solid rgba(139, 92, 246, 0.2);
-            border-radius: 8px;
-          }
-          
-          .thinking-indicator-content {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            color: rgba(139, 92, 246, 0.9);
-            font-size: 14px;
-            font-weight: 500;
-          }
-          
-          .thinking-spinner {
-            width: 16px;
-            height: 16px;
-            border: 2px solid rgba(139, 92, 246, 0.3);
-            border-top-color: rgba(139, 92, 246, 0.9);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-          }
-          
-          @keyframes spin {
-            to { transform: rotate(360deg); }
-          }
-        `}</style>
-      </div>
-    );
   }
   
   // Mode 1: Full collapsible box with streaming content
