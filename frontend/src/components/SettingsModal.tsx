@@ -53,6 +53,9 @@ interface LLMSettings {
   completion_mode: 'chat' | 'text';
   text_completion_template?: string;
   text_completion_preset?: string;
+  // Reasoning/Thinking settings
+  reasoning_effort?: string | null;  // null/auto, "disabled", "low", "medium", "high"
+  show_thinking_content?: boolean;
 }
 
 interface ContextSettings {
@@ -181,6 +184,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     completion_mode: 'chat',
     text_completion_template: '',
     text_completion_preset: 'llama3',
+    reasoning_effort: null,
+    show_thinking_content: true,
   });
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [testingConnection, setTestingConnection] = useState(false);
@@ -359,6 +364,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               completion_mode: settings.llm_settings.completion_mode || 'chat',
               text_completion_template: settings.llm_settings.text_completion_template || '',
               text_completion_preset: settings.llm_settings.text_completion_preset || 'llama3',
+              reasoning_effort: settings.llm_settings.reasoning_effort || null,
+              show_thinking_content: settings.llm_settings.show_thinking_content ?? true,
             });
             // Set current engine if api_type exists
             if (settings.llm_settings.api_type && settings.llm_settings.api_type.trim() !== '') {
@@ -909,6 +916,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         completion_mode: 'chat',
         text_completion_template: '',
         text_completion_preset: 'llama3',
+        reasoning_effort: null,
+        show_thinking_content: true,
       });
     }
 
@@ -2344,6 +2353,54 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       </div>
                     </div>
                   )}
+                  
+                  {/* Reasoning/Thinking Settings */}
+                  <div className="pt-4 pb-4 px-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                    <h4 className="text-sm font-medium text-white mb-3">Reasoning / Thinking</h4>
+                    
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-white mb-2">Reasoning Effort</label>
+                        <select
+                          value={llmSettings.reasoning_effort || 'auto'}
+                          onChange={(e) => setLlmSettings({ 
+                            ...llmSettings, 
+                            reasoning_effort: e.target.value === 'auto' ? null : e.target.value 
+                          })}
+                          className="w-full bg-gray-700 border border-gray-600 rounded-lg p-2.5 text-white focus:border-pink-500 focus:ring-1 focus:ring-pink-500"
+                        >
+                          <option value="auto">Auto (Model Default)</option>
+                          <option value="disabled">Disabled</option>
+                          <option value="low">Low</option>
+                          <option value="medium">Medium</option>
+                          <option value="high">High</option>
+                        </select>
+                        <p className="text-xs text-gray-400 mt-1">
+                          Controls how much the model "thinks" before responding. Higher = better quality but more tokens/cost.
+                        </p>
+                      </div>
+                      
+                      {llmSettings.reasoning_effort !== 'disabled' && (
+                        <div>
+                          <label className="flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={llmSettings.show_thinking_content ?? true}
+                              onChange={(e) => setLlmSettings({ 
+                                ...llmSettings, 
+                                show_thinking_content: e.target.checked 
+                              })}
+                              className="mr-2 rounded border-gray-600 bg-gray-700 text-pink-500 focus:ring-pink-500"
+                            />
+                            <span className="text-white text-sm">Show Thinking Content</span>
+                          </label>
+                          <p className="text-xs text-gray-400 mt-1 ml-6">
+                            When enabled, shows the model's reasoning in an expandable box. When disabled, just shows a "Thinking..." indicator.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
                 {/* Generation Parameters */}

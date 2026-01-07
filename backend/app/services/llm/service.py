@@ -271,6 +271,18 @@ class UnifiedLLMService:
                     logger.debug(f"[GENERATION] Finish reason: {finish_reason}")
             
             content = response.choices[0].message.content
+            
+            # Check for reasoning_content from LiteLLM (supported by DeepSeek, Anthropic, OpenRouter, etc.)
+            reasoning_content = getattr(response.choices[0].message, 'reasoning_content', None)
+            if reasoning_content:
+                logger.info(f"[REASONING] Captured reasoning content ({len(reasoning_content)} chars)")
+                # For non-streaming, we return content only but log the reasoning
+                # The streaming endpoint handles reasoning display
+            
+            # If content is empty but reasoning exists, warn about token limits
+            if not content and reasoning_content:
+                logger.warning("[REASONING] Content empty but reasoning present - model may need more max_tokens")
+            
             return content
             
         except Exception as e:
@@ -884,9 +896,27 @@ class UnifiedLLMService:
         try:
             response = await acompletion(**gen_params)
             
+            # Track if we've seen reasoning content (for logging)
+            has_reasoning = False
+            reasoning_chars = 0
+            
             async for chunk in response:
+                # Check for reasoning_content in streaming chunks (LiteLLM support)
+                # This is yielded before regular content for models like DeepSeek, Anthropic, OpenRouter
+                if hasattr(chunk.choices[0].delta, 'reasoning_content'):
+                    reasoning_chunk = chunk.choices[0].delta.reasoning_content
+                    if reasoning_chunk:
+                        has_reasoning = True
+                        reasoning_chars += len(reasoning_chunk)
+                        # Yield reasoning with special prefix for frontend to detect
+                        yield f"__THINKING__:{reasoning_chunk}"
+                
+                # Regular content
                 if chunk.choices[0].delta.content:
                     yield chunk.choices[0].delta.content
+            
+            if has_reasoning:
+                logger.info(f"[REASONING] Streamed {reasoning_chars} chars of reasoning content")
                     
         except Exception as e:
             logger.error(f"LLM streaming failed for user {user_id}: {e}")

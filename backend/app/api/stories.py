@@ -1506,6 +1506,8 @@ async def generate_scene_streaming_endpoint(
         nonlocal active_chapter  # Use outer scope's active_chapter variable
         try:
             full_content = ""
+            thinking_content = ""
+            is_thinking = False
             
             # Send initial metadata
             yield f"data: {json.dumps({'type': 'start', 'sequence': next_sequence})}\n\n"
@@ -1536,8 +1538,20 @@ async def generate_scene_streaming_endpoint(
                     user_settings,
                     db
                 ):
-                    full_content += chunk
-                    yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                    # Check if this is thinking content
+                    if chunk.startswith("__THINKING__:"):
+                        thinking_chunk = chunk[13:]  # Remove prefix
+                        thinking_content += thinking_chunk
+                        if not is_thinking:
+                            is_thinking = True
+                            yield f"data: {json.dumps({'type': 'thinking_start'})}\n\n"
+                        yield f"data: {json.dumps({'type': 'thinking_chunk', 'chunk': thinking_chunk})}\n\n"
+                    else:
+                        if is_thinking:
+                            is_thinking = False
+                            yield f"data: {json.dumps({'type': 'thinking_end', 'total_chars': len(thinking_content)})}\n\n"
+                        full_content += chunk
+                        yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
                 
                 # Concluding scenes don't have choices
                 parsed_choices = None
@@ -1555,11 +1569,29 @@ async def generate_scene_streaming_endpoint(
                     db
                 ):
                     if not scene_complete:
-                        # Still streaming scene content
-                        full_content += chunk
-                        yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                        # Check if this is thinking content (prefixed by LLM service)
+                        if chunk.startswith("__THINKING__:"):
+                            thinking_chunk = chunk[13:]  # Remove prefix
+                            thinking_content += thinking_chunk
+                            if not is_thinking:
+                                # First thinking chunk - send thinking_start
+                                is_thinking = True
+                                yield f"data: {json.dumps({'type': 'thinking_start'})}\n\n"
+                            # Stream thinking chunk to frontend
+                            yield f"data: {json.dumps({'type': 'thinking_chunk', 'chunk': thinking_chunk})}\n\n"
+                        else:
+                            # Regular content - send thinking_end if we were thinking
+                            if is_thinking:
+                                is_thinking = False
+                                yield f"data: {json.dumps({'type': 'thinking_end', 'total_chars': len(thinking_content)})}\n\n"
+                            # Stream regular content
+                            full_content += chunk
+                            yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
                     else:
                         # Scene complete, choices parsed
+                        # Make sure to close thinking if still open
+                        if is_thinking:
+                            yield f"data: {json.dumps({'type': 'thinking_end', 'total_chars': len(thinking_content)})}\n\n"
                         parsed_choices = choices
                         break
             

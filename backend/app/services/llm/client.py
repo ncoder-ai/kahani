@@ -57,7 +57,11 @@ class LLMClient:
         self.text_completion_template = self.llm_config.get('text_completion_template')
         self.text_completion_preset = self.llm_config.get('text_completion_preset', 'llama3')
         
-        logger.info(f"LLMClient initialized: completion_mode={self.completion_mode}, api_type={self.api_type}, model={self.model_name}")
+        # Reasoning/Thinking settings
+        self.reasoning_effort = self.llm_config.get('reasoning_effort')  # None = auto, "disabled", "low", "medium", "high"
+        self.show_thinking_content = self.llm_config.get('show_thinking_content', True)
+        
+        logger.info(f"LLMClient initialized: completion_mode={self.completion_mode}, api_type={self.api_type}, model={self.model_name}, reasoning_effort={self.reasoning_effort}")
         
         # Configure LiteLLM model string based on provider
         self.model_string = self._build_model_string()
@@ -231,6 +235,18 @@ class LLMClient:
                 extra_body["repetition_penalty"] = self.repetition_penalty
             if extra_body:
                 params["extra_body"] = extra_body
+        
+        # Add reasoning/thinking parameters
+        # These are supported by LiteLLM for various providers (OpenRouter, Anthropic, DeepSeek, etc.)
+        if self.reasoning_effort:
+            if self.reasoning_effort == "disabled":
+                # Disable reasoning entirely - OpenRouter uses include_reasoning
+                params["include_reasoning"] = False
+                logger.info("Reasoning disabled via include_reasoning=False")
+            else:
+                # Pass reasoning effort level (low, medium, high)
+                params["reasoning_effort"] = self.reasoning_effort
+                logger.info(f"Reasoning effort set to: {self.reasoning_effort}")
         
         logger.info(f"Final generation params: {params}")
         return params

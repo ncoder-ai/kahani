@@ -19,6 +19,7 @@ import BranchCreationModal from '@/components/BranchCreationModal';
 import { GlobalTTSWidget } from '@/components/GlobalTTSWidget';
 import MicrophoneButton from '@/components/MicrophoneButton';
 import BranchSelector from '@/components/BranchSelector';
+import ThinkingBox from '@/components/ThinkingBox';
 
 // Lazy load heavy components - only load when needed
 const CharacterWizard = dynamic(() => import('@/components/CharacterWizard'), {
@@ -200,6 +201,10 @@ export default function StoryPage() {
   // Load streaming preference - default to true, will be updated from settings
   // Don't use localStorage in initializer to avoid hydration mismatch
   const [useStreaming, setUseStreaming] = useState(true);
+  
+  // Thinking/Reasoning states (for models that support reasoning)
+  const [isThinking, setIsThinking] = useState(false);
+  const [thinkingContent, setThinkingContent] = useState('');
   
   // Variant regeneration streaming states
   const [streamingVariantSceneId, setStreamingVariantSceneId] = useState<number | null>(null);
@@ -1198,6 +1203,9 @@ export default function StoryPage() {
     setIsStreaming(true);
     setIsSceneOperationInProgress(true); // Block variant loading operations
     setStreamingContent('');
+    // Clear thinking state for new generation
+    setIsThinking(false);
+    setThinkingContent('');
     
     // Start timing
     const startTime = Date.now();
@@ -1444,7 +1452,21 @@ export default function StoryPage() {
         // isConcluding - Generate a chapter-concluding scene
         isConcluding,
         // abortSignal - Allow cancellation
-        abortController.signal
+        abortController.signal,
+        // onThinkingStart - LLM is starting to reason
+        () => {
+          setIsThinking(true);
+          setThinkingContent('');
+        },
+        // onThinkingChunk - Stream thinking content
+        (chunk: string) => {
+          setThinkingContent(prev => prev + chunk);
+        },
+        // onThinkingEnd - Thinking phase complete
+        (totalChars: number) => {
+          setIsThinking(false);
+          // Keep thinking content for display (will be cleared on next generation)
+        }
       );
 
       // Check for new important characters
@@ -3045,6 +3067,17 @@ export default function StoryPage() {
                       </div>
                     </>
                   )}
+                </div>
+              )}
+              
+              {/* Thinking Box - Show when LLM is reasoning */}
+              {(isThinking || thinkingContent) && isStreaming && (
+                <div className="thinking-container mt-8">
+                  <ThinkingBox
+                    thinking={thinkingContent}
+                    isThinking={isThinking}
+                    showContent={userSettings?.llm_settings?.show_thinking_content ?? true}
+                  />
                 </div>
               )}
               

@@ -29,6 +29,9 @@ class LLMSettingsUpdate(BaseModel):
     completion_mode: Optional[str] = Field(default=None, pattern="^(chat|text)$")
     text_completion_template: Optional[str] = None  # JSON string
     text_completion_preset: Optional[str] = None
+    # Reasoning/Thinking Settings
+    reasoning_effort: Optional[str] = Field(default=None, pattern="^(disabled|low|medium|high)$")  # None = auto
+    show_thinking_content: Optional[bool] = None  # Whether to display thinking text in UI
 
 class ContextSettingsUpdate(BaseModel):
     max_tokens: int = Field(ge=1000, le=1000000, default=4000)
@@ -215,6 +218,12 @@ async def update_user_settings(
             user_settings.text_completion_template = llm.text_completion_template if llm.text_completion_template else None
         if llm.text_completion_preset is not None:
             user_settings.text_completion_preset = llm.text_completion_preset if llm.text_completion_preset else "llama3"
+        
+        # Update reasoning/thinking settings
+        if llm.reasoning_effort is not None:
+            user_settings.reasoning_effort = llm.reasoning_effort if llm.reasoning_effort else None
+        if llm.show_thinking_content is not None:
+            user_settings.show_thinking_content = llm.show_thinking_content
     
     # Update context settings
     if settings_update.context_settings:

@@ -720,7 +720,11 @@ class ApiClient {
     onAutoPlayReady?: (sessionId: string, sceneId: number) => void,
     onExtractionStatus?: (status: 'extracting' | 'complete' | 'error', message: string) => void,
     isConcluding?: boolean,
-    abortSignal?: AbortSignal
+    abortSignal?: AbortSignal,
+    // Thinking/reasoning callbacks
+    onThinkingStart?: () => void,
+    onThinkingChunk?: (chunk: string) => void,
+    onThinkingEnd?: (totalChars: number) => void
   ) {
     let fullStreamedContent = '';  // Track all streamed content for verification
     let receivedComplete = false;  // Track if we received the complete event
@@ -827,6 +831,18 @@ class ApiClient {
                 if (parsed.type === 'content' && onChunk) {
                   fullStreamedContent += parsed.chunk;
                   onChunk(parsed.chunk);
+                }
+                else if (parsed.type === 'thinking_start' && onThinkingStart) {
+                  // LLM is starting to think/reason
+                  onThinkingStart();
+                }
+                else if (parsed.type === 'thinking_chunk' && onThinkingChunk) {
+                  // Streaming thinking content
+                  onThinkingChunk(parsed.chunk);
+                }
+                else if (parsed.type === 'thinking_end' && onThinkingEnd) {
+                  // Thinking phase complete
+                  onThinkingEnd(parsed.total_chars || 0);
                 }
                 else if (parsed.type === 'auto_play_ready' && onAutoPlayReady) {
                   // Connect to TTS immediately when session is ready

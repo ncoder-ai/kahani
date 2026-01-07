@@ -33,6 +33,10 @@ class UserSettings(Base):
     text_completion_template = Column(Text, nullable=True)
     text_completion_preset = Column(String(100), nullable=True)
     
+    # Reasoning/Thinking Settings
+    reasoning_effort = Column(String(20), nullable=True)  # "disabled", "low", "medium", "high", or None (auto)
+    show_thinking_content = Column(Boolean, nullable=True)  # Whether to display thinking text in UI
+    
     # Context Management Settings
     context_max_tokens = Column(Integer, nullable=True)
     context_keep_recent_scenes = Column(Integer, nullable=True)
@@ -145,7 +149,9 @@ class UserSettings(Base):
                 "model_name": self.llm_model_name or "",
                 "completion_mode": self.completion_mode if self.completion_mode is not None else text_completion_defaults.get("mode", "chat"),
                 "text_completion_template": self.text_completion_template or "",
-                "text_completion_preset": self.text_completion_preset if self.text_completion_preset is not None else text_completion_defaults.get("preset", "llama3")
+                "text_completion_preset": self.text_completion_preset if self.text_completion_preset is not None else text_completion_defaults.get("preset", "llama3"),
+                "reasoning_effort": self.reasoning_effort,  # None = auto, "disabled", "low", "medium", "high"
+                "show_thinking_content": self.show_thinking_content if self.show_thinking_content is not None else True
             },
             "context_settings": {
                 "max_tokens": self.context_max_tokens if self.context_max_tokens is not None else ctx_defaults.get("max_tokens", 4000),
@@ -265,6 +271,13 @@ class UserSettings(Base):
             self.completion_mode = text_completion.get("mode", "chat")
         if self.text_completion_preset is None:
             self.text_completion_preset = text_completion.get("preset", "llama3")
+        
+        # Reasoning/Thinking Settings
+        reasoning = user_defaults.get("reasoning_settings", {})
+        if self.reasoning_effort is None:
+            self.reasoning_effort = reasoning.get("effort")  # None = auto
+        if self.show_thinking_content is None:
+            self.show_thinking_content = reasoning.get("show_thinking_content", True)
         
         # Context Settings
         ctx = user_defaults.get("context_settings", {})
