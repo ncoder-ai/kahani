@@ -907,26 +907,32 @@ class UnifiedLLMService:
                 
                 # Check for reasoning_content in streaming chunks (LiteLLM support)
                 # This is yielded before regular content for models like DeepSeek, Anthropic, OpenRouter
-                if hasattr(chunk.choices[0].delta, 'reasoning_content'):
-                    reasoning_chunk = chunk.choices[0].delta.reasoning_content
-                    if reasoning_chunk:
-                        has_reasoning = True
-                        reasoning_chars += len(reasoning_chunk)
-                        # Yield reasoning with special prefix for frontend to detect
-                        yield f"__THINKING__:{reasoning_chunk}"
+                delta = chunk.choices[0].delta
+                if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
+                    has_reasoning = True
+                    reasoning_chars += len(delta.reasoning_content)
+                    # Yield reasoning with special prefix for frontend to detect
+                    yield f"__THINKING__:{delta.reasoning_content}"
                 
                 # Also check for 'reasoning' field (OpenRouter uses this instead of reasoning_content)
-                if hasattr(chunk.choices[0].delta, 'reasoning'):
-                    reasoning_chunk = getattr(chunk.choices[0].delta, 'reasoning', None)
+                elif hasattr(delta, 'reasoning') and delta.reasoning:
+                    has_reasoning = True
+                    reasoning_chars += len(delta.reasoning)
+                    yield f"__THINKING__:{delta.reasoning}"
+                
+                # Check model_extra for reasoning (OpenRouter via LiteLLM Pydantic model)
+                # LiteLLM's Pydantic delta model stores unknown fields in model_extra
+                elif hasattr(delta, 'model_extra') and delta.model_extra:
+                    reasoning_chunk = delta.model_extra.get('reasoning')
                     if reasoning_chunk:
                         has_reasoning = True
                         reasoning_chars += len(reasoning_chunk)
                         yield f"__THINKING__:{reasoning_chunk}"
                 
                 # Regular content
-                if chunk.choices[0].delta.content:
-                    content_chars += len(chunk.choices[0].delta.content)
-                    yield chunk.choices[0].delta.content
+                if delta.content:
+                    content_chars += len(delta.content)
+                    yield delta.content
             
             # Log summary of what was received
             logger.info(f"[STREAMING COMPLETE] chunks={chunk_count}, content_chars={content_chars}, reasoning_chars={reasoning_chars}")
@@ -3328,6 +3334,17 @@ Chapter Conclusion:"""
         entity states, scene batches). Only the final message differs (new scene + choice request).
         """
         
+        # Override reasoning_effort to "disabled" for choice generation
+        # Reasoning models waste tokens on thinking, leaving nothing for actual choices
+        # This ensures choices are generated directly without consuming tokens on reasoning
+        import copy
+        choice_user_settings = copy.deepcopy(user_settings)
+        if 'llm_settings' in choice_user_settings:
+            choice_user_settings['llm_settings']['reasoning_effort'] = 'disabled'
+        else:
+            choice_user_settings['reasoning_effort'] = 'disabled'
+        logger.info("[CHOICES] Overriding reasoning_effort to 'disabled' for choice generation")
+        
         # Get POV from writing preset (SAME as scene generation - critical for cache hits)
         pov = 'third'
         if db and user_id:
@@ -3416,11 +3433,11 @@ Chapter Conclusion:"""
             except Exception as e:
                 logger.warning(f"Failed to write choice prompt debug file: {e}")
         
-        # Use the multi-message generation method
+        # Use the multi-message generation method with reasoning disabled
         response = await self._generate_with_messages(
             messages=messages,
             user_id=user_id,
-            user_settings=user_settings,
+            user_settings=choice_user_settings,  # Use modified settings with reasoning disabled
             max_tokens=max_tokens
         )
         
@@ -5494,6 +5511,8 @@ Chapter Conclusion:"""
                             logger.debug(f"[STREAM DEBUG] reasoning_content: {delta.reasoning_content}")
                         if hasattr(delta, 'reasoning'):
                             logger.debug(f"[STREAM DEBUG] reasoning: {getattr(delta, 'reasoning', None)}")
+                        if hasattr(delta, 'model_extra') and delta.model_extra:
+                            logger.debug(f"[STREAM DEBUG] model_extra: {delta.model_extra}")
                     
                     # Check for reasoning_content in streaming chunks (LiteLLM support)
                     if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
@@ -5503,11 +5522,20 @@ Chapter Conclusion:"""
                         yield f"__THINKING__:{delta.reasoning_content}"
                     
                     # Also check for 'reasoning' field (some providers use this)
-                    if hasattr(delta, 'reasoning') and delta.reasoning:
+                    elif hasattr(delta, 'reasoning') and delta.reasoning:
                         has_reasoning = True
                         reasoning_text = str(delta.reasoning)
                         reasoning_chars += len(reasoning_text)
                         yield f"__THINKING__:{reasoning_text}"
+                    
+                    # Check model_extra for reasoning (OpenRouter via LiteLLM Pydantic model)
+                    # LiteLLM's Pydantic delta model stores unknown fields in model_extra
+                    elif hasattr(delta, 'model_extra') and delta.model_extra:
+                        reasoning_chunk = delta.model_extra.get('reasoning')
+                        if reasoning_chunk:
+                            has_reasoning = True
+                            reasoning_chars += len(reasoning_chunk)
+                            yield f"__THINKING__:{reasoning_chunk}"
                     
                     # Regular content
                     if hasattr(delta, 'content') and delta.content:

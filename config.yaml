@@ -10,7 +10,7 @@
 application:
   app_name: "Kahani"
   app_version: "0.1.0"
-  debug: false
+  debug: true
   environment: "development"  # development, production
 
 # ----------------------------------------------------------------------------
@@ -198,7 +198,7 @@ frontend:
 # LOGGING
 # ----------------------------------------------------------------------------
 logging:
-  log_level: "INFO"
+  log_level: "DEBUG"
   log_file: "./logs/kahani.log"
 
 # ----------------------------------------------------------------------------
