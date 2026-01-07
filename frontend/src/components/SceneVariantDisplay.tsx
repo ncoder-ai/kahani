@@ -1302,11 +1302,11 @@ export default function SceneVariantDisplay({
                 : 'opacity-30 pointer-events-none')}>
               {getAvailableChoicesWithData().length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
-                  {getAvailableChoicesWithData().map((choice) => 
+                  {getAvailableChoicesWithData().map((choice, index) => 
                     editingChoiceId === choice.id ? (
                       // Edit mode - show input field
                       <div
-                        key={`edit-${choice.id}`}
+                        key={`edit-${choice.id ?? index}`}
                         className={'w-full p-2 transition-all duration-200 ' + (layoutMode === 'modern' ? 'rounded-lg' : 'theme-btn-secondary border border-pink-500 rounded-lg') + ' bg-gray-800/80'}
                       >
                         <div className="flex items-center gap-2">
@@ -1354,7 +1354,7 @@ export default function SceneVariantDisplay({
                       // On mobile: tap text to use choice, edit icon always visible
                       // On desktop: hover reveals play button
                       <div
-                        key={`choice-${choice.id}`}
+                        key={`choice-${choice.id ?? index}`}
                         className={'w-full text-left py-2 pl-2 pr-0 md:p-2 transition-all duration-200 group modern-choice-button compact cursor-pointer ' + (layoutMode === 'modern' ? 'rounded-lg' : 'theme-btn-secondary hover:opacity-80 border border-gray-600 rounded-lg') + ' ' + (selectedChoice === choice.text ? 'ring-2 ring-pink-500 bg-pink-900/20' : '') + ' ' + ((!showChoicesDuringGeneration || isGenerating || isStreaming) ? 'opacity-50 pointer-events-none' : '')}
                         onClick={() => {
                           if (!showChoicesDuringGeneration || isGenerating || isStreaming) return;
