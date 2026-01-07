@@ -1167,7 +1167,7 @@ Chapter Conclusion:"""
         """Get max_tokens setting for a template
         
         Priority:
-        1. User's llm_max_tokens setting (for scene generation types)
+        1. User's llm_max_tokens setting (for all generation types)
         2. YAML file defaults
         3. Hardcoded fallback (2048)
         
@@ -1178,14 +1178,9 @@ Chapter Conclusion:"""
         Returns:
             Max tokens value to use for generation
         """
-        # Check user settings first for scene generation types
-        # NOTE: scene_variants removed - now uses scene_with/without_immediate
-        scene_generation_types = {
-            "scene_generation", "scene_with_immediate", "scene_without_immediate", 
-            "scene", "scene_continuation"
-        }
-        
-        if user_settings and template_key in scene_generation_types:
+        # Check user settings first - user's max_tokens applies to ALL generation types
+        # The user knows their model best and should control token limits
+        if user_settings:
             try:
                 user_max_tokens = user_settings.get("llm_settings", {}).get("max_tokens")
                 if user_max_tokens is not None and isinstance(user_max_tokens, int):
