@@ -1807,9 +1807,14 @@ chapter_brainstorm:
       - PRIORITY: Use confirmed elements exactly as provided
       - For unconfirmed elements, extract from the conversation
       - Be specific with key events - they should be actionable story beats
-      - Character arcs should show meaningful development
-      - New character suggestions should have clear story purposes
-      - Recommended characters should be from the existing story cast
+      
+      CHARACTER HANDLING (IMPORTANT):
+      - "character_arcs": ONLY for characters that ALREADY EXIST in the story (listed in Story Context)
+      - "new_character_suggestions": For ANY character mentioned in the conversation that is NOT in the existing story cast
+      - "recommended_characters": Names of existing characters that should appear in this chapter
+      
+      If a character is discussed in the brainstorm but is NOT listed in the Story Context's character list,
+      they MUST go in "new_character_suggestions", NOT in "character_arcs".
       
       Return ONLY valid JSON with no markdown formatting.
     
