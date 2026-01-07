@@ -4,6 +4,22 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import apiClient, { StoryArc, ArcPhase, ChapterPlot, StructuredElements, CharacterArc, SuggestedElements } from '@/lib/api';
 import StoryArcViewer from './StoryArcViewer';
 import ThinkingBox from './ThinkingBox';
+import CharacterReview from './brainstorm/CharacterReview';
+
+// Types for CharacterReview integration
+interface BrainstormCharacter {
+  name: string;
+  role: string;
+  description: string;
+  personality_traits?: string[];
+}
+
+interface CharacterMapping {
+  brainstormChar: BrainstormCharacter;
+  action: 'create' | 'use_existing' | 'skip';
+  existingCharacterId?: number;
+  newCharacterId?: number;
+}
 import { GripVertical, X, Plus, ChevronLeft, ChevronDown, ChevronUp, Clock, MessageSquare, Trash2, RefreshCw, Check, Edit2, FileText, Users, Palette, List, Flag } from 'lucide-react';
 
 interface Message {
@@ -216,9 +232,12 @@ export default function ChapterBrainstormModal({
   });
   const [extractedPlot, setExtractedPlot] = useState<ChapterPlot | null>(existingPlot || null);
   const [isExtracting, setIsExtracting] = useState(false);
-  const [phase, setPhase] = useState<'session_select' | 'select_phase' | 'chat' | 'review'>(
+  const [phase, setPhase] = useState<'session_select' | 'select_phase' | 'chat' | 'review' | 'character_review'>(
     existingPlot ? 'review' : 'session_select'
   );
+  
+  // Character review state
+  const [characterMappings, setCharacterMappings] = useState<CharacterMapping[]>([]);
   const [isEditingPlot, setIsEditingPlot] = useState(false);
   const [showArcSidebar, setShowArcSidebar] = useState(false);
   
@@ -469,6 +488,22 @@ export default function ChapterBrainstormModal({
     return count;
   };
 
+  // Transform new_character_suggestions to BrainstormCharacter[] for CharacterReview
+  const getNewCharactersForReview = (): BrainstormCharacter[] => {
+    if (!extractedPlot?.new_character_suggestions) return [];
+    return extractedPlot.new_character_suggestions.map(suggestion => ({
+      name: suggestion.name,
+      role: suggestion.role,
+      description: `${suggestion.description}${suggestion.reason ? ` (${suggestion.reason})` : ''}`,
+      personality_traits: []
+    }));
+  };
+
+  // Check if we have new characters to review
+  const hasNewCharacterSuggestions = () => {
+    return extractedPlot?.new_character_suggestions && extractedPlot.new_character_suggestions.length > 0;
+  };
+
   const getSuggestionCount = () => {
     let count = 0;
     // Only count suggestions for elements that aren't already confirmed
@@ -650,6 +685,57 @@ export default function ChapterBrainstormModal({
     }
   };
 
+  // Apply plot with character mappings from CharacterReview
+  const handleApplyPlotWithCharacters = async (mappings: CharacterMapping[]) => {
+    console.log('[ChapterBrainstorm] Apply plot with characters', { 
+      extractedPlot: !!extractedPlot, 
+      sessionId, 
+      chapterId, 
+      arcPhaseId: selectedPhase?.id,
+      characterMappings: mappings.length 
+    });
+    
+    if (!extractedPlot) {
+      setApplyError('No plot to apply. Please extract the plot first.');
+      return;
+    }
+    
+    setIsApplying(true);
+    setApplyError(null);
+    
+    try {
+      // Collect character IDs from mappings
+      const characterIds: number[] = [];
+      for (const mapping of mappings) {
+        if (mapping.action === 'create' && mapping.newCharacterId) {
+          characterIds.push(mapping.newCharacterId);
+        } else if (mapping.action === 'use_existing' && mapping.existingCharacterId) {
+          characterIds.push(mapping.existingCharacterId);
+        }
+        // 'skip' action means we don't include this character
+      }
+      
+      console.log('[ChapterBrainstorm] Character IDs to include:', characterIds);
+      
+      // Update the plot with character info if needed
+      const plotWithCharacters = {
+        ...extractedPlot,
+        // Add character IDs to the plot so they can be associated with the chapter
+        _characterIds: characterIds
+      };
+      
+      // Pass the edited plot back to the caller
+      console.log('[ChapterBrainstorm] Passing plot with characters back to caller:', plotWithCharacters);
+      onPlotApplied(plotWithCharacters as ChapterPlot, sessionId || undefined, selectedPhase?.id);
+    } catch (error) {
+      console.error('Failed to apply plot with characters:', error);
+      setApplyError('Failed to apply plot. Please try again.');
+      setPhase('review'); // Go back to review on error
+    } finally {
+      setIsApplying(false);
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -733,6 +819,7 @@ export default function ChapterBrainstormModal({
             {phase === 'select_phase' && 'Select Arc Phase'}
             {phase === 'chat' && 'Brainstorm'}
             {phase === 'review' && 'Review Plot'}
+            {phase === 'character_review' && 'Review Characters'}
           </h2>
           {storyArc && phase !== 'session_select' && (
             <button
@@ -794,12 +881,14 @@ export default function ChapterBrainstormModal({
                 {phase === 'select_phase' && 'Select Arc Phase'}
                 {phase === 'chat' && 'Chapter Brainstorm'}
                 {phase === 'review' && 'Review Chapter Plot'}
+                {phase === 'character_review' && 'Review New Characters'}
               </h2>
               <p className="text-white/60 text-sm">
                 {phase === 'session_select' && 'You have previous brainstorming sessions for this story'}
                 {phase === 'select_phase' && 'Choose which part of your story this chapter belongs to'}
                 {phase === 'chat' && 'Discuss your chapter ideas with AI'}
                 {phase === 'review' && 'Review and edit the extracted chapter plot'}
+                {phase === 'character_review' && 'Choose to create, use existing, or skip each suggested character'}
               </p>
             </div>
             <button
@@ -1411,11 +1500,41 @@ export default function ChapterBrainstormModal({
                     <div className="space-y-2">
                       {extractedPlot.character_arcs.map((arc, i) => (
                         <div key={i} className="flex flex-col md:flex-row md:items-start gap-1 md:gap-2">
-                          <span className="text-purple-400 font-medium text-sm">{arc.character_name}:</span>
+                          <span className="text-purple-400 font-medium text-sm">{arc.character_name || arc.name}:</span>
                           <span className="text-white/80 text-sm">{arc.development}</span>
                         </div>
                       ))}
                     </div>
+                  </div>
+                )}
+
+                {/* New Character Suggestions */}
+                {extractedPlot.new_character_suggestions && extractedPlot.new_character_suggestions.length > 0 && (
+                  <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-3 md:p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Users className="w-4 h-4 text-purple-400" />
+                      <h3 className="text-white font-semibold text-sm md:text-base">New Characters Suggested</h3>
+                      <span className="px-2 py-0.5 bg-purple-500/20 text-purple-300 text-xs rounded">
+                        {extractedPlot.new_character_suggestions.length} new
+                      </span>
+                    </div>
+                    <div className="space-y-3">
+                      {extractedPlot.new_character_suggestions.map((char, i) => (
+                        <div key={i} className="bg-white/5 rounded-lg p-2">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-purple-300 font-medium text-sm">{char.name}</span>
+                            <span className="text-xs px-2 py-0.5 bg-white/10 text-white/60 rounded">{char.role}</span>
+                          </div>
+                          <p className="text-white/70 text-xs">{char.description}</p>
+                          {char.reason && (
+                            <p className="text-white/50 text-xs mt-1 italic">Why: {char.reason}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-purple-300/70 text-xs mt-3">
+                      You'll review these characters in the next step.
+                    </p>
                   </div>
                 )}
 
@@ -1436,7 +1555,8 @@ export default function ChapterBrainstormModal({
 
                 {/* Actions */}
                 <div className="flex flex-col md:flex-row gap-3 md:gap-4 justify-center pt-4 pb-6">
-                  {sessionId ? (
+                  {/* Show Back to Chat if we have a session with messages */}
+                  {(sessionId || messages.length > 0) && (
                     <button
                       type="button"
                       onClick={() => setPhase('chat')}
@@ -1445,7 +1565,9 @@ export default function ChapterBrainstormModal({
                       <ChevronLeft className="w-4 h-4" />
                       Back to Chat
                     </button>
-                  ) : (
+                  )}
+                  {/* Show New Brainstorm only if we don't have a session */}
+                  {!sessionId && messages.length === 0 && (
                     <button
                       type="button"
                       onClick={() => setPhase('select_phase')}
@@ -1455,16 +1577,43 @@ export default function ChapterBrainstormModal({
                       New Brainstorm
                     </button>
                   )}
-                  <button
-                    type="button"
-                    onClick={handleApplyPlot}
-                    disabled={isApplying}
-                    className="px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold rounded-xl hover:from-green-500 hover:to-emerald-500 active:from-green-700 active:to-emerald-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation min-h-[48px]"
-                  >
-                    {isApplying ? 'Applying...' : chapterId ? '✓ Apply to Chapter' : '✓ Use This Plot'}
-                  </button>
+                  {hasNewCharacterSuggestions() ? (
+                    <button
+                      type="button"
+                      onClick={() => setPhase('character_review')}
+                      className="px-6 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-semibold rounded-xl hover:from-purple-500 hover:to-indigo-500 active:from-purple-700 active:to-indigo-700 transition-all touch-manipulation min-h-[48px] flex items-center justify-center gap-2"
+                    >
+                      <Users className="w-4 h-4" />
+                      Next: Review Characters ({extractedPlot?.new_character_suggestions?.length})
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleApplyPlot}
+                      disabled={isApplying}
+                      className="px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold rounded-xl hover:from-green-500 hover:to-emerald-500 active:from-green-700 active:to-emerald-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation min-h-[48px]"
+                    >
+                      {isApplying ? 'Applying...' : chapterId ? '✓ Apply to Chapter' : '✓ Use This Plot'}
+                    </button>
+                  )}
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Character Review Phase */}
+          {phase === 'character_review' && extractedPlot && (
+            <div className="flex-1 overflow-y-auto">
+              <CharacterReview
+                characters={getNewCharactersForReview()}
+                preSelectedCharacterIds={[]}
+                onComplete={(mappings) => {
+                  setCharacterMappings(mappings);
+                  // After character review, apply the plot with character info
+                  handleApplyPlotWithCharacters(mappings);
+                }}
+                onBack={() => setPhase('review')}
+              />
             </div>
           )}
         </div>

@@ -153,6 +153,7 @@ export interface ChapterPlot {
   recommended_characters: string[];
   mood?: string;
   location?: string;
+  _characterIds?: number[];  // Character IDs to add to the chapter (from character review)
 }
 
 export interface StructuredElements {
