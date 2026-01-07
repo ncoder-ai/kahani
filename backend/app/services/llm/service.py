@@ -899,8 +899,12 @@ class UnifiedLLMService:
             # Track if we've seen reasoning content (for logging)
             has_reasoning = False
             reasoning_chars = 0
+            content_chars = 0
+            chunk_count = 0
             
             async for chunk in response:
+                chunk_count += 1
+                
                 # Check for reasoning_content in streaming chunks (LiteLLM support)
                 # This is yielded before regular content for models like DeepSeek, Anthropic, OpenRouter
                 if hasattr(chunk.choices[0].delta, 'reasoning_content'):
@@ -913,8 +917,13 @@ class UnifiedLLMService:
                 
                 # Regular content
                 if chunk.choices[0].delta.content:
+                    content_chars += len(chunk.choices[0].delta.content)
                     yield chunk.choices[0].delta.content
             
+            # Log summary of what was received
+            logger.info(f"[STREAMING COMPLETE] chunks={chunk_count}, content_chars={content_chars}, reasoning_chars={reasoning_chars}")
+            if chunk_count > 0 and content_chars == 0:
+                logger.warning(f"[STREAMING] Received {chunk_count} chunks but no content! Model may need higher max_tokens or reasoning disabled.")
             if has_reasoning:
                 logger.info(f"[REASONING] Streamed {reasoning_chars} chars of reasoning content")
                     

@@ -242,10 +242,18 @@ class LLMClient:
             if self.reasoning_effort == "disabled":
                 # Disable reasoning entirely - OpenRouter uses include_reasoning
                 params["include_reasoning"] = False
+                # Also add to extra_body for OpenRouter compatibility
+                if "extra_body" not in params:
+                    params["extra_body"] = {}
+                params["extra_body"]["include_reasoning"] = False
                 logger.info("Reasoning disabled via include_reasoning=False")
             else:
                 # Pass reasoning effort level (low, medium, high)
                 params["reasoning_effort"] = self.reasoning_effort
+                # For OpenRouter, also set include_reasoning to true explicitly
+                if "extra_body" not in params:
+                    params["extra_body"] = {}
+                params["extra_body"]["reasoning"] = {"effort": self.reasoning_effort}
                 logger.info(f"Reasoning effort set to: {self.reasoning_effort}")
         
         logger.info(f"Final generation params: {params}")
