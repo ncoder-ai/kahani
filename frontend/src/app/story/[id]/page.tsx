@@ -354,6 +354,18 @@ export default function StoryPage() {
       }
     }
   }, [userSettings?.generation_preferences?.enable_streaming]);
+  
+  // Listen for settings changes from SettingsModal
+  useEffect(() => {
+    const handleSettingsChanged = () => {
+      loadUserSettings();
+    };
+    
+    window.addEventListener('kahaniSettingsChanged', handleSettingsChanged);
+    return () => {
+      window.removeEventListener('kahaniSettingsChanged', handleSettingsChanged);
+    };
+  }, []);
 
   // Set up story actions for the PersistentBanner menu
   useEffect(() => {

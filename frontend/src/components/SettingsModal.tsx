@@ -964,6 +964,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
       if (response.ok) {
         showMessage('LLM and extraction model settings saved!', 'success');
+        // Dispatch event for other components to reload settings
+        window.dispatchEvent(new CustomEvent('kahaniSettingsChanged'));
       } else {
         const errorData = await response.json().catch(() => ({ detail: 'Failed to save settings' }));
         showMessage(`Failed to save settings: ${errorData.detail || 'Unknown error'}`, 'error');
