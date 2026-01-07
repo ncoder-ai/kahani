@@ -2415,7 +2415,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       type="range"
                       min="0"
                       max="2"
-                      step="0.1"
+                      step="0.05"
                       value={llmSettings.temperature}
                       onChange={(e) => setLlmSettings({ ...llmSettings, temperature: parseFloat(e.target.value) })}
                       className="w-full"
