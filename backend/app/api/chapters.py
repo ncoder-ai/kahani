@@ -3050,6 +3050,70 @@ async def send_chapter_brainstorm_message(
         raise HTTPException(status_code=500, detail=f"Failed to send message: {str(e)}")
 
 
+@router.post("/{story_id}/chapters/brainstorm/{session_id}/message/stream")
+async def send_chapter_brainstorm_message_streaming(
+    story_id: int,
+    session_id: int,
+    request: ChapterBrainstormMessageRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Send a message in chapter brainstorming and stream AI response.
+    
+    Uses Server-Sent Events (SSE) to stream the response.
+    
+    Event types:
+    - thinking_start: LLM is starting to reason
+    - thinking_chunk: Chunk of thinking content
+    - thinking_end: Thinking complete
+    - content: Regular content chunk
+    - complete: Full response complete with metadata
+    - error: An error occurred
+    
+    Args:
+        story_id: The story ID
+        session_id: The session ID
+        request: Message content
+        
+    Returns:
+        StreamingResponse with SSE events
+    """
+    from ..services.chapter_brainstorm_service import ChapterBrainstormService
+    from ..api.stories import get_or_create_user_settings
+    
+    # Fetch story to get content_rating for NSFW filtering
+    story = db.query(Story).filter(Story.id == story_id).first()
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    
+    user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
+    
+    # Create service BEFORE the generator to ensure db session is valid
+    service = ChapterBrainstormService(current_user.id, user_settings, db)
+    user_message = request.message
+    
+    async def generate_stream():
+        try:
+            async for event in service.send_message_streaming(
+                session_id=session_id,
+                user_message=user_message
+            ):
+                yield f"data: {json.dumps(event)}\n\n"
+            
+            yield "data: [DONE]\n\n"
+            
+        except Exception as e:
+            logger.error(f"[CHAPTER_BRAINSTORM:MESSAGE:STREAM] Error: {str(e)}", exc_info=True)
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+    
+    return StreamingResponse(
+        generate_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
+    )
+
+
 @router.post("/{story_id}/chapters/brainstorm/{session_id}/extract")
 async def extract_chapter_plot(
     story_id: int,
@@ -3206,6 +3270,108 @@ async def delete_chapter_brainstorm_session(
     except Exception as e:
         logger.error(f"[CHAPTER_BRAINSTORM:DELETE] Error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to delete session: {str(e)}")
+
+
+# ====== STRUCTURED ELEMENTS ENDPOINTS ======
+
+class StructuredElementsUpdateRequest(BaseModel):
+    """Request model for updating structured elements"""
+    element_type: str  # 'overview', 'characters', 'tone', 'key_events', 'ending'
+    value: Any  # str for most, list for characters/key_events
+
+
+class StructuredElementsResponse(BaseModel):
+    """Response model for structured elements"""
+    session_id: int
+    structured_elements: Dict[str, Any]
+
+
+@router.get("/{story_id}/chapters/brainstorm/{session_id}/elements")
+async def get_chapter_brainstorm_elements(
+    story_id: int,
+    session_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get current structured elements for a brainstorming session.
+    
+    Args:
+        story_id: The story ID
+        session_id: The session ID
+        
+    Returns:
+        Current structured elements with defaults for missing ones
+    """
+    try:
+        from ..services.chapter_brainstorm_service import ChapterBrainstormService
+        from ..api.stories import get_or_create_user_settings
+        
+        user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+        service = ChapterBrainstormService(current_user.id, user_settings, db)
+        
+        session = service.get_session(session_id)
+        if not session or session.story_id != story_id:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        return {
+            "session_id": session.id,
+            "structured_elements": session.get_structured_elements()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[CHAPTER_BRAINSTORM:GET_ELEMENTS] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get elements: {str(e)}")
+
+
+@router.put("/{story_id}/chapters/brainstorm/{session_id}/elements")
+async def update_chapter_brainstorm_element(
+    story_id: int,
+    session_id: int,
+    request: StructuredElementsUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update a single structured element in a brainstorming session.
+    
+    Args:
+        story_id: The story ID
+        session_id: The session ID
+        request: Element type and value to update
+        
+    Returns:
+        Updated structured elements
+    """
+    valid_element_types = ['overview', 'characters', 'tone', 'key_events', 'ending']
+    if request.element_type not in valid_element_types:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid element_type. Must be one of: {', '.join(valid_element_types)}"
+        )
+    
+    try:
+        from ..services.chapter_brainstorm_service import ChapterBrainstormService
+        from ..api.stories import get_or_create_user_settings
+        
+        user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+        service = ChapterBrainstormService(current_user.id, user_settings, db)
+        
+        result = service.update_structured_element(
+            session_id=session_id,
+            element_type=request.element_type,
+            value=request.value
+        )
+        
+        return result
+        
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"[CHAPTER_BRAINSTORM:UPDATE_ELEMENT] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to update element: {str(e)}")
 
 
 # =============================================================================

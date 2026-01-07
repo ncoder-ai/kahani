@@ -2728,6 +2728,8 @@ export default function StoryPage() {
         }}
         currentChapterId={activeChapterId ?? undefined}
         storyArc={story?.story_arc}
+        enableStreaming={userSettings?.generation_preferences?.enable_streaming !== false}
+        showThinkingContent={userSettings?.llm_settings?.show_thinking_content !== false}
       />
 
       {/* Main Story Container */}
@@ -3376,6 +3378,8 @@ export default function StoryPage() {
           storyId={storyId}
           chapterId={brainstormChapterId}
           storyArc={story?.story_arc}
+          enableStreaming={userSettings?.generation_preferences?.enable_streaming !== false}
+          showThinkingContent={userSettings?.llm_settings?.show_thinking_content !== false}
           onPlotApplied={(plot, sessionId) => {
             setShowChapterBrainstormModal(false);
             setBrainstormChapterId(undefined);

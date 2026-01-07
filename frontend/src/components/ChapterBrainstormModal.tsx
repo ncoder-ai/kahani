@@ -1,14 +1,27 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import apiClient, { StoryArc, ArcPhase, ChapterPlot } from '@/lib/api';
+import apiClient, { StoryArc, ArcPhase, ChapterPlot, StructuredElements, CharacterArc, SuggestedElements } from '@/lib/api';
 import StoryArcViewer from './StoryArcViewer';
-import { GripVertical, X, Plus, ChevronLeft, ChevronDown, ChevronUp } from 'lucide-react';
+import ThinkingBox from './ThinkingBox';
+import { GripVertical, X, Plus, ChevronLeft, ChevronDown, ChevronUp, Clock, MessageSquare, Trash2, RefreshCw, Check, Edit2, FileText, Users, Palette, List, Flag } from 'lucide-react';
 
 interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp?: string;
+}
+
+interface PreviousSession {
+  id: number;
+  story_id: number;
+  chapter_id: number | null;
+  arc_phase_id: string | null;
+  status: string;
+  message_count: number;
+  has_extracted_plot: boolean;
+  created_at: string;
+  updated_at: string | null;
 }
 
 interface ChapterBrainstormModalProps {
@@ -21,6 +34,161 @@ interface ChapterBrainstormModalProps {
   existingSessionId?: number;
   existingPlot?: ChapterPlot | null;
   existingArcPhaseId?: string;
+  enableStreaming?: boolean;
+  showThinkingContent?: boolean;
+}
+
+// Structured Element Slot Component
+interface ElementSlotProps {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  suggestedValue?: string;
+  isEditing: boolean;
+  draft: string;
+  onEdit: () => void;
+  onSave: () => void;
+  onCancel: () => void;
+  onDraftChange: (value: string) => void;
+  onConfirmSuggestion?: () => void;
+  onDismissSuggestion?: () => void;
+  isSaving: boolean;
+  multiline?: boolean;
+  placeholder?: string;
+}
+
+function ElementSlot({
+  icon,
+  label,
+  value,
+  suggestedValue,
+  isEditing,
+  draft,
+  onEdit,
+  onSave,
+  onCancel,
+  onDraftChange,
+  onConfirmSuggestion,
+  onDismissSuggestion,
+  isSaving,
+  multiline = false,
+  placeholder = ''
+}: ElementSlotProps) {
+  const hasValue = value && value.trim().length > 0;
+  const hasSuggestion = suggestedValue && suggestedValue.trim().length > 0 && !hasValue;
+  
+  if (isEditing) {
+    return (
+      <div className="bg-white/5 rounded-lg p-2">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-purple-400">{icon}</span>
+          <span className="text-white/80 text-xs font-medium">{label}</span>
+        </div>
+        {multiline ? (
+          <textarea
+            value={draft}
+            onChange={(e) => onDraftChange(e.target.value)}
+            placeholder={placeholder}
+            className="w-full bg-white/10 border border-purple-500/50 rounded px-2 py-1.5 text-white text-xs resize-none focus:outline-none focus:border-purple-500"
+            rows={3}
+            autoFocus
+          />
+        ) : (
+          <input
+            type="text"
+            value={draft}
+            onChange={(e) => onDraftChange(e.target.value)}
+            placeholder={placeholder}
+            className="w-full bg-white/10 border border-purple-500/50 rounded px-2 py-1.5 text-white text-xs focus:outline-none focus:border-purple-500"
+            autoFocus
+          />
+        )}
+        <div className="flex justify-end gap-2 mt-2">
+          <button
+            onClick={onCancel}
+            className="px-2 py-1 text-white/60 hover:text-white text-xs"
+            disabled={isSaving}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onSave}
+            disabled={isSaving || !draft.trim()}
+            className="px-2 py-1 bg-purple-600 text-white rounded text-xs hover:bg-purple-500 disabled:opacity-50"
+          >
+            {isSaving ? '...' : 'Save'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+  
+  // Show suggestion state (dashed border, sparkle icon, confirm button)
+  if (hasSuggestion) {
+    return (
+      <div className="border border-dashed border-amber-500/50 rounded-lg p-2 bg-amber-500/5">
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2">
+            <span className="text-amber-400">{icon}</span>
+            <span className="text-amber-300 text-xs font-medium">{label}</span>
+            <span className="text-amber-400/70 text-[10px] bg-amber-500/20 px-1.5 py-0.5 rounded">✨ Suggested</span>
+          </div>
+        </div>
+        <p className="text-white/70 text-xs mb-2 line-clamp-2">{suggestedValue}</p>
+        <div className="flex gap-2">
+          <button
+            onClick={onConfirmSuggestion}
+            className="flex-1 px-2 py-1 bg-amber-600 text-white rounded text-xs hover:bg-amber-500 flex items-center justify-center gap-1"
+          >
+            <Check className="w-3 h-3" />
+            Confirm
+          </button>
+          <button
+            onClick={onEdit}
+            className="px-2 py-1 bg-white/10 text-white/70 rounded text-xs hover:bg-white/20"
+          >
+            Edit
+          </button>
+          <button
+            onClick={onDismissSuggestion}
+            className="px-2 py-1 text-white/40 hover:text-white/60 text-xs"
+            title="Dismiss suggestion"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      </div>
+    );
+  }
+  
+  // Show confirmed state (solid border, checkmark)
+  return (
+    <div 
+      className={`flex items-center justify-between p-2 rounded-lg transition-colors cursor-pointer ${
+        hasValue 
+          ? 'bg-green-500/10 hover:bg-green-500/20 border border-green-500/30' 
+          : 'bg-white/5 hover:bg-white/10'
+      }`}
+      onClick={onEdit}
+    >
+      <div className="flex items-center gap-2 flex-1 min-w-0">
+        <span className={hasValue ? 'text-green-400' : 'text-white/40'}>{icon}</span>
+        <span className={`text-xs font-medium ${hasValue ? 'text-green-300' : 'text-white/50'}`}>
+          {label}
+        </span>
+        {hasValue && (
+          <>
+            <Check className="w-3 h-3 text-green-400 flex-shrink-0" />
+            <span className="text-white/60 text-xs truncate">{value}</span>
+          </>
+        )}
+        {!hasValue && (
+          <span className="text-white/30 text-xs italic">Not set</span>
+        )}
+      </div>
+      <Edit2 className="w-3 h-3 text-white/40 flex-shrink-0" />
+    </div>
+  );
 }
 
 export default function ChapterBrainstormModal({
@@ -32,7 +200,9 @@ export default function ChapterBrainstormModal({
   onPlotApplied,
   existingSessionId,
   existingPlot,
-  existingArcPhaseId
+  existingArcPhaseId,
+  enableStreaming = true,
+  showThinkingContent = true
 }: ChapterBrainstormModalProps) {
   const [sessionId, setSessionId] = useState<number | null>(existingSessionId || null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -46,9 +216,37 @@ export default function ChapterBrainstormModal({
   });
   const [extractedPlot, setExtractedPlot] = useState<ChapterPlot | null>(existingPlot || null);
   const [isExtracting, setIsExtracting] = useState(false);
-  const [phase, setPhase] = useState<'select_phase' | 'chat' | 'review'>(existingPlot ? 'review' : 'select_phase');
+  const [phase, setPhase] = useState<'session_select' | 'select_phase' | 'chat' | 'review'>(
+    existingPlot ? 'review' : 'session_select'
+  );
   const [isEditingPlot, setIsEditingPlot] = useState(false);
   const [showArcSidebar, setShowArcSidebar] = useState(false);
+  
+  // Previous sessions state
+  const [previousSessions, setPreviousSessions] = useState<PreviousSession[]>([]);
+  const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+  const [deletingSessionId, setDeletingSessionId] = useState<number | null>(null);
+  
+  // Streaming state
+  const [streamingContent, setStreamingContent] = useState('');
+  const [isThinking, setIsThinking] = useState(false);
+  const [thinkingContent, setThinkingContent] = useState('');
+  const abortControllerRef = useRef<AbortController | null>(null);
+  
+  // Structured elements state
+  const [structuredElements, setStructuredElements] = useState<StructuredElements>({
+    overview: '',
+    characters: [],
+    tone: '',
+    key_events: [],
+    ending: ''
+  });
+  // Suggested elements from AI (not yet confirmed)
+  const [suggestedElements, setSuggestedElements] = useState<SuggestedElements>({});
+  const [showElementsPanel, setShowElementsPanel] = useState(true);
+  const [editingElement, setEditingElement] = useState<string | null>(null);
+  const [elementDraft, setElementDraft] = useState('');
+  const [savingElement, setSavingElement] = useState(false);
   
   // Drag state for reordering
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
@@ -56,6 +254,86 @@ export default function ChapterBrainstormModal({
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Load previous sessions when modal opens
+  useEffect(() => {
+    if (isOpen && phase === 'session_select' && !existingSessionId && !existingPlot) {
+      loadPreviousSessions();
+    }
+  }, [isOpen, phase, existingSessionId, existingPlot, storyId]);
+
+  const loadPreviousSessions = async () => {
+    setIsLoadingSessions(true);
+    try {
+      const response = await apiClient.getChapterBrainstormSessions(storyId);
+      // Filter to only show incomplete sessions (not 'applied' status)
+      const incompleteSessions = response.sessions.filter(
+        s => s.status !== 'applied' && s.message_count > 0
+      );
+      setPreviousSessions(incompleteSessions);
+      
+      // If no previous sessions, skip directly to phase selection
+      if (incompleteSessions.length === 0) {
+        setPhase('select_phase');
+      }
+    } catch (error) {
+      console.error('Failed to load previous sessions:', error);
+      // On error, proceed to phase selection
+      setPhase('select_phase');
+    } finally {
+      setIsLoadingSessions(false);
+    }
+  };
+
+  const handleResumeSession = async (session: PreviousSession) => {
+    setIsLoading(true);
+    try {
+      await loadExistingSession(session.id);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDeleteSession = async (sessionIdToDelete: number) => {
+    setDeletingSessionId(sessionIdToDelete);
+    try {
+      await apiClient.deleteChapterBrainstormSession(storyId, sessionIdToDelete);
+      setPreviousSessions(prev => prev.filter(s => s.id !== sessionIdToDelete));
+      
+      // If no more sessions, go to phase selection
+      if (previousSessions.length <= 1) {
+        setPhase('select_phase');
+      }
+    } catch (error) {
+      console.error('Failed to delete session:', error);
+    } finally {
+      setDeletingSessionId(null);
+    }
+  };
+
+  const handleStartNewSession = () => {
+    // Reset state and go to phase selection
+    setSessionId(null);
+    setMessages([]);
+    setExtractedPlot(null);
+    setSelectedPhase(null);
+    setPhase('select_phase');
+  };
+
+  const formatSessionDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
+  };
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -92,9 +370,114 @@ export default function ChapterBrainstormModal({
         if (phase) setSelectedPhase(phase);
       }
       setPhase(session.extracted_plot ? 'review' : 'chat');
+      
+      // Load structured elements
+      await loadStructuredElements(id);
     } catch (error) {
       console.error('Failed to load session:', error);
     }
+  };
+
+  const loadStructuredElements = async (sessId: number) => {
+    try {
+      const response = await apiClient.getChapterBrainstormElements(storyId, sessId);
+      setStructuredElements(response.structured_elements);
+    } catch (error) {
+      console.error('Failed to load structured elements:', error);
+    }
+  };
+
+  const saveStructuredElement = async (
+    elementType: 'overview' | 'characters' | 'tone' | 'key_events' | 'ending',
+    value: string | CharacterArc[] | string[]
+  ) => {
+    if (!sessionId) return;
+    
+    setSavingElement(true);
+    try {
+      const response = await apiClient.updateChapterBrainstormElement(
+        storyId,
+        sessionId,
+        elementType,
+        value
+      );
+      setStructuredElements(response.structured_elements);
+      setEditingElement(null);
+      setElementDraft('');
+    } catch (error) {
+      console.error('Failed to save element:', error);
+    } finally {
+      setSavingElement(false);
+    }
+  };
+
+  // Confirm a suggested element (saves it to backend and clears suggestion)
+  const confirmSuggestion = async (elementType: 'overview' | 'characters' | 'tone' | 'key_events' | 'ending') => {
+    const suggestion = suggestedElements[elementType];
+    if (!suggestion || !sessionId) return;
+    
+    setSavingElement(true);
+    try {
+      // For key_events, use the array directly; for characters, convert string to array
+      let value: string | CharacterArc[] | string[] = suggestion;
+      if (elementType === 'characters' && typeof suggestion === 'string') {
+        // Parse characters string into CharacterArc array
+        value = suggestion.split(',').map(name => ({
+          character_name: name.trim(),
+          name: name.trim(),
+          development: ''
+        }));
+      }
+      
+      const response = await apiClient.updateChapterBrainstormElement(
+        storyId,
+        sessionId,
+        elementType,
+        value
+      );
+      setStructuredElements(response.structured_elements);
+      
+      // Clear this suggestion
+      setSuggestedElements(prev => {
+        const updated = { ...prev };
+        delete updated[elementType];
+        return updated;
+      });
+    } catch (error) {
+      console.error('Failed to confirm suggestion:', error);
+    } finally {
+      setSavingElement(false);
+    }
+  };
+
+  // Dismiss a suggestion without saving
+  const dismissSuggestion = (elementType: 'overview' | 'characters' | 'tone' | 'key_events' | 'ending') => {
+    setSuggestedElements(prev => {
+      const updated = { ...prev };
+      delete updated[elementType];
+      return updated;
+    });
+  };
+
+  const getElementCount = () => {
+    let count = 0;
+    if (structuredElements.overview) count++;
+    if (structuredElements.characters.length > 0) count++;
+    if (structuredElements.tone) count++;
+    if (structuredElements.key_events.length > 0) count++;
+    if (structuredElements.ending) count++;
+    return count;
+  };
+
+  const getSuggestionCount = () => {
+    let count = 0;
+    // Only count suggestions for elements that aren't already confirmed
+    if (suggestedElements.overview && !structuredElements.overview) count++;
+    if (suggestedElements.characters && structuredElements.characters.length === 0) count++;
+    if (suggestedElements.tone && !structuredElements.tone) count++;
+    if (suggestedElements.key_events && structuredElements.key_events.length === 0) count++;
+    if (suggestedElements.ending && !structuredElements.ending) count++;
+    return count;
   };
 
   const handlePhaseSelect = async (arcPhase: ArcPhase | null) => {
@@ -130,22 +513,98 @@ export default function ChapterBrainstormModal({
     setInputValue('');
     setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setIsLoading(true);
+    setStreamingContent('');
+    setThinkingContent('');
+    setIsThinking(false);
     
-    try {
-      const response = await apiClient.sendChapterBrainstormMessage(
+    // Cancel any previous request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    if (enableStreaming) {
+      // Use streaming API
+      abortControllerRef.current = new AbortController();
+      
+      await apiClient.sendChapterBrainstormMessageStreaming(
         storyId,
         sessionId,
-        userMessage
+        userMessage,
+        // onChunk
+        (chunk) => {
+          setStreamingContent(prev => prev + chunk);
+        },
+        // onComplete
+        (aiResponse, messageCount) => {
+          setMessages(prev => [...prev, { role: 'assistant', content: aiResponse }]);
+          setStreamingContent('');
+          setIsLoading(false);
+          setIsThinking(false);
+          setThinkingContent('');
+        },
+        // onError
+        (error) => {
+          console.error('Streaming error:', error);
+          // Provide more helpful error messages
+          let errorMessage = 'Sorry, I encountered an error. Please try again.';
+          if (error.includes('AuthenticationError') || error.includes('401') || error.includes('User not found')) {
+            errorMessage = 'Authentication error: Please check your LLM API key in Settings.';
+          } else if (error.includes('timeout') || error.includes('Timeout')) {
+            errorMessage = 'The request timed out. Please try again.';
+          } else if (error.includes('rate limit') || error.includes('429')) {
+            errorMessage = 'Rate limit exceeded. Please wait a moment and try again.';
+          }
+          setMessages(prev => [...prev, { 
+            role: 'assistant', 
+            content: errorMessage
+          }]);
+          setStreamingContent('');
+          setIsLoading(false);
+          setIsThinking(false);
+          setThinkingContent('');
+        },
+        // onThinkingStart
+        () => {
+          setIsThinking(true);
+          setThinkingContent('');
+        },
+        // onThinkingChunk
+        (chunk) => {
+          setThinkingContent(prev => prev + chunk);
+        },
+        // onThinkingEnd
+        (totalChars) => {
+          setIsThinking(false);
+        },
+        // onSuggestions
+        (elements) => {
+          setSuggestedElements(prev => ({ ...prev, ...elements }));
+        },
+        abortControllerRef.current.signal
       );
-      setMessages(prev => [...prev, { role: 'assistant', content: response.ai_response }]);
-    } catch (error) {
-      console.error('Failed to send message:', error);
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: 'Sorry, I encountered an error. Please try again.' 
-      }]);
-    } finally {
-      setIsLoading(false);
+    } else {
+      // Use non-streaming API
+      try {
+        const response = await apiClient.sendChapterBrainstormMessage(
+          storyId,
+          sessionId,
+          userMessage
+        );
+        setMessages(prev => [...prev, { role: 'assistant', content: response.ai_response }]);
+        
+        // Handle suggested elements if present
+        if (response.suggested_elements) {
+          setSuggestedElements(prev => ({ ...prev, ...response.suggested_elements }));
+        }
+      } catch (error) {
+        console.error('Failed to send message:', error);
+        setMessages(prev => [...prev, { 
+          role: 'assistant', 
+          content: 'Sorry, I encountered an error. Please try again.' 
+        }]);
+      } finally {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -270,11 +729,12 @@ export default function ChapterBrainstormModal({
             <X className="w-5 h-5" />
           </button>
           <h2 className="text-white font-semibold text-sm">
+            {phase === 'session_select' && 'Resume or Start New'}
             {phase === 'select_phase' && 'Select Arc Phase'}
             {phase === 'chat' && 'Brainstorm'}
             {phase === 'review' && 'Review Plot'}
           </h2>
-          {storyArc && (
+          {storyArc && phase !== 'session_select' && (
             <button
               onClick={() => setShowArcSidebar(!showArcSidebar)}
               className="p-2 text-purple-400 hover:text-purple-300 touch-manipulation"
@@ -282,6 +742,7 @@ export default function ChapterBrainstormModal({
               {showArcSidebar ? 'Hide Arc' : 'Arc'}
             </button>
           )}
+          {phase === 'session_select' && <div className="w-10" />}
         </div>
 
         {/* Mobile Arc Sidebar (collapsible) */}
@@ -300,8 +761,8 @@ export default function ChapterBrainstormModal({
           </div>
         )}
 
-        {/* Desktop Left Sidebar - Story Arc */}
-        {storyArc && (
+        {/* Desktop Left Sidebar - Story Arc (hidden during session selection) */}
+        {storyArc && phase !== 'session_select' && (
           <div className="hidden md:block w-64 border-r border-white/10 p-4 overflow-y-auto flex-shrink-0">
             <h3 className="text-white font-semibold mb-4">Story Arc</h3>
             <StoryArcViewer 
@@ -329,11 +790,13 @@ export default function ChapterBrainstormModal({
           <div className="hidden md:flex p-4 border-b border-white/10 items-center justify-between">
             <div>
               <h2 className="text-xl font-semibold text-white">
+                {phase === 'session_select' && 'Resume or Start New'}
                 {phase === 'select_phase' && 'Select Arc Phase'}
                 {phase === 'chat' && 'Chapter Brainstorm'}
                 {phase === 'review' && 'Review Chapter Plot'}
               </h2>
               <p className="text-white/60 text-sm">
+                {phase === 'session_select' && 'You have previous brainstorming sessions for this story'}
                 {phase === 'select_phase' && 'Choose which part of your story this chapter belongs to'}
                 {phase === 'chat' && 'Discuss your chapter ideas with AI'}
                 {phase === 'review' && 'Review and edit the extracted chapter plot'}
@@ -346,6 +809,109 @@ export default function ChapterBrainstormModal({
               <X className="w-6 h-6" />
             </button>
           </div>
+
+          {/* Session Selection - Resume or Start New */}
+          {phase === 'session_select' && (
+            <div className="flex-1 p-4 md:p-6 overflow-y-auto">
+              <div className="max-w-2xl mx-auto space-y-4">
+                {isLoadingSessions ? (
+                  <div className="flex items-center justify-center py-12">
+                    <RefreshCw className="w-6 h-6 text-purple-400 animate-spin" />
+                    <span className="ml-2 text-white/60">Loading sessions...</span>
+                  </div>
+                ) : (
+                  <>
+                    {/* Previous Sessions */}
+                    {previousSessions.length > 0 && (
+                      <div className="space-y-3">
+                        <h3 className="text-white/80 font-medium text-sm flex items-center gap-2">
+                          <Clock className="w-4 h-4" />
+                          Previous Sessions
+                        </h3>
+                        {previousSessions.map((session) => {
+                          const arcPhase = session.arc_phase_id && storyArc?.phases
+                            ? storyArc.phases.find(p => p.id === session.arc_phase_id)
+                            : null;
+                          
+                          return (
+                            <div
+                              key={session.id}
+                              className="bg-white/5 rounded-xl border border-white/10 p-4 hover:border-purple-500/50 transition-all"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-white font-medium text-sm">
+                                      {arcPhase?.name || 'Free Brainstorm'}
+                                    </span>
+                                    {session.has_extracted_plot && (
+                                      <span className="px-2 py-0.5 bg-green-500/20 text-green-300 text-xs rounded">
+                                        Plot Ready
+                                      </span>
+                                    )}
+                                    <span className="text-white/40 text-xs">
+                                      {formatSessionDate(session.updated_at || session.created_at)}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-3 mt-1 text-white/50 text-xs">
+                                    <span className="flex items-center gap-1">
+                                      <MessageSquare className="w-3 h-3" />
+                                      {session.message_count} messages
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => handleResumeSession(session)}
+                                    disabled={isLoading}
+                                    className="px-3 py-1.5 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-500 disabled:opacity-50 transition-all"
+                                  >
+                                    Resume
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteSession(session.id)}
+                                    disabled={deletingSessionId === session.id}
+                                    className="p-1.5 text-white/40 hover:text-red-400 disabled:opacity-50 transition-all"
+                                    title="Delete session"
+                                  >
+                                    {deletingSessionId === session.id ? (
+                                      <RefreshCw className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="w-4 h-4" />
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Start New Session */}
+                    <div className="pt-4 border-t border-white/10">
+                      <button
+                        onClick={handleStartNewSession}
+                        className="w-full text-left p-4 bg-gradient-to-r from-purple-600/20 to-indigo-600/20 hover:from-purple-600/30 hover:to-indigo-600/30 rounded-xl border border-purple-500/30 hover:border-purple-500/50 transition-all"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-purple-600/30 flex items-center justify-center">
+                            <Plus className="w-5 h-5 text-purple-300" />
+                          </div>
+                          <div>
+                            <h3 className="text-white font-semibold text-sm md:text-base">Start New Brainstorm</h3>
+                            <p className="text-white/50 text-xs md:text-sm mt-0.5">
+                              Begin a fresh chapter planning session
+                            </p>
+                          </div>
+                        </div>
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Phase Selection */}
           {phase === 'select_phase' && (
@@ -410,7 +976,31 @@ export default function ChapterBrainstormModal({
                   </div>
                 ))}
                 
-                {isLoading && (
+                {/* Thinking Display */}
+                {isLoading && (isThinking || thinkingContent) && (
+                  <div className="flex justify-start">
+                    <div className="max-w-[85%] md:max-w-[80%]">
+                      <ThinkingBox 
+                        thinking={thinkingContent}
+                        isThinking={isThinking}
+                        showContent={showThinkingContent}
+                      />
+                    </div>
+                  </div>
+                )}
+                
+                {/* Streaming Content Display */}
+                {isLoading && streamingContent && (
+                  <div className="flex justify-start">
+                    <div className="max-w-[85%] md:max-w-[80%] p-3 rounded-xl text-sm md:text-base bg-white/10 text-white/90">
+                      <p className="whitespace-pre-wrap break-words">{streamingContent}</p>
+                      <span className="inline-block w-2 h-4 bg-purple-400 animate-pulse ml-1" />
+                    </div>
+                  </div>
+                )}
+                
+                {/* Loading indicator (only when not streaming) */}
+                {isLoading && !streamingContent && !isThinking && !thinkingContent && (
                   <div className="flex justify-start">
                     <div className="bg-white/10 p-3 rounded-xl">
                       <div className="flex gap-1">
@@ -423,6 +1013,163 @@ export default function ChapterBrainstormModal({
                 )}
                 <div ref={messagesEndRef} />
               </div>
+
+              {/* Structured Elements Panel - Collapsible */}
+              {sessionId && (
+                <div className="border-t border-white/10 bg-slate-900/70">
+                  <button
+                    onClick={() => setShowElementsPanel(!showElementsPanel)}
+                    className="w-full flex items-center justify-between p-3 text-left hover:bg-white/5 transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-purple-400" />
+                      <span className="text-white/80 text-sm font-medium">Chapter Elements</span>
+                      <div className="flex items-center gap-2">
+                        {getSuggestionCount() > 0 && (
+                          <span className="px-2 py-0.5 bg-amber-500/20 text-amber-300 text-xs rounded animate-pulse">
+                            ✨ {getSuggestionCount()} new
+                          </span>
+                        )}
+                        <span className="px-2 py-0.5 bg-purple-500/20 text-purple-300 text-xs rounded">
+                          {getElementCount()}/5 confirmed
+                        </span>
+                      </div>
+                    </div>
+                    {showElementsPanel ? (
+                      <ChevronUp className="w-4 h-4 text-white/40" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 text-white/40" />
+                    )}
+                  </button>
+                  
+                    {showElementsPanel && (
+                    <div className="px-3 pb-3 space-y-2 max-h-48 overflow-y-auto">
+                      {/* Overview */}
+                      <ElementSlot
+                        icon={<FileText className="w-3.5 h-3.5" />}
+                        label="Overview"
+                        value={structuredElements.overview}
+                        suggestedValue={suggestedElements.overview}
+                        isEditing={editingElement === 'overview'}
+                        draft={elementDraft}
+                        onEdit={() => {
+                          setEditingElement('overview');
+                          setElementDraft(suggestedElements.overview || structuredElements.overview);
+                        }}
+                        onSave={() => saveStructuredElement('overview', elementDraft)}
+                        onCancel={() => { setEditingElement(null); setElementDraft(''); }}
+                        onDraftChange={setElementDraft}
+                        onConfirmSuggestion={() => confirmSuggestion('overview')}
+                        onDismissSuggestion={() => dismissSuggestion('overview')}
+                        isSaving={savingElement}
+                      />
+                      
+                      {/* Tone */}
+                      <ElementSlot
+                        icon={<Palette className="w-3.5 h-3.5" />}
+                        label="Tone"
+                        value={structuredElements.tone}
+                        suggestedValue={suggestedElements.tone}
+                        isEditing={editingElement === 'tone'}
+                        draft={elementDraft}
+                        onEdit={() => {
+                          setEditingElement('tone');
+                          setElementDraft(suggestedElements.tone || structuredElements.tone);
+                        }}
+                        onSave={() => saveStructuredElement('tone', elementDraft)}
+                        onCancel={() => { setEditingElement(null); setElementDraft(''); }}
+                        onDraftChange={setElementDraft}
+                        onConfirmSuggestion={() => confirmSuggestion('tone')}
+                        onDismissSuggestion={() => dismissSuggestion('tone')}
+                        isSaving={savingElement}
+                      />
+                      
+                      {/* Key Events */}
+                      <ElementSlot
+                        icon={<List className="w-3.5 h-3.5" />}
+                        label="Key Events"
+                        value={structuredElements.key_events.length > 0 
+                          ? `${structuredElements.key_events.length} events: ${structuredElements.key_events.slice(0, 2).join(', ')}${structuredElements.key_events.length > 2 ? '...' : ''}`
+                          : ''}
+                        suggestedValue={suggestedElements.key_events 
+                          ? `${suggestedElements.key_events.length} events: ${suggestedElements.key_events.slice(0, 2).join(', ')}${suggestedElements.key_events.length > 2 ? '...' : ''}`
+                          : undefined}
+                        isEditing={editingElement === 'key_events'}
+                        draft={elementDraft}
+                        onEdit={() => {
+                          setEditingElement('key_events');
+                          const events = suggestedElements.key_events || structuredElements.key_events;
+                          setElementDraft(events.join('\n'));
+                        }}
+                        onSave={() => saveStructuredElement('key_events', elementDraft.split('\n').filter(e => e.trim()))}
+                        onCancel={() => { setEditingElement(null); setElementDraft(''); }}
+                        onDraftChange={setElementDraft}
+                        onConfirmSuggestion={() => confirmSuggestion('key_events')}
+                        onDismissSuggestion={() => dismissSuggestion('key_events')}
+                        isSaving={savingElement}
+                        multiline
+                        placeholder="Enter each event on a new line"
+                      />
+                      
+                      {/* Ending */}
+                      <ElementSlot
+                        icon={<Flag className="w-3.5 h-3.5" />}
+                        label="Ending"
+                        value={structuredElements.ending}
+                        suggestedValue={suggestedElements.ending}
+                        isEditing={editingElement === 'ending'}
+                        draft={elementDraft}
+                        onEdit={() => {
+                          setEditingElement('ending');
+                          setElementDraft(suggestedElements.ending || structuredElements.ending);
+                        }}
+                        onSave={() => saveStructuredElement('ending', elementDraft)}
+                        onCancel={() => { setEditingElement(null); setElementDraft(''); }}
+                        onDraftChange={setElementDraft}
+                        onConfirmSuggestion={() => confirmSuggestion('ending')}
+                        onDismissSuggestion={() => dismissSuggestion('ending')}
+                        isSaving={savingElement}
+                      />
+                      
+                      {/* Characters */}
+                      <ElementSlot
+                        icon={<Users className="w-3.5 h-3.5" />}
+                        label="Characters"
+                        value={structuredElements.characters.length > 0 
+                          ? structuredElements.characters.map(c => c.character_name || c.name).join(', ')
+                          : ''}
+                        suggestedValue={suggestedElements.characters}
+                        isEditing={editingElement === 'characters'}
+                        draft={elementDraft}
+                        onEdit={() => {
+                          setEditingElement('characters');
+                          if (suggestedElements.characters) {
+                            setElementDraft(suggestedElements.characters);
+                          } else {
+                            setElementDraft(structuredElements.characters.map(c => 
+                              `${c.character_name || c.name}: ${c.development || ''}`
+                            ).join('\n'));
+                          }
+                        }}
+                        onSave={() => {
+                          const chars = elementDraft.split('\n').filter(l => l.trim()).map(line => {
+                            const [name, ...rest] = line.split(':');
+                            return { character_name: name.trim(), development: rest.join(':').trim() };
+                          });
+                          saveStructuredElement('characters', chars);
+                        }}
+                        onConfirmSuggestion={() => confirmSuggestion('characters')}
+                        onDismissSuggestion={() => dismissSuggestion('characters')}
+                        onCancel={() => { setEditingElement(null); setElementDraft(''); }}
+                        onDraftChange={setElementDraft}
+                        isSaving={savingElement}
+                        multiline
+                        placeholder="Format: Character Name: Their role/development"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Input Area */}
               <div className="p-3 md:p-4 border-t border-white/10 bg-slate-900/50">

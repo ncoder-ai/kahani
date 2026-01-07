@@ -16,6 +16,7 @@ class ChapterBrainstormSession(Base):
     
     Each session tracks:
     - Conversation with AI about chapter direction
+    - Structured elements confirmed by user during brainstorming
     - Extracted plot elements (summary, key events, climax, etc.)
     - Link to story arc phase
     - Status of the brainstorming process
@@ -29,6 +30,10 @@ class ChapterBrainstormSession(Base):
     
     # Conversation history (list of {role, content, timestamp} dicts)
     messages = Column(JSON, default=list)
+    
+    # Structured elements confirmed by user during brainstorming
+    # Structure: {overview: str, characters: [...], tone: str, key_events: [...], ending: str}
+    structured_elements = Column(JSON, default=dict)
     
     # Extracted chapter plot from conversation
     extracted_plot = Column(JSON, nullable=True)
@@ -72,6 +77,32 @@ class ChapterBrainstormSession(Base):
             self.extracted_plot = {}
         self.extracted_plot.update(plot_data)
         attributes.flag_modified(self, 'extracted_plot')
+    
+    def update_structured_element(self, element_type: str, value):
+        """
+        Update a single structured element.
+        
+        Args:
+            element_type: One of 'overview', 'characters', 'tone', 'key_events', 'ending'
+            value: The value to set (string for most, list for characters/key_events)
+        """
+        if self.structured_elements is None:
+            self.structured_elements = {}
+        self.structured_elements[element_type] = value
+        attributes.flag_modified(self, 'structured_elements')
+    
+    def get_structured_elements(self) -> dict:
+        """Get all structured elements with defaults for missing ones."""
+        defaults = {
+            'overview': '',
+            'characters': [],
+            'tone': '',
+            'key_events': [],
+            'ending': ''
+        }
+        if self.structured_elements:
+            defaults.update(self.structured_elements)
+        return defaults
     
     def __repr__(self):
         return f"<ChapterBrainstormSession(id={self.id}, story_id={self.story_id}, status='{self.status}')>"

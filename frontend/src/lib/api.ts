@@ -130,7 +130,9 @@ export interface StoryArc {
  */
 export interface CharacterArc {
   character_name: string;
+  name?: string; // Alternative field for backwards compatibility
   development: string;
+  dynamics?: string; // Alternative field for backwards compatibility
 }
 
 export interface NewCharacterSuggestion {
@@ -151,6 +153,23 @@ export interface ChapterPlot {
   recommended_characters: string[];
   mood?: string;
   location?: string;
+}
+
+export interface StructuredElements {
+  overview: string;
+  characters: CharacterArc[];
+  tone: string;
+  key_events: string[];
+  ending: string;
+}
+
+// Suggested elements from AI - all fields optional since AI may only suggest some
+export interface SuggestedElements {
+  overview?: string;
+  characters?: string;  // AI returns as string, not CharacterArc[]
+  tone?: string;
+  key_events?: string[];
+  ending?: string;
 }
 
 export interface ChapterProgress {
@@ -2284,10 +2303,124 @@ class ApiClient {
       user_message: string;
       ai_response: string;
       message_count: number;
+      suggested_elements?: SuggestedElements;
     }>(`/api/stories/${storyId}/chapters/brainstorm/${sessionId}/message`, {
       method: 'POST',
       body: JSON.stringify({ message })
     });
+  }
+
+  /**
+   * Send a message in chapter brainstorming with streaming response.
+   * 
+   * @param storyId - The story ID
+   * @param sessionId - The brainstorm session ID
+   * @param message - The user's message
+   * @param onChunk - Callback for content chunks
+   * @param onComplete - Callback when streaming is complete
+   * @param onError - Callback for errors
+   * @param onThinkingStart - Callback when LLM starts thinking
+   * @param onThinkingChunk - Callback for thinking content chunks
+   * @param onThinkingEnd - Callback when thinking ends
+   * @param abortSignal - Optional abort signal to cancel the request
+   */
+  async sendChapterBrainstormMessageStreaming(
+    storyId: number,
+    sessionId: number,
+    message: string,
+    onChunk?: (chunk: string) => void,
+    onComplete?: (aiResponse: string, messageCount: number) => void,
+    onError?: (error: string) => void,
+    onThinkingStart?: () => void,
+    onThinkingChunk?: (chunk: string) => void,
+    onThinkingEnd?: (totalChars: number) => void,
+    onSuggestions?: (elements: SuggestedElements) => void,
+    abortSignal?: AbortSignal
+  ): Promise<void> {
+    const baseUrl = getApiBaseUrlSync();
+    const url = `${baseUrl}/api/stories/${storyId}/chapters/brainstorm/${sessionId}/message/stream`;
+    
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.token}`,
+        },
+        body: JSON.stringify({ message }),
+        signal: abortSignal,
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || `HTTP ${response.status}`);
+      }
+      
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('No response body');
+      }
+      
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let fullContent = '';
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6).trim();
+            if (data === '[DONE]') {
+              return;
+            }
+            if (!data) continue;
+            
+            try {
+              const parsed = JSON.parse(data);
+              
+              switch (parsed.type) {
+                case 'thinking_start':
+                  onThinkingStart?.();
+                  break;
+                case 'thinking_chunk':
+                  onThinkingChunk?.(parsed.chunk);
+                  break;
+                case 'thinking_end':
+                  onThinkingEnd?.(parsed.total_chars);
+                  break;
+                case 'content':
+                  fullContent += parsed.chunk;
+                  onChunk?.(parsed.chunk);
+                  break;
+                case 'complete':
+                  onComplete?.(parsed.ai_response, parsed.message_count);
+                  break;
+                case 'suggestions':
+                  onSuggestions?.(parsed.elements);
+                  break;
+                case 'error':
+                  onError?.(parsed.message);
+                  break;
+              }
+            } catch (e) {
+              console.error('Failed to parse SSE data:', e);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        return; // Request was aborted, don't call onError
+      }
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      onError?.(errorMessage);
+    }
   }
 
   async extractChapterPlot(storyId: number, sessionId: number) {
@@ -2323,6 +2456,28 @@ class ApiClient {
       message: string;
     }>(`/api/stories/${storyId}/chapters/brainstorm/${sessionId}`, {
       method: 'DELETE'
+    });
+  }
+
+  async getChapterBrainstormElements(storyId: number, sessionId: number) {
+    return this.request<{
+      session_id: number;
+      structured_elements: StructuredElements;
+    }>(`/api/stories/${storyId}/chapters/brainstorm/${sessionId}/elements`);
+  }
+
+  async updateChapterBrainstormElement(
+    storyId: number, 
+    sessionId: number, 
+    elementType: 'overview' | 'characters' | 'tone' | 'key_events' | 'ending',
+    value: string | CharacterArc[] | string[]
+  ) {
+    return this.request<{
+      session_id: number;
+      structured_elements: StructuredElements;
+    }>(`/api/stories/${storyId}/chapters/brainstorm/${sessionId}/elements`, {
+      method: 'PUT',
+      body: JSON.stringify({ element_type: elementType, value })
     });
   }
 

@@ -1717,6 +1717,33 @@ chapter_brainstorm:
       - Build on what happened in previous chapters - maintain continuity
       - Advance character development appropriately for this chapter
       
+      STRUCTURED BRAINSTORMING APPROACH:
+      As the conversation progresses, help the user define these key elements:
+      1. **Chapter Overview**: A high-level 2-3 sentence summary of what happens
+      2. **Characters & Dynamics**: Which characters appear and their relationships/tensions
+      3. **Tone & Atmosphere**: The emotional feel of the chapter
+      4. **Key Events**: Specific plot beats that must happen (ordered list)
+      5. **Chapter Ending**: How this chapter concludes and sets up what's next
+      
+      When you've discussed enough about an element, suggest it clearly so the user can confirm it.
+      Example: "Based on our discussion, here's a proposed **Chapter Overview**: [your suggestion]. Does this capture what you're going for?"
+      
+      STRUCTURED OUTPUT (REQUIRED):
+      At the END of EVERY response, include a JSON block with your current suggestions for the chapter elements.
+      Use this exact format:
+      
+      ---ELEMENTS---
+      {"overview": "...", "tone": "...", "key_events": ["event1", "event2"], "characters": "...", "ending": "..."}
+      ---END_ELEMENTS---
+      
+      Rules for the JSON block:
+      - Only include fields you have enough information to suggest
+      - Omit fields that haven't been discussed yet (don't include empty strings or null)
+      - Update the suggestions as the conversation evolves
+      - key_events should be an array of strings, each describing one event
+      - characters should list the characters involved and their roles/dynamics
+      - The JSON must be valid - use double quotes for strings, escape special characters
+      
       WHAT NOT TO DO:
       - Do NOT outline events from other arc phases
       - Do NOT summarize the entire story arc
@@ -1729,6 +1756,7 @@ chapter_brainstorm:
       - Offer 2-3 concrete options when the writer needs direction
       - Ask clarifying questions to understand their vision
       - Keep responses focused and actionable for this chapter
+      - Periodically summarize what's been agreed upon
       
       Remember: You're planning ONE chapter, not the whole book.
     
@@ -1741,6 +1769,9 @@ chapter_brainstorm:
       
       YOUR TASK:
       Analyze the chapter brainstorming conversation and extract a structured chapter plot that can guide scene generation.
+      
+      IMPORTANT: If the user has already confirmed specific elements (provided in CONFIRMED ELEMENTS section),
+      use those EXACTLY as provided. Only extract from conversation for elements that haven't been confirmed.
       
       OUTPUT FORMAT (strict JSON):
       {{
@@ -1773,7 +1804,8 @@ chapter_brainstorm:
       }}
       
       EXTRACTION GUIDELINES:
-      - Extract only what was discussed or agreed upon in the conversation
+      - PRIORITY: Use confirmed elements exactly as provided
+      - For unconfirmed elements, extract from the conversation
       - Be specific with key events - they should be actionable story beats
       - Character arcs should show meaningful development
       - New character suggestions should have clear story purposes
@@ -1789,10 +1821,13 @@ chapter_brainstorm:
       
       Target Arc Phase: {arc_phase}
       
+      CONFIRMED ELEMENTS (use these exactly):
+      {confirmed_elements}
+      
       Conversation:
       {conversation}
       
-      Extract the structured chapter plot as JSON.
+      Extract the structured chapter plot as JSON, prioritizing confirmed elements.
 
 # =============================================================================
 # CHAPTER PLOT GUIDANCE - Injected into Scene/Choice Generation

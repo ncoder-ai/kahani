@@ -64,9 +64,11 @@ interface ChapterSidebarProps {
   onChapterSelect?: (chapterId: number) => void; // Callback when user selects a chapter to view
   currentChapterId?: number; // Currently selected chapter for viewing
   storyArc?: StoryArc | null; // Story arc for display
+  enableStreaming?: boolean; // Whether streaming is enabled for LLM responses
+  showThinkingContent?: boolean; // Whether to show LLM thinking content
 }
 
-export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterChange, onChapterSelect, currentChapterId, storyArc }: ChapterSidebarProps) {
+export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterChange, onChapterSelect, currentChapterId, storyArc, enableStreaming = true, showThinkingContent = true }: ChapterSidebarProps) {
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [activeChapter, setActiveChapter] = useState<Chapter | null>(null);
   const [contextStatus, setContextStatus] = useState<ChapterContextStatus | null>(null);
@@ -1265,6 +1267,8 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
           storyArc={storyArc}
           existingPlot={editingChapterId && activeChapter ? activeChapter.chapter_plot : brainstormPlot}
           existingArcPhaseId={editingChapterId && activeChapter ? activeChapter.arc_phase_id || undefined : brainstormArcPhaseId}
+          enableStreaming={enableStreaming}
+          showThinkingContent={showThinkingContent}
           onPlotApplied={(plot, sessionId, arcPhaseId) => {
             setShowBrainstormModal(false);
             setBrainstormChapterId(undefined);

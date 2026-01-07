@@ -6,10 +6,9 @@ Handles conversational interactions and extraction of chapter plot elements.
 """
 import json
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, AsyncGenerator
 from sqlalchemy.orm import Session
 from datetime import datetime
-from litellm import acompletion
 
 from ..models.chapter_brainstorm_session import ChapterBrainstormSession
 from ..models.story import Story
@@ -34,6 +33,54 @@ def clean_llm_json(json_str: str) -> str:
     if json_str.endswith("```"):
         json_str = json_str[:-3]
     return json_str.strip()
+
+
+import re
+
+def parse_element_suggestions(ai_response: str) -> tuple:
+    """
+    Extract element suggestions from AI response.
+    
+    The AI is instructed to include suggestions in this format:
+    ---ELEMENTS---
+    {"overview": "...", "tone": "...", "key_events": [...], "characters": "...", "ending": "..."}
+    ---END_ELEMENTS---
+    
+    Returns:
+        tuple: (clean_response without markers, suggestions_dict or None)
+    """
+    # Pattern to match the elements block
+    pattern = r'---ELEMENTS---\s*(.*?)\s*---END_ELEMENTS---'
+    match = re.search(pattern, ai_response, re.DOTALL)
+    
+    if not match:
+        return ai_response, None
+    
+    # Extract the JSON block
+    json_block = match.group(1).strip()
+    
+    # Clean the response by removing the elements block
+    clean_response = re.sub(pattern, '', ai_response, flags=re.DOTALL).strip()
+    
+    # Parse the JSON
+    try:
+        # Clean common LLM JSON issues
+        json_block = clean_llm_json(json_block)
+        suggestions = json.loads(json_block)
+        
+        # Validate the structure - only keep valid fields
+        valid_fields = {'overview', 'tone', 'key_events', 'characters', 'ending'}
+        filtered_suggestions = {k: v for k, v in suggestions.items() if k in valid_fields and v}
+        
+        if not filtered_suggestions:
+            return clean_response, None
+            
+        logger.debug(f"[CHAPTER_BRAINSTORM] Parsed element suggestions: {list(filtered_suggestions.keys())}")
+        return clean_response, filtered_suggestions
+        
+    except json.JSONDecodeError as e:
+        logger.warning(f"[CHAPTER_BRAINSTORM] Failed to parse element suggestions JSON: {e}")
+        return clean_response, None
 
 
 class ChapterBrainstormService:
@@ -214,30 +261,193 @@ class ChapterBrainstormService:
             response = await acompletion(**gen_params)
             ai_response = response.choices[0].message.content
             
-            # Save assistant response
-            session.add_message("assistant", ai_response)
+            # Parse element suggestions from response
+            clean_response, suggested_elements = parse_element_suggestions(ai_response)
+            
+            # Save assistant response (save the clean version without markers)
+            session.add_message("assistant", clean_response)
             self.db.commit()
             self.db.refresh(session)
             
             logger.info(f"[CHAPTER_BRAINSTORM] Session {session_id} - exchanged messages, total: {len(session.messages)}")
             
-            return {
+            result = {
                 "session_id": session.id,
                 "user_message": user_message,
-                "ai_response": ai_response,
+                "ai_response": clean_response,
                 "message_count": len(session.messages)
             }
+            
+            # Include suggested elements if any were parsed
+            if suggested_elements:
+                result["suggested_elements"] = suggested_elements
+                logger.info(f"[CHAPTER_BRAINSTORM] Session {session_id} - extracted suggestions: {list(suggested_elements.keys())}")
+            
+            return result
             
         except Exception as e:
             logger.error(f"[CHAPTER_BRAINSTORM] Error in session {session_id}: {str(e)}")
             raise
+    
+    async def send_message_streaming(
+        self,
+        session_id: int,
+        user_message: str
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        Send a user message and stream AI response with full story context.
+        
+        Yields dictionaries with:
+        - type: 'thinking_start', 'thinking_chunk', 'thinking_end', 'content', 'complete', 'error'
+        - For 'content' and 'thinking_chunk': 'chunk' contains the text
+        - For 'complete': 'ai_response', 'message_count'
+        
+        Args:
+            session_id: The chapter brainstorming session ID
+            user_message: The user's message
+            
+        Yields:
+            Dictionaries with streaming events
+        """
+        session = self.get_session(session_id)
+        if not session:
+            yield {"type": "error", "message": f"Session {session_id} not found"}
+            return
+        
+        # Add user message to history
+        session.add_message("user", user_message)
+        self.db.commit()
+        self.db.refresh(session)
+        
+        try:
+            # Build full story context (pass chapter_id to know if editing existing chapter)
+            story_context = self._build_story_context(session.story_id, session.arc_phase_id, session.chapter_id)
+            
+            # Get conversation history
+            conversation_history = session.get_conversation_context()
+            
+            # Get prompts
+            system_prompt = prompt_manager.get_prompt("chapter_brainstorm.chat", "system")
+            
+            # Add story context to system prompt
+            full_system_prompt = f"{system_prompt}\n\nSTORY CONTEXT:\n{story_context}"
+            
+            # Build user prompt from conversation history
+            # The last message is the current user message, format the rest as context
+            user_prompt = ""
+            for msg in conversation_history[:-1]:  # All but last (which is the new user message)
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                if role == "user":
+                    user_prompt += f"User: {content}\n\n"
+                elif role == "assistant":
+                    user_prompt += f"Assistant: {content}\n\n"
+            
+            # Add the current user message
+            user_prompt += f"User: {user_message}"
+            
+            # Use the UnifiedLLMService._generate_stream - same as scene generation
+            full_content = ""
+            is_thinking = False
+            thinking_content = ""
+            
+            async for chunk in self.llm_service._generate_stream(
+                prompt=user_prompt,
+                user_id=self.user_id,
+                user_settings=self.user_settings,
+                system_prompt=full_system_prompt,
+                max_tokens=self.user_settings.get('generation_preferences', {}).get('max_tokens', 1000),
+                temperature=0.7
+            ):
+                # Check for thinking content (prefixed with __THINKING__:)
+                if chunk.startswith("__THINKING__:"):
+                    thinking_chunk = chunk[13:]  # Remove prefix
+                    if not is_thinking:
+                        is_thinking = True
+                        yield {"type": "thinking_start"}
+                    thinking_content += thinking_chunk
+                    yield {"type": "thinking_chunk", "chunk": thinking_chunk}
+                else:
+                    # Regular content
+                    if is_thinking:
+                        is_thinking = False
+                        yield {"type": "thinking_end", "total_chars": len(thinking_content)}
+                    
+                    full_content += chunk
+                    yield {"type": "content", "chunk": chunk}
+            
+            # If still thinking at end, close it
+            if is_thinking:
+                yield {"type": "thinking_end", "total_chars": len(thinking_content)}
+            
+            # Parse element suggestions from the full response
+            clean_response, suggested_elements = parse_element_suggestions(full_content)
+            
+            # Save assistant response (save the clean version without markers)
+            session.add_message("assistant", clean_response)
+            self.db.commit()
+            self.db.refresh(session)
+            
+            logger.info(f"[CHAPTER_BRAINSTORM:STREAM] Session {session_id} - exchanged messages, total: {len(session.messages)}")
+            
+            yield {
+                "type": "complete",
+                "session_id": session.id,
+                "ai_response": clean_response,
+                "message_count": len(session.messages)
+            }
+            
+            # Emit suggestions event if any were parsed
+            if suggested_elements:
+                logger.info(f"[CHAPTER_BRAINSTORM:STREAM] Session {session_id} - extracted suggestions: {list(suggested_elements.keys())}")
+                yield {
+                    "type": "suggestions",
+                    "elements": suggested_elements
+                }
+            
+        except Exception as e:
+            logger.error(f"[CHAPTER_BRAINSTORM:STREAM] Error in session {session_id}: {str(e)}")
+            yield {"type": "error", "message": str(e)}
+    
+    def update_structured_element(
+        self,
+        session_id: int,
+        element_type: str,
+        value
+    ) -> Dict[str, Any]:
+        """
+        Update a single structured element in the session.
+        
+        Args:
+            session_id: The session ID
+            element_type: One of 'overview', 'characters', 'tone', 'key_events', 'ending'
+            value: The value to set
+            
+        Returns:
+            Updated structured elements
+        """
+        session = self.get_session(session_id)
+        if not session:
+            raise ValueError(f"Session {session_id} not found")
+        
+        session.update_structured_element(element_type, value)
+        self.db.commit()
+        
+        logger.info(f"[CHAPTER_BRAINSTORM] Updated structured element '{element_type}' for session {session_id}")
+        
+        return {
+            "session_id": session.id,
+            "structured_elements": session.get_structured_elements()
+        }
     
     async def extract_chapter_plot(
         self,
         session_id: int
     ) -> Dict[str, Any]:
         """
-        Extract structured chapter plot from conversation.
+        Extract structured chapter plot from conversation and confirmed structured elements.
+        
+        Prioritizes confirmed structured elements over parsing conversation.
         
         Args:
             session_id: The chapter brainstorming session ID
@@ -253,6 +463,9 @@ class ChapterBrainstormService:
             raise ValueError("Not enough conversation to extract plot")
         
         try:
+            # Get confirmed structured elements
+            structured_elements = session.get_structured_elements()
+            
             # Format conversation
             conversation_text = self._format_conversation(session.messages)
             
@@ -268,13 +481,17 @@ class ChapterBrainstormService:
                     if phase:
                         arc_phase_text = f"Phase: {phase.get('name', 'Unknown')}\nDescription: {phase.get('description', '')}"
             
+            # Format confirmed elements for the prompt
+            confirmed_elements_text = self._format_confirmed_elements(structured_elements)
+            
             # Get extraction prompts
             system_prompt = prompt_manager.get_prompt("chapter_brainstorm.extract", "system")
             user_prompt = prompt_manager.get_prompt(
                 "chapter_brainstorm.extract", "user",
                 story_context=story_context,
                 arc_phase=arc_phase_text or "No specific arc phase",
-                conversation=conversation_text
+                conversation=conversation_text,
+                confirmed_elements=confirmed_elements_text
             )
             
             # Call LLM
@@ -290,6 +507,20 @@ class ChapterBrainstormService:
             # Parse JSON response
             response_clean = clean_llm_json(response)
             extracted_plot = json.loads(response_clean)
+            
+            # Merge confirmed structured elements into extracted plot
+            # Confirmed elements take priority
+            if structured_elements.get('overview'):
+                extracted_plot['summary'] = structured_elements['overview']
+            if structured_elements.get('key_events'):
+                extracted_plot['key_events'] = structured_elements['key_events']
+            if structured_elements.get('tone'):
+                extracted_plot['mood'] = structured_elements['tone']
+            if structured_elements.get('ending'):
+                extracted_plot['resolution'] = structured_elements['ending']
+            if structured_elements.get('characters'):
+                # Merge character data
+                extracted_plot['character_arcs'] = structured_elements['characters']
             
             # Normalize the extracted plot
             normalized_plot = self._normalize_chapter_plot(extracted_plot)
@@ -313,6 +544,38 @@ class ChapterBrainstormService:
         except Exception as e:
             logger.error(f"[CHAPTER_BRAINSTORM] Error extracting plot: {str(e)}")
             raise
+    
+    def _format_confirmed_elements(self, elements: Dict[str, Any]) -> str:
+        """Format confirmed structured elements for the extraction prompt."""
+        parts = []
+        
+        if elements.get('overview'):
+            parts.append(f"CONFIRMED OVERVIEW:\n{elements['overview']}")
+        
+        if elements.get('characters'):
+            chars = elements['characters']
+            if isinstance(chars, list) and chars:
+                char_text = "\n".join([
+                    f"  - {c.get('character_name', c.get('name', 'Unknown'))}: {c.get('development', c.get('dynamics', ''))}"
+                    for c in chars if isinstance(c, dict)
+                ])
+                parts.append(f"CONFIRMED CHARACTERS:\n{char_text}")
+        
+        if elements.get('tone'):
+            parts.append(f"CONFIRMED TONE:\n{elements['tone']}")
+        
+        if elements.get('key_events'):
+            events = elements['key_events']
+            if isinstance(events, list) and events:
+                events_text = "\n".join([f"  {i+1}. {e}" for i, e in enumerate(events)])
+                parts.append(f"CONFIRMED KEY EVENTS:\n{events_text}")
+        
+        if elements.get('ending'):
+            parts.append(f"CONFIRMED ENDING:\n{elements['ending']}")
+        
+        if parts:
+            return "\n\n".join(parts)
+        return "No elements confirmed yet."
     
     def apply_to_chapter(
         self,
