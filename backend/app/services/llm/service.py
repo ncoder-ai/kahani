@@ -923,11 +923,24 @@ class UnifiedLLMService:
                 # Check model_extra for reasoning (OpenRouter via LiteLLM Pydantic model)
                 # LiteLLM's Pydantic delta model stores unknown fields in model_extra
                 elif hasattr(delta, 'model_extra') and delta.model_extra:
+                    # Check reasoning field (can be string or None)
                     reasoning_chunk = delta.model_extra.get('reasoning')
-                    if reasoning_chunk:
+                    if reasoning_chunk and isinstance(reasoning_chunk, str) and reasoning_chunk.strip():
                         has_reasoning = True
                         reasoning_chars += len(reasoning_chunk)
                         yield f"__THINKING__:{reasoning_chunk}"
+                    # Also check reasoning_details array (OpenRouter format)
+                    elif delta.model_extra.get('reasoning_details'):
+                        reasoning_details = delta.model_extra.get('reasoning_details', [])
+                        if isinstance(reasoning_details, list) and len(reasoning_details) > 0:
+                            # Extract text from reasoning_details
+                            for detail in reasoning_details:
+                                if isinstance(detail, dict) and detail.get('text'):
+                                    reasoning_text = detail['text']
+                                    if reasoning_text.strip():
+                                        has_reasoning = True
+                                        reasoning_chars += len(reasoning_text)
+                                        yield f"__THINKING__:{reasoning_text}"
                 
                 # Regular content
                 if delta.content:
@@ -3408,8 +3421,14 @@ Chapter Conclusion:"""
         messages.append({"role": "user", "content": final_message})
         
         # Calculate max tokens
+        # For reasoning models, we need higher token limit even when reasoning is disabled
+        # The model may still do internal processing that consumes tokens
         base_max_tokens = prompt_manager.get_max_tokens("choice_generation", user_settings)
-        dynamic_max_tokens = max(base_max_tokens, choices_count * 50)
+        # Increase base if it's too low (reasoning models need more headroom)
+        if base_max_tokens < 1500:
+            base_max_tokens = 1500
+            logger.info(f"[CHOICES] Increased max_tokens from {prompt_manager.get_max_tokens('choice_generation', user_settings)} to {base_max_tokens} for reliability")
+        dynamic_max_tokens = max(base_max_tokens, choices_count * 100)  # Increased from 50 to 100 per choice
         max_tokens = dynamic_max_tokens
         
         logger.info(f"[CHOICES] Using multi-message structure for cache optimization: {len(messages)} messages, max_tokens={max_tokens}")
@@ -5531,11 +5550,24 @@ Chapter Conclusion:"""
                     # Check model_extra for reasoning (OpenRouter via LiteLLM Pydantic model)
                     # LiteLLM's Pydantic delta model stores unknown fields in model_extra
                     elif hasattr(delta, 'model_extra') and delta.model_extra:
+                        # Check reasoning field (can be string or None)
                         reasoning_chunk = delta.model_extra.get('reasoning')
-                        if reasoning_chunk:
+                        if reasoning_chunk and isinstance(reasoning_chunk, str) and reasoning_chunk.strip():
                             has_reasoning = True
                             reasoning_chars += len(reasoning_chunk)
                             yield f"__THINKING__:{reasoning_chunk}"
+                        # Also check reasoning_details array (OpenRouter format)
+                        elif delta.model_extra.get('reasoning_details'):
+                            reasoning_details = delta.model_extra.get('reasoning_details', [])
+                            if isinstance(reasoning_details, list) and len(reasoning_details) > 0:
+                                # Extract text from reasoning_details
+                                for detail in reasoning_details:
+                                    if isinstance(detail, dict) and detail.get('text'):
+                                        reasoning_text = detail['text']
+                                        if reasoning_text.strip():
+                                            has_reasoning = True
+                                            reasoning_chars += len(reasoning_text)
+                                            yield f"__THINKING__:{reasoning_text}"
                     
                     # Regular content
                     if hasattr(delta, 'content') and delta.content:
