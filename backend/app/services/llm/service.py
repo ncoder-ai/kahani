@@ -2606,6 +2606,14 @@ class UnifiedLLMService:
             max_tokens=max_tokens
         ):
             total_chunks += 1
+            
+            # Handle thinking content - yield it but don't add to scene buffer
+            # Thinking chunks are prefixed with __THINKING__:
+            if chunk.startswith("__THINKING__:"):
+                # Yield thinking chunk for frontend display, but don't process for scene/choices
+                yield (chunk, False, None)
+                continue
+            
             raw_chunks.append(chunk)  # Capture raw chunk before cleaning
             
             # Pass position to cleaner for position-aware cleaning
@@ -5459,11 +5467,35 @@ Chapter Conclusion:"""
         try:
             response = await acompletion(**gen_params)
             
+            # Track reasoning content for logging
+            has_reasoning = False
+            reasoning_chars = 0
+            content_chars = 0
+            chunk_count = 0
+            
             async for chunk in response:
+                chunk_count += 1
                 if hasattr(chunk, 'choices') and len(chunk.choices) > 0:
                     delta = chunk.choices[0].delta
+                    
+                    # Check for reasoning_content in streaming chunks (LiteLLM support)
+                    if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
+                        has_reasoning = True
+                        reasoning_chars += len(delta.reasoning_content)
+                        # Yield reasoning with special prefix for frontend to detect
+                        yield f"__THINKING__:{delta.reasoning_content}"
+                    
+                    # Regular content
                     if hasattr(delta, 'content') and delta.content:
+                        content_chars += len(delta.content)
                         yield delta.content
+            
+            # Log summary
+            logger.info(f"[MULTI-MSG STREAMING] chunks={chunk_count}, content_chars={content_chars}, reasoning_chars={reasoning_chars}")
+            if chunk_count > 0 and content_chars == 0:
+                logger.warning(f"[MULTI-MSG STREAMING] Received {chunk_count} chunks but no content! Model may need higher max_tokens or reasoning disabled.")
+            if has_reasoning:
+                logger.info(f"[MULTI-MSG REASONING] Streamed {reasoning_chars} chars of reasoning content")
                         
         except Exception as e:
             error_msg = str(e)
