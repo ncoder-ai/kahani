@@ -20,7 +20,7 @@ class LLMSettingsUpdate(BaseModel):
     top_p: float = Field(ge=0.0, le=1.0, default=1.0)
     top_k: int = Field(ge=1, le=100, default=50)
     repetition_penalty: float = Field(ge=1.0, le=2.0, default=1.1)
-    max_tokens: int = Field(ge=100, le=4096, default=2048)
+    max_tokens: int = Field(ge=100, le=32000, default=2048)
     timeout_total: Optional[float] = Field(ge=30.0, le=600.0, default=None)
     api_url: Optional[str] = None  # No default - user must provide
     api_key: Optional[str] = None
@@ -454,7 +454,7 @@ async def get_default_settings():
                 "top_p": {"min": 0.0, "max": 1.0, "description": "Nucleus sampling. Controls diversity of word choices"},
                 "top_k": {"min": 1, "max": 100, "description": "Limits vocabulary to top K words"},
                 "repetition_penalty": {"min": 1.0, "max": 2.0, "description": "Penalizes repetition. Higher = less repetitive"},
-                "max_tokens": {"min": 100, "max": 4096, "description": "Maximum tokens per generation"}
+                "max_tokens": {"min": 100, "max": 32000, "description": "Maximum tokens per generation (increase for reasoning models)"}
             },
             "context_settings": {
                 "max_tokens": {"min": 1000, "max": 8000, "description": "Total context budget sent to LLM"},

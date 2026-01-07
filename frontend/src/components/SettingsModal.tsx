@@ -2441,18 +2441,18 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
                   <div>
                     <label className="block text-sm font-medium text-white mb-2">
-                      Max Tokens: {llmSettings.max_tokens}
+                      Max Tokens: {llmSettings.max_tokens.toLocaleString()}
                     </label>
                     <input
                       type="range"
                       min="100"
-                      max="4096"
+                      max="32000"
                       step="100"
                       value={llmSettings.max_tokens}
                       onChange={(e) => setLlmSettings({ ...llmSettings, max_tokens: parseInt(e.target.value) })}
                       className="w-full"
                     />
-                    <p className="text-xs text-gray-400 mt-1">Maximum response length</p>
+                    <p className="text-xs text-gray-400 mt-1">Maximum response length (increase for reasoning models)</p>
                   </div>
 
                   <div>
