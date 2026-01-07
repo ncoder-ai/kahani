@@ -905,42 +905,14 @@ class UnifiedLLMService:
             async for chunk in response:
                 chunk_count += 1
                 
-                # Check for reasoning_content in streaming chunks (LiteLLM support)
-                # This is yielded before regular content for models like DeepSeek, Anthropic, OpenRouter
+                # Check for reasoning_content (LiteLLM's standardized field for all providers)
+                # This works for OpenRouter, Anthropic, DeepSeek, etc. when using proper LiteLLM params
                 delta = chunk.choices[0].delta
                 if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
                     has_reasoning = True
                     reasoning_chars += len(delta.reasoning_content)
                     # Yield reasoning with special prefix for frontend to detect
                     yield f"__THINKING__:{delta.reasoning_content}"
-                
-                # Also check for 'reasoning' field (OpenRouter uses this instead of reasoning_content)
-                elif hasattr(delta, 'reasoning') and delta.reasoning:
-                    has_reasoning = True
-                    reasoning_chars += len(delta.reasoning)
-                    yield f"__THINKING__:{delta.reasoning}"
-                
-                # Check model_extra for reasoning (OpenRouter via LiteLLM Pydantic model)
-                # LiteLLM's Pydantic delta model stores unknown fields in model_extra
-                elif hasattr(delta, 'model_extra') and delta.model_extra:
-                    # Check reasoning field (can be string or None)
-                    reasoning_chunk = delta.model_extra.get('reasoning')
-                    if reasoning_chunk and isinstance(reasoning_chunk, str) and reasoning_chunk.strip():
-                        has_reasoning = True
-                        reasoning_chars += len(reasoning_chunk)
-                        yield f"__THINKING__:{reasoning_chunk}"
-                    # Also check reasoning_details array (OpenRouter format)
-                    elif delta.model_extra.get('reasoning_details'):
-                        reasoning_details = delta.model_extra.get('reasoning_details', [])
-                        if isinstance(reasoning_details, list) and len(reasoning_details) > 0:
-                            # Extract text from reasoning_details
-                            for detail in reasoning_details:
-                                if isinstance(detail, dict) and detail.get('text'):
-                                    reasoning_text = detail['text']
-                                    if reasoning_text.strip():
-                                        has_reasoning = True
-                                        reasoning_chars += len(reasoning_text)
-                                        yield f"__THINKING__:{reasoning_text}"
                 
                 # Regular content
                 if delta.content:
@@ -5519,50 +5491,15 @@ Chapter Conclusion:"""
                     
                     # Debug: Log first few chunks to see what fields are available
                     if chunk_count <= 3:
-                        delta_attrs = [attr for attr in dir(delta) if not attr.startswith('_')]
-                        logger.debug(f"[STREAM DEBUG] Chunk {chunk_count} delta attrs: {delta_attrs}")
-                        if hasattr(delta, 'reasoning_content'):
-                            logger.debug(f"[STREAM DEBUG] reasoning_content: {delta.reasoning_content}")
-                        if hasattr(delta, 'reasoning'):
-                            logger.debug(f"[STREAM DEBUG] reasoning: {getattr(delta, 'reasoning', None)}")
-                        if hasattr(delta, 'model_extra') and delta.model_extra:
-                            logger.debug(f"[STREAM DEBUG] model_extra: {delta.model_extra}")
+                        logger.debug(f"[STREAM DEBUG] Chunk {chunk_count} reasoning_content: {getattr(delta, 'reasoning_content', None)}")
                     
-                    # Check for reasoning_content in streaming chunks (LiteLLM support)
+                    # Check for reasoning_content (LiteLLM's standardized field for all providers)
+                    # This works for OpenRouter, Anthropic, DeepSeek, etc. when using proper LiteLLM params
                     if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
                         has_reasoning = True
                         reasoning_chars += len(delta.reasoning_content)
                         # Yield reasoning with special prefix for frontend to detect
                         yield f"__THINKING__:{delta.reasoning_content}"
-                    
-                    # Also check for 'reasoning' field (some providers use this)
-                    elif hasattr(delta, 'reasoning') and delta.reasoning:
-                        has_reasoning = True
-                        reasoning_text = str(delta.reasoning)
-                        reasoning_chars += len(reasoning_text)
-                        yield f"__THINKING__:{reasoning_text}"
-                    
-                    # Check model_extra for reasoning (OpenRouter via LiteLLM Pydantic model)
-                    # LiteLLM's Pydantic delta model stores unknown fields in model_extra
-                    elif hasattr(delta, 'model_extra') and delta.model_extra:
-                        # Check reasoning field (can be string or None)
-                        reasoning_chunk = delta.model_extra.get('reasoning')
-                        if reasoning_chunk and isinstance(reasoning_chunk, str) and reasoning_chunk.strip():
-                            has_reasoning = True
-                            reasoning_chars += len(reasoning_chunk)
-                            yield f"__THINKING__:{reasoning_chunk}"
-                        # Also check reasoning_details array (OpenRouter format)
-                        elif delta.model_extra.get('reasoning_details'):
-                            reasoning_details = delta.model_extra.get('reasoning_details', [])
-                            if isinstance(reasoning_details, list) and len(reasoning_details) > 0:
-                                # Extract text from reasoning_details
-                                for detail in reasoning_details:
-                                    if isinstance(detail, dict) and detail.get('text'):
-                                        reasoning_text = detail['text']
-                                        if reasoning_text.strip():
-                                            has_reasoning = True
-                                            reasoning_chars += len(reasoning_text)
-                                            yield f"__THINKING__:{reasoning_text}"
                     
                     # Regular content
                     if hasattr(delta, 'content') and delta.content:

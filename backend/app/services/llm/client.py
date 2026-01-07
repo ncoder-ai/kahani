@@ -74,7 +74,10 @@ class LLMClient:
         if self.api_type == "openai":
             return self.model_name
         elif self.api_type == "openai-compatible" or self.api_type == "openai_compatible":
-            # For OpenAI-compatible APIs, MUST use openai/ prefix
+            # Check if this is OpenRouter - needs special prefix for reasoning support
+            if "openrouter" in self.api_url.lower():
+                return f"openrouter/{self.model_name}"
+            # For other OpenAI-compatible APIs, use openai/ prefix
             # As per LiteLLM docs: model="openai/mistral"
             return f"openai/{self.model_name}"
         elif self.api_type == "tabbyapi":
@@ -237,20 +240,27 @@ class LLMClient:
                 params["extra_body"] = extra_body
         
         # Add reasoning/thinking parameters
-        # OpenRouter uses extra_body for reasoning parameters
-        if self.reasoning_effort:
+        is_openrouter = "openrouter" in self.api_url.lower()
+        
+        if self.reasoning_effort and self.reasoning_effort != "disabled":
+            if is_openrouter:
+                # OpenRouter: use top-level reasoning_effort with allowed_openai_params
+                # This is required for LiteLLM to properly handle reasoning_content in streaming
+                params["reasoning_effort"] = self.reasoning_effort
+                params["allowed_openai_params"] = ["reasoning_effort"]
+                logger.info(f"Reasoning effort set to: {self.reasoning_effort} (OpenRouter)")
+            else:
+                # Other providers: use extra_body approach
+                if "extra_body" not in params:
+                    params["extra_body"] = {}
+                params["extra_body"]["reasoning"] = {"effort": self.reasoning_effort}
+                logger.info(f"Reasoning effort set to: {self.reasoning_effort} via extra_body")
+        elif self.reasoning_effort == "disabled":
+            # Disable reasoning entirely
             if "extra_body" not in params:
                 params["extra_body"] = {}
-            
-            if self.reasoning_effort == "disabled":
-                # Disable reasoning entirely
-                params["extra_body"]["include_reasoning"] = False
-                logger.info("Reasoning disabled via include_reasoning=False")
-            else:
-                # Pass reasoning effort level (low, medium, high) via reasoning object
-                # OpenRouter expects: {"reasoning": {"effort": "low|medium|high"}}
-                params["extra_body"]["reasoning"] = {"effort": self.reasoning_effort}
-                logger.info(f"Reasoning effort set to: {self.reasoning_effort}")
+            params["extra_body"]["include_reasoning"] = False
+            logger.info("Reasoning disabled via include_reasoning=False")
         
         logger.info(f"Final generation params: {params}")
         return params
