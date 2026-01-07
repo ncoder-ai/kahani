@@ -3420,15 +3420,10 @@ Chapter Conclusion:"""
         
         messages.append({"role": "user", "content": final_message})
         
-        # Calculate max tokens
-        # For reasoning models, we need higher token limit even when reasoning is disabled
-        # The model may still do internal processing that consumes tokens
+        # Calculate max tokens - use YAML settings or user settings
         base_max_tokens = prompt_manager.get_max_tokens("choice_generation", user_settings)
-        # Increase base if it's too low (reasoning models need more headroom)
-        if base_max_tokens < 1500:
-            base_max_tokens = 1500
-            logger.info(f"[CHOICES] Increased max_tokens from {prompt_manager.get_max_tokens('choice_generation', user_settings)} to {base_max_tokens} for reliability")
-        dynamic_max_tokens = max(base_max_tokens, choices_count * 100)  # Increased from 50 to 100 per choice
+        # Ensure at least enough tokens for the requested number of choices
+        dynamic_max_tokens = max(base_max_tokens, choices_count * 75)
         max_tokens = dynamic_max_tokens
         
         logger.info(f"[CHOICES] Using multi-message structure for cache optimization: {len(messages)} messages, max_tokens={max_tokens}")
