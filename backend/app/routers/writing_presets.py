@@ -203,6 +203,11 @@ async def update_preset(
     
     # Update fields if provided
     update_data = preset_data.model_dump(exclude_unset=True)
+    
+    # If setting is_active to True, deactivate all other presets first
+    if update_data.get('is_active') is True:
+        deactivate_all_presets(current_user.id, db)
+    
     for field, value in update_data.items():
         setattr(preset, field, value)
     
