@@ -569,6 +569,10 @@ class CharacterAssistantService:
         character_details['confidence'] = 0.85  # Could be calculated based on scene count
         character_details['scenes_analyzed'] = [s['sequence'] for s in character_scenes]
         
+        # Normalize suggested_voice_style
+        if 'suggested_voice_style' not in character_details or not character_details['suggested_voice_style']:
+            character_details['suggested_voice_style'] = 'neutral'
+        
         return character_details
     
     async def check_character_importance(

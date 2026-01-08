@@ -1051,6 +1051,29 @@ character_assistant:
       - Fears and weaknesses (what they're afraid of, their vulnerabilities)
       - Brief overall description (2-3 sentence summary of who they are)
       - Suggested role in the story (protagonist, antagonist, ally, mentor, love_interest, comic_relief, mysterious, or other)
+      - Suggested voice style preset based on how they speak (see options below)
+      
+      Voice Style Preset Options (choose the BEST match based on their dialogue):
+      - "neutral" - Standard, neutral speech (default if unclear)
+      - "formal_noble" - Formal, sophisticated, refined speech
+      - "street_smart" - Casual, street-wise, urban slang
+      - "academic" - Intellectual, technical vocabulary
+      - "gruff_veteran" - Rough, tough, military-style speech
+      - "cheerful_optimist" - Upbeat, positive, enthusiastic
+      - "sarcastic_wit" - Dry humor, ironic, witty
+      - "nervous_anxious" - Hesitant, uncertain, worried
+      - "mysterious_cryptic" - Enigmatic, vague, mysterious
+      - "indian_english" - Indian English patterns with Hindi influences
+      - "southern_us" - Southern US dialect and expressions
+      - "british_proper" - British English, proper and polite
+      - "australian" - Australian English with casual slang
+      - "irish" - Irish English patterns and expressions
+      - "scottish" - Scottish English patterns
+      - "medieval_knight" - Archaic, chivalric speech
+      - "pirate" - Nautical, pirate-style speech
+      - "wise_elder" - Sage, measured, wisdom-filled speech
+      - "child_innocent" - Simple, innocent, childlike speech
+      - "villain_menacing" - Threatening, sinister, dramatic
       
       Return valid JSON with this exact structure:
       {{
@@ -1061,7 +1084,8 @@ character_assistant:
         "goals": "Goals and motivations text",
         "fears": "Fears and weaknesses text",
         "appearance": "Physical description text",
-        "suggested_role": "role_name"
+        "suggested_role": "role_name",
+        "suggested_voice_style": "preset_name"
       }}
       
       Return ONLY the JSON object, no other text or markdown formatting.
@@ -1088,6 +1112,27 @@ character_assistant:
       - Goals: Structured as an object with categorized motivations (short_term, long_term, personal, professional, etc.)
       - Fears: Structured as an object with categorized fears/weaknesses (deepest_fear, phobias, weaknesses, vulnerabilities, etc.)
       - Appearance: Structured as an object with categorized physical attributes (height, weight, skin_color, hair_color, hair_style, eye_color, build, dress_style, distinctive_features, etc.)
+      - Suggested Voice Style: Choose the BEST matching preset for how this character would speak
+      
+      Voice Style Preset Options:
+      - "neutral" - Standard, neutral speech (default if unclear)
+      - "formal_noble" - Formal, sophisticated, refined speech
+      - "street_smart" - Casual, street-wise, urban slang
+      - "academic" - Intellectual, technical vocabulary
+      - "gruff_veteran" - Rough, tough, military-style speech
+      - "cheerful_optimist" - Upbeat, positive, enthusiastic
+      - "sarcastic_wit" - Dry humor, ironic, witty
+      - "nervous_anxious" - Hesitant, uncertain, worried
+      - "mysterious_cryptic" - Enigmatic, vague, mysterious
+      - "indian_english" - Indian English patterns with Hindi influences
+      - "southern_us" - Southern US dialect and expressions
+      - "british_proper" - British English, proper and polite
+      - "australian" - Australian English with casual slang
+      - "medieval_knight" - Archaic, chivalric speech
+      - "pirate" - Nautical, pirate-style speech
+      - "wise_elder" - Sage, measured, wisdom-filled speech
+      - "child_innocent" - Simple, innocent, childlike speech
+      - "villain_menacing" - Threatening, sinister, dramatic
       
       The character should feel authentic, well-developed, and interesting. If story context is provided,
       match the genre and tone appropriately. Be creative but consistent.
@@ -1129,7 +1174,8 @@ character_assistant:
           "dress_style": "value",
           "distinctive_features": "value",
           "body_measurements": "value"
-        }}
+        }},
+        "suggested_voice_style": "preset_name"
       }}
       
       Return ONLY the JSON object, no other text or markdown formatting.

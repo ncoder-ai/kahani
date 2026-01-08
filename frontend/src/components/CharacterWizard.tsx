@@ -23,6 +23,7 @@ interface CharacterDetails {
   fears: string;
   appearance: string;
   suggested_role: string;
+  suggested_voice_style?: string;
   confidence: number;
   scenes_analyzed: number[];
 }
@@ -427,7 +428,10 @@ export default function CharacterWizard({ storyId, chapterId, onCharacterCreated
                   fears: characterDetails.fears,
                   appearance: characterDetails.appearance,
                   is_template: true,
-                  is_public: false
+                  is_public: false,
+                  voice_style: characterDetails.suggested_voice_style 
+                    ? { preset: characterDetails.suggested_voice_style } 
+                    : null
                 }}
                 storyId={storyId}
                 storyCharacterRole={selectedRole}

@@ -76,6 +76,7 @@ class CharacterDetails(BaseModel):
     fears: str
     appearance: str
     suggested_role: str
+    suggested_voice_style: Optional[str] = None  # AI-suggested voice style preset
     confidence: float
     scenes_analyzed: List[int]
 
@@ -254,6 +255,7 @@ async def analyze_character_details(
                     "fears": profile.get("fears", ""),  # Include fears if available
                     "appearance": profile.get("appearance", ""),
                     "suggested_role": profile.get("role", "other"),
+                    "suggested_voice_style": profile.get("voice_style", "neutral"),  # Include voice style if available
                     "confidence": 85,  # High confidence for extracted profiles
                     "scenes_analyzed": []
                 }

@@ -186,6 +186,14 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
       const character = await apiClient.generateCharacterWithAI(aiPrompt, storyContext);
       setPreviousGeneration(generatedCharacter);
       setGeneratedCharacter(character);
+      
+      // Set AI-suggested voice style if provided
+      if (character.suggested_voice_style) {
+        setFormData(prev => ({
+          ...prev,
+          voice_style: { preset: character.suggested_voice_style }
+        }));
+      }
     } catch (error) {
       console.error('Failed to generate character:', error);
       alert('Failed to generate character. Please try again.');
@@ -204,6 +212,14 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
       const character = await apiClient.generateCharacterWithAI(aiPrompt, storyContext, generatedCharacter);
       setPreviousGeneration(generatedCharacter);
       setGeneratedCharacter(character);
+      
+      // Set AI-suggested voice style if provided
+      if (character.suggested_voice_style) {
+        setFormData(prev => ({
+          ...prev,
+          voice_style: { preset: character.suggested_voice_style }
+        }));
+      }
     } catch (error) {
       console.error('Failed to regenerate character:', error);
       alert('Failed to regenerate character. Please try again.');

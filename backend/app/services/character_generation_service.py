@@ -189,6 +189,8 @@ class CharacterGenerationService:
             'goals_structured': data.get('goals') if isinstance(data.get('goals'), dict) else None,
             'fears_structured': data.get('fears') if isinstance(data.get('fears'), dict) else None,
             'appearance_structured': data.get('appearance') if isinstance(data.get('appearance'), dict) else None,
+            # AI-suggested voice style preset
+            'suggested_voice_style': data.get('suggested_voice_style', 'neutral'),
         }
         
         # Ensure name is present (required field)
