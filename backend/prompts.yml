@@ -421,11 +421,15 @@ scene_base:
     6. {prose_style_reminder}
     7. {tone_reminder}
     
+    DIALOGUE: Each character has a unique DIALOGUE STYLE in their description. You MUST write their dialogue following their voice style, including any language mixing specified.
+    
     Write an engaging scene ({scene_length_description}) that elaborates on the above.
 
   # Task instructions when no immediate_situation (first scene or "Generate Scene")
   task_without_immediate: |
     Write an engaging scene ({scene_length_description}) that continues naturally from the previous events. If this is the first scene, establish the story world and introduce the characters naturally.
+    
+    DIALOGUE: Each character has a unique DIALOGUE STYLE in their description. You MUST write their dialogue following their voice style, including any language mixing specified.
     
     {prose_style_reminder}
     {tone_reminder}

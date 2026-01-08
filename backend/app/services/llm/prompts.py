@@ -1324,7 +1324,7 @@ Chapter Conclusion:"""
                 instruction = preset_data.get("instruction", "")
                 example = preset_data.get("example", "")
                 if instruction:
-                    parts.append(f"Voice Style ({preset_data.get('name', preset)}): {instruction.strip()}")
+                    parts.append(f"**DIALOGUE STYLE** ({preset_data.get('name', preset)}): {instruction.strip()}")
                 if example:
                     parts.append(f"Example dialogue: \"{example.strip()}\"")
         else:
@@ -1371,7 +1371,7 @@ Chapter Conclusion:"""
                 custom_parts.append(profanity_map.get(voice_style["profanity"], ""))
             
             if custom_parts:
-                parts.append(f"Voice Style: {'. '.join([p for p in custom_parts if p])}")
+                parts.append(f"**DIALOGUE STYLE**: {'. '.join([p for p in custom_parts if p])}")
         
         # Add speech quirks if specified
         if voice_style.get("speech_quirks"):
@@ -1391,9 +1391,9 @@ Chapter Conclusion:"""
                 mixing_instruction = level_data.get("instruction", "")
                 mixing_example = level_data.get("example", "")
                 if mixing_instruction:
-                    parts.append(f"Language mixing ({secondary_lang}, {mixing_level}): {mixing_instruction.strip()}")
+                    parts.append(f"**LANGUAGE MIXING** ({secondary_lang.title()}, {mixing_level}): MUST {mixing_instruction.strip()}")
                 if mixing_example:
-                    parts.append(f"Mixing example: \"{mixing_example.strip()}\"")
+                    parts.append(f"Example: \"{mixing_example.strip()}\"")
         
         return "\n  ".join(parts) if parts else ""
 
