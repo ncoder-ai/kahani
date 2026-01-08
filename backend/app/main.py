@@ -64,6 +64,19 @@ for handler in root_logger.handlers:
 logger = logging.getLogger(__name__)
 logger.setLevel(log_level)
 
+# Configure Uvicorn loggers to respect the configured log level
+# Uvicorn uses 'uvicorn', 'uvicorn.access', and 'uvicorn.error' loggers
+uvicorn_logger = logging.getLogger('uvicorn')
+uvicorn_logger.setLevel(log_level)
+uvicorn_access_logger = logging.getLogger('uvicorn.access')
+uvicorn_access_logger.setLevel(log_level)
+uvicorn_error_logger = logging.getLogger('uvicorn.error')
+uvicorn_error_logger.setLevel(log_level)
+
+# If log level is ERROR, disable access logs entirely
+if log_level >= logging.ERROR:
+    uvicorn_access_logger.disabled = True
+
 # Track process start for health reporting
 APP_START_TIME = time.time()
 APP_START_ISO = datetime.fromtimestamp(APP_START_TIME, timezone.utc).isoformat()
@@ -228,4 +241,12 @@ if __name__ == "__main__":
     import uvicorn
     from .config import settings
     port = int(os.getenv("PORT", str(settings.backend_port)))
-    uvicorn.run(app, host=settings.backend_host, port=port)
+    # Convert log level to Uvicorn's expected format
+    log_level_str = settings.log_level.lower()
+    uvicorn.run(
+        app, 
+        host=settings.backend_host, 
+        port=port,
+        log_level=log_level_str,
+        access_log=(log_level_str != "error")  # Disable access log when log level is ERROR
+    )

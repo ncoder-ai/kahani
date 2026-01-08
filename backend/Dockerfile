@@ -95,4 +95,5 @@ EXPOSE ${PORT:-9876}
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 
 # Default command (uses PORT env var with 9876 default)
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9876"]
+# Use run_server.py to respect log_level from config.yaml
+CMD ["python", "run_server.py"]
