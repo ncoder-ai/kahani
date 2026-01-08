@@ -837,6 +837,7 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
                             vocabulary: 'average',
                             tone: 'calm',
                             profanity: 'none',
+                            primary_language: 'english',
                             language_mixing: 'none'
                           });
                           setShowVoiceCustomization(true);
@@ -845,7 +846,7 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
                           setShowVoiceCustomization(false);
                         }
                       }}
-                      className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white focus:outline-none theme-focus-ring"
+                      className="w-full p-3 bg-gray-800 border border-white/30 rounded-lg text-white focus:outline-none theme-focus-ring [&>option]:bg-gray-800 [&>option]:text-white [&>optgroup]:bg-gray-800 [&>optgroup]:text-white"
                     >
                       <option value="">Standard (no special voice)</option>
                       <optgroup label="Regional Dialects">
@@ -898,7 +899,7 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
                           <select
                             value={formData.voice_style?.formality || 'casual'}
                             onChange={(e) => handleInputChange('voice_style', { ...formData.voice_style, formality: e.target.value })}
-                            className="w-full p-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm"
+                            className="w-full p-2 bg-gray-800 border border-white/20 rounded-lg text-white text-sm [&>option]:bg-gray-800 [&>option]:text-white"
                           >
                             {voicePresets.attributes.formality?.map(attr => (
                               <option key={attr.id} value={attr.id}>{attr.name}</option>
@@ -912,7 +913,7 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
                           <select
                             value={formData.voice_style?.vocabulary || 'average'}
                             onChange={(e) => handleInputChange('voice_style', { ...formData.voice_style, vocabulary: e.target.value })}
-                            className="w-full p-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm"
+                            className="w-full p-2 bg-gray-800 border border-white/20 rounded-lg text-white text-sm [&>option]:bg-gray-800 [&>option]:text-white"
                           >
                             {voicePresets.attributes.vocabulary?.map(attr => (
                               <option key={attr.id} value={attr.id}>{attr.name}</option>
@@ -926,7 +927,7 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
                           <select
                             value={formData.voice_style?.tone || 'calm'}
                             onChange={(e) => handleInputChange('voice_style', { ...formData.voice_style, tone: e.target.value })}
-                            className="w-full p-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm"
+                            className="w-full p-2 bg-gray-800 border border-white/20 rounded-lg text-white text-sm [&>option]:bg-gray-800 [&>option]:text-white"
                           >
                             {voicePresets.attributes.tone?.map(attr => (
                               <option key={attr.id} value={attr.id}>{attr.name}</option>
@@ -940,7 +941,7 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
                           <select
                             value={formData.voice_style?.profanity || 'none'}
                             onChange={(e) => handleInputChange('voice_style', { ...formData.voice_style, profanity: e.target.value })}
-                            className="w-full p-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm"
+                            className="w-full p-2 bg-gray-800 border border-white/20 rounded-lg text-white text-sm [&>option]:bg-gray-800 [&>option]:text-white"
                           >
                             {voicePresets.attributes.profanity?.map(attr => (
                               <option key={attr.id} value={attr.id}>{attr.name}</option>
@@ -957,43 +958,83 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
                           value={formData.voice_style?.speech_quirks || ''}
                           onChange={(e) => handleInputChange('voice_style', { ...formData.voice_style, speech_quirks: e.target.value })}
                           placeholder="e.g., Says 'actually' often, ends questions with 'no?'"
-                          className="w-full p-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/40 text-sm"
+                          className="w-full p-2 bg-gray-800 border border-white/20 rounded-lg text-white placeholder-white/40 text-sm"
                         />
                       </div>
 
-                      {/* Language Mixing */}
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-white/80 mb-1">Secondary Language</label>
-                          <select
-                            value={formData.voice_style?.secondary_language || ''}
-                            onChange={(e) => handleInputChange('voice_style', { 
-                              ...formData.voice_style, 
-                              secondary_language: e.target.value || undefined,
-                              language_mixing: e.target.value ? (formData.voice_style?.language_mixing || 'light') : 'none'
-                            })}
-                            className="w-full p-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm"
-                          >
-                            <option value="">None (English only)</option>
-                            {voicePresets.attributes.secondary_languages?.map(lang => (
-                              <option key={lang.id} value={lang.id}>{lang.name}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {formData.voice_style?.secondary_language && (
+                      {/* Language Settings */}
+                      <div className="border-t border-white/10 pt-4 mt-4">
+                        <h5 className="text-sm font-medium text-white mb-3">Language Settings</h5>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          {/* Primary Language */}
                           <div>
-                            <label className="block text-sm font-medium text-white/80 mb-1">Mixing Frequency</label>
+                            <label className="block text-sm font-medium text-white/80 mb-1">Primary Language</label>
                             <select
-                              value={formData.voice_style?.language_mixing || 'light'}
-                              onChange={(e) => handleInputChange('voice_style', { ...formData.voice_style, language_mixing: e.target.value })}
-                              className="w-full p-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm"
+                              value={formData.voice_style?.primary_language || 'english'}
+                              onChange={(e) => handleInputChange('voice_style', { 
+                                ...formData.voice_style, 
+                                primary_language: e.target.value
+                              })}
+                              className="w-full p-2 bg-gray-800 border border-white/20 rounded-lg text-white text-sm [&>option]:bg-gray-800 [&>option]:text-white"
                             >
-                              {voicePresets.attributes.language_mixing_level?.map(level => (
-                                <option key={level.id} value={level.id}>{level.name} - {level.description}</option>
+                              <option value="english">English</option>
+                              <option value="hindi">Hindi</option>
+                              <option value="spanish">Spanish</option>
+                              <option value="french">French</option>
+                              <option value="mandarin">Mandarin</option>
+                              <option value="japanese">Japanese</option>
+                              <option value="german">German</option>
+                              <option value="italian">Italian</option>
+                              <option value="portuguese">Portuguese</option>
+                              <option value="korean">Korean</option>
+                              <option value="arabic">Arabic</option>
+                              <option value="russian">Russian</option>
+                            </select>
+                          </div>
+
+                          {/* Secondary Language */}
+                          <div>
+                            <label className="block text-sm font-medium text-white/80 mb-1">Mix In Language</label>
+                            <select
+                              value={formData.voice_style?.secondary_language || ''}
+                              onChange={(e) => handleInputChange('voice_style', { 
+                                ...formData.voice_style, 
+                                secondary_language: e.target.value || undefined,
+                                language_mixing: e.target.value ? (formData.voice_style?.language_mixing || 'light') : 'none'
+                              })}
+                              className="w-full p-2 bg-gray-800 border border-white/20 rounded-lg text-white text-sm [&>option]:bg-gray-800 [&>option]:text-white"
+                            >
+                              <option value="">None</option>
+                              {voicePresets.attributes.secondary_languages?.map(lang => (
+                                <option key={lang.id} value={lang.id}>{lang.name}</option>
                               ))}
                             </select>
                           </div>
+
+                          {/* Mixing Frequency */}
+                          {formData.voice_style?.secondary_language && (
+                            <div>
+                              <label className="block text-sm font-medium text-white/80 mb-1">Mixing Frequency</label>
+                              <select
+                                value={formData.voice_style?.language_mixing || 'light'}
+                                onChange={(e) => handleInputChange('voice_style', { ...formData.voice_style, language_mixing: e.target.value })}
+                                className="w-full p-2 bg-gray-800 border border-white/20 rounded-lg text-white text-sm [&>option]:bg-gray-800 [&>option]:text-white"
+                              >
+                                {voicePresets.attributes.language_mixing_level?.map(level => (
+                                  <option key={level.id} value={level.id}>{level.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                        </div>
+                        
+                        {/* Mixing Frequency Description */}
+                        {formData.voice_style?.secondary_language && formData.voice_style?.language_mixing && (
+                          <p className="text-xs text-white/50 mt-2">
+                            {formData.voice_style.language_mixing === 'light' && 'Occasional words from the secondary language (1-2 per dialogue line)'}
+                            {formData.voice_style.language_mixing === 'moderate' && 'Regular mixing of secondary language (2-3 words per dialogue line)'}
+                            {formData.voice_style.language_mixing === 'heavy' && 'Frequent use of secondary language (3-5 words per dialogue line)'}
+                          </p>
                         )}
                       </div>
                     </div>

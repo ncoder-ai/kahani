@@ -115,7 +115,8 @@ export interface VoiceStyle {
   tone?: 'cheerful' | 'sarcastic' | 'gruff' | 'nervous' | 'calm' | 'dramatic' | 'deadpan';
   profanity?: 'none' | 'mild' | 'moderate' | 'heavy';
   speech_quirks?: string;
-  secondary_language?: string;
+  primary_language?: string;  // Primary language for dialogue (default: english)
+  secondary_language?: string;  // Language to mix in
   language_mixing?: 'none' | 'light' | 'moderate' | 'heavy';
 }
 

@@ -1377,6 +1377,11 @@ Chapter Conclusion:"""
         if voice_style.get("speech_quirks"):
             parts.append(f"Speech quirks: {voice_style['speech_quirks']}")
         
+        # Add primary language if not English
+        primary_lang = voice_style.get("primary_language", "english")
+        if primary_lang and primary_lang.lower() != "english":
+            parts.append(f"**PRIMARY LANGUAGE**: This character speaks primarily in {primary_lang.title()}. Write their dialogue in {primary_lang.title()}.")
+        
         # Add language mixing if specified
         secondary_lang = voice_style.get("secondary_language")
         mixing_level = voice_style.get("language_mixing", "none")
@@ -1387,6 +1392,9 @@ Chapter Conclusion:"""
             lang_data = language_mixing.get(secondary_lang, {})
             level_data = lang_data.get(mixing_level, {})
             
+            # Determine the base language for mixing instructions
+            base_lang = primary_lang.title() if primary_lang else "English"
+            
             if level_data:
                 mixing_instruction = level_data.get("instruction", "")
                 mixing_example = level_data.get("example", "")
@@ -1394,12 +1402,12 @@ Chapter Conclusion:"""
                 # Make the instruction very emphatic for heavy mixing
                 if mixing_level == "heavy":
                     parts.append(f"**CRITICAL LANGUAGE REQUIREMENT** ({secondary_lang.title()}):")
-                    parts.append(f"  ⚠️ EVERY line of dialogue MUST contain {secondary_lang.title()} words. Pure English is NOT allowed.")
+                    parts.append(f"  ⚠️ EVERY line of dialogue MUST contain {secondary_lang.title()} words. Pure {base_lang} is NOT allowed.")
                     if mixing_instruction:
                         parts.append(f"  {mixing_instruction.strip()}")
                     if mixing_example:
                         parts.append(f"  ✓ CORRECT: \"{mixing_example.strip()}\"")
-                        parts.append(f"  ✗ WRONG: Writing this character's dialogue in pure English")
+                        parts.append(f"  ✗ WRONG: Writing this character's dialogue in pure {base_lang}")
                 elif mixing_level == "moderate":
                     parts.append(f"**LANGUAGE MIXING** ({secondary_lang.title()}, {mixing_level}): REQUIRED - {mixing_instruction.strip()}" if mixing_instruction else "")
                     if mixing_example:
