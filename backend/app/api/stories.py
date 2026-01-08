@@ -1304,33 +1304,45 @@ async def generate_scene(
                 ).order_by(StoryFlow.sequence_number.desc()).first()
                 
                 if previous_flow and previous_flow.scene_variant_id:
-                    # Check if this manual choice already exists
-                    existing_manual_choice = db.query(SceneChoice).filter(
+                    # First, check if this prompt matches an existing choice (AI or user-created)
+                    # This prevents creating duplicate choices when user selects an existing AI choice
+                    existing_choice_with_text = db.query(SceneChoice).filter(
                         SceneChoice.scene_variant_id == previous_flow.scene_variant_id,
-                        SceneChoice.is_user_created == True
+                        SceneChoice.choice_text == custom_prompt.strip()
                     ).first()
                     
-                    if existing_manual_choice:
-                        # Update existing manual choice
-                        existing_manual_choice.choice_text = custom_prompt.strip()
-                        existing_manual_choice.leads_to_scene_id = scene.id
+                    if existing_choice_with_text:
+                        # Update existing choice to point to new scene (don't create duplicate)
+                        existing_choice_with_text.leads_to_scene_id = scene.id
+                        logger.info(f"Updated existing choice {existing_choice_with_text.id} to point to scene {scene.id}")
                     else:
-                        # Create new manual choice
-                        # Get max order for this variant to append at end
-                        max_order = db.query(func.max(SceneChoice.choice_order)).filter(
-                            SceneChoice.scene_variant_id == previous_flow.scene_variant_id
-                        ).scalar() or 0
+                        # Check for existing user-created choice to update
+                        existing_manual_choice = db.query(SceneChoice).filter(
+                            SceneChoice.scene_variant_id == previous_flow.scene_variant_id,
+                            SceneChoice.is_user_created == True
+                        ).first()
                         
-                        manual_choice = SceneChoice(
-                            scene_id=previous_scene.id,
-                            scene_variant_id=previous_flow.scene_variant_id,
-                            branch_id=active_branch_id,
-                            choice_text=custom_prompt.strip(),
-                            choice_order=max_order + 1,
-                            is_user_created=True,
-                            leads_to_scene_id=scene.id
-                        )
-                        db.add(manual_choice)
+                        if existing_manual_choice:
+                            # Update existing manual choice
+                            existing_manual_choice.choice_text = custom_prompt.strip()
+                            existing_manual_choice.leads_to_scene_id = scene.id
+                        else:
+                            # Create new manual choice
+                            # Get max order for this variant to append at end
+                            max_order = db.query(func.max(SceneChoice.choice_order)).filter(
+                                SceneChoice.scene_variant_id == previous_flow.scene_variant_id
+                            ).scalar() or 0
+                            
+                            manual_choice = SceneChoice(
+                                scene_id=previous_scene.id,
+                                scene_variant_id=previous_flow.scene_variant_id,
+                                branch_id=active_branch_id,
+                                choice_text=custom_prompt.strip(),
+                                choice_order=max_order + 1,
+                                is_user_created=True,
+                                leads_to_scene_id=scene.id
+                            )
+                            db.add(manual_choice)
                     
                     db.commit()
                     logger.info(f"Saved manual choice for scene {previous_scene.id}, variant {previous_flow.scene_variant_id}")
@@ -1826,33 +1838,45 @@ async def generate_scene_streaming_endpoint(
                         ).order_by(StoryFlow.sequence_number.desc()).first()
                         
                         if previous_flow and previous_flow.scene_variant_id:
-                            # Check if this manual choice already exists
-                            existing_manual_choice = db.query(SceneChoice).filter(
+                            # First, check if this prompt matches an existing choice (AI or user-created)
+                            # This prevents creating duplicate choices when user selects an existing AI choice
+                            existing_choice_with_text = db.query(SceneChoice).filter(
                                 SceneChoice.scene_variant_id == previous_flow.scene_variant_id,
-                                SceneChoice.is_user_created == True
+                                SceneChoice.choice_text == custom_prompt.strip()
                             ).first()
                             
-                            if existing_manual_choice:
-                                # Update existing manual choice
-                                existing_manual_choice.choice_text = custom_prompt.strip()
-                                existing_manual_choice.leads_to_scene_id = scene.id
+                            if existing_choice_with_text:
+                                # Update existing choice to point to new scene (don't create duplicate)
+                                existing_choice_with_text.leads_to_scene_id = scene.id
+                                logger.info(f"Updated existing choice {existing_choice_with_text.id} to point to scene {scene.id}")
                             else:
-                                # Create new manual choice
-                                # Get max order for this variant to append at end
-                                max_order = db.query(func.max(SceneChoice.choice_order)).filter(
-                                    SceneChoice.scene_variant_id == previous_flow.scene_variant_id
-                                ).scalar() or 0
+                                # Check for existing user-created choice to update
+                                existing_manual_choice = db.query(SceneChoice).filter(
+                                    SceneChoice.scene_variant_id == previous_flow.scene_variant_id,
+                                    SceneChoice.is_user_created == True
+                                ).first()
                                 
-                                manual_choice = SceneChoice(
-                                    scene_id=previous_scene.id,
-                                    scene_variant_id=previous_flow.scene_variant_id,
-                                    branch_id=active_branch_id,
-                                    choice_text=custom_prompt.strip(),
-                                    choice_order=max_order + 1,
-                                    is_user_created=True,
-                                    leads_to_scene_id=scene.id
-                                )
-                                db.add(manual_choice)
+                                if existing_manual_choice:
+                                    # Update existing manual choice
+                                    existing_manual_choice.choice_text = custom_prompt.strip()
+                                    existing_manual_choice.leads_to_scene_id = scene.id
+                                else:
+                                    # Create new manual choice
+                                    # Get max order for this variant to append at end
+                                    max_order = db.query(func.max(SceneChoice.choice_order)).filter(
+                                        SceneChoice.scene_variant_id == previous_flow.scene_variant_id
+                                    ).scalar() or 0
+                                    
+                                    manual_choice = SceneChoice(
+                                        scene_id=previous_scene.id,
+                                        scene_variant_id=previous_flow.scene_variant_id,
+                                        branch_id=active_branch_id,
+                                        choice_text=custom_prompt.strip(),
+                                        choice_order=max_order + 1,
+                                        is_user_created=True,
+                                        leads_to_scene_id=scene.id
+                                    )
+                                    db.add(manual_choice)
                             
                             db.commit()
                             logger.info(f"Saved manual choice for scene {previous_scene.id}, variant {previous_flow.scene_variant_id}")
