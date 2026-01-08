@@ -7,13 +7,14 @@ import { audioContextManager } from '@/utils/audioContextManager';
 import { useState, useEffect, useCallback } from 'react';
 import { 
   X, Settings, LogOut, User, Home, PlusCircle, BookOpen, 
-  ChevronRight, Film, Trash2, Shield, FileText, Edit, Bug, GitBranch
+  ChevronRight, Film, Trash2, Shield, FileText, Edit, Bug, GitBranch, Volume2
 } from 'lucide-react';
 import BranchSelector from './BranchSelector';
 
 interface StoryActions {
   onChapters?: () => void;
   onAddCharacter?: () => void;
+  onEditCharacterVoices?: () => void;
   onViewAllCharacters?: () => void;
   onDirectorMode?: () => void;
   onDeleteMode?: () => void;
@@ -241,6 +242,26 @@ export default function UnifiedMenu({
                     <div className="font-medium text-white">Add Character</div>
                     <div className="text-xs text-gray-400">Quick add</div>
                   </div>
+                </button>
+              )}
+
+              {/* Character Voices */}
+              {storyActions.onEditCharacterVoices && (
+                <button
+                  onClick={() => {
+                    onClose();
+                    storyActions.onEditCharacterVoices?.();
+                  }}
+                  className="w-full flex items-center gap-3 p-3 hover:bg-white/10 rounded-lg transition-colors text-left group"
+                >
+                  <div className="p-2 bg-pink-600/20 rounded-lg group-hover:bg-pink-600/30 transition-colors">
+                    <Volume2 className="w-5 h-5 text-pink-400" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="font-medium text-white">Character Voices</div>
+                    <div className="text-xs text-gray-400">Edit how characters speak</div>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-gray-500" />
                 </button>
               )}
 
