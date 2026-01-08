@@ -51,7 +51,8 @@ export default function FormattedText({ content, className = "" }: FormattedText
     let currentPos = 0;
     
     // Regular expressions for different text types
-    const dialogueRegex = /"([^"]*?)"/g;
+    // Support both straight quotes (") and curly quotes (" ") for dialogue
+    const dialogueRegex = /[""]([^""]*?)[""]/g;
     const thoughtRegex = /\*([^*]*?)\*/g;
     
     // Find all matches and their positions
