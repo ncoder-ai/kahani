@@ -1608,12 +1608,15 @@ async def generate_scene_streaming_endpoint(
                         break
             
             # Save the scene to database FIRST (before choices)
+            # Clean the final assembled content comprehensively (chunk cleaning may miss patterns)
+            cleaned_full_content = llm_service._clean_scene_content(full_content.rstrip())
+            
             variant_service = SceneVariantService(db)
             try:
                 scene, variant = variant_service.create_scene_with_variant(
                     story_id=story_id,
                     sequence_number=next_sequence,
-                    content=full_content.rstrip(),
+                    content=cleaned_full_content,
                     title=f"Scene {next_sequence}",
                     custom_prompt=effective_custom_prompt if effective_custom_prompt else None,
                     choices=[],  # We'll add choices later
@@ -3308,14 +3311,17 @@ async def create_scene_variant_streaming(
                 generation_method = "regeneration"
             logger.warning(f"[VARIANT] Saving generation_prompt: '{prompt_to_save}' (is_concluding: {is_concluding}, custom_prompt: '{custom_prompt}', original_variant prompt: '{original_variant.generation_prompt if original_variant else 'N/A'}')")
             
+            # Clean the final assembled variant content comprehensively (chunk cleaning may miss patterns)
+            cleaned_variant_content = llm_service._clean_scene_content(variant_content.rstrip())
+            
             # Create the new variant
             variant = SceneVariant(
                 scene_id=scene_id,
                 variant_number=next_variant_number,
                 is_original=False,
-                content=variant_content,
+                content=cleaned_variant_content,
                 title=scene.title,
-                original_content=original_variant.content if original_variant else variant_content,
+                original_content=original_variant.content if original_variant else cleaned_variant_content,
                 generation_prompt=prompt_to_save,
                 generation_method=generation_method
             )
@@ -3572,8 +3578,11 @@ async def continue_scene(
         # Generate continuation content
         continuation_content = await generate_scene_continuation(context, current_user.id, user_settings, db)
         
+        # Clean the continuation content before appending
+        cleaned_continuation = llm_service._clean_scene_content(continuation_content.rstrip())
+        
         # Append to existing content
-        new_content = current_variant.content + "\n\n" + continuation_content
+        new_content = current_variant.content + "\n\n" + cleaned_continuation
         
         # Update the scene variant with the new content
         current_variant.content = new_content
@@ -3687,7 +3696,9 @@ async def continue_scene_streaming(
                     break
             
             # Update the variant with the new content
-            new_content = current_variant.content + "\n\n" + continuation_content
+            # Clean the continuation content before appending (chunk cleaning may miss patterns)
+            cleaned_continuation = llm_service._clean_scene_content(continuation_content.rstrip())
+            new_content = current_variant.content + "\n\n" + cleaned_continuation
             current_variant.content = new_content
             current_variant.updated_at = datetime.now(timezone.utc)
             db.commit()

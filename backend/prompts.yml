@@ -1064,6 +1064,13 @@ character_assistant:
       - "nervous_anxious" - Hesitant, uncertain, worried
       - "mysterious_cryptic" - Enigmatic, vague, mysterious
       - "indian_english" - Indian English patterns with Hindi influences
+      - "north_indian" - Hindi heartland style (UP, Bihar, MP)
+      - "south_indian" - South Indian English with Tamil/Telugu influences
+      - "delhi_elite" - South Delhi sophisticated, cosmopolitan style
+      - "punjabi" - Vibrant Punjabi style - loud, warm, expressive
+      - "bengali_intellectual" - Kolkata intellectual, literary, cultured
+      - "mumbai_tapori" - Mumbai street-smart Bambaiya style
+      - "hyderabadi" - Hyderabadi Deccani style, laid-back
       - "southern_us" - Southern US dialect and expressions
       - "british_proper" - British English, proper and polite
       - "australian" - Australian English with casual slang
@@ -1125,6 +1132,13 @@ character_assistant:
       - "nervous_anxious" - Hesitant, uncertain, worried
       - "mysterious_cryptic" - Enigmatic, vague, mysterious
       - "indian_english" - Indian English patterns with Hindi influences
+      - "north_indian" - Hindi heartland style (UP, Bihar, MP)
+      - "south_indian" - South Indian English with Tamil/Telugu influences
+      - "delhi_elite" - South Delhi sophisticated, cosmopolitan style
+      - "punjabi" - Vibrant Punjabi style - loud, warm, expressive
+      - "bengali_intellectual" - Kolkata intellectual, literary, cultured
+      - "mumbai_tapori" - Mumbai street-smart Bambaiya style
+      - "hyderabadi" - Hyderabadi Deccani style, laid-back
       - "southern_us" - Southern US dialect and expressions
       - "british_proper" - British English, proper and polite
       - "australian" - Australian English with casual slang
@@ -1636,6 +1650,14 @@ brainstorm:
       - "sarcastic_wit" - Dry humor, ironic, witty
       - "nervous_anxious" - Hesitant, uncertain
       - "mysterious_cryptic" - Enigmatic, vague
+      - "indian_english" - Indian English with Hindi influences
+      - "north_indian" - Hindi heartland style (UP, Bihar, MP)
+      - "south_indian" - South Indian English (Tamil/Telugu)
+      - "delhi_elite" - South Delhi sophisticated style
+      - "punjabi" - Vibrant Punjabi - loud, warm
+      - "bengali_intellectual" - Kolkata intellectual, literary
+      - "mumbai_tapori" - Mumbai street-smart Bambaiya
+      - "hyderabadi" - Hyderabadi Deccani, laid-back
       - "medieval_knight" - Archaic, chivalric (for fantasy)
       - "pirate" - Nautical, pirate-style
       - "wise_elder" - Sage, measured
@@ -1881,6 +1903,14 @@ chapter_brainstorm:
       - "sarcastic_wit" - Dry humor, ironic, witty
       - "nervous_anxious" - Hesitant, uncertain
       - "mysterious_cryptic" - Enigmatic, vague
+      - "indian_english" - Indian English with Hindi influences
+      - "north_indian" - Hindi heartland style (UP, Bihar, MP)
+      - "south_indian" - South Indian English (Tamil/Telugu)
+      - "delhi_elite" - South Delhi sophisticated style
+      - "punjabi" - Vibrant Punjabi - loud, warm
+      - "bengali_intellectual" - Kolkata intellectual, literary
+      - "mumbai_tapori" - Mumbai street-smart Bambaiya
+      - "hyderabadi" - Hyderabadi Deccani, laid-back
       - "medieval_knight" - Archaic, chivalric (for fantasy)
       - "pirate" - Nautical, pirate-style
       - "wise_elder" - Sage, measured
@@ -2176,6 +2206,104 @@ dialog_styles:
         Honorifics: "ji" suffix for respect, "yaar" for friends.
         Mix Hindi words naturally (see language_mixing section for more).
       example: "Actually, this is very important matter only. You are understanding, no? We should do one thing - let's discuss properly, yaar."
+    
+    north_indian:
+      name: "North Indian"
+      description: "Hindi heartland speech patterns - UP, Bihar, MP style"
+      category: "regional"
+      instruction: |
+        This character speaks with North Indian (Hindi belt) patterns.
+        Strong Hindi influence with direct, expressive style.
+        Uses "arrey" for exclamation, "bhai" liberally, "kya" for emphasis.
+        Expressions: "Kya baat hai!", "Arrey yaar", "Tension mat le".
+        More animated, uses hand gestures (describe them).
+        Warm, hospitable tone. Food references common.
+        May switch to full Hindi phrases when emotional.
+      example: "Arrey bhai, kya baat kar rahe ho! This is too much, yaar. Come, come - first have chai, then we will discuss everything properly."
+    
+    south_indian:
+      name: "South Indian"
+      description: "South Indian English with Tamil/Telugu/Kannada influences"
+      category: "regional"
+      instruction: |
+        This character speaks South Indian English with Dravidian language patterns.
+        Uses "only" and "itself" for emphasis: "I myself only did it".
+        "What" at end of sentences: "Very nice, what?"
+        Addresses others as "Macha" (friend), "Anna/Akka" (elder brother/sister).
+        More formal, respectful tone. Values education highly.
+        Expressions: "Aiyo!", "What da?", "Super!", "Too good".
+        May reference filter coffee, temples, or classical arts.
+      example: "Aiyo, what is this? I was telling you only, no? This is not correct way. Anna, please listen - we should do properly, what?"
+    
+    delhi_elite:
+      name: "Delhi Elite"
+      description: "South Delhi sophisticated, cosmopolitan style"
+      category: "regional"
+      instruction: |
+        This character speaks with Delhi elite/South Delhi patterns.
+        Mix of polished English with trendy Hindi slang.
+        Uses "like" frequently, vocal fry, slightly affected accent.
+        Expressions: "So basically", "You know what I mean?", "That's so random".
+        References: Khan Market, Hauz Khas, international travel, brands.
+        Confident, sometimes dismissive. Name-drops casually.
+        May use "yaar" but in a sophisticated way.
+      example: "So basically, I was at Khan Market yesterday, and like, the crowd was so random, you know? Papa's driver took forever. Anyway, let's do brunch at The Manor, yaar."
+    
+    punjabi:
+      name: "Punjabi"
+      description: "Vibrant Punjabi-influenced speech - loud, warm, expressive"
+      category: "regional"
+      instruction: |
+        This character speaks with strong Punjabi influence.
+        Loud, expressive, warm and hospitable. Big personality.
+        Uses "oye", "paaji/paji" (brother), "ki haal hai" (how are you).
+        Expressions: "Oye hoye!", "Balle balle!", "Chak de!", "Panga mat le".
+        References: lassi, butter chicken, bhangra, tractors, Canada.
+        Generous, may offer food constantly. Loyal, protective of family.
+        Speaks with enthusiasm and volume.
+      example: "Oye paaji! Kiddan? Arrey, why so serious? Come, come - mummy has made sarson da saag. First eat, then talk business. Tension not, everything will be sorted!"
+    
+    bengali_intellectual:
+      name: "Bengali Intellectual"
+      description: "Kolkata intellectual - cultured, literary, passionate about arts"
+      category: "regional"
+      instruction: |
+        This character speaks with Bengali intellectual patterns.
+        Refined, literary references, passionate about culture and politics.
+        Uses "Dada/Didi" (elder brother/sister), "Ki bolcho?" (what are you saying?).
+        References: Tagore, Satyajit Ray, adda (intellectual discussions), mishti doi.
+        Expressions: "Arre baba!", "Ki je bolo!", "Ekdom" (absolutely).
+        May quote poetry. Values education, arts, and debate.
+        Slight melodrama, expressive hand gestures.
+      example: "Arre baba! This is exactly what Tagore wrote about, no? The human condition, the struggle... Ki bolcho, you haven't read Gitanjali? Ekdom must read, I say!"
+    
+    mumbai_tapori:
+      name: "Mumbai Tapori"
+      description: "Mumbai street-smart style - Bambaiya Hindi, filmi"
+      category: "regional"
+      instruction: |
+        This character speaks Mumbai street Hindi (Bambaiya).
+        Street-smart, film-influenced, rhythmic speech.
+        Uses "apun" (I/me), "bidu" (dude), "bindaas" (carefree).
+        Expressions: "Kya re?", "Ekdum jhakaas!", "Scene on hai".
+        References: Bollywood, local trains, vada pav, "bhai" culture.
+        Confident swagger. Loyal to friends. Speaks with attitude.
+        May use Bollywood dialogue references.
+      example: "Kya re bidu, tension kyun le raha hai? Apun hai na! Scene on hai, don't worry. Chal, vada pav khate hain - baaki sab set ho jayega, ekdum bindaas!"
+    
+    hyderabadi:
+      name: "Hyderabadi"
+      description: "Hyderabadi style - Deccani Urdu influence, laid-back"
+      category: "regional"
+      instruction: |
+        This character speaks Hyderabadi style with Deccani Urdu influence.
+        Laid-back, uses "nakko" (no), "hau" (yes), elongated words.
+        Expressions: "Kya miyan?", "Sahi hai", "Tension nakko".
+        References: biryani (very serious topic), Old City, Charminar.
+        Uses "miya/miyan" as friendly address. Relaxed pace of speech.
+        May get passionate only about food (especially biryani debates).
+        Hospitable, generous, slightly lazy demeanor.
+      example: "Arre miyan, kya tension le rahe ho? Aaram se baitho. Chai piyo, biryani khao - sab theek ho jayega. Nakko worry karo, hau?"
     
     # -------------------------------------------------------------------------
     # REGIONAL - EAST ASIA
