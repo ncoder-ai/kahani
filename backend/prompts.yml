@@ -1613,7 +1613,8 @@ brainstorm:
             "name": "Character name",
             "role": "protagonist/antagonist/ally/mentor/love_interest/comic_relief/mysterious/other",
             "description": "Brief character description",
-            "personality_traits": ["trait1", "trait2"]
+            "personality_traits": ["trait1", "trait2"],
+            "suggested_voice_style": "voice preset (see options below)"
           }}
         ],
         "scenario": "Opening situation/premise (2-3 sentences describing how the story begins)",
@@ -1624,6 +1625,22 @@ brainstorm:
         "themes": ["theme1", "theme2"],
         "conflicts": ["central conflict", "secondary conflict"]
       }}
+      
+      VOICE STYLE OPTIONS for characters (choose the best match based on their personality):
+      - "neutral" - Standard speech (default)
+      - "formal_noble" - Formal, sophisticated speech
+      - "street_smart" - Casual, street-wise, urban slang
+      - "academic" - Intellectual, technical vocabulary
+      - "gruff_veteran" - Rough, tough, military-style
+      - "cheerful_optimist" - Upbeat, positive, enthusiastic
+      - "sarcastic_wit" - Dry humor, ironic, witty
+      - "nervous_anxious" - Hesitant, uncertain
+      - "mysterious_cryptic" - Enigmatic, vague
+      - "medieval_knight" - Archaic, chivalric (for fantasy)
+      - "pirate" - Nautical, pirate-style
+      - "wise_elder" - Sage, measured
+      - "child_innocent" - Simple, childlike
+      - "villain_menacing" - Threatening, sinister
       
       EXTRACTION GUIDELINES:
       - If genre/tone unclear, make best inference from conversation context
@@ -1845,13 +1862,30 @@ chapter_brainstorm:
             "name": "Suggested Character Name",
             "role": "protagonist/antagonist/ally/mentor/other",
             "description": "Brief description of who they are",
-            "reason": "Why this character would enhance this chapter"
+            "reason": "Why this character would enhance this chapter",
+            "suggested_voice_style": "voice preset (see options below)"
           }}
         ],
         "recommended_characters": ["existing char 1", "existing char 2"],
         "mood": "The overall emotional tone of this chapter",
         "location": "Primary location(s) for this chapter"
       }}
+      
+      VOICE STYLE OPTIONS for new characters (choose based on their personality/role):
+      - "neutral" - Standard speech (default)
+      - "formal_noble" - Formal, sophisticated speech
+      - "street_smart" - Casual, street-wise, urban slang
+      - "academic" - Intellectual, technical vocabulary
+      - "gruff_veteran" - Rough, tough, military-style
+      - "cheerful_optimist" - Upbeat, positive, enthusiastic
+      - "sarcastic_wit" - Dry humor, ironic, witty
+      - "nervous_anxious" - Hesitant, uncertain
+      - "mysterious_cryptic" - Enigmatic, vague
+      - "medieval_knight" - Archaic, chivalric (for fantasy)
+      - "pirate" - Nautical, pirate-style
+      - "wise_elder" - Sage, measured
+      - "child_innocent" - Simple, childlike
+      - "villain_menacing" - Threatening, sinister
       
       EXTRACTION GUIDELINES:
       - PRIORITY: Use confirmed elements exactly as provided
@@ -1861,6 +1895,7 @@ chapter_brainstorm:
       CHARACTER HANDLING:
       - "character_arcs": Characters and their development in this chapter
       - "recommended_characters": Names of characters that should appear in this chapter
+      - "new_character_suggestions": Include suggested_voice_style for each new character
       
       Return ONLY valid JSON with no markdown formatting.
     

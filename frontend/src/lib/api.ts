@@ -180,6 +180,7 @@ export interface NewCharacterSuggestion {
   role: string;
   description: string;
   reason: string;
+  suggested_voice_style?: string;
 }
 
 export interface ChapterPlot {

@@ -9,6 +9,7 @@ interface BrainstormCharacter {
   role: string;
   description: string;
   personality_traits?: string[];
+  suggested_voice_style?: string;
 }
 
 interface PersistentCharacter {
@@ -180,7 +181,8 @@ export default function CharacterReview({ characters, preSelectedCharacterIds = 
         description: char.description,
         personality_traits: char.personality_traits || [],
         is_template: false,
-        is_public: false
+        is_public: false,
+        voice_style: char.suggested_voice_style ? { preset: char.suggested_voice_style } : undefined
       });
 
       updateMapping(index, {
@@ -226,7 +228,8 @@ export default function CharacterReview({ characters, preSelectedCharacterIds = 
             description: char.description,
             personality_traits: char.personality_traits || [],
             is_template: false,
-            is_public: false
+            is_public: false,
+            voice_style: char.suggested_voice_style ? { preset: char.suggested_voice_style } : undefined
           });
           updatedMappings[i].newCharacterId = newChar.id;
         }

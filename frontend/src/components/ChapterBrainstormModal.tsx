@@ -12,6 +12,7 @@ interface BrainstormCharacter {
   role: string;
   description: string;
   personality_traits?: string[];
+  suggested_voice_style?: string;
 }
 
 interface CharacterMapping {
@@ -495,7 +496,8 @@ export default function ChapterBrainstormModal({
       name: suggestion.name,
       role: suggestion.role,
       description: `${suggestion.description}${suggestion.reason ? ` (${suggestion.reason})` : ''}`,
-      personality_traits: []
+      personality_traits: [],
+      suggested_voice_style: suggestion.suggested_voice_style
     }));
   };
 
