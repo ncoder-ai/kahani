@@ -13,6 +13,17 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+class VoiceStyleSchema(BaseModel):
+    """Schema for character voice/speech style"""
+    preset: Optional[str] = None  # Preset ID like "indian_english", "formal_noble", or "custom"
+    formality: Optional[str] = None  # formal, casual, streetwise, archaic
+    vocabulary: Optional[str] = None  # simple, average, sophisticated, technical
+    tone: Optional[str] = None  # cheerful, sarcastic, gruff, nervous, calm, dramatic, deadpan
+    profanity: Optional[str] = None  # none, mild, moderate, heavy
+    speech_quirks: Optional[str] = None  # Free text for catchphrases, verbal tics
+    secondary_language: Optional[str] = None  # Language ID like "hindi", "spanish"
+    language_mixing: Optional[str] = None  # none, light, moderate, heavy
+
 class CharacterCreate(BaseModel):
     name: str
     description: Optional[str] = ""
@@ -23,6 +34,7 @@ class CharacterCreate(BaseModel):
     appearance: Optional[str] = ""
     is_template: Optional[bool] = True
     is_public: Optional[bool] = False
+    voice_style: Optional[Dict[str, Any]] = None  # Voice/speech style settings
 
 class CharacterUpdate(BaseModel):
     name: Optional[str] = None
@@ -34,6 +46,7 @@ class CharacterUpdate(BaseModel):
     appearance: Optional[str] = None
     is_template: Optional[bool] = None
     is_public: Optional[bool] = None
+    voice_style: Optional[Dict[str, Any]] = None  # Voice/speech style settings
 
 class CharacterResponse(BaseModel):
     id: int
@@ -46,6 +59,7 @@ class CharacterResponse(BaseModel):
     appearance: str
     is_template: bool
     is_public: bool
+    voice_style: Optional[Dict[str, Any]] = None  # Voice/speech style settings
     creator_id: int
     created_at: str
     updated_at: Optional[str]
@@ -62,6 +76,36 @@ class CharacterGenerationRequest(BaseModel):
     prompt: str
     story_context: Optional[Dict[str, Any]] = None
     previous_generation: Optional[Dict[str, Any]] = None
+
+
+@router.get("/voice-style-presets")
+async def get_voice_style_presets(
+    current_user: User = Depends(get_current_user)
+):
+    """Get available voice style presets and attributes for character creation"""
+    from ..services.llm.prompts import prompt_manager
+    
+    dialog_styles = prompt_manager._prompts_cache.get("dialog_styles", {})
+    
+    # Extract presets with their metadata
+    presets_raw = dialog_styles.get("presets", {})
+    presets = {}
+    for preset_id, preset_data in presets_raw.items():
+        presets[preset_id] = {
+            "name": preset_data.get("name", preset_id),
+            "description": preset_data.get("description", ""),
+            "category": preset_data.get("category", "other"),
+            "example": preset_data.get("example", "")
+        }
+    
+    # Extract attribute options
+    attributes = dialog_styles.get("attributes", {})
+    
+    return {
+        "presets": presets,
+        "attributes": attributes
+    }
+
 
 @router.get("/", response_model=List[CharacterResponse])
 async def get_characters(
@@ -103,6 +147,7 @@ async def get_characters(
             appearance=char.appearance or "",
             is_template=char.is_template,
             is_public=char.is_public,
+            voice_style=char.voice_style,
             creator_id=char.creator_id,
             created_at=char.created_at.isoformat(),
             updated_at=char.updated_at.isoformat() if char.updated_at else None
@@ -128,7 +173,8 @@ async def create_character(
         appearance=character_data.appearance,
         creator_id=current_user.id,
         is_template=character_data.is_template,
-        is_public=character_data.is_public
+        is_public=character_data.is_public,
+        voice_style=character_data.voice_style
     )
     
     db.add(character)
@@ -146,6 +192,7 @@ async def create_character(
         appearance=character.appearance or "",
         is_template=character.is_template,
         is_public=character.is_public,
+        voice_style=character.voice_style,
         creator_id=character.creator_id,
         created_at=character.created_at.isoformat(),
         updated_at=character.updated_at.isoformat() if character.updated_at else None
@@ -181,6 +228,7 @@ async def get_character(
         appearance=character.appearance or "",
         is_template=character.is_template,
         is_public=character.is_public,
+        voice_style=character.voice_style,
         creator_id=character.creator_id,
         created_at=character.created_at.isoformat(),
         updated_at=character.updated_at.isoformat() if character.updated_at else None
@@ -225,6 +273,7 @@ async def update_character(
         appearance=character.appearance or "",
         is_template=character.is_template,
         is_public=character.is_public,
+        voice_style=character.voice_style,
         creator_id=character.creator_id,
         created_at=character.created_at.isoformat(),
         updated_at=character.updated_at.isoformat() if character.updated_at else None

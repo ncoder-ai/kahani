@@ -106,6 +106,45 @@ export enum ApiErrorType {
 }
 
 /**
+ * Voice Style interfaces
+ */
+export interface VoiceStyle {
+  preset?: string;  // Preset ID like "indian_english", "formal_noble", or "custom"
+  formality?: 'formal' | 'casual' | 'streetwise' | 'archaic';
+  vocabulary?: 'simple' | 'average' | 'sophisticated' | 'technical';
+  tone?: 'cheerful' | 'sarcastic' | 'gruff' | 'nervous' | 'calm' | 'dramatic' | 'deadpan';
+  profanity?: 'none' | 'mild' | 'moderate' | 'heavy';
+  speech_quirks?: string;
+  secondary_language?: string;
+  language_mixing?: 'none' | 'light' | 'moderate' | 'heavy';
+}
+
+export interface VoiceStylePreset {
+  name: string;
+  description: string;
+  category: 'neutral' | 'regional' | 'archetype' | 'fantasy';
+  example: string;
+}
+
+export interface VoiceStyleAttribute {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface VoiceStylePresetsResponse {
+  presets: Record<string, VoiceStylePreset>;
+  attributes: {
+    formality: VoiceStyleAttribute[];
+    vocabulary: VoiceStyleAttribute[];
+    tone: VoiceStyleAttribute[];
+    profanity: VoiceStyleAttribute[];
+    language_mixing_level: VoiceStyleAttribute[];
+    secondary_languages: VoiceStyleAttribute[];
+  };
+}
+
+/**
  * Story Arc interfaces
  */
 export interface ArcPhase {
@@ -1250,12 +1289,17 @@ class ApiClient {
     });
   }
 
-  async updateCharacter(characterId: number, data: { name?: string; description?: string; personality_traits?: string[]; background?: string; goals?: string; fears?: string; appearance?: string; is_template?: boolean; is_public?: boolean; }) {
-    return this.request<{ id: number; name: string; description: string; personality_traits: string[]; background: string; goals: string; fears: string; appearance: string; is_template: boolean; is_public: boolean; creator_id: number; created_at: string; updated_at: string | null; }>(`/api/characters/${characterId}`, { method: 'PUT', body: JSON.stringify(data) });
+  async updateCharacter(characterId: number, data: { name?: string; description?: string; personality_traits?: string[]; background?: string; goals?: string; fears?: string; appearance?: string; is_template?: boolean; is_public?: boolean; voice_style?: VoiceStyle | null; }) {
+    return this.request<{ id: number; name: string; description: string; personality_traits: string[]; background: string; goals: string; fears: string; appearance: string; is_template: boolean; is_public: boolean; voice_style: VoiceStyle | null; creator_id: number; created_at: string; updated_at: string | null; }>(`/api/characters/${characterId}`, { method: 'PUT', body: JSON.stringify(data) });
   }
 
-  async createCharacter(data: { name: string; description?: string; personality_traits?: string[]; background?: string; goals?: string; fears?: string; appearance?: string; is_template?: boolean; is_public?: boolean; }) {
-    return this.request<{ id: number; name: string; description: string; personality_traits: string[]; background: string; goals: string; fears: string; appearance: string; is_template: boolean; is_public: boolean; creator_id: number; created_at: string; updated_at: string | null; }>(`/api/characters/`, { method: 'POST', body: JSON.stringify(data) });
+  async createCharacter(data: { name: string; description?: string; personality_traits?: string[]; background?: string; goals?: string; fears?: string; appearance?: string; is_template?: boolean; is_public?: boolean; voice_style?: VoiceStyle | null; }) {
+    return this.request<{ id: number; name: string; description: string; personality_traits: string[]; background: string; goals: string; fears: string; appearance: string; is_template: boolean; is_public: boolean; voice_style: VoiceStyle | null; creator_id: number; created_at: string; updated_at: string | null; }>(`/api/characters/`, { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  // Get available voice style presets
+  async getVoiceStylePresets() {
+    return this.request<VoiceStylePresetsResponse>(`/api/characters/voice-style-presets`);
   }
 
   async generateCharacterWithAI(prompt: string, storyContext?: { genre?: string; tone?: string; world_setting?: string }, previousGeneration?: any) {

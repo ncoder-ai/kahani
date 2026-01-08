@@ -4062,6 +4062,11 @@ Chapter Conclusion:"""
                             char_desc += f". Fears & Weaknesses: {char['fears']}"
                         if char.get('appearance'):
                             char_desc += f". Appearance: {char['appearance']}"
+                        # Add voice/speech style if specified
+                        if char.get('voice_style'):
+                            voice_instruction = prompt_manager.get_voice_style_instruction(char['voice_style'])
+                            if voice_instruction:
+                                char_desc += f"\n  {voice_instruction}"
                         char_descriptions.append(char_desc)
                 
                 # Inactive characters - brief format
@@ -4093,6 +4098,11 @@ Chapter Conclusion:"""
                         char_desc += f". Fears & Weaknesses: {char['fears']}"
                     if char.get('appearance'):
                         char_desc += f". Appearance: {char['appearance']}"
+                    # Add voice/speech style if specified
+                    if char.get('voice_style'):
+                        voice_instruction = prompt_manager.get_voice_style_instruction(char['voice_style'])
+                        if voice_instruction:
+                            char_desc += f"\n  {voice_instruction}"
                     char_descriptions.append(char_desc)
                 context_parts.append(f"Characters:\n{chr(10).join(char_descriptions)}")
         

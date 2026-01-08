@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import apiClient from '@/lib/api';
+import apiClient, { VoiceStyle, VoiceStylePreset, VoiceStylePresetsResponse } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 
 interface CharacterFormProps {
@@ -19,6 +19,7 @@ interface CharacterFormProps {
     appearance?: string;
     is_template?: boolean;
     is_public?: boolean;
+    voice_style?: VoiceStyle | null;
   };
   storyCharacterRole?: string; // For linking to story after creation
   storyId?: number; // For linking to story after creation
@@ -43,11 +44,17 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
     fears: '',
     appearance: '',
     is_template: true,
-    is_public: false
+    is_public: false,
+    voice_style: null as VoiceStyle | null
   });
 
   const [newTrait, setNewTrait] = useState('');
   const [selectedRole, setSelectedRole] = useState<string>('');
+  
+  // Voice style state
+  const [voicePresets, setVoicePresets] = useState<VoiceStylePresetsResponse | null>(null);
+  const [loadingPresets, setLoadingPresets] = useState(false);
+  const [showVoiceCustomization, setShowVoiceCustomization] = useState(false);
 
   // Character roles for story linking
   const CHARACTER_ROLES = [
@@ -60,6 +67,22 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
     { id: 'mysterious', name: 'Mysterious Figure', icon: '🎭', color: 'from-gray-500 to-gray-700' },
     { id: 'other', name: 'Other', icon: '👤', color: 'from-indigo-400 to-indigo-600' }
   ];
+
+  // Load voice style presets on mount
+  useEffect(() => {
+    const loadVoicePresets = async () => {
+      try {
+        setLoadingPresets(true);
+        const presets = await apiClient.getVoiceStylePresets();
+        setVoicePresets(presets);
+      } catch (error) {
+        console.error('Failed to load voice style presets:', error);
+      } finally {
+        setLoadingPresets(false);
+      }
+    };
+    loadVoicePresets();
+  }, []);
 
   useEffect(() => {
     if (characterId && mode === 'edit') {
@@ -75,7 +98,8 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
         fears: initialData.fears || '',
         appearance: initialData.appearance || '',
         is_template: initialData.is_template ?? true,
-        is_public: initialData.is_public ?? false
+        is_public: initialData.is_public ?? false,
+        voice_style: initialData.voice_style || null
       });
       // Set as generated character so it shows in AI-assisted preview mode
       setGeneratedCharacter({
@@ -87,7 +111,8 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
         fears: initialData.fears || '',
         appearance: initialData.appearance || '',
         is_template: initialData.is_template ?? true,
-        is_public: initialData.is_public ?? false
+        is_public: initialData.is_public ?? false,
+        voice_style: initialData.voice_style || null
       });
       setCreationMode('ai-assisted');
     }
@@ -115,8 +140,13 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
         fears: character.fears,
         appearance: character.appearance,
         is_template: character.is_template,
-        is_public: character.is_public
+        is_public: character.is_public,
+        voice_style: character.voice_style || null
       });
+      // If character has custom voice style, show customization
+      if (character.voice_style?.preset === 'custom') {
+        setShowVoiceCustomization(true);
+      }
     } catch (error) {
       console.error('Failed to load character:', error);
     } finally {
@@ -216,7 +246,8 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
           fears: generatedCharacter.fears,
           appearance: generatedCharacter.appearance,
           is_template: generatedCharacter.is_template,
-          is_public: generatedCharacter.is_public
+          is_public: generatedCharacter.is_public,
+          voice_style: formData.voice_style  // Include voice style from form
         });
       }
 
@@ -245,7 +276,8 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
         fears: generatedCharacter.fears,
         appearance: generatedCharacter.appearance,
         is_template: generatedCharacter.is_template ?? true,
-        is_public: generatedCharacter.is_public ?? false
+        is_public: generatedCharacter.is_public ?? false,
+        voice_style: generatedCharacter.voice_style || formData.voice_style || null
       });
     }
     setCreationMode('manual');
@@ -773,6 +805,220 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
                   className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
                 />
               </div>
+            </div>
+
+            {/* Voice & Speech Style */}
+            <div className="space-y-4">
+              <h3 className="text-xl font-semibold text-white">Voice & Speech Style</h3>
+              <p className="text-white/60 text-sm">
+                Define how this character speaks - their accent, tone, and speech patterns
+              </p>
+              
+              {loadingPresets ? (
+                <div className="text-white/60">Loading voice style options...</div>
+              ) : voicePresets ? (
+                <div className="space-y-4">
+                  {/* Preset Selection */}
+                  <div>
+                    <label className="block text-sm font-medium text-white mb-2">
+                      Voice Style Preset
+                    </label>
+                    <select
+                      value={formData.voice_style?.preset || ''}
+                      onChange={(e) => {
+                        const presetId = e.target.value;
+                        if (!presetId) {
+                          handleInputChange('voice_style', null);
+                          setShowVoiceCustomization(false);
+                        } else if (presetId === 'custom') {
+                          handleInputChange('voice_style', { 
+                            preset: 'custom',
+                            formality: 'casual',
+                            vocabulary: 'average',
+                            tone: 'calm',
+                            profanity: 'none',
+                            language_mixing: 'none'
+                          });
+                          setShowVoiceCustomization(true);
+                        } else {
+                          handleInputChange('voice_style', { preset: presetId });
+                          setShowVoiceCustomization(false);
+                        }
+                      }}
+                      className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white focus:outline-none theme-focus-ring"
+                    >
+                      <option value="">Standard (no special voice)</option>
+                      <optgroup label="Regional Dialects">
+                        {Object.entries(voicePresets.presets)
+                          .filter(([_, p]) => p.category === 'regional')
+                          .map(([id, preset]) => (
+                            <option key={id} value={id}>{preset.name}</option>
+                          ))}
+                      </optgroup>
+                      <optgroup label="Character Types">
+                        {Object.entries(voicePresets.presets)
+                          .filter(([_, p]) => p.category === 'archetype')
+                          .map(([id, preset]) => (
+                            <option key={id} value={id}>{preset.name}</option>
+                          ))}
+                      </optgroup>
+                      <optgroup label="Fantasy/Genre">
+                        {Object.entries(voicePresets.presets)
+                          .filter(([_, p]) => p.category === 'fantasy')
+                          .map(([id, preset]) => (
+                            <option key={id} value={id}>{preset.name}</option>
+                          ))}
+                      </optgroup>
+                      <optgroup label="Other">
+                        {Object.entries(voicePresets.presets)
+                          .filter(([_, p]) => p.category === 'neutral' || !['regional', 'archetype', 'fantasy'].includes(p.category))
+                          .map(([id, preset]) => (
+                            <option key={id} value={id}>{preset.name}</option>
+                          ))}
+                        <option value="custom">Custom (define your own)</option>
+                      </optgroup>
+                    </select>
+                  </div>
+
+                  {/* Preset Preview */}
+                  {formData.voice_style?.preset && formData.voice_style.preset !== 'custom' && voicePresets.presets[formData.voice_style.preset] && (
+                    <div className="bg-white/5 rounded-lg p-4 border border-white/10">
+                      <p className="text-white/60 text-sm mb-2">{voicePresets.presets[formData.voice_style.preset].description}</p>
+                      <p className="text-white/80 text-sm italic">"{voicePresets.presets[formData.voice_style.preset].example}"</p>
+                    </div>
+                  )}
+
+                  {/* Custom Voice Style Options */}
+                  {showVoiceCustomization && (
+                    <div className="space-y-4 bg-white/5 rounded-lg p-4 border border-white/10">
+                      <div className="grid grid-cols-2 gap-4">
+                        {/* Formality */}
+                        <div>
+                          <label className="block text-sm font-medium text-white/80 mb-1">Formality</label>
+                          <select
+                            value={formData.voice_style?.formality || 'casual'}
+                            onChange={(e) => handleInputChange('voice_style', { ...formData.voice_style, formality: e.target.value })}
+                            className="w-full p-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm"
+                          >
+                            {voicePresets.attributes.formality?.map(attr => (
+                              <option key={attr.id} value={attr.id}>{attr.name}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Vocabulary */}
+                        <div>
+                          <label className="block text-sm font-medium text-white/80 mb-1">Vocabulary</label>
+                          <select
+                            value={formData.voice_style?.vocabulary || 'average'}
+                            onChange={(e) => handleInputChange('voice_style', { ...formData.voice_style, vocabulary: e.target.value })}
+                            className="w-full p-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm"
+                          >
+                            {voicePresets.attributes.vocabulary?.map(attr => (
+                              <option key={attr.id} value={attr.id}>{attr.name}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Tone */}
+                        <div>
+                          <label className="block text-sm font-medium text-white/80 mb-1">Tone</label>
+                          <select
+                            value={formData.voice_style?.tone || 'calm'}
+                            onChange={(e) => handleInputChange('voice_style', { ...formData.voice_style, tone: e.target.value })}
+                            className="w-full p-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm"
+                          >
+                            {voicePresets.attributes.tone?.map(attr => (
+                              <option key={attr.id} value={attr.id}>{attr.name}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Profanity */}
+                        <div>
+                          <label className="block text-sm font-medium text-white/80 mb-1">Profanity</label>
+                          <select
+                            value={formData.voice_style?.profanity || 'none'}
+                            onChange={(e) => handleInputChange('voice_style', { ...formData.voice_style, profanity: e.target.value })}
+                            className="w-full p-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm"
+                          >
+                            {voicePresets.attributes.profanity?.map(attr => (
+                              <option key={attr.id} value={attr.id}>{attr.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Speech Quirks */}
+                      <div>
+                        <label className="block text-sm font-medium text-white/80 mb-1">Speech Quirks (optional)</label>
+                        <input
+                          type="text"
+                          value={formData.voice_style?.speech_quirks || ''}
+                          onChange={(e) => handleInputChange('voice_style', { ...formData.voice_style, speech_quirks: e.target.value })}
+                          placeholder="e.g., Says 'actually' often, ends questions with 'no?'"
+                          className="w-full p-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/40 text-sm"
+                        />
+                      </div>
+
+                      {/* Language Mixing */}
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-white/80 mb-1">Secondary Language</label>
+                          <select
+                            value={formData.voice_style?.secondary_language || ''}
+                            onChange={(e) => handleInputChange('voice_style', { 
+                              ...formData.voice_style, 
+                              secondary_language: e.target.value || undefined,
+                              language_mixing: e.target.value ? (formData.voice_style?.language_mixing || 'light') : 'none'
+                            })}
+                            className="w-full p-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm"
+                          >
+                            <option value="">None (English only)</option>
+                            {voicePresets.attributes.secondary_languages?.map(lang => (
+                              <option key={lang.id} value={lang.id}>{lang.name}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {formData.voice_style?.secondary_language && (
+                          <div>
+                            <label className="block text-sm font-medium text-white/80 mb-1">Mixing Frequency</label>
+                            <select
+                              value={formData.voice_style?.language_mixing || 'light'}
+                              onChange={(e) => handleInputChange('voice_style', { ...formData.voice_style, language_mixing: e.target.value })}
+                              className="w-full p-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm"
+                            >
+                              {voicePresets.attributes.language_mixing_level?.map(level => (
+                                <option key={level.id} value={level.id}>{level.name} - {level.description}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Toggle Customization Button for Presets */}
+                  {formData.voice_style?.preset && formData.voice_style.preset !== 'custom' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (showVoiceCustomization) {
+                          // Reset to just preset
+                          handleInputChange('voice_style', { preset: formData.voice_style?.preset });
+                        }
+                        setShowVoiceCustomization(!showVoiceCustomization);
+                      }}
+                      className="text-sm text-white/60 hover:text-white"
+                    >
+                      {showVoiceCustomization ? '← Use preset only' : '+ Customize further'}
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="text-white/40 text-sm">Voice style options not available</div>
+              )}
             </div>
 
             {/* Story Character Role Selection */}

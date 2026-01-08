@@ -477,6 +477,9 @@ class SemanticContextManager(ContextManager):
             if not character:
                 continue
             
+            # Determine effective voice style (story-specific override or character default)
+            effective_voice_style = sc.voice_style_override if sc.voice_style_override else character.voice_style
+            
             char_data = {
                 "name": character.name,
                 "role": sc.role or "",
@@ -486,7 +489,8 @@ class SemanticContextManager(ContextManager):
                 "goals": character.goals or "",
                 "fears": character.fears or "",
                 "appearance": character.appearance or "",
-                "relationships": ""
+                "relationships": "",
+                "voice_style": effective_voice_style  # Character's speaking style
             }
             
             if chapter_id and sc.id in chapter_story_char_ids:

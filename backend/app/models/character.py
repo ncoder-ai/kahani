@@ -17,6 +17,19 @@ class Character(Base):
     fears = Column(Text)
     appearance = Column(Text)
     
+    # Voice/Speech Style - defines how the character speaks
+    # JSON structure: {
+    #   "preset": "standard_neutral" | "indian_english" | "british_rp" | ... | "custom",
+    #   "formality": "formal" | "casual" | "streetwise" | "archaic",
+    #   "vocabulary": "simple" | "average" | "sophisticated" | "technical",
+    #   "tone": "cheerful" | "sarcastic" | "gruff" | "nervous" | "calm" | "dramatic" | "deadpan",
+    #   "profanity": "none" | "mild" | "moderate" | "heavy",
+    #   "speech_quirks": "free text for catchphrases, verbal tics",
+    #   "secondary_language": "hindi" | "spanish" | "mandarin" | "japanese" | null,
+    #   "language_mixing": "none" | "light" | "moderate" | "heavy"
+    # }
+    voice_style = Column(JSON, nullable=True)  # Character's default speaking style
+    
     # Meta information
     creator_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     is_template = Column(Boolean, default=False)  # Can be reused across stories
@@ -46,6 +59,11 @@ class StoryCharacter(Base):
     
     # Story-specific character properties
     role = Column(String(100))  # Role in this specific story (protagonist, antagonist, etc.)
+    
+    # Story-specific voice style override
+    # If set, overrides the character's default voice_style for this story
+    # Same JSON structure as Character.voice_style
+    voice_style_override = Column(JSON, nullable=True)
     
     # Story-specific character state
     current_location = Column(String(200))

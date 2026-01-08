@@ -1292,6 +1292,110 @@ Chapter Conclusion:"""
         )
         
         return system_prompt, user_prompt
+    
+    def get_voice_style_instruction(self, voice_style: Optional[Dict[str, Any]]) -> str:
+        """
+        Get formatted voice style instruction for a character.
+        
+        Args:
+            voice_style: Dictionary containing voice style settings:
+                - preset: Preset ID (e.g., "indian_english", "formal_noble")
+                - formality, vocabulary, tone, profanity (for custom)
+                - speech_quirks: Free text
+                - secondary_language: Language ID (e.g., "hindi")
+                - language_mixing: "none", "light", "moderate", "heavy"
+        
+        Returns:
+            Formatted instruction string for the LLM
+        """
+        if not voice_style:
+            return ""
+        
+        parts = []
+        
+        # Get preset instruction if specified
+        preset = voice_style.get("preset")
+        if preset and preset != "custom":
+            dialog_styles = self._prompts_cache.get("dialog_styles", {})
+            presets = dialog_styles.get("presets", {})
+            preset_data = presets.get(preset, {})
+            
+            if preset_data:
+                instruction = preset_data.get("instruction", "")
+                example = preset_data.get("example", "")
+                if instruction:
+                    parts.append(f"Voice Style ({preset_data.get('name', preset)}): {instruction.strip()}")
+                if example:
+                    parts.append(f"Example dialogue: \"{example.strip()}\"")
+        else:
+            # Custom voice style - build from individual attributes
+            custom_parts = []
+            
+            if voice_style.get("formality"):
+                formality_map = {
+                    "formal": "Uses formal, proper language",
+                    "casual": "Uses casual, relaxed speech",
+                    "streetwise": "Uses street slang and direct speech",
+                    "archaic": "Uses old-fashioned, noble speech patterns"
+                }
+                custom_parts.append(formality_map.get(voice_style["formality"], ""))
+            
+            if voice_style.get("vocabulary"):
+                vocab_map = {
+                    "simple": "Simple vocabulary and short sentences",
+                    "average": "Normal everyday vocabulary",
+                    "sophisticated": "Rich, sophisticated vocabulary",
+                    "technical": "Uses technical jargon and specialized terms"
+                }
+                custom_parts.append(vocab_map.get(voice_style["vocabulary"], ""))
+            
+            if voice_style.get("tone"):
+                tone_map = {
+                    "cheerful": "Upbeat, positive tone",
+                    "sarcastic": "Dry wit and sarcasm",
+                    "gruff": "Gruff, no-nonsense tone",
+                    "nervous": "Anxious, hesitant speech",
+                    "calm": "Measured, composed tone",
+                    "dramatic": "Intense, emphatic delivery",
+                    "deadpan": "Flat, dry delivery"
+                }
+                custom_parts.append(tone_map.get(voice_style["tone"], ""))
+            
+            if voice_style.get("profanity"):
+                profanity_map = {
+                    "none": "No profanity",
+                    "mild": "Mild expletives only (darn, heck)",
+                    "moderate": "Occasional strong language",
+                    "heavy": "Frequent strong language"
+                }
+                custom_parts.append(profanity_map.get(voice_style["profanity"], ""))
+            
+            if custom_parts:
+                parts.append(f"Voice Style: {'. '.join([p for p in custom_parts if p])}")
+        
+        # Add speech quirks if specified
+        if voice_style.get("speech_quirks"):
+            parts.append(f"Speech quirks: {voice_style['speech_quirks']}")
+        
+        # Add language mixing if specified
+        secondary_lang = voice_style.get("secondary_language")
+        mixing_level = voice_style.get("language_mixing", "none")
+        
+        if secondary_lang and mixing_level and mixing_level != "none":
+            dialog_styles = self._prompts_cache.get("dialog_styles", {})
+            language_mixing = dialog_styles.get("language_mixing", {})
+            lang_data = language_mixing.get(secondary_lang, {})
+            level_data = lang_data.get(mixing_level, {})
+            
+            if level_data:
+                mixing_instruction = level_data.get("instruction", "")
+                mixing_example = level_data.get("example", "")
+                if mixing_instruction:
+                    parts.append(f"Language mixing ({secondary_lang}, {mixing_level}): {mixing_instruction.strip()}")
+                if mixing_example:
+                    parts.append(f"Mixing example: \"{mixing_example.strip()}\"")
+        
+        return "\n  ".join(parts) if parts else ""
 
 # Global prompt manager instance
 prompt_manager = PromptManager()

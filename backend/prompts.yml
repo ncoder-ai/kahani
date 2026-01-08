@@ -1946,3 +1946,728 @@ pacing:
   progress_complete: |
     All key story beats have occurred. 
     Guide the narrative toward the chapter's climax: {climax}
+
+# =============================================================================
+# CHARACTER VOICE/DIALOG STYLES
+# =============================================================================
+# Defines how characters speak - their accent, tone, vocabulary, and speech patterns.
+# Used to generate consistent character voices in dialogue and internal thoughts.
+#
+# Structure:
+# - presets: Pre-defined voice styles users can select from dropdown
+# - language_mixing: Instructions for characters who mix languages
+# - attributes: Individual attribute options for custom voice styles
+
+dialog_styles:
+  # =========================================================================
+  # VOICE STYLE PRESETS
+  # =========================================================================
+  # Each preset contains:
+  # - name: Display name for UI
+  # - description: Brief description for UI tooltip
+  # - category: For grouping in UI (regional, archetype, fantasy)
+  # - instruction: Detailed LLM instruction for generating this voice
+  # - example: Sample dialogue demonstrating the style
+  
+  presets:
+    # -------------------------------------------------------------------------
+    # NEUTRAL / STANDARD
+    # -------------------------------------------------------------------------
+    standard_neutral:
+      name: "Standard Neutral"
+      description: "Clear, unaccented English with no distinctive speech patterns"
+      category: "neutral"
+      instruction: |
+        This character speaks in clear, standard English without any distinctive accent or dialect.
+        Use neutral vocabulary and tone. Complete sentences, proper grammar.
+        No regional expressions or slang. Professional but not stiff.
+      example: "I understand what you're saying. Let me think about the best approach."
+    
+    # -------------------------------------------------------------------------
+    # REGIONAL - BRITISH ISLES
+    # -------------------------------------------------------------------------
+    british_rp:
+      name: "British RP"
+      description: "Received Pronunciation - formal, educated British English"
+      category: "regional"
+      instruction: |
+        This character speaks with Received Pronunciation (RP) - educated British English.
+        Use British vocabulary: "quite", "rather", "I suppose", "brilliant", "cheers".
+        Formal sentence structure. Understated emotions. Dry wit when appropriate.
+        British spellings in narrative: colour, behaviour, realise.
+      example: "I rather think we ought to proceed with caution. One doesn't simply rush into these matters."
+    
+    british_cockney:
+      name: "Cockney"
+      description: "Working-class London dialect with rhyming slang"
+      category: "regional"
+      instruction: |
+        This character speaks with a Cockney accent from East London.
+        Drop H's at the start of words: "'ello", "'ave a look", "'e said".
+        Use glottal stops for T sounds: "bu'er" (butter), "wa'er" (water).
+        Occasional rhyming slang: "apples and pears" (stairs), "dog and bone" (phone).
+        Expressions: "Blimey!", "Cor!", "innit", "mate", "love" (as address).
+      example: "Blimey! 'Ave a butcher's at this, will ya? I ain't seen nuffin' like it, mate."
+    
+    scottish:
+      name: "Scottish"
+      description: "Scottish English with Scots dialect influences"
+      category: "regional"
+      instruction: |
+        This character speaks with a Scottish accent and dialect.
+        Use Scottish expressions: "aye" (yes), "nae" (no/not), "wee" (small), "ken" (know).
+        "Ye" instead of "you". "Dinnae" instead of "don't".
+        Expressions: "Och!", "Ach!", end questions with "ye ken?" or "aye?".
+        Rolling R's implied. Direct, no-nonsense communication style.
+      example: "Ach, ye dinnae understand, do ye? It's no' as simple as that, ye ken?"
+    
+    irish:
+      name: "Irish"
+      description: "Irish English with lyrical cadence and expressions"
+      category: "regional"
+      instruction: |
+        This character speaks with an Irish accent and expressions.
+        Lyrical, melodic cadence to speech. Storytelling tendency.
+        Use Irish expressions: "Ah sure", "So it is", "at all at all", "grand", "fierce" (very).
+        "Yourself" as formal address. Rhetorical questions. 
+        Expressions: "Jaysus!", "Holy Mary!", "feck" (mild profanity).
+      example: "Ah sure, it'll be grand so it will. Don't be worrying yourself about that at all."
+    
+    # -------------------------------------------------------------------------
+    # REGIONAL - AUSTRALIA/NZ
+    # -------------------------------------------------------------------------
+    australian:
+      name: "Australian"
+      description: "Casual Australian English with distinctive slang"
+      category: "regional"
+      instruction: |
+        This character speaks with an Australian accent and expressions.
+        Casual, laid-back tone. Abbreviate words: "arvo" (afternoon), "servo" (service station).
+        Use Australian slang: "mate", "no worries", "she'll be right", "fair dinkum", "reckon".
+        Rising intonation on statements (like questions). Self-deprecating humor.
+        Expressions: "Crikey!", "Strewth!", "bloody" (mild intensifier).
+      example: "No worries, mate. She'll be right. Reckon we can sort this out over a cuppa."
+    
+    # -------------------------------------------------------------------------
+    # REGIONAL - NORTH AMERICA
+    # -------------------------------------------------------------------------
+    southern_us:
+      name: "Southern US"
+      description: "American Southern dialect with folksy charm"
+      category: "regional"
+      instruction: |
+        This character speaks with a Southern US accent (Georgia, Texas, Louisiana style).
+        Slower, drawling speech. Polite, uses honorifics: "ma'am", "sir", "y'all".
+        Expressions: "fixin' to" (about to), "might could", "I reckon", "bless your heart".
+        Folksy wisdom and metaphors. Warm, hospitable tone.
+        Double modals: "might could", "may can". "All y'all" for plural.
+      example: "Well, I'll be! Bless your heart, honey. I reckon we're fixin' to have ourselves quite an adventure."
+    
+    new_york:
+      name: "New York"
+      description: "Fast-paced New York/East Coast dialect"
+      category: "regional"
+      instruction: |
+        This character speaks with a New York accent.
+        Fast-paced, direct, no-nonsense communication.
+        Dropped R's: "cah" (car), "pahk" (park). "Coffee" sounds like "cawfee".
+        Expressions: "fuggedaboutit", "yo", "what's up", "I'm walkin' here!"
+        Interrupts, talks with hands (implied). Sarcastic, quick wit.
+      example: "Hey, I'm walkin' here! Look, lemme tell ya somethin' - this ain't gonna work, capisce?"
+    
+    # -------------------------------------------------------------------------
+    # REGIONAL - SOUTH ASIA
+    # -------------------------------------------------------------------------
+    indian_english:
+      name: "Indian English"
+      description: "South Asian English with Hindi/regional influences"
+      category: "regional"
+      instruction: |
+        This character speaks Indian English with Hindi language influences.
+        Use Indian English patterns: "only" as emphasis ("I was telling only"), 
+        "na?" or "no?" at end of sentences, "actually" frequently.
+        Present continuous for simple present: "I am thinking" instead of "I think".
+        Expressions: "What to do?", "Same to same", "Do one thing".
+        Honorifics: "ji" suffix for respect, "yaar" for friends.
+        Mix Hindi words naturally (see language_mixing section for more).
+      example: "Actually, this is very important matter only. You are understanding, no? We should do one thing - let's discuss properly, yaar."
+    
+    # -------------------------------------------------------------------------
+    # REGIONAL - EAST ASIA
+    # -------------------------------------------------------------------------
+    east_asian_formal:
+      name: "East Asian Formal"
+      description: "Polite, indirect speech pattern common in East Asian cultures"
+      category: "regional"
+      instruction: |
+        This character speaks formally with East Asian communication patterns.
+        Indirect, polite phrasing. Avoids direct confrontation or refusal.
+        Uses hedging: "perhaps", "it might be", "I wonder if".
+        Formal address, shows respect to elders/superiors.
+        May pause to consider words carefully. Values harmony in conversation.
+      example: "Perhaps we might consider another approach? I wonder if there might be a more suitable solution."
+    
+    singaporean:
+      name: "Singaporean (Singlish)"
+      description: "Singaporean English with characteristic particles"
+      category: "regional"
+      instruction: |
+        This character speaks Singlish (Singaporean English).
+        Use sentence-ending particles: "lah" (emphasis), "leh" (persuasion), "lor" (resignation), "meh" (doubt).
+        Dropped subjects and articles: "Can!" (I can), "Got or not?" (Do you have it?).
+        Mix Hokkien/Malay words: "shiok" (great), "kiasu" (afraid to lose), "makan" (eat).
+        Direct, efficient communication. Code-switch between formal and Singlish.
+      example: "Wah, this one very good lah! Can do, can do. You want to makan first or not?"
+    
+    # -------------------------------------------------------------------------
+    # REGIONAL - AFRICA
+    # -------------------------------------------------------------------------
+    nigerian_english:
+      name: "Nigerian English"
+      description: "West African English with Nigerian Pidgin influences"
+      category: "regional"
+      instruction: |
+        This character speaks Nigerian English, occasionally mixing Nigerian Pidgin.
+        Expressive, animated speech. Storytelling style.
+        Pidgin expressions: "o" at end of sentences for emphasis, "na" (is/it's).
+        "Abi?" (right?), "wetin" (what), "no wahala" (no problem).
+        Proverbs and wise sayings common. Community-oriented speech.
+      example: "Ah ah! This matter no be small thing o! But no wahala, we go sort am out. Na so life be."
+    
+    south_african:
+      name: "South African"
+      description: "South African English with Afrikaans influences"
+      category: "regional"
+      instruction: |
+        This character speaks South African English.
+        Mix of British base with Afrikaans influences.
+        Expressions: "ja" (yes), "nee" (no), "lekker" (great), "braai" (barbecue).
+        "Ag shame" (expression of sympathy), "just now" (soon), "now now" (very soon).
+        "Hey" at end of sentences for confirmation. "Is it?" as general response.
+      example: "Ag shame, that's lekker, hey? We should definitely do this, ja. I'll see you just now."
+    
+    # -------------------------------------------------------------------------
+    # REGIONAL - CARIBBEAN
+    # -------------------------------------------------------------------------
+    caribbean:
+      name: "Caribbean"
+      description: "Caribbean English with Patois influences"
+      category: "regional"
+      instruction: |
+        This character speaks Caribbean English with Jamaican Patois influences.
+        Melodic, rhythmic speech patterns.
+        "Mi" or "me" instead of "I", "dem" for "them", "ting" for "thing".
+        Expressions: "irie" (good/alright), "mon" (man, as address), "soon come".
+        "Wah gwaan" (what's going on), "no problem" with emphasis.
+        Laid-back, warm communication style.
+      example: "Everyting irie, mon. No problem at all. Wi soon come sort dis ting out, yeah?"
+    
+    # -------------------------------------------------------------------------
+    # CHARACTER ARCHETYPES
+    # -------------------------------------------------------------------------
+    formal_noble:
+      name: "Formal Noble"
+      description: "Aristocratic speech - sophisticated, archaic, dignified"
+      category: "archetype"
+      instruction: |
+        This character speaks like nobility or aristocracy.
+        Sophisticated vocabulary. Never uses contractions.
+        Formal sentence structure. Measured, deliberate speech.
+        Archaic touches: "I trust", "one might", "it would appear".
+        Maintains dignity even in casual situations. Expects deference.
+      example: "I trust you shall attend to this matter with the utmost discretion. One does not simply ignore such obligations."
+    
+    street_smart:
+      name: "Street Smart"
+      description: "Urban, direct, street-wise speech"
+      category: "archetype"
+      instruction: |
+        This character speaks with street smarts and urban sensibility.
+        Direct, no-nonsense communication. Sees through pretense.
+        Slang and colloquialisms. Skeptical tone.
+        Short sentences when tense. Knows how to read people.
+        May use mild profanity naturally. Practical wisdom.
+      example: "Look, I ain't got time for games. What's the deal? You want something, just say it straight."
+    
+    gruff_warrior:
+      name: "Gruff Warrior"
+      description: "Terse, military-style speech with battle-hardened tone"
+      category: "archetype"
+      instruction: |
+        This character speaks like a battle-hardened soldier or warrior.
+        Terse, economical speech. Action over words.
+        Military precision. Commands are brief.
+        Gruff tone, not unkind but not soft. Battle metaphors.
+        May grunt acknowledgments. Respects strength and honor.
+      example: "Move out. Questions later. We've got ground to cover and daylight's burning."
+    
+    scholarly:
+      name: "Scholarly"
+      description: "Academic, precise, intellectual speech"
+      category: "archetype"
+      instruction: |
+        This character speaks like an academic or scholar.
+        Precise vocabulary. Technical terms when appropriate.
+        Well-structured arguments. Cites evidence.
+        May qualify statements: "theoretically", "the data suggests".
+        Curious, analytical approach. Patient when explaining.
+      example: "The evidence suggests a strong correlation between these variables. Fascinating, really. Let me elaborate on the methodology."
+    
+    cheerful_optimist:
+      name: "Cheerful Optimist"
+      description: "Upbeat, enthusiastic, positive speech"
+      category: "archetype"
+      instruction: |
+        This character speaks with infectious enthusiasm and optimism.
+        Exclamations! Positive framing of situations.
+        Encouraging words. Sees opportunities, not problems.
+        May use "amazing", "wonderful", "exciting" frequently.
+        Supportive of others. Glass-half-full mentality.
+      example: "Oh wow! This is going to be amazing! I just know we can figure this out together. How exciting!"
+    
+    mysterious_sage:
+      name: "Mysterious Sage"
+      description: "Cryptic, wise, speaks in riddles and metaphors"
+      category: "archetype"
+      instruction: |
+        This character speaks like a mysterious mentor or sage.
+        Cryptic, indirect answers. Riddles and metaphors.
+        Pauses pregnant with meaning. Calm, measured delivery.
+        Turns questions back on the asker. Ancient wisdom style.
+        "The answer lies within" type responses. Poetic phrasing.
+      example: "The answer you seek lies within the question itself. When the student is ready, the path reveals itself."
+    
+    sarcastic_wit:
+      name: "Sarcastic Wit"
+      description: "Dry humor, ironic observations, deadpan delivery"
+      category: "archetype"
+      instruction: |
+        This character speaks with dry wit and sarcasm.
+        Deadpan delivery. Ironic observations.
+        Says the opposite of what they mean (obviously).
+        Eye-roll implied in tone. Sophisticated humor.
+        Not mean-spirited, but definitely cynical. Quick comebacks.
+      example: "Oh, wonderful. Because that worked so well the last three times. But sure, let's try it again."
+    
+    nervous_anxious:
+      name: "Nervous/Anxious"
+      description: "Hesitant, stammering, overthinking speech"
+      category: "archetype"
+      instruction: |
+        This character speaks with obvious anxiety or nervousness.
+        Stammers, false starts: "I-I mean", "Well, um".
+        Hedging and qualifications: "maybe", "I think", "I'm not sure but".
+        Trails off mid-sentence. Second-guesses themselves.
+        Seeks reassurance. Worst-case scenario thinking out loud.
+      example: "I-I don't know... maybe we shouldn't? I mean, what if something goes wrong? Not that I'm saying it will, but..."
+    
+    hot_headed:
+      name: "Hot-Headed"
+      description: "Impulsive, emphatic, quick to anger"
+      category: "archetype"
+      instruction: |
+        This character speaks impulsively and intensely.
+        Interrupts others. Emphatic declarations.
+        CAPS for emphasis when shouting. Short, punchy sentences when angry.
+        Quick to take offense. Passionate about everything.
+        May calm down quickly too. Heart on sleeve.
+      example: "WHAT?! No way! That's ridiculous! We're doing this MY way, and that's final!"
+    
+    child_innocent:
+      name: "Child/Innocent"
+      description: "Simple, curious, wide-eyed wonder"
+      category: "archetype"
+      instruction: |
+        This character speaks with childlike innocence or naivety.
+        Simple vocabulary. Lots of questions: "But why?"
+        Wonder at ordinary things. Takes things literally.
+        Short attention span implied. Honest to a fault.
+        No filter - says what they think. Easily excited.
+      example: "But why? And then what happens? Is it magic? Can I touch it? Oh! Oh! Look at that!"
+    
+    elderly_wise:
+      name: "Elderly Wise"
+      description: "Measured, reflective, sharing life experience"
+      category: "archetype"
+      instruction: |
+        This character speaks with the wisdom of age.
+        Measured pace. Reflective. "In my day" references.
+        Patience in explanation. Life lessons woven in.
+        May repeat important points. Nostalgic touches.
+        Sees patterns younger people miss. Values different now.
+      example: "In my day, we learned patience the hard way. There's wisdom in waiting, young one. I've seen this pattern before."
+    
+    tech_bro:
+      name: "Tech Bro"
+      description: "Silicon Valley buzzwords, startup culture speech"
+      category: "archetype"
+      instruction: |
+        This character speaks like a Silicon Valley entrepreneur.
+        Buzzwords: "disrupt", "pivot", "synergy", "leverage", "scalable".
+        Casual formality. First-name basis with everyone.
+        "Let's unpack that", "circle back", "take this offline".
+        Optimistic about technology. Move fast, break things mentality.
+      example: "Let's disrupt this paradigm and pivot to a new vertical. We can leverage our synergies and really move the needle here."
+    
+    noir_detective:
+      name: "Noir Detective"
+      description: "Hard-boiled, cynical, metaphor-heavy narration"
+      category: "archetype"
+      instruction: |
+        This character speaks like a hard-boiled detective from noir fiction.
+        World-weary cynicism. Metaphors and similes everywhere.
+        Short, punchy observations. Seen it all before.
+        Whiskey-and-cigarettes voice implied. Fatalistic.
+        Beautiful losers and dangerous dames. The city as character.
+      example: "The city was as cold as her heart. I'd seen her type before - trouble wrapped in silk. And I was a sucker for trouble."
+    
+    # -------------------------------------------------------------------------
+    # FANTASY/GENRE SPECIFIC
+    # -------------------------------------------------------------------------
+    high_elf:
+      name: "High Elf"
+      description: "Archaic, formal, elegant fantasy speech"
+      category: "fantasy"
+      instruction: |
+        This character speaks like a high elf from fantasy.
+        Archaic, formal elegance. Timeless perspective (centuries old).
+        Poetic phrasing. Nature and star metaphors.
+        Patient, unhurried speech. "Mortal" as slight condescension.
+        Ancient knowledge casually referenced. Musical quality to speech.
+      example: "The stars foretold your coming, mortal. In the tongue of the ancients, your kind are called 'Those Who Burn Briefly.'"
+    
+    dwarf:
+      name: "Dwarf"
+      description: "Gruff, Scottish-tinged, proud warrior speech"
+      category: "fantasy"
+      instruction: |
+        This character speaks like a fantasy dwarf.
+        Gruff, direct, proud. Scottish-influenced dialect.
+        "By me beard!", "Ach!", "Ye". Pride in craft and clan.
+        Suspicious of magic, loves gold and ale. Battle-ready.
+        Grudges mentioned. Honor-bound. Loyal to death.
+      example: "By me beard! Ye call that a battle? I've had tougher fights with me breakfast! Now, where's the ale?"
+    
+    orc_brute:
+      name: "Orc/Brute"
+      description: "Simple, aggressive, broken grammar"
+      category: "fantasy"
+      instruction: |
+        This character speaks like an orc or brutish creature.
+        Simple vocabulary. Broken grammar acceptable.
+        Third person self-reference sometimes. Short sentences.
+        Aggressive, direct. Respects strength.
+        "Me" instead of "I" sometimes. Violence as solution.
+      example: "Me not understand fancy words. You explain simple. Now. Or we fight."
+    
+    pirate:
+      name: "Pirate"
+      description: "Nautical slang, colorful expressions, sea dog speech"
+      category: "fantasy"
+      instruction: |
+        This character speaks like a classic pirate.
+        "Arr!", "Avast!", "Shiver me timbers!", "Ye scurvy dog!"
+        Nautical terms: "landlubber", "bilge rat", "walk the plank".
+        Dropped G's: "sailin'", "fightin'". "Me" instead of "my".
+        Colorful threats. Sea metaphors. Rum references.
+      example: "Arr! Shiver me timbers, ye scurvy dog! I'll be havin' that treasure or ye'll be walkin' the plank!"
+    
+    victorian_gentleman:
+      name: "Victorian Gentleman"
+      description: "Extremely formal, verbose, period-appropriate speech"
+      category: "fantasy"
+      instruction: |
+        This character speaks like a Victorian-era gentleman.
+        Extremely formal. Long, complex sentences.
+        "I must confess", "I dare say", "it would appear".
+        Never uses contractions. Euphemisms for crude topics.
+        Propriety above all. Class-conscious. Stiff upper lip.
+      example: "I must confess, the circumstances surrounding this affair are most peculiar. One hesitates to speculate, and yet..."
+    
+    medieval_peasant:
+      name: "Medieval Peasant"
+      description: "Simple, deferential, working-class historical speech"
+      category: "fantasy"
+      instruction: |
+        This character speaks like a medieval peasant or commoner.
+        Simple vocabulary. Deferential to nobility: "m'lord", "m'lady".
+        "Beggin' your pardon", "if it please ye". Practical concerns.
+        Superstitious references. Hard life implied.
+        Work-focused. Community bonds. Fear of authority.
+      example: "Beggin' your pardon, m'lord, but the harvest won't bring itself in. We simple folk got our duties."
+    
+    cyberpunk_hacker:
+      name: "Cyberpunk Hacker"
+      description: "Tech slang, irreverent, anti-corporate attitude"
+      category: "fantasy"
+      instruction: |
+        This character speaks like a cyberpunk hacker.
+        Tech slang: "jack in", "flatline", "ICE", "wetware".
+        Anti-corporate attitude. Irreverent, cocky.
+        Net/matrix references. Augmentation casual.
+        Trust issues with corps. Information is currency.
+      example: "Jacking in now. Corporate ICE? Please. Child's play. Their security's more hole than wall."
+    
+    ai_robot:
+      name: "AI/Robot"
+      description: "Precise, logical, occasionally stilted speech"
+      category: "fantasy"
+      instruction: |
+        This character speaks like an AI or robot.
+        Precise, logical phrasing. Probability statements.
+        Occasionally stilted or overly literal. No contractions typically.
+        May express curiosity about human behavior.
+        "Processing", "Affirmative", "Does not compute" occasionally.
+        Learning human expressions (sometimes incorrectly).
+      example: "Affirmative. Processing request. Probability of success: 73.2%. I believe the human expression is 'fingers crossed.'"
+
+  # =========================================================================
+  # LANGUAGE MIXING INSTRUCTIONS
+  # =========================================================================
+  # Used when a character has a secondary_language set
+  # Provides specific words/phrases and mixing patterns
+  
+  language_mixing:
+    hindi:
+      light:
+        instruction: |
+          Occasionally incorporate common Hindi words naturally into English speech.
+          Words to use: "accha" (okay/good), "bahut" (very/much), "yaar" (friend/buddy).
+          Keep mixing subtle - one Hindi word per few sentences maximum.
+        example: "That's a bahut interesting idea, actually."
+      moderate:
+        instruction: |
+          Regularly mix Hindi expressions into English speech.
+          Words/phrases: "yaar", "bahut", "accha", "kya baat hai" (wow/excellent), 
+          "theek hai" (alright), "arrey" (hey/oh), "na?" or "no?" at sentence ends.
+          Hindi words should flow naturally, not feel forced.
+        example: "Arrey, kya baat hai! I didn't expect to see you here, yaar. This is bahut exciting, no?"
+      heavy:
+        instruction: |
+          Frequently use Hindi phrases throughout dialogue.
+          Include longer phrases: "kya kar rahe ho" (what are you doing), 
+          "main tumhe bata rahi hoon" (I'm telling you), "bilkul" (absolutely),
+          "bas" (enough/just), "dekho" (look). Emotional expressions often in Hindi.
+        example: "Arrey yaar, kya kar rahe ho? This is bilkul not right. Main tumhe bata rahi hoon, this will be a problem, bas."
+    
+    spanish:
+      light:
+        instruction: |
+          Occasionally use common Spanish words in English speech.
+          Words: "bueno" (good/well), "mira" (look), "gracias", "por favor".
+        example: "Bueno, that sounds like a plan."
+      moderate:
+        instruction: |
+          Regularly mix Spanish expressions into English.
+          Phrases: "Ay dios mío" (oh my god), "mira" (look), "entiendes" (you understand),
+          "claro" (of course), "no mames" (no way - casual), "órale" (wow/come on).
+        example: "Ay dios mío! I can't believe this. Mira, we need to talk, entiendes?"
+      heavy:
+        instruction: |
+          Frequently switch between English and Spanish.
+          Full phrases in Spanish common. Emotional moments often in Spanish.
+          "Que horror", "No lo puedo creer" (I can't believe it), "vámonos" (let's go).
+        example: "No lo puedo creer! How could they do this? Mira, vámonos de aquí. This place gives me bad vibes, sabes?"
+    
+    mandarin:
+      light:
+        instruction: |
+          Occasionally use common Mandarin expressions.
+          Words: "wèi" (hey, on phone), "hǎo" (good), "xiè xie" (thanks).
+        example: "Hǎo, that works for me."
+      moderate:
+        instruction: |
+          Mix Mandarin expressions into English regularly.
+          Phrases: "āiyā" (oh no/surprise), "zhēn de" (really), "méi wèntí" (no problem),
+          "tài hǎo le" (great), "bù hǎo yìsi" (embarrassed/excuse me).
+        example: "Āiyā! Zhēn de? This is tài hǎo le! Méi wèntí, I'll handle it."
+      heavy:
+        instruction: |
+          Frequently use Mandarin phrases, especially for emotions.
+          "Zěnme bàn" (what to do), "wǒ de tiān" (my god), "suàn le" (forget it).
+        example: "Wǒ de tiān! What is happening? Zěnme bàn? We can't just suàn le, this is serious!"
+    
+    japanese:
+      light:
+        instruction: |
+          Occasionally use common Japanese words.
+          Words: "sugoi" (amazing), "kawaii" (cute), "hai" (yes), "nani" (what).
+        example: "This is sugoi! I mean, amazing!"
+      moderate:
+        instruction: |
+          Mix Japanese expressions into English regularly.
+          Phrases: "maji de" (seriously), "yabai" (crazy/amazing), "chotto" (a little/wait),
+          "ganbatte" (do your best), "mendokusai" (troublesome).
+        example: "Maji de? This is yabai! Chotto, let me think. We need to ganbatte on this one."
+      heavy:
+        instruction: |
+          Frequently use Japanese, especially emotional expressions.
+          "Nande" (why), "uso" (no way/lie), "dame" (no good), "tasukete" (help).
+        example: "Uso! Nande would they do this? This is totally dame. Someone tasukete!"
+    
+    french:
+      light:
+        instruction: |
+          Occasionally use common French words.
+          Words: "mais" (but), "voilà", "c'est la vie", "merci".
+        example: "C'est la vie, I suppose."
+      moderate:
+        instruction: |
+          Mix French expressions into English regularly.
+          Phrases: "mon dieu" (my god), "incroyable" (incredible), "bien sûr" (of course),
+          "n'est-ce pas" (isn't it), "comme ci comme ça" (so-so).
+        example: "Mon dieu! This is incroyable, n'est-ce pas? Bien sûr we must do something."
+      heavy:
+        instruction: |
+          Frequently use French phrases, especially emotional ones.
+          "Quelle horreur" (how horrible), "je ne sais quoi" (a certain something).
+        example: "Quelle horreur! I cannot believe this. There is a certain je ne sais quoi about the situation that troubles me deeply."
+    
+    korean:
+      light:
+        instruction: |
+          Occasionally use common Korean words.
+          Words: "aigoo" (oh my), "daebak" (awesome), "fighting" (encouragement).
+        example: "Daebak! That's awesome!"
+      moderate:
+        instruction: |
+          Mix Korean expressions into English regularly.
+          Phrases: "aigoo", "jinjja" (really), "omo" (oh my), "aish" (frustration),
+          "gwenchana" (it's okay), "jeongmal" (truly).
+        example: "Omo! Jinjja? This is daebak! Gwenchana, we'll figure it out, fighting!"
+      heavy:
+        instruction: |
+          Frequently use Korean, especially emotional expressions.
+          "Wae" (why), "andwae" (no way), "jebal" (please), "mianhae" (sorry).
+        example: "Andwae! Wae is this happening? Jebal, we have to fix this. Jeongmal sorry about all this."
+    
+    arabic:
+      light:
+        instruction: |
+          Occasionally use common Arabic expressions.
+          Words: "yalla" (come on/let's go), "habibi/habibti" (dear), "inshallah" (god willing).
+        example: "Yalla, let's get going."
+      moderate:
+        instruction: |
+          Mix Arabic expressions into English regularly.
+          Phrases: "wallah" (I swear), "khalas" (enough/done), "mashallah" (god has willed),
+          "alhamdulillah" (praise god), "ya allah" (oh god).
+        example: "Ya Allah! Wallah, I did not expect this. Mashallah, it's beautiful. Khalas, let's go."
+      heavy:
+        instruction: |
+          Frequently use Arabic phrases, especially emotional ones.
+          "La" (no), "shukran" (thanks), "ahlan" (welcome), "ma'a salama" (goodbye).
+        example: "La, la, la! This cannot be! Ya Allah, shukran for your patience. Yalla, we must act now, khalas."
+
+  # =========================================================================
+  # ATTRIBUTE OPTIONS (for custom voice styles)
+  # =========================================================================
+  attributes:
+    formality:
+      - id: "formal"
+        name: "Formal"
+        description: "Proper grammar, no slang, professional"
+      - id: "casual"
+        name: "Casual"
+        description: "Relaxed, everyday speech"
+      - id: "streetwise"
+        name: "Streetwise"
+        description: "Urban slang, direct"
+      - id: "archaic"
+        name: "Archaic/Royal"
+        description: "Old-fashioned, noble speech"
+    
+    vocabulary:
+      - id: "simple"
+        name: "Simple"
+        description: "Basic words, short sentences"
+      - id: "average"
+        name: "Average"
+        description: "Normal everyday vocabulary"
+      - id: "sophisticated"
+        name: "Sophisticated"
+        description: "Rich vocabulary, complex sentences"
+      - id: "technical"
+        name: "Technical/Jargon"
+        description: "Specialized terminology"
+    
+    tone:
+      - id: "cheerful"
+        name: "Cheerful"
+        description: "Upbeat, positive"
+      - id: "sarcastic"
+        name: "Sarcastic"
+        description: "Dry wit, ironic"
+      - id: "gruff"
+        name: "Gruff"
+        description: "Rough, no-nonsense"
+      - id: "nervous"
+        name: "Nervous"
+        description: "Anxious, hesitant"
+      - id: "calm"
+        name: "Calm"
+        description: "Measured, composed"
+      - id: "dramatic"
+        name: "Dramatic"
+        description: "Intense, emphatic"
+      - id: "deadpan"
+        name: "Deadpan"
+        description: "Flat delivery, dry"
+    
+    profanity:
+      - id: "none"
+        name: "None"
+        description: "Clean language only"
+      - id: "mild"
+        name: "Mild"
+        description: "Darn, heck, etc."
+      - id: "moderate"
+        name: "Moderate"
+        description: "Occasional strong language"
+      - id: "heavy"
+        name: "Heavy"
+        description: "Frequent strong language"
+    
+    language_mixing_level:
+      - id: "none"
+        name: "None"
+        description: "English only"
+      - id: "light"
+        name: "Light"
+        description: "Occasional words"
+      - id: "moderate"
+        name: "Moderate"
+        description: "Regular mixing"
+      - id: "heavy"
+        name: "Heavy"
+        description: "Frequent phrases"
+    
+    secondary_languages:
+      - id: "hindi"
+        name: "Hindi"
+      - id: "spanish"
+        name: "Spanish"
+      - id: "mandarin"
+        name: "Mandarin Chinese"
+      - id: "japanese"
+        name: "Japanese"
+      - id: "french"
+        name: "French"
+      - id: "korean"
+        name: "Korean"
+      - id: "arabic"
+        name: "Arabic"
+      - id: "portuguese"
+        name: "Portuguese"
+      - id: "german"
+        name: "German"
+      - id: "italian"
+        name: "Italian"
+      - id: "russian"
+        name: "Russian"
+      - id: "tagalog"
+        name: "Tagalog"
+      - id: "vietnamese"
+        name: "Vietnamese"
+      - id: "swahili"
+        name: "Swahili"
