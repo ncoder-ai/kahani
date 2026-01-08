@@ -1270,7 +1270,7 @@ class ApiClient {
 
   // Character API
   async getCharacter(characterId: number) {
-    return this.request<{ id: number; name: string; description: string; personality_traits: string[]; background: string; goals: string; fears: string; appearance: string; is_template: boolean; is_public: boolean; creator_id: number; created_at: string; updated_at: string | null; }>(`/api/characters/${characterId}`);
+    return this.request<{ id: number; name: string; description: string; personality_traits: string[]; background: string; goals: string; fears: string; appearance: string; is_template: boolean; is_public: boolean; voice_style: VoiceStyle | null; creator_id: number; created_at: string; updated_at: string | null; }>(`/api/characters/${characterId}`);
   }
 
   async getCharacters(skip = 0, limit = 50, includePublic = true, templatesOnly = false) {
