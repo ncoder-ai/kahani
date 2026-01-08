@@ -3624,12 +3624,13 @@ Chapter Conclusion:"""
         }
         return length_map.get(scene_length, "approximately 200-300 words")
     
-    def _format_characters_section(self, characters: Any) -> str:
+    def _format_characters_section(self, characters: Any, include_voice_style: bool = True) -> str:
         """
         Format characters section for context.
         
         Args:
             characters: Either a list of character dicts or a dict with active_characters/inactive_characters
+            include_voice_style: Whether to include voice style in character descriptions (default: True)
             
         Returns:
             Formatted characters string
@@ -3662,8 +3663,8 @@ Chapter Conclusion:"""
                         char_desc += f". Fears & Weaknesses: {char['fears']}"
                     if char.get('appearance'):
                         char_desc += f". Appearance: {char['appearance']}"
-                    # Add voice/speech style if specified
-                    if char.get('voice_style'):
+                    # Add voice/speech style if specified and requested
+                    if include_voice_style and char.get('voice_style'):
                         voice_instruction = prompt_manager.get_voice_style_instruction(char['voice_style'])
                         if voice_instruction:
                             char_desc += f"\n  {voice_instruction}"
@@ -3694,8 +3695,8 @@ Chapter Conclusion:"""
                     char_desc += f". Fears & Weaknesses: {char['fears']}"
                 if char.get('appearance'):
                     char_desc += f". Appearance: {char['appearance']}"
-                # Add voice/speech style if specified
-                if char.get('voice_style'):
+                # Add voice/speech style if specified and requested
+                if include_voice_style and char.get('voice_style'):
                     voice_instruction = prompt_manager.get_voice_style_instruction(char['voice_style'])
                     if voice_instruction:
                         char_desc += f"\n  {voice_instruction}"
@@ -3703,6 +3704,41 @@ Chapter Conclusion:"""
         
         if char_descriptions:
             return f"Characters:\n{chr(10).join(char_descriptions)}"
+        return ""
+    
+    def _format_character_voice_styles(self, characters: Any) -> str:
+        """
+        Format character voice/dialogue styles as a separate section.
+        
+        This creates a dedicated, prominent section for character dialogue instructions
+        to ensure the LLM follows them.
+        
+        Args:
+            characters: Either a list of character dicts or a dict with active_characters/inactive_characters
+            
+        Returns:
+            Formatted voice styles string, or empty string if no voice styles defined
+        """
+        if not characters:
+            return ""
+        
+        voice_styles = []
+        
+        # Get all characters (active only for voice styles)
+        if isinstance(characters, dict) and "active_characters" in characters:
+            chars_to_process = characters.get("active_characters", [])
+        else:
+            chars_to_process = characters if isinstance(characters, list) else []
+        
+        for char in chars_to_process:
+            if char.get('voice_style'):
+                voice_instruction = prompt_manager.get_voice_style_instruction(char['voice_style'])
+                if voice_instruction:
+                    char_name = char.get('name', 'Unknown')
+                    voice_styles.append(f"{char_name}:\n  {voice_instruction}")
+        
+        if voice_styles:
+            return "\n\n".join(voice_styles)
         return ""
     
     def _format_context_as_messages(self, context: Dict[str, Any], scene_batch_size: int = 10) -> List[Dict[str, str]]:
@@ -3752,10 +3788,10 @@ Chapter Conclusion:"""
         if context.get("initial_premise"):
             foundation_parts.append(f"Initial Premise: {context['initial_premise']}")
         
-        # Characters section
+        # Characters section (without voice styles - those go in a separate message)
         characters = context.get("characters")
         if characters:
-            char_text = self._format_characters_section(characters)
+            char_text = self._format_characters_section(characters, include_voice_style=False)
             if char_text:
                 foundation_parts.append(char_text)
         
@@ -3772,6 +3808,16 @@ Chapter Conclusion:"""
                 "role": "user",
                 "content": "=== STORY FOUNDATION ===\n" + "\n\n".join(foundation_parts)
             })
+        
+        # === MESSAGE 1.5: Character Dialogue Styles (separate for prominence) ===
+        # This is placed in its own message to ensure the LLM treats voice styles as important
+        if characters:
+            voice_styles_text = self._format_character_voice_styles(characters)
+            if voice_styles_text:
+                messages.append({
+                    "role": "user",
+                    "content": "=== CHARACTER DIALOGUE STYLES ===\nIMPORTANT: Each character below has a specific way of speaking. You MUST write their dialogue following these instructions exactly.\n\n" + voice_styles_text
+                })
         
         # === MESSAGE 2: Chapter Summaries (stable per chapter, changes on summary updates) ===
         summary_parts = []
