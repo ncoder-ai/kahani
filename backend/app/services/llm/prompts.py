@@ -1390,10 +1390,25 @@ Chapter Conclusion:"""
             if level_data:
                 mixing_instruction = level_data.get("instruction", "")
                 mixing_example = level_data.get("example", "")
-                if mixing_instruction:
-                    parts.append(f"**LANGUAGE MIXING** ({secondary_lang.title()}, {mixing_level}): MUST {mixing_instruction.strip()}")
-                if mixing_example:
-                    parts.append(f"Example: \"{mixing_example.strip()}\"")
+                
+                # Make the instruction very emphatic for heavy mixing
+                if mixing_level == "heavy":
+                    parts.append(f"**CRITICAL LANGUAGE REQUIREMENT** ({secondary_lang.title()}):")
+                    parts.append(f"  ⚠️ EVERY line of dialogue MUST contain {secondary_lang.title()} words. Pure English is NOT allowed.")
+                    if mixing_instruction:
+                        parts.append(f"  {mixing_instruction.strip()}")
+                    if mixing_example:
+                        parts.append(f"  ✓ CORRECT: \"{mixing_example.strip()}\"")
+                        parts.append(f"  ✗ WRONG: Writing this character's dialogue in pure English")
+                elif mixing_level == "moderate":
+                    parts.append(f"**LANGUAGE MIXING** ({secondary_lang.title()}, {mixing_level}): REQUIRED - {mixing_instruction.strip()}" if mixing_instruction else "")
+                    if mixing_example:
+                        parts.append(f"  Example: \"{mixing_example.strip()}\"")
+                else:
+                    if mixing_instruction:
+                        parts.append(f"**LANGUAGE MIXING** ({secondary_lang.title()}, {mixing_level}): {mixing_instruction.strip()}")
+                    if mixing_example:
+                        parts.append(f"  Example: \"{mixing_example.strip()}\"")
         
         return "\n  ".join(parts) if parts else ""
 

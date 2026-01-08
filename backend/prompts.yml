@@ -2435,43 +2435,50 @@ dialog_styles:
     hindi:
       light:
         instruction: |
-          Occasionally incorporate common Hindi words naturally into English speech.
-          Words to use: "accha" (okay/good), "bahut" (very/much), "yaar" (friend/buddy).
-          Keep mixing subtle - one Hindi word per few sentences maximum.
-        example: "That's a bahut interesting idea, actually."
+          Include 1-2 Hindi words per dialogue line. 
+          Words: "accha" (okay/good), "bahut" (very), "yaar" (friend), "theek hai" (alright).
+          Example words in context: "Accha, I understand" or "That's bahut good".
+        example: "Accha, that's a bahut interesting idea, yaar."
       moderate:
         instruction: |
-          Regularly mix Hindi expressions into English speech.
-          Words/phrases: "yaar", "bahut", "accha", "kya baat hai" (wow/excellent), 
-          "theek hai" (alright), "arrey" (hey/oh), "na?" or "no?" at sentence ends.
-          Hindi words should flow naturally, not feel forced.
-        example: "Arrey, kya baat hai! I didn't expect to see you here, yaar. This is bahut exciting, no?"
+          Include 2-3 Hindi words/phrases per dialogue line. This is MANDATORY.
+          Words/phrases: "yaar", "bahut", "accha", "kya baat hai" (wow), "theek hai" (alright), 
+          "arrey" (hey), "na?" or "haan?" at sentence ends, "dekho" (look), "bilkul" (absolutely).
+          Every line of dialogue MUST contain Hindi - do NOT write pure English dialogue.
+        example: "Arrey, kya baat hai yaar! Bahut exciting, na? Dekho, we should definitely do this."
       heavy:
         instruction: |
-          Frequently use Hindi phrases throughout dialogue.
-          Include longer phrases: "kya kar rahe ho" (what are you doing), 
-          "main tumhe bata rahi hoon" (I'm telling you), "bilkul" (absolutely),
-          "bas" (enough/just), "dekho" (look). Emotional expressions often in Hindi.
-        example: "Arrey yaar, kya kar rahe ho? This is bilkul not right. Main tumhe bata rahi hoon, this will be a problem, bas."
+          CRITICAL: Include 3-5 Hindi words/phrases in EVERY dialogue line. No exceptions.
+          This character thinks in Hindi and translates to English, so Hindi naturally peppers their speech.
+          REQUIRED words (use frequently): "yaar", "arrey", "dekho", "bilkul", "bas", "accha", "bahut", 
+          "kya baat hai", "theek hai", "haan", "na?", "bhai", "aur" (and), "lekin" (but), "matlab" (meaning).
+          Longer phrases for emphasis: "kya kar rahe ho" (what are you doing), "sun" (listen), 
+          "pata hai" (you know), "samajh gaye" (understood), "chal" (come on/let's go).
+          Emotional expressions MUST be in Hindi: "Arrey!", "Uff!", "Hai Ram!", "Kya yaar!".
+          DO NOT write any dialogue line in pure English - every sentence needs Hindi words.
+        example: "Arrey yaar, dekho, kya kar rahe ho? This is bilkul not right, bhai. Sun, main tumhe bata raha hoon, this will be a problem, bas. Samajh gaye?"
     
     spanish:
       light:
         instruction: |
-          Occasionally use common Spanish words in English speech.
-          Words: "bueno" (good/well), "mira" (look), "gracias", "por favor".
-        example: "Bueno, that sounds like a plan."
+          Include 1-2 Spanish words per dialogue line.
+          Words: "bueno" (good/well), "mira" (look), "gracias", "por favor", "claro" (of course).
+        example: "Bueno, that sounds like a plan, mira."
       moderate:
         instruction: |
-          Regularly mix Spanish expressions into English.
+          Include 2-3 Spanish words/phrases per dialogue line. MANDATORY.
           Phrases: "Ay dios mío" (oh my god), "mira" (look), "entiendes" (you understand),
-          "claro" (of course), "no mames" (no way - casual), "órale" (wow/come on).
-        example: "Ay dios mío! I can't believe this. Mira, we need to talk, entiendes?"
+          "claro" (of course), "órale" (wow/come on), "pues" (well), "verdad?" (right?).
+          Every dialogue line MUST contain Spanish - do NOT write pure English.
+        example: "Ay dios mío! Mira, I can't believe this, entiendes? Pues, we need to talk."
       heavy:
         instruction: |
-          Frequently switch between English and Spanish.
-          Full phrases in Spanish common. Emotional moments often in Spanish.
-          "Que horror", "No lo puedo creer" (I can't believe it), "vámonos" (let's go).
-        example: "No lo puedo creer! How could they do this? Mira, vámonos de aquí. This place gives me bad vibes, sabes?"
+          CRITICAL: Include 3-5 Spanish words/phrases in EVERY dialogue line. No exceptions.
+          This character thinks in Spanish and translates to English.
+          REQUIRED words: "mira", "bueno", "pues", "claro", "verdad", "órale", "ándale", "híjole".
+          Emotional expressions MUST be in Spanish: "Ay!", "Dios mío!", "Ay caramba!", "Qué horror!".
+          DO NOT write any dialogue line in pure English.
+        example: "Ay dios mío! Mira, no lo puedo creer! Pues, how could they do this, verdad? Órale, vámonos de aquí."
     
     mandarin:
       light:
