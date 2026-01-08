@@ -11,6 +11,7 @@ import { useStoryActions, StoryActions } from '@/contexts/StoryContext';
 import { useUISettings } from '@/hooks/useUISettings';
 import apiClient, { getApiBaseUrl, StoryArc } from '@/lib/api';
 import CharacterQuickAdd from '@/components/CharacterQuickAdd';
+import StoryCharacterVoiceEditor from '@/components/StoryCharacterVoiceEditor';
 import { ContextInfo } from '@/components/ContextInfo';
 import FormattedText from '@/components/FormattedText';
 import SceneDisplay from '@/components/SceneDisplay';
@@ -167,6 +168,7 @@ export default function StoryPage() {
   const [editContent, setEditContent] = useState('');
   const [showCharacterQuickAdd, setShowCharacterQuickAdd] = useState(false);
   const [showCharacterWizard, setShowCharacterWizard] = useState(false);
+  const [showCharacterVoiceEditor, setShowCharacterVoiceEditor] = useState(false);
   const [showCharacterBanner, setShowCharacterBanner] = useState(false);
   const [showChapterBrainstormModal, setShowChapterBrainstormModal] = useState(false);
   const [brainstormChapterId, setBrainstormChapterId] = useState<number | undefined>(undefined);
@@ -373,6 +375,7 @@ export default function StoryPage() {
       setStoryActions({
         onChapters: () => setIsChapterSidebarOpen(true),
         onAddCharacter: () => setShowCharacterQuickAdd(true),
+        onEditCharacterVoices: () => setShowCharacterVoiceEditor(true),
         onViewAllCharacters: () => router.push('/characters'),
         onDirectorMode: () => setDirectorMode(!directorMode),
         onDeleteMode: () => setIsInDeleteMode(!isInDeleteMode),
@@ -2446,6 +2449,24 @@ export default function StoryPage() {
                 <ChevronRight className="w-5 h-5 text-gray-500" />
               </button>
               
+              {/* Edit Character Voices */}
+              <button
+                onClick={() => {
+                  setShowMainMenu(false);
+                  setShowCharacterVoiceEditor(true);
+                }}
+                className="w-full flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors text-left group"
+              >
+                <div className="p-2 bg-pink-600/20 rounded-lg group-hover:bg-pink-600/30 transition-colors">
+                  <Volume2 className="w-5 h-5 text-pink-400" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-white">Character Voices</div>
+                  <div className="text-xs text-gray-400">Edit how characters speak</div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-gray-500" />
+              </button>
+              
               {/* View All Characters */}
               <button
                 onClick={() => {
@@ -3278,6 +3299,13 @@ export default function StoryPage() {
           onClose={() => setShowCharacterWizard(false)}
         />
       )}
+
+      {/* Story Character Voice Editor Modal */}
+      <StoryCharacterVoiceEditor
+        storyId={storyId}
+        isOpen={showCharacterVoiceEditor}
+        onClose={() => setShowCharacterVoiceEditor(false)}
+      />
 
       {/* Branch Creation Modal */}
       {showBranchCreationModal && (

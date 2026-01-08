@@ -5,6 +5,7 @@ import { createContext, useContext, ReactNode, useState } from 'react';
 export interface StoryActions {
   onChapters?: () => void;
   onAddCharacter?: () => void;
+  onEditCharacterVoices?: () => void;
   onViewAllCharacters?: () => void;
   onDirectorMode?: () => void;
   onDeleteMode?: () => void;

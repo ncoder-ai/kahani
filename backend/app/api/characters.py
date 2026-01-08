@@ -419,3 +419,169 @@ async def generate_character_with_ai(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while generating the character"
         )
+
+
+# ============================================================================
+# STORY CHARACTER ENDPOINTS (for managing characters within a specific story)
+# ============================================================================
+
+class StoryCharacterVoiceUpdate(BaseModel):
+    """Schema for updating a story character's voice style override"""
+    voice_style_override: Optional[Dict[str, Any]] = None  # Story-specific voice style
+
+
+class StoryCharacterResponse(BaseModel):
+    """Response schema for story characters"""
+    id: int  # story_character id
+    character_id: int
+    story_id: int
+    role: Optional[str] = None
+    voice_style_override: Optional[Dict[str, Any]] = None
+    # Include character details
+    name: str
+    description: Optional[str] = None
+    default_voice_style: Optional[Dict[str, Any]] = None  # Character's default voice style
+
+    class Config:
+        from_attributes = True
+
+
+@router.get("/story/{story_id}/characters", response_model=List[StoryCharacterResponse])
+async def get_story_characters(
+    story_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get all characters linked to a specific story with their voice style settings"""
+    
+    # Verify story ownership
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found"
+        )
+    
+    # Get story characters with their character details
+    story_characters = db.query(StoryCharacter).filter(
+        StoryCharacter.story_id == story_id
+    ).all()
+    
+    result = []
+    for sc in story_characters:
+        character = db.query(Character).filter(Character.id == sc.character_id).first()
+        if character:
+            result.append(StoryCharacterResponse(
+                id=sc.id,
+                character_id=sc.character_id,
+                story_id=sc.story_id,
+                role=sc.role,
+                voice_style_override=sc.voice_style_override,
+                name=character.name,
+                description=character.description,
+                default_voice_style=character.voice_style
+            ))
+    
+    return result
+
+
+@router.put("/story/{story_id}/characters/{story_character_id}/voice-style")
+async def update_story_character_voice_style(
+    story_id: int,
+    story_character_id: int,
+    update_data: StoryCharacterVoiceUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update the voice style override for a character in a specific story"""
+    
+    # Verify story ownership
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found"
+        )
+    
+    # Get the story character
+    story_character = db.query(StoryCharacter).filter(
+        StoryCharacter.id == story_character_id,
+        StoryCharacter.story_id == story_id
+    ).first()
+    
+    if not story_character:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story character not found"
+        )
+    
+    # Update voice style override
+    story_character.voice_style_override = update_data.voice_style_override
+    db.commit()
+    db.refresh(story_character)
+    
+    # Get character details for response
+    character = db.query(Character).filter(Character.id == story_character.character_id).first()
+    
+    logger.info(f"Updated voice style override for story_character {story_character_id} in story {story_id}")
+    
+    return StoryCharacterResponse(
+        id=story_character.id,
+        character_id=story_character.character_id,
+        story_id=story_character.story_id,
+        role=story_character.role,
+        voice_style_override=story_character.voice_style_override,
+        name=character.name if character else "Unknown",
+        description=character.description if character else None,
+        default_voice_style=character.voice_style if character else None
+    )
+
+
+@router.delete("/story/{story_id}/characters/{story_character_id}/voice-style")
+async def clear_story_character_voice_style(
+    story_id: int,
+    story_character_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Clear the voice style override for a character, reverting to their default"""
+    
+    # Verify story ownership
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found"
+        )
+    
+    # Get the story character
+    story_character = db.query(StoryCharacter).filter(
+        StoryCharacter.id == story_character_id,
+        StoryCharacter.story_id == story_id
+    ).first()
+    
+    if not story_character:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story character not found"
+        )
+    
+    # Clear voice style override
+    story_character.voice_style_override = None
+    db.commit()
+    
+    logger.info(f"Cleared voice style override for story_character {story_character_id} in story {story_id}")
+    
+    return {"message": "Voice style override cleared successfully"}

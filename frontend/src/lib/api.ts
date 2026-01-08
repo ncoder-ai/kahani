@@ -1303,6 +1303,42 @@ class ApiClient {
     return this.request<VoiceStylePresetsResponse>(`/api/characters/voice-style-presets`);
   }
 
+  // Story Character Voice Style Management
+  async getStoryCharacters(storyId: number) {
+    return this.request<Array<{
+      id: number;  // story_character id
+      character_id: number;
+      story_id: number;
+      role: string | null;
+      voice_style_override: VoiceStyle | null;
+      name: string;
+      description: string | null;
+      default_voice_style: VoiceStyle | null;
+    }>>(`/api/characters/story/${storyId}/characters`);
+  }
+
+  async updateStoryCharacterVoiceStyle(storyId: number, storyCharacterId: number, voiceStyleOverride: VoiceStyle | null) {
+    return this.request<{
+      id: number;
+      character_id: number;
+      story_id: number;
+      role: string | null;
+      voice_style_override: VoiceStyle | null;
+      name: string;
+      description: string | null;
+      default_voice_style: VoiceStyle | null;
+    }>(`/api/characters/story/${storyId}/characters/${storyCharacterId}/voice-style`, {
+      method: 'PUT',
+      body: JSON.stringify({ voice_style_override: voiceStyleOverride })
+    });
+  }
+
+  async clearStoryCharacterVoiceStyle(storyId: number, storyCharacterId: number) {
+    return this.request<{ message: string }>(`/api/characters/story/${storyId}/characters/${storyCharacterId}/voice-style`, {
+      method: 'DELETE'
+    });
+  }
+
   async generateCharacterWithAI(prompt: string, storyContext?: { genre?: string; tone?: string; world_setting?: string }, previousGeneration?: any) {
     return this.request<{ id: number; name: string; description: string; personality_traits: string[]; background: string; goals: string; fears: string; appearance: string; is_template: boolean; is_public: boolean; creator_id: number; created_at: string; updated_at: string | null; background_structured?: Record<string, any>; goals_structured?: Record<string, any>; fears_structured?: Record<string, any>; appearance_structured?: Record<string, any> }>(`/api/characters/generate-with-ai`, {
       method: 'POST',
