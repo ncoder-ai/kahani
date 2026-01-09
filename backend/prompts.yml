@@ -759,6 +759,9 @@ summary_generation:
       - No emotional interpretation (not "she felt torn" but "she hesitated")
       - No literary flourishes or purple prose
       - No phrases like "profound shift", "transformative", "palpable"
+      - NO MORALIZING - you track story events, not ethics
+      - NO external commentary about consent, legality, or real-world implications
+      - Open threads are PLOT threads (what happens next), not ethical concerns
     
     user: |
       {context_section}Chapter {chapter_number}: {chapter_title}
@@ -770,31 +773,44 @@ summary_generation:
       
       EVENTS: [chronological bullet list of what happened]
       STATE CHANGES: [relationship changes, location changes, new knowledge gained]
-      OPEN THREADS: [unresolved items the story needs to track]
+      OPEN THREADS: [unresolved PLOT items - story questions like "Will X happen?" or "What will Y do next?" - NOT ethical concerns]
       
-      Maximum 300 words. Facts only.
+      Maximum 300 words. Facts only, no moralizing.
 
   story_so_far:
     system: |
       You are a story state tracker. Consolidate chapter facts into a single state document.
       
-      Rules:
+      CRITICAL RULES:
       - Merge redundant information across chapters
       - Maintain chronological order of events
       - Track cumulative state changes
       - No literary flourishes or purple prose
       - No emotional interpretation
+      - NO MORALIZING OR ETHICAL COMMENTARY - you are tracking plot facts, not judging the story
+      - NO mentions of consent frameworks, legal implications, ethical concerns, or real-world consequences
+      - This is FICTION - track what happens in the story, not what should happen in reality
+      - Active threads should be PLOT threads (what happens next in the story), not meta-commentary
+      - Stay in-universe: track character motivations and story conflicts, not external judgments
     
     user: |
+      STORY CONTEXT:
+      Genre: {genre}
+      Content Rating: {content_rating}
+      Tone: {tone}
+      
       {combined_chapters}
       
-      Consolidate into a single factual summary:
+      Consolidate into a single factual summary that serves as context for continuing this {genre} story:
       
-      STORY PROGRESSION: [key events in order, merged across chapters]
-      CURRENT STATE: [where things stand now - locations, relationships, situation]
-      ACTIVE THREADS: [unresolved plot points that need tracking]
+      STORY PROGRESSION: [key events in order, merged across chapters - factual, no judgment]
+      CURRENT STATE: [where things stand now - locations, relationships, situation - in-story facts only]
+      ACTIVE THREADS: [unresolved PLOT points and character arcs that the story needs to continue - NOT ethical concerns or real-world implications]
       
-      Maximum 500 words. Facts only, no prose.
+      IMPORTANT: This is a {content_rating} {genre} story. Track the story as written without external commentary.
+      Active threads should be things like "Will X discover Y's secret?" or "How will the relationship develop?" - NOT "ethical implications" or "legal ramifications".
+      
+      Maximum 500 words. Facts only, no prose, no moralizing.
 
   chapter_summary_incremental:
     system: |

@@ -2335,18 +2335,40 @@ class ApiClient {
 
   // ====== CHAPTER BRAINSTORM METHODS ======
 
-  async createChapterBrainstormSession(storyId: number, arcPhaseId?: string, chapterId?: number) {
+  async createChapterBrainstormSession(storyId: number, arcPhaseId?: string, chapterId?: number, priorChapterSummary?: string) {
     return this.request<{
       session_id: number;
       story_id: number;
       chapter_id: number | null;
       arc_phase_id: string | null;
+      prior_chapter_summary: string | null;
       status: string;
       created_at: string;
     }>(`/api/stories/${storyId}/chapters/brainstorm`, {
       method: 'POST',
-      body: JSON.stringify({ arc_phase_id: arcPhaseId, chapter_id: chapterId })
+      body: JSON.stringify({ 
+        arc_phase_id: arcPhaseId, 
+        chapter_id: chapterId,
+        prior_chapter_summary: priorChapterSummary 
+      })
     });
+  }
+
+  async getChapterBrainstormContext(storyId: number, chapterId: number) {
+    return this.request<{
+      chapter_id: number;
+      chapter_number: number;
+      title: string | null;
+      has_summary: boolean;
+      summary: string | null;
+      scene_count: number;
+      total_words: number;
+      scenes: Array<{
+        sequence: number;
+        content: string;
+        word_count: number;
+      }>;
+    }>(`/api/stories/${storyId}/chapters/${chapterId}/brainstorm-context`);
   }
 
   async getChapterBrainstormSessions(storyId: number) {

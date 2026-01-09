@@ -104,7 +104,8 @@ class ChapterBrainstormService:
         self,
         story_id: int,
         arc_phase_id: str = None,
-        chapter_id: int = None
+        chapter_id: int = None,
+        prior_chapter_summary: str = None
     ) -> ChapterBrainstormSession:
         """
         Create a new chapter brainstorming session.
@@ -113,6 +114,7 @@ class ChapterBrainstormService:
             story_id: The story ID
             arc_phase_id: Optional arc phase this chapter targets
             chapter_id: Optional chapter ID if editing an existing chapter
+            prior_chapter_summary: Optional user-provided summary of the prior chapter
             
         Returns:
             New ChapterBrainstormSession
@@ -131,6 +133,7 @@ class ChapterBrainstormService:
             user_id=self.user_id,
             arc_phase_id=arc_phase_id,
             chapter_id=chapter_id,  # Track which chapter is being edited
+            prior_chapter_summary=prior_chapter_summary,  # Store user-provided prior context
             messages=[],
             status='brainstorming'
         )
@@ -138,7 +141,7 @@ class ChapterBrainstormService:
         self.db.commit()
         self.db.refresh(session)
         
-        logger.info(f"[CHAPTER_BRAINSTORM] Created session {session.id} for story {story_id}, arc_phase={arc_phase_id}, chapter_id={chapter_id}")
+        logger.info(f"[CHAPTER_BRAINSTORM] Created session {session.id} for story {story_id}, arc_phase={arc_phase_id}, chapter_id={chapter_id}, has_prior_summary={bool(prior_chapter_summary)}")
         return session
     
     def get_session(self, session_id: int) -> Optional[ChapterBrainstormSession]:
@@ -210,8 +213,13 @@ class ChapterBrainstormService:
         self.db.refresh(session)
         
         try:
-            # Build full story context (pass chapter_id to know if editing existing chapter)
-            story_context = self._build_story_context(session.story_id, session.arc_phase_id, session.chapter_id)
+            # Build full story context (pass chapter_id to know if editing existing chapter, and prior summary)
+            story_context = self._build_story_context(
+                session.story_id, 
+                session.arc_phase_id, 
+                session.chapter_id,
+                session.prior_chapter_summary
+            )
             
             # Get conversation history
             conversation_history = session.get_conversation_context()
@@ -320,8 +328,13 @@ class ChapterBrainstormService:
         self.db.refresh(session)
         
         try:
-            # Build full story context (pass chapter_id to know if editing existing chapter)
-            story_context = self._build_story_context(session.story_id, session.arc_phase_id, session.chapter_id)
+            # Build full story context (pass chapter_id to know if editing existing chapter, and prior summary)
+            story_context = self._build_story_context(
+                session.story_id, 
+                session.arc_phase_id, 
+                session.chapter_id,
+                session.prior_chapter_summary
+            )
             
             # Get conversation history
             conversation_history = session.get_conversation_context()
@@ -469,8 +482,13 @@ class ChapterBrainstormService:
             # Format conversation
             conversation_text = self._format_conversation(session.messages)
             
-            # Build story context (pass chapter_id to know if editing existing chapter)
-            story_context = self._build_story_context(session.story_id, session.arc_phase_id, session.chapter_id)
+            # Build story context (pass chapter_id to know if editing existing chapter, and prior summary)
+            story_context = self._build_story_context(
+                session.story_id, 
+                session.arc_phase_id, 
+                session.chapter_id,
+                session.prior_chapter_summary
+            )
             
             # Get arc phase details
             arc_phase_text = ""
@@ -657,13 +675,14 @@ class ChapterBrainstormService:
             "extracted_plot": normalized_plot
         }
     
-    def _build_story_context(self, story_id: int, arc_phase_id: str = None, editing_chapter_id: int = None) -> str:
+    def _build_story_context(self, story_id: int, arc_phase_id: str = None, editing_chapter_id: int = None, prior_chapter_summary: str = None) -> str:
         """Build comprehensive context string with story, arc, and previous chapters.
         
         Args:
             story_id: The story ID
             arc_phase_id: Optional arc phase this chapter targets
             editing_chapter_id: If provided, indicates we're editing an existing chapter (not creating new)
+            prior_chapter_summary: Optional user-provided summary of what just happened in the current chapter
         """
         from ..models import Scene, SceneVariant, StoryFlow
         
@@ -774,6 +793,12 @@ class ChapterBrainstormService:
                 context_parts.append(f"(You are planning Chapter {total_chapters + 1})")
         else:
             context_parts.append("\nSTORY PROGRESS: This will be the first chapter.")
+        
+        # Add user-provided prior chapter summary if available
+        if prior_chapter_summary:
+            context_parts.append("\n*** WHAT JUST HAPPENED (User-provided summary of current chapter) ***")
+            context_parts.append(prior_chapter_summary)
+            context_parts.append("(Use this context to plan what happens NEXT in the story)")
         
         return "\n".join(context_parts)
     

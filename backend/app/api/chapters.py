@@ -2177,15 +2177,24 @@ async def generate_story_so_far(chapter_id: int, db: Session, user_id: int) -> O
     # Combine previous chapter summaries
     combined_story = "=== Previous Chapters ===\n" + "\n\n".join(previous_summaries)
     
+    # Get story details for genre-aware summary
+    story = db.query(Story).filter(Story.id == story_id).first()
+    genre = story.genre if story else "fiction"
+    content_rating = story.content_rating if story and hasattr(story, 'content_rating') else "general"
+    tone = story.tone if story else "neutral"
+    
     # Get user prompt from prompts.yml with template variables
     prompt = prompt_manager.get_prompt(
         "story_so_far", "user",
         user_id=user_id, db=db,
-        combined_chapters=combined_story
+        combined_chapters=combined_story,
+        genre=genre or "fiction",
+        content_rating=content_rating or "general",
+        tone=tone or "neutral"
     )
     if not prompt:
         # Fallback if template not found
-        prompt = f"{combined_story}\n\nConsolidate into a factual story summary."
+        prompt = f"{combined_story}\n\nConsolidate into a factual story summary for this {genre} story."
     
     # Get user settings
     from ..models import UserSettings
@@ -2857,6 +2866,7 @@ class ChapterBrainstormCreateRequest(BaseModel):
     """Request for creating a chapter brainstorm session."""
     arc_phase_id: Optional[str] = None
     chapter_id: Optional[int] = None  # If editing an existing chapter
+    prior_chapter_summary: Optional[str] = None  # User-provided summary of current/prior chapter
 
 class ChapterBrainstormMessageRequest(BaseModel):
     """Request for sending a message in chapter brainstorm."""
@@ -2869,6 +2879,84 @@ class ChapterBrainstormApplyRequest(BaseModel):
 class ChapterBrainstormUpdatePlotRequest(BaseModel):
     """Request for updating extracted plot."""
     plot_data: Dict[str, Any]
+
+
+@router.get("/{story_id}/chapters/{chapter_id}/brainstorm-context")
+async def get_chapter_brainstorm_context(
+    story_id: int,
+    chapter_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get the current chapter's content for brainstorm context.
+    
+    Returns the chapter's auto_summary if available, otherwise returns
+    a brief from the scene content that can be used as prior context
+    for brainstorming the next chapter.
+    
+    Args:
+        story_id: The story ID
+        chapter_id: The chapter ID
+        
+    Returns:
+        Chapter summary and scene content for context
+    """
+    from ..models import Scene, SceneVariant, StoryFlow
+    
+    # Verify story ownership
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    
+    chapter = db.query(Chapter).filter(
+        Chapter.id == chapter_id,
+        Chapter.story_id == story_id
+    ).first()
+    if not chapter:
+        raise HTTPException(status_code=404, detail="Chapter not found")
+    
+    # Get chapter summary if available
+    summary = chapter.auto_summary or chapter.story_so_far or chapter.description
+    
+    # Get scene content for more detailed context
+    scenes = db.query(Scene).filter(
+        Scene.chapter_id == chapter_id
+    ).order_by(Scene.sequence_number).all()
+    
+    scene_contents = []
+    for scene in scenes:
+        # Get active variant content
+        active_flow = db.query(StoryFlow).filter(
+            StoryFlow.scene_id == scene.id,
+            StoryFlow.is_active == True
+        ).first()
+        if active_flow:
+            variant = db.query(SceneVariant).filter(
+                SceneVariant.id == active_flow.active_variant_id
+            ).first()
+            if variant and variant.content:
+                scene_contents.append({
+                    "sequence": scene.sequence_number,
+                    "content": variant.content,
+                    "word_count": len(variant.content.split())
+                })
+    
+    total_words = sum(s["word_count"] for s in scene_contents)
+    
+    return {
+        "chapter_id": chapter_id,
+        "chapter_number": chapter.chapter_number,
+        "title": chapter.title,
+        "has_summary": bool(summary),
+        "summary": summary,
+        "scene_count": len(scene_contents),
+        "total_words": total_words,
+        "scenes": scene_contents[:10]  # Limit to first 10 scenes for context
+    }
 
 
 @router.post("/{story_id}/chapters/brainstorm")
@@ -2903,7 +2991,8 @@ async def create_chapter_brainstorm_session(
         session = service.create_session(
             story_id=story_id,
             arc_phase_id=request.arc_phase_id,
-            chapter_id=request.chapter_id  # Pass chapter_id if editing existing chapter
+            chapter_id=request.chapter_id,  # Pass chapter_id if editing existing chapter
+            prior_chapter_summary=request.prior_chapter_summary  # Pass user-provided summary of prior chapter
         )
         
         return {
@@ -2912,6 +3001,7 @@ async def create_chapter_brainstorm_session(
             "chapter_id": session.chapter_id,
             "arc_phase_id": session.arc_phase_id,
             "status": session.status,
+            "prior_chapter_summary": session.prior_chapter_summary,
             "created_at": session.created_at.isoformat()
         }
         

@@ -41,6 +41,10 @@ class ChapterBrainstormSession(Base):
     # Link to story arc phase this chapter targets
     arc_phase_id = Column(String(100), nullable=True)
     
+    # User-provided summary of the prior/current chapter for context
+    # This helps the AI understand what just happened before brainstorming the next chapter
+    prior_chapter_summary = Column(Text, nullable=True)
+    
     # Session status: 'brainstorming', 'extracted', 'applied'
     status = Column(String(50), default='brainstorming')
     

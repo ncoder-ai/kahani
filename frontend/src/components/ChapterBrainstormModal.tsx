@@ -45,6 +45,7 @@ interface ChapterBrainstormModalProps {
   isOpen: boolean;
   storyId: number;
   chapterId?: number;
+  currentChapterIdForContext?: number;  // The current chapter whose content can be summarized for context
   storyArc?: StoryArc | null;
   onClose: () => void;
   onPlotApplied: (plot?: ChapterPlot, sessionId?: number, arcPhaseId?: string) => void;
@@ -212,6 +213,7 @@ export default function ChapterBrainstormModal({
   isOpen,
   storyId,
   chapterId,
+  currentChapterIdForContext,
   storyArc,
   onClose,
   onPlotApplied,
@@ -233,9 +235,22 @@ export default function ChapterBrainstormModal({
   });
   const [extractedPlot, setExtractedPlot] = useState<ChapterPlot | null>(existingPlot || null);
   const [isExtracting, setIsExtracting] = useState(false);
-  const [phase, setPhase] = useState<'session_select' | 'select_phase' | 'chat' | 'review' | 'character_review'>(
+  const [phase, setPhase] = useState<'session_select' | 'select_phase' | 'prior_context' | 'chat' | 'review' | 'character_review'>(
     existingPlot ? 'review' : 'session_select'
   );
+  
+  // Prior chapter context state
+  const [priorChapterSummary, setPriorChapterSummary] = useState('');
+  const [isLoadingPriorContext, setIsLoadingPriorContext] = useState(false);
+  const [priorChapterContext, setPriorChapterContext] = useState<{
+    chapter_number: number;
+    title: string | null;
+    has_summary: boolean;
+    summary: string | null;
+    scene_count: number;
+    total_words: number;
+  } | null>(null);
+  const [currentChapterId, setCurrentChapterId] = useState<number | null>(null);
   
   // Character review state
   const [characterMappings, setCharacterMappings] = useState<CharacterMapping[]>([]);
@@ -331,13 +346,34 @@ export default function ChapterBrainstormModal({
     }
   };
 
-  const handleStartNewSession = () => {
-    // Reset state and go to phase selection
+  const handleStartNewSession = async () => {
+    // Reset state
     setSessionId(null);
     setMessages([]);
     setExtractedPlot(null);
     setSelectedPhase(null);
-    setPhase('select_phase');
+    setPriorChapterSummary('');
+    setPriorChapterContext(null);
+    
+    // If we have a current chapter to get context from, go to prior_context phase
+    if (currentChapterIdForContext) {
+      setCurrentChapterId(currentChapterIdForContext);
+      setIsLoadingPriorContext(true);
+      try {
+        const context = await apiClient.getChapterBrainstormContext(storyId, currentChapterIdForContext);
+        setPriorChapterContext(context);
+        setPhase('prior_context');
+      } catch (error) {
+        console.error('Failed to load prior chapter context:', error);
+        // Skip to phase selection on error
+        setPhase('select_phase');
+      } finally {
+        setIsLoadingPriorContext(false);
+      }
+    } else {
+      // No current chapter, go directly to phase selection
+      setPhase('select_phase');
+    }
   };
 
   const formatSessionDate = (dateStr: string) => {
@@ -525,14 +561,18 @@ export default function ChapterBrainstormModal({
       const response = await apiClient.createChapterBrainstormSession(
         storyId, 
         arcPhase?.id,
-        chapterId
+        chapterId,
+        priorChapterSummary || undefined  // Pass prior chapter summary if provided
       );
       setSessionId(response.session_id);
       
       const chapterContext = chapterId ? 'this chapter' : 'your next chapter';
+      const priorContext = priorChapterSummary 
+        ? `\n\nI've noted your summary of what happened in the current chapter. I'll use that context to help plan what comes next.`
+        : '';
       const greeting = arcPhase 
-        ? `I'll help you plan ${chapterContext} for the "${arcPhase.name}" phase of your story. This phase focuses on: ${arcPhase.description}\n\nWhat aspects of this chapter would you like to explore? Consider:\n• Key events that should happen\n• Which characters should appear\n• The emotional journey of this chapter`
-        : `I'll help you plan ${chapterContext}. What's on your mind? Tell me about:\n• What you want to happen in this chapter\n• Any characters you want to focus on\n• The mood or tone you're going for`;
+        ? `I'll help you plan ${chapterContext} for the "${arcPhase.name}" phase of your story. This phase focuses on: ${arcPhase.description}${priorContext}\n\nWhat aspects of this chapter would you like to explore? Consider:\n• Key events that should happen\n• Which characters should appear\n• The emotional journey of this chapter`
+        : `I'll help you plan ${chapterContext}.${priorContext}\n\nWhat's on your mind? Tell me about:\n• What you want to happen in this chapter\n• Any characters you want to focus on\n• The mood or tone you're going for`;
       
       setMessages([{ role: 'assistant', content: greeting }]);
       setPhase('chat');
@@ -819,6 +859,7 @@ export default function ChapterBrainstormModal({
           <h2 className="text-white font-semibold text-sm">
             {phase === 'session_select' && 'Resume or Start New'}
             {phase === 'select_phase' && 'Select Arc Phase'}
+            {phase === 'prior_context' && 'Summarize Current Chapter'}
             {phase === 'chat' && 'Brainstorm'}
             {phase === 'review' && 'Review Plot'}
             {phase === 'character_review' && 'Review Characters'}
@@ -850,8 +891,8 @@ export default function ChapterBrainstormModal({
           </div>
         )}
 
-        {/* Desktop Left Sidebar - Story Arc (hidden during session selection) */}
-        {storyArc && phase !== 'session_select' && (
+        {/* Desktop Left Sidebar - Story Arc (hidden during session selection and prior context) */}
+        {storyArc && phase !== 'session_select' && phase !== 'prior_context' && (
           <div className="hidden md:block w-64 border-r border-white/10 p-4 overflow-y-auto flex-shrink-0">
             <h3 className="text-white font-semibold mb-4">Story Arc</h3>
             <StoryArcViewer 
@@ -881,6 +922,7 @@ export default function ChapterBrainstormModal({
               <h2 className="text-xl font-semibold text-white">
                 {phase === 'session_select' && 'Resume or Start New'}
                 {phase === 'select_phase' && 'Select Arc Phase'}
+                {phase === 'prior_context' && 'Summarize Current Chapter'}
                 {phase === 'chat' && 'Chapter Brainstorm'}
                 {phase === 'review' && 'Review Chapter Plot'}
                 {phase === 'character_review' && 'Review New Characters'}
@@ -888,6 +930,7 @@ export default function ChapterBrainstormModal({
               <p className="text-white/60 text-sm">
                 {phase === 'session_select' && 'You have previous brainstorming sessions for this story'}
                 {phase === 'select_phase' && 'Choose which part of your story this chapter belongs to'}
+                {phase === 'prior_context' && 'Tell the AI what happened in the current chapter so it can help plan what comes next'}
                 {phase === 'chat' && 'Discuss your chapter ideas with AI'}
                 {phase === 'review' && 'Review and edit the extracted chapter plot'}
                 {phase === 'character_review' && 'Choose to create, use existing, or skip each suggested character'}
@@ -1042,6 +1085,92 @@ export default function ChapterBrainstormModal({
                     Brainstorm freely without targeting a specific arc phase
                   </p>
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* Prior Context - Summarize Current Chapter */}
+          {phase === 'prior_context' && (
+            <div className="flex-1 p-4 md:p-6 overflow-y-auto">
+              <div className="max-w-2xl mx-auto space-y-4">
+                {isLoadingPriorContext ? (
+                  <div className="flex items-center justify-center py-12">
+                    <RefreshCw className="w-6 h-6 text-purple-400 animate-spin" />
+                    <span className="ml-2 text-white/60">Loading chapter context...</span>
+                  </div>
+                ) : (
+                  <>
+                    {/* Chapter Info */}
+                    {priorChapterContext && (
+                      <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+                        <h3 className="text-white font-semibold text-sm mb-2">
+                          Chapter {priorChapterContext.chapter_number}: {priorChapterContext.title || 'Untitled'}
+                        </h3>
+                        <div className="flex gap-4 text-white/50 text-xs">
+                          <span>{priorChapterContext.scene_count} scenes</span>
+                          <span>{priorChapterContext.total_words.toLocaleString()} words</span>
+                        </div>
+                        {priorChapterContext.has_summary && priorChapterContext.summary && (
+                          <div className="mt-3 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+                            <span className="text-green-300 text-xs font-medium">Existing Summary</span>
+                            <p className="text-white/70 text-sm mt-1">{priorChapterContext.summary.slice(0, 300)}...</p>
+                            <button
+                              onClick={() => setPriorChapterSummary(priorChapterContext.summary || '')}
+                              className="mt-2 text-green-400 text-xs hover:text-green-300"
+                            >
+                              Use this summary →
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Summary Input */}
+                    <div className="space-y-2">
+                      <label className="text-white/80 text-sm font-medium">
+                        What happened in this chapter? (Optional)
+                      </label>
+                      <p className="text-white/50 text-xs">
+                        Summarize the key events so the AI can help plan what comes next naturally.
+                      </p>
+                      <textarea
+                        value={priorChapterSummary}
+                        onChange={(e) => setPriorChapterSummary(e.target.value)}
+                        placeholder="E.g., 'The main character discovered the secret letter and confronted their father about it. The chapter ended with them deciding to leave home...'"
+                        className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white placeholder-white/40 resize-none focus:outline-none focus:border-purple-500 text-sm"
+                        rows={5}
+                      />
+                      {priorChapterSummary && (
+                        <p className="text-white/40 text-xs text-right">
+                          {priorChapterSummary.length} characters
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex flex-col md:flex-row gap-3 pt-4">
+                      <button
+                        onClick={() => setPhase('select_phase')}
+                        className="flex-1 px-4 py-3 bg-purple-600 text-white font-medium rounded-xl hover:bg-purple-500 transition-all"
+                      >
+                        {priorChapterSummary ? 'Continue with Summary →' : 'Continue without Summary →'}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setPriorChapterSummary('');
+                          setPhase('select_phase');
+                        }}
+                        className="px-4 py-3 bg-white/10 text-white/70 rounded-xl hover:bg-white/20 transition-all"
+                      >
+                        Skip
+                      </button>
+                    </div>
+
+                    <p className="text-white/40 text-xs text-center">
+                      Providing context helps the AI understand where your story is and suggest relevant next steps.
+                    </p>
+                  </>
+                )}
               </div>
             </div>
           )}
