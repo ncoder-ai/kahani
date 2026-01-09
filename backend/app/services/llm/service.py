@@ -1317,7 +1317,7 @@ class UnifiedLLMService:
             context=self._format_context_for_titles(context)
         )
         
-        max_tokens = prompt_manager.get_max_tokens("titles")
+        max_tokens = prompt_manager.get_max_tokens("titles", user_settings)
         
         response = await self._generate(
             prompt=user_prompt,
@@ -1367,7 +1367,7 @@ class UnifiedLLMService:
             chapter_count=chapter_count
         )
         
-        max_tokens = prompt_manager.get_max_tokens("story_chapters")
+        max_tokens = prompt_manager.get_max_tokens("story_chapters", user_settings)
         
         response = await self._generate(
             prompt=user_prompt,
@@ -3185,19 +3185,24 @@ Write approximately {scene_length_description} in length.
         # Get scene length from user settings (for consistency with other generation methods)
         generation_prefs = user_settings.get("generation_preferences", {})
         scene_length = generation_prefs.get("scene_length", "medium")
+        choices_count = generation_prefs.get("choices_count", 4)
         scene_length_description = self._get_scene_length_description(scene_length)
         
-        # === USE CHAPTER CONCLUSION SYSTEM PROMPT (different from scene generation) ===
-        # Chapter conclusions have their own specific system prompt requirements
+        # === USE SAME SYSTEM PROMPT AS SCENE GENERATION FOR CACHE ALIGNMENT ===
+        # This ensures messages 1-N are identical between chapter conclusion and choice generation,
+        # enabling cache hits when generating choices after a chapter conclusion.
+        # Chapter-specific instructions are in the final user message instead.
         system_prompt = prompt_manager.get_prompt(
-            "chapter_conclusion", "system",
+            "scene_with_immediate", "system",
             user_id=user_id,
             db=db,
-            scene_length_description=scene_length_description
+            scene_length_description=scene_length_description,
+            choices_count=choices_count,
+            skip_choices=True  # Chapter conclusions don't include choices in the scene
         )
         
         if not system_prompt or not system_prompt.strip():
-            logger.error("[CONCLUDING SCENE] System prompt is empty for chapter_conclusion")
+            logger.error("[CONCLUDING SCENE] System prompt is empty for scene_with_immediate")
             raise ValueError("Failed to load system prompt for chapter conclusion")
         
         # Add POV consistency requirement
@@ -3242,7 +3247,7 @@ Chapter Conclusion:"""
         
         messages.append({"role": "user", "content": final_message})
         
-        max_tokens = prompt_manager.get_max_tokens("chapter_conclusion")
+        max_tokens = prompt_manager.get_max_tokens("chapter_conclusion", user_settings)
         logger.info(f"[CONCLUDING SCENE] Using multi-message structure: {len(messages)} messages, max_tokens={max_tokens}")
         
         # Write debug output for debugging cache issues
@@ -3447,7 +3452,7 @@ Chapter Conclusion:"""
             elements=self._format_elements_for_scenario(context)
         )
         
-        max_tokens = prompt_manager.get_max_tokens("scenario")
+        max_tokens = prompt_manager.get_max_tokens("scenario", user_settings)
         
         response = await self._generate(
             prompt=user_prompt,
@@ -3467,14 +3472,14 @@ Chapter Conclusion:"""
                 "plot_generation", "complete_plot",
                 context=self._format_context_for_plot(context)
             )
-            max_tokens = prompt_manager.get_max_tokens("complete_plot")
+            max_tokens = prompt_manager.get_max_tokens("complete_plot", user_settings)
         else:
             system_prompt, user_prompt = prompt_manager.get_prompt_pair(
                 "plot_generation", "single_plot_point",
                 context=self._format_context_for_plot(context),
                 point_name=self._get_plot_point_name(context.get("plot_point_index", 0))
             )
-            max_tokens = prompt_manager.get_max_tokens("single_plot_point")
+            max_tokens = prompt_manager.get_max_tokens("single_plot_point", user_settings)
         
         response = await self._generate(
             prompt=user_prompt,
@@ -3536,7 +3541,7 @@ Chapter Conclusion:"""
                     story_content=story_content
                 )
                 
-                max_tokens = prompt_manager.get_max_tokens("story_summary")
+                max_tokens = prompt_manager.get_max_tokens("story_summary", user_settings)
                 
                 # Generate summary with extraction model
                 summary = await extraction_service.generate_summary(
@@ -3562,7 +3567,7 @@ Chapter Conclusion:"""
             story_content=story_content
         )
         
-        max_tokens = prompt_manager.get_max_tokens("story_summary")
+        max_tokens = prompt_manager.get_max_tokens("story_summary", user_settings)
         
         response = await self._generate(
             prompt=user_prompt,

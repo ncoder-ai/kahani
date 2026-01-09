@@ -824,8 +824,8 @@ Appearance: {char.get('appearance', '')}
                     story_context=f"Summary of {len(scenes)} scenes from the story"
                 )
                 
-                # Get max tokens for this template
-                max_tokens = prompt_manager.get_max_tokens("story_summary")
+                # Get max tokens for this template - use user's setting
+                max_tokens = prompt_manager.get_max_tokens("story_summary", self.user_settings)
 
                 summary = await unified_llm_service.generate(
                     prompt=user_prompt, 

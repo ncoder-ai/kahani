@@ -318,7 +318,7 @@ class EntityStateService:
                 user_id=self.user_id,
                 user_settings=self.user_settings,
                 system_prompt=system_prompt,
-                max_tokens=1000
+                max_tokens=self.user_settings.get('llm_settings', {}).get('max_tokens', 2048)
             )
             llm_duration_ms = (time.perf_counter() - llm_start) * 1000
             

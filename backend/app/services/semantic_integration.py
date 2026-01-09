@@ -559,9 +559,9 @@ async def _try_combined_extraction(
             logger.info("[EXTRACTION] Using main LLM for combined extraction")
             llm_service = UnifiedLLMService()
             
-            # Calculate max_tokens based on number of scenes (similar to extraction service)
-            base_max_tokens = 2000
-            max_tokens = base_max_tokens + (num_scenes * 500)
+            # Use user's max_tokens setting
+            user_max_tokens = user_settings.get('llm_settings', {}).get('max_tokens', 2048)
+            max_tokens = user_max_tokens
             
             # Get timeout from user settings or fallback to system default
             llm_settings = user_settings.get('llm_settings', {})

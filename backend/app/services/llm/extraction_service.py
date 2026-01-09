@@ -779,7 +779,8 @@ Return valid JSON with this exact structure:
 
 Return ONLY the JSON object, no other text or markdown formatting."""
             
-            params = self._get_generation_params(max_tokens=1500)
+            # Use configured max_tokens from initialization
+            params = self._get_generation_params(max_tokens=self.max_tokens)
             response = await acompletion(
                 **params,
                 messages=[

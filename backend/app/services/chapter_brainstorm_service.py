@@ -244,7 +244,7 @@ class ChapterBrainstormService:
             
             # Get generation parameters
             gen_params = client.get_generation_params(
-                self.user_settings.get('generation_preferences', {}).get('max_tokens', 1000),
+                self.user_settings.get('llm_settings', {}).get('max_tokens', 2048),
                 0.7
             )
             gen_params["messages"] = messages
@@ -356,7 +356,7 @@ class ChapterBrainstormService:
                 user_id=self.user_id,
                 user_settings=self.user_settings,
                 system_prompt=full_system_prompt,
-                max_tokens=self.user_settings.get('generation_preferences', {}).get('max_tokens', 1000),
+                max_tokens=self.user_settings.get('llm_settings', {}).get('max_tokens', 2048),
                 temperature=0.7
             ):
                 # Check for thinking content (prefixed with __THINKING__:)
@@ -500,7 +500,7 @@ class ChapterBrainstormService:
                 user_id=self.user_id,
                 user_settings=self.user_settings,
                 system_prompt=system_prompt,
-                max_tokens=2000,
+                max_tokens=self.user_settings.get('llm_settings', {}).get('max_tokens', 2048),
                 temperature=0.3
             )
             

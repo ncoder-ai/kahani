@@ -388,11 +388,12 @@ class ChapterProgressService:
                         max_tokens=ext_settings.get('max_tokens', 500)
                     )
                     
-                    # Generate with extraction model
+                    # Generate with extraction model - use user's max_tokens setting
+                    user_max_tokens = user_settings.get('llm_settings', {}).get('max_tokens', 2048)
                     response = await extraction_service.generate(
                         prompt=user_prompt,
                         system_prompt=system_prompt,
-                        max_tokens=500
+                        max_tokens=user_max_tokens
                     )
                     
                     logger.info(f"[PLOT_PROGRESS] Successfully extracted events with extraction LLM")
@@ -403,12 +404,13 @@ class ChapterProgressService:
             
             # Use main LLM if extraction LLM not enabled or failed
             if response is None:
+                user_max_tokens = user_settings.get('llm_settings', {}).get('max_tokens', 2048)
                 response = await llm_service.generate(
                     prompt=user_prompt,
                     user_id=user_id,
                     user_settings=user_settings,
                     system_prompt=system_prompt,
-                    max_tokens=500,
+                    max_tokens=user_max_tokens,
                     temperature=0.3  # Low temperature for consistent extraction
                 )
             
