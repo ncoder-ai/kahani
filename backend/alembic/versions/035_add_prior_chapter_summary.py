@@ -1,7 +1,7 @@
 """Add prior_chapter_summary to chapter_brainstorm_sessions
 
-Revision ID: 035
-Revises: 034
+Revision ID: 035_add_prior_chapter_summary
+Revises: 034_add_character_voice_style
 Create Date: 2026-01-08
 
 """
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '035'
-down_revision = '034'
+revision = '035_add_prior_chapter_summary'
+down_revision = '034_add_character_voice_style'
 branch_labels = None
 depends_on = None
 
