@@ -113,6 +113,11 @@ class UserSettings(Base):
     engine_settings = Column(Text, nullable=True)
     current_engine = Column(String(100), nullable=True)
     
+    # Advanced Sampler Settings (JSON blob)
+    # Stores all TabbyAPI/OpenAI-compatible sampler configurations
+    # Each sampler has an 'enabled' flag and a 'value' field
+    sampler_settings = Column(Text, nullable=True)
+    
     # Relationships
     user = relationship("User", back_populates="settings")
     
@@ -225,8 +230,24 @@ class UserSettings(Base):
                 "experimental_features": self.enable_experimental_features if self.enable_experimental_features is not None else adv_defaults.get("experimental_features", False)
             },
             "engine_settings": self._parse_engine_settings(),
-            "current_engine": self.current_engine or ""
+            "current_engine": self.current_engine or "",
+            "sampler_settings": self._get_merged_sampler_settings()
         }
+    
+    def _get_merged_sampler_settings(self):
+        """Get sampler settings merged with defaults.
+        
+        User settings override defaults, but missing keys get default values.
+        """
+        defaults = self.get_default_sampler_settings()
+        user_settings = self._parse_sampler_settings()
+        
+        # Merge user settings over defaults
+        for key, value in user_settings.items():
+            if key in defaults:
+                defaults[key] = value
+        
+        return defaults
     
     def _parse_engine_settings(self):
         """Parse engine_settings JSON string to dictionary"""
@@ -234,6 +255,80 @@ class UserSettings(Base):
             return json.loads(self.engine_settings) if self.engine_settings else {}
         except (json.JSONDecodeError, TypeError):
             return {}
+    
+    def _parse_sampler_settings(self):
+        """Parse sampler_settings JSON string to dictionary"""
+        try:
+            return json.loads(self.sampler_settings) if self.sampler_settings else {}
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    
+    @staticmethod
+    def get_default_sampler_settings():
+        """Get default sampler settings with all samplers disabled.
+        
+        Each sampler has:
+        - enabled: bool - whether to include this sampler in API calls
+        - value: the sampler value (type varies by sampler)
+        
+        Default values are set to common/safe defaults from TabbyAPI docs.
+        """
+        return {
+            # Basic Sampling
+            "temperature_last": {"enabled": False, "value": True},
+            "smoothing_factor": {"enabled": False, "value": 0.0},
+            "min_p": {"enabled": False, "value": 0.0},
+            "top_a": {"enabled": False, "value": 0.0},
+            
+            # Token Control
+            "min_tokens": {"enabled": False, "value": 0},
+            "token_healing": {"enabled": False, "value": True},
+            "add_bos_token": {"enabled": False, "value": True},
+            "ban_eos_token": {"enabled": False, "value": False},
+            
+            # Penalties
+            "frequency_penalty": {"enabled": False, "value": 0.0},
+            "presence_penalty": {"enabled": False, "value": 0.0},
+            "penalty_range": {"enabled": False, "value": 0},
+            "repetition_decay": {"enabled": False, "value": 0},
+            
+            # Advanced Sampling
+            "tfs": {"enabled": False, "value": 1.0},
+            "typical": {"enabled": False, "value": 1.0},
+            "skew": {"enabled": False, "value": 0.0},
+            
+            # XTC (Exclude Top Choices)
+            "xtc_probability": {"enabled": False, "value": 0.0},
+            "xtc_threshold": {"enabled": False, "value": 0.0},
+            
+            # DRY (Don't Repeat Yourself)
+            "dry_multiplier": {"enabled": False, "value": 0.0},
+            "dry_base": {"enabled": False, "value": 0.0},
+            "dry_allowed_length": {"enabled": False, "value": 0},
+            "dry_range": {"enabled": False, "value": 0},
+            "dry_sequence_breakers": {"enabled": False, "value": ""},
+            
+            # Mirostat
+            "mirostat_mode": {"enabled": False, "value": 0},
+            "mirostat_tau": {"enabled": False, "value": 1.5},
+            "mirostat_eta": {"enabled": False, "value": 0.3},
+            
+            # Dynamic Temperature
+            "max_temp": {"enabled": False, "value": 1.0},
+            "min_temp": {"enabled": False, "value": 1.0},
+            "temp_exponent": {"enabled": False, "value": 1.0},
+            
+            # Constraints
+            "banned_strings": {"enabled": False, "value": ""},
+            "banned_tokens": {"enabled": False, "value": []},
+            "allowed_tokens": {"enabled": False, "value": []},
+            "stop": {"enabled": False, "value": ""},
+            
+            # Other
+            "cfg_scale": {"enabled": False, "value": 1.0},
+            "negative_prompt": {"enabled": False, "value": ""},
+            "speculative_ngram": {"enabled": False, "value": True}
+        }
     
     def populate_from_defaults(self):
         """Populate UserSettings fields from config.yaml defaults
@@ -425,5 +520,6 @@ class UserSettings(Base):
             "export_settings": user_defaults.get("export_settings", {}),
             "character_assistant_settings": user_defaults.get("character_assistant_settings", {}),
             "advanced": user_defaults.get("advanced", {}),
-            "extraction_model_settings": user_defaults.get("extraction_model_settings", {})
+            "extraction_model_settings": user_defaults.get("extraction_model_settings", {}),
+            "sampler_settings": cls.get_default_sampler_settings()
         }

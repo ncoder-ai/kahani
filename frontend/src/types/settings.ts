@@ -43,6 +43,136 @@ export interface CharacterAssistantSettings {
   mention_threshold: number;
 }
 
+/**
+ * Individual sampler configuration with enabled flag and value
+ */
+export interface SamplerSettingValue<T = number | boolean | string | number[]> {
+  enabled: boolean;
+  value: T;
+}
+
+/**
+ * Advanced sampler settings for TabbyAPI and OpenAI-compatible APIs.
+ * Each sampler can be individually enabled/disabled.
+ * Only enabled samplers are sent to the API via extra_body.
+ */
+export interface SamplerSettings {
+  // Basic Sampling
+  temperature_last: SamplerSettingValue<boolean>;
+  smoothing_factor: SamplerSettingValue<number>;
+  min_p: SamplerSettingValue<number>;
+  top_a: SamplerSettingValue<number>;
+  
+  // Token Control
+  min_tokens: SamplerSettingValue<number>;
+  token_healing: SamplerSettingValue<boolean>;
+  add_bos_token: SamplerSettingValue<boolean>;
+  ban_eos_token: SamplerSettingValue<boolean>;
+  
+  // Penalties
+  frequency_penalty: SamplerSettingValue<number>;
+  presence_penalty: SamplerSettingValue<number>;
+  penalty_range: SamplerSettingValue<number>;
+  repetition_decay: SamplerSettingValue<number>;
+  
+  // Advanced Sampling
+  tfs: SamplerSettingValue<number>;
+  typical: SamplerSettingValue<number>;
+  skew: SamplerSettingValue<number>;
+  
+  // XTC (Exclude Top Choices)
+  xtc_probability: SamplerSettingValue<number>;
+  xtc_threshold: SamplerSettingValue<number>;
+  
+  // DRY (Don't Repeat Yourself)
+  dry_multiplier: SamplerSettingValue<number>;
+  dry_base: SamplerSettingValue<number>;
+  dry_allowed_length: SamplerSettingValue<number>;
+  dry_range: SamplerSettingValue<number>;
+  dry_sequence_breakers: SamplerSettingValue<string>;
+  
+  // Mirostat
+  mirostat_mode: SamplerSettingValue<number>;
+  mirostat_tau: SamplerSettingValue<number>;
+  mirostat_eta: SamplerSettingValue<number>;
+  
+  // Dynamic Temperature
+  max_temp: SamplerSettingValue<number>;
+  min_temp: SamplerSettingValue<number>;
+  temp_exponent: SamplerSettingValue<number>;
+  
+  // Constraints
+  banned_strings: SamplerSettingValue<string>;
+  banned_tokens: SamplerSettingValue<number[]>;
+  allowed_tokens: SamplerSettingValue<number[]>;
+  stop: SamplerSettingValue<string>;
+  
+  // Other
+  cfg_scale: SamplerSettingValue<number>;
+  negative_prompt: SamplerSettingValue<string>;
+  speculative_ngram: SamplerSettingValue<boolean>;
+}
+
+/**
+ * Default sampler settings with all samplers disabled
+ */
+export const DEFAULT_SAMPLER_SETTINGS: SamplerSettings = {
+  // Basic Sampling
+  temperature_last: { enabled: false, value: true },
+  smoothing_factor: { enabled: false, value: 0.0 },
+  min_p: { enabled: false, value: 0.0 },
+  top_a: { enabled: false, value: 0.0 },
+  
+  // Token Control
+  min_tokens: { enabled: false, value: 0 },
+  token_healing: { enabled: false, value: true },
+  add_bos_token: { enabled: false, value: true },
+  ban_eos_token: { enabled: false, value: false },
+  
+  // Penalties
+  frequency_penalty: { enabled: false, value: 0.0 },
+  presence_penalty: { enabled: false, value: 0.0 },
+  penalty_range: { enabled: false, value: 0 },
+  repetition_decay: { enabled: false, value: 0 },
+  
+  // Advanced Sampling
+  tfs: { enabled: false, value: 1.0 },
+  typical: { enabled: false, value: 1.0 },
+  skew: { enabled: false, value: 0.0 },
+  
+  // XTC (Exclude Top Choices)
+  xtc_probability: { enabled: false, value: 0.0 },
+  xtc_threshold: { enabled: false, value: 0.0 },
+  
+  // DRY (Don't Repeat Yourself)
+  dry_multiplier: { enabled: false, value: 0.0 },
+  dry_base: { enabled: false, value: 0.0 },
+  dry_allowed_length: { enabled: false, value: 0 },
+  dry_range: { enabled: false, value: 0 },
+  dry_sequence_breakers: { enabled: false, value: '' },
+  
+  // Mirostat
+  mirostat_mode: { enabled: false, value: 0 },
+  mirostat_tau: { enabled: false, value: 1.5 },
+  mirostat_eta: { enabled: false, value: 0.3 },
+  
+  // Dynamic Temperature
+  max_temp: { enabled: false, value: 1.0 },
+  min_temp: { enabled: false, value: 1.0 },
+  temp_exponent: { enabled: false, value: 1.0 },
+  
+  // Constraints
+  banned_strings: { enabled: false, value: '' },
+  banned_tokens: { enabled: false, value: [] },
+  allowed_tokens: { enabled: false, value: [] },
+  stop: { enabled: false, value: '' },
+  
+  // Other
+  cfg_scale: { enabled: false, value: 1.0 },
+  negative_prompt: { enabled: false, value: '' },
+  speculative_ngram: { enabled: false, value: true },
+};
+
 export interface UserSettings {
   id: number;
   user_id: number;

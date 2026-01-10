@@ -61,6 +61,9 @@ class LLMClient:
         self.reasoning_effort = self.llm_config.get('reasoning_effort')  # None = auto, "disabled", "low", "medium", "high"
         self.show_thinking_content = self.llm_config.get('show_thinking_content', True)
         
+        # Advanced sampler settings (from sampler_settings in user_settings)
+        self.sampler_settings = user_settings.get('sampler_settings', {})
+        
         logger.info(f"LLMClient initialized: completion_mode={self.completion_mode}, api_type={self.api_type}, model={self.model_name}, reasoning_effort={self.reasoning_effort}")
         
         # Configure LiteLLM model string based on provider
@@ -168,6 +171,103 @@ class LLMClient:
         
         logger.info(f"Configured LiteLLM for {self.api_type} with model {self.model_string}")
     
+    def _add_enabled_samplers(self, extra_body: Dict[str, Any]) -> Dict[str, Any]:
+        """Add enabled samplers from sampler_settings to extra_body.
+        
+        Only samplers with enabled=True are added to the request.
+        This allows users to selectively enable/disable individual samplers.
+        """
+        if not self.sampler_settings:
+            return extra_body
+        
+        # Map of sampler names to their API parameter names
+        # Most are 1:1 but some may need special handling
+        sampler_map = {
+            # Basic Sampling
+            "temperature_last": "temperature_last",
+            "smoothing_factor": "smoothing_factor",
+            "min_p": "min_p",
+            "top_a": "top_a",
+            
+            # Token Control
+            "min_tokens": "min_tokens",
+            "token_healing": "token_healing",
+            "add_bos_token": "add_bos_token",
+            "ban_eos_token": "ban_eos_token",
+            
+            # Penalties
+            "frequency_penalty": "frequency_penalty",
+            "presence_penalty": "presence_penalty",
+            "penalty_range": "penalty_range",
+            "repetition_decay": "repetition_decay",
+            
+            # Advanced Sampling
+            "tfs": "tfs",
+            "typical": "typical",
+            "skew": "skew",
+            
+            # XTC (Exclude Top Choices)
+            "xtc_probability": "xtc_probability",
+            "xtc_threshold": "xtc_threshold",
+            
+            # DRY (Don't Repeat Yourself)
+            "dry_multiplier": "dry_multiplier",
+            "dry_base": "dry_base",
+            "dry_allowed_length": "dry_allowed_length",
+            "dry_range": "dry_range",
+            "dry_sequence_breakers": "dry_sequence_breakers",
+            
+            # Mirostat
+            "mirostat_mode": "mirostat_mode",
+            "mirostat_tau": "mirostat_tau",
+            "mirostat_eta": "mirostat_eta",
+            
+            # Dynamic Temperature
+            "max_temp": "max_temp",
+            "min_temp": "min_temp",
+            "temp_exponent": "temp_exponent",
+            
+            # Constraints
+            "banned_strings": "banned_strings",
+            "banned_tokens": "banned_tokens",
+            "allowed_tokens": "allowed_tokens",
+            "stop": "stop",
+            
+            # Other
+            "cfg_scale": "cfg_scale",
+            "negative_prompt": "negative_prompt",
+            "speculative_ngram": "speculative_ngram",
+        }
+        
+        enabled_count = 0
+        for sampler_key, api_param in sampler_map.items():
+            sampler_config = self.sampler_settings.get(sampler_key, {})
+            
+            # Check if this sampler is enabled and has a value
+            if isinstance(sampler_config, dict) and sampler_config.get('enabled', False):
+                value = sampler_config.get('value')
+                
+                # Skip empty/null values
+                if value is None:
+                    continue
+                
+                # Skip empty strings for string-type samplers
+                if isinstance(value, str) and value.strip() == '':
+                    continue
+                
+                # Skip empty lists for array-type samplers
+                if isinstance(value, list) and len(value) == 0:
+                    continue
+                
+                extra_body[api_param] = value
+                enabled_count += 1
+        
+        if enabled_count > 0:
+            logger.info(f"Added {enabled_count} enabled samplers to extra_body")
+            logger.debug(f"Enabled samplers: {[k for k, v in self.sampler_settings.items() if isinstance(v, dict) and v.get('enabled')]}")
+        
+        return extra_body
+    
     def get_generation_params(self, max_tokens: Optional[int] = None, temperature: Optional[float] = None) -> Dict[str, Any]:
         """Get generation parameters for API calls"""
         params = {
@@ -236,6 +336,10 @@ class LLMClient:
                 extra_body["top_k"] = self.top_k
             if self.repetition_penalty is not None:
                 extra_body["repetition_penalty"] = self.repetition_penalty
+            
+            # Add enabled advanced samplers from sampler_settings
+            extra_body = self._add_enabled_samplers(extra_body)
+            
             if extra_body:
                 params["extra_body"] = extra_body
         
@@ -312,6 +416,10 @@ class LLMClient:
                 extra_body["top_k"] = self.top_k
             if self.repetition_penalty is not None:
                 extra_body["repetition_penalty"] = self.repetition_penalty
+            
+            # Add enabled advanced samplers from sampler_settings
+            extra_body = self._add_enabled_samplers(extra_body)
+            
             if extra_body:
                 params["extra_body"] = extra_body
         

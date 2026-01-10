@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field
+import json
 from ..database import get_db
 from ..models import User, UserSettings
 from ..dependencies import get_current_user
@@ -109,6 +110,75 @@ class ExtractionModelSettingsUpdate(BaseModel):
     fallback_to_main: Optional[bool] = None
     enable_combined_extraction: Optional[bool] = None  # Enable combined extraction (default: True)
 
+
+class SamplerSettingValue(BaseModel):
+    """Individual sampler configuration with enabled flag and value"""
+    enabled: bool = False
+    value: Any = None
+
+
+class SamplerSettingsUpdate(BaseModel):
+    """Advanced sampler settings for TabbyAPI and OpenAI-compatible APIs.
+    
+    Each sampler can be individually enabled/disabled. Only enabled samplers
+    are sent to the API via extra_body.
+    """
+    # Basic Sampling
+    temperature_last: Optional[SamplerSettingValue] = None
+    smoothing_factor: Optional[SamplerSettingValue] = None
+    min_p: Optional[SamplerSettingValue] = None
+    top_a: Optional[SamplerSettingValue] = None
+    
+    # Token Control
+    min_tokens: Optional[SamplerSettingValue] = None
+    token_healing: Optional[SamplerSettingValue] = None
+    add_bos_token: Optional[SamplerSettingValue] = None
+    ban_eos_token: Optional[SamplerSettingValue] = None
+    
+    # Penalties
+    frequency_penalty: Optional[SamplerSettingValue] = None
+    presence_penalty: Optional[SamplerSettingValue] = None
+    penalty_range: Optional[SamplerSettingValue] = None
+    repetition_decay: Optional[SamplerSettingValue] = None
+    
+    # Advanced Sampling
+    tfs: Optional[SamplerSettingValue] = None
+    typical: Optional[SamplerSettingValue] = None
+    skew: Optional[SamplerSettingValue] = None
+    
+    # XTC (Exclude Top Choices)
+    xtc_probability: Optional[SamplerSettingValue] = None
+    xtc_threshold: Optional[SamplerSettingValue] = None
+    
+    # DRY (Don't Repeat Yourself)
+    dry_multiplier: Optional[SamplerSettingValue] = None
+    dry_base: Optional[SamplerSettingValue] = None
+    dry_allowed_length: Optional[SamplerSettingValue] = None
+    dry_range: Optional[SamplerSettingValue] = None
+    dry_sequence_breakers: Optional[SamplerSettingValue] = None
+    
+    # Mirostat
+    mirostat_mode: Optional[SamplerSettingValue] = None
+    mirostat_tau: Optional[SamplerSettingValue] = None
+    mirostat_eta: Optional[SamplerSettingValue] = None
+    
+    # Dynamic Temperature
+    max_temp: Optional[SamplerSettingValue] = None
+    min_temp: Optional[SamplerSettingValue] = None
+    temp_exponent: Optional[SamplerSettingValue] = None
+    
+    # Constraints
+    banned_strings: Optional[SamplerSettingValue] = None
+    banned_tokens: Optional[SamplerSettingValue] = None
+    allowed_tokens: Optional[SamplerSettingValue] = None
+    stop: Optional[SamplerSettingValue] = None
+    
+    # Other
+    cfg_scale: Optional[SamplerSettingValue] = None
+    negative_prompt: Optional[SamplerSettingValue] = None
+    speculative_ngram: Optional[SamplerSettingValue] = None
+
+
 class UserSettingsUpdate(BaseModel):
     llm_settings: LLMSettingsUpdate = None
     context_settings: ContextSettingsUpdate = None
@@ -120,6 +190,7 @@ class UserSettingsUpdate(BaseModel):
     extraction_model_settings: ExtractionModelSettingsUpdate = None
     advanced: AdvancedSettingsUpdate = None
     character_assistant_settings: CharacterAssistantSettingsUpdate = None
+    sampler_settings: Optional[SamplerSettingsUpdate] = None
 
 @router.get("/")
 async def get_user_settings(
@@ -340,7 +411,6 @@ async def update_user_settings(
     if settings_update.engine_settings:
         eng = settings_update.engine_settings
         if eng.engine_settings is not None:
-            import json
             user_settings.engine_settings = json.dumps(eng.engine_settings)
         if eng.current_engine is not None:
             user_settings.current_engine = eng.current_engine
@@ -372,6 +442,26 @@ async def update_user_settings(
             user_settings.extraction_model_max_tokens = ext.max_tokens
         if ext.fallback_to_main is not None:
             user_settings.extraction_fallback_to_main = ext.fallback_to_main
+    
+    # Update sampler settings
+    if settings_update.sampler_settings:
+        sampler = settings_update.sampler_settings
+        # Get existing sampler settings or start with defaults
+        existing_samplers = {}
+        if user_settings.sampler_settings:
+            try:
+                existing_samplers = json.loads(user_settings.sampler_settings)
+            except (json.JSONDecodeError, TypeError):
+                existing_samplers = {}
+        
+        # Update only the samplers that were provided
+        sampler_dict = sampler.model_dump(exclude_none=True)
+        for key, value in sampler_dict.items():
+            if value is not None:
+                existing_samplers[key] = value
+        
+        # Save as JSON string
+        user_settings.sampler_settings = json.dumps(existing_samplers)
     
     try:
         db.commit()

@@ -7,7 +7,7 @@ import apiClient, { getApiBaseUrl } from '@/lib/api';
 import { getThemeList, applyTheme } from '@/lib/themes';
 import { useAuthStore } from '@/store';
 import { useConfig } from '@/contexts/ConfigContext';
-import { UIPreferences, GenerationPreferences } from '@/types/settings';
+import { UIPreferences, GenerationPreferences, SamplerSettings, DEFAULT_SAMPLER_SETTINGS } from '@/types/settings';
 import { ProseStyleDefinition } from '@/types/writing-presets';
 import TextCompletionTemplateEditor from './TextCompletionTemplateEditor';
 
@@ -171,6 +171,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   // LLM Settings - Engine-specific storage
   const [engineSettings, setEngineSettings] = useState<Record<string, LLMSettings>>({});
   const [currentEngine, setCurrentEngine] = useState<string>('');
+  const [samplerSettings, setSamplerSettings] = useState<SamplerSettings>(DEFAULT_SAMPLER_SETTINGS);
+  const [llmSubTab, setLlmSubTab] = useState<'main' | 'samplers'>('main');
   const [llmSettings, setLlmSettings] = useState<LLMSettings>({
     temperature: 0.7,
     top_p: 0.9,
@@ -454,6 +456,14 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           }
         } catch (error) {
           console.error('Failed to load extraction model presets:', error);
+        }
+        
+        // Load sampler settings
+        if (settings?.sampler_settings) {
+          setSamplerSettings({
+            ...DEFAULT_SAMPLER_SETTINGS,
+            ...settings.sampler_settings,
+          });
         }
       }
     } catch (error) {
@@ -959,6 +969,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             model_name: llmSettings.model_name || '',
           }, // Also save as current LLM settings for backward compatibility
           extraction_model_settings: extractionModelSettings,
+          sampler_settings: samplerSettings,
         }),
       });
 
@@ -2165,10 +2176,37 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             <div className="space-y-6">
               <div>
                 <h3 className="text-lg font-semibold text-white mb-2">LLM Settings</h3>
-                <p className="text-sm text-gray-400 mb-6">
+                <p className="text-sm text-gray-400 mb-4">
                   Configure your language model provider and generation parameters
                 </p>
 
+                {/* LLM Sub-tabs */}
+                <div className="flex gap-2 mb-6 border-b border-gray-700 pb-2">
+                  <button
+                    onClick={() => setLlmSubTab('main')}
+                    className={`px-4 py-2 rounded-t-lg font-medium transition-colors ${
+                      llmSubTab === 'main'
+                        ? 'bg-gray-700 text-white border-b-2 border-blue-500'
+                        : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                    }`}
+                  >
+                    Main Settings
+                  </button>
+                  <button
+                    onClick={() => setLlmSubTab('samplers')}
+                    className={`px-4 py-2 rounded-t-lg font-medium transition-colors ${
+                      llmSubTab === 'samplers'
+                        ? 'bg-gray-700 text-white border-b-2 border-blue-500'
+                        : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                    }`}
+                  >
+                    Advanced Samplers
+                  </button>
+                </div>
+
+                {/* Main LLM Sub-tab */}
+                {llmSubTab === 'main' && (
+                <>
                 {/* Main LLM */}
                 <div className="space-y-4 mb-8">
                   <h4 className="text-md font-semibold text-white mb-3">Main LLM</h4>
@@ -2733,6 +2771,1066 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     Save LLM Settings
                   </button>
                 </div>
+                </>
+                )}
+
+                {/* Advanced Samplers Sub-tab */}
+                {llmSubTab === 'samplers' && (
+                  <div className="space-y-6">
+                    <div className="bg-blue-900/20 border border-blue-700/30 rounded-lg p-4 mb-4">
+                      <p className="text-sm text-blue-200">
+                        <strong>Advanced Samplers</strong> - These settings are passed to TabbyAPI and other OpenAI-compatible APIs via extra_body.
+                        Only enabled samplers will be sent. Disabled samplers use API defaults.
+                      </p>
+                    </div>
+
+                    {/* Basic Sampling */}
+                    <div className="space-y-4">
+                      <h4 className="text-md font-semibold text-white border-b border-gray-700 pb-2">Basic Sampling</h4>
+                      
+                      {/* Min P */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.min_p.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              min_p: { ...samplerSettings.min_p, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-sm font-medium text-white">Min P: {samplerSettings.min_p.value}</label>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.01"
+                            value={samplerSettings.min_p.value}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              min_p: { ...samplerSettings.min_p, value: parseFloat(e.target.value) }
+                            })}
+                            disabled={!samplerSettings.min_p.enabled}
+                            className="w-full disabled:opacity-50"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">Minimum probability threshold. Tokens below this are excluded.</p>
+                        </div>
+                      </div>
+
+                      {/* Top A */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.top_a.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              top_a: { ...samplerSettings.top_a, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-sm font-medium text-white">Top A: {samplerSettings.top_a.value}</label>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.01"
+                            value={samplerSettings.top_a.value}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              top_a: { ...samplerSettings.top_a, value: parseFloat(e.target.value) }
+                            })}
+                            disabled={!samplerSettings.top_a.enabled}
+                            className="w-full disabled:opacity-50"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">Top-A sampling. Considers tokens with probability above top_a * max_prob.</p>
+                        </div>
+                      </div>
+
+                      {/* Temperature Last */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.temperature_last.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              temperature_last: { ...samplerSettings.temperature_last, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={samplerSettings.temperature_last.value}
+                              onChange={(e) => setSamplerSettings({
+                                ...samplerSettings,
+                                temperature_last: { ...samplerSettings.temperature_last, value: e.target.checked }
+                              })}
+                              disabled={!samplerSettings.temperature_last.enabled}
+                              className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500 disabled:opacity-50"
+                            />
+                            <span className="text-sm font-medium text-white">Temperature Last</span>
+                          </label>
+                          <p className="text-xs text-gray-400 mt-1">Apply temperature after other samplers instead of before.</p>
+                        </div>
+                      </div>
+
+                      {/* Smoothing Factor */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.smoothing_factor.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              smoothing_factor: { ...samplerSettings.smoothing_factor, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-sm font-medium text-white">Smoothing Factor: {samplerSettings.smoothing_factor.value}</label>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="10"
+                            step="0.1"
+                            value={samplerSettings.smoothing_factor.value}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              smoothing_factor: { ...samplerSettings.smoothing_factor, value: parseFloat(e.target.value) }
+                            })}
+                            disabled={!samplerSettings.smoothing_factor.enabled}
+                            className="w-full disabled:opacity-50"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">Quadratic sampling smoothing factor.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Advanced Sampling */}
+                    <div className="space-y-4">
+                      <h4 className="text-md font-semibold text-white border-b border-gray-700 pb-2">Advanced Sampling</h4>
+                      
+                      {/* TFS */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.tfs.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              tfs: { ...samplerSettings.tfs, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-sm font-medium text-white">TFS (Tail Free Sampling): {samplerSettings.tfs.value}</label>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.01"
+                            value={samplerSettings.tfs.value}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              tfs: { ...samplerSettings.tfs, value: parseFloat(e.target.value) }
+                            })}
+                            disabled={!samplerSettings.tfs.enabled}
+                            className="w-full disabled:opacity-50"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">Removes low-probability tail tokens. 1.0 = disabled.</p>
+                        </div>
+                      </div>
+
+                      {/* Typical */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.typical.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              typical: { ...samplerSettings.typical, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-sm font-medium text-white">Typical P: {samplerSettings.typical.value}</label>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.01"
+                            value={samplerSettings.typical.value}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              typical: { ...samplerSettings.typical, value: parseFloat(e.target.value) }
+                            })}
+                            disabled={!samplerSettings.typical.enabled}
+                            className="w-full disabled:opacity-50"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">Locally typical sampling. 1.0 = disabled.</p>
+                        </div>
+                      </div>
+
+                      {/* Skew */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.skew.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              skew: { ...samplerSettings.skew, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-sm font-medium text-white">Skew: {samplerSettings.skew.value}</label>
+                          </div>
+                          <input
+                            type="range"
+                            min="-10"
+                            max="10"
+                            step="0.1"
+                            value={samplerSettings.skew.value}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              skew: { ...samplerSettings.skew, value: parseFloat(e.target.value) }
+                            })}
+                            disabled={!samplerSettings.skew.enabled}
+                            className="w-full disabled:opacity-50"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">Skews token probabilities. Positive = more diverse, negative = more focused.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Penalties */}
+                    <div className="space-y-4">
+                      <h4 className="text-md font-semibold text-white border-b border-gray-700 pb-2">Penalties</h4>
+                      
+                      {/* Frequency Penalty */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.frequency_penalty.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              frequency_penalty: { ...samplerSettings.frequency_penalty, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-sm font-medium text-white">Frequency Penalty: {samplerSettings.frequency_penalty.value}</label>
+                          </div>
+                          <input
+                            type="range"
+                            min="-2"
+                            max="2"
+                            step="0.1"
+                            value={samplerSettings.frequency_penalty.value}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              frequency_penalty: { ...samplerSettings.frequency_penalty, value: parseFloat(e.target.value) }
+                            })}
+                            disabled={!samplerSettings.frequency_penalty.enabled}
+                            className="w-full disabled:opacity-50"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">Penalizes tokens based on frequency in generated text.</p>
+                        </div>
+                      </div>
+
+                      {/* Presence Penalty */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.presence_penalty.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              presence_penalty: { ...samplerSettings.presence_penalty, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-sm font-medium text-white">Presence Penalty: {samplerSettings.presence_penalty.value}</label>
+                          </div>
+                          <input
+                            type="range"
+                            min="-2"
+                            max="2"
+                            step="0.1"
+                            value={samplerSettings.presence_penalty.value}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              presence_penalty: { ...samplerSettings.presence_penalty, value: parseFloat(e.target.value) }
+                            })}
+                            disabled={!samplerSettings.presence_penalty.enabled}
+                            className="w-full disabled:opacity-50"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">Penalizes tokens that have appeared at all.</p>
+                        </div>
+                      </div>
+
+                      {/* Penalty Range */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.penalty_range.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              penalty_range: { ...samplerSettings.penalty_range, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-sm font-medium text-white">Penalty Range: {samplerSettings.penalty_range.value}</label>
+                          </div>
+                          <input
+                            type="number"
+                            min="0"
+                            max="8192"
+                            value={samplerSettings.penalty_range.value}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              penalty_range: { ...samplerSettings.penalty_range, value: parseInt(e.target.value) || 0 }
+                            })}
+                            disabled={!samplerSettings.penalty_range.enabled}
+                            className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white disabled:opacity-50"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">Number of tokens to consider for penalties. 0 = all tokens.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* DRY (Don't Repeat Yourself) */}
+                    <div className="space-y-4">
+                      <h4 className="text-md font-semibold text-white border-b border-gray-700 pb-2">DRY (Don't Repeat Yourself)</h4>
+                      
+                      {/* DRY Multiplier */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.dry_multiplier.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              dry_multiplier: { ...samplerSettings.dry_multiplier, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-sm font-medium text-white">DRY Multiplier: {samplerSettings.dry_multiplier.value}</label>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="5"
+                            step="0.1"
+                            value={samplerSettings.dry_multiplier.value}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              dry_multiplier: { ...samplerSettings.dry_multiplier, value: parseFloat(e.target.value) }
+                            })}
+                            disabled={!samplerSettings.dry_multiplier.enabled}
+                            className="w-full disabled:opacity-50"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">Strength of DRY penalty. 0 = disabled.</p>
+                        </div>
+                      </div>
+
+                      {/* DRY Base */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.dry_base.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              dry_base: { ...samplerSettings.dry_base, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-sm font-medium text-white">DRY Base: {samplerSettings.dry_base.value}</label>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="5"
+                            step="0.1"
+                            value={samplerSettings.dry_base.value}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              dry_base: { ...samplerSettings.dry_base, value: parseFloat(e.target.value) }
+                            })}
+                            disabled={!samplerSettings.dry_base.enabled}
+                            className="w-full disabled:opacity-50"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">Base for exponential DRY penalty growth.</p>
+                        </div>
+                      </div>
+
+                      {/* DRY Allowed Length */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.dry_allowed_length.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              dry_allowed_length: { ...samplerSettings.dry_allowed_length, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-sm font-medium text-white">DRY Allowed Length: {samplerSettings.dry_allowed_length.value}</label>
+                          </div>
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            value={samplerSettings.dry_allowed_length.value}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              dry_allowed_length: { ...samplerSettings.dry_allowed_length, value: parseInt(e.target.value) || 0 }
+                            })}
+                            disabled={!samplerSettings.dry_allowed_length.enabled}
+                            className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white disabled:opacity-50"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">Minimum sequence length before DRY applies.</p>
+                        </div>
+                      </div>
+
+                      {/* DRY Range */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.dry_range.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              dry_range: { ...samplerSettings.dry_range, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-sm font-medium text-white">DRY Range: {samplerSettings.dry_range.value}</label>
+                          </div>
+                          <input
+                            type="number"
+                            min="0"
+                            max="8192"
+                            value={samplerSettings.dry_range.value}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              dry_range: { ...samplerSettings.dry_range, value: parseInt(e.target.value) || 0 }
+                            })}
+                            disabled={!samplerSettings.dry_range.enabled}
+                            className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white disabled:opacity-50"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">Number of tokens to scan for repetition. 0 = all.</p>
+                        </div>
+                      </div>
+
+                      {/* DRY Sequence Breakers */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.dry_sequence_breakers.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              dry_sequence_breakers: { ...samplerSettings.dry_sequence_breakers, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <label className="text-sm font-medium text-white">DRY Sequence Breakers</label>
+                          <input
+                            type="text"
+                            value={samplerSettings.dry_sequence_breakers.value}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              dry_sequence_breakers: { ...samplerSettings.dry_sequence_breakers, value: e.target.value }
+                            })}
+                            disabled={!samplerSettings.dry_sequence_breakers.enabled}
+                            placeholder='e.g., "\\n", ":", "\\"'
+                            className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white disabled:opacity-50 mt-2"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">Tokens that break repetition sequences (JSON array string).</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Mirostat */}
+                    <div className="space-y-4">
+                      <h4 className="text-md font-semibold text-white border-b border-gray-700 pb-2">Mirostat</h4>
+                      
+                      {/* Mirostat Mode */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.mirostat_mode.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              mirostat_mode: { ...samplerSettings.mirostat_mode, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <label className="text-sm font-medium text-white">Mirostat Mode</label>
+                          <select
+                            value={samplerSettings.mirostat_mode.value}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              mirostat_mode: { ...samplerSettings.mirostat_mode, value: parseInt(e.target.value) }
+                            })}
+                            disabled={!samplerSettings.mirostat_mode.enabled}
+                            className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white disabled:opacity-50 mt-2"
+                          >
+                            <option value={0}>0 - Disabled</option>
+                            <option value={1}>1 - Mirostat</option>
+                            <option value={2}>2 - Mirostat 2.0</option>
+                          </select>
+                          <p className="text-xs text-gray-400 mt-1">Mirostat algorithm version. Overrides other samplers when enabled.</p>
+                        </div>
+                      </div>
+
+                      {/* Mirostat Tau */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.mirostat_tau.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              mirostat_tau: { ...samplerSettings.mirostat_tau, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-sm font-medium text-white">Mirostat Tau: {samplerSettings.mirostat_tau.value}</label>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="10"
+                            step="0.1"
+                            value={samplerSettings.mirostat_tau.value}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              mirostat_tau: { ...samplerSettings.mirostat_tau, value: parseFloat(e.target.value) }
+                            })}
+                            disabled={!samplerSettings.mirostat_tau.enabled}
+                            className="w-full disabled:opacity-50"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">Target entropy (perplexity). Lower = more focused.</p>
+                        </div>
+                      </div>
+
+                      {/* Mirostat Eta */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.mirostat_eta.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              mirostat_eta: { ...samplerSettings.mirostat_eta, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-sm font-medium text-white">Mirostat Eta: {samplerSettings.mirostat_eta.value}</label>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.01"
+                            value={samplerSettings.mirostat_eta.value}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              mirostat_eta: { ...samplerSettings.mirostat_eta, value: parseFloat(e.target.value) }
+                            })}
+                            disabled={!samplerSettings.mirostat_eta.enabled}
+                            className="w-full disabled:opacity-50"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">Learning rate for Mirostat. Higher = faster adaptation.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Dynamic Temperature */}
+                    <div className="space-y-4">
+                      <h4 className="text-md font-semibold text-white border-b border-gray-700 pb-2">Dynamic Temperature</h4>
+                      
+                      {/* Min Temp */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.min_temp.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              min_temp: { ...samplerSettings.min_temp, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-sm font-medium text-white">Min Temperature: {samplerSettings.min_temp.value}</label>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="2"
+                            step="0.05"
+                            value={samplerSettings.min_temp.value}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              min_temp: { ...samplerSettings.min_temp, value: parseFloat(e.target.value) }
+                            })}
+                            disabled={!samplerSettings.min_temp.enabled}
+                            className="w-full disabled:opacity-50"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">Minimum temperature for dynamic temperature.</p>
+                        </div>
+                      </div>
+
+                      {/* Max Temp */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.max_temp.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              max_temp: { ...samplerSettings.max_temp, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-sm font-medium text-white">Max Temperature: {samplerSettings.max_temp.value}</label>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="2"
+                            step="0.05"
+                            value={samplerSettings.max_temp.value}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              max_temp: { ...samplerSettings.max_temp, value: parseFloat(e.target.value) }
+                            })}
+                            disabled={!samplerSettings.max_temp.enabled}
+                            className="w-full disabled:opacity-50"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">Maximum temperature for dynamic temperature.</p>
+                        </div>
+                      </div>
+
+                      {/* Temp Exponent */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.temp_exponent.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              temp_exponent: { ...samplerSettings.temp_exponent, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-sm font-medium text-white">Temp Exponent: {samplerSettings.temp_exponent.value}</label>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="5"
+                            step="0.1"
+                            value={samplerSettings.temp_exponent.value}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              temp_exponent: { ...samplerSettings.temp_exponent, value: parseFloat(e.target.value) }
+                            })}
+                            disabled={!samplerSettings.temp_exponent.enabled}
+                            className="w-full disabled:opacity-50"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">Exponent for dynamic temperature scaling.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* XTC */}
+                    <div className="space-y-4">
+                      <h4 className="text-md font-semibold text-white border-b border-gray-700 pb-2">XTC (Exclude Top Choices)</h4>
+                      
+                      {/* XTC Probability */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.xtc_probability.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              xtc_probability: { ...samplerSettings.xtc_probability, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-sm font-medium text-white">XTC Probability: {samplerSettings.xtc_probability.value}</label>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.01"
+                            value={samplerSettings.xtc_probability.value}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              xtc_probability: { ...samplerSettings.xtc_probability, value: parseFloat(e.target.value) }
+                            })}
+                            disabled={!samplerSettings.xtc_probability.enabled}
+                            className="w-full disabled:opacity-50"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">Probability of applying XTC exclusion.</p>
+                        </div>
+                      </div>
+
+                      {/* XTC Threshold */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.xtc_threshold.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              xtc_threshold: { ...samplerSettings.xtc_threshold, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-sm font-medium text-white">XTC Threshold: {samplerSettings.xtc_threshold.value}</label>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.01"
+                            value={samplerSettings.xtc_threshold.value}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              xtc_threshold: { ...samplerSettings.xtc_threshold, value: parseFloat(e.target.value) }
+                            })}
+                            disabled={!samplerSettings.xtc_threshold.enabled}
+                            className="w-full disabled:opacity-50"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">Threshold for XTC token exclusion.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Token Control */}
+                    <div className="space-y-4">
+                      <h4 className="text-md font-semibold text-white border-b border-gray-700 pb-2">Token Control</h4>
+                      
+                      {/* Min Tokens */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.min_tokens.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              min_tokens: { ...samplerSettings.min_tokens, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-sm font-medium text-white">Min Tokens: {samplerSettings.min_tokens.value}</label>
+                          </div>
+                          <input
+                            type="number"
+                            min="0"
+                            max="4096"
+                            value={samplerSettings.min_tokens.value}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              min_tokens: { ...samplerSettings.min_tokens, value: parseInt(e.target.value) || 0 }
+                            })}
+                            disabled={!samplerSettings.min_tokens.enabled}
+                            className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white disabled:opacity-50"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">Minimum number of tokens to generate.</p>
+                        </div>
+                      </div>
+
+                      {/* Token Healing */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.token_healing.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              token_healing: { ...samplerSettings.token_healing, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={samplerSettings.token_healing.value}
+                              onChange={(e) => setSamplerSettings({
+                                ...samplerSettings,
+                                token_healing: { ...samplerSettings.token_healing, value: e.target.checked }
+                              })}
+                              disabled={!samplerSettings.token_healing.enabled}
+                              className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500 disabled:opacity-50"
+                            />
+                            <span className="text-sm font-medium text-white">Token Healing</span>
+                          </label>
+                          <p className="text-xs text-gray-400 mt-1">Heal broken tokens at prompt boundaries.</p>
+                        </div>
+                      </div>
+
+                      {/* Add BOS Token */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.add_bos_token.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              add_bos_token: { ...samplerSettings.add_bos_token, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={samplerSettings.add_bos_token.value}
+                              onChange={(e) => setSamplerSettings({
+                                ...samplerSettings,
+                                add_bos_token: { ...samplerSettings.add_bos_token, value: e.target.checked }
+                              })}
+                              disabled={!samplerSettings.add_bos_token.enabled}
+                              className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500 disabled:opacity-50"
+                            />
+                            <span className="text-sm font-medium text-white">Add BOS Token</span>
+                          </label>
+                          <p className="text-xs text-gray-400 mt-1">Add beginning-of-sequence token to prompt.</p>
+                        </div>
+                      </div>
+
+                      {/* Ban EOS Token */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.ban_eos_token.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              ban_eos_token: { ...samplerSettings.ban_eos_token, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={samplerSettings.ban_eos_token.value}
+                              onChange={(e) => setSamplerSettings({
+                                ...samplerSettings,
+                                ban_eos_token: { ...samplerSettings.ban_eos_token, value: e.target.checked }
+                              })}
+                              disabled={!samplerSettings.ban_eos_token.enabled}
+                              className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500 disabled:opacity-50"
+                            />
+                            <span className="text-sm font-medium text-white">Ban EOS Token</span>
+                          </label>
+                          <p className="text-xs text-gray-400 mt-1">Prevent model from generating end-of-sequence token.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Other */}
+                    <div className="space-y-4">
+                      <h4 className="text-md font-semibold text-white border-b border-gray-700 pb-2">Other</h4>
+                      
+                      {/* CFG Scale */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.cfg_scale.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              cfg_scale: { ...samplerSettings.cfg_scale, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-sm font-medium text-white">CFG Scale: {samplerSettings.cfg_scale.value}</label>
+                          </div>
+                          <input
+                            type="range"
+                            min="1"
+                            max="3"
+                            step="0.1"
+                            value={samplerSettings.cfg_scale.value}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              cfg_scale: { ...samplerSettings.cfg_scale, value: parseFloat(e.target.value) }
+                            })}
+                            disabled={!samplerSettings.cfg_scale.enabled}
+                            className="w-full disabled:opacity-50"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">Classifier-free guidance scale. Requires negative_prompt.</p>
+                        </div>
+                      </div>
+
+                      {/* Negative Prompt */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.negative_prompt.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              negative_prompt: { ...samplerSettings.negative_prompt, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <label className="text-sm font-medium text-white">Negative Prompt</label>
+                          <textarea
+                            value={samplerSettings.negative_prompt.value}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              negative_prompt: { ...samplerSettings.negative_prompt, value: e.target.value }
+                            })}
+                            disabled={!samplerSettings.negative_prompt.enabled}
+                            placeholder="Enter negative prompt..."
+                            rows={3}
+                            className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white disabled:opacity-50 mt-2"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">Text to guide the model away from. Used with CFG scale.</p>
+                        </div>
+                      </div>
+
+                      {/* Speculative N-gram */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.speculative_ngram.enabled}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              speculative_ngram: { ...samplerSettings.speculative_ngram, enabled: e.target.checked }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={samplerSettings.speculative_ngram.value}
+                              onChange={(e) => setSamplerSettings({
+                                ...samplerSettings,
+                                speculative_ngram: { ...samplerSettings.speculative_ngram, value: e.target.checked }
+                              })}
+                              disabled={!samplerSettings.speculative_ngram.enabled}
+                              className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500 disabled:opacity-50"
+                            />
+                            <span className="text-sm font-medium text-white">Speculative N-gram</span>
+                          </label>
+                          <p className="text-xs text-gray-400 mt-1">Enable speculative decoding with n-gram matching.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Save Button for Samplers */}
+                    <div className="flex justify-end pt-4 border-t border-gray-700">
+                      <button
+                        onClick={saveEngineSettings}
+                        className="px-6 py-2 theme-btn-primary rounded-lg font-semibold"
+                      >
+                        Save Sampler Settings
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
