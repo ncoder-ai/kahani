@@ -1367,11 +1367,13 @@ entity_state_extraction:
       - Moment types: "action", "dialogue", "development", "relationship"
       
       For NPCs:
-      - Extract named entities NOT in explicit character list: {character_names}
-      - Classify each as "CHARACTER" (sentient beings) or "ENTITY" (locations, objects, organizations)
-      - Focus on entities with dialogue, actions, or relationships
+      - Extract NAMED PEOPLE (humans/characters) NOT in explicit character list: {character_names}
+      - PRIORITIZE human characters over objects/locations
+      - Classify each as "CHARACTER" (people, humans, sentient beings) or "ENTITY" (locations, objects, organizations)
+      - Focus on people with dialogue, actions, or relationships
       - Maximum 5 total NPCs across all scenes (reduced from {max_npcs_total} - only most significant)
       - Prioritize: has_dialogue OR has_actions OR mention_count >= 3
+      - DO NOT extract objects (coffeemaker, boxes, furniture) as NPCs - those go in entity_states
       
       For PLOT EVENTS:
       - Extract significant plot events only
@@ -2006,16 +2008,43 @@ chapter_plot_guidance:
 chapter_progress:
   event_extraction:
     system: |
-      You analyze story scenes to identify which planned plot events have occurred.
+      You analyze story scenes to identify which planned plot events are ACTIVELY DEPICTED in THIS scene.
       Return ONLY a JSON array containing the EXACT event descriptions from the provided list.
       
-      GUIDELINES:
-      - Check if the MEANING of each planned event is depicted in the scene
-      - The scene doesn't need to use the exact same words - look for semantic equivalence
-      - An event is "completed" if the core action clearly happened
-      - Partial progress or mere hints do NOT count as completion
-      - IMPORTANT: Copy the event text EXACTLY as written in the provided list
-      - If no events occurred, return an empty array: []
+      BE EXTREMELY STRICT - Default to returning an empty array []. Only include events you are 100% certain about.
+      
+      AN EVENT IS COMPLETE ONLY IF:
+      - The event is ACTIVELY SHOWN HAPPENING in this scene (not referenced as past or future)
+      - The ENTIRE event occurs from start to finish within this scene
+      - The specific action described in the event is explicitly depicted
+      - A reader would unambiguously say "I just read that event happen"
+      
+      AN EVENT IS NOT COMPLETE IF:
+      - The event happened BEFORE this scene (past tense references don't count)
+      - The event is remembered, recalled, or thought about (flashbacks don't count)
+      - Characters discuss or mention the event but it's not shown
+      - The event is foreshadowed or planned for the future
+      - Only part of the event occurred or it was interrupted
+      - Similar themes are present but the SPECIFIC event wasn't shown
+      - The event is implied, inferred, or could be assumed
+      - It's a vague/subjective event like "bond deepens" without clear observable action
+      - It's a meta-statement about the chapter rather than a concrete scene event
+      
+      CRITICAL DISTINCTIONS:
+      - "He watched through cameras" vs "He had watched" → Only the first counts (present action)
+      - "She discovered the letter" vs "She remembered discovering it" → Only the first counts
+      - Event happening NOW in scene vs event being REFERENCED → Only NOW counts
+      
+      EXAMPLES:
+      - Event: "John watches Mary through the window" 
+        Scene says: "John remembered watching Mary yesterday" → NOT complete (past reference)
+        Scene says: "John pressed his face to the glass, watching Mary" → COMPLETE (active)
+      
+      - Event: "Sarah and Tom share an emotional moment"
+        Scene shows: casual conversation at dinner → NOT complete (too vague)
+        Scene shows: Sarah crying, Tom holding her, explicit emotional dialogue → COMPLETE
+      
+      When in doubt, return []. False negatives are acceptable; false positives are not.
     
     user: |
       Scene content:
@@ -2024,12 +2053,18 @@ chapter_progress:
       Planned events to check for:
       {key_events}
       
-      Which of these planned events OCCURRED in this scene? 
-      Return ONLY the events that clearly happened as a JSON array.
-      COPY the event text exactly from the list above.
+      Which events are ACTIVELY DEPICTED (not just referenced) in THIS scene?
       
-      Example response: ["Jack finds and touches a dark crystalline pyramid artifact, which begins glowing and triggers overwhelming Force visions in his mind"]
-      If none occurred: []
+      STRICT RULES:
+      - Only events SHOWN HAPPENING NOW, not referenced as past/future
+      - The complete event must occur, not just part of it
+      - Vague events need clear, observable evidence
+      - When uncertain, do NOT include the event
+      
+      Return a JSON array with EXACT event text from the list, or [] if none qualify.
+      
+      Example: ["Jack finds and touches a dark crystalline pyramid artifact, which begins glowing and triggers overwhelming Force visions in his mind"]
+      If none: []
 
 # =============================================================================
 # PACING - Chapter Plot Guidance and Progress-Based Pacing
