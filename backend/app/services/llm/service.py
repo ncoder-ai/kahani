@@ -3310,6 +3310,19 @@ Chapter Conclusion:"""
         """
         client = self.get_user_client(user_id, user_settings)
         
+        # Inject NSFW filter into system message if needed (SAME as _generate_stream_with_messages)
+        from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
+        user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
+        
+        if should_inject_nsfw_filter(user_allow_nsfw):
+            # Find and modify system message, or add one
+            system_idx = next((i for i, m in enumerate(messages) if m["role"] == "system"), None)
+            if system_idx is not None:
+                messages[system_idx]["content"] = messages[system_idx]["content"].strip() + "\n\n" + get_nsfw_prevention_prompt()
+            else:
+                messages.insert(0, {"role": "system", "content": get_nsfw_prevention_prompt()})
+            logger.debug(f"[MULTI-GEN] NSFW filter injected for user {user_id}")
+        
         # Get generation params and add n parameter
         gen_params = client.get_generation_params(max_tokens, temperature)
         gen_params["messages"] = messages
@@ -3378,6 +3391,18 @@ Chapter Conclusion:"""
             List of n completion contents
         """
         client = self.get_user_client(user_id, user_settings)
+        
+        # Inject NSFW filter into system message if needed (SAME as _generate_stream_with_messages)
+        from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
+        user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
+        
+        if should_inject_nsfw_filter(user_allow_nsfw):
+            system_idx = next((i for i, m in enumerate(messages) if m["role"] == "system"), None)
+            if system_idx is not None:
+                messages[system_idx]["content"] = messages[system_idx]["content"].strip() + "\n\n" + get_nsfw_prevention_prompt()
+            else:
+                messages.insert(0, {"role": "system", "content": get_nsfw_prevention_prompt()})
+            logger.debug(f"[MULTI-GEN] NSFW filter injected for user {user_id}")
         
         # Get generation params and add n parameter
         gen_params = client.get_generation_params(max_tokens, temperature)
