@@ -235,7 +235,7 @@ def create_scene_with_multi_variants(
         story_id=story_id,
         scene_id=scene.id,
         scene_variant_id=first_variant.id if first_variant else None,
-        sequence_order=sequence_number,
+        sequence_number=sequence_number,
         branch_id=branch_id,
         is_active=True
     )
