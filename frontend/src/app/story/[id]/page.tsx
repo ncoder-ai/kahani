@@ -93,6 +93,7 @@ interface Scene {
   variant_number?: number;
   is_original?: boolean;
   has_multiple_variants?: boolean;
+  total_variants?: number; // Total number of variants for multi-generation
   choices?: Array<{
     id: number;
     text: string;
