@@ -776,7 +776,7 @@ class ApiClient {
     userContent?: string,
     contentMode: 'ai_generate' | 'user_scene' | 'user_prompt' = 'ai_generate',
     onChunk?: (chunk: string) => void,
-    onComplete?: (sceneId: number, variantId: number, choices: any[], autoPlay?: { enabled: boolean; session_id: string; scene_id: number }) => void,
+    onComplete?: (sceneId: number, variantId: number, choices: any[], autoPlay?: { enabled: boolean; session_id: string; scene_id: number }, multiGen?: { isMultiGeneration: boolean; totalVariants: number; variants: any[] }) => void,
     onError?: (error: string) => void,
     onAutoPlayReady?: (sessionId: string, sceneId: number) => void,
     onExtractionStatus?: (status: 'extracting' | 'complete' | 'error', message: string) => void,
@@ -914,6 +914,29 @@ class ApiClient {
                   clearTimeout(timeoutId);
                   onComplete(parsed.scene_id, parsed.variant_id, parsed.choices || [], parsed.auto_play);
                   return;  // Exit after complete event
+                }
+                else if (parsed.type === 'multi_complete') {
+                  // Multi-generation complete - handle multiple variants
+                  receivedComplete = true;
+                  clearTimeout(timeoutId);
+                  // Call onComplete with first variant's data, plus multi-generation info
+                  if (onComplete && parsed.variants && parsed.variants.length > 0) {
+                    const firstVariant = parsed.variants[0];
+                    // Extend the callback with multi-generation info via extra parameter
+                    onComplete(
+                      parsed.scene_id, 
+                      firstVariant.id, 
+                      firstVariant.choices || [], 
+                      undefined,
+                      // Pass multi-generation info as 5th parameter
+                      {
+                        isMultiGeneration: true,
+                        totalVariants: parsed.total_variants,
+                        variants: parsed.variants
+                      }
+                    );
+                  }
+                  return;  // Exit after multi_complete event
                 }
                 else if (parsed.type === 'error' && onError) {
                   clearTimeout(timeoutId);
@@ -1094,6 +1117,16 @@ class ApiClient {
                 else if (parsed.type === 'complete' && onComplete) {
                   // Pass the entire parsed object (includes auto_play_session_id if present)
                   onComplete(parsed);
+                }
+                else if (parsed.type === 'multi_variant_complete' && onComplete) {
+                  // Multi-generation variant complete - pass with multi-gen info
+                  onComplete({
+                    ...parsed,
+                    isMultiGeneration: true,
+                    variants: parsed.variants,
+                    new_variants_count: parsed.new_variants_count,
+                    active_variant_id: parsed.active_variant_id
+                  });
                 }
                 else if (parsed.type === 'error' && onError) onError(parsed.message);
               } catch (e) {

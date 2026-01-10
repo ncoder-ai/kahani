@@ -64,6 +64,7 @@ services:
       - ./backend/logs:/app/logs
       - ./logs:/app/root_logs
       - ./config.yaml:/app/config.yaml
+      - ./backend/prompts.yml:/app/prompts.yml
     # Run as root initially to set up permissions, then drop to app user
     user: "root"
     environment:

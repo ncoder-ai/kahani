@@ -132,6 +132,213 @@ from datetime import datetime, timezone
 logger = logging.getLogger(__name__)
 
 
+# =====================================================================
+# MULTI-GENERATION HELPER FUNCTIONS
+# =====================================================================
+
+def get_n_value_from_settings(user_settings: dict) -> int:
+    """
+    Extract n value from sampler settings.
+    Returns 1 if n is not enabled or not configured.
+    Clamps value between 1 and 5.
+    """
+    if not user_settings:
+        return 1
+    
+    sampler_settings = user_settings.get('sampler_settings', {})
+    n_config = sampler_settings.get('n', {})
+    
+    if not n_config.get('enabled', False):
+        return 1
+    
+    value = n_config.get('value', 1)
+    return min(max(int(value), 1), 5)  # Clamp between 1 and 5
+
+
+def create_scene_with_multi_variants(
+    db: Session,
+    story_id: int,
+    sequence_number: int,
+    variants_data: List[Dict[str, Any]],
+    branch_id: int,
+    generation_method: str = "auto",
+    title: Optional[str] = None,
+    custom_prompt: Optional[str] = None
+) -> Tuple[Scene, List[SceneVariant]]:
+    """
+    Create a Scene with multiple SceneVariants and their choices.
+    
+    Args:
+        db: Database session
+        story_id: Story ID
+        sequence_number: Scene sequence number
+        variants_data: List of dicts with {"content": str, "choices": list}
+        branch_id: Branch ID
+        generation_method: Method used for generation
+        title: Optional scene title
+        custom_prompt: Optional custom prompt used
+        
+    Returns:
+        Tuple of (Scene, List[SceneVariant])
+    """
+    from ..models import Scene, SceneVariant, SceneChoice, StoryFlow
+    
+    # Create the scene
+    scene = Scene(
+        story_id=story_id,
+        sequence_number=sequence_number,
+        branch_id=branch_id,
+        title=title or f"Scene {sequence_number}",
+        is_deleted=False
+    )
+    db.add(scene)
+    db.flush()  # Get scene ID
+    
+    created_variants = []
+    first_variant = None
+    
+    for idx, vdata in enumerate(variants_data):
+        # Create variant
+        variant = SceneVariant(
+            scene_id=scene.id,
+            variant_number=idx + 1,
+            is_original=(idx == 0),
+            content=vdata["content"],
+            title=title or f"Scene {sequence_number}",
+            original_content=vdata["content"],
+            generation_prompt=custom_prompt,
+            generation_method=generation_method
+        )
+        db.add(variant)
+        db.flush()  # Get variant ID
+        
+        if idx == 0:
+            first_variant = variant
+        
+        # Create choices for this variant
+        choices = vdata.get("choices", [])
+        for choice_idx, choice_text in enumerate(choices):
+            if isinstance(choice_text, str) and choice_text.strip():
+                choice = SceneChoice(
+                    scene_id=scene.id,
+                    scene_variant_id=variant.id,
+                    branch_id=branch_id,
+                    choice_text=choice_text.strip(),
+                    choice_order=choice_idx + 1
+                )
+                db.add(choice)
+        
+        created_variants.append(variant)
+    
+    # Create or update StoryFlow to point to first variant
+    flow_entry = StoryFlow(
+        story_id=story_id,
+        scene_id=scene.id,
+        scene_variant_id=first_variant.id if first_variant else None,
+        sequence_order=sequence_number,
+        branch_id=branch_id,
+        is_active=True
+    )
+    db.add(flow_entry)
+    
+    db.commit()
+    db.refresh(scene)
+    for v in created_variants:
+        db.refresh(v)
+    
+    logger.info(f"[MULTI-GEN] Created scene {scene.id} with {len(created_variants)} variants")
+    
+    return scene, created_variants
+
+
+def create_additional_variants(
+    db: Session,
+    scene_id: int,
+    variants_data: List[Dict[str, Any]],
+    starting_variant_number: int,
+    branch_id: int,
+    custom_prompt: Optional[str] = None
+) -> List[SceneVariant]:
+    """
+    Add new variants to an existing scene (for variant regeneration).
+    
+    Args:
+        db: Database session
+        scene_id: Existing scene ID
+        variants_data: List of dicts with {"content": str, "choices": list}
+        starting_variant_number: Starting variant number (e.g., if scene has 2 variants, start at 3)
+        branch_id: Branch ID
+        custom_prompt: Optional custom prompt used
+        
+    Returns:
+        List of created SceneVariant objects
+    """
+    from ..models import Scene, SceneVariant, SceneChoice, StoryFlow
+    
+    scene = db.query(Scene).filter(Scene.id == scene_id).first()
+    if not scene:
+        raise ValueError(f"Scene {scene_id} not found")
+    
+    created_variants = []
+    first_new_variant = None
+    
+    for idx, vdata in enumerate(variants_data):
+        variant_number = starting_variant_number + idx
+        
+        variant = SceneVariant(
+            scene_id=scene_id,
+            variant_number=variant_number,
+            is_original=False,  # Not original - regenerated
+            content=vdata["content"],
+            title=scene.title,
+            original_content=vdata["content"],
+            generation_prompt=custom_prompt,
+            generation_method="regeneration"
+        )
+        db.add(variant)
+        db.flush()
+        
+        if idx == 0:
+            first_new_variant = variant
+        
+        # Create choices for this variant
+        choices = vdata.get("choices", [])
+        for choice_idx, choice_text in enumerate(choices):
+            if isinstance(choice_text, str) and choice_text.strip():
+                choice = SceneChoice(
+                    scene_id=scene_id,
+                    scene_variant_id=variant.id,
+                    branch_id=branch_id,
+                    choice_text=choice_text.strip(),
+                    choice_order=choice_idx + 1
+                )
+                db.add(choice)
+        
+        created_variants.append(variant)
+    
+    # Update StoryFlow to point to first new variant
+    flow_entry = db.query(StoryFlow).filter(
+        StoryFlow.scene_id == scene_id,
+        StoryFlow.is_active == True
+    ).first()
+    
+    if flow_entry and first_new_variant:
+        flow_entry.scene_variant_id = first_new_variant.id
+    
+    db.commit()
+    for v in created_variants:
+        db.refresh(v)
+    
+    logger.info(f"[MULTI-GEN] Added {len(created_variants)} new variants to scene {scene_id}")
+    
+    return created_variants
+
+
+# =====================================================================
+# END MULTI-GENERATION HELPER FUNCTIONS
+# =====================================================================
+
+
 async def setup_auto_play_if_enabled(
     scene_id: int,
     user_id: int,
@@ -1523,6 +1730,139 @@ async def generate_scene_streaming_endpoint(
             
             # Send initial metadata
             yield f"data: {json.dumps({'type': 'start', 'sequence': next_sequence})}\n\n"
+            
+            # Check for multi-generation (n > 1)
+            n_value = get_n_value_from_settings(user_settings)
+            
+            if n_value > 1 and not user_provided_content:
+                # =====================================================================
+                # MULTI-GENERATION PATH (n > 1)
+                # =====================================================================
+                logger.info(f"[MULTI-GEN] Starting multi-generation with n={n_value} for story {story_id}")
+                
+                generation_prefs = user_settings.get("generation_preferences", {})
+                separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
+                
+                scene_context = context.copy() if isinstance(context, dict) else {"story_context": context}
+                if effective_custom_prompt and effective_custom_prompt.strip():
+                    scene_context["custom_prompt"] = effective_custom_prompt.strip()
+                
+                variants_data = None
+                
+                if is_concluding_bool:
+                    # Multi-generation concluding scene (no choices)
+                    chapter_info = {
+                        "chapter_number": active_chapter.chapter_number if active_chapter else 1,
+                        "chapter_title": active_chapter.title if active_chapter else "Untitled",
+                        "chapter_location": active_chapter.location_name if active_chapter else "Unknown",
+                        "chapter_time_period": active_chapter.time_period if active_chapter else "Unknown",
+                        "chapter_scenario": active_chapter.scenario if active_chapter else "None"
+                    }
+                    
+                    async for chunk, is_complete, contents in llm_service.generate_concluding_scene_streaming_multi(
+                        scene_context,
+                        chapter_info,
+                        current_user.id,
+                        user_settings,
+                        db,
+                        n_value
+                    ):
+                        if not is_complete:
+                            yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                        else:
+                            # Convert contents to variants_data format (no choices for concluding scenes)
+                            variants_data = [{"content": c, "choices": []} for c in contents]
+                
+                elif separate_choice_generation:
+                    # Separate mode: generate scenes, then choices in parallel
+                    async for chunk, is_complete, contents in llm_service.generate_scene_streaming_multi(
+                        scene_context,
+                        current_user.id,
+                        user_settings,
+                        db,
+                        n_value
+                    ):
+                        if not is_complete:
+                            yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                        else:
+                            # Generate choices for all variants in parallel
+                            yield f"data: {json.dumps({'type': 'status', 'message': 'Generating choices for all variants...'})}\n\n"
+                            all_choices = await llm_service.generate_choices_for_variants(
+                                contents,
+                                scene_context,
+                                current_user.id,
+                                user_settings,
+                                db
+                            )
+                            variants_data = [
+                                {"content": c, "choices": ch}
+                                for c, ch in zip(contents, all_choices)
+                            ]
+                
+                else:
+                    # Combined mode: scene + choices together
+                    async for chunk, is_complete, vdata in llm_service.generate_scene_with_choices_streaming_multi(
+                        scene_context,
+                        current_user.id,
+                        user_settings,
+                        db,
+                        n_value
+                    ):
+                        if not is_complete:
+                            yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                        else:
+                            variants_data = vdata
+                
+                # Create Scene with multiple variants
+                if variants_data:
+                    scene, created_variants = create_scene_with_multi_variants(
+                        db=db,
+                        story_id=story_id,
+                        sequence_number=next_sequence,
+                        variants_data=variants_data,
+                        branch_id=active_branch_id,
+                        generation_method=generation_method,
+                        title=f"Scene {next_sequence}",
+                        custom_prompt=effective_custom_prompt if effective_custom_prompt else None
+                    )
+                    
+                    # Format response
+                    variants_response = []
+                    for v in created_variants:
+                        # Get choices for this variant
+                        variant_choices = db.query(SceneChoice).filter(
+                            SceneChoice.scene_variant_id == v.id
+                        ).order_by(SceneChoice.choice_order).all()
+                        
+                        variants_response.append({
+                            "id": v.id,
+                            "variant_number": v.variant_number,
+                            "content": v.content,
+                            "is_original": v.is_original,
+                            "choices": [{"text": c.choice_text, "order": c.choice_order} for c in variant_choices]
+                        })
+                    
+                    # Send multi_complete event
+                    yield f"data: {json.dumps({'type': 'multi_complete', 'scene_id': scene.id, 'sequence': next_sequence, 'total_variants': len(created_variants), 'variants': variants_response})}\n\n"
+                    
+                    # Link scene to chapter
+                    if active_chapter:
+                        scene.chapter_id = active_chapter.id
+                        active_chapter.scenes_count = llm_service.get_active_scene_count(db, story_id, branch_id=active_branch_id, chapter_id=active_chapter.id)
+                        db.commit()
+                    
+                    logger.info(f"[MULTI-GEN] Created scene {scene.id} with {len(created_variants)} variants")
+                    
+                    yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                    return  # Exit early - don't continue to single-generation path
+                else:
+                    logger.error("[MULTI-GEN] No variants data generated")
+                    yield f"data: {json.dumps({'type': 'error', 'message': 'Failed to generate variants'})}\n\n"
+                    return
+            
+            # =====================================================================
+            # SINGLE-GENERATION PATH (n == 1 or user_provided_content)
+            # =====================================================================
             
             # Handle user-provided content vs AI generation
             if user_provided_content:
@@ -3182,6 +3522,152 @@ async def create_scene_variant_streaming(
             # Either explicitly requested OR regenerating an existing concluding scene
             is_concluding = request.is_concluding or (original_variant.generation_method == "concluding_scene")
             logger.warning(f"[VARIANT] is_concluding: {is_concluding} (request: {request.is_concluding}, variant method: {original_variant.generation_method})")
+            
+            # Check for multi-generation (n > 1)
+            n_value = get_n_value_from_settings(user_settings)
+            
+            if n_value > 1:
+                # =====================================================================
+                # MULTI-GENERATION PATH FOR VARIANT REGENERATION (n > 1)
+                # =====================================================================
+                logger.info(f"[MULTI-GEN VARIANT] Starting multi-regeneration with n={n_value} for scene {scene_id}")
+                
+                generation_prefs = user_settings.get("generation_preferences", {})
+                separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
+                
+                # Build context
+                context = await context_manager.build_scene_generation_context(
+                    story_id, db, custom_prompt or "", is_variant_generation=True, 
+                    exclude_scene_id=scene_id, chapter_id=chapter_id, branch_id=branch_id
+                )
+                
+                # Get current max variant number
+                from sqlalchemy import desc
+                max_variant = db.query(SceneVariant.variant_number)\
+                    .filter(SceneVariant.scene_id == scene_id)\
+                    .order_by(desc(SceneVariant.variant_number))\
+                    .first()
+                starting_variant_number = (max_variant[0] if max_variant else 0) + 1
+                
+                variants_data = None
+                
+                if is_concluding:
+                    # Multi-generation concluding variant (no choices)
+                    chapter_info = {
+                        "chapter_number": active_chapter.chapter_number if active_chapter else 1,
+                        "chapter_title": active_chapter.title if active_chapter else "Untitled",
+                        "chapter_location": active_chapter.location_name if active_chapter else "Unknown",
+                        "chapter_time_period": active_chapter.time_period if active_chapter else "Unknown",
+                        "chapter_scenario": active_chapter.scenario if active_chapter else "None"
+                    }
+                    
+                    async for chunk, is_complete, contents in llm_service.generate_concluding_scene_streaming_multi(
+                        context,
+                        chapter_info,
+                        current_user.id,
+                        user_settings,
+                        db,
+                        n_value
+                    ):
+                        if not is_complete:
+                            yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                        else:
+                            variants_data = [{"content": c, "choices": []} for c in contents]
+                
+                elif separate_choice_generation:
+                    # Separate mode: generate variants, then choices in parallel
+                    async for chunk, is_complete, contents in llm_service.generate_scene_streaming_multi(
+                        context,
+                        current_user.id,
+                        user_settings,
+                        db,
+                        n_value
+                    ):
+                        if not is_complete:
+                            yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                        else:
+                            yield f"data: {json.dumps({'type': 'status', 'message': 'Generating choices for all variants...'})}\n\n"
+                            all_choices = await llm_service.generate_choices_for_variants(
+                                contents,
+                                context,
+                                current_user.id,
+                                user_settings,
+                                db
+                            )
+                            variants_data = [
+                                {"content": c, "choices": ch}
+                                for c, ch in zip(contents, all_choices)
+                            ]
+                
+                else:
+                    # Combined mode: variant + choices together
+                    async for chunk, is_complete, vdata in llm_service.regenerate_scene_variant_streaming_multi(
+                        db,
+                        scene_id,
+                        context,
+                        current_user.id,
+                        user_settings,
+                        n_value,
+                        custom_prompt=custom_prompt
+                    ):
+                        if not is_complete:
+                            yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                        else:
+                            variants_data = vdata
+                
+                # Create additional variants
+                if variants_data:
+                    new_variants = create_additional_variants(
+                        db=db,
+                        scene_id=scene_id,
+                        variants_data=variants_data,
+                        starting_variant_number=starting_variant_number,
+                        branch_id=branch_id,
+                        custom_prompt=custom_prompt
+                    )
+                    
+                    # Format response
+                    variants_response = []
+                    for v in new_variants:
+                        variant_choices = db.query(SceneChoice).filter(
+                            SceneChoice.scene_variant_id == v.id
+                        ).order_by(SceneChoice.choice_order).all()
+                        
+                        variants_response.append({
+                            "id": v.id,
+                            "variant_number": v.variant_number,
+                            "content": v.content,
+                            "is_original": v.is_original,
+                            "choices": [{"text": c.choice_text, "order": c.choice_order} for c in variant_choices]
+                        })
+                    
+                    # Invalidate extractions and chapter batches
+                    from ..api.chapters import invalidate_chapter_batches_for_scene
+                    invalidate_chapter_batches_for_scene(scene_id, db)
+                    await invalidate_extractions_for_scene(
+                        scene_id=scene_id,
+                        story_id=story_id,
+                        scene_sequence=scene.sequence_number,
+                        user_id=current_user.id,
+                        user_settings=user_settings,
+                        db=db
+                    )
+                    
+                    # Send multi_variant_complete event
+                    yield f"data: {json.dumps({'type': 'multi_variant_complete', 'scene_id': scene_id, 'new_variants_count': len(new_variants), 'variants': variants_response, 'active_variant_id': new_variants[0].id if new_variants else None})}\n\n"
+                    
+                    logger.info(f"[MULTI-GEN VARIANT] Added {len(new_variants)} new variants to scene {scene_id}")
+                    
+                    yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                    return  # Exit early - don't continue to single-generation path
+                else:
+                    logger.error("[MULTI-GEN VARIANT] No variants data generated")
+                    yield f"data: {json.dumps({'type': 'error', 'message': 'Failed to generate variants'})}\n\n"
+                    return
+            
+            # =====================================================================
+            # SINGLE-GENERATION PATH FOR VARIANT REGENERATION (n == 1)
+            # =====================================================================
 
             # Stream variant generation with combined choices
             variant_content = ""

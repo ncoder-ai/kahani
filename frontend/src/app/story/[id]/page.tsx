@@ -1300,7 +1300,7 @@ export default function StoryPage() {
           }
         },
         // onComplete
-        async (sceneId: number, variantId: number, choices: any[], autoPlay?: { enabled: boolean; session_id: string; scene_id: number }) => {
+        async (sceneId: number, variantId: number, choices: any[], autoPlay?: { enabled: boolean; session_id: string; scene_id: number }, multiGen?: { isMultiGeneration: boolean; totalVariants: number; variants: any[] }) => {
           
           // Flush any remaining buffered chunks on iOS
           if (isIOS) {
@@ -1331,19 +1331,23 @@ export default function StoryPage() {
           }
 
           // ADD the new scene to the story
-          // This is a NEW scene, not updating an existing one
+          // Handle multi-generation differently
+          const isMultiGen = multiGen?.isMultiGeneration && multiGen.totalVariants > 1;
           
           if (story && accumulatedContent) {
             const newScene = {
               id: sceneId,
               sequence_number: nextSceneNumber,
               title: `Scene ${nextSceneNumber}`,
-              content: accumulatedContent,
+              content: isMultiGen && multiGen.variants[0] ? multiGen.variants[0].content : accumulatedContent,
               location: '',
               characters_present: [],
-              choices: choices || [],
+              choices: isMultiGen && multiGen.variants[0]?.choices 
+                ? multiGen.variants[0].choices.map((c: any) => c.text || c.choice_text || c) 
+                : (choices || []),
               variant_id: variantId,
-              has_multiple_variants: false,
+              has_multiple_variants: isMultiGen || false,
+              total_variants: isMultiGen ? multiGen.totalVariants : 1,
               chapter_id: activeChapterId || undefined
             };
             
@@ -1352,6 +1356,11 @@ export default function StoryPage() {
               scenes: [...story.scenes, newScene]
             };
             setStory(updatedStory);
+            
+            // Show toast for multi-generation
+            if (isMultiGen) {
+              console.log(`[MULTI-GEN] Generated ${multiGen.totalVariants} variants - swipe to explore`);
+            }
             
             // Check if choices were received
             if (choices && choices.length > 0) {
@@ -1860,8 +1869,35 @@ export default function StoryPage() {
               flushIOSVariantChunks();
             }
             
+            // Check if this is a multi-generation response
+            const isMultiGen = response.isMultiGeneration && response.variants && response.variants.length > 1;
+            
+            if (isMultiGen) {
+              // Multi-generation: update with first variant, flag scene as having multiple
+              const firstVariant = response.variants[0];
+              if (story) {
+                const updatedScenes = story.scenes.map(s => {
+                  if (s.id === sceneId) {
+                    return {
+                      ...s,
+                      content: firstVariant.content || accumulatedVariantContent || s.content,
+                      variant_id: firstVariant.id,
+                      variant_number: firstVariant.variant_number,
+                      has_multiple_variants: true,
+                      total_variants: response.new_variants_count + (s.total_variants || 1) - 1,
+                      choices: firstVariant.choices 
+                        ? firstVariant.choices.map((c: any) => c.text || c.choice_text || c)
+                        : s.choices
+                    };
+                  }
+                  return s;
+                });
+                setStory({ ...story, scenes: updatedScenes });
+                console.log(`[MULTI-GEN VARIANT] Generated ${response.new_variants_count} new variants - swipe to explore`);
+              }
+            }
             // Update the scene with the new variant content and choices directly in state
-            if (response.variant && story) {
+            else if (response.variant && story) {
               const updatedScenes = story.scenes.map(s => {
                 if (s.id === sceneId) {
                   // Update scene with new variant content and choices

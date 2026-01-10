@@ -177,6 +177,9 @@ class SamplerSettingsUpdate(BaseModel):
     cfg_scale: Optional[SamplerSettingValue] = None
     negative_prompt: Optional[SamplerSettingValue] = None
     speculative_ngram: Optional[SamplerSettingValue] = None
+    
+    # Multi-generation
+    n: Optional[SamplerSettingValue] = None  # Number of completions to generate (1-5)
 
 
 class UserSettingsUpdate(BaseModel):

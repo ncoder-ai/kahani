@@ -11,7 +11,7 @@ application:
   app_name: "Kahani"
   app_version: "1.0"
   debug: true
-  environment: "production"  # development, production
+  environment: "development"  # development, production
 
 # ----------------------------------------------------------------------------
 # SERVER & NETWORKING
@@ -198,14 +198,14 @@ frontend:
 # LOGGING
 # ----------------------------------------------------------------------------
 logging:
-  log_level: "ERROR"
+  log_level: "INFO"
   log_file: "./logs/kahani.log"
 
 # ----------------------------------------------------------------------------
 # DEBUG
 # ----------------------------------------------------------------------------
 debug:
-  prompt_debug: false  # Save prompts and raw LLM responses to files
+  prompt_debug: true  # Save prompts and raw LLM responses to files
 
 # ----------------------------------------------------------------------------
 # USER DEFAULTS

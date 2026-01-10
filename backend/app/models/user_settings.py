@@ -327,7 +327,10 @@ class UserSettings(Base):
             # Other
             "cfg_scale": {"enabled": False, "value": 1.0},
             "negative_prompt": {"enabled": False, "value": ""},
-            "speculative_ngram": {"enabled": False, "value": True}
+            "speculative_ngram": {"enabled": False, "value": True},
+            
+            # Multi-generation
+            "n": {"enabled": False, "value": 1}  # Number of completions to generate (1-5)
         }
     
     def populate_from_defaults(self):

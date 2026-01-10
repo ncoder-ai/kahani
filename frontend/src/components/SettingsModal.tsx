@@ -3818,6 +3818,41 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                           <p className="text-xs text-gray-400 mt-1">Enable speculative decoding with n-gram matching.</p>
                         </div>
                       </div>
+
+                      {/* Multi-generation (n) */}
+                      <div className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg">
+                        <label className="flex items-center cursor-pointer mt-1">
+                          <input
+                            type="checkbox"
+                            checked={samplerSettings.n?.enabled ?? false}
+                            onChange={(e) => setSamplerSettings({
+                              ...samplerSettings,
+                              n: { ...samplerSettings.n, enabled: e.target.checked, value: samplerSettings.n?.value ?? 1 }
+                            })}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                          />
+                        </label>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <span className="text-sm font-medium text-white">Multi-generation (n)</span>
+                              <p className="text-xs text-gray-400 mt-1">Generate multiple scene variants at once. Each variant gets its own choices.</p>
+                            </div>
+                            <input
+                              type="number"
+                              min="1"
+                              max="5"
+                              value={samplerSettings.n?.value ?? 1}
+                              onChange={(e) => setSamplerSettings({
+                                ...samplerSettings,
+                                n: { ...samplerSettings.n, enabled: samplerSettings.n?.enabled ?? false, value: Math.min(5, Math.max(1, parseInt(e.target.value) || 1)) }
+                              })}
+                              disabled={!samplerSettings.n?.enabled}
+                              className="w-16 px-2 py-1 text-sm bg-gray-700 border border-gray-600 rounded text-white disabled:opacity-50"
+                            />
+                          </div>
+                        </div>
+                      </div>
                     </div>
 
                     {/* Save Button for Samplers */}

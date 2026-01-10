@@ -111,6 +111,9 @@ export interface SamplerSettings {
   cfg_scale: SamplerSettingValue<number>;
   negative_prompt: SamplerSettingValue<string>;
   speculative_ngram: SamplerSettingValue<boolean>;
+  
+  // Multi-generation
+  n: SamplerSettingValue<number>;  // Number of completions to generate (1-5)
 }
 
 /**
@@ -171,6 +174,9 @@ export const DEFAULT_SAMPLER_SETTINGS: SamplerSettings = {
   cfg_scale: { enabled: false, value: 1.0 },
   negative_prompt: { enabled: false, value: '' },
   speculative_ngram: { enabled: false, value: true },
+  
+  // Multi-generation
+  n: { enabled: false, value: 1 },  // Number of completions to generate (1-5)
 };
 
 export interface UserSettings {
