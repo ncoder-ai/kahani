@@ -121,6 +121,13 @@ async def process_scene_embeddings(
         # Still allow NPC tracking and entity states even if semantic memory is off
     
     try:
+        # Verify scene exists before processing (may have been deleted)
+        from ..models import Scene
+        scene_exists = db.query(Scene).filter(Scene.id == scene_id).first()
+        if not scene_exists:
+            logger.warning(f"Scene {scene_id} does not exist, skipping embedding creation")
+            return results
+        
         # 1. Create scene embedding (only if semantic memory enabled)
         if not skip_semantic:
             logger.info(f"Starting semantic processing for scene {scene_id}")
@@ -728,14 +735,15 @@ async def _try_combined_extraction(
                 db.rollback()
         
         # Process NPCs using existing service logic
-        if combined_results.get('npcs'):
+        npcs_data = combined_results.get('npcs', [])
+        
+        if npcs_data:
             try:
                 from .npc_tracking_service import NPCTrackingService
                 from ..utils.scene_verification import map_npcs_to_scenes
                 from ..models.npc_tracking import NPCMention
                 
                 npc_service = NPCTrackingService(user_id=user_id, user_settings=user_settings)
-                npcs_data = combined_results['npcs']
                 
                 # Validate NPCs
                 validated_npcs = npc_service._validate_npcs(npcs_data)
@@ -779,6 +787,7 @@ async def _try_combined_extraction(
                             try:
                                 mention = NPCMention(
                                     story_id=story_id,
+                                    branch_id=branch_id,
                                     scene_id=scene_id,
                                     character_name=npc_name,
                                     sequence_number=sequence_number,
@@ -794,7 +803,8 @@ async def _try_combined_extraction(
                                 
                                 # Update tracking
                                 await npc_service._update_npc_tracking(
-                                    db, story_id, npc_name, sequence_number, npc_data_scene
+                                    db, story_id, npc_name, sequence_number, npc_data_scene,
+                                    branch_id=branch_id
                                 )
                                 total_npcs += 1
                             except IntegrityError as ie:
@@ -959,10 +969,13 @@ async def _try_combined_extraction(
                 
                 # Process object states
                 if entity_states_data.get('objects'):
+                    # Combine all scene content for validation
+                    combined_scene_content = ' '.join([content for _, _, _, content in scenes_data])
                     for obj_update in entity_states_data['objects']:
                         try:
                             await entity_service._update_object_state(
-                                db, story_id, last_sequence, obj_update, branch_id=branch_id
+                                db, story_id, last_sequence, obj_update, branch_id=branch_id,
+                                scene_content=combined_scene_content
                             )
                             total_entity_states += 1
                         except Exception as e:
@@ -1269,6 +1282,12 @@ async def batch_process_scene_extractions(
         # PER-SCENE PROCESSING: Scene embeddings and entity states (still per-scene)
         for scene_id, variant_id, sequence_number, scene_content in scenes_for_embeddings:
             try:
+                # Verify scene still exists (may have been deleted during batch extraction)
+                scene_exists = db.query(Scene).filter(Scene.id == scene_id).first()
+                if not scene_exists:
+                    logger.warning(f"Scene {scene_id} was deleted during extraction, skipping embedding")
+                    continue
+                
                 # Process scene embeddings (still per-scene)
                 # Skip NPC/plot/character/entity extraction since they're done in batch above
                 scene_results = await process_scene_embeddings(

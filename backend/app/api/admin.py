@@ -775,6 +775,123 @@ async def update_settings(
 # STATISTICS ENDPOINTS
 # ============================================================
 
+@router.post("/stories/{story_id}/reprocess-extractions")
+async def reprocess_story_extractions(
+    story_id: int,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Trigger retroactive NPC and entity extraction for all scenes in a story.
+    This resets extraction counters and processes all chapters.
+    Requires admin privileges.
+    """
+    from ..models import Chapter, UserSettings
+    
+    # Verify story exists
+    story = db.query(Story).filter(Story.id == story_id).first()
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found"
+        )
+    
+    # Get all chapters for the story
+    chapters = db.query(Chapter).filter(Chapter.story_id == story_id).order_by(Chapter.chapter_number).all()
+    if not chapters:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Story has no chapters"
+        )
+    
+    # Reset last_extraction_scene_count to 0 for all chapters to force reprocessing
+    chapters_reset = 0
+    for chapter in chapters:
+        if chapter.last_extraction_scene_count and chapter.last_extraction_scene_count > 0:
+            chapter.last_extraction_scene_count = 0
+            chapters_reset += 1
+    
+    db.commit()
+    
+    # Get user settings for extraction
+    user_settings_obj = db.query(UserSettings).filter(
+        UserSettings.user_id == story.owner_id
+    ).first()
+    
+    user_settings = {}
+    if user_settings_obj:
+        user_settings = user_settings_obj.to_dict()
+    
+    # Schedule background extraction for each chapter
+    trace_id = f"reprocess-{uuid.uuid4()}"
+    
+    async def run_extractions():
+        """Run extractions for all chapters in sequence"""
+        from ..database import SessionLocal
+        from ..services.semantic_integration import batch_process_scene_extractions
+        from ..models import Scene
+        from sqlalchemy import func
+        
+        extraction_db = SessionLocal()
+        try:
+            for chapter in chapters:
+                # Get scene range for this chapter
+                scene_stats = extraction_db.query(
+                    func.min(Scene.sequence_number).label('min_seq'),
+                    func.max(Scene.sequence_number).label('max_seq')
+                ).filter(
+                    Scene.story_id == story_id,
+                    Scene.chapter_id == chapter.id,
+                    Scene.is_deleted == False
+                ).first()
+                
+                if not scene_stats or not scene_stats.max_seq:
+                    logger.info(f"[REPROCESS] trace_id={trace_id} chapter_id={chapter.id} skipped (no scenes)")
+                    continue
+                
+                from_seq = scene_stats.min_seq - 1  # Exclusive start
+                to_seq = scene_stats.max_seq
+                
+                logger.info(f"[REPROCESS] trace_id={trace_id} chapter_id={chapter.id} processing scenes {from_seq+1} to {to_seq}")
+                
+                try:
+                    results = await batch_process_scene_extractions(
+                        story_id=story_id,
+                        chapter_id=chapter.id,
+                        from_sequence=from_seq,
+                        to_sequence=to_seq,
+                        user_id=story.owner_id,
+                        user_settings=user_settings,
+                        db=extraction_db
+                    )
+                    
+                    # Update extraction counter
+                    chapter_obj = extraction_db.query(Chapter).filter(Chapter.id == chapter.id).first()
+                    if chapter_obj:
+                        chapter_obj.last_extraction_scene_count = to_seq
+                        extraction_db.commit()
+                    
+                    logger.info(f"[REPROCESS] trace_id={trace_id} chapter_id={chapter.id} complete: {results}")
+                except Exception as e:
+                    logger.error(f"[REPROCESS] trace_id={trace_id} chapter_id={chapter.id} failed: {e}")
+                    import traceback
+                    logger.error(f"[REPROCESS] Traceback: {traceback.format_exc()}")
+        finally:
+            extraction_db.close()
+    
+    background_tasks.add_task(run_extractions)
+    
+    logger.info(f"[REPROCESS] trace_id={trace_id} story_id={story_id} scheduled by admin {current_user.id}, {chapters_reset} chapters reset")
+    
+    return {
+        "message": f"Extraction reprocessing scheduled for story {story_id}",
+        "trace_id": trace_id,
+        "chapters_to_process": len(chapters),
+        "chapters_reset": chapters_reset
+    }
+
+
 @router.get("/stats")
 async def get_statistics(
     current_user: User = Depends(require_admin),

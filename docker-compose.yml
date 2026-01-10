@@ -71,7 +71,7 @@ services:
       # Database URL - defaults to PostgreSQL, falls back to SQLite if DATABASE_URL is set to sqlite
       # For PostgreSQL (default): Set DATABASE_URL in .env file (see .env.example)
       # For SQLite: Set DATABASE_URL=sqlite:///./data/kahani.db in .env
-      - DATABASE_URL=${DATABASE_URL:-postgresql://${POSTGRES_USER:-kahani}:${POSTGRES_PASSWORD:-kahani}@postgres:5432/${POSTGRES_DB:-kahani}}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://kahani:kahani@postgres:5432/kahani}
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY environment variable is required - see docs/SECURITY_SETUP.md}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT_SECRET_KEY environment variable is required - see docs/SECURITY_SETUP.md}
       - CORS_ORIGINS=${CORS_ORIGINS:-["http://localhost:6789"]}

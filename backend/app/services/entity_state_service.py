@@ -176,7 +176,8 @@ class EntityStateService:
             if "objects" in state_changes:
                 for obj_update in state_changes["objects"]:
                     await self._update_object_state(
-                        db, story_id, scene_sequence, obj_update, branch_id=branch_id, trace_id=trace_id
+                        db, story_id, scene_sequence, obj_update, branch_id=branch_id, trace_id=trace_id,
+                        scene_content=scene_content
                     )
                     results["objects_updated"] += 1
             
@@ -589,7 +590,25 @@ class EntityStateService:
                 loc_state.atmosphere = loc_update["atmosphere"]
             
             if loc_update.get("occupants"):
-                loc_state.current_occupants = loc_update["occupants"]
+                # Validate occupants are actual characters in the story
+                valid_occupants = []
+                raw_occupants = loc_update["occupants"]
+                if isinstance(raw_occupants, list):
+                    # Get valid character names for this story
+                    story_chars = db.query(Character.name).join(StoryCharacter).filter(
+                        StoryCharacter.story_id == story_id
+                    ).all()
+                    valid_char_names = {c.name.lower() for c in story_chars}
+                    
+                    for occupant in raw_occupants:
+                        if isinstance(occupant, str) and occupant.lower() in valid_char_names:
+                            valid_occupants.append(occupant)
+                        else:
+                            logger.warning(f"Ignoring invalid occupant '{occupant}' - not a character in story {story_id}{trace_suffix}")
+                    
+                    if valid_occupants:
+                        loc_state.current_occupants = valid_occupants
+                    # If no valid occupants, don't update (keep existing)
             
             try:
                 db.commit()
@@ -610,7 +629,8 @@ class EntityStateService:
         scene_sequence: int,
         obj_update: Dict[str, Any],
         branch_id: int = None,
-        trace_id: Optional[str] = None
+        trace_id: Optional[str] = None,
+        scene_content: str = None
     ):
         """Update or create object state from extracted changes"""
         try:
@@ -618,6 +638,14 @@ class EntityStateService:
             obj_name = obj_update.get("name")
             if not obj_name:
                 return
+            
+            # Skip common hallucinated objects that are unlikely to be real story objects
+            hallucinated_objects = {'pistol', 'gun', 'knife', 'weapon', 'sword', 'dagger'}
+            if obj_name.lower() in hallucinated_objects:
+                # Only create if object actually appears in scene content
+                if scene_content and obj_name.lower() not in scene_content.lower():
+                    logger.warning(f"Ignoring likely hallucinated object '{obj_name}' - not found in scene content{trace_suffix}")
+                    return
             
             # Get or create object state (filtered by branch)
             state_query = db.query(ObjectState).filter(
