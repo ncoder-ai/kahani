@@ -237,9 +237,8 @@ class LLMClient:
             "cfg_scale": "cfg_scale",
             "negative_prompt": "negative_prompt",
             "speculative_ngram": "speculative_ngram",
-            
-            # Multi-generation
-            "n": "n",  # Number of completions to generate
+            # NOTE: "n" is NOT included here - it's handled explicitly in multi-generation
+            # methods only when n > 1 to avoid breaking cache key matching
         }
         
         enabled_count = 0
