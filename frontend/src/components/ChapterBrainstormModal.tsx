@@ -1638,8 +1638,21 @@ export default function ChapterBrainstormModal({
                     <div className="space-y-2">
                       {extractedPlot.character_arcs.map((arc, i) => (
                         <div key={i} className="flex flex-col md:flex-row md:items-start gap-1 md:gap-2">
-                          <span className="text-purple-400 font-medium text-sm">{arc.character_name || arc.name}:</span>
-                          <span className="text-white/80 text-sm">{arc.development}</span>
+                          <span className="text-purple-400 font-medium text-sm whitespace-nowrap">{arc.character_name || arc.name}:</span>
+                          {isEditingPlot ? (
+                            <input
+                              type="text"
+                              value={arc.development}
+                              onChange={(e) => {
+                                const updatedArcs = [...extractedPlot.character_arcs];
+                                updatedArcs[i] = { ...updatedArcs[i], development: e.target.value };
+                                setExtractedPlot({ ...extractedPlot, character_arcs: updatedArcs });
+                              }}
+                              className="flex-1 bg-white/10 border border-white/20 rounded-lg px-3 py-1 text-white text-sm focus:outline-none focus:border-purple-500 touch-manipulation"
+                            />
+                          ) : (
+                            <span className="text-white/80 text-sm">{arc.development}</span>
+                          )}
                         </div>
                       ))}
                     </div>
