@@ -477,12 +477,19 @@ export default function ChapterBrainstormModal({
       // For key_events, use the array directly; for characters, convert string to array
       let value: string | CharacterArc[] | string[] = suggestion;
       if (elementType === 'characters' && typeof suggestion === 'string') {
-        // Parse characters string into CharacterArc array
-        value = suggestion.split(',').map(name => ({
-          character_name: name.trim(),
-          name: name.trim(),
-          development: ''
-        }));
+        // Parse characters string: each line is "Name: development text"
+        // Split by newline, then split each line by first colon to separate name from development
+        // This preserves the full development text including any commas or extra colons
+        value = suggestion.split('\n').filter(l => l.trim()).map(line => {
+          const colonIndex = line.indexOf(':');
+          if (colonIndex > 0) {
+            const name = line.substring(0, colonIndex).trim();
+            const development = line.substring(colonIndex + 1).trim();
+            return { character_name: name, name: name, development: development };
+          }
+          // Fallback: no colon found, treat whole line as name
+          return { character_name: line.trim(), name: line.trim(), development: '' };
+        });
       }
       
       const response = await apiClient.updateChapterBrainstormElement(

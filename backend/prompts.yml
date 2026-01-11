@@ -1940,6 +1940,15 @@ chapter_brainstorm:
       - For unconfirmed elements, extract from the conversation
       - Be specific with key events - they should be actionable story beats
       
+      CRITICAL - AVOID OVERLAP BETWEEN EVENTS, CLIMAX, AND RESOLUTION:
+      - "key_events" are the RISING ACTION events that BUILD TOWARD the climax
+      - "key_events" should NOT include the climax moment itself
+      - "key_events" should NOT include the resolution/ending
+      - "climax" is the single most intense/dramatic moment - the peak of tension
+      - "resolution" is what happens AFTER the climax - how the chapter concludes
+      - If an event IS the climax, put it in "climax" NOT in "key_events"
+      - If an event IS the resolution, put it in "resolution" NOT in "key_events"
+      
       CHARACTER HANDLING:
       - "character_arcs": Characters and their development in this chapter
       - "recommended_characters": Names of characters that should appear in this chapter
