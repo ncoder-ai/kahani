@@ -81,6 +81,7 @@ class Chapter(Base):
         lazy="dynamic"
     )
     summary_batches = relationship("ChapterSummaryBatch", back_populates="chapter", cascade="all, delete-orphan", order_by="ChapterSummaryBatch.start_scene_sequence")
+    plot_progress_batches = relationship("ChapterPlotProgressBatch", back_populates="chapter", cascade="all, delete-orphan", order_by="ChapterPlotProgressBatch.start_scene_sequence")
     
     def __repr__(self):
         return f"<Chapter(id={self.id}, story_id={self.story_id}, number={self.chapter_number}, title='{self.title}')>"
@@ -109,3 +110,28 @@ class ChapterSummaryBatch(Base):
     
     def __repr__(self):
         return f"<ChapterSummaryBatch(id={self.id}, chapter_id={self.chapter_id}, scenes={self.start_scene_sequence}-{self.end_scene_sequence})>"
+
+
+class ChapterPlotProgressBatch(Base):
+    """Stores plot progress batches for chapters to enable rollback on deletion"""
+    __tablename__ = "chapter_plot_progress_batches"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    chapter_id = Column(Integer, ForeignKey("chapters.id", ondelete="CASCADE"), nullable=False)
+    
+    # Scene range this batch covers
+    start_scene_sequence = Column(Integer, nullable=False)
+    end_scene_sequence = Column(Integer, nullable=False)
+    
+    # Events completed in this batch (cumulative up to this point)
+    completed_events = Column(JSON, nullable=False, default=list)
+    
+    # Metadata
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationship
+    chapter = relationship("Chapter", back_populates="plot_progress_batches")
+    
+    def __repr__(self):
+        return f"<ChapterPlotProgressBatch(id={self.id}, chapter_id={self.chapter_id}, scenes={self.start_scene_sequence}-{self.end_scene_sequence}, events={len(self.completed_events or [])})>"

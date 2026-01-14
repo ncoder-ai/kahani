@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import apiClient from '@/lib/api';
 import CharacterForm from '@/components/CharacterForm';
+import { CHARACTER_ROLES, getRoleInfo } from '@/components/RoleSelector';
 
 interface Character {
   name: string;
@@ -36,16 +37,85 @@ interface CharacterQuickAddProps {
   onOpenCharacterWizard?: () => void;
 }
 
-const CHARACTER_ROLES = [
-  { id: 'protagonist', name: 'Main Character', icon: '⭐', color: 'from-yellow-400 to-orange-500' },
-  { id: 'antagonist', name: 'Antagonist', icon: '⚔️', color: 'from-red-500 to-red-700' },
-  { id: 'ally', name: 'Ally/Friend', icon: '🤝', color: 'from-green-400 to-green-600' },
-  { id: 'mentor', name: 'Mentor', icon: '🎓', color: 'from-blue-400 to-blue-600' },
-  { id: 'love_interest', name: 'Love Interest', icon: '💕', color: 'from-pink-400 to-pink-600' },
-  { id: 'comic_relief', name: 'Comic Relief', icon: '😄', color: 'from-purple-400 to-purple-600' },
-  { id: 'mysterious', name: 'Mysterious Figure', icon: '🎭', color: 'from-gray-500 to-gray-700' },
-  { id: 'other', name: 'Other', icon: '👤', color: 'from-indigo-400 to-indigo-600' }
-];
+// Inline role selector for library - supports custom roles
+function QuickAddRoleSelector({ onRoleSelect }: { onRoleSelect: (role: string) => void }) {
+  const [showAllRoles, setShowAllRoles] = useState(false);
+  const [customRole, setCustomRole] = useState('');
+
+  if (showAllRoles) {
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-white/60 text-sm">Assign role:</p>
+          <button
+            onClick={() => setShowAllRoles(false)}
+            className="text-xs text-white/50 hover:text-white/80"
+          >
+            ← Back
+          </button>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {CHARACTER_ROLES.map((role) => (
+            <button
+              key={role.id}
+              onClick={() => {
+                if (role.id !== 'other') {
+                  onRoleSelect(role.id);
+                }
+              }}
+              className={`px-3 py-2 bg-white/10 text-white text-sm rounded hover:bg-white/20 transition-colors ${
+                role.id === 'other' ? 'col-span-2 border border-dashed border-white/30' : ''
+              }`}
+            >
+              {role.icon} {role.name}
+            </button>
+          ))}
+        </div>
+        {/* Custom role input */}
+        <div className="mt-2">
+          <input
+            type="text"
+            value={customRole}
+            onChange={(e) => setCustomRole(e.target.value)}
+            placeholder="Or enter custom role..."
+            className="w-full p-2 bg-white/10 border border-white/30 rounded text-white placeholder-white/50 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          />
+          {customRole.trim() && (
+            <button
+              onClick={() => onRoleSelect(customRole.trim())}
+              className="w-full mt-2 px-3 py-2 bg-indigo-600 text-white text-sm rounded hover:bg-indigo-700 transition-colors"
+            >
+              Add as "{customRole.trim()}"
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-white/60 text-sm">Assign role:</p>
+      <div className="grid grid-cols-2 gap-2">
+        {CHARACTER_ROLES.slice(0, 4).map((role) => (
+          <button
+            key={role.id}
+            onClick={() => onRoleSelect(role.id)}
+            className="px-3 py-2 bg-white/10 text-white text-sm rounded hover:bg-white/20 transition-colors"
+          >
+            {role.icon} {role.name}
+          </button>
+        ))}
+      </div>
+      <button
+        onClick={() => setShowAllRoles(true)}
+        className="w-full px-3 py-2 bg-white/5 text-white/70 text-sm rounded hover:bg-white/10 transition-colors border border-dashed border-white/20"
+      >
+        More roles...
+      </button>
+    </div>
+  );
+}
 
 export default function CharacterQuickAdd({ onCharacterAdd, onClose, existingCharacters, storyId, chapterId, onOpenCharacterWizard }: CharacterQuickAddProps) {
   const [activeTab, setActiveTab] = useState<'library' | 'create' | 'discover'>('library');
@@ -98,9 +168,6 @@ export default function CharacterQuickAdd({ onCharacterAdd, onClose, existingCha
     onClose();
   };
 
-  const getRoleInfo = (roleId: string) => {
-    return CHARACTER_ROLES.find(role => role.id === roleId) || CHARACTER_ROLES[CHARACTER_ROLES.length - 1];
-  };
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -191,20 +258,9 @@ export default function CharacterQuickAdd({ onCharacterAdd, onClose, existingCha
                           </div>
                         )}
 
-                        <div className="space-y-2">
-                          <p className="text-white/60 text-sm">Assign role:</p>
-                          <div className="grid grid-cols-2 gap-2">
-                            {CHARACTER_ROLES.slice(0, 4).map((role) => (
-                              <button
-                                key={role.id}
-                                onClick={() => addPersistentCharacter(char, role.id)}
-                                className="px-3 py-2 bg-white/10 text-white text-sm rounded hover:bg-white/20 transition-colors"
-                              >
-                                {role.icon} {role.name}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
+                        <QuickAddRoleSelector 
+                          onRoleSelect={(role) => addPersistentCharacter(char, role)}
+                        />
                       </div>
                     ))}
                   </div>

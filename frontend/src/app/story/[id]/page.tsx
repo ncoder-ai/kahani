@@ -58,6 +58,21 @@ const ChapterBrainstormModal = dynamic(() => import('@/components/ChapterBrainst
   ssr: false
 });
 
+const CharacterInteractionsModal = dynamic(() => import('@/components/CharacterInteractionsModal'), {
+  loading: () => null,
+  ssr: false
+});
+
+const EntityStatesModal = dynamic(() => import('@/components/EntityStatesModal'), {
+  loading: () => null,
+  ssr: false
+});
+
+const CharacterRoleEditor = dynamic(() => import('@/components/CharacterRoleEditor'), {
+  loading: () => null,
+  ssr: false
+});
+
 const ChapterProgressIndicator = dynamic(() => import('@/components/ChapterProgressIndicator'), {
   loading: () => null,
   ssr: false
@@ -170,6 +185,7 @@ export default function StoryPage() {
   const [showCharacterQuickAdd, setShowCharacterQuickAdd] = useState(false);
   const [showCharacterWizard, setShowCharacterWizard] = useState(false);
   const [showCharacterVoiceEditor, setShowCharacterVoiceEditor] = useState(false);
+  const [showCharacterRoleEditor, setShowCharacterRoleEditor] = useState(false);
   const [showCharacterBanner, setShowCharacterBanner] = useState(false);
   const [showChapterBrainstormModal, setShowChapterBrainstormModal] = useState(false);
   const [brainstormChapterId, setBrainstormChapterId] = useState<number | undefined>(undefined);
@@ -254,6 +270,12 @@ export default function StoryPage() {
   
   // Story Settings Edit modal state
   const [showEditStoryModal, setShowEditStoryModal] = useState(false);
+  
+  // Character Interactions modal state
+  const [showInteractionsModal, setShowInteractionsModal] = useState(false);
+  
+  // Entity States modal state
+  const [showEntityStatesModal, setShowEntityStatesModal] = useState(false);
   
   // Chapter wizard state
   const [showChapterWizard, setShowChapterWizard] = useState(false);
@@ -377,13 +399,13 @@ export default function StoryPage() {
         onChapters: () => setIsChapterSidebarOpen(true),
         onAddCharacter: () => setShowCharacterQuickAdd(true),
         onEditCharacterVoices: () => setShowCharacterVoiceEditor(true),
+        onEditCharacterRoles: () => setShowCharacterRoleEditor(true),
         onViewAllCharacters: () => router.push('/characters'),
         onDirectorMode: () => setDirectorMode(!directorMode),
         onDeleteMode: () => setIsInDeleteMode(!isInDeleteMode),
-        onExportStory: () => {
-          // TODO: Implement export functionality
-        },
         onEditStorySettings: () => setShowEditStoryModal(true),
+        onShowInteractions: () => setShowInteractionsModal(true),
+        onShowEntityStates: () => setShowEntityStatesModal(true),
         directorModeActive: directorMode,
         deleteModeActive: isInDeleteMode,
         showCharacterBanner: showCharacterBanner,
@@ -3344,6 +3366,13 @@ export default function StoryPage() {
         onClose={() => setShowCharacterVoiceEditor(false)}
       />
 
+      {/* Character Role Editor Modal */}
+      <CharacterRoleEditor
+        storyId={storyId}
+        isOpen={showCharacterRoleEditor}
+        onClose={() => setShowCharacterRoleEditor(false)}
+      />
+
       {/* Branch Creation Modal */}
       {showBranchCreationModal && (
         <BranchCreationModal
@@ -3430,6 +3459,22 @@ export default function StoryPage() {
         onSaved={() => {
           loadStory(); // Reload story after save
         }}
+      />
+      
+      {/* Character Interactions Modal */}
+      <CharacterInteractionsModal
+        isOpen={showInteractionsModal}
+        onClose={() => setShowInteractionsModal(false)}
+        storyId={storyId}
+        storyTitle={story?.title || ''}
+      />
+      
+      {/* Entity States Modal */}
+      <EntityStatesModal
+        isOpen={showEntityStatesModal}
+        onClose={() => setShowEntityStatesModal(false)}
+        storyId={storyId}
+        storyTitle={story?.title || ''}
       />
       
       {/* Chapter Brainstorm Modal */}

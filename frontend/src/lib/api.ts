@@ -756,8 +756,201 @@ class ApiClient {
     return this.request<any>(`/api/stories/`, { method: 'POST', body: JSON.stringify(data) });
   }
 
-  async updateStory(id: number, data: { title?: string; description?: string; genre?: string; tone?: string; world_setting?: string; initial_premise?: string; scenario?: string; content_rating?: string; }) {
+  async updateStory(id: number, data: { title?: string; description?: string; genre?: string; tone?: string; world_setting?: string; initial_premise?: string; scenario?: string; content_rating?: string; interaction_types?: string[]; }) {
     return this.request<any>(`/api/stories/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+  }
+
+  async getInteractionPresets() {
+    return this.request<Record<string, { name: string; description: string; types: string[]; }>>(`/api/stories/interaction-presets`);
+  }
+
+  async extractInteractionsRetroactively(storyId: number) {
+    return this.request<{ 
+      message: string; 
+      story_id: number; 
+      scene_count: number; 
+      batch_size: number;
+      num_batches: number;
+      interaction_types: string[];
+      status: string; 
+    }>(`/api/stories/${storyId}/extract-interactions`, { method: 'POST' });
+  }
+
+  async getStoryInteractions(storyId: number) {
+    return this.request<{
+      story_id: number;
+      interaction_types_configured: string[];
+      interactions: Array<{
+        id: number;
+        interaction_type: string;
+        character_a: string;
+        character_b: string;
+        first_occurrence_scene: number;
+        description: string | null;
+      }>;
+      interactions_not_occurred: string[];
+      total_interactions: number;
+      total_scenes: number;
+    }>(`/api/stories/${storyId}/interactions`);
+  }
+
+  async getExtractionProgress(storyId: number) {
+    return this.request<{
+      in_progress: boolean;
+      batches_processed: number;
+      total_batches: number;
+      interactions_found: number;
+    }>(`/api/stories/${storyId}/extraction-progress`);
+  }
+
+  async deleteInteraction(storyId: number, interactionId: number) {
+    return this.request<{
+      message: string;
+      deleted_id: number;
+    }>(`/api/stories/${storyId}/interactions/${interactionId}`, { method: 'DELETE' });
+  }
+
+  // Entity States API
+  async getEntityStates(storyId: number) {
+    return this.request<{
+      story_id: number;
+      branch_id: number | null;
+      character_states: Array<{
+        id: number;
+        character_id: number;
+        character_name: string;
+        story_id: number;
+        last_updated_scene: number | null;
+        current_location: string | null;
+        physical_condition: string | null;
+        appearance: string | null;
+        possessions: string[];
+        emotional_state: string | null;
+        current_goal: string | null;
+        active_conflicts: string[];
+        knowledge: string[];
+        secrets: string[];
+        relationships: Record<string, string>;
+        arc_stage: string | null;
+        arc_progress: number | null;
+        recent_decisions: string[];
+        recent_actions: string[];
+        full_state: Record<string, unknown>;
+        updated_at: string | null;
+      }>;
+      location_states: Array<{
+        id: number;
+        story_id: number;
+        location_name: string;
+        last_updated_scene: number | null;
+        condition: string | null;
+        atmosphere: string | null;
+        notable_features: string[];
+        current_occupants: string[];
+        significant_events: string[];
+        time_of_day: string | null;
+        weather: string | null;
+        full_state: Record<string, unknown>;
+        updated_at: string | null;
+      }>;
+      object_states: Array<{
+        id: number;
+        story_id: number;
+        object_name: string;
+        last_updated_scene: number | null;
+        condition: string | null;
+        current_location: string | null;
+        current_owner_id: number | null;
+        current_owner_name: string | null;
+        significance: string | null;
+        object_type: string | null;
+        powers: string[];
+        limitations: string[];
+        origin: string | null;
+        previous_owners: string[];
+        recent_events: string[];
+        full_state: Record<string, unknown>;
+        updated_at: string | null;
+      }>;
+      counts: {
+        characters: number;
+        locations: number;
+        objects: number;
+      };
+    }>(`/api/stories/${storyId}/entity-states`);
+  }
+
+  async deleteEntityState(storyId: number, type: 'characters' | 'locations' | 'objects', stateId: number) {
+    return this.request<{
+      message: string;
+      deleted_id: number;
+    }>(`/api/stories/${storyId}/entity-states/${type}/${stateId}`, { method: 'DELETE' });
+  }
+
+  async updateCharacterState(storyId: number, stateId: number, data: {
+    current_location?: string | null;
+    physical_condition?: string | null;
+    appearance?: string | null;
+    possessions?: string[];
+    emotional_state?: string | null;
+    current_goal?: string | null;
+    active_conflicts?: string[];
+    knowledge?: string[];
+    secrets?: string[];
+    relationships?: Record<string, string>;
+    arc_stage?: string | null;
+    arc_progress?: number | null;
+    recent_decisions?: string[];
+    recent_actions?: string[];
+  }) {
+    return this.request<{
+      message: string;
+      state: Record<string, unknown>;
+    }>(`/api/stories/${storyId}/entity-states/characters/${stateId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async updateLocationState(storyId: number, stateId: number, data: {
+    location_name?: string;
+    condition?: string | null;
+    atmosphere?: string | null;
+    notable_features?: string[];
+    current_occupants?: string[];
+    significant_events?: string[];
+    time_of_day?: string | null;
+    weather?: string | null;
+  }) {
+    return this.request<{
+      message: string;
+      state: Record<string, unknown>;
+    }>(`/api/stories/${storyId}/entity-states/locations/${stateId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async updateObjectState(storyId: number, stateId: number, data: {
+    object_name?: string;
+    condition?: string | null;
+    current_location?: string | null;
+    current_owner_id?: number | null;
+    significance?: string | null;
+    object_type?: string | null;
+    powers?: string[];
+    limitations?: string[];
+    origin?: string | null;
+    previous_owners?: string[];
+    recent_events?: string[];
+  }) {
+    return this.request<{
+      message: string;
+      state: Record<string, unknown>;
+    }>(`/api/stories/${storyId}/entity-states/objects/${stateId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
   }
 
   async generateScene(storyId: number, customPrompt = '', userContent?: string, contentMode: 'ai_generate' | 'user_scene' | 'user_prompt' = 'ai_generate') {
@@ -1370,6 +1563,22 @@ class ApiClient {
   async clearStoryCharacterVoiceStyle(storyId: number, storyCharacterId: number) {
     return this.request<{ message: string }>(`/api/characters/story/${storyId}/characters/${storyCharacterId}/voice-style`, {
       method: 'DELETE'
+    });
+  }
+
+  async updateStoryCharacterRole(storyId: number, storyCharacterId: number, role: string) {
+    return this.request<{
+      id: number;
+      character_id: number;
+      story_id: number;
+      role: string | null;
+      voice_style_override: VoiceStyle | null;
+      name: string;
+      description: string | null;
+      default_voice_style: VoiceStyle | null;
+    }>(`/api/characters/story/${storyId}/characters/${storyCharacterId}/role`, {
+      method: 'PUT',
+      body: JSON.stringify({ role })
     });
   }
 
@@ -2602,6 +2811,7 @@ class ApiClient {
     return this.request<{
       session_id: number;
       structured_elements: StructuredElements;
+      suggested_elements?: SuggestedElements;
     }>(`/api/stories/${storyId}/chapters/brainstorm/${sessionId}/elements`);
   }
 

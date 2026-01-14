@@ -46,21 +46,34 @@ def parse_element_suggestions(ai_response: str) -> tuple:
     {"overview": "...", "tone": "...", "key_events": [...], "characters": "...", "ending": "..."}
     ---END_ELEMENTS---
     
+    But also handles raw JSON code blocks (```json ... ```) as fallback.
+    
     Returns:
         tuple: (clean_response without markers, suggestions_dict or None)
     """
-    # Pattern to match the elements block
+    json_block = None
+    clean_response = ai_response
+    
+    # First try: Look for ---ELEMENTS--- markers
     pattern = r'---ELEMENTS---\s*(.*?)\s*---END_ELEMENTS---'
     match = re.search(pattern, ai_response, re.DOTALL)
     
-    if not match:
+    if match:
+        json_block = match.group(1).strip()
+        clean_response = re.sub(pattern, '', ai_response, flags=re.DOTALL).strip()
+    else:
+        # Fallback: Look for JSON code blocks (```json ... ``` or ``` ... ```)
+        # Match JSON that contains chapter element keys
+        code_block_pattern = r'```(?:json)?\s*(\{[^`]*(?:"overview"|"tone"|"key_events"|"characters"|"ending")[^`]*\})\s*```'
+        code_match = re.search(code_block_pattern, ai_response, re.DOTALL)
+        
+        if code_match:
+            json_block = code_match.group(1).strip()
+            clean_response = re.sub(code_block_pattern, '', ai_response, flags=re.DOTALL).strip()
+            logger.info(f"[CHAPTER_BRAINSTORM] Found JSON in code block (no markers)")
+    
+    if not json_block:
         return ai_response, None
-    
-    # Extract the JSON block
-    json_block = match.group(1).strip()
-    
-    # Clean the response by removing the elements block
-    clean_response = re.sub(pattern, '', ai_response, flags=re.DOTALL).strip()
     
     # Parse the JSON
     try:
@@ -75,7 +88,7 @@ def parse_element_suggestions(ai_response: str) -> tuple:
         if not filtered_suggestions:
             return clean_response, None
             
-        logger.debug(f"[CHAPTER_BRAINSTORM] Parsed element suggestions: {list(filtered_suggestions.keys())}")
+        logger.info(f"[CHAPTER_BRAINSTORM] Parsed element suggestions: {list(filtered_suggestions.keys())}")
         return clean_response, filtered_suggestions
         
     except json.JSONDecodeError as e:

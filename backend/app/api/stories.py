@@ -48,6 +48,21 @@ except Exception as e:
 # Initialize the unified LLM service
 llm_service = UnifiedLLMService()
 
+# In-memory progress tracking for interaction extraction
+# Format: {story_id: {batches_processed: int, total_batches: int, interactions_found: int}}
+extraction_progress_store = {}
+
+# Per-chapter extraction locks to prevent concurrent plot extractions
+_chapter_extraction_locks: Dict[int, asyncio.Lock] = {}
+_lock_dict_lock = asyncio.Lock()
+
+async def get_chapter_extraction_lock(chapter_id: int) -> asyncio.Lock:
+    """Get or create a lock for the given chapter's plot extraction."""
+    async with _lock_dict_lock:
+        if chapter_id not in _chapter_extraction_locks:
+            _chapter_extraction_locks[chapter_id] = asyncio.Lock()
+        return _chapter_extraction_locks[chapter_id]
+
 def safe_get_custom_prompt(request, logger=None):
     """Safely extract custom_prompt from request, handling various input types"""
     if isinstance(request, dict):
@@ -666,6 +681,7 @@ class StoryUpdate(BaseModel):
     initial_premise: Optional[str] = None
     scenario: Optional[str] = None
     content_rating: Optional[str] = None  # "sfw" or "nsfw"
+    interaction_types: Optional[List[str]] = None  # User-defined interaction types to track
 
 class ScenarioGenerateRequest(BaseModel):
     genre: Optional[str] = ""
@@ -699,6 +715,52 @@ class PlotGenerateRequest(BaseModel):
     world_setting: Optional[str] = ""
     plot_type: Optional[str] = "complete"  # "complete", "single_point"
     plot_point_index: Optional[int] = None
+
+@router.get("/interaction-presets")
+async def get_interaction_presets(
+    current_user: User = Depends(get_current_user)
+):
+    """Get available interaction type presets for story configuration"""
+    import yaml
+    import os
+    
+    # Try multiple paths for the presets file
+    preset_paths = [
+        'interaction_presets.yml',
+        '/app/interaction_presets.yml',
+        os.path.join(os.path.dirname(__file__), '..', '..', 'interaction_presets.yml'),
+    ]
+    
+    for preset_path in preset_paths:
+        try:
+            with open(preset_path, 'r') as f:
+                presets = yaml.safe_load(f)
+                if presets:
+                    return presets
+        except FileNotFoundError:
+            continue
+        except Exception as e:
+            logger.warning(f"Error loading interaction presets from {preset_path}: {e}")
+            continue
+    
+    # Return default presets if file not found
+    return {
+        "default": {
+            "name": "Default",
+            "description": "Basic interactions suitable for any story type",
+            "types": [
+                "first meeting",
+                "first argument",
+                "first collaboration",
+                "betrayal",
+                "reconciliation",
+                "secret shared",
+                "trust established",
+                "alliance formed"
+            ]
+        }
+    }
+
 
 @router.get("/")
 async def get_stories(
@@ -891,6 +953,7 @@ async def get_story(
         "scenario": story.scenario or draft_data.get('scenario', '') or "",
         "status": story.status,
         "content_rating": story.content_rating or "sfw",
+        "interaction_types": story.interaction_types or [],
         "scenes": scenes,
         "flow_info": {
             "total_scenes": len(scenes),
@@ -977,6 +1040,8 @@ async def update_story(
                 detail="You don't have permission to create NSFW content"
             )
         story.content_rating = rating
+    if story_data.interaction_types is not None:
+        story.interaction_types = story_data.interaction_types
     
     db.commit()
     db.refresh(story)
@@ -991,8 +1056,1145 @@ async def update_story(
         "initial_premise": story.initial_premise,
         "scenario": story.scenario,
         "content_rating": story.content_rating,
+        "interaction_types": story.interaction_types,
         "message": "Story updated successfully"
     }
+
+@router.get("/{story_id}/interactions")
+async def get_story_interactions(
+    story_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all recorded character interactions for a story.
+    
+    Returns the interaction history showing what has occurred between characters.
+    """
+    from ..models import CharacterInteraction, Character, StoryBranch, Scene
+    
+    # Verify story ownership
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found"
+        )
+    
+    # Get active branch
+    active_branch = db.query(StoryBranch).filter(
+        StoryBranch.story_id == story_id,
+        StoryBranch.is_active == True
+    ).first()
+    branch_id = active_branch.id if active_branch else None
+    
+    # Get all interactions
+    query = db.query(CharacterInteraction).filter(
+        CharacterInteraction.story_id == story_id
+    )
+    if branch_id:
+        query = query.filter(CharacterInteraction.branch_id == branch_id)
+    
+    interactions = query.order_by(CharacterInteraction.first_occurrence_scene).all()
+    
+    # Build character ID to name mapping
+    char_ids = set()
+    for interaction in interactions:
+        char_ids.add(interaction.character_a_id)
+        char_ids.add(interaction.character_b_id)
+    
+    characters = db.query(Character).filter(Character.id.in_(char_ids)).all() if char_ids else []
+    char_id_to_name = {c.id: c.name for c in characters}
+    
+    # Format response
+    result = []
+    for interaction in interactions:
+        result.append({
+            "id": interaction.id,
+            "interaction_type": interaction.interaction_type,
+            "character_a": char_id_to_name.get(interaction.character_a_id, "Unknown"),
+            "character_b": char_id_to_name.get(interaction.character_b_id, "Unknown"),
+            "first_occurrence_scene": interaction.first_occurrence_scene,
+            "description": interaction.description,
+            "created_at": interaction.created_at.isoformat() if interaction.created_at else None
+        })
+    
+    # Also show what hasn't occurred yet
+    configured_types = set(story.interaction_types or [])
+    occurred_types = {i.interaction_type for i in interactions}
+    not_occurred = list(configured_types - occurred_types)
+    
+    # Get total scene count for progress tracking
+    scene_query = db.query(Scene).filter(Scene.story_id == story_id)
+    if branch_id:
+        scene_query = scene_query.filter(Scene.branch_id == branch_id)
+    total_scenes = scene_query.count()
+    
+    return {
+        "story_id": story_id,
+        "interaction_types_configured": story.interaction_types or [],
+        "interactions": result,
+        "interactions_not_occurred": sorted(not_occurred),
+        "total_interactions": len(result),
+        "total_scenes": total_scenes
+    }
+
+
+@router.delete("/{story_id}/interactions/{interaction_id}")
+async def delete_interaction(
+    story_id: int,
+    interaction_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a specific character interaction.
+    
+    Allows users to manually remove incorrect or unwanted interactions.
+    """
+    from ..models import CharacterInteraction
+    
+    # Verify story ownership
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found"
+        )
+    
+    # Find and delete the interaction
+    interaction = db.query(CharacterInteraction).filter(
+        CharacterInteraction.id == interaction_id,
+        CharacterInteraction.story_id == story_id
+    ).first()
+    
+    if not interaction:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Interaction not found"
+        )
+    
+    db.delete(interaction)
+    db.commit()
+    
+    logger.info(f"[INTERACTION_DELETE] Deleted interaction {interaction_id} ({interaction.interaction_type}) from story {story_id}")
+    
+    return {
+        "message": "Interaction deleted successfully",
+        "deleted_id": interaction_id
+    }
+
+
+# =============================================================================
+# ENTITY STATE MANAGEMENT ENDPOINTS
+# =============================================================================
+
+@router.get("/{story_id}/entity-states")
+async def get_entity_states(
+    story_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all entity states (characters, locations, objects) for a story.
+    
+    Returns comprehensive state data for review and editing.
+    """
+    from ..models import CharacterState, LocationState, ObjectState, Character, StoryBranch
+    
+    # Verify story ownership
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found"
+        )
+    
+    # Get active branch
+    active_branch = db.query(StoryBranch).filter(
+        StoryBranch.story_id == story_id,
+        StoryBranch.is_active == True
+    ).first()
+    branch_id = active_branch.id if active_branch else None
+    
+    # Get character states with character names
+    char_states_query = db.query(CharacterState).filter(
+        CharacterState.story_id == story_id
+    )
+    if branch_id:
+        char_states_query = char_states_query.filter(CharacterState.branch_id == branch_id)
+    char_states = char_states_query.order_by(CharacterState.last_updated_scene.desc()).all()
+    
+    # Build character ID to name mapping
+    char_ids = {cs.character_id for cs in char_states}
+    characters = db.query(Character).filter(Character.id.in_(char_ids)).all() if char_ids else []
+    char_id_to_name = {c.id: c.name for c in characters}
+    
+    # Format character states
+    character_states_result = []
+    for cs in char_states:
+        state_dict = cs.to_dict()
+        state_dict["character_name"] = char_id_to_name.get(cs.character_id, "Unknown")
+        character_states_result.append(state_dict)
+    
+    # Get location states
+    loc_states_query = db.query(LocationState).filter(
+        LocationState.story_id == story_id
+    )
+    if branch_id:
+        loc_states_query = loc_states_query.filter(LocationState.branch_id == branch_id)
+    loc_states = loc_states_query.order_by(LocationState.last_updated_scene.desc()).all()
+    
+    location_states_result = [ls.to_dict() for ls in loc_states]
+    
+    # Get object states with owner names
+    obj_states_query = db.query(ObjectState).filter(
+        ObjectState.story_id == story_id
+    )
+    if branch_id:
+        obj_states_query = obj_states_query.filter(ObjectState.branch_id == branch_id)
+    obj_states = obj_states_query.order_by(ObjectState.last_updated_scene.desc()).all()
+    
+    # Get owner names for objects
+    owner_ids = {os.current_owner_id for os in obj_states if os.current_owner_id}
+    if owner_ids:
+        owners = db.query(Character).filter(Character.id.in_(owner_ids)).all()
+        owner_id_to_name = {c.id: c.name for c in owners}
+    else:
+        owner_id_to_name = {}
+    
+    object_states_result = []
+    for os in obj_states:
+        state_dict = os.to_dict()
+        state_dict["current_owner_name"] = owner_id_to_name.get(os.current_owner_id) if os.current_owner_id else None
+        object_states_result.append(state_dict)
+    
+    return {
+        "story_id": story_id,
+        "branch_id": branch_id,
+        "character_states": character_states_result,
+        "location_states": location_states_result,
+        "object_states": object_states_result,
+        "counts": {
+            "characters": len(character_states_result),
+            "locations": len(location_states_result),
+            "objects": len(object_states_result)
+        }
+    }
+
+
+@router.delete("/{story_id}/entity-states/characters/{state_id}")
+async def delete_character_state(
+    story_id: int,
+    state_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a character state entry."""
+    from ..models import CharacterState
+    
+    # Verify story ownership
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    
+    state = db.query(CharacterState).filter(
+        CharacterState.id == state_id,
+        CharacterState.story_id == story_id
+    ).first()
+    
+    if not state:
+        raise HTTPException(status_code=404, detail="Character state not found")
+    
+    db.delete(state)
+    db.commit()
+    
+    logger.info(f"[ENTITY_STATE_DELETE] Deleted character state {state_id} from story {story_id}")
+    
+    return {"message": "Character state deleted successfully", "deleted_id": state_id}
+
+
+@router.delete("/{story_id}/entity-states/locations/{state_id}")
+async def delete_location_state(
+    story_id: int,
+    state_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a location state entry."""
+    from ..models import LocationState
+    
+    # Verify story ownership
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    
+    state = db.query(LocationState).filter(
+        LocationState.id == state_id,
+        LocationState.story_id == story_id
+    ).first()
+    
+    if not state:
+        raise HTTPException(status_code=404, detail="Location state not found")
+    
+    db.delete(state)
+    db.commit()
+    
+    logger.info(f"[ENTITY_STATE_DELETE] Deleted location state {state_id} from story {story_id}")
+    
+    return {"message": "Location state deleted successfully", "deleted_id": state_id}
+
+
+@router.delete("/{story_id}/entity-states/objects/{state_id}")
+async def delete_object_state(
+    story_id: int,
+    state_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete an object state entry."""
+    from ..models import ObjectState
+    
+    # Verify story ownership
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    
+    state = db.query(ObjectState).filter(
+        ObjectState.id == state_id,
+        ObjectState.story_id == story_id
+    ).first()
+    
+    if not state:
+        raise HTTPException(status_code=404, detail="Object state not found")
+    
+    db.delete(state)
+    db.commit()
+    
+    logger.info(f"[ENTITY_STATE_DELETE] Deleted object state {state_id} from story {story_id}")
+    
+    return {"message": "Object state deleted successfully", "deleted_id": state_id}
+
+
+class CharacterStateUpdate(BaseModel):
+    """Update model for character state"""
+    current_location: Optional[str] = None
+    physical_condition: Optional[str] = None
+    appearance: Optional[str] = None
+    possessions: Optional[List[str]] = None
+    emotional_state: Optional[str] = None
+    current_goal: Optional[str] = None
+    active_conflicts: Optional[List[str]] = None
+    knowledge: Optional[List[str]] = None
+    secrets: Optional[List[str]] = None
+    relationships: Optional[Dict[str, str]] = None
+    arc_stage: Optional[str] = None
+    arc_progress: Optional[float] = None
+    recent_decisions: Optional[List[str]] = None
+    recent_actions: Optional[List[str]] = None
+
+
+@router.put("/{story_id}/entity-states/characters/{state_id}")
+async def update_character_state(
+    story_id: int,
+    state_id: int,
+    update_data: CharacterStateUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update a character state entry."""
+    from ..models import CharacterState
+    
+    # Verify story ownership
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    
+    state = db.query(CharacterState).filter(
+        CharacterState.id == state_id,
+        CharacterState.story_id == story_id
+    ).first()
+    
+    if not state:
+        raise HTTPException(status_code=404, detail="Character state not found")
+    
+    # Update fields that were provided
+    update_dict = update_data.model_dump(exclude_unset=True)
+    for field, value in update_dict.items():
+        setattr(state, field, value)
+    
+    db.commit()
+    db.refresh(state)
+    
+    logger.info(f"[ENTITY_STATE_UPDATE] Updated character state {state_id} in story {story_id}")
+    
+    return {"message": "Character state updated successfully", "state": state.to_dict()}
+
+
+class LocationStateUpdate(BaseModel):
+    """Update model for location state"""
+    location_name: Optional[str] = None
+    condition: Optional[str] = None
+    atmosphere: Optional[str] = None
+    notable_features: Optional[List[str]] = None
+    current_occupants: Optional[List[str]] = None
+    significant_events: Optional[List[str]] = None
+    time_of_day: Optional[str] = None
+    weather: Optional[str] = None
+
+
+@router.put("/{story_id}/entity-states/locations/{state_id}")
+async def update_location_state(
+    story_id: int,
+    state_id: int,
+    update_data: LocationStateUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update a location state entry."""
+    from ..models import LocationState
+    
+    # Verify story ownership
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    
+    state = db.query(LocationState).filter(
+        LocationState.id == state_id,
+        LocationState.story_id == story_id
+    ).first()
+    
+    if not state:
+        raise HTTPException(status_code=404, detail="Location state not found")
+    
+    # Update fields that were provided
+    update_dict = update_data.model_dump(exclude_unset=True)
+    for field, value in update_dict.items():
+        setattr(state, field, value)
+    
+    db.commit()
+    db.refresh(state)
+    
+    logger.info(f"[ENTITY_STATE_UPDATE] Updated location state {state_id} in story {story_id}")
+    
+    return {"message": "Location state updated successfully", "state": state.to_dict()}
+
+
+class ObjectStateUpdate(BaseModel):
+    """Update model for object state"""
+    object_name: Optional[str] = None
+    condition: Optional[str] = None
+    current_location: Optional[str] = None
+    current_owner_id: Optional[int] = None
+    significance: Optional[str] = None
+    object_type: Optional[str] = None
+    powers: Optional[List[str]] = None
+    limitations: Optional[List[str]] = None
+    origin: Optional[str] = None
+    previous_owners: Optional[List[str]] = None
+    recent_events: Optional[List[str]] = None
+
+
+@router.put("/{story_id}/entity-states/objects/{state_id}")
+async def update_object_state(
+    story_id: int,
+    state_id: int,
+    update_data: ObjectStateUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update an object state entry."""
+    from ..models import ObjectState
+    
+    # Verify story ownership
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    
+    state = db.query(ObjectState).filter(
+        ObjectState.id == state_id,
+        ObjectState.story_id == story_id
+    ).first()
+    
+    if not state:
+        raise HTTPException(status_code=404, detail="Object state not found")
+    
+    # Update fields that were provided
+    update_dict = update_data.model_dump(exclude_unset=True)
+    for field, value in update_dict.items():
+        setattr(state, field, value)
+    
+    db.commit()
+    db.refresh(state)
+    
+    logger.info(f"[ENTITY_STATE_UPDATE] Updated object state {state_id} in story {story_id}")
+    
+    return {"message": "Object state updated successfully", "state": state.to_dict()}
+
+
+@router.get("/{story_id}/extraction-progress")
+async def get_extraction_progress(
+    story_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get current progress of interaction extraction.
+    
+    Returns batch progress for ongoing extractions.
+    """
+    # Verify story ownership
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found"
+        )
+    
+    progress = extraction_progress_store.get(story_id)
+    
+    if not progress:
+        return {
+            "in_progress": False,
+            "batches_processed": 0,
+            "total_batches": 0,
+            "interactions_found": 0
+        }
+    
+    return {
+        "in_progress": True,
+        "batches_processed": progress['batches_processed'],
+        "total_batches": progress['total_batches'],
+        "interactions_found": progress['interactions_found']
+    }
+
+
+@router.post("/{story_id}/extract-interactions")
+async def extract_interactions_retroactively(
+    story_id: int,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Retroactively extract character interactions from existing scenes.
+    
+    Uses a BATCHED approach for efficiency:
+    - Groups scenes into batches (10 scenes per batch by default)
+    - Sends batch to LLM in a single request
+    - Much faster than processing 170 scenes individually
+    
+    This is useful when:
+    - Interaction types are configured after scenes already exist
+    - You want to rebuild the interaction history
+    """
+    from ..models import Scene, StoryFlow, SceneVariant, StoryBranch
+    
+    # Verify story ownership
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found"
+        )
+    
+    # Check if story has interaction types configured
+    if not story.interaction_types:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No interaction types configured for this story. Configure them in Story Settings first."
+        )
+    
+    # Get active branch
+    active_branch = db.query(StoryBranch).filter(
+        StoryBranch.story_id == story_id,
+        StoryBranch.is_active == True
+    ).first()
+    branch_id = active_branch.id if active_branch else None
+    
+    # Count scenes to process
+    scene_query = db.query(Scene).filter(Scene.story_id == story_id)
+    if branch_id:
+        scene_query = scene_query.filter(Scene.branch_id == branch_id)
+    scene_count = scene_query.count()
+    
+    if scene_count == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No scenes found in this story"
+        )
+    
+    # Get user settings for extraction
+    from ..models import UserSettings
+    user_settings_record = db.query(UserSettings).filter(
+        UserSettings.user_id == current_user.id
+    ).first()
+    user_settings = user_settings_record.to_dict() if user_settings_record else {}
+    
+    # Calculate batches
+    batch_size = 10  # Scenes per batch
+    num_batches = (scene_count + batch_size - 1) // batch_size
+    
+    # Schedule background extraction
+    background_tasks.add_task(
+        run_interaction_extraction_background,
+        story_id=story_id,
+        branch_id=branch_id,
+        user_id=current_user.id,
+        user_settings=user_settings,
+        interaction_types=story.interaction_types,
+        batch_size=batch_size
+    )
+    
+    return {
+        "message": f"Interaction extraction started: {scene_count} scenes in {num_batches} batches",
+        "story_id": story_id,
+        "scene_count": scene_count,
+        "batch_size": batch_size,
+        "num_batches": num_batches,
+        "interaction_types": story.interaction_types,
+        "status": "processing"
+    }
+
+
+async def run_interaction_extraction_background(
+    story_id: int,
+    branch_id: int,
+    user_id: int,
+    user_settings: dict,
+    interaction_types: list,
+    batch_size: int = 10
+):
+    """
+    Background task to extract interactions from scenes using BATCHED processing.
+    
+    Instead of sending 170 individual LLM requests, we:
+    1. Group scenes into batches of 10
+    2. Concatenate scene summaries (first 500 chars each)
+    3. Send one LLM request per batch
+    4. Result: ~17 requests instead of 170 for a 170-scene story
+    
+    Uses extraction LLM if configured, otherwise falls back to main LLM.
+    """
+    from ..database import SessionLocal
+    from ..models import Scene, StoryFlow, SceneVariant, Character, StoryCharacter, CharacterInteraction
+    from ..services.llm.service import UnifiedLLMService
+    from ..services.llm.extraction_service import ExtractionLLMService
+    from ..config import settings
+    from sqlalchemy import or_
+    import json
+    import asyncio
+    
+    logger.info(f"[INTERACTION_EXTRACT] Starting BATCHED extraction for story {story_id} (batch_size={batch_size})")
+    
+    extraction_db = SessionLocal()
+    
+    # Try to use extraction LLM if configured
+    extraction_service = None
+    extraction_settings = user_settings.get('extraction_model_settings', {})
+    if extraction_settings.get('enabled', False):
+        try:
+            ext_defaults = settings._yaml_config.get('extraction_model', {})
+            url = extraction_settings.get('url', ext_defaults.get('url'))
+            model = extraction_settings.get('model_name', ext_defaults.get('model_name'))
+            api_key = extraction_settings.get('api_key', ext_defaults.get('api_key', ''))
+            temperature = extraction_settings.get('temperature', ext_defaults.get('temperature', 0.3))
+            max_tokens = extraction_settings.get('max_tokens', ext_defaults.get('max_tokens', 2048))
+            
+            if url and model:
+                extraction_service = ExtractionLLMService(
+                    url=url,
+                    model=model,
+                    api_key=api_key,
+                    temperature=temperature,
+                    max_tokens=max_tokens
+                )
+                # Use user's timeout settings (with a minimum for batch processing)
+                from aiohttp import ClientTimeout
+                user_timeout = user_settings.get('llm_settings', {}).get('timeout_total', 60)
+                # Batch processing needs more time - use at least 2x the user's timeout
+                batch_timeout = max(user_timeout * 2, 60)
+                extraction_service.timeout = ClientTimeout(total=batch_timeout, connect=10)
+                logger.info(f"[INTERACTION_EXTRACT] Using extraction LLM: {model} at {url} (timeout={batch_timeout}s)")
+        except Exception as e:
+            logger.warning(f"[INTERACTION_EXTRACT] Failed to init extraction service: {e}, falling back to main LLM")
+    
+    # Fallback to main LLM
+    main_llm = UnifiedLLMService() if not extraction_service else None
+    if main_llm:
+        logger.info(f"[INTERACTION_EXTRACT] Using main LLM for extraction")
+    
+    try:
+        # Get all scenes in order
+        scene_query = extraction_db.query(Scene).filter(Scene.story_id == story_id)
+        if branch_id:
+            scene_query = scene_query.filter(Scene.branch_id == branch_id)
+        scenes = scene_query.order_by(Scene.sequence_number).all()
+        
+        total_scenes = len(scenes)
+        logger.info(f"[INTERACTION_EXTRACT] Found {total_scenes} scenes to process")
+        
+        # Get already-found interactions to avoid duplicates across batches
+        existing_interactions = extraction_db.query(CharacterInteraction).filter(
+            CharacterInteraction.story_id == story_id
+        ).all()
+        
+        # Build character name to ID mapping with multiple lookup keys
+        # This handles cases where LLM returns partial names (e.g., "john" instead of "John Smith")
+        char_query = extraction_db.query(StoryCharacter).filter(StoryCharacter.story_id == story_id)
+        if branch_id:
+            char_query = char_query.filter(or_(
+                StoryCharacter.branch_id == branch_id,
+                StoryCharacter.branch_id.is_(None)
+            ))
+        story_characters = char_query.all()
+        
+        character_name_to_id = {}
+        character_names = []
+        
+        # Add main story characters
+        for sc in story_characters:
+            char = extraction_db.query(Character).filter(Character.id == sc.character_id).first()
+            if char:
+                character_names.append(char.name)
+                full_name_lower = char.name.lower()
+                # Add full name
+                character_name_to_id[full_name_lower] = char.id
+                # Add first name only (for "John Smith" -> "john")
+                first_name = full_name_lower.split()[0]
+                if first_name not in character_name_to_id:
+                    character_name_to_id[first_name] = char.id
+                # Add last name only if it exists (for "Sharma" -> id)
+                name_parts = full_name_lower.split()
+                if len(name_parts) > 1:
+                    last_name = name_parts[-1]
+                    if last_name not in character_name_to_id:
+                        character_name_to_id[last_name] = char.id
+        
+        # Also include significant NPCs (those with importance score > threshold or many mentions)
+        # NPCs don't have character IDs, so we'll create virtual negative IDs for them
+        from ..models import NPCTracking
+        npc_query = extraction_db.query(NPCTracking).filter(
+            NPCTracking.story_id == story_id,
+            NPCTracking.entity_type == "CHARACTER"  # Only character NPCs, not entities
+        )
+        if branch_id:
+            npc_query = npc_query.filter(or_(
+                NPCTracking.branch_id == branch_id,
+                NPCTracking.branch_id.is_(None)
+            ))
+        # Get NPCs with at least 3 mentions or importance > 0.3
+        significant_npcs = npc_query.filter(
+            or_(
+                NPCTracking.total_mentions >= 3,
+                NPCTracking.importance_score >= 0.3
+            )
+        ).all()
+        
+        npc_virtual_id_counter = -1  # Use negative IDs for NPCs
+        npc_name_to_virtual_id = {}
+        
+        for npc in significant_npcs:
+            npc_name = npc.character_name
+            if npc_name.lower() not in character_name_to_id:  # Don't override main characters
+                character_names.append(f"{npc_name} (NPC)")
+                full_name_lower = npc_name.lower()
+                npc_name_to_virtual_id[full_name_lower] = npc_virtual_id_counter
+                character_name_to_id[full_name_lower] = npc_virtual_id_counter
+                # Add first name
+                first_name = full_name_lower.split()[0]
+                if first_name not in character_name_to_id:
+                    character_name_to_id[first_name] = npc_virtual_id_counter
+                    npc_name_to_virtual_id[first_name] = npc_virtual_id_counter
+                npc_virtual_id_counter -= 1
+        
+        logger.info(f"[INTERACTION_EXTRACT] Character lookup keys: {list(character_name_to_id.keys())}")
+        logger.info(f"[INTERACTION_EXTRACT] Including {len(significant_npcs)} significant NPCs")
+        
+        interactions_found = 0
+        batches_processed = 0
+        num_batches = (total_scenes + batch_size - 1) // batch_size
+        
+        # Initialize progress tracking
+        extraction_progress_store[story_id] = {
+            'batches_processed': 0,
+            'total_batches': num_batches,
+            'interactions_found': 0
+        }
+        
+        # Process in batches
+        for batch_start in range(0, total_scenes, batch_size):
+            batch_end = min(batch_start + batch_size, total_scenes)
+            batch_scenes = scenes[batch_start:batch_end]
+            
+            try:
+                # Build batch content - summarize each scene
+                batch_content_parts = []
+                scene_sequence_map = {}  # Map scene index in batch to sequence number
+                
+                for idx, scene in enumerate(batch_scenes):
+                    # Get scene content from active variant
+                    flow = extraction_db.query(StoryFlow).filter(
+                        StoryFlow.scene_id == scene.id,
+                        StoryFlow.is_active == True
+                    ).first()
+                    
+                    if flow and flow.scene_variant:
+                        scene_content = flow.scene_variant.content
+                    else:
+                        scene_content = scene.content
+                    
+                    if not scene_content:
+                        continue
+                    
+                    # Truncate to first 800 chars for batch efficiency
+                    truncated = scene_content[:800]
+                    if len(scene_content) > 800:
+                        truncated += "..."
+                    
+                    batch_content_parts.append(f"[SCENE {scene.sequence_number}]\n{truncated}")
+                    scene_sequence_map[idx] = scene.sequence_number
+                
+                if not batch_content_parts:
+                    continue
+                
+                # Build list of already-found interactions for this batch
+                already_found_list = []
+                for ei in existing_interactions:
+                    # Get character names
+                    char_a_name = None
+                    char_b_name = None
+                    for name, cid in character_name_to_id.items():
+                        if cid == ei.character_a_id and not char_a_name:
+                            char_a_name = name
+                        if cid == ei.character_b_id and not char_b_name:
+                            char_b_name = name
+                    
+                    if char_a_name and char_b_name:
+                        already_found_list.append(f"{ei.interaction_type} between {char_a_name} and {char_b_name}")
+                
+                already_found_text = ""
+                if already_found_list:
+                    already_found_text = f"\n\nALREADY FOUND IN PREVIOUS SCENES (do not report again):\n" + "\n".join(f"- {x}" for x in already_found_list)
+                
+                # Build batch prompt
+                batch_prompt = f"""Analyze these scenes for ACTUAL character interactions that occur IN REALITY.
+
+INTERACTION TYPES TO DETECT: {json.dumps(interaction_types)}
+
+CHARACTERS: {', '.join(character_names)}
+{already_found_text}
+
+SCENES:
+{''.join(batch_content_parts)}
+
+CRITICAL RULES:
+1. The interaction must be COMPLETED in the scene, not just started or implied
+2. Do NOT infer what will happen next - only report what EXPLICITLY OCCURRED
+3. "First X" means the FIRST time X actually happens, not the first time it's suggested
+4. If a scene shows build-up to an action but cuts away before completion, do NOT report it
+5. A polite exchange is NOT a reconciliation unless there was a prior argument AND an explicit apology
+
+INSTRUCTIONS:
+1. ONLY report interactions that EXPLICITLY HAPPEN and COMPLETE in the scene text
+2. Return {{"interactions": []}} if NO interactions from the list occur - this is expected and correct
+3. Do NOT report interactions that:
+   - Occur in fantasies, dreams, or imagination
+   - Are referenced from the past but not shown happening now
+   - Are ambiguous, implied, or suggested but not shown
+   - Could be interpreted multiple ways
+   - Are about to happen but scene ends before completion
+   - Are inferred from context rather than explicitly shown
+4. Quality over quantity - if unsure, do NOT include it
+5. Most batches should return few or no interactions - that is correct behavior
+
+For valid interactions only, return:
+{{
+  "interactions": [
+    {{
+      "scene_number": <scene number from [SCENE X] marker>,
+      "interaction_type": "exact type from list",
+      "character_a": "character name",
+      "character_b": "character name",
+      "description": "One sentence describing what ACTUALLY happens and COMPLETES in the scene"
+    }}
+  ]
+}}
+
+CRITICAL: It is better to return an empty list than to include uncertain interactions.
+Do NOT explain why an interaction does not occur - simply omit it from the list."""
+
+                system_prompt = "You are a precise story analyst. Only extract interactions you are certain about. When in doubt, exclude. Return valid JSON only."
+                
+                # Use extraction service if available, otherwise main LLM
+                if extraction_service:
+                    try:
+                        response = await extraction_service.generate(
+                            prompt=batch_prompt,
+                            system_prompt=system_prompt,
+                            max_tokens=2048
+                        )
+                    except Exception as e:
+                        logger.warning(f"[INTERACTION_EXTRACT] Extraction service failed: {e}, trying main LLM")
+                        if main_llm:
+                            response = await main_llm.generate(
+                                prompt=batch_prompt,
+                                user_id=user_id,
+                                user_settings=user_settings,
+                                system_prompt=system_prompt,
+                                max_tokens=2048
+                            )
+                        else:
+                            raise
+                else:
+                    response = await main_llm.generate(
+                        prompt=batch_prompt,
+                        user_id=user_id,
+                        user_settings=user_settings,
+                        system_prompt=system_prompt,
+                        max_tokens=2048
+                    )
+                
+                # Parse response
+                response_clean = response.strip()
+                if response_clean.startswith("```json"):
+                    response_clean = response_clean[7:]
+                if response_clean.startswith("```"):
+                    response_clean = response_clean[3:]
+                if response_clean.endswith("```"):
+                    response_clean = response_clean[:-3]
+                response_clean = response_clean.strip()
+                
+                result = json.loads(response_clean)
+                
+                # Phrases that indicate the LLM is reporting a non-interaction, uncertain, or inferred
+                REJECTION_PHRASES = [
+                    # Negation phrases
+                    "does not occur",
+                    "did not occur",
+                    "not established",
+                    "not confirmed",
+                    "not described",
+                    "not explicitly shown",
+                    "not explicitly",
+                    "no argument",
+                    "no conflict",
+                    "no declaration",
+                    "no commitment",
+                    "no physical",
+                    "not a ",
+                    "therefore, this interaction",
+                    "is not ",
+                    "however, ",
+                    "there is no ",
+                    "though the full",
+                    "suggests a beginning",
+                    "constitutes a first kiss as it is",  # thumb on lip misclassification
+                    # Inference/prediction phrases - LLM inferring what will happen
+                    "leads to",
+                    "will ",
+                    "about to",
+                    "suggests ",
+                    "implies ",
+                    "building toward",
+                    "setting up",
+                    "foreshadows",
+                    "heading toward",
+                    "on the verge of",
+                    "almost ",
+                    "nearly ",
+                    "seems to be",
+                    "appears to be",
+                    "could be interpreted",
+                    "may indicate",
+                    "might be",
+                ]
+                
+                def is_valid_interaction(interaction_data: dict) -> bool:
+                    """Check if the LLM actually found a real interaction vs reporting absence."""
+                    desc = (interaction_data.get("description") or "").lower()
+                    for phrase in REJECTION_PHRASES:
+                        if phrase in desc:
+                            return False
+                    return True
+                
+                def normalize_interaction_type(raw_type: str, configured_types: list) -> str:
+                    """
+                    Normalize interaction type to match configured types.
+                    Handles typos and case differences.
+                    """
+                    raw_lower = raw_type.lower().strip()
+                    
+                    # Common typo corrections
+                    typo_fixes = {
+                        "complement": "compliment",
+                        "complemented": "complimented", 
+                        "complementing": "complimenting",
+                    }
+                    for typo, fix in typo_fixes.items():
+                        raw_lower = raw_lower.replace(typo, fix)
+                    
+                    # Try exact match first
+                    for configured in configured_types:
+                        if configured.lower() == raw_lower:
+                            return configured.lower()
+                    
+                    # Try fuzzy match (check if configured type is contained in raw or vice versa)
+                    for configured in configured_types:
+                        conf_lower = configured.lower()
+                        if conf_lower in raw_lower or raw_lower in conf_lower:
+                            return conf_lower
+                    
+                    # Return normalized version even if not in configured list
+                    return raw_lower
+                
+                for interaction in result.get("interactions", []):
+                    scene_number = interaction.get("scene_number", 0)
+                    raw_interaction_type = interaction.get("interaction_type", "").strip()
+                    interaction_type = normalize_interaction_type(raw_interaction_type, interaction_types)
+                    char_a_name = interaction.get("character_a", "").strip().lower()
+                    char_b_name = interaction.get("character_b", "").strip().lower()
+                    description = interaction.get("description", "")
+                    
+                    if not interaction_type or not char_a_name or not char_b_name or not scene_number:
+                        continue
+                    
+                    # Validate that the LLM actually found a real interaction
+                    # (reject self-contradicting responses like "this interaction does not occur")
+                    if not is_valid_interaction(interaction):
+                        logger.info(f"[INTERACTION_EXTRACT] Rejected self-contradicting: {interaction_type} - '{description[:80]}...'")
+                        continue
+                    
+                    # Get character IDs
+                    char_a_id = character_name_to_id.get(char_a_name)
+                    char_b_id = character_name_to_id.get(char_b_name)
+                    
+                    if not char_a_id or not char_b_id:
+                        logger.warning(f"[INTERACTION_EXTRACT] Unknown character(s): {char_a_name}, {char_b_name}")
+                        continue
+                    
+                    # Check if either character is an NPC (negative ID)
+                    # We can only store interactions between main characters (positive IDs)
+                    if char_a_id < 0 or char_b_id < 0:
+                        logger.info(f"[INTERACTION_EXTRACT] NPC interaction (not stored): {interaction_type} between {char_a_name} and {char_b_name} at scene {scene_number}")
+                        continue
+                    
+                    # Normalize order (lower ID first)
+                    if char_a_id > char_b_id:
+                        char_a_id, char_b_id = char_b_id, char_a_id
+                    
+                    # Check if already exists (might have been found in earlier batch)
+                    existing = extraction_db.query(CharacterInteraction).filter(
+                        CharacterInteraction.story_id == story_id,
+                        CharacterInteraction.character_a_id == char_a_id,
+                        CharacterInteraction.character_b_id == char_b_id,
+                        CharacterInteraction.interaction_type == interaction_type
+                    ).first()
+                    
+                    if not existing:
+                        new_interaction = CharacterInteraction(
+                            story_id=story_id,
+                            branch_id=branch_id,
+                            character_a_id=char_a_id,
+                            character_b_id=char_b_id,
+                            interaction_type=interaction_type,
+                            first_occurrence_scene=scene_number,
+                            description=description
+                        )
+                        extraction_db.add(new_interaction)
+                        extraction_db.flush()
+                        # Add to existing_interactions list so next batch knows about it
+                        existing_interactions.append(new_interaction)
+                        interactions_found += 1
+                        logger.info(f"[INTERACTION_EXTRACT] Found: {interaction_type} at scene {scene_number}")
+                    else:
+                        logger.debug(f"[INTERACTION_EXTRACT] Already exists: {interaction_type}")
+                
+                batches_processed += 1
+                extraction_db.commit()
+                
+                # Update progress tracking
+                extraction_progress_store[story_id] = {
+                    'batches_processed': batches_processed,
+                    'total_batches': num_batches,
+                    'interactions_found': interactions_found
+                }
+                
+                logger.info(f"[INTERACTION_EXTRACT] Batch {batches_processed}/{num_batches} complete (scenes {batch_start+1}-{batch_end}), found {interactions_found} total")
+                
+                # Small delay between batches to avoid rate limiting
+                await asyncio.sleep(0.5)
+                    
+            except json.JSONDecodeError as e:
+                logger.warning(f"[INTERACTION_EXTRACT] JSON parse error for batch {batches_processed+1}: {e}")
+                continue
+            except Exception as e:
+                logger.warning(f"[INTERACTION_EXTRACT] Error processing batch {batches_processed+1}: {e}")
+                import traceback
+                logger.warning(f"[INTERACTION_EXTRACT] Traceback: {traceback.format_exc()}")
+                continue
+        
+        extraction_db.commit()
+        logger.info(f"[INTERACTION_EXTRACT] Complete! Processed {batches_processed} batches, found {interactions_found} interactions")
+        
+        # Clear progress tracking on completion
+        if story_id in extraction_progress_store:
+            del extraction_progress_store[story_id]
+        
+    except Exception as e:
+        logger.error(f"[INTERACTION_EXTRACT] Failed: {e}")
+        import traceback
+        logger.error(f"[INTERACTION_EXTRACT] Traceback: {traceback.format_exc()}")
+        # Clear progress tracking on error too
+        if story_id in extraction_progress_store:
+            del extraction_progress_store[story_id]
+    finally:
+        extraction_db.close()
+
 
 async def run_extractions_in_background(
     story_id: int,
@@ -1105,102 +2307,148 @@ async def run_plot_extraction_in_background(
     user_id: int,
     user_settings: dict
 ):
-    """Run plot event extraction in background, independent of entity extraction"""
+    """Run plot event extraction in background, independent of entity extraction.
+    Uses per-chapter locking to prevent concurrent extractions and creates batches for rollback support."""
     try:
-        import asyncio
-        # Delay to ensure database commits from main session are visible
-        await asyncio.sleep(0.3)
+        # Acquire lock for this chapter to prevent concurrent extractions
+        lock = await get_chapter_extraction_lock(chapter_id)
         
-        from ..database import SessionLocal
-        extraction_db = SessionLocal()
-        try:
-            # Reload chapter to get fresh data
-            extraction_chapter = extraction_db.query(Chapter).filter(Chapter.id == chapter_id).first()
-            if not extraction_chapter:
-                logger.error(f"[PLOT_EXTRACTION] Chapter {chapter_id} not found in background task")
-                return
+        # Try to acquire lock without blocking - if already locked, skip this extraction
+        if lock.locked():
+            logger.warning(f"[PLOT_EXTRACTION] Chapter {chapter_id} extraction already in progress, skipping")
+            return
+        
+        async with lock:
+            # Delay to ensure database commits from main session are visible
+            await asyncio.sleep(0.3)
             
-            if not extraction_chapter.chapter_plot:
-                logger.warning(f"[PLOT_EXTRACTION] Chapter {chapter_id} has no plot, skipping")
-                return
-            
-            # Get actual sequence numbers of scenes in this chapter
-            from ..models import Scene, StoryFlow, SceneVariant
-            scenes_in_chapter = extraction_db.query(Scene).join(StoryFlow).filter(
-                StoryFlow.story_id == story_id,
-                StoryFlow.is_active == True,
-                Scene.chapter_id == chapter_id,
-                Scene.is_deleted == False
-            ).order_by(Scene.sequence_number).all()
-            
-            if not scenes_in_chapter:
-                logger.warning(f"[PLOT_EXTRACTION] No scenes found in chapter {chapter_id}, skipping")
-                return
-            
-            # Get actual sequence numbers
-            scene_sequence_numbers = [s.sequence_number for s in scenes_in_chapter]
-            max_sequence_in_chapter = max(scene_sequence_numbers)
-            min_sequence_in_chapter = min(scene_sequence_numbers)
-            
-            # Use last_plot_extraction_scene_count as from_sequence
-            actual_from_sequence = extraction_chapter.last_plot_extraction_scene_count or 0
-            if actual_from_sequence == 0 or actual_from_sequence >= max_sequence_in_chapter:
-                actual_from_sequence = min_sequence_in_chapter - 1
-            
-            actual_to_sequence = max_sequence_in_chapter
-            
-            # Safety check
-            if actual_from_sequence >= actual_to_sequence:
-                logger.warning(f"[PLOT_EXTRACTION] No scenes to process: from_sequence ({actual_from_sequence}) >= to_sequence ({actual_to_sequence})")
-                return
-            
-            logger.warning(f"[PLOT_EXTRACTION] Background task - Processing chapter {chapter_id}:")
-            logger.warning(f"  - Scenes in chapter: {len(scenes_in_chapter)} (sequences {min_sequence_in_chapter} to {max_sequence_in_chapter})")
-            logger.warning(f"  - Using from_sequence={actual_from_sequence}, to_sequence={actual_to_sequence}")
-            
-            # Extract plot progress for each scene in the range
-            from ..services.chapter_progress_service import ChapterProgressService
-            from ..services.llm.service import UnifiedLLMService
-            
-            progress_service = ChapterProgressService(extraction_db)
-            llm_service = UnifiedLLMService()
-            
-            scenes_processed = 0
-            for scene in scenes_in_chapter:
-                if scene.sequence_number > actual_from_sequence and scene.sequence_number <= actual_to_sequence:
-                    # Get the active variant content
-                    flow_entry = extraction_db.query(StoryFlow).filter(
-                        StoryFlow.scene_id == scene.id,
-                        StoryFlow.is_active == True
-                    ).first()
-                    if flow_entry and flow_entry.scene_variant_id:
-                        variant = extraction_db.query(SceneVariant).filter(
-                            SceneVariant.id == flow_entry.scene_variant_id
+            from ..database import SessionLocal
+            extraction_db = SessionLocal()
+            try:
+                # Reload chapter to get fresh data
+                extraction_chapter = extraction_db.query(Chapter).filter(Chapter.id == chapter_id).first()
+                if not extraction_chapter:
+                    logger.error(f"[PLOT_EXTRACTION] Chapter {chapter_id} not found in background task")
+                    return
+                
+                if not extraction_chapter.chapter_plot:
+                    logger.warning(f"[PLOT_EXTRACTION] Chapter {chapter_id} has no plot, skipping")
+                    return
+                
+                # Get actual sequence numbers of scenes in this chapter
+                # Filter by branch_id to ensure we only process scenes in the correct branch
+                from ..models import Scene, StoryFlow, SceneVariant
+                scenes_query = extraction_db.query(Scene).join(StoryFlow).filter(
+                    StoryFlow.story_id == story_id,
+                    StoryFlow.is_active == True,
+                    Scene.chapter_id == chapter_id,
+                    Scene.is_deleted == False
+                )
+                # Add branch filtering if chapter has a branch_id
+                if extraction_chapter.branch_id:
+                    scenes_query = scenes_query.filter(
+                        Scene.branch_id == extraction_chapter.branch_id,
+                        StoryFlow.branch_id == extraction_chapter.branch_id
+                    )
+                scenes_in_chapter = scenes_query.order_by(Scene.sequence_number).all()
+                
+                if not scenes_in_chapter:
+                    logger.warning(f"[PLOT_EXTRACTION] No scenes found in chapter {chapter_id}, skipping")
+                    return
+                
+                # Get actual sequence numbers
+                scene_sequence_numbers = [s.sequence_number for s in scenes_in_chapter]
+                max_sequence_in_chapter = max(scene_sequence_numbers)
+                min_sequence_in_chapter = min(scene_sequence_numbers)
+                
+                # Use last_plot_extraction_scene_count as from_sequence
+                actual_from_sequence = extraction_chapter.last_plot_extraction_scene_count or 0
+                if actual_from_sequence == 0 or actual_from_sequence >= max_sequence_in_chapter:
+                    actual_from_sequence = min_sequence_in_chapter - 1
+                
+                actual_to_sequence = max_sequence_in_chapter
+                
+                # Safety check
+                if actual_from_sequence >= actual_to_sequence:
+                    logger.warning(f"[PLOT_EXTRACTION] No scenes to process: from_sequence ({actual_from_sequence}) >= to_sequence ({actual_to_sequence})")
+                    return
+                
+                logger.warning(f"[PLOT_EXTRACTION] Background task - Processing chapter {chapter_id}:")
+                logger.warning(f"  - Scenes in chapter: {len(scenes_in_chapter)} (sequences {min_sequence_in_chapter} to {max_sequence_in_chapter})")
+                logger.warning(f"  - Using from_sequence={actual_from_sequence}, to_sequence={actual_to_sequence}")
+                
+                # Extract plot progress for each scene in the range
+                # Collect all extracted events first, then create a single batch
+                from ..services.chapter_progress_service import ChapterProgressService
+                from ..services.llm.service import UnifiedLLMService
+                
+                progress_service = ChapterProgressService(extraction_db)
+                local_llm_service = UnifiedLLMService()
+                
+                key_events = extraction_chapter.chapter_plot.get("key_events", [])
+                all_extracted_events = []
+                scenes_processed = 0
+                batch_start_sequence = None
+                batch_end_sequence = None
+                
+                for scene in scenes_in_chapter:
+                    if scene.sequence_number > actual_from_sequence and scene.sequence_number <= actual_to_sequence:
+                        # Track batch range
+                        if batch_start_sequence is None:
+                            batch_start_sequence = scene.sequence_number
+                        batch_end_sequence = scene.sequence_number
+                        
+                        # Get the active variant content
+                        flow_entry = extraction_db.query(StoryFlow).filter(
+                            StoryFlow.scene_id == scene.id,
+                            StoryFlow.is_active == True
                         ).first()
-                        if variant and variant.content:
-                            await progress_service.extract_and_update_progress(
-                                chapter=extraction_chapter,
-                                scene_content=variant.content,
-                                llm_service=llm_service,
-                                user_id=user_id,
-                                user_settings=user_settings
-                            )
-                            scenes_processed += 1
-            
-            # Update last_plot_extraction_scene_count
-            if scenes_processed > 0:
-                extraction_chapter.last_plot_extraction_scene_count = actual_to_sequence
-                extraction_db.commit()
-                logger.warning(f"[PLOT_EXTRACTION] Updated last_plot_extraction_scene_count to {actual_to_sequence} for chapter {chapter_id}")
-            
-            # Get updated progress for logging
-            extraction_db.refresh(extraction_chapter)
-            progress = extraction_chapter.plot_progress or {}
-            completed_count = len(progress.get("completed_events", []))
-            logger.info(f"[PLOT_EXTRACTION] Updated chapter {chapter_id} progress: {completed_count} events completed")
-            
-        finally:
-            extraction_db.close()
+                        if flow_entry and flow_entry.scene_variant_id:
+                            variant = extraction_db.query(SceneVariant).filter(
+                                SceneVariant.id == flow_entry.scene_variant_id
+                            ).first()
+                            if variant and variant.content:
+                                # Get already completed events to only check remaining
+                                progress = extraction_chapter.plot_progress or {}
+                                already_completed = set(progress.get("completed_events", []))
+                                remaining_events = [e for e in key_events if e not in already_completed]
+                                
+                                if remaining_events:
+                                    # Extract events from this scene
+                                    extracted = await progress_service.extract_completed_events(
+                                        scene_content=variant.content,
+                                        key_events=remaining_events,
+                                        llm_service=local_llm_service,
+                                        user_id=user_id,
+                                        user_settings=user_settings
+                                    )
+                                    all_extracted_events.extend(extracted)
+                                
+                                scenes_processed += 1
+                
+                # Create a single batch with all extracted events
+                if scenes_processed > 0 and batch_start_sequence is not None:
+                    # Create batch with cumulative events
+                    progress_service.create_plot_progress_batch(
+                        chapter=extraction_chapter,
+                        start_sequence=batch_start_sequence,
+                        end_sequence=batch_end_sequence,
+                        completed_events=all_extracted_events
+                    )
+                    
+                    # Update last_plot_extraction_scene_count
+                    extraction_chapter.last_plot_extraction_scene_count = actual_to_sequence
+                    extraction_db.commit()
+                    logger.warning(f"[PLOT_EXTRACTION] Created batch for scenes {batch_start_sequence}-{batch_end_sequence} with {len(all_extracted_events)} new events")
+                
+                # Get updated progress for logging
+                extraction_db.refresh(extraction_chapter)
+                progress = extraction_chapter.plot_progress or {}
+                completed_count = len(progress.get("completed_events", []))
+                logger.info(f"[PLOT_EXTRACTION] Updated chapter {chapter_id} progress: {completed_count} events completed")
+                
+            finally:
+                extraction_db.close()
     except Exception as e:
         logger.error(f"[PLOT_EXTRACTION] Background plot extraction failed: {e}")
         import traceback
@@ -1210,10 +2458,10 @@ async def run_plot_extraction_in_background(
 @router.post("/{story_id}/scenes")
 async def generate_scene(
     story_id: int,
+    background_tasks: BackgroundTasks,
     custom_prompt: str = Form(""),
     user_content: str = Form(""),
     content_mode: str = Form("ai_generate"),
-    background_tasks: BackgroundTasks = BackgroundTasks(),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -1604,11 +2852,11 @@ async def generate_scene(
 @router.post("/{story_id}/scenes/stream")
 async def generate_scene_streaming_endpoint(
     story_id: int,
+    background_tasks: BackgroundTasks,
     custom_prompt: str = Form(""),
     user_content: str = Form(""),
     content_mode: str = Form("ai_generate"),
     is_concluding: str = Form("false"),
-    background_tasks: BackgroundTasks = BackgroundTasks(),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -3313,6 +4561,33 @@ async def create_scene_variant(
                     user_settings=user_settings,
                     db=db
                 )
+                
+                # Check if scene is at extraction threshold - if so, regenerate entity states
+                from ..services.entity_state_service import EntityStateService
+                batch_threshold = user_settings.get("context_summary_threshold", 5) if user_settings else 5
+                if scene.sequence_number % batch_threshold == 0:
+                    entity_service = EntityStateService(user_id=current_user.id, user_settings=user_settings)
+                    await entity_service.recalculate_entity_states_from_batches(
+                        db, story_id, current_user.id, user_settings,
+                        scene.sequence_number, branch_id=scene.branch_id
+                    )
+                    logger.info(f"[VARIANT] Regenerated entity states at threshold for scene {scene_id}")
+                
+                # Check if scene is at plot extraction threshold - if so, trigger plot event extraction
+                plot_threshold = user_settings.get('context_settings', {}).get('plot_event_extraction_threshold', 5) if user_settings else 5
+                if scene.sequence_number % plot_threshold == 0:
+                    chapter = db.query(Chapter).filter(Chapter.id == scene.chapter_id).first()
+                    if chapter and chapter.chapter_plot:
+                        import asyncio
+                        asyncio.create_task(run_plot_extraction_in_background(
+                            story_id=story_id,
+                            chapter_id=chapter.id,
+                            from_sequence=scene.sequence_number - plot_threshold + 1,
+                            to_sequence=scene.sequence_number,
+                            user_id=current_user.id,
+                            user_settings=user_settings
+                        ))
+                        logger.info(f"[VARIANT] Triggered plot extraction at threshold for scene {scene_id}")
         else:
             logger.warning(f"No active StoryFlow entry found for scene {scene_id} trace_id={trace_id}")
         
@@ -3438,7 +4713,7 @@ async def create_scene_variant_streaming(
     story_id: int,
     scene_id: int,
     request: VariantGenerateRequest,
-    background_tasks: BackgroundTasks = BackgroundTasks(),
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -3845,6 +5120,33 @@ async def create_scene_variant_streaming(
                         user_settings=user_settings,
                         db=db
                     )
+                    
+                    # Check if scene is at extraction threshold - if so, regenerate entity states
+                    from ..services.entity_state_service import EntityStateService
+                    batch_threshold = user_settings.get("context_summary_threshold", 5) if user_settings else 5
+                    if scene.sequence_number % batch_threshold == 0:
+                        entity_service = EntityStateService(user_id=current_user.id, user_settings=user_settings)
+                        await entity_service.recalculate_entity_states_from_batches(
+                            db, story_id, current_user.id, user_settings,
+                            scene.sequence_number, branch_id=scene.branch_id
+                        )
+                        logger.info(f"[VARIANT] Regenerated entity states at threshold for scene {scene_id}")
+                    
+                    # Check if scene is at plot extraction threshold - if so, trigger plot event extraction
+                    plot_threshold = user_settings.get('context_settings', {}).get('plot_event_extraction_threshold', 5) if user_settings else 5
+                    if scene.sequence_number % plot_threshold == 0:
+                        chapter = db.query(Chapter).filter(Chapter.id == scene.chapter_id).first()
+                        if chapter and chapter.chapter_plot:
+                            import asyncio
+                            asyncio.create_task(run_plot_extraction_in_background(
+                                story_id=story_id,
+                                chapter_id=chapter.id,
+                                from_sequence=scene.sequence_number - plot_threshold + 1,
+                                to_sequence=scene.sequence_number,
+                                user_id=current_user.id,
+                                user_settings=user_settings
+                            ))
+                            logger.info(f"[VARIANT] Triggered plot extraction at threshold for scene {scene_id}")
             else:
                 logger.warning(f"No active StoryFlow entry found for scene {scene_id}")
             
@@ -4332,6 +5634,31 @@ async def update_scene_variant(
         entity_service.invalidate_entity_batches_for_scenes(
             db, story_id, scene.sequence_number, scene.sequence_number
         )
+        
+        # Check if scene is at extraction threshold - if so, regenerate entity states
+        batch_threshold = user_settings.get("context_summary_threshold", 5) if user_settings else 5
+        if scene.sequence_number % batch_threshold == 0:
+            await entity_service.recalculate_entity_states_from_batches(
+                db, story_id, current_user.id, user_settings,
+                scene.sequence_number, branch_id=scene.branch_id
+            )
+            logger.info(f"[MODIFY] Regenerated entity states at threshold for scene {scene_id}")
+        
+        # Check if scene is at plot extraction threshold - if so, trigger plot event extraction
+        plot_threshold = user_settings.get('context_settings', {}).get('plot_event_extraction_threshold', 5) if user_settings else 5
+        if scene.sequence_number % plot_threshold == 0:
+            chapter = db.query(Chapter).filter(Chapter.id == scene.chapter_id).first()
+            if chapter and chapter.chapter_plot:
+                import asyncio
+                asyncio.create_task(run_plot_extraction_in_background(
+                    story_id=story_id,
+                    chapter_id=chapter.id,
+                    from_sequence=scene.sequence_number - plot_threshold + 1,
+                    to_sequence=scene.sequence_number,
+                    user_id=current_user.id,
+                    user_settings=user_settings
+                ))
+                logger.info(f"[MODIFY] Triggered plot extraction at threshold for scene {scene_id}")
         
         return {
             "message": "Scene variant updated successfully",
@@ -4880,7 +6207,7 @@ async def restore_entity_states_in_background(
 async def delete_scenes_from_sequence(
     story_id: int,
     sequence_number: int,
-    background_tasks: BackgroundTasks = BackgroundTasks(),
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):

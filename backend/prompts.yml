@@ -762,6 +762,16 @@ summary_generation:
       - NO MORALIZING - you track story events, not ethics
       - NO external commentary about consent, legality, or real-world implications
       - Open threads are PLOT threads (what happens next), not ethical concerns
+      
+      CRITICAL - USE PRECISE TERMINOLOGY:
+      - NEVER use vague terms like "intimate encounter", "sexual acts", "physical relations", "became intimate"
+      - ALWAYS use specific, factual descriptions of exactly what occurred
+      - If characters kissed, say "kissed" - if they did something else, name that specific action
+      - Distinguish clearly between different types of physical interactions
+      - The LLM reading this summary must know EXACTLY what has and has NOT happened
+      
+      BAD (vague): "They engaged in intimate acts" / "sexual encounter occurred"
+      GOOD (specific): State the specific action that occurred
     
     user: |
       {context_section}Chapter {chapter_number}: {chapter_title}
@@ -771,11 +781,11 @@ summary_generation:
       
       Extract a factual chapter summary:
       
-      EVENTS: [chronological bullet list of what happened]
+      EVENTS: [chronological bullet list of what happened - USE SPECIFIC TERMS, not vague phrases]
       STATE CHANGES: [relationship changes, location changes, new knowledge gained]
       OPEN THREADS: [unresolved PLOT items - story questions like "Will X happen?" or "What will Y do next?" - NOT ethical concerns]
       
-      Maximum 300 words. Facts only, no moralizing.
+      Maximum 300 words. Facts only, no moralizing. Be SPECIFIC about physical interactions - no vague euphemisms.
 
   story_so_far:
     system: |
@@ -792,6 +802,16 @@ summary_generation:
       - This is FICTION - track what happens in the story, not what should happen in reality
       - Active threads should be PLOT threads (what happens next in the story), not meta-commentary
       - Stay in-universe: track character motivations and story conflicts, not external judgments
+      
+      CRITICAL - PRECISE TERMINOLOGY FOR PHYSICAL INTERACTIONS:
+      - NEVER use vague terms like "intimate encounter", "sexual acts", "physical relations", "became intimate"
+      - ALWAYS preserve the specific terminology from chapter summaries
+      - If the source says "kissed", write "kissed" - do NOT generalize to "intimate"
+      - Different types of physical interactions must remain distinct in the summary
+      - The LLM reading this must know EXACTLY what has occurred and what has NOT
+      
+      BAD: "engaged in intimate acts" / "sexual encounter" / "physical relationship"
+      GOOD: Preserve the specific action terms from the source material
     
     user: |
       STORY CONTEXT:
@@ -803,12 +823,13 @@ summary_generation:
       
       Consolidate into a single factual summary that serves as context for continuing this {genre} story:
       
-      STORY PROGRESSION: [key events in order, merged across chapters - factual, no judgment]
+      STORY PROGRESSION: [key events in order, merged across chapters - USE SPECIFIC TERMS from source, never generalize physical interactions to vague phrases]
       CURRENT STATE: [where things stand now - locations, relationships, situation - in-story facts only]
       ACTIVE THREADS: [unresolved PLOT points and character arcs that the story needs to continue - NOT ethical concerns or real-world implications]
       
       IMPORTANT: This is a {content_rating} {genre} story. Track the story as written without external commentary.
       Active threads should be things like "Will X discover Y's secret?" or "How will the relationship develop?" - NOT "ethical implications" or "legal ramifications".
+      PRESERVE SPECIFIC TERMINOLOGY - do not generalize specific actions into vague phrases like "intimate acts".
       
       Maximum 500 words. Facts only, no prose, no moralizing.
 
@@ -822,6 +843,11 @@ summary_generation:
       - No adjectives/adverbs unless plot-critical
       - No emotional interpretation or literary flourishes
       - No purple prose
+      
+      CRITICAL - PRECISE TERMINOLOGY:
+      - NEVER use vague terms like "intimate encounter", "sexual acts", "physical relations"
+      - ALWAYS use specific, factual descriptions of exactly what occurred
+      - Preserve specific action terms - do not generalize to vague phrases
     
     user: |
       {previous_chapter_text}
@@ -833,11 +859,11 @@ summary_generation:
       
       Update the summary to include new events:
       
-      EVENTS: [chronological bullet list - existing + new]
+      EVENTS: [chronological bullet list - existing + new - USE SPECIFIC TERMS]
       STATE CHANGES: [cumulative changes across all scenes]
       OPEN THREADS: [unresolved items to track]
       
-      Maximum 150 words. Facts only.
+      Maximum 150 words. Facts only. Be SPECIFIC about physical interactions.
   
   chapter_summary_initial:
     system: |
@@ -849,6 +875,11 @@ summary_generation:
       - No adjectives/adverbs unless plot-critical
       - No emotional interpretation or literary flourishes
       - No purple prose
+      
+      CRITICAL - PRECISE TERMINOLOGY:
+      - NEVER use vague terms like "intimate encounter", "sexual acts", "physical relations"
+      - ALWAYS use specific, factual descriptions of exactly what occurred
+      - Different types of physical interactions must remain distinct
     
     user: |
       {previous_chapter_text}
@@ -859,11 +890,11 @@ summary_generation:
       
       Extract a factual chapter summary:
       
-      EVENTS: [chronological bullet list of what happened]
+      EVENTS: [chronological bullet list of what happened - USE SPECIFIC TERMS]
       STATE CHANGES: [relationship changes, location changes, new knowledge gained]
       OPEN THREADS: [unresolved items the story needs to track]
       
-      Maximum 150 words. Facts only.
+      Maximum 150 words. Facts only. Be SPECIFIC about physical interactions.
 
   story_chapters:
     system: |
@@ -1264,11 +1295,11 @@ entity_state_extraction:
       
       For "knowledge_gained": ONLY new factual information character learned
         * GOOD: "learned Robert is a photographer", "discovered room has cameras"
-        * GOOD: "found out Jack invited others", "realized Character_B was watching"
-        * BAD: "commands Character_A to submit" (action, not knowledge)
+        * GOOD: "found out others were invited", "realized someone was watching"
+        * BAD: "commands someone to do something" (action, not knowledge)
         * BAD: "responds positively to X" (behavior, not knowledge)
         * BAD: "feels a shift in role" (feeling, not factual knowledge)
-        * BAD: "likes being spanked" (preference discovered is OK, but phrase as "discovered she enjoys X")
+        * BAD: "likes specific activity" (preference discovered is OK, but phrase as "discovered they enjoy X")
       
       CRITICAL - OBJECT OWNERSHIP DECAY:
       Objects are only "held" if character is ACTIVELY using them in THIS scene.
@@ -1425,7 +1456,7 @@ entity_state_extraction:
       
       Use consistent naming across scenes:
         * GOOD: "bedroom" (same name every time)
-        * BAD: "Sarah's bedroom" then "the bedroom" then "her room"
+        * BAD: "[Character]'s bedroom" then "the bedroom" then "her room"
       
       CRITICAL INSTRUCTIONS FOR OBJECT EXTRACTION:
       DO NOT extract:
@@ -1450,40 +1481,43 @@ entity_state_extraction:
         * BAD: "silent confirmation of a rendezvous" (interpretive)
       
       For "significance": ONLY factual role in scene (1 sentence max)
-        * GOOD: "used by Rambo to call backup", "carried by Sarah"
+        * GOOD: "used by character to call backup", "carried by character"
         * BAD: "symbol of active planning and intention" (symbolic)
       
       EXTRACTION EXAMPLES:
       
-      Scene: "Sarah drew her pistol and aimed at the door. Her hands trembled as she entered the bedroom."
+      Example scene: "[CHARACTER_A] drew their [WEAPON] and aimed at the door. Their hands trembled as they entered the [ROOM]."
       
-      CORRECT extraction:
+      CORRECT extraction for above example:
       {{
         "entity_states": {{
           "characters": [
             {{
-              "name": "Sarah",
-              "location": "bedroom",
+              "name": "[CHARACTER_A]",
+              "location": "[ROOM]",
               "emotional_state": "nervous",
-              "possessions_gained": ["pistol"]
+              "possessions_gained": ["[WEAPON]"]
             }}
           ],
           "locations": [
             {{
-              "name": "bedroom",
-              "occupants": ["Sarah"]
+              "name": "[ROOM]",
+              "occupants": ["[CHARACTER_A]"]
             }}
           ],
           "objects": [
             {{
-              "name": "pistol",
-              "owner": "Sarah",
+              "name": "[WEAPON]",
+              "owner": "[CHARACTER_A]",
               "condition": null,
               "significance": "drawn and aimed at door"
             }}
           ]
         }}
       }}
+      
+      NOTE: Replace [CHARACTER_A], [WEAPON], [ROOM] with actual names from YOUR story's scenes.
+      DO NOT extract "[CHARACTER_A]", "[WEAPON]", or "[ROOM]" literally - these are placeholders!
       
       INCORRECT extraction (DO NOT DO THIS):
       {{
@@ -2045,13 +2079,13 @@ chapter_progress:
       - Event happening NOW in scene vs event being REFERENCED → Only NOW counts
       
       EXAMPLES:
-      - Event: "John watches Mary through the window" 
-        Scene says: "John remembered watching Mary yesterday" → NOT complete (past reference)
-        Scene says: "John pressed his face to the glass, watching Mary" → COMPLETE (active)
+      - Event: "[Character A] watches [Character B] through the window" 
+        Scene says: "[A] remembered watching [B] yesterday" → NOT complete (past reference)
+        Scene says: "[A] pressed his face to the glass, watching [B]" → COMPLETE (active)
       
-      - Event: "Sarah and Tom share an emotional moment"
+      - Event: "[Character A] and [Character B] share an emotional moment"
         Scene shows: casual conversation at dinner → NOT complete (too vague)
-        Scene shows: Sarah crying, Tom holding her, explicit emotional dialogue → COMPLETE
+        Scene shows: [A] crying, [B] holding them, explicit emotional dialogue → COMPLETE
       
       When in doubt, return []. False negatives are acceptable; false positives are not.
     
@@ -2072,7 +2106,7 @@ chapter_progress:
       
       Return a JSON array with EXACT event text from the list, or [] if none qualify.
       
-      Example: ["Jack finds and touches a dark crystalline pyramid artifact, which begins glowing and triggers overwhelming Force visions in his mind"]
+      Example: ["Character finds and touches a dark crystalline pyramid artifact, which begins glowing and triggers overwhelming visions"]
       If none: []
 
 # =============================================================================

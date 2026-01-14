@@ -16,7 +16,8 @@ from ..models import (
     StoryBranch, Story, Scene, SceneVariant, SceneChoice, Chapter, 
     StoryCharacter, StoryFlow, CharacterState, LocationState, ObjectState,
     EntityStateBatch, NPCMention, NPCTracking, NPCTrackingSnapshot,
-    CharacterMemory, PlotEvent, SceneEmbedding, ChapterSummaryBatch
+    CharacterMemory, PlotEvent, SceneEmbedding, ChapterSummaryBatch,
+    CharacterInteraction, ChapterPlotProgressBatch
 )
 
 logger = logging.getLogger(__name__)
@@ -237,7 +238,9 @@ class BranchService:
             "character_memories": 0,
             "plot_events": 0,
             "scene_embeddings": 0,
-            "chapter_summary_batches": 0
+            "chapter_summary_batches": 0,
+            "character_interactions": 0,
+            "chapter_plot_progress_batches": 0
         }
         
         # 1. Clone Chapters (need to do first for scene FK)
@@ -268,13 +271,16 @@ class BranchService:
                     auto_summary=chapter.auto_summary,
                     last_summary_scene_count=chapter.last_summary_scene_count,
                     last_extraction_scene_count=chapter.last_extraction_scene_count,
+                    last_plot_extraction_scene_count=chapter.last_plot_extraction_scene_count,
                     location_name=chapter.location_name,
                     time_period=chapter.time_period,
                     scenario=chapter.scenario,
                     continues_from_previous=chapter.continues_from_previous,
                     status=chapter.status,
                     context_tokens_used=chapter.context_tokens_used,
-                    scenes_count=0  # Will be updated after cloning scenes
+                    scenes_count=0,  # Will be updated after cloning scenes
+                    chapter_plot=chapter.chapter_plot,
+                    plot_progress=chapter.plot_progress
                 )
                 db.add(new_chapter)
                 db.flush()
@@ -736,6 +742,46 @@ class BranchService:
                 )
                 db.add(new_batch)
                 stats["chapter_summary_batches"] += 1
+        
+        # 9. Clone CharacterInteractions
+        interactions = db.query(CharacterInteraction).filter(
+            and_(
+                CharacterInteraction.branch_id == source_branch_id,
+                CharacterInteraction.first_occurrence_scene <= fork_from_scene_sequence
+            )
+        ).all()
+        
+        for interaction in interactions:
+            new_interaction = CharacterInteraction(
+                story_id=story_id,
+                branch_id=new_branch_id,
+                character_a_id=interaction.character_a_id,
+                character_b_id=interaction.character_b_id,
+                interaction_type=interaction.interaction_type,
+                first_occurrence_scene=interaction.first_occurrence_scene,
+                description=interaction.description
+            )
+            db.add(new_interaction)
+            stats["character_interactions"] += 1
+        
+        # 10. Clone ChapterPlotProgressBatches
+        for old_chapter_id, new_chapter_id in chapter_id_map.items():
+            plot_batches = db.query(ChapterPlotProgressBatch).filter(
+                and_(
+                    ChapterPlotProgressBatch.chapter_id == old_chapter_id,
+                    ChapterPlotProgressBatch.end_scene_sequence <= fork_from_scene_sequence
+                )
+            ).all()
+            
+            for batch in plot_batches:
+                new_batch = ChapterPlotProgressBatch(
+                    chapter_id=new_chapter_id,
+                    start_scene_sequence=batch.start_scene_sequence,
+                    end_scene_sequence=batch.end_scene_sequence,
+                    completed_events=batch.completed_events
+                )
+                db.add(new_batch)
+                stats["chapter_plot_progress_batches"] += 1
         
         # Update chapter scene counts
         for old_chapter_id, new_chapter_id in chapter_id_map.items():

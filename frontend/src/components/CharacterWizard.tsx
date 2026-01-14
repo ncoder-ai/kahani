@@ -35,16 +35,7 @@ interface CharacterWizardProps {
   onClose: () => void;
 }
 
-const CHARACTER_ROLES = [
-  { id: 'protagonist', name: 'Main Character', icon: '⭐', color: 'from-yellow-400 to-orange-500' },
-  { id: 'antagonist', name: 'Antagonist', icon: '⚔️', color: 'from-red-500 to-red-700' },
-  { id: 'ally', name: 'Ally/Friend', icon: '🤝', color: 'from-green-400 to-green-600' },
-  { id: 'mentor', name: 'Mentor', icon: '🎓', color: 'from-blue-400 to-blue-600' },
-  { id: 'love_interest', name: 'Love Interest', icon: '💕', color: 'from-pink-400 to-pink-600' },
-  { id: 'comic_relief', name: 'Comic Relief', icon: '😄', color: 'from-purple-400 to-purple-600' },
-  { id: 'mysterious', name: 'Mysterious Figure', icon: '🎭', color: 'from-gray-500 to-gray-700' },
-  { id: 'other', name: 'Other', icon: '👤', color: 'from-indigo-400 to-indigo-600' }
-];
+import RoleSelector, { CHARACTER_ROLES, getRoleInfo } from '@/components/RoleSelector';
 
 export default function CharacterWizard({ storyId, chapterId, onCharacterCreated, onClose }: CharacterWizardProps) {
   const [currentStep, setCurrentStep] = useState(1);
@@ -100,8 +91,8 @@ export default function CharacterWizard({ storyId, chapterId, onCharacterCreated
     onClose();
   };
 
-  const getRoleInfo = (roleId: string) => {
-    return CHARACTER_ROLES.find(role => role.id === roleId) || CHARACTER_ROLES[CHARACTER_ROLES.length - 1];
+  const getCharacterRoleInfo = (roleId: string) => {
+    return getRoleInfo(roleId) || CHARACTER_ROLES[CHARACTER_ROLES.length - 1];
   };
 
   const renderStep1 = () => (
@@ -302,35 +293,11 @@ export default function CharacterWizard({ storyId, chapterId, onCharacterCreated
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-white/80 mb-2">Character Role</label>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {CHARACTER_ROLES.map((role) => {
-                const isSelected = selectedRole === role.id;
-                return (
-                  <button
-                    key={role.id}
-                    onClick={() => setSelectedRole(role.id)}
-                    className={`p-3 rounded-lg border-2 transition-all ${
-                      isSelected
-                        ? 'border-2'
-                        : 'border-white/20 hover:border-white/40'
-                    }`}
-                    style={isSelected ? {
-                      borderColor: 'var(--color-accentPrimary)',
-                      backgroundColor: 'var(--color-accentPrimary)',
-                      opacity: 0.2
-                    } as React.CSSProperties : {}}
-                  >
-                    <div className={`w-8 h-8 rounded-full bg-gradient-to-r ${role.color} flex items-center justify-center text-white text-lg mb-2 mx-auto`}>
-                      {role.icon}
-                    </div>
-                    <div className="text-white text-sm font-medium">{role.name}</div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          <RoleSelector
+            value={selectedRole}
+            onChange={setSelectedRole}
+            label="Character Role"
+          />
         </div>
       )}
     </div>
@@ -346,12 +313,12 @@ export default function CharacterWizard({ storyId, chapterId, onCharacterCreated
       {characterDetails && selectedRole && (
         <div className="bg-white/5 rounded-lg p-6 border border-white/10">
           <div className="flex items-center space-x-4 mb-4">
-            <div className={`w-12 h-12 rounded-full bg-gradient-to-r ${getRoleInfo(selectedRole).color} flex items-center justify-center text-white text-xl`}>
-              {getRoleInfo(selectedRole).icon}
+            <div className={`w-12 h-12 rounded-full bg-gradient-to-r ${getCharacterRoleInfo(selectedRole).color} flex items-center justify-center text-white text-xl`}>
+              {getCharacterRoleInfo(selectedRole).icon}
             </div>
             <div>
               <h3 className="text-xl font-semibold text-white">{characterDetails.name}</h3>
-              <p className="text-white/70">{getRoleInfo(selectedRole).name}</p>
+              <p className="text-white/70">{getCharacterRoleInfo(selectedRole).name}</p>
             </div>
           </div>
           

@@ -935,107 +935,10 @@ export default function SceneVariantDisplay({
       {/* Scene Management - Only show for last scene */}
       {isLastScene && (
         <div className="space-y-4 mt-6 pt-4 border-t border-gray-600/30">
-          {/* Action Buttons - Desktop: Show buttons, Mobile: Show FAB */}
-          {/* Desktop Action Buttons */}
-          <div className="hidden md:flex justify-center items-center space-x-2">
-            {/* Regenerate Button */}
-            <button
-              onClick={() => onCreateVariant(scene.id, undefined, currentVariantId || undefined)}
-              disabled={isGenerating || isStreaming || isRegenerating}
-              className="flex items-center justify-center w-10 h-10 bg-pink-600 hover:bg-pink-700 disabled:bg-pink-800 disabled:opacity-50 rounded-lg transition-colors"
-              title="Regenerate current scene"
-            >
-              <ArrowPathIcon className="w-5 h-5" />
-              {isRegenerating && (
-                <div className="absolute w-3 h-3 border border-white border-t-transparent rounded-full animate-spin"></div>
-              )}
-            </button>
-
-            {/* Continue Scene Button */}
-            <button
-              onClick={() => {
-                if (onContinueScene) {
-                  onContinueScene(scene.id, "Continue this scene with more details and development, adding to the existing content.");
-                } else {
-                  onCreateVariant?.(scene.id, "Continue this scene with more details and development, adding to the existing content rather than replacing it.", currentVariantId || undefined);
-                }
-              }}
-              disabled={isGenerating || isStreaming || isRegenerating}
-              className="flex items-center justify-center w-10 h-10 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:opacity-50 rounded-lg transition-colors"
-              title="Continue current scene"
-            >
-              <PlusCircleIcon className="w-5 h-5" />
-            </button>
-
-            {/* Guided Regeneration Button */}
-            <button
-              onClick={() => setShowGuidedOptions(!showGuidedOptions)}
-              disabled={isGenerating || isStreaming || isRegenerating}
-              className={'flex items-center justify-center w-10 h-10 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 disabled:opacity-50 rounded-lg transition-colors ' + (showGuidedOptions ? 'ring-2 ring-purple-400' : '')}
-              title="Guided regeneration options"
-            >
-              <SparklesIcon className="w-5 h-5" />
-            </button>
-
-            {/* Write Concluding Scene Button */}
-            <button
-              onClick={() => onGenerateScene?.(undefined, true)}
-              disabled={isGenerating || isStreaming || isRegenerating}
-              className="flex items-center justify-center w-10 h-10 bg-amber-600 hover:bg-amber-700 disabled:bg-amber-800 disabled:opacity-50 rounded-lg transition-colors"
-              title="Write concluding scene for this chapter"
-            >
-              <FlagIcon className="w-5 h-5" />
-            </button>
-
-            {/* Edit Scene Button */}
-            <button
-              onClick={() => onStartEdit(scene)}
-              disabled={isEditing}
-              className="flex items-center justify-center w-10 h-10 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-800 disabled:opacity-50 rounded-lg transition-colors"
-              title="Edit scene"
-            >
-              <PencilIcon className="w-5 h-5" />
-            </button>
-
-            {/* Play/Stop TTS Button */}
-            <button
-              onClick={() => {
-                if (isTTSPlaying && currentSceneId === scene.id) {
-                  stop();
-                } else {
-                  playScene(scene.id);
-                }
-              }}
-              className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors ${
-                isTTSPlaying && currentSceneId === scene.id
-                  ? 'bg-red-600 hover:bg-red-700'
-                  : 'bg-green-600 hover:bg-green-700'
-              }`}
-              title={isTTSPlaying && currentSceneId === scene.id ? 'Stop TTS' : 'Play TTS'}
-            >
-              {isTTSPlaying && currentSceneId === scene.id ? (
-                <StopIcon className="w-5 h-5" />
-              ) : (
-                <Volume2 className="w-5 h-5" />
-              )}
-            </button>
-
-            {/* Stop Generation Button - Only show when generating */}
-            {(isGenerating || isStreaming || isRegenerating || isStreamingContinuation) && onStopGeneration && (
-              <button
-                onClick={onStopGeneration}
-                className="flex items-center justify-center w-10 h-10 bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
-                title="Stop generation"
-              >
-                <StopIcon className="w-5 h-5" />
-              </button>
-            )}
-          </div>
-          
-          {/* Mobile Floating Action Menu (client-side only) */}
+          {/* Floating Action Menu - Works on both mobile and desktop */}
           {isClient && (
           <div 
-            className="md:hidden fixed right-0 bottom-24 z-50"
+            className="fixed right-0 bottom-24 z-50"
             onMouseEnter={resetMenuTimer}
             onMouseLeave={() => {
               if (!showFloatingMenu) {
@@ -1046,7 +949,7 @@ export default function SceneVariantDisplay({
           >
             {/* Floating Menu Items */}
             {showFloatingMenu && (
-              <div className="absolute right-16 bottom-0 space-y-2 animate-fade-in">
+              <div className="absolute right-16 md:right-20 bottom-0 space-y-2 animate-fade-in">
                 {/* Regenerate */}
                 <button
                   onClick={() => {
@@ -1194,9 +1097,9 @@ export default function SceneVariantDisplay({
               </div>
             )}
             
-            {/* Mobile Guided Options Panel */}
+            {/* Guided Options Panel */}
             {showGuidedOptions && (
-              <div className="fixed right-16 top-16 bottom-4 w-52 animate-fade-in z-50">
+              <div className="fixed right-16 md:right-20 top-16 bottom-4 w-52 md:w-64 animate-fade-in z-50">
                 <div className="bg-gray-900/95 backdrop-blur-md rounded-xl border border-purple-500/30 shadow-2xl overflow-hidden h-auto max-h-full flex flex-col">
                   {/* Header */}
                   <div className="flex items-center justify-between px-3 py-2 bg-gradient-to-r from-purple-600/30 to-pink-600/30 border-b border-purple-500/20 flex-shrink-0">
@@ -1244,51 +1147,23 @@ export default function SceneVariantDisplay({
               }}
               onMouseEnter={resetMenuTimer}
               className={
-                'w-8 h-20 rounded-l-xl bg-gradient-to-r from-pink-600 to-purple-600 ' +
+                'w-8 md:w-10 h-20 md:h-24 rounded-l-xl bg-gradient-to-r from-pink-600 to-purple-600 ' +
                 'hover:from-pink-700 hover:to-purple-700 shadow-lg ' +
                 'flex items-center justify-center transition-all backdrop-blur-sm ' +
                 'border-l border-t border-b border-white/20 ' +
-                (showFloatingMenu || isMenuVisible ? 'translate-x-0 opacity-100' : 'translate-x-6 opacity-30 hover:translate-x-0 hover:opacity-100')
+                (showFloatingMenu || isMenuVisible ? 'translate-x-0 opacity-100' : 'translate-x-6 md:translate-x-8 opacity-30 hover:translate-x-0 hover:opacity-100')
               }
               title="Scene actions"
             >
               {showFloatingMenu ? (
-                <XMarkIcon className="w-5 h-5 text-white" />
+                <XMarkIcon className="w-5 h-5 md:w-6 md:h-6 text-white" />
               ) : (
-                <SparklesIcon className="w-5 h-5 text-white" />
+                <SparklesIcon className="w-5 h-5 md:w-6 md:h-6 text-white" />
               )}
             </button>
           </div>
           )}
 
-          {/* Guided Options Dropdown - Desktop only (mobile shows in floating menu) */}
-          {showGuidedOptions && (
-            <div className={'hidden md:block mt-4 space-y-2 ' + (layoutMode === 'modern' 
-                ? 'theme-bg-secondary/30 backdrop-filter backdrop-blur-sm rounded-lg p-3 border border-gray-600/30' 
-                : 'theme-bg-secondary rounded-lg p-3 border border-gray-600')}>
-              {[
-                { label: "Add More Dialogue", prompt: "Regenerate this scene with more dialogue and character interactions." },
-                { label: "Include Internal Thoughts", prompt: "Regenerate this scene with more internal thoughts and character emotions." },
-                { label: "Describe the Setting", prompt: "Regenerate this scene with more detailed descriptions of the environment and atmosphere." },
-                { label: "Add Action/Movement", prompt: "Regenerate this scene with more action and character movements." },
-                { label: "Build Tension", prompt: "Regenerate this scene with more tension and dramatic elements." },
-                { label: "Show Character Development", prompt: "Regenerate this scene focusing more on character growth and development." }
-              ].map((option, index) => (
-                <button
-                  key={index}
-                  onClick={() => {
-                    setShowGuidedOptions(false);
-                    resetMenuTimer();
-                    onCreateVariant?.(scene.id, option.prompt, currentVariantId || undefined);
-                  }}
-                  disabled={isGenerating || isStreaming || isRegenerating}
-                  className={'w-full text-left p-2 text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-700/50 rounded ' + (layoutMode === 'modern' ? 'text-gray-300 hover:text-white' : 'text-gray-400 hover:text-gray-200')}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
       )}
       

@@ -2414,11 +2414,20 @@ async def delete_chapter_content(
     ).delete()
     logger.info(f"[CHAPTER:CONTENT:DELETE:PHASE] trace_id={trace_id} phase=delete_batches duration_ms={(time.perf_counter()-phase_start)*1000:.2f} batches_deleted={batches_deleted}")
     
+    # Delete all plot progress batches for this chapter
+    from ..models import ChapterPlotProgressBatch
+    plot_batches_deleted = db.query(ChapterPlotProgressBatch).filter(
+        ChapterPlotProgressBatch.chapter_id == chapter_id
+    ).delete()
+    logger.info(f"[CHAPTER:CONTENT:DELETE:PHASE] trace_id={trace_id} phase=delete_plot_batches plot_batches_deleted={plot_batches_deleted}")
+    
     # Reset chapter metrics
     chapter.context_tokens_used = 0
     chapter.auto_summary = None
     chapter.last_summary_scene_count = 0
     chapter.last_extraction_scene_count = 0
+    chapter.last_plot_extraction_scene_count = 0
+    chapter.plot_progress = None
     chapter.status = ChapterStatus.ACTIVE
     
     # Phase 6: Commit
@@ -3386,15 +3395,19 @@ async def get_chapter_brainstorm_elements(
     """
     Get current structured elements for a brainstorming session.
     
+    If structured_elements is empty, tries to parse suggestions from the last
+    assistant message in the conversation.
+    
     Args:
         story_id: The story ID
         session_id: The session ID
         
     Returns:
-        Current structured elements with defaults for missing ones
+        Current structured elements with defaults for missing ones,
+        plus any suggested_elements parsed from the last message
     """
     try:
-        from ..services.chapter_brainstorm_service import ChapterBrainstormService
+        from ..services.chapter_brainstorm_service import ChapterBrainstormService, parse_element_suggestions
         from ..api.stories import get_or_create_user_settings
         
         user_settings = get_or_create_user_settings(current_user.id, db, current_user)
@@ -3404,10 +3417,37 @@ async def get_chapter_brainstorm_elements(
         if not session or session.story_id != story_id:
             raise HTTPException(status_code=404, detail="Session not found")
         
-        return {
+        structured_elements = session.get_structured_elements()
+        suggested_elements = None
+        
+        # If structured_elements is mostly empty, try to parse from last assistant message
+        has_confirmed = any([
+            structured_elements.get('overview'),
+            structured_elements.get('tone'),
+            structured_elements.get('ending'),
+            len(structured_elements.get('key_events', [])) > 0,
+            len(structured_elements.get('characters', [])) > 0
+        ])
+        
+        if not has_confirmed and session.messages:
+            # Find the last assistant message
+            for msg in reversed(session.messages):
+                if msg.get('role') == 'assistant':
+                    _, parsed_suggestions = parse_element_suggestions(msg.get('content', ''))
+                    if parsed_suggestions:
+                        suggested_elements = parsed_suggestions
+                        logger.info(f"[CHAPTER_BRAINSTORM:GET_ELEMENTS] Parsed suggestions from last message: {list(parsed_suggestions.keys())}")
+                    break
+        
+        result = {
             "session_id": session.id,
-            "structured_elements": session.get_structured_elements()
+            "structured_elements": structured_elements
         }
+        
+        if suggested_elements:
+            result["suggested_elements"] = suggested_elements
+        
+        return result
         
     except HTTPException:
         raise
@@ -3551,7 +3591,8 @@ async def toggle_event_completion(
     try:
         from ..services.chapter_progress_service import ChapterProgressService
         progress_service = ChapterProgressService(db)
-        updated_progress = progress_service.toggle_event_completion(
+        # Use batch-aware toggle to keep batches in sync with manual changes
+        updated_progress = progress_service.toggle_event_completion_with_batch(
             chapter=chapter,
             event=request.event,
             completed=request.completed

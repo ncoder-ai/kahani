@@ -16,7 +16,8 @@ from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
 from ..models import (
     Character, CharacterState, LocationState, ObjectState,
-    Story, Scene, StoryCharacter, EntityStateBatch, StoryBranch
+    Story, Scene, StoryCharacter, EntityStateBatch, StoryBranch,
+    CharacterInteraction
 )
 from ..services.llm.service import UnifiedLLMService
 from ..services.llm.extraction_service import ExtractionLLMService
@@ -113,6 +114,7 @@ class EntityStateService:
             "characters_updated": 0,
             "locations_updated": 0,
             "objects_updated": 0,
+            "interactions_recorded": 0,
             "extraction_successful": False
         }
         status = "error"
@@ -129,6 +131,10 @@ class EntityStateService:
         logger.info(f"[ENTITY:START] trace_id={trace_id} story_id={story_id} scene_id={scene_id} sequence={scene_sequence} branch_id={branch_id}")
         
         try:
+            # Get story for interaction types
+            story = db.query(Story).filter(Story.id == story_id).first()
+            interaction_types = story.interaction_types if story else []
+            
             # Get story characters for context (filtered by branch, including NULL branch_id for shared characters)
             char_query = db.query(StoryCharacter).filter(StoryCharacter.story_id == story_id)
             if branch_id:
@@ -138,10 +144,14 @@ class EntityStateService:
                 ))
             story_characters = char_query.all()
             
-            character_names = [
-                db.query(Character).filter(Character.id == sc.character_id).first().name
-                for sc in story_characters
-            ]
+            # Build character name to ID mapping
+            character_name_to_id = {}
+            character_names = []
+            for sc in story_characters:
+                char = db.query(Character).filter(Character.id == sc.character_id).first()
+                if char:
+                    character_names.append(char.name)
+                    character_name_to_id[char.name.lower()] = char.id
             
             # Extract state changes using LLM
             state_changes = await self._extract_state_changes(
@@ -149,7 +159,8 @@ class EntityStateService:
                 scene_sequence,
                 character_names,
                 chapter_location=chapter_location,
-                trace_id=trace_id
+                trace_id=trace_id,
+                interaction_types=interaction_types
             )
             
             if not state_changes:
@@ -180,6 +191,16 @@ class EntityStateService:
                         scene_content=scene_content
                     )
                     results["objects_updated"] += 1
+            
+            # Record character interactions
+            if "interactions" in state_changes and interaction_types:
+                for interaction in state_changes["interactions"]:
+                    recorded = await self._record_character_interaction(
+                        db, story_id, scene_sequence, interaction,
+                        character_name_to_id, branch_id=branch_id, trace_id=trace_id
+                    )
+                    if recorded:
+                        results["interactions_recorded"] += 1
             
             results["extraction_successful"] = True
             status = "success"
@@ -253,7 +274,8 @@ class EntityStateService:
         scene_sequence: int,
         character_names: List[str],
         chapter_location: str = None,
-        trace_id: Optional[str] = None
+        trace_id: Optional[str] = None,
+        interaction_types: List[str] = None
     ) -> Optional[Dict[str, Any]]:
         """
         Use LLM to extract state changes from a scene.
@@ -265,11 +287,14 @@ class EntityStateService:
             character_names: List of known character names
             chapter_location: Chapter-level location for hierarchical context
             trace_id: Optional trace ID for logging
+            interaction_types: List of interaction types to look for
         
-        Returns JSON with character, location, and object updates.
+        Returns JSON with character, location, object updates, and interactions.
         """
         trace_id = trace_id or f"entity-extract-{uuid.uuid4()}"
         op_start = time.perf_counter()
+        interaction_types = interaction_types or []
+        
         # Try extraction model first if enabled
         extraction_service = self._get_extraction_service()
         if extraction_service:
@@ -298,11 +323,31 @@ class EntityStateService:
         fallback_enabled = self.user_settings.get('extraction_model_settings', {}).get('fallback_to_main', True)
         if not fallback_enabled and extraction_service:
             logger.warning(f"[ENTITY:LLM:DISABLED] trace_id={trace_id} fallback_disabled=True returning_empty=True")
-            return {'characters': [], 'locations': [], 'objects': []}
+            return {'characters': [], 'locations': [], 'objects': [], 'interactions': []}
         
         try:
             llm_start = time.perf_counter()
             logger.info(f"[ENTITY:LLM:START] trace_id={trace_id} mode=main_llm user={self.user_id} scene_sequence={scene_sequence}")
+            
+            # Build interaction types section for prompt
+            interaction_section = ""
+            if interaction_types:
+                interaction_section = f"""
+      
+      INTERACTION TYPES TO DETECT:
+      The story is tracking these specific interaction types: {json.dumps(interaction_types)}
+      
+      If ANY of these interactions occur for the FIRST TIME between two characters in this scene,
+      include them in the "interactions" array. Only report interactions that are EXPLICITLY shown
+      happening in this scene, not referenced or remembered.
+      
+      For interactions, return:
+      {{
+        "interaction_type": "the exact type from the list above",
+        "character_a": "first character name",
+        "character_b": "second character name", 
+        "description": "brief factual description of what happened"
+      }}"""
             
             # Get prompts from centralized prompts.yml
             system_prompt = prompt_manager.get_prompt("entity_state_extraction.single", "system")
@@ -313,6 +358,11 @@ class EntityStateService:
                 character_names=', '.join(character_names),
                 chapter_location=chapter_location or "Unknown"
             )
+            
+            # Append interaction extraction instructions if needed
+            if interaction_types:
+                user_prompt += interaction_section
+                user_prompt += '\n\nInclude "interactions": [] in your JSON response (empty array if no tracked interactions detected).'
 
             response = await self.llm_service.generate(
                 prompt=user_prompt,
@@ -367,12 +417,13 @@ class EntityStateService:
             Validated state changes dictionary
         """
         if not isinstance(state_changes, dict):
-            return {'characters': [], 'locations': [], 'objects': []}
+            return {'characters': [], 'locations': [], 'objects': [], 'interactions': []}
         
         validated = {
             'characters': [],
             'locations': [],
-            'objects': []
+            'objects': [],
+            'interactions': []
         }
         
         # Validate characters
@@ -395,6 +446,13 @@ class EntityStateService:
             for obj in objects:
                 if isinstance(obj, dict) and obj.get('name'):
                     validated['objects'].append(obj)
+        
+        # Validate interactions
+        interactions = state_changes.get('interactions', [])
+        if isinstance(interactions, list):
+            for interaction in interactions:
+                if isinstance(interaction, dict) and interaction.get('interaction_type') and interaction.get('character_a') and interaction.get('character_b'):
+                    validated['interactions'].append(interaction)
         
         return validated
     
@@ -521,6 +579,94 @@ class EntityStateService:
         except Exception as e:
             logger.error(f"Failed to update character state: {e}{trace_suffix}")
             db.rollback()
+    
+    async def _record_character_interaction(
+        self,
+        db: Session,
+        story_id: int,
+        scene_sequence: int,
+        interaction: Dict[str, Any],
+        character_name_to_id: Dict[str, int],
+        branch_id: int = None,
+        trace_id: Optional[str] = None
+    ) -> bool:
+        """
+        Record a character interaction if it's the first occurrence.
+        
+        Args:
+            db: Database session
+            story_id: Story ID
+            scene_sequence: Scene sequence number
+            interaction: Interaction data from LLM extraction
+            character_name_to_id: Mapping of character names to IDs
+            branch_id: Optional branch ID
+            trace_id: Optional trace ID for logging
+            
+        Returns:
+            True if interaction was recorded, False if it already existed
+        """
+        try:
+            trace_suffix = f" trace_id={trace_id}" if trace_id else ""
+            
+            interaction_type = interaction.get("interaction_type", "").strip().lower()
+            char_a_name = interaction.get("character_a", "").strip().lower()
+            char_b_name = interaction.get("character_b", "").strip().lower()
+            description = interaction.get("description", "")
+            
+            if not interaction_type or not char_a_name or not char_b_name:
+                return False
+            
+            # Get character IDs
+            char_a_id = character_name_to_id.get(char_a_name)
+            char_b_id = character_name_to_id.get(char_b_name)
+            
+            if not char_a_id or not char_b_id:
+                logger.warning(f"[INTERACTION:SKIP] Unknown character(s): {char_a_name}, {char_b_name}{trace_suffix}")
+                return False
+            
+            # Normalize order (lower ID first) for consistent lookups
+            if char_a_id > char_b_id:
+                char_a_id, char_b_id = char_b_id, char_a_id
+            
+            # Check if this interaction already exists
+            existing = db.query(CharacterInteraction).filter(
+                CharacterInteraction.story_id == story_id,
+                CharacterInteraction.character_a_id == char_a_id,
+                CharacterInteraction.character_b_id == char_b_id,
+                CharacterInteraction.interaction_type == interaction_type
+            )
+            if branch_id:
+                existing = existing.filter(CharacterInteraction.branch_id == branch_id)
+            
+            if existing.first():
+                logger.debug(f"[INTERACTION:EXISTS] {interaction_type} between {char_a_name} and {char_b_name}{trace_suffix}")
+                return False
+            
+            # Create new interaction record
+            new_interaction = CharacterInteraction(
+                story_id=story_id,
+                branch_id=branch_id,
+                character_a_id=char_a_id,
+                character_b_id=char_b_id,
+                interaction_type=interaction_type,
+                first_occurrence_scene=scene_sequence,
+                description=description
+            )
+            
+            db.add(new_interaction)
+            try:
+                db.flush()
+                logger.info(f"[INTERACTION:RECORDED] {interaction_type} between {char_a_name} and {char_b_name} at scene {scene_sequence}{trace_suffix}")
+                return True
+            except IntegrityError:
+                db.rollback()
+                logger.debug(f"[INTERACTION:RACE] Already exists (race condition): {interaction_type}{trace_suffix}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"[INTERACTION:ERROR] Failed to record interaction: {e}{trace_suffix}")
+            db.rollback()
+            return False
     
     async def _update_location_state(
         self,
@@ -761,6 +907,20 @@ class EntityStateService:
             query = query.filter(CharacterState.branch_id == branch_id)
         return query.all()
     
+    def get_all_character_interactions(
+        self,
+        db: Session,
+        story_id: int,
+        branch_id: int = None
+    ) -> List[CharacterInteraction]:
+        """Get all character interactions for a story (optionally filtered by branch)"""
+        query = db.query(CharacterInteraction).filter(
+            CharacterInteraction.story_id == story_id
+        )
+        if branch_id:
+            query = query.filter(CharacterInteraction.branch_id == branch_id)
+        return query.order_by(CharacterInteraction.first_occurrence_scene).all()
+    
     def get_location_state(
         self,
         db: Session,
@@ -993,7 +1153,7 @@ class EntityStateService:
         branch_id: int = None
     ) -> int:
         """
-        Delete entity state batches that overlap with deleted scenes.
+        Delete entity state batches and character interactions that overlap with deleted scenes.
         
         Args:
             db: Database session
@@ -1005,6 +1165,7 @@ class EntityStateService:
         Returns:
             Number of batches deleted
         """
+        # Delete entity state batches that overlap with deleted scenes
         affected_batches_query = db.query(EntityStateBatch).filter(
             EntityStateBatch.story_id == story_id,
             EntityStateBatch.start_scene_sequence <= max_seq,
@@ -1014,14 +1175,28 @@ class EntityStateService:
             affected_batches_query = affected_batches_query.filter(EntityStateBatch.branch_id == branch_id)
         affected_batches = affected_batches_query.all()
         
+        batch_count = 0
         if affected_batches:
-            count = len(affected_batches)
+            batch_count = len(affected_batches)
             for batch in affected_batches:
                 db.delete(batch)
-            logger.info(f"Invalidated {count} entity state batch(es) for story {story_id} (scenes {min_seq}-{max_seq})")
-            return count
+            logger.info(f"Invalidated {batch_count} entity state batch(es) for story {story_id} (scenes {min_seq}-{max_seq})")
         
-        return 0
+        # Delete character interactions that were first detected in deleted scenes
+        # This ensures interactions can be re-detected if scenes are regenerated
+        interaction_query = db.query(CharacterInteraction).filter(
+            CharacterInteraction.story_id == story_id,
+            CharacterInteraction.first_occurrence_scene >= min_seq,
+            CharacterInteraction.first_occurrence_scene <= max_seq
+        )
+        if branch_id is not None:
+            interaction_query = interaction_query.filter(CharacterInteraction.branch_id == branch_id)
+        
+        interaction_count = interaction_query.delete(synchronize_session='fetch')
+        if interaction_count > 0:
+            logger.info(f"Invalidated {interaction_count} character interaction(s) for story {story_id} (scenes {min_seq}-{max_seq})")
+        
+        return batch_count
     
     def restore_from_last_complete_batch(
         self,
@@ -1055,19 +1230,23 @@ class EntityStateService:
                 char_delete_query = char_delete_query.filter(CharacterState.branch_id == branch_id)
                 loc_delete_query = loc_delete_query.filter(LocationState.branch_id == branch_id)
                 obj_delete_query = obj_delete_query.filter(ObjectState.branch_id == branch_id)
-            char_delete_query.delete()
-            loc_delete_query.delete()
-            obj_delete_query.delete()
+            char_deleted = char_delete_query.delete()
+            loc_deleted = loc_delete_query.delete()
+            obj_deleted = obj_delete_query.delete()
+            logger.info(f"[DELETE] Deleted entity states: chars={char_deleted}, locs={loc_deleted}, objs={obj_deleted}")
             
             # Restore from last valid batch if exists
             if last_valid_batch:
                 restore_results = self.restore_entity_states_from_batch(db, last_valid_batch)
+                db.commit()
                 logger.info(f"[DELETE] Restored entity states from batch {last_valid_batch.id} (scenes 1-{last_valid_batch.end_scene_sequence})")
                 return {
                     **restore_results,
                     "restoration_successful": True
                 }
             else:
+                # No batch to restore from - just commit the deletions
+                db.commit()
                 logger.info(f"[DELETE] No valid batch found, entity states cleared")
                 return {
                     "characters_restored": 0,

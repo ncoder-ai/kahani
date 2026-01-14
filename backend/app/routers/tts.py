@@ -794,8 +794,8 @@ async def generate_scene_audio(
 @router.post("/generate-ws/{scene_id}", response_model=TTSSessionResponse)
 async def generate_scene_audio_websocket(
     scene_id: int,
+    background_tasks: BackgroundTasks,
     request: GenerateAudioRequest = GenerateAudioRequest(),
-    background_tasks: BackgroundTasks = BackgroundTasks(),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):

@@ -4935,9 +4935,15 @@ Chapter Conclusion:"""
         # Extract the combined "Relevant Context" section (contains semantic events + entity states)
         # This is the new format from SemanticContextManager
         relevant_context_match = None
+        interaction_history_match = None
         if previous_scenes_text:
             relevant_context_match = re.search(
                 r'Relevant Context:\n(.*?)(?=\n\nRecent Scenes:|$)',
+                previous_scenes_text, re.DOTALL
+            )
+            # Extract CHARACTER INTERACTION HISTORY (placed before Relevant Context)
+            interaction_history_match = re.search(
+                r'CHARACTER INTERACTION HISTORY:\n(.*?)(?=\n\nRelevant Context:|\n\nRecent Scenes:|$)',
                 previous_scenes_text, re.DOTALL
             )
         
@@ -4958,6 +4964,13 @@ Chapter Conclusion:"""
                     # Add completed batches first
                     messages.extend(completed_batches)
                     
+                    # Add Character Interaction History (stable, placed before Relevant Context for cache optimization)
+                    if interaction_history_match:
+                        messages.append({
+                            "role": "user",
+                            "content": "=== CHARACTER INTERACTION HISTORY ===\n(Factual record of what has occurred between characters)\n\n" + interaction_history_match.group(1).strip()
+                        })
+                    
                     # Add Relevant Context (combined semantic + entity states) before recent scenes
                     if relevant_context_match:
                         messages.append({
@@ -4969,6 +4982,12 @@ Chapter Conclusion:"""
                     messages.append(recent_scenes_batch)
                 elif len(scene_messages) == 1:
                     # Only one batch (the recent scenes batch)
+                    # Add Character Interaction History before Relevant Context if it exists
+                    if interaction_history_match:
+                        messages.append({
+                            "role": "user",
+                            "content": "=== CHARACTER INTERACTION HISTORY ===\n(Factual record of what has occurred between characters)\n\n" + interaction_history_match.group(1).strip()
+                        })
                     # Add Relevant Context before it if it exists
                     if relevant_context_match:
                         messages.append({
@@ -4979,7 +4998,7 @@ Chapter Conclusion:"""
                 else:
                     # No scene messages (shouldn't happen, but handle gracefully)
                     messages.extend(scene_messages)
-            elif not relevant_context_match:
+            elif not relevant_context_match and not interaction_history_match:
                 # No structured sections found, use the whole previous_scenes as-is
                 # This handles the case where context_manager returns simple scene list
                 messages.append({
@@ -4987,7 +5006,12 @@ Chapter Conclusion:"""
                     "content": "=== STORY PROGRESS ===\n" + previous_scenes_text
                 })
             else:
-                # We have relevant_context_match but no recent scenes - add relevant context
+                # We have relevant_context_match or interaction_history_match but no recent scenes
+                if interaction_history_match:
+                    messages.append({
+                        "role": "user",
+                        "content": "=== CHARACTER INTERACTION HISTORY ===\n(Factual record of what has occurred between characters)\n\n" + interaction_history_match.group(1).strip()
+                    })
                 if relevant_context_match:
                     messages.append({
                         "role": "user",
@@ -5290,8 +5314,12 @@ Chapter Conclusion:"""
             relevant_context_match = re.search(r'Relevant Context:\n(.*?)(?=\n\nRecent Scenes:|$)', previous_scenes_text, re.DOTALL)
             recent_scenes_match = re.search(r'Recent Scenes:(.*?)$', previous_scenes_text, re.DOTALL)
             
+            # Extract CHARACTER INTERACTION HISTORY (if present) - placed before Relevant Context for cache optimization
+            interaction_history_match = re.search(r'CHARACTER INTERACTION HISTORY:\n(.*?)(?=\n\nRelevant Context:|$)', previous_scenes_text, re.DOTALL)
+            interaction_history_content = interaction_history_match.group(0).strip() if interaction_history_match else None
+            
             # Extract Current Chapter Summary (if present) - works with both old and new format
-            current_chapter_summary_match = re.search(r'Current Chapter Summary[^:]*:\s*(.*?)(?=\n+(?:Recent Scenes|Relevant Context|Relevant Past Events|CURRENT CHARACTER STATES|CURRENT LOCATIONS|IMPORTANT OBJECTS|Notable Objects|Active Objects)|$)', previous_scenes_text, re.DOTALL)
+            current_chapter_summary_match = re.search(r'Current Chapter Summary[^:]*:\s*(.*?)(?=\n+(?:Recent Scenes|Relevant Context|CHARACTER INTERACTION HISTORY|Relevant Past Events|CURRENT CHARACTER STATES|CURRENT LOCATIONS|IMPORTANT OBJECTS|Notable Objects|Active Objects)|$)', previous_scenes_text, re.DOTALL)
             current_chapter_summary = current_chapter_summary_match.group(1).strip() if current_chapter_summary_match else None
             
             if relevant_context_match:
@@ -5303,6 +5331,10 @@ Chapter Conclusion:"""
                 if current_chapter_summary:
                     context_parts.append("Current Chapter Progress:")
                     context_parts.append(f"  Current Chapter Summary:\n  {current_chapter_summary.replace(chr(10), chr(10) + '  ')}")
+                
+                # Add Character Interaction History (stable, placed before Relevant Context for cache optimization)
+                if interaction_history_content:
+                    context_parts.append(f"\n{interaction_history_content}")
                 
                 # Add Relevant Context (combined semantic events + entity states)
                 if relevant_context_content:
@@ -6332,10 +6364,24 @@ Chapter Conclusion:"""
                         if chapter.last_summary_scene_count and chapter.last_summary_scene_count > max_remaining_seq:
                             chapter.last_summary_scene_count = max_remaining_seq
                             logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} summary_count_updated_to={max_remaining_seq}")
+                        if chapter.last_plot_extraction_scene_count and chapter.last_plot_extraction_scene_count > max_remaining_seq:
+                            chapter.last_plot_extraction_scene_count = max_remaining_seq
+                            logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} plot_extraction_count_updated_to={max_remaining_seq}")
+                        # Restore plot_progress from batches instead of resetting to None
+                        # This preserves events from earlier batches that are still valid
+                        from ...services.chapter_progress_service import ChapterProgressService
+                        progress_service = ChapterProgressService(db)
+                        progress_service.update_plot_progress_from_batches(chapter.id)
+                        logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} plot_progress_restored_from_batches")
                     else:
                         chapter.last_extraction_scene_count = 0
                         chapter.last_summary_scene_count = 0
-                        logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} extraction_and_summary_count_reset_to=0")
+                        chapter.last_plot_extraction_scene_count = 0
+                        # No remaining scenes, so restore from batches (will set to None if no batches)
+                        from ...services.chapter_progress_service import ChapterProgressService
+                        progress_service = ChapterProgressService(db)
+                        progress_service.update_plot_progress_from_batches(chapter.id)
+                        logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} extraction_summary_plot_count_reset_to=0")
                     
                     chapter_duration = (time.perf_counter() - chapter_start) * 1000
                     logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} chapter_update_ms={chapter_duration:.2f}")

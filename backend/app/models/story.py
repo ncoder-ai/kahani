@@ -82,6 +82,9 @@ class Story(Base):
     # Entity State Batch Relationships
     entity_state_batches = relationship("EntityStateBatch", back_populates="story", cascade="all, delete-orphan", order_by="EntityStateBatch.start_scene_sequence")
     
+    # Character Interaction Relationships
+    character_interactions = relationship("CharacterInteraction", back_populates="story", cascade="all, delete-orphan")
+    
     # Story Branches
     branches = relationship("StoryBranch", back_populates="story", cascade="all, delete-orphan", order_by="StoryBranch.created_at", foreign_keys="StoryBranch.story_id")
     current_branch = relationship("StoryBranch", foreign_keys=[current_branch_id], post_update=True)
@@ -96,6 +99,11 @@ class Story(Base):
     # "sfw" = Safe for Work (family friendly, filters applied)
     # "nsfw" = Not Safe for Work (mature content allowed if user permits)
     content_rating = Column(String(10), default="sfw")
+    
+    # Interaction Types - user-defined list of interaction types to track for this story
+    # Example: ["first meeting", "first kiss", "first conflict", "reconciliation"]
+    # These are used by the entity extraction service to track character interactions
+    interaction_types = Column(JSON, nullable=True, default=list)
     
     def update_story_arc(self, arc_data: dict):
         """Update the story arc data."""

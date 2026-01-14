@@ -178,6 +178,7 @@ class ChapterProgressService:
     ) -> Dict[str, Any]:
         """
         Manually toggle an event's completion status.
+        DEPRECATED: Use toggle_event_completion_with_batch instead.
         
         Args:
             chapter: The chapter to update
@@ -217,6 +218,200 @@ class ChapterProgressService:
         self.db.refresh(chapter)
         
         logger.info(f"Toggled event '{event[:50]}...' to {completed} for chapter {chapter.id}")
+        
+        return chapter.plot_progress
+    
+    # ==================== BATCH-BASED PLOT PROGRESS METHODS ====================
+    
+    def get_latest_plot_progress_from_batches(self, chapter_id: int) -> Optional[List[str]]:
+        """
+        Get the latest plot progress from batches.
+        Returns the completed_events from the latest batch (highest end_scene_sequence).
+        """
+        from ..models import ChapterPlotProgressBatch
+        
+        latest_batch = self.db.query(ChapterPlotProgressBatch).filter(
+            ChapterPlotProgressBatch.chapter_id == chapter_id
+        ).order_by(ChapterPlotProgressBatch.end_scene_sequence.desc()).first()
+        
+        if not latest_batch:
+            return None
+        
+        return latest_batch.completed_events or []
+    
+    def update_plot_progress_from_batches(self, chapter_id: int) -> None:
+        """
+        Update chapter.plot_progress and last_plot_extraction_scene_count from current batches.
+        Similar to update_chapter_summary_from_batches.
+        """
+        from ..models import ChapterPlotProgressBatch
+        from sqlalchemy.orm.attributes import flag_modified
+        
+        chapter = self.db.query(Chapter).filter(Chapter.id == chapter_id).first()
+        if not chapter:
+            return
+        
+        batches = self.db.query(ChapterPlotProgressBatch).filter(
+            ChapterPlotProgressBatch.chapter_id == chapter_id
+        ).order_by(ChapterPlotProgressBatch.start_scene_sequence).all()
+        
+        if batches:
+            latest_batch = max(batches, key=lambda b: b.end_scene_sequence)
+            chapter.plot_progress = {
+                "completed_events": latest_batch.completed_events or [],
+                "scene_count": latest_batch.end_scene_sequence,
+                "last_updated": datetime.utcnow().isoformat()
+            }
+            chapter.last_plot_extraction_scene_count = latest_batch.end_scene_sequence
+        else:
+            chapter.plot_progress = None
+            chapter.last_plot_extraction_scene_count = 0
+        
+        flag_modified(chapter, "plot_progress")
+        self.db.commit()
+        
+        logger.info(f"[PLOT_PROGRESS:RESTORE] Restored progress from batches for chapter {chapter_id}")
+    
+    def invalidate_plot_progress_batches_for_scene(self, scene_id: int) -> None:
+        """
+        Invalidate plot progress batches if scene was part of extracted range.
+        Called when a scene is deleted or modified.
+        
+        Since batches are cumulative (each batch includes events from previous batches),
+        we must also delete all subsequent batches when a batch is invalidated.
+        """
+        from ..models import Scene, ChapterPlotProgressBatch
+        
+        scene = self.db.query(Scene).filter(Scene.id == scene_id).first()
+        if not scene or not scene.chapter_id:
+            return
+        
+        chapter = self.db.query(Chapter).filter(Chapter.id == scene.chapter_id).first()
+        if not chapter:
+            return
+        
+        # Find the first batch that contains this scene
+        affected_batch = self.db.query(ChapterPlotProgressBatch).filter(
+            ChapterPlotProgressBatch.chapter_id == chapter.id,
+            ChapterPlotProgressBatch.start_scene_sequence <= scene.sequence_number,
+            ChapterPlotProgressBatch.end_scene_sequence >= scene.sequence_number
+        ).first()
+        
+        if affected_batch:
+            # Delete this batch AND all subsequent batches (since they're cumulative)
+            batches_to_delete = self.db.query(ChapterPlotProgressBatch).filter(
+                ChapterPlotProgressBatch.chapter_id == chapter.id,
+                ChapterPlotProgressBatch.start_scene_sequence >= affected_batch.start_scene_sequence
+            ).all()
+            
+            for batch in batches_to_delete:
+                self.db.delete(batch)
+            
+            logger.info(f"[PLOT_PROGRESS:INVALIDATE] Invalidated {len(batches_to_delete)} batch(es) for chapter {chapter.id} due to scene {scene_id} modification (scene seq {scene.sequence_number})")
+            
+            # Recalculate progress from remaining batches
+            self.update_plot_progress_from_batches(chapter.id)
+    
+    def create_plot_progress_batch(
+        self,
+        chapter: Chapter,
+        start_sequence: int,
+        end_sequence: int,
+        completed_events: List[str]
+    ) -> None:
+        """
+        Create a new plot progress batch with cumulative events.
+        Preserves manually toggled events from the current chapter.plot_progress.
+        """
+        from ..models import ChapterPlotProgressBatch
+        from sqlalchemy.orm.attributes import flag_modified
+        
+        # Get previous batch's events to make this cumulative
+        previous_batch = self.db.query(ChapterPlotProgressBatch).filter(
+            ChapterPlotProgressBatch.chapter_id == chapter.id,
+            ChapterPlotProgressBatch.end_scene_sequence < start_sequence
+        ).order_by(ChapterPlotProgressBatch.end_scene_sequence.desc()).first()
+        
+        # Merge with previous events (cumulative)
+        all_events = set(previous_batch.completed_events or []) if previous_batch else set()
+        all_events.update(completed_events)
+        
+        # IMPORTANT: Also preserve any manually toggled events from current progress
+        # This ensures user's manual toggles aren't lost when new batches are created
+        current_progress = chapter.plot_progress or {}
+        current_completed = set(current_progress.get("completed_events", []))
+        all_events.update(current_completed)
+        
+        # Create new batch
+        batch = ChapterPlotProgressBatch(
+            chapter_id=chapter.id,
+            start_scene_sequence=start_sequence,
+            end_scene_sequence=end_sequence,
+            completed_events=list(all_events)
+        )
+        self.db.add(batch)
+        self.db.flush()
+        
+        # Update chapter's plot_progress from batches
+        self.update_plot_progress_from_batches(chapter.id)
+        
+        logger.info(f"[PLOT_PROGRESS:BATCH] Created batch for chapter {chapter.id} scenes {start_sequence}-{end_sequence} with {len(all_events)} cumulative events")
+    
+    def toggle_event_completion_with_batch(
+        self,
+        chapter: Chapter,
+        event: str,
+        completed: bool
+    ) -> Dict[str, Any]:
+        """
+        Manually toggle an event's completion status.
+        Updates both chapter.plot_progress AND the latest batch to keep them in sync.
+        """
+        from ..models import ChapterPlotProgressBatch
+        from sqlalchemy.orm.attributes import flag_modified
+        
+        # Get existing progress or initialize
+        existing_progress = chapter.plot_progress or {}
+        progress_data = {
+            "completed_events": list(existing_progress.get("completed_events", [])),
+            "scene_count": existing_progress.get("scene_count", 0),
+            "climax_reached": existing_progress.get("climax_reached", False),
+            "last_updated": existing_progress.get("last_updated")
+        }
+        
+        completed_events = set(progress_data.get("completed_events", []))
+        
+        if completed:
+            completed_events.add(event)
+        else:
+            completed_events.discard(event)
+        
+        progress_data["completed_events"] = list(completed_events)
+        progress_data["last_updated"] = datetime.utcnow().isoformat()
+        
+        # Update chapter.plot_progress
+        chapter.plot_progress = progress_data
+        flag_modified(chapter, "plot_progress")
+        
+        # ALSO update the latest batch to keep it in sync
+        # This ensures the manual toggle persists even if new batches are created
+        latest_batch = self.db.query(ChapterPlotProgressBatch).filter(
+            ChapterPlotProgressBatch.chapter_id == chapter.id
+        ).order_by(ChapterPlotProgressBatch.end_scene_sequence.desc()).first()
+        
+        if latest_batch:
+            batch_events = set(latest_batch.completed_events or [])
+            if completed:
+                batch_events.add(event)
+            else:
+                batch_events.discard(event)
+            latest_batch.completed_events = list(batch_events)
+            flag_modified(latest_batch, "completed_events")
+        
+        self.db.commit()
+        self.db.refresh(chapter)
+        
+        logger.info(f"[PLOT_PROGRESS:TOGGLE] Toggled event '{event[:50]}...' to {completed} for chapter {chapter.id}")
         
         return chapter.plot_progress
     

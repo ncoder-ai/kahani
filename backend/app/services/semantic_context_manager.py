@@ -332,6 +332,13 @@ class SemanticContextManager(ContextManager):
         )
         entity_used_tokens = self.count_tokens(entity_states_content) if entity_states_content else 0
         
+        # Get character interaction history (stable, updates only on entity extraction)
+        interaction_history_content = await self._get_interaction_history(
+            story_id, db, branch_id=branch_id
+        )
+        interaction_used_tokens = self.count_tokens(interaction_history_content) if interaction_history_content else 0
+        logger.info(f"[SEMANTIC CONTEXT] Interaction history: {interaction_used_tokens} tokens, included={interaction_history_content is not None}")
+        
         # Get chapter summaries (only current chapter summary - story_so_far and previous_chapter_summary
         # are handled as direct fields in base_context to avoid duplication)
         summary_content = await self._get_chapter_summaries(
@@ -399,6 +406,11 @@ class SemanticContextManager(ContextManager):
             else:
                 logger.info("[SEMANTIC CONTEXT] summary_content was filtered to empty, not adding to context")
         
+        # Add interaction history BEFORE Relevant Context for cache optimization
+        # (Interaction history is stable - only updates on entity extraction)
+        if interaction_history_content:
+            context_parts.append(f"\n{interaction_history_content}")
+        
         # Build combined "Relevant Context" section (semantic events + entity states)
         # This section is placed immediately before Recent Scenes for maximum recency emphasis
         relevant_context_parts = []
@@ -427,7 +439,8 @@ class SemanticContextManager(ContextManager):
             "context_type": "hybrid",
             "semantic_scenes_included": semantic_content is not None,
             "character_context_included": character_content is not None,
-            "entity_states_included": entity_states_content is not None
+            "entity_states_included": entity_states_content is not None,
+            "interaction_history_included": interaction_history_content is not None
         }
     
     async def _get_base_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None, branch_id: Optional[int] = None) -> Dict[str, Any]:
@@ -1027,7 +1040,9 @@ class SemanticContextManager(ContextManager):
                             # Only include if updated within recency window (or if main character)
                             if scene_age > self.location_recency_window:
                                 # Still include if it's likely a main character (has significant state)
+                                # Include appearance to prevent filtering out clothing/attire
                                 if not (char_state.current_goal or char_state.possessions or 
+                                       char_state.appearance or
                                        (char_state.knowledge and len(char_state.knowledge) > 0)):
                                     include = False
                     
@@ -1278,6 +1293,105 @@ class SemanticContextManager(ContextManager):
             
         except Exception as e:
             logger.error(f"Failed to get entity states: {e}")
+            return None
+    
+    async def _get_interaction_history(
+        self,
+        story_id: int,
+        db: Session,
+        branch_id: int = None
+    ) -> Optional[str]:
+        """
+        Get character interaction history for the story.
+        
+        This provides a factual record of what interactions have occurred between characters,
+        helping the LLM maintain accurate continuity.
+        
+        Args:
+            story_id: Story ID
+            db: Database session
+            branch_id: Optional branch ID for filtering
+            
+        Returns:
+            Formatted interaction history or None
+        """
+        try:
+            from ..models import CharacterInteraction, Character, Story
+            
+            # Get story's interaction types configuration
+            story = db.query(Story).filter(Story.id == story_id).first()
+            if not story or not story.interaction_types:
+                logger.info(f"[INTERACTION HISTORY] No interaction_types configured for story {story_id}")
+                return None
+            
+            logger.info(f"[INTERACTION HISTORY] Story {story_id} has {len(story.interaction_types)} interaction types configured")
+            
+            # Get all interactions for this story
+            query = db.query(CharacterInteraction).filter(
+                CharacterInteraction.story_id == story_id
+            )
+            if branch_id:
+                query = query.filter(CharacterInteraction.branch_id == branch_id)
+            
+            interactions = query.order_by(
+                CharacterInteraction.first_occurrence_scene
+            ).all()
+            
+            logger.info(f"[INTERACTION HISTORY] Found {len(interactions)} interactions for story {story_id} (branch_id={branch_id})")
+            
+            if not interactions:
+                return None
+            
+            # Build character ID to name mapping
+            char_ids = set()
+            for interaction in interactions:
+                char_ids.add(interaction.character_a_id)
+                char_ids.add(interaction.character_b_id)
+            
+            characters = db.query(Character).filter(Character.id.in_(char_ids)).all()
+            char_id_to_name = {c.id: c.name for c in characters}
+            
+            # Group interactions by character pair
+            pair_interactions = {}
+            for interaction in interactions:
+                # Create consistent pair key (alphabetically sorted names)
+                name_a = char_id_to_name.get(interaction.character_a_id, "Unknown")
+                name_b = char_id_to_name.get(interaction.character_b_id, "Unknown")
+                pair_key = tuple(sorted([name_a, name_b]))
+                
+                if pair_key not in pair_interactions:
+                    pair_interactions[pair_key] = []
+                pair_interactions[pair_key].append({
+                    "type": interaction.interaction_type,
+                    "scene": interaction.first_occurrence_scene,
+                    "description": interaction.description
+                })
+            
+            # Format output
+            parts = ["CHARACTER INTERACTION HISTORY:"]
+            parts.append("(Factual record of what has occurred between characters)")
+            parts.append("")
+            
+            for (name_a, name_b), interactions_list in pair_interactions.items():
+                parts.append(f"{name_a} & {name_b}:")
+                for interaction in interactions_list:
+                    desc = f" - {interaction['description']}" if interaction['description'] else ""
+                    parts.append(f"  - {interaction['type']} (scene {interaction['scene']}){desc}")
+                parts.append("")
+            
+            # Add note about what hasn't happened
+            configured_types = set(story.interaction_types)
+            occurred_types = {i.interaction_type for i in interactions}
+            not_occurred = configured_types - occurred_types
+            
+            if not_occurred:
+                parts.append("INTERACTIONS NOT YET OCCURRED:")
+                parts.append(f"  {', '.join(sorted(not_occurred))}")
+            
+            return "\n".join(parts)
+            
+        except Exception as e:
+            logger.error(f"Failed to get interaction history: {e}")
             return None
     
     async def _get_scene_content_proper(self, scene: Scene, db: Session = None) -> str:

@@ -274,13 +274,17 @@ backend/data/audio/
 **/audio/*.wav
 **/audio/*.mp3
 
-# Test and debug files
-test_*.py
+# Test and debug files (but keep root-level test scripts for interaction testing)
+backend/test_*.py
+frontend/test_*.py
 test_*.html
 debug_*.py
 verify_*.py
+*_validation_*.md
+*_validation_*.txt
 backend/scripts/prompt_outputs/
 backend/scripts/TEST_RESULTS.md
+validation_output.log
 
 # Whisper and Silero-VAD models
 backend/data/whisper_models/

@@ -430,6 +430,11 @@ class StoryCharacterVoiceUpdate(BaseModel):
     voice_style_override: Optional[Dict[str, Any]] = None  # Story-specific voice style
 
 
+class StoryCharacterRoleUpdate(BaseModel):
+    """Schema for updating a story character's role"""
+    role: str  # Role in the story (protagonist, antagonist, ally, etc.)
+
+
 class StoryCharacterResponse(BaseModel):
     """Response schema for story characters"""
     id: int  # story_character id
@@ -585,3 +590,59 @@ async def clear_story_character_voice_style(
     logger.info(f"Cleared voice style override for story_character {story_character_id} in story {story_id}")
     
     return {"message": "Voice style override cleared successfully"}
+
+
+@router.put("/story/{story_id}/characters/{story_character_id}/role")
+async def update_story_character_role(
+    story_id: int,
+    story_character_id: int,
+    update_data: StoryCharacterRoleUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update the role for a character in a specific story"""
+    
+    # Verify story ownership
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found"
+        )
+    
+    # Get the story character
+    story_character = db.query(StoryCharacter).filter(
+        StoryCharacter.id == story_character_id,
+        StoryCharacter.story_id == story_id
+    ).first()
+    
+    if not story_character:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story character not found"
+        )
+    
+    # Update role
+    story_character.role = update_data.role
+    db.commit()
+    db.refresh(story_character)
+    
+    # Get character details for response
+    character = db.query(Character).filter(Character.id == story_character.character_id).first()
+    
+    logger.info(f"Updated role for story_character {story_character_id} in story {story_id} to '{update_data.role}'")
+    
+    return StoryCharacterResponse(
+        id=story_character.id,
+        character_id=story_character.character_id,
+        story_id=story_character.story_id,
+        role=story_character.role,
+        voice_style_override=story_character.voice_style_override,
+        name=character.name if character else "Unknown",
+        description=character.description if character else None,
+        default_voice_style=character.voice_style if character else None
+    )

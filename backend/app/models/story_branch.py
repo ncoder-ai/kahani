@@ -66,6 +66,9 @@ class StoryBranch(Base):
     plot_events = relationship("PlotEvent", back_populates="branch", cascade="all, delete-orphan")
     scene_embeddings = relationship("SceneEmbedding", back_populates="branch", cascade="all, delete-orphan")
     
+    # Character interactions
+    character_interactions = relationship("CharacterInteraction", back_populates="branch", cascade="all, delete-orphan")
+    
     def __repr__(self):
         return f"<StoryBranch(id={self.id}, story_id={self.story_id}, name='{self.name}', is_main={self.is_main}, is_active={self.is_active})>"
 

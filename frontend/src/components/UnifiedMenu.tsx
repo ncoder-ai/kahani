@@ -7,7 +7,7 @@ import { audioContextManager } from '@/utils/audioContextManager';
 import { useState, useEffect, useCallback } from 'react';
 import { 
   X, Settings, LogOut, User, Home, PlusCircle, BookOpen, 
-  ChevronRight, Film, Trash2, Shield, FileText, Edit, Bug, GitBranch, Volume2
+  ChevronRight, ChevronDown, Film, Trash2, Shield, Edit, Bug, GitBranch, Volume2, Users, UserCog, Package
 } from 'lucide-react';
 import BranchSelector from './BranchSelector';
 
@@ -16,10 +16,12 @@ interface StoryActions {
   onAddCharacter?: () => void;
   onEditCharacterVoices?: () => void;
   onViewAllCharacters?: () => void;
+  onEditCharacterRoles?: () => void;
   onDirectorMode?: () => void;
   onDeleteMode?: () => void;
-  onExportStory?: () => void;
   onEditStorySettings?: () => void;
+  onShowInteractions?: () => void;
+  onShowEntityStates?: () => void;
   directorModeActive?: boolean;
   deleteModeActive?: boolean;
   // Branch-related props
@@ -53,6 +55,7 @@ export default function UnifiedMenu({
   const [showDebug, setShowDebug] = useState(false);
   const [audioState, setAudioState] = useState<string>('unknown');
   const [isUnlocking, setIsUnlocking] = useState(false);
+  const [showCharactersSubmenu, setShowCharactersSubmenu] = useState(false);
   
   // Only show debug option on mobile
   const isMobile = typeof window !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
@@ -163,12 +166,47 @@ export default function UnifiedMenu({
                 Story Actions
               </div>
 
-              {/* Branch Selector */}
+              {/* Branch Selector with Director/Delete Mode Icons */}
               {storyActions.storyId && (
                 <div className="px-3 py-2 border-b border-gray-700/50 mb-2">
-                  <div className="flex items-center gap-2 text-xs text-gray-400 mb-2">
-                    <GitBranch className="w-3.5 h-3.5" />
-                    <span>Story Branch</span>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2 text-xs text-gray-400">
+                      <GitBranch className="w-3.5 h-3.5" />
+                      <span>Story Branch</span>
+                    </div>
+                    {/* Director Mode & Delete Mode Icons */}
+                    <div className="flex items-center gap-1">
+                      {storyActions.onDirectorMode && (
+                        <button
+                          onClick={() => {
+                            storyActions.onDirectorMode?.();
+                          }}
+                          className={`p-1.5 rounded-md transition-colors ${
+                            storyActions.directorModeActive 
+                              ? 'bg-pink-600/30 text-pink-400' 
+                              : 'hover:bg-white/10 text-gray-400 hover:text-white'
+                          }`}
+                          title={storyActions.directorModeActive ? 'Director Mode ON' : 'Director Mode OFF'}
+                        >
+                          <Film className="w-4 h-4" />
+                        </button>
+                      )}
+                      {storyActions.onDeleteMode && (
+                        <button
+                          onClick={() => {
+                            storyActions.onDeleteMode?.();
+                          }}
+                          className={`p-1.5 rounded-md transition-colors ${
+                            storyActions.deleteModeActive 
+                              ? 'bg-red-600/30 text-red-400' 
+                              : 'hover:bg-white/10 text-gray-400 hover:text-white'
+                          }`}
+                          title={storyActions.deleteModeActive ? 'Delete Mode ON' : 'Delete Mode OFF'}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <BranchSelector
                     storyId={storyActions.storyId}
@@ -226,127 +264,141 @@ export default function UnifiedMenu({
                 </button>
               )}
 
-              {/* Add Character */}
-              {storyActions.onAddCharacter && (
+              {/* Characters Submenu */}
+              <div>
                 <button
-                  onClick={() => {
-                    onClose();
-                    storyActions.onAddCharacter?.();
-                  }}
+                  onClick={() => setShowCharactersSubmenu(!showCharactersSubmenu)}
                   className="w-full flex items-center gap-3 p-3 hover:bg-white/10 rounded-lg transition-colors text-left group"
                 >
-                  <div className="p-2 bg-white/10 rounded-lg group-hover:bg-white/20 transition-colors">
-                    <PlusCircle className="w-5 h-5 theme-accent-primary" />
+                  <div className="p-2 bg-purple-600/20 rounded-lg group-hover:bg-purple-600/30 transition-colors">
+                    <Users className="w-5 h-5 text-purple-400" />
                   </div>
                   <div className="flex-1">
-                    <div className="font-medium text-white">Add Character</div>
-                    <div className="text-xs text-gray-400">Quick add</div>
+                    <div className="font-medium text-white">Characters</div>
+                    <div className="text-xs text-gray-400">Manage story characters</div>
                   </div>
+                  <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform ${showCharactersSubmenu ? 'rotate-180' : ''}`} />
                 </button>
-              )}
+                
+                {/* Characters Submenu Items */}
+                {showCharactersSubmenu && (
+                  <div className="ml-4 mt-1 space-y-1 border-l-2 border-purple-600/30 pl-2">
+                    {/* Add Character */}
+                    {storyActions.onAddCharacter && (
+                      <button
+                        onClick={() => {
+                          onClose();
+                          storyActions.onAddCharacter?.();
+                        }}
+                        className="w-full flex items-center gap-3 p-2.5 hover:bg-white/10 rounded-lg transition-colors text-left group"
+                      >
+                        <div className="p-1.5 bg-white/10 rounded-lg group-hover:bg-white/20 transition-colors">
+                          <PlusCircle className="w-4 h-4 theme-accent-primary" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="text-sm font-medium text-white">Add Character</div>
+                          <div className="text-xs text-gray-400">Quick add to story</div>
+                        </div>
+                      </button>
+                    )}
 
-              {/* Character Voices */}
-              {storyActions.onEditCharacterVoices && (
-                <button
-                  onClick={() => {
-                    onClose();
-                    storyActions.onEditCharacterVoices?.();
-                  }}
-                  className="w-full flex items-center gap-3 p-3 hover:bg-white/10 rounded-lg transition-colors text-left group"
-                >
-                  <div className="p-2 bg-pink-600/20 rounded-lg group-hover:bg-pink-600/30 transition-colors">
-                    <Volume2 className="w-5 h-5 text-pink-400" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="font-medium text-white">Character Voices</div>
-                    <div className="text-xs text-gray-400">Edit how characters speak</div>
-                  </div>
-                  <ChevronRight className="w-5 h-5 text-gray-500" />
-                </button>
-              )}
+                    {/* Character Voices */}
+                    {storyActions.onEditCharacterVoices && (
+                      <button
+                        onClick={() => {
+                          onClose();
+                          storyActions.onEditCharacterVoices?.();
+                        }}
+                        className="w-full flex items-center gap-3 p-2.5 hover:bg-white/10 rounded-lg transition-colors text-left group"
+                      >
+                        <div className="p-1.5 bg-pink-600/20 rounded-lg group-hover:bg-pink-600/30 transition-colors">
+                          <Volume2 className="w-4 h-4 text-pink-400" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="text-sm font-medium text-white">Character Voices</div>
+                          <div className="text-xs text-gray-400">Edit how characters speak</div>
+                        </div>
+                      </button>
+                    )}
 
-              {/* Director Mode */}
-              {storyActions.onDirectorMode && (
-                <button
-                  onClick={() => {
-                    onClose();
-                    storyActions.onDirectorMode?.();
-                  }}
-                  className="w-full flex items-center gap-3 p-3 hover:bg-white/10 rounded-lg transition-colors text-left group"
-                >
-                  <div className={`p-2 rounded-lg transition-colors ${
-                    storyActions.directorModeActive 
-                      ? 'bg-pink-600/20 group-hover:bg-pink-600/30' 
-                      : 'bg-white/10 group-hover:bg-white/20'
-                  }`}>
-                    <Film className={`w-5 h-5 ${storyActions.directorModeActive ? 'text-pink-400' : 'theme-accent-primary'}`} />
-                  </div>
-                  <div className="flex-1">
-                    <div className="font-medium text-white">Director Mode</div>
-                    <div className={`text-xs ${storyActions.directorModeActive ? 'text-pink-400' : 'text-gray-400'}`}>
-                      {storyActions.directorModeActive ? 'Control scene details' : 'Direct what happens'}
-                    </div>
-                  </div>
-                  <div className={`px-2 py-1 rounded text-xs font-medium ${
-                    storyActions.directorModeActive 
-                      ? 'bg-pink-600/20 text-pink-400' 
-                      : 'bg-gray-600/20 text-gray-400'
-                  }`}>
-                    {storyActions.directorModeActive ? 'ON' : 'OFF'}
-                  </div>
-                </button>
-              )}
+                    {/* Character Interactions */}
+                    {storyActions.onShowInteractions && (
+                      <button
+                        onClick={() => {
+                          onClose();
+                          storyActions.onShowInteractions?.();
+                        }}
+                        className="w-full flex items-center gap-3 p-2.5 hover:bg-white/10 rounded-lg transition-colors text-left group"
+                      >
+                        <div className="p-1.5 bg-white/10 rounded-lg group-hover:bg-white/20 transition-colors">
+                          <Users className="w-4 h-4 theme-accent-primary" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="text-sm font-medium text-white">Character Interactions</div>
+                          <div className="text-xs text-gray-400">View interaction history</div>
+                        </div>
+                      </button>
+                    )}
 
-              {/* Delete Mode */}
-              {storyActions.onDeleteMode && (
-                <button
-                  onClick={() => {
-                    onClose();
-                    storyActions.onDeleteMode?.();
-                  }}
-                  className="w-full flex items-center gap-3 p-3 hover:bg-white/10 rounded-lg transition-colors text-left group"
-                >
-                  <div className={`p-2 rounded-lg transition-colors ${
-                    storyActions.deleteModeActive 
-                      ? 'bg-red-600/20 group-hover:bg-red-600/30' 
-                      : 'bg-white/10 group-hover:bg-white/20'
-                  }`}>
-                    <Trash2 className={`w-5 h-5 ${storyActions.deleteModeActive ? 'text-red-400' : 'theme-accent-primary'}`} />
-                  </div>
-                  <div className="flex-1">
-                    <div className="font-medium text-white">Delete Mode</div>
-                    <div className={`text-xs ${storyActions.deleteModeActive ? 'text-red-400' : 'text-gray-400'}`}>
-                      {storyActions.deleteModeActive ? 'Select scenes to delete' : 'Remove scenes'}
-                    </div>
-                  </div>
-                  <div className={`px-2 py-1 rounded text-xs font-medium ${
-                    storyActions.deleteModeActive 
-                      ? 'bg-red-600/20 text-red-400' 
-                      : 'bg-gray-600/20 text-gray-400'
-                  }`}>
-                    {storyActions.deleteModeActive ? 'ON' : 'OFF'}
-                  </div>
-                </button>
-              )}
+                    {/* Entity States */}
+                    {storyActions.onShowEntityStates && (
+                      <button
+                        onClick={() => {
+                          onClose();
+                          storyActions.onShowEntityStates?.();
+                        }}
+                        className="w-full flex items-center gap-3 p-2.5 hover:bg-white/10 rounded-lg transition-colors text-left group"
+                      >
+                        <div className="p-1.5 bg-emerald-600/20 rounded-lg group-hover:bg-emerald-600/30 transition-colors">
+                          <Package className="w-4 h-4 text-emerald-400" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="text-sm font-medium text-white">Entity States</div>
+                          <div className="text-xs text-gray-400">View character, location & object states</div>
+                        </div>
+                      </button>
+                    )}
 
-              {/* Export Story */}
-              {storyActions.onExportStory && (
-                <button
-                  onClick={() => {
-                    onClose();
-                    storyActions.onExportStory?.();
-                  }}
-                  className="w-full flex items-center gap-3 p-3 hover:bg-white/10 rounded-lg transition-colors text-left group"
-                >
-                  <div className="p-2 bg-white/10 rounded-lg group-hover:bg-white/20 transition-colors">
-                    <FileText className="w-5 h-5 theme-accent-primary" />
+                    {/* Edit Character Roles */}
+                    {storyActions.onEditCharacterRoles && (
+                      <button
+                        onClick={() => {
+                          onClose();
+                          storyActions.onEditCharacterRoles?.();
+                        }}
+                        className="w-full flex items-center gap-3 p-2.5 hover:bg-white/10 rounded-lg transition-colors text-left group"
+                      >
+                        <div className="p-1.5 bg-amber-600/20 rounded-lg group-hover:bg-amber-600/30 transition-colors">
+                          <UserCog className="w-4 h-4 text-amber-400" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="text-sm font-medium text-white">Edit Character Roles</div>
+                          <div className="text-xs text-gray-400">Change roles in story</div>
+                        </div>
+                      </button>
+                    )}
+
+                    {/* View All Characters */}
+                    {storyActions.onViewAllCharacters && (
+                      <button
+                        onClick={() => {
+                          onClose();
+                          storyActions.onViewAllCharacters?.();
+                        }}
+                        className="w-full flex items-center gap-3 p-2.5 hover:bg-white/10 rounded-lg transition-colors text-left group"
+                      >
+                        <div className="p-1.5 bg-white/10 rounded-lg group-hover:bg-white/20 transition-colors">
+                          <User className="w-4 h-4 theme-accent-primary" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="text-sm font-medium text-white">View All Characters</div>
+                          <div className="text-xs text-gray-400">Character library</div>
+                        </div>
+                      </button>
+                    )}
                   </div>
-                  <div className="flex-1">
-                    <div className="font-medium text-white">Export Story</div>
-                    <div className="text-xs text-gray-400">Download as text</div>
-                  </div>
-                </button>
-              )}
+                )}
+              </div>
             </div>
           )}
 
@@ -584,4 +636,3 @@ export default function UnifiedMenu({
     </>
   );
 }
-

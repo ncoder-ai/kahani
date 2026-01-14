@@ -985,6 +985,29 @@ async def _try_combined_extraction(
                 db.commit()
                 results['entity_states'] += total_entity_states
                 logger.warning(f"[EXTRACTION] Combined: extracted {total_entity_states} entity states")
+                
+                # Create batch snapshots for all batch boundaries crossed during this extraction
+                # This enables rollback when scenes are deleted
+                batch_threshold = user_settings.get("context_summary_threshold", 5)
+                if last_sequence > 0:
+                    # Find the first scene in this extraction batch
+                    first_sequence = min([seq for _, seq, _, _ in scenes_data]) if scenes_data else 0
+                    
+                    # Find all batch boundaries between first_sequence and last_sequence
+                    # A batch boundary is at scene numbers 5, 10, 15, 20, etc.
+                    first_batch_boundary = ((first_sequence - 1) // batch_threshold + 1) * batch_threshold
+                    
+                    for batch_end in range(first_batch_boundary, last_sequence + 1, batch_threshold):
+                        if batch_end <= last_sequence:
+                            batch_start = batch_end - batch_threshold + 1
+                            try:
+                                entity_service.create_entity_state_batch_snapshot(
+                                    db, story_id, batch_start, batch_end, branch_id=branch_id
+                                )
+                                db.commit()
+                                logger.info(f"[EXTRACTION] Created entity state batch snapshot for scenes {batch_start}-{batch_end}")
+                            except Exception as e:
+                                logger.warning(f"[EXTRACTION] Failed to create batch snapshot for {batch_start}-{batch_end}: {e}")
             except Exception as e:
                 logger.error(f"Failed to process combined entity states: {e}")
                 db.rollback()

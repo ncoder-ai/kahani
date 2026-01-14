@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import apiClient, { VoiceStyle, VoiceStylePreset, VoiceStylePresetsResponse } from '@/lib/api';
 import { useRouter } from 'next/navigation';
+import RoleSelector, { CHARACTER_ROLES, isCustomRole, parseRoleValue, getFinalRoleValue } from '@/components/RoleSelector';
 
 interface CharacterFormProps {
   characterId?: number;
@@ -56,17 +57,6 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
   const [loadingPresets, setLoadingPresets] = useState(false);
   const [showVoiceCustomization, setShowVoiceCustomization] = useState(false);
 
-  // Character roles for story linking
-  const CHARACTER_ROLES = [
-    { id: 'protagonist', name: 'Main Character', icon: '⭐', color: 'from-yellow-400 to-orange-500' },
-    { id: 'antagonist', name: 'Antagonist', icon: '⚔️', color: 'from-red-500 to-red-700' },
-    { id: 'ally', name: 'Ally/Friend', icon: '🤝', color: 'from-green-400 to-green-600' },
-    { id: 'mentor', name: 'Mentor', icon: '🎓', color: 'from-blue-400 to-blue-600' },
-    { id: 'love_interest', name: 'Love Interest', icon: '💕', color: 'from-pink-400 to-pink-600' },
-    { id: 'comic_relief', name: 'Comic Relief', icon: '😄', color: 'from-purple-400 to-purple-600' },
-    { id: 'mysterious', name: 'Mysterious Figure', icon: '🎭', color: 'from-gray-500 to-gray-700' },
-    { id: 'other', name: 'Other', icon: '👤', color: 'from-indigo-400 to-indigo-600' }
-  ];
 
   // Load voice style presets on mount
   useEffect(() => {
@@ -619,36 +609,11 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
 
                   {/* Story Character Role Selection */}
                   {storyId && (
-                    <div className="space-y-4">
-                      <h4 className="text-lg font-semibold text-white">Character Role in Story</h4>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        {CHARACTER_ROLES.map((role) => {
-                          const isSelected = selectedRole === role.id;
-                          return (
-                            <button
-                              key={role.id}
-                              type="button"
-                              onClick={() => setSelectedRole(role.id)}
-                              className={`p-3 rounded-lg border-2 transition-all ${
-                                isSelected
-                                  ? 'border-2'
-                                  : 'border-white/20 hover:border-white/40'
-                              }`}
-                              style={isSelected ? {
-                                borderColor: 'var(--color-accentPrimary)',
-                                backgroundColor: 'var(--color-accentPrimary)',
-                                opacity: 0.2
-                              } as React.CSSProperties : {}}
-                            >
-                              <div className={`w-8 h-8 rounded-full bg-gradient-to-r ${role.color} flex items-center justify-center text-white text-lg mb-2 mx-auto`}>
-                                {role.icon}
-                              </div>
-                              <div className="text-white text-sm font-medium">{role.name}</div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
+                    <RoleSelector
+                      value={selectedRole}
+                      onChange={setSelectedRole}
+                      label="Character Role in Story"
+                    />
                   )}
                 </div>
 
@@ -1080,36 +1045,11 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
 
             {/* Story Character Role Selection */}
             {storyId && (
-              <div className="space-y-4">
-                <h3 className="text-xl font-semibold text-white">Character Role in Story</h3>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {CHARACTER_ROLES.map((role) => {
-                    const isSelected = selectedRole === role.id;
-                    return (
-                      <button
-                        key={role.id}
-                        type="button"
-                        onClick={() => setSelectedRole(role.id)}
-                        className={`p-3 rounded-lg border-2 transition-all ${
-                          isSelected
-                            ? 'border-2'
-                            : 'border-white/20 hover:border-white/40'
-                        }`}
-                        style={isSelected ? {
-                          borderColor: 'var(--color-accentPrimary)',
-                          backgroundColor: 'var(--color-accentPrimary)',
-                          opacity: 0.2
-                        } as React.CSSProperties : {}}
-                      >
-                        <div className={`w-8 h-8 rounded-full bg-gradient-to-r ${role.color} flex items-center justify-center text-white text-lg mb-2 mx-auto`}>
-                          {role.icon}
-                        </div>
-                        <div className="text-white text-sm font-medium">{role.name}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
+              <RoleSelector
+                value={selectedRole}
+                onChange={setSelectedRole}
+                label="Character Role in Story"
+              />
             )}
 
             {/* Settings */}

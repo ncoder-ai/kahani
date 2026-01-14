@@ -438,6 +438,10 @@ export default function ChapterBrainstormModal({
     try {
       const response = await apiClient.getChapterBrainstormElements(storyId, sessId);
       setStructuredElements(response.structured_elements);
+      // Also load any suggested elements parsed from the last message
+      if (response.suggested_elements) {
+        setSuggestedElements(response.suggested_elements);
+      }
     } catch (error) {
       console.error('Failed to load structured elements:', error);
     }
@@ -1423,10 +1427,11 @@ export default function ChapterBrainstormModal({
                     <button
                       type="button"
                       onClick={handleExtractPlot}
-                      disabled={messages.length < 2 || isExtracting}
+                      disabled={messages.length < 2 || isExtracting || getElementCount() < 5}
                       className="px-3 md:px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-500 active:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-xs touch-manipulation min-h-[44px]"
+                      title={getElementCount() < 5 ? `Confirm all 5 elements first (${getElementCount()}/5 confirmed)` : 'Extract chapter plot'}
                     >
-                      {isExtracting ? '...' : 'Extract'}
+                      {isExtracting ? '...' : `Extract (${getElementCount()}/5)`}
                     </button>
                   </div>
                 </div>

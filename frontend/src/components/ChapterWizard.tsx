@@ -122,6 +122,63 @@ export default function ChapterWizard({
           setScenario(initialData.chapter_plot.opening_situation);
         }
         
+        // Extract character IDs from brainstorm character review
+        // These are characters created or selected during the brainstorm character review phase
+        if (initialData.chapter_plot._characterIds && initialData.chapter_plot._characterIds.length > 0) {
+          const brainstormCharacterIds = initialData.chapter_plot._characterIds;
+          console.log('[ChapterWizard] Found brainstorm character IDs:', brainstormCharacterIds);
+          
+          // Add these as new characters to be linked to the chapter
+          setNewCharacterIds(prev => {
+            const newIds = new Set([...prev, ...brainstormCharacterIds]);
+            return Array.from(newIds);
+          });
+          
+          // Fetch character details for display and extract roles from new_character_suggestions
+          const fetchBrainstormCharacters = async () => {
+            try {
+              const characterDetails: { [characterId: number]: Character } = {};
+              const roles: { [characterId: number]: string } = {};
+              
+              // Build a map of character names to roles from new_character_suggestions
+              const nameToRole: { [name: string]: string } = {};
+              if (initialData.chapter_plot.new_character_suggestions) {
+                initialData.chapter_plot.new_character_suggestions.forEach((suggestion: { name: string; role: string }) => {
+                  if (suggestion.name && suggestion.role) {
+                    nameToRole[suggestion.name.toLowerCase()] = suggestion.role;
+                  }
+                });
+              }
+              
+              // Fetch each character's details
+              for (const charId of brainstormCharacterIds) {
+                try {
+                  const char = await apiClient.getCharacter(charId);
+                  characterDetails[charId] = {
+                    id: char.id,
+                    name: char.name,
+                    role: nameToRole[char.name.toLowerCase()] || 'other',
+                    description: char.description
+                  };
+                  roles[charId] = nameToRole[char.name.toLowerCase()] || 'other';
+                } catch (error) {
+                  console.error(`[ChapterWizard] Failed to fetch character ${charId}:`, error);
+                }
+              }
+              
+              if (Object.keys(characterDetails).length > 0) {
+                setNewCharacters(prev => ({ ...prev, ...characterDetails }));
+                setCharacterRoles(prev => ({ ...prev, ...roles }));
+                console.log('[ChapterWizard] Loaded brainstorm character details:', characterDetails);
+              }
+            } catch (error) {
+              console.error('[ChapterWizard] Failed to fetch brainstorm characters:', error);
+            }
+          };
+          
+          fetchBrainstormCharacters();
+        }
+        
         // Note: mood is displayed in the plot summary section, not as time_period
         // time_period is for things like "morning", "night", "1920s" - not emotional tone
       }

@@ -105,7 +105,7 @@ export default function CharacterReview({ characters, preSelectedCharacterIds = 
         // Check each pre-selected character
         for (const preSelectedName of preSelectedNames) {
           // Case 1: Substring match (one name fully contained in another)
-          // This catches "Character_B" in "Character_B Saran" or vice versa
+          // This catches "John" in "John Smith" or vice versa
           if (preSelectedName.includes(aiName) || aiName.includes(preSelectedName)) {
             console.log(`[CharacterReview] Filtering out "${char.name}" - substring match with "${chars.find(c => c.name.toLowerCase() === preSelectedName)?.name}"`);
             return false;

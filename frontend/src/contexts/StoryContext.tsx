@@ -6,11 +6,13 @@ export interface StoryActions {
   onChapters?: () => void;
   onAddCharacter?: () => void;
   onEditCharacterVoices?: () => void;
+  onEditCharacterRoles?: () => void;
   onViewAllCharacters?: () => void;
   onDirectorMode?: () => void;
   onDeleteMode?: () => void;
-  onExportStory?: () => void;
   onEditStorySettings?: () => void;
+  onShowInteractions?: () => void;
+  onShowEntityStates?: () => void;
   directorModeActive?: boolean;
   deleteModeActive?: boolean;
   // Character suggestion banner
