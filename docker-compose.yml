@@ -1,38 +1,7 @@
-# ============================================================================
-# KAHANI DOCKER COMPOSE CONFIGURATION
-# ============================================================================
-# First user to register becomes admin automatically
-# No default users - register your first account to get started
-#
-# ============================================================================
-# DATABASE SETUP INSTRUCTIONS
-# ============================================================================
-# 
-# PostgreSQL is now the default database (recommended for production)
-#   Step 1: Copy .env.example to .env (if not already done)
-#           cp .env.example .env
-#
-#   Step 2: Edit .env and set PostgreSQL credentials (optional - defaults provided):
-#           POSTGRES_USER=kahani
-#           POSTGRES_PASSWORD=your_secure_password_here
-#           POSTGRES_DB=kahani
-#           DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-#
-#   Step 3: Run: docker-compose up -d
-#
-# OPTION: To use SQLite instead (for development/testing)
-#   Step 1: Comment out the postgres service below (add # to each line)
-#   Step 2: Comment out the depends_on section in backend service
-#   Step 3: Comment out the volumes section at the bottom
-#   Step 4: Set DATABASE_URL=sqlite:///./data/kahani.db in .env (or leave default)
-#   Step 5: Run: docker-compose up -d
-#
-# ============================================================================
+# Kahani Docker Compose Configuration
+# See QUICK_START.md for setup instructions
 
 services:
-  # --------------------------------------------------------------------------
-  # PostgreSQL Database Service (Default)
-  # --------------------------------------------------------------------------
   postgres:
     image: postgres:16-alpine
     container_name: kahani-postgres
@@ -43,7 +12,7 @@ services:
     volumes:
       - ./postgres_data:/var/lib/postgresql/data
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"  # Optional: expose for external access
+      - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kahani} -d ${POSTGRES_DB:-kahani}"]
       interval: 5s
@@ -51,9 +20,6 @@ services:
       retries: 5
     restart: unless-stopped
 
-  # --------------------------------------------------------------------------
-  # Backend Service
-  # --------------------------------------------------------------------------
   backend:
     build: ./backend
     container_name: kahani-backend
@@ -66,16 +32,12 @@ services:
       - ./config.yaml:/app/config.yaml
       - ./backend/prompts.yml:/app/prompts.yml
       - ./backend/interaction_presets.yml:/app/interaction_presets.yml
-    # Run as root initially to set up permissions, then drop to app user
     user: "root"
     environment:
-      # Database URL - defaults to PostgreSQL, falls back to SQLite if DATABASE_URL is set to sqlite
-      # For PostgreSQL (default): Set DATABASE_URL in .env file (see .env.example)
-      # For SQLite: Set DATABASE_URL=sqlite:///./data/kahani.db in .env
       - DATABASE_URL=${DATABASE_URL:-postgresql://kahani:kahani@postgres:5432/kahani}
-      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY environment variable is required - see docs/SECURITY_SETUP.md}
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT_SECRET_KEY environment variable is required - see docs/SECURITY_SETUP.md}
-      - CORS_ORIGINS=${CORS_ORIGINS:-["http://localhost:6789"]}
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY required - see .env.example}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT_SECRET_KEY required - see .env.example}
+      - CORS_ORIGINS=${CORS_ORIGINS:-}
       - PORT=9876
       - TRANSFORMERS_CACHE=/app/.cache/huggingface
       - HF_HOME=/app/.cache/huggingface
@@ -84,7 +46,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    
+
   frontend:
     build: ./frontend
     container_name: kahani-frontend
@@ -92,25 +54,14 @@ services:
       - "6789:6789"
     environment:
       - PORT=6789
-      # NEXT_PUBLIC_API_URL is required for Docker (frontend container needs to reach backend container)
-      # Use Docker service name 'backend' for inter-container communication
-      # Override in .env if needed (e.g., for external access)
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://backend:9876}
     depends_on:
       - backend
-    # Enable logging with timestamps
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
-        tag: "kahani-frontend"
 
-# ============================================================================
-# VOLUMES
-# ============================================================================
-# Note: postgres_data is now a bind mount (./postgres_data folder) instead of a named volume
-# The database will be stored in ./postgres_data/ relative to this docker-compose.yml file
-# This makes it easy to backup, move, and manage the database files directly
-# volumes:
-#   postgres_data:
+# Note: postgres_data uses a bind mount (./postgres_data/) instead of a named volume
+# for easier backup and management of database files

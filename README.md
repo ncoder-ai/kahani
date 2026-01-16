@@ -1,299 +1,132 @@
-# 📚 Kahani - Interactive Storytelling Platform
+# Kahani - Interactive Storytelling Platform
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Python-3.11+-blue.svg" alt="Python Version">
-  <img src="https://img.shields.io/badge/Node.js-18+-green.svg" alt="Node.js Version">
-  <img src="https://img.shields.io/badge/FastAPI-Latest-teal.svg" alt="FastAPI">
-  <img src="https://img.shields.io/badge/Next.js-14-black.svg" alt="Next.js">
-  <img src="https://img.shields.io/badge/Docker-Supported-blue.svg" alt="Docker">
-  <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License">
-</p>
+Kahani (meaning "story" in Hindi) is an AI-powered interactive storytelling platform that combines advanced LLM integration with sophisticated story management, character tracking, and audio capabilities.
 
-Kahani (meaning "story" in Hindi) is a modern interactive storytelling platform that combines the power of AI with intuitive story management. Create, organize, and evolve your stories with AI assistance, configurable prompts, and a beautiful, responsive interface.
+## Features
 
-> **🚀 New here?** Check out the [5-Minute Quick Start Guide](QUICK_START.md) to get up and running fast!
+### AI-Powered Story Generation
+- **Multiple LLM Providers** - OpenAI, Anthropic, Ollama, LM Studio, and any OpenAI-compatible API
+- **Streaming Generation** - Real-time scene generation with live text streaming
+- **Prose Style Selection** - Balanced, dialogue-heavy, description-driven, stream of consciousness, minimalist, and more
+- **Smart Context Management** - Automatic context window optimization with three-tier summarization
+- **Extended Thinking** - Support for Claude's extended thinking with configurable reasoning effort
 
-> **⚙️ Configuration Issues?** See the [Configuration Guide](CONFIGURATION_GUIDE.md) for setup and troubleshooting.
+### Story & Chapter Management
+- **Story Modes** - Dynamic (AI-guided) or Structured (chapter-based) storytelling
+- **Chapter Organization** - Create, edit, and manage chapters with summaries and metadata
+- **Scene Variants** - Generate multiple versions of scenes and compare alternatives
+- **Story Branching** - Fork stories at any point to explore alternative timelines
+- **Interactive Choices** - AI-generated narrative choices for reader-driven stories
+- **Auto-Save** - Automatic story and scene persistence
 
-## ✨ Features
+### AI Brainstorming System
+- **Brainstorm Sessions** - Multi-turn chat conversations with AI to develop story ideas
+- **Chapter Brainstorming** - Plan individual chapters with plot guidance
+- **Story Arc Generation** - Automatic three-act structure creation
+- **Element Extraction** - Auto-extract characters, plot points, and story elements from brainstorm
+- **Plot Event Tracking** - Track key events and milestones per chapter
 
-### 🤖 **AI-Powered Story Generation**
-- **Multiple LLM Providers**: LM Studio, Ollama, OpenAI, Anthropic, and more
-- **Local AI Support**: Run completely offline with local models
-- **Smart Context Management**: Automatic context optimization and token management
-- **Semantic Memory**: AI-powered story memory and character tracking
+### Character System
+- **Character Library** - Create reusable character templates with detailed profiles
+- **Character Profiles** - Name, personality, background, goals, fears, appearance, and custom traits
+- **Story Characters** - Link characters to stories with specific roles
+- **AI Character Generation** - Create characters from text descriptions
+- **Character Suggestions** - AI-suggested characters based on story context
 
-### 📝 **Advanced Story Management**
-- **Three-Tier Summary System**: Chapter summaries, story-so-far, and overall narrative summaries
-- **Character Management**: Create, edit, and track characters throughout your story
-- **Plot Thread Tracking**: Follow multiple storylines and plot developments
-- **Entity State Management**: Track character relationships and story world consistency
+### Entity & State Tracking
+- **Character States** - Track location, emotional state, possessions, knowledge, relationships, and arc progress
+- **Location States** - Monitor atmosphere, occupants, environmental conditions
+- **Object States** - Track significant items, ownership, and history
+- **Automatic Extraction** - AI extracts entity states from scenes
+- **Relationship Mapping** - Track character-to-character relationships
 
-### 🎵 **Text-to-Speech Integration**
-- **Multiple TTS Providers**: OpenAI, Kokoro, Chatterbox, and custom providers
-- **Progressive Streaming**: Real-time audio generation and playback
-- **Voice Persistence**: Remember character voices across sessions
-- **WebSocket Support**: Real-time audio streaming with retry logic
+### Semantic Memory & Context
+- **Semantic Search** - Find similar scenes, character moments, and plot events by meaning
+- **Character Arc Tracking** - View complete character journeys chronologically
+- **Plot Thread Tracking** - Identify and track unresolved story threads
+- **Smart Context Selection** - Intelligent inclusion of relevant context for generation
+- **Character Moment Extraction** - Automatically identify important character development moments
 
-### 🎨 **User Experience**
-- **Responsive Design**: Works seamlessly on desktop and mobile
-- **Keyboard Navigation**: Navigate scenes with arrow keys (← previous, → regenerate)
-- **Scene Regeneration**: Regenerate scenes you don't like with a single keypress
-- **Scene History**: Navigate back through scene versions with full history tracking
-- **Auto-Save**: Automatic story and scene persistence
-- **Auto-Resume**: Automatically opens your last worked-on story
+### Text-to-Speech (TTS)
+- **Multiple Providers** - OpenAI TTS, Kokoro, Chatterbox, VibeVoice, and custom providers
+- **Character Voices** - Assign different voices to different characters
+- **Progressive Streaming** - Real-time audio generation and playback
+- **Voice Browser** - Browse and preview available voices
+- **Global TTS Widget** - Unified audio controls
 
-### 🔐 **Security & Authentication**
-- **JWT Authentication**: Secure token-based authentication
-- **User Management**: Registration, login, and user settings
-- **Admin Panel**: User management and system configuration
+### Speech-to-Text (STT)
+- **Whisper Integration** - Local speech recognition using faster-whisper
+- **Multiple Models** - Choose from tiny, base, small, medium, or large models
+- **Real-time Streaming** - WebSocket-based live transcription
+- **Voice Activity Detection** - Automatic speech detection with Silero VAD
 
-### 🐳 **Deployment**
-- **Docker Ready**: Easy deployment with Docker and Docker Compose
-- **Database Support**: SQLite (default) or PostgreSQL (production)
-- **Network Configuration**: Automatic network detection for local development
-- **Environment Management**: Template-based configuration system
-- **Production Ready**: Nginx configuration and production optimizations
+### Writing Customization
+- **Writing Presets** - Save custom system prompts and generation configurations
+- **Prose Styles** - Multiple built-in styles with detailed instructions
+- **POV Selection** - First, second, or third person perspective
+- **Custom Templates** - Define custom text completion templates with variables
 
-## 🚀 Quick Start
+### User & Admin Features
+- **User Management** - Registration, approval workflow, and permissions
+- **Per-User Settings** - Each user configures their own LLM and TTS settings
+- **Permission System** - Control access to NSFW content, provider changes, exports, etc.
+- **Admin Panel** - User management, approvals, and system statistics
 
-### **Option 1: Automated Setup (Recommended)**
+## Quick Start
 
+**Docker (Recommended):**
 ```bash
-# Clone the repository
 git clone https://github.com/ncoder-ai/kahani.git
 cd kahani
-
-# Set up environment (automated)
-./setup-env.sh
-
-# Start the development server
-./start-dev.sh
-```
-
-**That's it!** The setup script will:
-- ✅ Create environment configuration from template
-- ✅ Auto-detect network configuration
-- ✅ Download AI models (one-time setup)
-- ✅ Start both frontend and backend servers
-
-**Access the application**: http://localhost:6789
-
-### **Option 2: Docker Deployment**
-
-```bash
-# Clone the repository
-git clone https://github.com/ncoder-ai/kahani.git
-cd kahani
-
-# Set up environment
-./setup-env.sh
-
-# Start with Docker
+cp .env.example .env
+# Edit .env and set SECRET_KEY and JWT_SECRET_KEY (see .env.example for instructions)
 docker-compose up -d
 ```
 
-**Access the application**: http://localhost:6789
+Access the app at http://localhost:6789
 
-### **Option 3: Manual Setup**
-
+**Baremetal:**
 ```bash
-# Clone the repository
 git clone https://github.com/ncoder-ai/kahani.git
 cd kahani
-
-# Set up environment
-./setup-env.sh
-
-# Install dependencies
-cd backend && pip install -r requirements.txt
-cd ../frontend && npm install
-
-# Start backend
-cd backend && uvicorn app.main:app --reload --host 0.0.0.0 --port 9876
-
-# Start frontend (in another terminal)
-cd frontend && npm run dev
+./install.sh
+./start-dev.sh
 ```
 
-## ⚙️ Configuration
+See [QUICK_START.md](QUICK_START.md) for detailed setup instructions.
 
-### **Environment Setup**
-
-The application uses a template-based configuration system:
-
-```bash
-# Set up environment (creates .env from .env.example)
-./setup-env.sh
-
-# Validate configuration
-./validate-config.sh
-```
-
-### **Network Configuration**
-
-Kahani automatically detects network configuration for different deployment scenarios:
-
-- **Development**: Auto-detects network IP for local network access
-- **Docker**: Uses container networking
-- **Production**: Uses environment variables
-
-### **Configuration Structure**
+## Configuration
 
 Kahani uses a two-file configuration system:
+- **`config.yaml`** - All application settings (ports, features, defaults)
+- **`.env`** - Secrets only (SECRET_KEY, JWT_SECRET_KEY)
 
-- **`config.yaml`**: Contains ALL configuration defaults (ports, database URLs, feature flags, etc.)
-- **`.env`**: Contains ONLY secrets (JWT_SECRET_KEY, SECRET_KEY)
+LLM and TTS settings are configured per-user through the web interface Settings panel.
 
-**Key Points:**
-- All non-sensitive defaults are in `config.yaml`
-- Secrets are NOT in `config.yaml` - must be set via `.env` file
-- Environment variables can override any `config.yaml` value
-- No hardcoded defaults in code - everything comes from `config.yaml`
+See [CONFIGURATION_GUIDE.md](CONFIGURATION_GUIDE.md) for details.
 
-See `CONFIGURATION_GUIDE.md` for detailed configuration documentation.
+## Requirements
 
-### **LLM Configuration**
+- **Docker** (recommended) OR Python 3.11+ and Node.js 20.9.0+
+- **LLM Provider** - Local (Ollama, LM Studio) or cloud (OpenAI, Anthropic)
 
-Configure your AI model through the application Settings UI (not in `.env`):
+## Documentation
 
-1. Go to **Settings** → **LLM Settings**
-2. Enter your LLM API URL (e.g., `http://localhost:1234/v1` for local models)
-3. Select your API type (OpenAI-compatible, Ollama, etc.)
-4. Enter your model name and API key (if required)
+| Document | Description |
+|----------|-------------|
+| [QUICK_START.md](QUICK_START.md) | Setup and installation guide |
+| [CONFIGURATION_GUIDE.md](CONFIGURATION_GUIDE.md) | Configuration reference |
+| [docs/EXTRACTION_MODEL_SETUP.md](docs/EXTRACTION_MODEL_SETUP.md) | Local extraction model setup |
+| [docs/tts-quick-start.md](docs/tts-quick-start.md) | TTS provider configuration |
 
-**Note:** LLM configuration is stored per-user in the database. Each user configures their own LLM settings through the web interface. See `config.yaml` for default LLM provider URLs.
+## Tech Stack
 
-### **TTS Configuration**
+**Backend:** FastAPI, SQLAlchemy, Alembic, LiteLLM, ChromaDB, faster-whisper
 
-Configure text-to-speech in the application settings:
+**Frontend:** Next.js 16, React 19, Tailwind CSS, Zustand
 
-- **OpenAI TTS**: High-quality voices with API key
-- **Kokoro TTS**: Ultrafast TTS
-- **Chatterbox**: Local TTS with custom voices
-- **Custom Providers**: Add your own TTS providers
+**Database:** PostgreSQL (default) or SQLite
 
-## 📁 Project Structure
+## License
 
-```
-kahani/
-├── README.md                    # This file
-├── QUICK_START.md              # Quick start guide
-├── CONFIGURATION_GUIDE.md      # Configuration documentation
-├── config.yaml                 # Main application configuration
-├── .env.example                # Environment variables template
-├── setup-env.sh               # Environment setup script
-├── validate-config.sh         # Configuration validation
-├── start-dev.sh               # Development server
-├── start-prod.sh              # Production server
-├── install.sh                 # Installation script
-├── backend/                   # Backend API (FastAPI)
-│   ├── app/
-│   │   ├── api/              # API endpoints
-│   │   ├── models/           # Database models
-│   │   ├── services/         # Business logic
-│   │   └── utils/            # Utilities
-│   └── requirements.txt       # Python dependencies
-├── frontend/                  # Frontend (Next.js)
-│   ├── src/
-│   │   ├── app/             # Next.js app router
-│   │   ├── components/      # React components
-│   │   └── lib/             # Utilities
-│   └── package.json         # Node.js dependencies
-├── docs/                     # Documentation
-└── docker-compose.yml        # Docker configuration
-```
-
-## 🔧 Development
-
-### **Prerequisites**
-
-- **Python 3.11+**
-- **Node.js 18+**
-- **Git**
-- **LLM Server** (optional): [LM Studio](https://lmstudio.ai/) or [Ollama](https://ollama.ai/)
-
-### **Development Workflow**
-
-```bash
-# Start development server
-./start-dev.sh
-
-# Validate configuration
-./validate-config.sh
-
-# Check logs
-tail -f logs/kahani.log
-```
-
-### **Database Management**
-
-```bash
-
-# Initialize database
-cd backend && python init_database.py
-
-# Upgrade database schema (run Alembic migrations)
-cd backend && alembic upgrade head
-
-# Backup database
-cd backend && python backup_database.py
-```
-
-## 🐳 Docker Deployment
-
-### **Development**
-
-```bash
-# Start with Docker
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Stop services
-docker-compose down
-```
-
-### **Production**
-
-```bash
-# Start production services
-docker-compose -f docker-compose.network.yml up -d
-
-# With custom configuration
-KAHANI_ENV=production docker-compose -f docker-compose.network.yml up -d
-```
-
-## 📚 Documentation
-
-| Guide | Description |
-|-------|-------------|
-| [QUICK_START.md](QUICK_START.md) | 5-minute setup guide |
-| [CONFIGURATION_GUIDE.md](CONFIGURATION_GUIDE.md) | Complete configuration guide |
-| [docs/](docs/) | Feature setup and settings documentation |
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/amazing-feature`
-3. Commit your changes: `git commit -m 'Add amazing feature'`
-4. Push to the branch: `git push origin feature/amazing-feature`
-5. Open a Pull Request
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- **FastAPI** for the excellent Python web framework
-- **Next.js** for the React framework
-- **Tailwind CSS** for styling
-- **ChromaDB** for vector storage
-- **LiteLLM** for LLM provider abstraction
-- **All the AI model providers** for making this possible
-
----
-
-**Made with ❤️ for storytellers everywhere**
+MIT License - see [LICENSE](LICENSE) for details.

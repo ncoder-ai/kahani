@@ -1,200 +1,160 @@
-# 🚀 Kahani Quick Start Guide
+# Kahani Quick Start Guide
 
-Get Kahani running in **under 5 minutes** with Docker!
-
-## 🐳 Docker Installation (Recommended)
+## Docker Setup (Recommended)
 
 ### Prerequisites
 - Docker and Docker Compose installed
-- Git installed
+- Git
 
-### Step 1: Clone Repository
+### Step 1: Clone and Configure
+
 ```bash
-# Clone the repository
 git clone https://github.com/ncoder-ai/kahani.git
 cd kahani
+cp .env.example .env
 ```
 
-### Step 2: Create .env File with Secrets
+Edit `.env` and set your secret keys:
 ```bash
-# Generate secrets
-python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_urlsafe(32))"
-python3 -c "import secrets; print('JWT_SECRET_KEY=' + secrets.token_urlsafe(32))"
+# Generate secrets with:
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 
-# Create .env file with the generated secrets
-# If .env.example exists, copy it first:
-# cp .env.example .env
-# Then edit .env and add the generated secrets above
-# Or manually create .env:
-cat > .env << EOF
-SECRET_KEY=your-generated-secret-key-here
-JWT_SECRET_KEY=your-generated-jwt-secret-key-here
-EOF
+# Add to .env:
+SECRET_KEY=your-generated-secret-here
+JWT_SECRET_KEY=your-generated-secret-here
 ```
 
-**Important:** Replace `your-generated-secret-key-here` with the actual generated secrets above.
+### Step 2: Start Services
 
-### Step 3: Start with Docker
 ```bash
 docker-compose up -d
 ```
 
-### Step 4: Check Status
-```bash
-# Check status
-docker-compose ps
-```
+### Step 3: Access the App
 
-### Step 5: Access the Application
 - **Frontend**: http://localhost:6789
 - **Backend API**: http://localhost:9876
-- **API Documentation**: http://localhost:9876/docs
+- **API Docs**: http://localhost:9876/docs
 
-**That's it!** 🎉
-
-### Using PostgreSQL (Optional)
-
-By default, Kahani uses SQLite. For production or better performance, you can use PostgreSQL:
-
-1. **Edit `.env` file** and add PostgreSQL credentials:
-   ```bash
-   POSTGRES_USER=kahani
-   POSTGRES_PASSWORD=your_secure_password_here
-   POSTGRES_DB=kahani
-   DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-   ```
-
-2. **Edit `docker-compose.yml`**:
-   - Uncomment the `postgres` service (remove `#` from lines 42-58)
-   - Uncomment the `depends_on` section in the `backend` service (lines 88-90)
-   - Uncomment the `volumes` section at the bottom (line 117)
-
-3. **Start services**:
-   ```bash
-   docker-compose up -d
-   ```
-
-The backend will automatically detect PostgreSQL and use it instead of SQLite.
+Register your first account - the first user automatically becomes admin.
 
 ---
 
-## 🖥️ Baremetal Installation (Advanced)
+## Baremetal Setup
 
 ### Prerequisites
 - Python 3.11+
-- Node.js 20.9.0+ (required for Next.js 16)
-- npm 10+ (comes with Node.js 20.9.0+)
+- Node.js 20.9.0+
 - Git
 
 ### Step 1: Clone and Install
+
 ```bash
-# Clone the repository
 git clone https://github.com/ncoder-ai/kahani.git
 cd kahani
-
-# Install the application
 ./install.sh
 ```
 
+The install script will:
+- Create Python virtual environment
+- Install Python and Node.js dependencies
+- Generate secret keys in `.env`
+- Run database migrations
+- Download required AI models
+
 ### Step 2: Start Development Server
+
 ```bash
-# Start both frontend and backend
 ./start-dev.sh
 ```
 
-### Step 3: Access the Application
+### Step 3: Access the App
+
 - **Frontend**: http://localhost:6789
 - **Backend API**: http://localhost:9876
 
 ---
 
-## ⚙️ Configuration
+## First Steps
 
-### LLM Setup
-Configure your AI model through the application Settings:
-
-1. Go to **Settings** → **LLM Settings**
-2. Enter your LLM API URL (e.g., `http://localhost:1234/v1` for local models like LM Studio or Ollama)
-3. Select your API type (OpenAI-compatible, Ollama, etc.)
-4. Enter your model name and API key (if required)
-
-**Note:** LLM configuration is stored per-user. Each user configures their own LLM settings through the web interface.
-
-### Local Extraction Model (Optional)
-Reduce costs by using a small local model for plot event extraction:
-
-1. Set up an OpenAI-compatible inference server (LM Studio, Ollama, etc.)
-2. Go to **Settings** → **Context Settings** → **Local Extraction Model**
-3. Select a preset (LM Studio, Ollama, etc.) or configure custom endpoint
-4. Test connection and enable extraction model
-5. Extraction will use local model, story generation uses your main LLM
-
-**See [Extraction Model Setup Guide](docs/EXTRACTION_MODEL_SETUP.md) for detailed instructions.**
-
-### TTS Setup
-Configure text-to-speech in the application:
-1. Go to **Settings** → **TTS Settings**
-2. Choose your TTS provider
-3. Configure voice and speed preferences
+1. **Register an account** - First user becomes admin
+2. **Configure LLM** - Go to Settings → LLM Settings
+   - Enter your LLM API URL (e.g., `http://localhost:1234/v1` for LM Studio)
+   - Select API type and enter model name
+3. **Create a story** - Click "New Story" on the dashboard
+4. **Generate scenes** - Use AI to generate your first scene
 
 ---
 
-## 🎯 First Steps
+## Database Options
 
-1. **Register an account** at http://localhost:6789
-2. **Create your first story**
-3. **Generate a scene** with AI assistance
-4. **Try the TTS feature** to hear your story narrated
-5. **Explore character management** and story organization
+**PostgreSQL (Default for Docker)**
 
----
+Docker Compose uses PostgreSQL by default. Data is stored in `./postgres_data/`.
 
-## 🔧 Troubleshooting
+**SQLite (Simpler Alternative)**
 
-### Docker Issues
+To use SQLite instead, set in `.env`:
 ```bash
-# View logs
-docker-compose logs -f
-
-# Restart services
-docker-compose restart
-
-# Rebuild if needed
-docker-compose build --no-cache
+DATABASE_URL=sqlite:///./data/kahani.db
 ```
 
-### Baremetal Issues
-```bash
-# Check backend logs
-tail -f backend/logs/kahani.log
+And comment out the postgres service in `docker-compose.yml`.
 
-# Verify dependencies
-cd backend && pip list
-cd frontend && npm list
+---
+
+## Common Commands
+
+```bash
+# Docker
+docker-compose up -d          # Start services
+docker-compose down           # Stop services
+docker-compose logs -f        # View logs
+docker-compose restart        # Restart services
+
+# Baremetal
+./start-dev.sh               # Start development server
+./install.sh                 # Reinstall/update dependencies
+
+# Database
+cd backend && alembic upgrade head    # Run migrations
 ```
 
-### Common Issues
-- **Port conflicts**: Change ports in `config.yaml` (under `server.backend.port` and `server.frontend.port`)
-- **Model download**: First run downloads AI models (~200MB)
-- **Database**: Automatically created on first run (SQLite by default, PostgreSQL if configured)
-- **PostgreSQL connection**: If using PostgreSQL, ensure the postgres service is healthy before backend starts
-- **Configuration**: All settings are in `config.yaml`, only secrets go in `.env`
+---
+
+## Troubleshooting
+
+**Port already in use**
+
+Change ports in `config.yaml` under `server.backend.port` and `server.frontend.port`.
+
+**Backend not reachable from browser**
+
+If accessing via IP address (not localhost), ensure CORS is configured in `config.yaml`:
+```yaml
+cors:
+  origins: "*"
+```
+
+**Docker container won't start**
+
+Check logs: `docker-compose logs backend`
+
+Common issues:
+- Missing `.env` file or secret keys
+- Port conflicts with other services
+- Database connection issues (wait for postgres to be healthy)
+
+**LLM not responding**
+
+1. Verify your LLM server is running
+2. Check the API URL in Settings → LLM Settings
+3. Test with: `curl http://your-llm-url/v1/models`
 
 ---
 
-## 📚 Next Steps
+## Next Steps
 
-- **Configuration Guide**: See `CONFIGURATION_GUIDE.md` for detailed setup
-- **Documentation**: Check `docs/` folder for feature guides
-
----
-
-## 🆘 Need Help?
-
-- **Issues**: [GitHub Issues](https://github.com/ncoder-ai/kahani/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/ncoder-ai/kahani/discussions)
-- **Documentation**: Check the `docs/` folder
-
----
-
-**Happy storytelling!** 📖✨
+- [CONFIGURATION_GUIDE.md](CONFIGURATION_GUIDE.md) - Detailed configuration options
+- [docs/EXTRACTION_MODEL_SETUP.md](docs/EXTRACTION_MODEL_SETUP.md) - Set up local extraction model
+- [docs/tts-quick-start.md](docs/tts-quick-start.md) - Configure text-to-speech
