@@ -71,3 +71,4 @@ def downgrade():
     op.drop_column('stories', 'interaction_types')
 
 
+
