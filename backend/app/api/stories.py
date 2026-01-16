@@ -54,6 +54,8 @@ extraction_progress_store = {}
 
 # Per-chapter extraction locks to prevent concurrent plot extractions
 _chapter_extraction_locks: Dict[int, asyncio.Lock] = {}
+# Per-story entity extraction locks to prevent concurrent entity recalculations
+_story_entity_extraction_locks: Dict[int, asyncio.Lock] = {}
 _lock_dict_lock = asyncio.Lock()
 
 async def get_chapter_extraction_lock(chapter_id: int) -> asyncio.Lock:
@@ -62,6 +64,13 @@ async def get_chapter_extraction_lock(chapter_id: int) -> asyncio.Lock:
         if chapter_id not in _chapter_extraction_locks:
             _chapter_extraction_locks[chapter_id] = asyncio.Lock()
         return _chapter_extraction_locks[chapter_id]
+
+async def get_story_entity_extraction_lock(story_id: int) -> asyncio.Lock:
+    """Get or create a lock for the given story's entity extraction."""
+    async with _lock_dict_lock:
+        if story_id not in _story_entity_extraction_locks:
+            _story_entity_extraction_locks[story_id] = asyncio.Lock()
+        return _story_entity_extraction_locks[story_id]
 
 def safe_get_custom_prompt(request, logger=None):
     """Safely extract custom_prompt from request, handling various input types"""
@@ -2297,6 +2306,72 @@ async def run_extractions_in_background(
         logger.error(f"[EXTRACTION] Background extraction failed: {e}")
         import traceback
         logger.error(f"[EXTRACTION] Traceback: {traceback.format_exc()}")
+
+
+async def recalculate_entities_in_background(
+    story_id: int,
+    user_id: int,
+    user_settings: dict,
+    up_to_sequence: int,
+    branch_id: int = None
+):
+    """Recalculate entity states in background after scene edit.
+
+    This runs asynchronously to avoid blocking the HTTP request when editing
+    scenes at threshold boundaries (e.g., sequence % 5 == 0).
+
+    Args:
+        story_id: Story ID
+        user_id: User ID
+        user_settings: User settings dictionary
+        up_to_sequence: Sequence number to recalculate up to
+        branch_id: Optional branch ID
+    """
+    try:
+        # Acquire lock for this story to prevent concurrent entity extractions
+        lock = await get_story_entity_extraction_lock(story_id)
+
+        # Try to acquire lock without blocking - if already locked, skip this extraction
+        if lock.locked():
+            logger.warning(f"[BACKGROUND:ENTITY] Story {story_id} entity extraction already in progress, skipping")
+            return
+
+        async with lock:
+            # Delay to ensure database commits from main session are visible
+            await asyncio.sleep(0.3)
+
+            from ..database import SessionLocal
+            from ..services.entity_state_service import EntityStateService
+
+            extraction_db = SessionLocal()
+            try:
+                logger.info(f"[BACKGROUND:ENTITY] Starting entity recalculation for story {story_id} up to sequence {up_to_sequence}")
+
+                entity_service = EntityStateService(user_id=user_id, user_settings=user_settings)
+                result = await entity_service.recalculate_entity_states_from_batches(
+                    extraction_db, story_id, user_id, user_settings,
+                    up_to_sequence, branch_id=branch_id
+                )
+
+                extraction_db.commit()
+
+                if result.get("recalculation_successful"):
+                    logger.info(f"[BACKGROUND:ENTITY] Completed entity recalculation for story {story_id}: "
+                               f"{result.get('scenes_processed', 0)} scenes processed, "
+                               f"{result.get('characters_restored', 0)} characters restored")
+                else:
+                    logger.error(f"[BACKGROUND:ENTITY] Entity recalculation failed for story {story_id}")
+
+            except Exception as e:
+                logger.error(f"[BACKGROUND:ENTITY] Entity recalculation failed: {e}")
+                import traceback
+                logger.error(f"[BACKGROUND:ENTITY] Traceback: {traceback.format_exc()}")
+                extraction_db.rollback()
+            finally:
+                extraction_db.close()
+
+    except Exception as e:
+        logger.error(f"[BACKGROUND:ENTITY] Failed to start entity recalculation: {e}")
 
 
 async def run_plot_extraction_in_background(
@@ -5638,11 +5713,16 @@ async def update_scene_variant(
         # Check if scene is at extraction threshold - if so, regenerate entity states
         batch_threshold = user_settings.get("context_summary_threshold", 5) if user_settings else 5
         if scene.sequence_number % batch_threshold == 0:
-            await entity_service.recalculate_entity_states_from_batches(
-                db, story_id, current_user.id, user_settings,
-                scene.sequence_number, branch_id=scene.branch_id
-            )
-            logger.info(f"[MODIFY] Regenerated entity states at threshold for scene {scene_id}")
+            # Run entity recalculation in background to avoid blocking the HTTP request
+            import asyncio
+            asyncio.create_task(recalculate_entities_in_background(
+                story_id=story_id,
+                user_id=current_user.id,
+                user_settings=user_settings,
+                up_to_sequence=scene.sequence_number,
+                branch_id=scene.branch_id
+            ))
+            logger.info(f"[MODIFY] Scheduled entity state regeneration for scene {scene_id}")
         
         # Check if scene is at plot extraction threshold - if so, trigger plot event extraction
         plot_threshold = user_settings.get('context_settings', {}).get('plot_event_extraction_threshold', 5) if user_settings else 5
