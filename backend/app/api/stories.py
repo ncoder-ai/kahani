@@ -1899,12 +1899,13 @@ async def run_interaction_extraction_background(
                     
                     if not scene_content:
                         continue
-                    
-                    # Truncate to first 800 chars for batch efficiency
-                    truncated = scene_content[:800]
-                    if len(scene_content) > 800:
+
+                    # Truncate to first 1500 chars for batch efficiency
+                    # (increased from 800 to capture more interaction-relevant content)
+                    truncated = scene_content[:1500]
+                    if len(scene_content) > 1500:
                         truncated += "..."
-                    
+
                     batch_content_parts.append(f"[SCENE {scene.sequence_number}]\n{truncated}")
                     scene_sequence_map[idx] = scene.sequence_number
                 

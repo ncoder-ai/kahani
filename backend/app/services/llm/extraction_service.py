@@ -670,30 +670,32 @@ If no NPCs found, return {{"npcs": []}}. Return ONLY the JSON, no other text."""
         scene_sequence: int,
         character_names: List[str],
         chapter_location: str = None,
-        system_prompt: str = None
+        system_prompt: str = None,
+        interaction_types: List[str] = None
     ) -> Dict[str, Any]:
         """
         Extract entity state changes from a scene
-        
+
         Args:
             scene_content: Scene text to analyze
             scene_sequence: Scene sequence number
             character_names: List of known character names
             chapter_location: Chapter-level location for hierarchical context
             system_prompt: System prompt for the model (optional, uses prompts.yml if not provided)
-            
+            interaction_types: List of interaction types to detect (e.g., ["first kiss", "first argument"])
+
         Returns:
-            Dictionary with 'characters', 'locations', 'objects' arrays
+            Dictionary with 'characters', 'locations', 'objects', and optionally 'interactions' arrays
         """
         try:
             from litellm import acompletion
-            
+
             # Get prompts from centralized prompts.yml
             if system_prompt is None:
                 system_prompt = prompt_manager.get_prompt("entity_state_extraction.extraction_service", "system")
                 if not system_prompt:
                     system_prompt = "You are a precise story state tracker. Extract entity states as JSON. Focus on FACTS, not interpretation."
-            
+
             prompt = prompt_manager.get_prompt(
                 "entity_state_extraction.extraction_service", "user",
                 scene_sequence=scene_sequence,
@@ -701,7 +703,7 @@ If no NPCs found, return {{"npcs": []}}. Return ONLY the JSON, no other text."""
                 character_names=', '.join(character_names),
                 chapter_location=chapter_location or "Unknown"
             )
-            
+
             # Fallback if template not found
             if not prompt:
                 prompt = f"""Chapter Location: {chapter_location or "Unknown"}
@@ -712,7 +714,29 @@ Scene #{scene_sequence}:
 Known Characters: {', '.join(character_names)}
 
 Extract entity states as JSON with characters, locations, objects arrays."""
-            
+
+            # Add interaction extraction if interaction types are configured
+            if interaction_types:
+                interaction_section = f"""
+
+INTERACTION TYPES TO DETECT:
+The story is tracking these specific interaction types: {json.dumps(interaction_types)}
+
+If ANY of these interactions occur for the FIRST TIME between two characters in this scene,
+include them in the "interactions" array. Only report interactions that are EXPLICITLY shown
+happening in this scene, not referenced or remembered.
+
+For interactions, return:
+{{
+  "interaction_type": "the exact type from the list above",
+  "character_a": "first character name",
+  "character_b": "second character name",
+  "description": "brief factual description of what happened"
+}}
+
+Include "interactions": [] in your JSON response (empty array if no tracked interactions detected)."""
+                prompt += interaction_section
+
             params = self._get_generation_params()
             response = await acompletion(
                 **params,
@@ -722,10 +746,10 @@ Extract entity states as JSON with characters, locations, objects arrays."""
                 ],
                 timeout=self.timeout.total
             )
-            
+
             content = response.choices[0].message.content.strip()
             return self._parse_json_dict(content)
-            
+
         except Exception as e:
             logger.error(f"Failed to extract entity states with extraction model: {e}")
             raise

@@ -405,9 +405,10 @@ class EntityStateService:
                     scene_content=scene_content,
                     scene_sequence=scene_sequence,
                     character_names=character_names,
-                    chapter_location=chapter_location
+                    chapter_location=chapter_location,
+                    interaction_types=interaction_types  # Pass interaction types for extraction
                 )
-                
+
                 # Validate state changes
                 validated = self._validate_state_changes(state_changes)
                 if validated:
