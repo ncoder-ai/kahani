@@ -379,6 +379,7 @@ class BranchService:
                 
                 new_choice = SceneChoice(
                     scene_id=new_scene.id,
+                    branch_id=new_branch_id,  # Set branch_id for the new branch
                     scene_variant_id=new_variant_id,
                     choice_text=choice.choice_text,
                     choice_description=choice.choice_description,
