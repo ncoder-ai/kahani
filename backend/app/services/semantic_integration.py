@@ -40,8 +40,9 @@ def get_context_manager_for_user(user_settings: Dict[str, Any], user_id: int) ->
         logger.debug("Semantic memory disabled globally, using standard ContextManager")
         return ContextManager(user_settings=user_settings, user_id=user_id)
     
-    # Check user-specific settings
-    if user_settings and user_settings.get("context_strategy") == "linear":
+    # Check user-specific settings (context_strategy is nested under context_settings)
+    ctx_settings = user_settings.get("context_settings", {}) if user_settings else {}
+    if ctx_settings.get("context_strategy") == "linear":
         logger.debug("User prefers linear context, using standard ContextManager")
         return ContextManager(user_settings=user_settings, user_id=user_id)
     

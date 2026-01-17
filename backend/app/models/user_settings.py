@@ -58,6 +58,7 @@ class UserSettings(Base):
     auto_extract_plot_events = Column(Boolean, nullable=True)
     extraction_confidence_threshold = Column(Integer, nullable=True)
     plot_event_extraction_threshold = Column(Integer, nullable=True)
+    fill_remaining_context = Column(Boolean, nullable=True)  # Fill remaining context with older scenes
     
     # Story Generation Preferences
     default_genre = Column(String(100), nullable=True)
@@ -176,7 +177,8 @@ class UserSettings(Base):
                 "auto_extract_character_moments": self.auto_extract_character_moments if self.auto_extract_character_moments is not None else ctx_defaults.get("auto_extract_character_moments", True),
                 "auto_extract_plot_events": self.auto_extract_plot_events if self.auto_extract_plot_events is not None else ctx_defaults.get("auto_extract_plot_events", True),
                 "extraction_confidence_threshold": self.extraction_confidence_threshold if self.extraction_confidence_threshold is not None else ctx_defaults.get("extraction_confidence_threshold", 70),
-                "plot_event_extraction_threshold": self.plot_event_extraction_threshold if self.plot_event_extraction_threshold is not None else ctx_defaults.get("plot_event_extraction_threshold", 5)
+                "plot_event_extraction_threshold": self.plot_event_extraction_threshold if self.plot_event_extraction_threshold is not None else ctx_defaults.get("plot_event_extraction_threshold", 5),
+                "fill_remaining_context": self.fill_remaining_context if self.fill_remaining_context is not None else ctx_defaults.get("fill_remaining_context", True)
             },
             "generation_preferences": {
                 "default_genre": self.default_genre or "",
@@ -417,7 +419,9 @@ class UserSettings(Base):
             self.extraction_confidence_threshold = ctx.get("extraction_confidence_threshold", 70)
         if self.plot_event_extraction_threshold is None:
             self.plot_event_extraction_threshold = ctx.get("plot_event_extraction_threshold", 5)
-        
+        if self.fill_remaining_context is None:
+            self.fill_remaining_context = ctx.get("fill_remaining_context", True)
+
         # Generation Preferences
         gen = user_defaults.get("generation_preferences", {})
         if self.default_genre is None:

@@ -46,6 +46,8 @@ class ContextManager:
             self.enable_summarization = ctx_settings.get("enable_summarization", True)
             # Scene batch size for LLM cache optimization
             self.scene_batch_size = ctx_settings.get("scene_batch_size", 10)
+            # Fill remaining context with older scenes (default True for backwards compatibility)
+            self.fill_remaining_context = ctx_settings.get("fill_remaining_context", True)
         else:
             self.max_tokens = max_tokens or settings.context_max_tokens
             self.keep_recent_scenes = settings.context_keep_recent_scenes
@@ -53,6 +55,7 @@ class ContextManager:
             self.summary_threshold_tokens = getattr(settings, "context_summary_threshold_tokens", 10000)
             self.enable_summarization = True
             self.scene_batch_size = 10  # Default batch size for scene caching
+            self.fill_remaining_context = True  # Default to filling remaining context
         
         # Ensure max_tokens has a valid default (4000 from config.yaml)
         # This can be None if user_settings.context_max_tokens is explicitly set to None
@@ -515,6 +518,7 @@ Appearance: {char.get('appearance', '')}
                 "recent_scenes": all_content,
                 "scene_summary": f"Complete story context ({len(scenes)} scenes)",
                 "total_scenes": len(scenes),
+                "included_scenes": len(scenes),
                 "context_strategy": "full_scenes"
             }
         
@@ -542,9 +546,29 @@ Appearance: {char.get('appearance', '')}
                 "recent_scenes": "",
                 "scene_summary": "No scenes",
                 "total_scenes": 0,
+                "included_scenes": 0,
                 "context_strategy": "empty"
             }
-        
+
+        # If fill_remaining_context is disabled, only include keep_recent_scenes
+        # This helps weaker LLMs focus on recent context without dilution
+        if not self.fill_remaining_context:
+            recent_scenes = scenes[-self.keep_recent_scenes:]
+            scene_contents = []
+            for scene in recent_scenes:
+                scene_content = await self._get_scene_content_proper(scene, db)
+                scene_contents.append(scene_content)
+            combined_content = "\n\n".join(scene_contents)
+            logger.info(f"[LINEAR CONTEXT] Fill remaining context disabled: using only {len(recent_scenes)} recent scenes")
+            return {
+                "previous_scenes": combined_content,
+                "recent_scenes": combined_content,
+                "scene_summary": f"Recent {len(recent_scenes)} scenes (fill disabled)",
+                "total_scenes": len(recent_scenes),
+                "included_scenes": len(recent_scenes),
+                "context_strategy": "recent_only"
+            }
+
         # Build a map of scene sequence numbers to scenes and their token counts
         scene_map: Dict[int, Tuple[Scene, str, int]] = {}
         for scene in scenes:
@@ -648,6 +672,7 @@ Appearance: {char.get('appearance', '')}
             "recent_scenes": included_content,
             "scene_summary": f"Batch-aligned context: {len(included_scenes)} scenes included",
             "total_scenes": total_scenes,
+            "included_scenes": len(included_scenes),
             "context_strategy": strategy
         }
     

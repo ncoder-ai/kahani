@@ -3773,10 +3773,10 @@ async def get_story_context_info(
     try:
         # Get user settings (with story for content rating)
         user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
-        
-        # Create context manager with user settings
-        context_manager = ContextManager(user_settings=user_settings)
-        
+
+        # Create context manager with user settings (uses SemanticContextManager if hybrid strategy enabled)
+        context_manager = get_context_manager_for_user(user_settings, current_user.id)
+
         # Build context to analyze
         context = await context_manager.build_story_context(story_id, db)
         
@@ -3803,7 +3803,7 @@ async def get_story_context_info(
                 "user_settings_applied": user_settings is not None
             },
             "characters": len(context.get("characters", [])),
-            "recent_scenes_included": context.get("total_scenes", 0),
+            "recent_scenes_included": context.get("included_scenes", context.get("total_scenes", 0)),
             "summary_used": bool(context.get("scene_summary")),
             "user_settings": user_settings
         }

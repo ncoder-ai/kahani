@@ -76,6 +76,7 @@ interface ContextSettings {
   auto_extract_plot_events?: boolean;
   extraction_confidence_threshold?: number;
   plot_event_extraction_threshold?: number;
+  fill_remaining_context?: boolean;
 }
 
 interface ExtractionModelSettings {
@@ -212,8 +213,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     auto_extract_plot_events: false,
     extraction_confidence_threshold: 0.8,
     plot_event_extraction_threshold: 5,
+    fill_remaining_context: true,
   });
-  
+
   // Extraction Model Settings
   const [extractionModelSettings, setExtractionModelSettings] = useState<ExtractionModelSettings>({
     enabled: false,
@@ -396,9 +398,10 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             auto_extract_plot_events: settings.context_settings.auto_extract_plot_events || false,
             extraction_confidence_threshold: settings.context_settings.extraction_confidence_threshold ?? 0.8,
             plot_event_extraction_threshold: settings.context_settings.plot_event_extraction_threshold ?? 5,
+            fill_remaining_context: settings.context_settings.fill_remaining_context !== false,
           });
         }
-        
+
         // Load Generation preferences
         if (settings?.generation_preferences) {
           setGenerationPrefs({
@@ -4067,6 +4070,30 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     <div className="text-xs text-gray-400 mt-1">
                       Always preserve this many recent scenes
                     </div>
+                  </div>
+
+                  {/* Fill Remaining Context Toggle */}
+                  <div className="flex items-center justify-between py-2">
+                    <div>
+                      <label className="block text-sm font-medium text-white">
+                        Fill Remaining Context
+                      </label>
+                      <div className="text-xs text-gray-400">
+                        Fill context window with older scenes. Disable for weaker LLMs.
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setContextSettings({ ...contextSettings, fill_remaining_context: !contextSettings.fill_remaining_context })}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                        contextSettings.fill_remaining_context ? 'bg-blue-600' : 'bg-gray-600'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          contextSettings.fill_remaining_context ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
                   </div>
 
                   {/* Summary Threshold */}

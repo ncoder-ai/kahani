@@ -55,6 +55,8 @@ class SemanticContextManager(ContextManager):
             # New settings for filtering
             self.semantic_min_similarity = ctx_settings.get("semantic_min_similarity", getattr(settings, "semantic_min_similarity", 0.3))
             self.location_recency_window = ctx_settings.get("location_recency_window", getattr(settings, "location_recency_window", 10))
+            # Fill remaining context setting (default True for backwards compatibility)
+            self.fill_remaining_context = ctx_settings.get("fill_remaining_context", True)
         else:
             # Fallback to global settings
             self.enable_semantic = settings.enable_semantic_memory
@@ -69,6 +71,8 @@ class SemanticContextManager(ContextManager):
             # New settings for filtering
             self.semantic_min_similarity = getattr(settings, "semantic_min_similarity", 0.3)
             self.location_recency_window = getattr(settings, "location_recency_window", 10)
+            # Fill remaining context setting (default True for backwards compatibility)
+            self.fill_remaining_context = True
         
         # Get semantic memory service
         try:
@@ -277,31 +281,36 @@ class SemanticContextManager(ContextManager):
                 "recent_scenes": recent_content,
                 "scene_summary": f"Recent context only ({len(recent_scenes)} scenes)",
                 "total_scenes": total_scenes,
+                "included_scenes": len(recent_scenes),
                 "context_type": "recent_only"
             }
         
         # Dynamic allocation: prioritize semantic, character, entity, summary first
-        # Then fill remaining budget with recent scenes
-        
-        # First, estimate which scenes will be included in Recent Scenes (for exclusion from semantic search)
-        # This prevents semantic search from returning scenes that will already appear in Recent Scenes section
-        # Estimate remaining tokens after semantic/character/entity/summary (use average allocation ~50%)
-        estimated_other_tokens = int(remaining_tokens * 0.5)
-        estimated_remaining_for_recent = remaining_tokens - estimated_other_tokens
-        
-        # Get preliminary list of additional scenes that will be included (for exclusion purposes only)
-        # Note: We'll recalculate this later with actual token usage, but this gives us a good estimate
-        _, estimated_additional_scenes = await self._add_recent_scenes_dynamically(
-            scenes, len(recent_scenes), estimated_remaining_for_recent, db
-        )
-        
-        # Collect ALL scene sequence numbers that will be in Recent Scenes
+        # Then fill remaining budget with recent scenes (if fill_remaining_context is enabled)
+
+        # Collect scene sequence numbers that will be in Recent Scenes (for exclusion from semantic search)
         all_recent_scene_sequences = [s.sequence_number for s in recent_scenes]
-        all_recent_scene_sequences.extend([s.sequence_number for s in estimated_additional_scenes])
+
+        # Only estimate additional scenes for exclusion if fill_remaining_context is enabled
+        # When disabled, we only exclude the keep_recent_scenes, allowing semantic search to find
+        # older scenes that might be relevant
+        if self.fill_remaining_context:
+            # Estimate remaining tokens after semantic/character/entity/summary (use average allocation ~50%)
+            estimated_other_tokens = int(remaining_tokens * 0.5)
+            estimated_remaining_for_recent = remaining_tokens - estimated_other_tokens
+
+            # Get preliminary list of additional scenes that will be included (for exclusion purposes only)
+            # Note: We'll recalculate this later with actual token usage, but this gives us a good estimate
+            _, estimated_additional_scenes = await self._add_recent_scenes_dynamically(
+                scenes, len(recent_scenes), estimated_remaining_for_recent, db
+            )
+            all_recent_scene_sequences.extend([s.sequence_number for s in estimated_additional_scenes])
+            logger.info(f"[SEMANTIC CONTEXT] Excluding {len(all_recent_scene_sequences)} scenes from semantic search (recent: {len(recent_scenes)}, additional: {len(estimated_additional_scenes)})")
+        else:
+            logger.info(f"[SEMANTIC CONTEXT] Fill remaining context disabled - excluding only {len(recent_scenes)} recent scenes from semantic search")
+
         # Remove duplicates and sort for clarity
         all_recent_scene_sequences = sorted(set(all_recent_scene_sequences))
-        
-        logger.info(f"[SEMANTIC CONTEXT] Excluding {len(all_recent_scene_sequences)} scenes from semantic search (recent scenes: {len(recent_scenes)}, additional: {len(estimated_additional_scenes)})")
         
         semantic_tokens = int(remaining_tokens * 0.25)
         character_tokens = int(remaining_tokens * 0.15)
@@ -349,13 +358,22 @@ class SemanticContextManager(ContextManager):
         # Calculate remaining tokens after semantic/character/entity/summary
         used_tokens_so_far = semantic_used_tokens + character_used_tokens + entity_used_tokens + summary_used_tokens
         remaining_for_recent = remaining_tokens - used_tokens_so_far
-        
-        # Fill ALL remaining tokens with additional recent scenes (going backwards)
-        # This ensures we use the full token budget
-        additional_recent_content, additional_recent_scenes = await self._add_recent_scenes_dynamically(
-            scenes, len(recent_scenes), remaining_for_recent, db
-        )
-        
+
+        # Only fill remaining context with additional scenes if enabled (default: True)
+        # When disabled, only keep_recent_scenes are included - better for weaker LLMs
+        # that benefit from focused context with less dilution of state information
+        additional_recent_content = None
+        additional_recent_scenes = []
+        if self.fill_remaining_context:
+            # Fill ALL remaining tokens with additional recent scenes (going backwards)
+            # This ensures we use the full token budget
+            additional_recent_content, additional_recent_scenes = await self._add_recent_scenes_dynamically(
+                scenes, len(recent_scenes), remaining_for_recent, db
+            )
+            logger.info(f"[SEMANTIC CONTEXT] Fill remaining context enabled: added {len(additional_recent_scenes)} additional scenes")
+        else:
+            logger.info(f"[SEMANTIC CONTEXT] Fill remaining context disabled: using only {len(recent_scenes)} recent scenes")
+
         # Combine initial recent scenes with additional scenes for the Recent Scenes section
         # Exclude duplicates (additional_recent_scenes already excludes scenes in recent_scenes)
         # Order: older scenes (additional) come first, then recent scenes (chronological order)
@@ -436,6 +454,7 @@ class SemanticContextManager(ContextManager):
             "recent_scenes": combined_recent_content,  # Include both initial and additional recent scenes
             "scene_summary": "",  # Don't include metadata in prompt - it's debug info only
             "total_scenes": total_scenes,
+            "included_scenes": len(recent_scenes) + len(additional_recent_scenes),  # Actual scenes in context
             "context_type": "hybrid",
             "semantic_scenes_included": semantic_content is not None,
             "character_context_included": character_content is not None,
@@ -810,8 +829,9 @@ class SemanticContextManager(ContextManager):
             
             # Sort filtered results by sequence_number (chronological order) before processing
             # This ensures "Relevant Past Events" appear in narrative order
+            # Use semantic_scenes_in_context to limit how many semantic scenes are included
             filtered_results_with_scenes = []
-            for result in filtered_results[:self.semantic_top_k]:  # Limit to top_k after filtering
+            for result in filtered_results[:self.semantic_scenes_in_context]:  # Limit to semantic_scenes_in_context
                 scene = db.query(Scene).filter(Scene.id == result['scene_id']).first()
                 if scene:
                     filtered_results_with_scenes.append((result, scene))
@@ -839,7 +859,7 @@ class SemanticContextManager(ContextManager):
                     break
             
             if relevant_parts:
-                logger.info(f"[SEMANTIC SEARCH] Selected {len(relevant_parts)} relevant scenes (similarity >= {self.semantic_min_similarity}) for story {story_id}")
+                logger.info(f"[SEMANTIC SEARCH] Selected {len(relevant_parts)}/{self.semantic_scenes_in_context} semantic scenes (similarity >= {self.semantic_min_similarity}) for story {story_id}")
                 return "\n\n".join(relevant_parts)
             
             logger.info(f"[SEMANTIC SEARCH] No scenes fit within token budget after filtering")

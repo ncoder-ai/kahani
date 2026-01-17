@@ -244,6 +244,7 @@ user_defaults:
     auto_extract_plot_events: true
     extraction_confidence_threshold: 70
     plot_event_extraction_threshold: 5
+    fill_remaining_context: true  # Fill remaining context window with older scenes (disable for weaker LLMs)
   generation_preferences:
     default_genre: ""
     default_tone: ""
