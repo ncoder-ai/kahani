@@ -114,7 +114,7 @@ class SemanticTraceLogger:
             "Text Preview": text[:500] + "..." if len(text) > 500 else text,
             "Text Length (chars)": len(text),
             "Embedding Dimension": embedding_dim,
-            "Model": "sentence-transformers/all-MiniLM-L6-v2"
+            "Model": "sentence-transformers/all-mpnet-base-v2"
         })
     
     def log_llm_prompt(self, prompt_type: str, system_prompt: str, user_prompt: str, params: Dict[str, Any]):

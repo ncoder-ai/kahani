@@ -121,7 +121,7 @@ context_strategy:
 semantic_memory:
   enabled: true
   db_path: "./data/chromadb"
-  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  embedding_model: "sentence-transformers/all-mpnet-base-v2"
   search_top_k: 5
   context_weight: 0.4
 

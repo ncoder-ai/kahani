@@ -21,7 +21,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def download_sentence_transformer_model(model_name: str = "sentence-transformers/all-MiniLM-L6-v2"):
+def download_sentence_transformer_model(model_name: str = "sentence-transformers/all-mpnet-base-v2"):
     """
     Pre-download the sentence-transformers model to cache.
     
@@ -30,7 +30,7 @@ def download_sentence_transformer_model(model_name: str = "sentence-transformers
     """
     try:
         logger.info(f"🔽 Downloading embedding model: {model_name}")
-        logger.info("This is a one-time download (about 90MB)...")
+        logger.info("This is a one-time download (about 420MB)...")
         
         from sentence_transformers import SentenceTransformer
         
@@ -288,8 +288,8 @@ def download_all_models(include_stt: bool = True, stt_model: str = "small", incl
     logger.info("=" * 60)
     
     # Model names - using defaults to avoid loading config
-    embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
-    reranker_model = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    embedding_model = "sentence-transformers/all-mpnet-base-v2"
+    reranker_model = "cross-encoder/ms-marco-MiniLM-L-6-v2"  # Still downloaded but not used by default
     
     logger.info(f"Embedding model: {embedding_model}")
     logger.info(f"Reranker model: {reranker_model}")
@@ -353,7 +353,7 @@ def download_all_models(include_stt: bool = True, stt_model: str = "small", incl
     
     if all_success:
         logger.info("✅ All models downloaded successfully!")
-        logger.info("   - Embedding model (90MB): ✓")
+        logger.info("   - Embedding model (420MB): ✓")
         logger.info("   - Reranker model (80MB): ✓")
         if include_stt and stt_success:
             logger.info(f"   - STT model ({stt_model}): ✓")

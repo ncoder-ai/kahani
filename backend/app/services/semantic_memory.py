@@ -37,7 +37,7 @@ class SemanticMemoryService:
     in asyncio.to_thread() to prevent blocking the event loop.
     """
     
-    def __init__(self, persist_directory: str = "./data/chromadb", embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2", reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"):
+    def __init__(self, persist_directory: str = "./data/chromadb", embedding_model: str = "sentence-transformers/all-mpnet-base-v2", reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"):
         """
         Initialize the semantic memory service
         
@@ -68,7 +68,7 @@ class SemanticMemoryService:
         
         # Lazy-load reranker model
         self.reranker = None
-        self.enable_reranking = True  # Can be disabled if needed
+        self.enable_reranking = False  # Disabled - bi-encoder similarity is sufficient for narrative content
         
         # Initialize collections
         self._init_collections()
@@ -95,7 +95,132 @@ class SemanticMemoryService:
         )
         
         logger.info("ChromaDB collections initialized successfully")
-    
+
+    async def check_embedding_dimension_compatibility(self) -> Dict[str, Any]:
+        """
+        Check if existing embeddings are compatible with current model dimension.
+
+        Returns:
+            Dict with compatibility info: {
+                'compatible': bool,
+                'current_model_dimension': int,
+                'existing_dimension': int or None,
+                'needs_reembed': bool
+            }
+        """
+        await self._ensure_model_loaded()
+        current_dim = self._embedding_dimension
+
+        # Check if there are any embeddings in the scenes collection
+        try:
+            count = await asyncio.to_thread(self.scenes_collection.count)
+            if count == 0:
+                return {
+                    'compatible': True,
+                    'current_model_dimension': current_dim,
+                    'existing_dimension': None,
+                    'existing_count': 0,
+                    'needs_reembed': False,
+                    'message': 'No existing embeddings'
+                }
+
+            # Get a sample embedding to check dimension
+            sample = await asyncio.to_thread(
+                self.scenes_collection.get,
+                limit=1,
+                include=['embeddings']
+            )
+
+            if sample['embeddings'] and len(sample['embeddings']) > 0:
+                existing_dim = len(sample['embeddings'][0])
+                compatible = existing_dim == current_dim
+
+                return {
+                    'compatible': compatible,
+                    'current_model_dimension': current_dim,
+                    'existing_dimension': existing_dim,
+                    'existing_count': count,
+                    'needs_reembed': not compatible,
+                    'message': 'Embeddings compatible' if compatible else f'Dimension mismatch: existing {existing_dim} vs model {current_dim}. Re-embedding required.'
+                }
+
+            return {
+                'compatible': True,
+                'current_model_dimension': current_dim,
+                'existing_dimension': None,
+                'existing_count': count,
+                'needs_reembed': False,
+                'message': 'Could not determine existing dimension'
+            }
+
+        except Exception as e:
+            logger.error(f"Error checking embedding compatibility: {e}")
+            return {
+                'compatible': False,
+                'current_model_dimension': current_dim,
+                'existing_dimension': None,
+                'existing_count': 0,
+                'needs_reembed': True,
+                'message': f'Error checking compatibility: {str(e)}'
+            }
+
+    async def clear_story_embeddings(self, story_id: int) -> int:
+        """
+        Clear all embeddings for a specific story.
+
+        Args:
+            story_id: Story ID to clear embeddings for
+
+        Returns:
+            Number of embeddings deleted
+        """
+        try:
+            # Get all embedding IDs for this story
+            results = await asyncio.to_thread(
+                self.scenes_collection.get,
+                where={"story_id": story_id},
+                include=[]
+            )
+
+            ids_to_delete = results.get('ids', [])
+            if ids_to_delete:
+                await asyncio.to_thread(
+                    self.scenes_collection.delete,
+                    ids=ids_to_delete
+                )
+                logger.info(f"Deleted {len(ids_to_delete)} scene embeddings for story {story_id}")
+
+            return len(ids_to_delete)
+
+        except Exception as e:
+            logger.error(f"Error clearing story embeddings: {e}")
+            raise
+
+    async def clear_all_scene_embeddings(self) -> int:
+        """
+        Clear ALL scene embeddings and recreate the collection.
+        Use this when embedding model dimension changes.
+
+        Returns:
+            Number of embeddings that were deleted
+        """
+        try:
+            count = await asyncio.to_thread(self.scenes_collection.count)
+
+            # Delete and recreate the collection to ensure clean dimension
+            await asyncio.to_thread(self.client.delete_collection, "story_scenes")
+            self.scenes_collection = self.client.get_or_create_collection(
+                name="story_scenes",
+                metadata={"description": "Scene-level embeddings for semantic search"}
+            )
+
+            logger.warning(f"Cleared all scene embeddings ({count} total). Collection recreated.")
+            return count
+
+        except Exception as e:
+            logger.error(f"Error clearing all embeddings: {e}")
+            raise
+
     def _load_embedding_model_sync(self):
         """Synchronous model loading - to be called via asyncio.to_thread()"""
         from sentence_transformers import SentenceTransformer

@@ -934,3 +934,275 @@ async def get_statistics(
         "users_with_tts_access": users_with_tts_access,
     }
 
+
+# ============================================================
+# EMBEDDING MANAGEMENT ENDPOINTS
+# ============================================================
+
+@router.get("/embeddings/status")
+async def get_embedding_status(
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Get embedding status and compatibility info.
+    Checks if existing embeddings are compatible with current model dimension.
+    """
+    try:
+        from ..services.semantic_memory import get_semantic_memory_service
+        semantic_memory = get_semantic_memory_service()
+
+        compatibility = await semantic_memory.check_embedding_dimension_compatibility()
+        stats = await semantic_memory.get_collection_stats()
+
+        return {
+            "compatibility": compatibility,
+            "collection_stats": stats
+        }
+    except Exception as e:
+        logger.error(f"Error getting embedding status: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error getting embedding status: {str(e)}"
+        )
+
+
+@router.post("/embeddings/reembed-story/{story_id}")
+async def reembed_story(
+    story_id: int,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Re-embed all scenes for a specific story.
+    Clears existing embeddings and regenerates them with the current model.
+    """
+    # Verify story exists
+    story = db.query(Story).filter(Story.id == story_id).first()
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Story {story_id} not found"
+        )
+
+    trace_id = str(uuid.uuid4())[:8]
+    logger.info(f"[REEMBED] trace_id={trace_id} Starting re-embed for story {story_id}")
+
+    def run_reembed():
+        """Sync wrapper for background task - uses asyncio.run() internally"""
+        import asyncio
+
+        async def _do_reembed():
+            from ..database import SessionLocal
+            from ..services.semantic_memory import get_semantic_memory_service
+            from ..models import Scene
+
+            reembed_db = SessionLocal()
+            try:
+                semantic_memory = get_semantic_memory_service()
+
+                # Clear existing embeddings for this story
+                deleted_count = await semantic_memory.clear_story_embeddings(story_id)
+                logger.info(f"[REEMBED] trace_id={trace_id} Cleared {deleted_count} existing embeddings")
+
+                # Get all scenes for this story
+                scenes = reembed_db.query(Scene).filter(
+                    Scene.story_id == story_id,
+                    Scene.is_deleted == False
+                ).order_by(Scene.sequence_number).all()
+
+                logger.info(f"[REEMBED] trace_id={trace_id} Found {len(scenes)} scenes to re-embed")
+
+                success_count = 0
+                error_count = 0
+
+                for scene in scenes:
+                    try:
+                        # Get content from the first variant
+                        content = ""
+                        if scene.variants:
+                            content = scene.variants[0].content or ""
+                        if not content.strip():
+                            logger.warning(f"[REEMBED] trace_id={trace_id} Scene {scene.id} has no content, skipping")
+                            continue
+
+                        variant_id = scene.variants[0].id if scene.variants else 0
+                        await semantic_memory.add_scene_embedding(
+                            scene_id=scene.id,
+                            variant_id=variant_id,
+                            story_id=story_id,
+                            content=content,
+                            metadata={
+                                "sequence": scene.sequence_number,
+                                "chapter_id": scene.chapter_id or 0,
+                                "branch_id": scene.branch_id or 0,
+                                "timestamp": scene.created_at.isoformat() if scene.created_at else None,
+                                "characters": []
+                            }
+                        )
+                        success_count += 1
+
+                        if success_count % 50 == 0:
+                            logger.info(f"[REEMBED] trace_id={trace_id} Progress: {success_count} scenes embedded")
+
+                    except Exception as e:
+                        logger.error(f"[REEMBED] trace_id={trace_id} Failed to embed scene {scene.id}: {e}")
+                        error_count += 1
+
+                logger.info(f"[REEMBED] trace_id={trace_id} Complete: {success_count} success, {error_count} errors")
+
+            except Exception as e:
+                logger.error(f"[REEMBED] trace_id={trace_id} Failed: {e}")
+                import traceback
+                logger.error(f"[REEMBED] Traceback: {traceback.format_exc()}")
+            finally:
+                reembed_db.close()
+
+        # Run the async function in a new event loop
+        asyncio.run(_do_reembed())
+
+    background_tasks.add_task(run_reembed)
+
+    # Get scene count for response
+    scene_count = db.query(Scene).filter(
+        Scene.story_id == story_id,
+        Scene.is_deleted == False
+    ).count()
+
+    return {
+        "message": f"Re-embedding scheduled for story {story_id}",
+        "trace_id": trace_id,
+        "story_id": story_id,
+        "scenes_to_process": scene_count
+    }
+
+
+@router.post("/embeddings/clear-all")
+async def clear_all_embeddings(
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Clear ALL scene embeddings and recreate the collection.
+    Use this when upgrading embedding models with different dimensions.
+    WARNING: This clears all embeddings. Use reembed-all to regenerate them.
+    """
+    try:
+        from ..services.semantic_memory import get_semantic_memory_service
+        semantic_memory = get_semantic_memory_service()
+
+        deleted_count = await semantic_memory.clear_all_scene_embeddings()
+
+        return {
+            "message": "All scene embeddings cleared",
+            "deleted_count": deleted_count
+        }
+    except Exception as e:
+        logger.error(f"Error clearing embeddings: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error clearing embeddings: {str(e)}"
+        )
+
+
+@router.post("/embeddings/reembed-all")
+async def reembed_all_stories(
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Re-embed ALL scenes across all stories.
+    Clears existing embeddings and regenerates them with the current model.
+    Use this after upgrading the embedding model.
+    """
+    trace_id = str(uuid.uuid4())[:8]
+
+    # Get all story IDs
+    story_ids = [s.id for s in db.query(Story.id).all()]
+    total_scenes = db.query(Scene).filter(Scene.is_deleted == False).count()
+
+    logger.info(f"[REEMBED-ALL] trace_id={trace_id} Starting re-embed for {len(story_ids)} stories, {total_scenes} scenes")
+
+    def run_reembed_all():
+        """Sync wrapper for background task - uses asyncio.run() internally"""
+        import asyncio
+
+        async def _do_reembed_all():
+            from ..database import SessionLocal
+            from ..services.semantic_memory import get_semantic_memory_service
+            from ..models import Scene
+
+            reembed_db = SessionLocal()
+            try:
+                semantic_memory = get_semantic_memory_service()
+
+                # Clear all embeddings first
+                await semantic_memory.clear_all_scene_embeddings()
+                logger.info(f"[REEMBED-ALL] trace_id={trace_id} Cleared all existing embeddings")
+
+                # Get all active scenes
+                scenes = reembed_db.query(Scene).filter(
+                    Scene.is_deleted == False
+                ).order_by(Scene.story_id, Scene.sequence_number).all()
+
+                logger.info(f"[REEMBED-ALL] trace_id={trace_id} Found {len(scenes)} scenes to re-embed")
+
+                success_count = 0
+                error_count = 0
+
+                for i, scene in enumerate(scenes):
+                    try:
+                        # Get content from the first variant
+                        content = ""
+                        if scene.variants:
+                            content = scene.variants[0].content or ""
+                        if not content.strip():
+                            continue
+
+                        variant_id = scene.variants[0].id if scene.variants else 0
+                        await semantic_memory.add_scene_embedding(
+                            scene_id=scene.id,
+                            variant_id=variant_id,
+                            story_id=scene.story_id,
+                            content=content,
+                            metadata={
+                                "sequence": scene.sequence_number,
+                                "chapter_id": scene.chapter_id or 0,
+                                "branch_id": scene.branch_id or 0,
+                                "timestamp": scene.created_at.isoformat() if scene.created_at else None,
+                                "characters": []
+                            }
+                        )
+                        success_count += 1
+
+                        if (i + 1) % 50 == 0:
+                            logger.info(f"[REEMBED-ALL] trace_id={trace_id} Progress: {i + 1}/{len(scenes)}")
+
+                    except Exception as e:
+                        logger.error(f"[REEMBED-ALL] trace_id={trace_id} Failed to embed scene {scene.id}: {e}")
+                        error_count += 1
+
+                logger.info(f"[REEMBED-ALL] trace_id={trace_id} Complete: {success_count} success, {error_count} errors")
+
+            except Exception as e:
+                logger.error(f"[REEMBED-ALL] trace_id={trace_id} Failed: {e}")
+                import traceback
+                logger.error(f"[REEMBED-ALL] Traceback: {traceback.format_exc()}")
+            finally:
+                reembed_db.close()
+
+        # Run the async function in a new event loop
+        asyncio.run(_do_reembed_all())
+
+    background_tasks.add_task(run_reembed_all)
+
+    return {
+        "message": f"Re-embedding scheduled for all stories",
+        "trace_id": trace_id,
+        "stories_to_process": len(story_ids),
+        "scenes_to_process": total_scenes
+    }
+
