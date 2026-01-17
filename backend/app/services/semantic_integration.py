@@ -933,21 +933,29 @@ async def _try_combined_extraction(
         # Process entity states using existing service logic
         if combined_results.get('entity_states'):
             try:
-                from .entity_state_service import EntityStateService
+                from .entity_state_service import EntityStateService, has_meaningful_character_state
                 from ..models import StoryCharacter, Character
-                
+
                 entity_service = EntityStateService(user_id=user_id, user_settings=user_settings)
                 entity_states_data = combined_results['entity_states']
-                
+
                 # Get the last scene sequence number (most recent scene in batch)
                 last_sequence = max([seq for _, seq, _, _ in scenes_data]) if scenes_data else 0
-                
+
                 total_entity_states = 0
-                
+                meaningful_chars = 0
+                empty_chars = 0
+
                 # Process character states (apply once per character, using last scene sequence)
                 if entity_states_data.get('characters'):
                     for char_update in entity_states_data['characters']:
                         try:
+                            # Track if this character has meaningful state data
+                            if has_meaningful_character_state(char_update):
+                                meaningful_chars += 1
+                            else:
+                                empty_chars += 1
+
                             await entity_service._update_character_state(
                                 db, story_id, last_sequence, char_update, branch_id=branch_id
                             )
@@ -955,6 +963,20 @@ async def _try_combined_extraction(
                         except Exception as e:
                             logger.warning(f"Failed to update character state for {char_update.get('name', 'unknown')}: {e}")
                             continue
+
+                    # Log warning if extraction returned characters but with empty states
+                    if empty_chars > 0:
+                        logger.warning(
+                            f"[EXTRACTION:COMBINED:EMPTY_STATES] {empty_chars}/{empty_chars + meaningful_chars} characters "
+                            f"have no meaningful state data in combined extraction for story {story_id} scenes "
+                            f"{min([seq for _, seq, _, _ in scenes_data])}-{last_sequence}."
+                        )
+                    if entity_states_data.get('characters') and meaningful_chars == 0:
+                        logger.error(
+                            f"[EXTRACTION:COMBINED:ALL_EMPTY] ALL {len(entity_states_data['characters'])} characters "
+                            f"have empty state data in combined extraction for story {story_id}! "
+                            "This indicates a critical issue with entity extraction."
+                        )
                 
                 # Process location states
                 if entity_states_data.get('locations'):

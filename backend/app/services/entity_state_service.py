@@ -56,6 +56,65 @@ def clean_llm_json(json_str: str) -> str:
     return json_str
 
 
+def has_meaningful_character_state(char_update: Dict[str, Any]) -> bool:
+    """
+    Check if a character update has meaningful state data.
+    A character update is meaningful if it has at least one non-null/non-empty state field.
+
+    Args:
+        char_update: Character update dictionary from extraction
+
+    Returns:
+        True if the character has meaningful state data
+    """
+    # State fields that indicate meaningful data
+    state_fields = [
+        'location', 'emotional_state', 'physical_condition', 'current_attire',
+        'possessions_gained', 'possessions_lost', 'knowledge_gained', 'relationship_changes'
+    ]
+
+    for field in state_fields:
+        value = char_update.get(field)
+        if value:
+            # Check if it's a non-empty string, non-empty list, or non-empty dict
+            if isinstance(value, str) and value.strip() and value.lower() not in ('null', 'none', 'n/a'):
+                return True
+            elif isinstance(value, (list, dict)) and len(value) > 0:
+                return True
+
+    return False
+
+
+def has_meaningful_character_state_in_db(char_state) -> bool:
+    """
+    Check if a CharacterState database object has meaningful data.
+
+    Args:
+        char_state: CharacterState model instance
+
+    Returns:
+        True if the character state has meaningful data
+    """
+    # Check text fields
+    text_fields = ['current_location', 'emotional_state', 'physical_condition', 'appearance', 'current_goal']
+    for field in text_fields:
+        value = getattr(char_state, field, None)
+        if value and isinstance(value, str) and value.strip():
+            return True
+
+    # Check list/dict fields
+    list_fields = ['possessions', 'knowledge', 'secrets']
+    for field in list_fields:
+        value = getattr(char_state, field, None)
+        if value and len(value) > 0:
+            return True
+
+    if char_state.relationships and len(char_state.relationships) > 0:
+        return True
+
+    return False
+
+
 class EntityStateService:
     """
     Service for managing entity states (characters, locations, objects).
@@ -153,7 +212,7 @@ class EntityStateService:
                     character_names.append(char.name)
                     character_name_to_id[char.name.lower()] = char.id
             
-            # Extract state changes using LLM
+            # Extract state changes using LLM (with retry if empty)
             state_changes = await self._extract_state_changes(
                 scene_content,
                 scene_sequence,
@@ -162,7 +221,49 @@ class EntityStateService:
                 trace_id=trace_id,
                 interaction_types=interaction_types
             )
-            
+
+            # Check if extraction returned meaningful data
+            has_meaningful_chars = False
+            if state_changes and state_changes.get("characters"):
+                for char in state_changes["characters"]:
+                    if has_meaningful_character_state(char):
+                        has_meaningful_chars = True
+                        break
+
+            # Retry once if extraction returned empty or all characters have empty state data
+            if not state_changes or (state_changes.get("characters") and not has_meaningful_chars):
+                logger.warning(
+                    f"[ENTITY:RETRY] trace_id={trace_id} scene_id={scene_id} story_id={story_id} "
+                    f"sequence={scene_sequence} reason={'empty_response' if not state_changes else 'empty_states'} "
+                    "Retrying extraction once..."
+                )
+                # Wait briefly before retry
+                import asyncio
+                await asyncio.sleep(0.5)
+
+                state_changes = await self._extract_state_changes(
+                    scene_content,
+                    scene_sequence,
+                    character_names,
+                    chapter_location=chapter_location,
+                    trace_id=f"{trace_id}-retry",
+                    interaction_types=interaction_types
+                )
+
+                # Check retry result
+                if state_changes and state_changes.get("characters"):
+                    retry_has_meaningful = any(has_meaningful_character_state(c) for c in state_changes["characters"])
+                    if retry_has_meaningful:
+                        logger.info(
+                            f"[ENTITY:RETRY:SUCCESS] trace_id={trace_id} scene_id={scene_id} "
+                            "Retry extraction returned meaningful character data."
+                        )
+                    else:
+                        logger.warning(
+                            f"[ENTITY:RETRY:STILL_EMPTY] trace_id={trace_id} scene_id={scene_id} "
+                            "Retry extraction still returned empty character states."
+                        )
+
             if not state_changes:
                 logger.warning(f"[ENTITY:EMPTY] trace_id={trace_id} scene_id={scene_id} story_id={story_id} sequence={scene_sequence}")
                 return results
@@ -408,45 +509,69 @@ class EntityStateService:
     
     def _validate_state_changes(self, state_changes: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Validate and normalize state changes dictionary
-        
+        Validate and normalize state changes dictionary.
+        Also checks for meaningful state data and logs warnings if extraction returned empty states.
+
         Args:
             state_changes: Raw state changes dictionary
-            
+
         Returns:
             Validated state changes dictionary
         """
         if not isinstance(state_changes, dict):
             return {'characters': [], 'locations': [], 'objects': [], 'interactions': []}
-        
+
         validated = {
             'characters': [],
             'locations': [],
             'objects': [],
             'interactions': []
         }
-        
-        # Validate characters
+
+        # Validate characters and check for meaningful state data
         characters = state_changes.get('characters', [])
+        empty_state_chars = []
+        meaningful_state_chars = []
         if isinstance(characters, list):
             for char in characters:
                 if isinstance(char, dict) and char.get('name'):
                     validated['characters'].append(char)
-        
+                    # Check if this character has meaningful state data
+                    if has_meaningful_character_state(char):
+                        meaningful_state_chars.append(char.get('name'))
+                    else:
+                        empty_state_chars.append(char.get('name'))
+
+        # Log warning if extraction returned characters but with empty states
+        if empty_state_chars:
+            logger.warning(
+                f"[ENTITY:VALIDATION:EMPTY_STATES] Characters with no meaningful state data: {empty_state_chars}. "
+                f"Characters with data: {meaningful_state_chars}. "
+                "This may indicate an issue with the LLM extraction prompt or response parsing."
+            )
+
+        # Log alert if ALL characters have empty states
+        if validated['characters'] and not meaningful_state_chars:
+            logger.error(
+                f"[ENTITY:VALIDATION:ALL_EMPTY] ALL {len(validated['characters'])} extracted characters have empty state data! "
+                f"Characters: {[c.get('name') for c in validated['characters']]}. "
+                "This is a critical issue - extraction is not populating character states."
+            )
+
         # Validate locations
         locations = state_changes.get('locations', [])
         if isinstance(locations, list):
             for loc in locations:
                 if isinstance(loc, dict) and loc.get('name'):
                     validated['locations'].append(loc)
-        
+
         # Validate objects
         objects = state_changes.get('objects', [])
         if isinstance(objects, list):
             for obj in objects:
                 if isinstance(obj, dict) and obj.get('name'):
                     validated['objects'].append(obj)
-        
+
         # Validate interactions
         interactions = state_changes.get('interactions', [])
         if isinstance(interactions, list):
@@ -1028,7 +1153,33 @@ class EntityStateService:
             if not (character_snapshot or location_snapshot or object_snapshot):
                 logger.debug(f"No entity states to snapshot for story {story_id} (branch {branch_id})")
                 return None
-            
+
+            # Check if character states have meaningful data
+            chars_with_data = []
+            chars_without_data = []
+            for char_state in character_states:
+                if has_meaningful_character_state_in_db(char_state):
+                    chars_with_data.append(char_state.character_id)
+                else:
+                    chars_without_data.append(char_state.character_id)
+
+            # Log warning if batch would contain empty character states
+            if chars_without_data:
+                logger.warning(
+                    f"[ENTITY:BATCH:EMPTY_STATES] Creating batch for story {story_id} scenes {start_scene_sequence}-{end_scene_sequence} "
+                    f"with {len(chars_without_data)} characters having no meaningful state data (IDs: {chars_without_data}). "
+                    f"Characters with data: {len(chars_with_data)}."
+                )
+
+            # CRITICAL: If ALL character states have empty data, this is a serious issue
+            if character_states and not chars_with_data:
+                logger.error(
+                    f"[ENTITY:BATCH:ALL_EMPTY] CRITICAL - Batch for story {story_id} scenes {start_scene_sequence}-{end_scene_sequence} "
+                    f"would contain ALL {len(character_states)} characters with EMPTY state data! "
+                    "This may indicate extraction failure. Consider not creating this batch or investigating the cause."
+                )
+                # Still create the batch for now, but the warning should be investigated
+
             # Create batch snapshot
             batch = EntityStateBatch(
                 story_id=story_id,
@@ -1056,30 +1207,76 @@ class EntityStateService:
         db: Session,
         story_id: int,
         max_scene_sequence: int,
-        branch_id: int = None
+        branch_id: int = None,
+        require_meaningful_data: bool = True
     ) -> Optional[EntityStateBatch]:
         """
         Find the last valid batch that doesn't overlap with deleted scenes.
-        
+        Optionally checks that the batch has meaningful character state data.
+
         Args:
             db: Database session
             story_id: Story ID
             max_scene_sequence: Maximum scene sequence to consider (scenes after this are deleted)
             branch_id: Optional branch ID to filter by
-            
+            require_meaningful_data: If True, skip batches where all characters have empty states
+
         Returns:
             Last valid EntityStateBatch or None
         """
-        # Find the last batch where end_scene_sequence < max_scene_sequence
+        # Find all batches where end_scene_sequence < max_scene_sequence, ordered by most recent first
         batch_query = db.query(EntityStateBatch).filter(
             EntityStateBatch.story_id == story_id,
             EntityStateBatch.end_scene_sequence < max_scene_sequence
         )
         if branch_id is not None:
             batch_query = batch_query.filter(EntityStateBatch.branch_id == branch_id)
-        batch = batch_query.order_by(EntityStateBatch.end_scene_sequence.desc()).first()
-        
-        return batch
+        batches = batch_query.order_by(EntityStateBatch.end_scene_sequence.desc()).limit(10).all()
+
+        for batch in batches:
+            if not require_meaningful_data:
+                return batch
+
+            # Check if this batch has at least one character with meaningful data
+            has_meaningful = False
+            for char_dict in batch.character_states_snapshot or []:
+                # Check if any key state fields have non-null values
+                state_fields = ['current_location', 'emotional_state', 'physical_condition', 'appearance']
+                for field in state_fields:
+                    value = char_dict.get(field)
+                    if value and isinstance(value, str) and value.strip() and value.lower() not in ('null', 'none'):
+                        has_meaningful = True
+                        break
+                # Also check knowledge and relationships
+                if char_dict.get('knowledge') and len(char_dict.get('knowledge', [])) > 0:
+                    has_meaningful = True
+                if char_dict.get('relationships') and len(char_dict.get('relationships', {})) > 0:
+                    has_meaningful = True
+                if has_meaningful:
+                    break
+
+            if has_meaningful:
+                if batch != batches[0]:
+                    logger.warning(
+                        f"[ENTITY:BATCH:SKIP_EMPTY] Skipped {batches.index(batch)} empty batch(es) to find batch {batch.id} "
+                        f"(scenes {batch.start_scene_sequence}-{batch.end_scene_sequence}) with meaningful character data."
+                    )
+                return batch
+            else:
+                logger.warning(
+                    f"[ENTITY:BATCH:EMPTY] Batch {batch.id} (scenes {batch.start_scene_sequence}-{batch.end_scene_sequence}) "
+                    f"has no meaningful character state data, checking older batches..."
+                )
+
+        # No batch with meaningful data found
+        if batches:
+            logger.error(
+                f"[ENTITY:BATCH:ALL_EMPTY] All {len(batches)} recent batches for story {story_id} have empty character states! "
+                "Falling back to most recent batch anyway."
+            )
+            return batches[0] if batches else None
+
+        return None
     
     def restore_entity_states_from_batch(
         self,

@@ -962,7 +962,8 @@ Appearance: {char.get('appearance', '')}
         """
         
         # Get full context with chapter_id for character separation and branch_id for branch filtering
-        full_context = await self.build_story_context(story_id, db, chapter_id=chapter_id, exclude_scene_id=exclude_scene_id, branch_id=branch_id)
+        # Pass custom_prompt as user_intent so semantic search can find scenes relevant to the user's choice
+        full_context = await self.build_story_context(story_id, db, chapter_id=chapter_id, exclude_scene_id=exclude_scene_id, branch_id=branch_id, user_intent=custom_prompt)
         
         # Check if this is the first scene (no previous scenes)
         total_scenes = full_context.get("total_scenes", 0)

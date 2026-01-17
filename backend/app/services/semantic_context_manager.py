@@ -83,31 +83,35 @@ class SemanticContextManager(ContextManager):
             self.enable_semantic = False
             self.context_strategy = "linear"
     
-    async def build_story_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None, exclude_scene_id: Optional[int] = None, branch_id: Optional[int] = None) -> Dict[str, Any]:
+    async def build_story_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None, exclude_scene_id: Optional[int] = None, branch_id: Optional[int] = None, user_intent: Optional[str] = None) -> Dict[str, Any]:
         """
         Build optimized context using hybrid strategy if enabled
-        
+
         Args:
             story_id: Story ID
             db: Database session
             chapter_id: Optional chapter ID to separate active/inactive characters
             exclude_scene_id: Optional scene ID to exclude from context (for regeneration)
             branch_id: Optional branch ID (if not provided, uses active branch)
-            
+            user_intent: Optional user's continue option/custom prompt to influence semantic search
+
         Returns:
             Optimized context dictionary
         """
         # If semantic memory is disabled, use parent class method
         if not self.enable_semantic or self.context_strategy == "linear":
             return await super().build_story_context(story_id, db, chapter_id=chapter_id, exclude_scene_id=exclude_scene_id, branch_id=branch_id)
-        
+
         # Use hybrid strategy
-        return await self._build_hybrid_context(story_id, db, chapter_id=chapter_id, exclude_scene_id=exclude_scene_id, branch_id=branch_id)
-    
-    async def _build_hybrid_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None, exclude_scene_id: Optional[int] = None, branch_id: Optional[int] = None) -> Dict[str, Any]:
+        return await self._build_hybrid_context(story_id, db, chapter_id=chapter_id, exclude_scene_id=exclude_scene_id, branch_id=branch_id, user_intent=user_intent)
+
+    async def _build_hybrid_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None, exclude_scene_id: Optional[int] = None, branch_id: Optional[int] = None, user_intent: Optional[str] = None) -> Dict[str, Any]:
         """
         Build hybrid context combining recent scenes with semantically relevant past
-        
+
+        Args:
+            user_intent: User's continue option - influences which past scenes are retrieved
+
         Strategy:
         1. Get base context (genre, tone, characters)
         2. Get recent scenes (immediate context)
@@ -239,7 +243,7 @@ class SemanticContextManager(ContextManager):
         
         # Build scene context using hybrid strategy
         scene_context = await self._build_hybrid_scene_context(
-            story_id, scenes, available_tokens, db, chapter_id=chapter_id, branch_id=branch_id
+            story_id, scenes, available_tokens, db, chapter_id=chapter_id, branch_id=branch_id, user_intent=user_intent
         )
         
         # Merge contexts
@@ -253,7 +257,8 @@ class SemanticContextManager(ContextManager):
         db: Session,
         chapter_id: Optional[int] = None,
         limit_semantic_to_chapter: bool = False,
-        branch_id: Optional[int] = None
+        branch_id: Optional[int] = None,
+        user_intent: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Build scene context using hybrid retrieval strategy
@@ -321,10 +326,11 @@ class SemanticContextManager(ContextManager):
         # Pass complete exclusion list so we don't duplicate scenes already in Recent Scenes
         # If limit_semantic_to_chapter is True, only search within current chapter (for context size calculation)
         semantic_content = await self._get_semantic_scenes(
-            story_id, recent_scenes, semantic_tokens, db, 
+            story_id, recent_scenes, semantic_tokens, db,
             exclude_all_recent_sequences=all_recent_scene_sequences,
             limit_to_chapter_id=chapter_id if limit_semantic_to_chapter else None,
-            branch_id=branch_id
+            branch_id=branch_id,
+            user_intent=user_intent
         )
         semantic_used_tokens = self.count_tokens(semantic_content) if semantic_content else 0
         
@@ -702,11 +708,12 @@ class SemanticContextManager(ContextManager):
         db: Session,
         exclude_all_recent_sequences: Optional[List[int]] = None,
         limit_to_chapter_id: Optional[int] = None,
-        branch_id: Optional[int] = None
+        branch_id: Optional[int] = None,
+        user_intent: Optional[str] = None
     ) -> Optional[str]:
         """
         Get semantically relevant scenes from the past
-        
+
         Args:
             story_id: Story ID
             recent_scenes: Recent scenes to use as query
@@ -715,37 +722,47 @@ class SemanticContextManager(ContextManager):
             exclude_all_recent_sequences: Scene sequences to exclude
             limit_to_chapter_id: Optional chapter ID to limit search
             branch_id: Optional branch ID to filter results (only return scenes from this branch)
-            
+            user_intent: User's continue option - prioritized in semantic search query
+
         Returns:
             Formatted string of relevant scenes or None
         """
         if not recent_scenes:
             return None
-        
+
         try:
-            # Improved query strategy: Use last 2-3 scenes combined for better context
-            # Weight recent scenes more heavily (most recent = most important)
-            query_scenes = recent_scenes[-3:] if len(recent_scenes) >= 3 else recent_scenes
+            # Build query from: user intent (highest priority) + recent scene content
             query_parts = []
-            
+
+            # Add user intent FIRST (highest priority) - this is what the user wants to happen next
+            if user_intent and user_intent.strip():
+                query_parts.append(user_intent.strip())
+                logger.info(f"[SEMANTIC SEARCH] Including user intent in query: '{user_intent[:100]}...'")
+
+            # Add last 2-3 scenes for context
+            query_scenes = recent_scenes[-3:] if len(recent_scenes) >= 3 else recent_scenes
             for i, scene in enumerate(query_scenes):
                 # Get active variant content
                 flow = db.query(StoryFlow).filter(
                     StoryFlow.scene_id == scene.id,
                     StoryFlow.is_active == True
                 ).first()
-                
+
                 scene_content = flow.scene_variant.content if flow and flow.scene_variant else scene.content
                 if scene_content:
-                    # Weight: most recent scene gets full weight, older scenes get reduced weight
-                    weight = 1.0 - (i * 0.2)  # 1.0, 0.8, 0.6 for 3 scenes
                     query_parts.append(scene_content)
-            
+
             if not query_parts:
                 return None
-            
-            # Combine scenes with newlines (most recent first)
-            query_content = "\n\n".join(reversed(query_parts))  # Reverse so most recent is first
+
+            # Combine: user intent first, then recent scenes (most recent first)
+            # User intent is already first, now add scenes in reverse order
+            if user_intent and user_intent.strip():
+                # Skip first element (user intent), reverse the rest (scenes)
+                scene_parts = query_parts[1:]
+                query_content = query_parts[0] + "\n\n" + "\n\n".join(reversed(scene_parts)) if scene_parts else query_parts[0]
+            else:
+                query_content = "\n\n".join(reversed(query_parts))
             
             # Get exclude list (all scenes that will be in Recent Scenes section)
             # Use provided complete exclusion list if available, otherwise fall back to just recent_scenes
