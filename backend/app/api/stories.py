@@ -1787,10 +1787,13 @@ async def run_interaction_extraction_background(
         total_scenes = len(scenes)
         logger.info(f"[INTERACTION_EXTRACT] Found {total_scenes} scenes to process")
         
-        # Get already-found interactions to avoid duplicates across batches
-        existing_interactions = extraction_db.query(CharacterInteraction).filter(
+        # Get already-found interactions to avoid duplicates across batches (filtered by branch)
+        existing_query = extraction_db.query(CharacterInteraction).filter(
             CharacterInteraction.story_id == story_id
-        ).all()
+        )
+        if branch_id:
+            existing_query = existing_query.filter(CharacterInteraction.branch_id == branch_id)
+        existing_interactions = existing_query.all()
         
         # Build character name to ID mapping with multiple lookup keys
         # This handles cases where LLM returns partial names (e.g., "john" instead of "John Smith")
@@ -2137,13 +2140,16 @@ Do NOT explain why an interaction does not occur - simply omit it from the list.
                     if char_a_id > char_b_id:
                         char_a_id, char_b_id = char_b_id, char_a_id
                     
-                    # Check if already exists (might have been found in earlier batch)
-                    existing = extraction_db.query(CharacterInteraction).filter(
+                    # Check if already exists (might have been found in earlier batch) - filter by branch
+                    existing_check = extraction_db.query(CharacterInteraction).filter(
                         CharacterInteraction.story_id == story_id,
                         CharacterInteraction.character_a_id == char_a_id,
                         CharacterInteraction.character_b_id == char_b_id,
                         CharacterInteraction.interaction_type == interaction_type
-                    ).first()
+                    )
+                    if branch_id:
+                        existing_check = existing_check.filter(CharacterInteraction.branch_id == branch_id)
+                    existing = existing_check.first()
                     
                     if not existing:
                         new_interaction = CharacterInteraction(

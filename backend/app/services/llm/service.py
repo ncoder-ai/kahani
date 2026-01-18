@@ -6415,36 +6415,46 @@ Chapter Conclusion:"""
                                 db, story_id, min_deleted_seq, max_deleted_seq
                             )
                             
-                            # Check if remaining scenes form a complete batch
-                            last_remaining_scene = db.query(Scene).filter(
+                            # Check if remaining scenes form a complete batch (filtered by branch)
+                            remaining_scene_query = db.query(Scene).filter(
                                 Scene.story_id == story_id,
                                 Scene.sequence_number < sequence_number
-                            ).order_by(Scene.sequence_number.desc()).first()
-                            
+                            )
+                            if branch_id:
+                                remaining_scene_query = remaining_scene_query.filter(Scene.branch_id == branch_id)
+                            last_remaining_scene = remaining_scene_query.order_by(Scene.sequence_number.desc()).first()
+
                             if last_remaining_scene:
                                 batch_threshold = user_settings.get("context_summary_threshold", 5)
                                 last_sequence = last_remaining_scene.sequence_number
                                 is_complete_batch = (last_sequence % batch_threshold) == 0
-                                
+
                                 if is_complete_batch:
                                     # Complete batch - recalculate (will re-extract)
                                     await entity_service.recalculate_entity_states_from_batches(
-                                        db, story_id, story.owner_id, user_settings, max_deleted_seq
+                                        db, story_id, story.owner_id, user_settings, max_deleted_seq, branch_id=branch_id
                                     )
-                                    logger.info(f"[DELETE] Recalculated entity states (complete batch) for story {story_id}")
+                                    logger.info(f"[DELETE] Recalculated entity states (complete batch) for story {story_id} branch {branch_id}")
                                 else:
                                     # Incomplete batch - only restore, don't re-extract
                                     entity_service.restore_from_last_complete_batch(
-                                        db, story_id, max_deleted_seq
+                                        db, story_id, max_deleted_seq, branch_id=branch_id
                                     )
-                                    logger.info(f"[DELETE] Restored entity states from last complete batch (incomplete batch remains, waiting for threshold) for story {story_id}")
+                                    logger.info(f"[DELETE] Restored entity states from last complete batch (incomplete batch remains, waiting for threshold) for story {story_id} branch {branch_id}")
                             else:
-                                # No remaining scenes - just clear entity states
+                                # No remaining scenes on this branch - clear entity states for this branch only
                                 from ...models import CharacterState, LocationState, ObjectState
-                                db.query(CharacterState).filter(CharacterState.story_id == story_id).delete()
-                                db.query(LocationState).filter(LocationState.story_id == story_id).delete()
-                                db.query(ObjectState).filter(ObjectState.story_id == story_id).delete()
-                                logger.info(f"[DELETE] No remaining scenes, cleared entity states for story {story_id}")
+                                char_del_query = db.query(CharacterState).filter(CharacterState.story_id == story_id)
+                                loc_del_query = db.query(LocationState).filter(LocationState.story_id == story_id)
+                                obj_del_query = db.query(ObjectState).filter(ObjectState.story_id == story_id)
+                                if branch_id:
+                                    char_del_query = char_del_query.filter(CharacterState.branch_id == branch_id)
+                                    loc_del_query = loc_del_query.filter(LocationState.branch_id == branch_id)
+                                    obj_del_query = obj_del_query.filter(ObjectState.branch_id == branch_id)
+                                char_del_query.delete()
+                                loc_del_query.delete()
+                                obj_del_query.delete()
+                                logger.info(f"[DELETE] No remaining scenes, cleared entity states for story {story_id} branch {branch_id}")
                         else:
                             logger.warning(f"[DELETE] No user settings found for story owner {story.owner_id}, skipping entity state restoration")
                     else:

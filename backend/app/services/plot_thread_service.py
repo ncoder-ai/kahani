@@ -72,34 +72,39 @@ class PlotThreadService:
         story_id: int,
         user_id: int,
         user_settings: Dict[str, Any],
-        db: Session
+        db: Session,
+        branch_id: int = None
     ) -> Dict[int, List[PlotEvent]]:
         """
         Batch extract plot events from multiple scenes in a single LLM call.
-        
+
         Args:
             scenes: List of (scene_id, sequence_number, chapter_id, scene_content) tuples
             story_id: Story ID
             user_id: User ID for LLM calls
             user_settings: User settings for LLM
             db: Database session
-            
+            branch_id: Optional branch ID for filtering
+
         Returns:
             Dictionary mapping scene_id to list of created PlotEvent objects
         """
         if not self.semantic_memory:
             logger.warning("Semantic memory not available, skipping batch event extraction")
             return {}
-        
+
         if not scenes:
             return {}
-        
+
         try:
             # Check if plot events already exist for any scene (avoid duplicates)
             scene_ids = [scene_id for scene_id, _, _, _ in scenes]
-            existing_events = db.query(PlotEvent).filter(
+            existing_query = db.query(PlotEvent).filter(
                 PlotEvent.scene_id.in_(scene_ids)
-            ).all()
+            )
+            if branch_id is not None:
+                existing_query = existing_query.filter(PlotEvent.branch_id == branch_id)
+            existing_events = existing_query.all()
             
             if existing_events:
                 existing_scene_ids = set(e.scene_id for e in existing_events)
@@ -120,7 +125,7 @@ class PlotThreadService:
             batch_content = "\n".join(scenes_text)
             
             # Get context about existing threads
-            existing_threads = await self.get_unresolved_threads(story_id, db)
+            existing_threads = await self.get_unresolved_threads(story_id, db, branch_id=branch_id)
             thread_context = ""
             if existing_threads:
                 thread_list = [f"- {t['description']}" for t in existing_threads[:5]]
@@ -207,6 +212,7 @@ class PlotThreadService:
                     plot_event = PlotEvent(
                         story_id=story_id,
                         scene_id=scene_id,
+                        branch_id=branch_id,
                         event_type=EventType(event_type),
                         description=description,
                         embedding_id=embedding_id,
@@ -443,11 +449,12 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
         chapter_id: Optional[int],
         user_id: int,
         user_settings: Dict[str, Any],
-        db: Session
+        db: Session,
+        branch_id: Optional[int] = None
     ) -> List[PlotEvent]:
         """
         Extract plot events from a scene using LLM
-        
+
         Args:
             scene_id: Scene ID
             scene_content: Scene content text
@@ -457,7 +464,8 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
             user_id: User ID for LLM calls
             user_settings: User settings for LLM
             db: Database session
-            
+            branch_id: Optional branch ID for branch isolation
+
         Returns:
             List of created PlotEvent objects
         """
@@ -467,12 +475,15 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
         
         try:
             # Check if plot events already exist for this scene (avoid duplicates in batch processing)
-            existing_events = db.query(PlotEvent).filter(
+            existing_query = db.query(PlotEvent).filter(
                 PlotEvent.scene_id == scene_id
-            ).all()
-            
+            )
+            if branch_id is not None:
+                existing_query = existing_query.filter(PlotEvent.branch_id == branch_id)
+            existing_events = existing_query.all()
+
             if existing_events:
-                logger.info(f"Plot events already exist for scene {scene_id}, skipping extraction to avoid duplicates")
+                logger.info(f"Plot events already exist for scene {scene_id} (branch {branch_id}), skipping extraction to avoid duplicates")
                 return existing_events
             
             # Extract events using LLM
@@ -542,6 +553,7 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
                 plot_event = PlotEvent(
                     story_id=story_id,
                     scene_id=scene_id,
+                    branch_id=branch_id,
                     event_type=EventType(event_type),
                     description=description,
                     embedding_id=embedding_id,
@@ -554,13 +566,13 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
                     confidence_score=confidence,
                     importance_score=importance
                 )
-                
+
                 db.add(plot_event)
                 created_events.append(plot_event)
-            
+
             try:
                 db.commit()
-                logger.info(f"Extracted {len(created_events)} plot events from scene {scene_id}")
+                logger.info(f"Extracted {len(created_events)} plot events from scene {scene_id} (branch {branch_id})")
             except Exception as commit_error:
                 # Handle race condition where embedding_id was inserted concurrently
                 from sqlalchemy.exc import IntegrityError
@@ -568,9 +580,12 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
                     logger.warning(f"Duplicate plot event detected during commit for scene {scene_id}, rolling back and returning existing events")
                     db.rollback()
                     # Return existing events instead
-                    existing_events = db.query(PlotEvent).filter(
+                    existing_query = db.query(PlotEvent).filter(
                         PlotEvent.scene_id == scene_id
-                    ).all()
+                    )
+                    if branch_id is not None:
+                        existing_query = existing_query.filter(PlotEvent.branch_id == branch_id)
+                    existing_events = existing_query.all()
                     return existing_events
                 else:
                     raise
@@ -585,9 +600,12 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
                 db.rollback()
                 # Return existing events instead
                 try:
-                    existing_events = db.query(PlotEvent).filter(
+                    existing_query = db.query(PlotEvent).filter(
                         PlotEvent.scene_id == scene_id
-                    ).all()
+                    )
+                    if branch_id is not None:
+                        existing_query = existing_query.filter(PlotEvent.branch_id == branch_id)
+                    existing_events = existing_query.all()
                     return existing_events
                 except Exception as query_error:
                     logger.error(f"Failed to query existing events: {query_error}")
@@ -914,23 +932,28 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
     async def get_unresolved_threads(
         self,
         story_id: int,
-        db: Session
+        db: Session,
+        branch_id: int = None
     ) -> List[Dict[str, Any]]:
         """
         Get all unresolved plot threads for a story
-        
+
         Args:
             story_id: Story ID
             db: Database session
-            
+            branch_id: Optional branch ID for filtering
+
         Returns:
             List of unresolved plot events
         """
         try:
-            events = db.query(PlotEvent).filter(
+            query = db.query(PlotEvent).filter(
                 PlotEvent.story_id == story_id,
                 PlotEvent.is_resolved == False
-            ).order_by(PlotEvent.sequence_order).all()
+            )
+            if branch_id is not None:
+                query = query.filter(PlotEvent.branch_id == branch_id)
+            events = query.order_by(PlotEvent.sequence_order).all()
             
             threads = []
             for event in events:
@@ -994,26 +1017,31 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
         thread_id: str,
         story_id: int,
         resolution_scene_id: int,
-        db: Session
+        db: Session,
+        branch_id: int = None
     ) -> bool:
         """
         Mark a plot thread as resolved
-        
+
         Args:
             thread_id: Thread ID
             story_id: Story ID
             resolution_scene_id: Scene where thread is resolved
             db: Database session
-            
+            branch_id: Optional branch ID for filtering
+
         Returns:
             True if successful
         """
         try:
-            events = db.query(PlotEvent).filter(
+            query = db.query(PlotEvent).filter(
                 PlotEvent.story_id == story_id,
                 PlotEvent.thread_id == thread_id,
                 PlotEvent.is_resolved == False
-            ).all()
+            )
+            if branch_id is not None:
+                query = query.filter(PlotEvent.branch_id == branch_id)
+            events = query.all()
             
             for event in events:
                 event.is_resolved = True
@@ -1032,22 +1060,27 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
     async def get_plot_timeline(
         self,
         story_id: int,
-        db: Session
+        db: Session,
+        branch_id: int = None
     ) -> List[Dict[str, Any]]:
         """
         Get chronological plot timeline
-        
+
         Args:
             story_id: Story ID
             db: Database session
-            
+            branch_id: Optional branch ID for filtering
+
         Returns:
             List of plot events in chronological order
         """
         try:
-            events = db.query(PlotEvent).filter(
+            query = db.query(PlotEvent).filter(
                 PlotEvent.story_id == story_id
-            ).order_by(PlotEvent.sequence_order).all()
+            )
+            if branch_id is not None:
+                query = query.filter(PlotEvent.branch_id == branch_id)
+            events = query.order_by(PlotEvent.sequence_order).all()
             
             timeline = []
             for event in events:
@@ -1071,19 +1104,23 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
             logger.error(f"Failed to get plot timeline: {e}")
             return []
     
-    async def delete_plot_events(self, scene_id: int, db: Session):
+    async def delete_plot_events(self, scene_id: int, db: Session, branch_id: int = None):
         """
         Delete all plot events for a scene
-        
+
         Args:
             scene_id: Scene ID
             db: Database session
+            branch_id: Optional branch ID for filtering
         """
         try:
-            events = db.query(PlotEvent).filter(
+            query = db.query(PlotEvent).filter(
                 PlotEvent.scene_id == scene_id
-            ).all()
-            
+            )
+            if branch_id is not None:
+                query = query.filter(PlotEvent.branch_id == branch_id)
+            events = query.all()
+
             # Delete from vector database (ChromaDB)
             if self.semantic_memory:
                 for event in events:
@@ -1097,11 +1134,14 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
                         logger.debug(f"Deleted plot event embedding {event.embedding_id} from ChromaDB")
                     except Exception as e:
                         logger.warning(f"Failed to delete embedding {event.embedding_id}: {e}")
-            
+
             # Delete from database
-            db.query(PlotEvent).filter(
+            del_query = db.query(PlotEvent).filter(
                 PlotEvent.scene_id == scene_id
-            ).delete()
+            )
+            if branch_id is not None:
+                del_query = del_query.filter(PlotEvent.branch_id == branch_id)
+            del_query.delete()
             
             db.commit()
             logger.info(f"Deleted {len(events)} plot events for scene {scene_id}")

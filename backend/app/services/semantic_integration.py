@@ -675,12 +675,15 @@ async def _try_combined_extraction(
                             confidence = moment_data.get('confidence', 70)
                             
                             # Check if already exists BEFORE creating embedding (prevents duplicates)
-                            existing_memory = db.query(CharacterMemory).filter(
+                            existing_query = db.query(CharacterMemory).filter(
                                 CharacterMemory.character_id == character.id,
                                 CharacterMemory.scene_id == scene_id,
                                 CharacterMemory.moment_type == MomentType(moment_type),
                                 CharacterMemory.content == content
-                            ).first()
+                            )
+                            if branch_id is not None:
+                                existing_query = existing_query.filter(CharacterMemory.branch_id == branch_id)
+                            existing_memory = existing_query.first()
                             
                             if existing_memory:
                                 logger.debug(f"Character moment already exists for {character.name} in scene {scene_id}, skipping")
@@ -706,6 +709,7 @@ async def _try_combined_extraction(
                                     character_id=character.id,
                                     scene_id=scene_id,
                                     story_id=story_id,
+                                    branch_id=branch_id,  # Set branch_id for branch isolation
                                     moment_type=MomentType(moment_type),
                                     content=content,
                                     embedding_id=embedding_id,

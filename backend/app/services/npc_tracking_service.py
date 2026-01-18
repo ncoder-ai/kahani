@@ -970,9 +970,12 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
                 }
             
             # Delete existing snapshot for this scene if it exists (in case of regeneration)
-            existing_snapshot = db.query(NPCTrackingSnapshot).filter(
+            existing_query = db.query(NPCTrackingSnapshot).filter(
                 NPCTrackingSnapshot.scene_id == scene_id
-            ).first()
+            )
+            if branch_id is not None:
+                existing_query = existing_query.filter(NPCTrackingSnapshot.branch_id == branch_id)
+            existing_snapshot = existing_query.first()
             if existing_snapshot:
                 db.delete(existing_snapshot)
             
@@ -1021,30 +1024,39 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
         try:
             import math
             from sqlalchemy import desc
-            
-            # Get total scenes in story (excluding deleted)
-            total_scenes = db.query(Scene).filter(
+
+            # Get branch_id from tracking record for filtering
+            branch_id = tracking.branch_id
+
+            # Get total scenes in story (excluding deleted), filtered by branch
+            scene_query = db.query(Scene).filter(
                 Scene.story_id == story_id,
                 Scene.is_deleted == False
-            ).count()
-            
+            )
+            if branch_id is not None:
+                scene_query = scene_query.filter(Scene.branch_id == branch_id)
+            total_scenes = scene_query.count()
+
             if total_scenes == 0:
                 tracking.importance_score = 0.0
                 tracking.frequency_score = 0.0
                 tracking.significance_score = 0.0
                 return
-            
+
             # Safely handle None values
             total_mentions = tracking.total_mentions or 0
             scene_count = tracking.scene_count or 0
             has_dialogue_count = tracking.has_dialogue_count or 0
             has_actions_count = tracking.has_actions_count or 0
-            
-            # Update scene count from mentions
-            scene_count_query = db.query(NPCMention.scene_id).filter(
+
+            # Update scene count from mentions (filtered by branch)
+            mention_query = db.query(NPCMention.scene_id).filter(
                 NPCMention.story_id == story_id,
                 NPCMention.character_name == tracking.character_name
-            ).distinct().count()
+            )
+            if branch_id is not None:
+                mention_query = mention_query.filter(NPCMention.branch_id == branch_id)
+            scene_count_query = mention_query.distinct().count()
             tracking.scene_count = scene_count_query
             scene_count = scene_count_query
             
@@ -1129,22 +1141,26 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
     async def recalculate_all_scores(
         self,
         db: Session,
-        story_id: int
+        story_id: int,
+        branch_id: Optional[int] = None
     ) -> Dict[str, Any]:
-        """Recalculate importance scores for all NPCs in a story."""
+        """Recalculate importance scores for all NPCs in a story (optionally filtered by branch)."""
         try:
-            npcs = db.query(NPCTracking).filter(
+            npcs_query = db.query(NPCTracking).filter(
                 NPCTracking.story_id == story_id
-            ).all()
-            
+            )
+            if branch_id is not None:
+                npcs_query = npcs_query.filter(NPCTracking.branch_id == branch_id)
+            npcs = npcs_query.all()
+
             recalculated_count = 0
             for npc in npcs:
                 await self._calculate_importance_score(db, story_id, npc)
                 recalculated_count += 1
-            
+
             db.commit()
-            
-            logger.info(f"Recalculated {recalculated_count} NPC scores for story {story_id}")
+
+            logger.info(f"Recalculated {recalculated_count} NPC scores for story {story_id} (branch {branch_id})")
             
             return {
                 "success": True,
@@ -1162,18 +1178,22 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
         self,
         db: Session,
         story_id: int,
-        character_name: str
+        character_name: str,
+        branch_id: Optional[int] = None
     ):
         """
         Extract full character profile for an NPC using LLM analysis of all scenes.
         """
         try:
-            # Get all scenes where NPC appears
-            mentions = db.query(NPCMention).filter(
+            # Get all scenes where NPC appears (filtered by branch)
+            mentions_query = db.query(NPCMention).filter(
                 NPCMention.story_id == story_id,
                 NPCMention.character_name == character_name
-            ).order_by(NPCMention.sequence_number).all()
-            
+            )
+            if branch_id is not None:
+                mentions_query = mentions_query.filter(NPCMention.branch_id == branch_id)
+            mentions = mentions_query.order_by(NPCMention.sequence_number).all()
+
             if not mentions:
                 return
             
@@ -1276,17 +1296,20 @@ Return ONLY the JSON, no other text."""
                 logger.warning(f"Profile extraction for '{character_name}' returned empty data, skipping storage")
                 return
             
-            # Update tracking record only if profile has content
-            tracking = db.query(NPCTracking).filter(
+            # Update tracking record only if profile has content (filtered by branch)
+            tracking_query = db.query(NPCTracking).filter(
                 NPCTracking.story_id == story_id,
                 NPCTracking.character_name == character_name
-            ).first()
-            
+            )
+            if branch_id is not None:
+                tracking_query = tracking_query.filter(NPCTracking.branch_id == branch_id)
+            tracking = tracking_query.first()
+
             if tracking:
                 tracking.extracted_profile = profile
                 tracking.profile_extracted = True
                 db.commit()
-                logger.info(f"Extracted profile for NPC '{character_name}' with content")
+                logger.info(f"Extracted profile for NPC '{character_name}' (branch {branch_id}) with content")
             
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse NPC profile JSON: {e}")
@@ -1297,30 +1320,35 @@ Return ONLY the JSON, no other text."""
         self,
         db: Session,
         story_id: int,
-        character_name: str
+        character_name: str,
+        branch_id: Optional[int] = None
     ) -> bool:
         """
         Mark an NPC as converted to explicit character.
-        
+
         Args:
             db: Database session
             story_id: Story ID
             character_name: Character name (case-insensitive match)
-            
+            branch_id: Optional branch ID for branch isolation
+
         Returns:
             True if NPC was found and marked, False otherwise
         """
         try:
-            # Find NPC by name (case-insensitive)
-            npc = db.query(NPCTracking).filter(
+            # Find NPC by name (case-insensitive), filtered by branch
+            npc_query = db.query(NPCTracking).filter(
                 NPCTracking.story_id == story_id,
                 func.lower(NPCTracking.character_name) == character_name.lower()
-            ).first()
-            
+            )
+            if branch_id is not None:
+                npc_query = npc_query.filter(NPCTracking.branch_id == branch_id)
+            npc = npc_query.first()
+
             if npc:
                 npc.converted_to_character = True
                 # Don't commit here - let the caller handle commit
-                logger.info(f"Marked NPC '{character_name}' as converted to explicit character")
+                logger.info(f"Marked NPC '{character_name}' (branch {branch_id}) as converted to explicit character")
                 return True
             return False
             

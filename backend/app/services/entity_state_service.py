@@ -1286,25 +1286,33 @@ class EntityStateService:
     ) -> Dict[str, int]:
         """
         Restore entity states from a batch snapshot.
-        
+
         Args:
             db: Database session
             batch: EntityStateBatch to restore from
-            
+
         Returns:
             Dictionary with counts of restored states
         """
         try:
-            # Delete existing entity states for this story
-            db.query(CharacterState).filter(
+            # Delete existing entity states for this story and branch
+            char_del_query = db.query(CharacterState).filter(
                 CharacterState.story_id == batch.story_id
-            ).delete()
-            db.query(LocationState).filter(
+            )
+            loc_del_query = db.query(LocationState).filter(
                 LocationState.story_id == batch.story_id
-            ).delete()
-            db.query(ObjectState).filter(
+            )
+            obj_del_query = db.query(ObjectState).filter(
                 ObjectState.story_id == batch.story_id
-            ).delete()
+            )
+            # Filter by branch_id if the batch has one
+            if batch.branch_id is not None:
+                char_del_query = char_del_query.filter(CharacterState.branch_id == batch.branch_id)
+                loc_del_query = loc_del_query.filter(LocationState.branch_id == batch.branch_id)
+                obj_del_query = obj_del_query.filter(ObjectState.branch_id == batch.branch_id)
+            char_del_query.delete()
+            loc_del_query.delete()
+            obj_del_query.delete()
             
             # Restore character states
             char_count = 0
