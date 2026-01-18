@@ -56,6 +56,14 @@ extraction_progress_store = {}
 _chapter_extraction_locks: Dict[int, asyncio.Lock] = {}
 # Per-story entity extraction locks to prevent concurrent entity recalculations
 _story_entity_extraction_locks: Dict[int, asyncio.Lock] = {}
+# Per-story scene deletion locks to prevent concurrent deletions
+_story_deletion_locks: Dict[int, asyncio.Lock] = {}
+# Per-scene variant generation locks to prevent concurrent regenerations
+_scene_variant_locks: Dict[int, asyncio.Lock] = {}
+# Per-variant edit locks to prevent concurrent edits
+_variant_edit_locks: Dict[int, asyncio.Lock] = {}
+# Per-scene generation locks to prevent concurrent scene generation
+_scene_generation_locks: Dict[int, asyncio.Lock] = {}
 _lock_dict_lock = asyncio.Lock()
 
 async def get_chapter_extraction_lock(chapter_id: int) -> asyncio.Lock:
@@ -71,6 +79,34 @@ async def get_story_entity_extraction_lock(story_id: int) -> asyncio.Lock:
         if story_id not in _story_entity_extraction_locks:
             _story_entity_extraction_locks[story_id] = asyncio.Lock()
         return _story_entity_extraction_locks[story_id]
+
+async def get_story_deletion_lock(story_id: int) -> asyncio.Lock:
+    """Get or create a lock for the given story's scene deletion operations."""
+    async with _lock_dict_lock:
+        if story_id not in _story_deletion_locks:
+            _story_deletion_locks[story_id] = asyncio.Lock()
+        return _story_deletion_locks[story_id]
+
+async def get_scene_variant_lock(scene_id: int) -> asyncio.Lock:
+    """Get or create a lock for the given scene's variant generation."""
+    async with _lock_dict_lock:
+        if scene_id not in _scene_variant_locks:
+            _scene_variant_locks[scene_id] = asyncio.Lock()
+        return _scene_variant_locks[scene_id]
+
+async def get_variant_edit_lock(variant_id: int) -> asyncio.Lock:
+    """Get or create a lock for the given variant's edit operations."""
+    async with _lock_dict_lock:
+        if variant_id not in _variant_edit_locks:
+            _variant_edit_locks[variant_id] = asyncio.Lock()
+        return _variant_edit_locks[variant_id]
+
+async def get_scene_generation_lock(story_id: int) -> asyncio.Lock:
+    """Get or create a lock for scene generation on a story."""
+    async with _lock_dict_lock:
+        if story_id not in _scene_generation_locks:
+            _scene_generation_locks[story_id] = asyncio.Lock()
+        return _scene_generation_locks[story_id]
 
 def safe_get_custom_prompt(request, logger=None):
     """Safely extract custom_prompt from request, handling various input types"""
@@ -2959,23 +2995,33 @@ async def generate_scene_streaming_endpoint(
     db: Session = Depends(get_db)
 ):
     """Generate a new scene for the story with streaming response
-    
+
     content_mode options:
     - "ai_generate": AI generates scene from scratch (default, streams tokens)
     - "user_prompt": Use user_content as prompt for AI generation (streams tokens)
     - "user_scene": Use user_content directly as scene content, AI generates choices (sends content immediately, then streams choices)
-    
+
     is_concluding: If "true", generates a chapter-concluding scene (no choices)
     """
     trace_id = f"scene-stream-{uuid.uuid4()}"
     start_time = time.perf_counter()
     logger.info(f"[SCENE:STREAM:START] trace_id={trace_id} story_id={story_id} content_mode={content_mode} is_concluding={is_concluding}")
-    
+
+    # Check if scene generation is already in progress for this story
+    # Use non-blocking check since this is a streaming endpoint
+    generation_lock = await get_scene_generation_lock(story_id)
+    if generation_lock.locked():
+        logger.warning(f"[SCENE:STREAM:CONFLICT] trace_id={trace_id} story_id={story_id} scene generation already in progress")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A scene generation is already in progress for this story. Please wait for it to complete."
+        )
+
     story = db.query(Story).filter(
         Story.id == story_id,
         Story.owner_id == current_user.id
     ).first()
-    
+
     if not story:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -3069,14 +3115,15 @@ async def generate_scene_streaming_endpoint(
     
     async def generate_stream():
         nonlocal active_chapter  # Use outer scope's active_chapter variable
-        try:
+        # Acquire lock for the duration of scene generation
+        async with generation_lock:
             full_content = ""
             thinking_content = ""
             is_thinking = False
-            
+
             # Send initial metadata
             yield f"data: {json.dumps({'type': 'start', 'sequence': next_sequence})}\n\n"
-            
+
             # Check for multi-generation (n > 1)
             n_value = get_n_value_from_settings(user_settings)
             
@@ -3757,10 +3804,6 @@ async def generate_scene_streaming_endpoint(
             
             # Send [DONE] as the LAST event after all extraction status events
             yield "data: [DONE]\n\n"
-            
-        except Exception as e:
-            logger.error(f"Streaming generation failed: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
     
     response = StreamingResponse(
         generate_stream(),
@@ -4603,209 +4646,227 @@ async def create_scene_variant(
     trace_id = f"scene-variant-{uuid.uuid4()}"
     op_start = time.perf_counter()
     logger.info(f"[SCENE:VARIANT:START] trace_id={trace_id} story_id={story_id} scene_id={scene_id}")
-    
-    story = db.query(Story).filter(
-        Story.id == story_id,
-        Story.owner_id == current_user.id
-    ).first()
-    
-    if not story:
+
+    # Get variant generation lock for this scene to prevent concurrent regenerations
+    variant_lock = await get_scene_variant_lock(scene_id)
+    if variant_lock.locked():
+        logger.warning(f"[SCENE:VARIANT:CONFLICT] trace_id={trace_id} scene_id={scene_id} variant generation already in progress")
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Story not found"
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A variant generation is already in progress for this scene. Please wait."
         )
-    
-    # Get user settings (with story for content rating)
-    user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
-    
-    try:
-        # Get custom_prompt from the request model
-        custom_prompt = request.custom_prompt
-            
-        service = SceneVariantService(db)
-        variant = await service.regenerate_scene_variant(
-            scene_id=scene_id,
-            custom_prompt=custom_prompt,
-            user_settings=user_settings,
-            user_id=current_user.id
-        )
-        
-        logger.info(f"Created new variant {variant.id} (#{variant.variant_number}) for scene {scene_id} trace_id={trace_id}")
-        
-        # Update StoryFlow to point to the new variant as active
-        flow_entry = db.query(StoryFlow).filter(
-            StoryFlow.scene_id == scene_id,
-            StoryFlow.is_active == True
+
+    async with variant_lock:
+        story = db.query(Story).filter(
+            Story.id == story_id,
+            Story.owner_id == current_user.id
         ).first()
+
+        if not story:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Story not found"
+            )
+
+        # Verify scene still exists (idempotency check)
+        scene_check = db.query(Scene).filter(Scene.id == scene_id, Scene.story_id == story_id).first()
+        if not scene_check:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Scene not found or has been deleted"
+            )
+
+        # Get user settings (with story for content rating)
+        user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
+
+        try:
+            # Get custom_prompt from the request model
+            custom_prompt = request.custom_prompt
+
+            service = SceneVariantService(db)
+            variant = await service.regenerate_scene_variant(
+                scene_id=scene_id,
+                custom_prompt=custom_prompt,
+                user_settings=user_settings,
+                user_id=current_user.id
+            )
         
-        if flow_entry:
-            old_variant_id = flow_entry.scene_variant_id
-            flow_entry.scene_variant_id = variant.id
-            db.commit()
-            logger.info(f"Updated StoryFlow: scene {scene_id} now points to variant {variant.id} (was {old_variant_id})")
-            
-            # Invalidate chapter summary batches if this scene was summarized
-            from ..api.chapters import invalidate_chapter_batches_for_scene
-            invalidate_chapter_batches_for_scene(scene_id, db)
-            
-            # Invalidate extractions for the modified scene (regeneration happens when threshold is reached)
-            scene = db.query(Scene).filter(Scene.id == scene_id).first()
-            if scene:
-                await invalidate_extractions_for_scene(
-                    scene_id=scene_id,
-                    story_id=story_id,
-                    scene_sequence=scene.sequence_number,
-                    user_id=current_user.id,
-                    user_settings=user_settings,
-                    db=db,
-                    branch_id=scene.branch_id
+            logger.info(f"Created new variant {variant.id} (#{variant.variant_number}) for scene {scene_id} trace_id={trace_id}")
+
+            # Update StoryFlow to point to the new variant as active
+            flow_entry = db.query(StoryFlow).filter(
+                StoryFlow.scene_id == scene_id,
+                StoryFlow.is_active == True
+            ).first()
+
+            if flow_entry:
+                old_variant_id = flow_entry.scene_variant_id
+                flow_entry.scene_variant_id = variant.id
+                db.commit()
+                logger.info(f"Updated StoryFlow: scene {scene_id} now points to variant {variant.id} (was {old_variant_id})")
+
+                # Invalidate chapter summary batches if this scene was summarized
+                from ..api.chapters import invalidate_chapter_batches_for_scene
+                invalidate_chapter_batches_for_scene(scene_id, db)
+
+                # Invalidate extractions for the modified scene (regeneration happens when threshold is reached)
+                scene = db.query(Scene).filter(Scene.id == scene_id).first()
+                if scene:
+                    await invalidate_extractions_for_scene(
+                        scene_id=scene_id,
+                        story_id=story_id,
+                        scene_sequence=scene.sequence_number,
+                        user_id=current_user.id,
+                        user_settings=user_settings,
+                        db=db,
+                        branch_id=scene.branch_id
+                    )
+
+                    # Check if scene is at extraction threshold - if so, regenerate entity states
+                    from ..services.entity_state_service import EntityStateService
+                    batch_threshold = user_settings.get("context_summary_threshold", 5) if user_settings else 5
+                    if scene.sequence_number % batch_threshold == 0:
+                        entity_service = EntityStateService(user_id=current_user.id, user_settings=user_settings)
+                        await entity_service.recalculate_entity_states_from_batches(
+                            db, story_id, current_user.id, user_settings,
+                            scene.sequence_number, branch_id=scene.branch_id
+                        )
+                        logger.info(f"[VARIANT] Regenerated entity states at threshold for scene {scene_id}")
+
+                    # Check if scene is at plot extraction threshold - if so, trigger plot event extraction
+                    plot_threshold = user_settings.get('context_settings', {}).get('plot_event_extraction_threshold', 5) if user_settings else 5
+                    if scene.sequence_number % plot_threshold == 0:
+                        chapter = db.query(Chapter).filter(Chapter.id == scene.chapter_id).first()
+                        if chapter and chapter.chapter_plot:
+                            import asyncio
+                            asyncio.create_task(run_plot_extraction_in_background(
+                                story_id=story_id,
+                                chapter_id=chapter.id,
+                                from_sequence=scene.sequence_number - plot_threshold + 1,
+                                to_sequence=scene.sequence_number,
+                                user_id=current_user.id,
+                                user_settings=user_settings
+                            ))
+                            logger.info(f"[VARIANT] Triggered plot extraction at threshold for scene {scene_id}")
+            else:
+                logger.warning(f"No active StoryFlow entry found for scene {scene_id} trace_id={trace_id}")
+        
+            # Check if this is the last scene and trigger auto-play TTS if enabled
+            # Do this BEFORE generating choices so user can start listening sooner
+            auto_play_session_id = None
+            try:
+                # Check if this scene is the last scene in the story
+                from sqlalchemy import desc
+                last_scene = db.query(Scene)\
+                    .filter(Scene.story_id == story_id)\
+                    .order_by(desc(Scene.sequence_number))\
+                    .first()
+
+                if last_scene and last_scene.id == scene_id:
+                    # This is the last scene, check auto-play settings
+                    from ..models.tts_settings import TTSSettings
+                    tts_settings = db.query(TTSSettings).filter(
+                        TTSSettings.user_id == current_user.id
+                    ).first()
+
+                    if tts_settings and tts_settings.tts_enabled and tts_settings.auto_play_last_scene:
+                        logger.info(f"[AUTO-PLAY] Triggering TTS for variant {variant.id} of scene {scene_id}")
+                        auto_play_session_id = await trigger_auto_play_tts(scene_id, current_user.id)
+                        if auto_play_session_id:
+                            logger.info(f"[AUTO-PLAY] Created TTS session: {auto_play_session_id}")
+            except Exception as e:
+                logger.error(f"[AUTO-PLAY] Failed to trigger auto-play: {e}")
+                # Don't fail variant generation if auto-play fails
+
+            # Generate choices for the new variant
+            try:
+                # Build full scene generation context for choice generation
+                # Note: We don't have the original scene generation context here, so we rebuild it
+                # Use get_context_manager_for_user to get SemanticContextManager for structured format
+                context_manager = get_context_manager_for_user(user_settings, current_user.id)
+
+                # Get active chapter for character separation (filter by branch to avoid cross-branch confusion)
+                active_branch_id = story.current_branch_id
+                active_chapter = db.query(Chapter).filter(
+                    Chapter.story_id == story_id,
+                    Chapter.branch_id == active_branch_id,
+                    Chapter.status == ChapterStatus.ACTIVE
+                ).first()
+                chapter_id = active_chapter.id if active_chapter else None
+
+                # Build full scene generation context
+                choice_context = await context_manager.build_scene_generation_context(
+                    story_id, db, chapter_id=chapter_id, exclude_scene_id=scene_id
                 )
 
-                # Check if scene is at extraction threshold - if so, regenerate entity states
-                from ..services.entity_state_service import EntityStateService
-                batch_threshold = user_settings.get("context_summary_threshold", 5) if user_settings else 5
-                if scene.sequence_number % batch_threshold == 0:
-                    entity_service = EntityStateService(user_id=current_user.id, user_settings=user_settings)
-                    await entity_service.recalculate_entity_states_from_batches(
-                        db, story_id, current_user.id, user_settings,
-                        scene.sequence_number, branch_id=scene.branch_id
-                    )
-                    logger.info(f"[VARIANT] Regenerated entity states at threshold for scene {scene_id}")
-                
-                # Check if scene is at plot extraction threshold - if so, trigger plot event extraction
-                plot_threshold = user_settings.get('context_settings', {}).get('plot_event_extraction_threshold', 5) if user_settings else 5
-                if scene.sequence_number % plot_threshold == 0:
-                    chapter = db.query(Chapter).filter(Chapter.id == scene.chapter_id).first()
-                    if chapter and chapter.chapter_plot:
-                        import asyncio
-                        asyncio.create_task(run_plot_extraction_in_background(
-                            story_id=story_id,
-                            chapter_id=chapter.id,
-                            from_sequence=scene.sequence_number - plot_threshold + 1,
-                            to_sequence=scene.sequence_number,
-                            user_id=current_user.id,
-                            user_settings=user_settings
-                        ))
-                        logger.info(f"[VARIANT] Triggered plot extraction at threshold for scene {scene_id}")
-        else:
-            logger.warning(f"No active StoryFlow entry found for scene {scene_id} trace_id={trace_id}")
-        
-        # Check if this is the last scene and trigger auto-play TTS if enabled
-        # Do this BEFORE generating choices so user can start listening sooner
-        auto_play_session_id = None
-        try:
-            # Check if this scene is the last scene in the story
-            from sqlalchemy import desc
-            last_scene = db.query(Scene)\
-                .filter(Scene.story_id == story_id)\
-                .order_by(desc(Scene.sequence_number))\
-                .first()
-            
-            if last_scene and last_scene.id == scene_id:
-                # This is the last scene, check auto-play settings
-                from ..models.tts_settings import TTSSettings
-                tts_settings = db.query(TTSSettings).filter(
-                    TTSSettings.user_id == current_user.id
-                ).first()
-                
-                if tts_settings and tts_settings.tts_enabled and tts_settings.auto_play_last_scene:
-                    logger.info(f"[AUTO-PLAY] Triggering TTS for variant {variant.id} of scene {scene_id}")
-                    auto_play_session_id = await trigger_auto_play_tts(scene_id, current_user.id)
-                    if auto_play_session_id:
-                        logger.info(f"[AUTO-PLAY] Created TTS session: {auto_play_session_id}")
-        except Exception as e:
-            logger.error(f"[AUTO-PLAY] Failed to trigger auto-play: {e}")
-            # Don't fail variant generation if auto-play fails
-        
-        # Generate choices for the new variant
-        try:
-            # Build full scene generation context for choice generation
-            # Note: We don't have the original scene generation context here, so we rebuild it
-            # Use get_context_manager_for_user to get SemanticContextManager for structured format
-            context_manager = get_context_manager_for_user(user_settings, current_user.id)
-            
-            # Get active chapter for character separation (filter by branch to avoid cross-branch confusion)
-            active_branch_id = story.current_branch_id
-            active_chapter = db.query(Chapter).filter(
-                Chapter.story_id == story_id,
-                Chapter.branch_id == active_branch_id,
-                Chapter.status == ChapterStatus.ACTIVE
-            ).first()
-            chapter_id = active_chapter.id if active_chapter else None
-            
-            # Build full scene generation context
-            choice_context = await context_manager.build_scene_generation_context(
-                story_id, db, chapter_id=chapter_id, exclude_scene_id=scene_id
-            )
-            
-            generated_choices = await llm_service.generate_choices(
-                variant.content, 
-                choice_context, 
-                current_user.id, 
-                user_settings,
-                db
-            )
-            
-            # Get branch_id from scene
-            scene = db.query(Scene).filter(Scene.id == scene_id).first()
-            branch_id = scene.branch_id if scene else None
-            
-            # Create choice records for the variant
-            for idx, choice_text in enumerate(generated_choices, 1):
-                choice = SceneChoice(
-                    scene_id=scene_id,
-                    scene_variant_id=variant.id,
-                    branch_id=branch_id,
-                    choice_text=choice_text,
-                    choice_order=idx
+                generated_choices = await llm_service.generate_choices(
+                    variant.content,
+                    choice_context,
+                    current_user.id,
+                    user_settings,
+                    db
                 )
-                db.add(choice)
-            
-            db.commit()
-            logger.info(f"Generated {len(generated_choices)} choices for variant {variant.id}")
-        except Exception as e:
-            logger.warning(f"Failed to generate choices for variant {variant.id}: {e}")
-            # Continue without choices - fallback will be used
-        
-        # Get choices for the new variant
-        choices = db.query(SceneChoice)\
-            .filter(SceneChoice.scene_variant_id == variant.id)\
-            .order_by(SceneChoice.choice_order)\
-            .all()
-        
-        response = {
-            "message": "Scene variant created successfully",
-            "variant": {
-                "id": variant.id,
-                "variant_number": variant.variant_number,
-                "content": variant.content,
-                "title": variant.title,
-                "is_original": variant.is_original,
-                "generation_method": variant.generation_method,
-                "choices": [
-                    {
-                        "id": choice.id,
-                        "text": choice.choice_text,
-                        "description": choice.choice_description,
-                        "order": choice.choice_order,
-                    }
-                    for choice in choices
-                ]
+
+                # Get branch_id from scene
+                scene = db.query(Scene).filter(Scene.id == scene_id).first()
+                branch_id = scene.branch_id if scene else None
+
+                # Create choice records for the variant
+                for idx, choice_text in enumerate(generated_choices, 1):
+                    choice = SceneChoice(
+                        scene_id=scene_id,
+                        scene_variant_id=variant.id,
+                        branch_id=branch_id,
+                        choice_text=choice_text,
+                        choice_order=idx
+                    )
+                    db.add(choice)
+
+                db.commit()
+                logger.info(f"Generated {len(generated_choices)} choices for variant {variant.id}")
+            except Exception as e:
+                logger.warning(f"Failed to generate choices for variant {variant.id}: {e}")
+                # Continue without choices - fallback will be used
+
+            # Get choices for the new variant
+            choices = db.query(SceneChoice)\
+                .filter(SceneChoice.scene_variant_id == variant.id)\
+                .order_by(SceneChoice.choice_order)\
+                .all()
+
+            response = {
+                "message": "Scene variant created successfully",
+                "variant": {
+                    "id": variant.id,
+                    "variant_number": variant.variant_number,
+                    "content": variant.content,
+                    "title": variant.title,
+                    "is_original": variant.is_original,
+                    "generation_method": variant.generation_method,
+                    "choices": [
+                        {
+                            "id": choice.id,
+                            "text": choice.choice_text,
+                            "description": choice.choice_description,
+                            "order": choice.choice_order,
+                        }
+                        for choice in choices
+                    ]
+                }
             }
-        }
-        
-        # Add auto_play_session_id to response if present
-        if auto_play_session_id:
-            response['auto_play_session_id'] = auto_play_session_id
-        
-        return response
-        
-    except Exception as e:
-        logger.error(f"Failed to create scene variant: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create scene variant: {str(e)}"
-        )
+
+            # Add auto_play_session_id to response if present
+            if auto_play_session_id:
+                response['auto_play_session_id'] = auto_play_session_id
+
+            return response
+
+        except Exception as e:
+            logger.error(f"Failed to create scene variant: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to create scene variant: {str(e)}"
+            )
 
 @router.post("/{story_id}/scenes/{scene_id}/variants/stream")
 async def create_scene_variant_streaming(
@@ -5660,131 +5721,141 @@ async def update_scene_variant(
     db: Session = Depends(get_db)
 ):
     """Update scene variant content after manual editing"""
-    
-    # Verify story ownership
-    story = db.query(Story).filter(
-        Story.id == story_id,
-        Story.owner_id == current_user.id
-    ).first()
-    
-    if not story:
+
+    # Get edit lock for this variant to prevent concurrent edits
+    edit_lock = await get_variant_edit_lock(variant_id)
+    if edit_lock.locked():
+        logger.warning(f"[SCENE:EDIT:CONFLICT] variant_id={variant_id} edit already in progress")
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Story not found"
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An edit operation is already in progress for this variant. Please wait."
         )
-    
-    # Verify scene belongs to story
-    scene = db.query(Scene).filter(
-        Scene.id == scene_id,
-        Scene.story_id == story_id
-    ).first()
-    
-    if not scene:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Scene not found"
-        )
-    
-    # Verify variant belongs to scene
-    variant = db.query(SceneVariant).filter(
-        SceneVariant.id == variant_id,
-        SceneVariant.scene_id == scene_id
-    ).first()
-    
-    if not variant:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Scene variant not found"
-        )
-    
-    # Get user settings (with story for content rating)
-    user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
-    
-    try:
-        # Store original content if this is the first edit
-        if not variant.user_edited and not variant.original_content:
-            variant.original_content = variant.content
-        
-        # Update variant content
-        variant.content = request.content
-        variant.user_edited = True
-        variant.updated_at = datetime.now(timezone.utc)
-        
-        # Update edit history
-        if not variant.edit_history:
-            variant.edit_history = []
-        variant.edit_history.append({
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "content_length": len(request.content)
-        })
-        
-        db.commit()
-        db.refresh(variant)
-        
-        # Invalidate chapter summary batches if this scene was summarized
-        from .chapters import invalidate_chapter_batches_for_scene
-        invalidate_chapter_batches_for_scene(scene_id, db)
-        
-        # Only invalidate extractions (clean up old ones), don't regenerate
-        # Regeneration will happen automatically when extraction threshold is reached
-        from ..services.semantic_integration import cleanup_scene_embeddings
-        from ..services.entity_state_service import EntityStateService
-        await cleanup_scene_embeddings(scene_id, db)
-        logger.info(f"[MODIFY] Cleaned up extractions for scene {scene_id} (regeneration will happen when threshold is reached)")
-        
-        # Invalidate entity state batches containing this scene (filtered by branch)
-        entity_service = EntityStateService(user_id=current_user.id, user_settings=user_settings)
-        entity_service.invalidate_entity_batches_for_scenes(
-            db, story_id, scene.sequence_number, scene.sequence_number, branch_id=scene.branch_id
-        )
-        
-        # Check if scene is at extraction threshold - if so, regenerate entity states
-        batch_threshold = user_settings.get("context_summary_threshold", 5) if user_settings else 5
-        if scene.sequence_number % batch_threshold == 0:
-            # Run entity recalculation in background to avoid blocking the HTTP request
-            import asyncio
-            asyncio.create_task(recalculate_entities_in_background(
-                story_id=story_id,
-                user_id=current_user.id,
-                user_settings=user_settings,
-                up_to_sequence=scene.sequence_number,
-                branch_id=scene.branch_id
-            ))
-            logger.info(f"[MODIFY] Scheduled entity state regeneration for scene {scene_id}")
-        
-        # Check if scene is at plot extraction threshold - if so, trigger plot event extraction
-        plot_threshold = user_settings.get('context_settings', {}).get('plot_event_extraction_threshold', 5) if user_settings else 5
-        if scene.sequence_number % plot_threshold == 0:
-            chapter = db.query(Chapter).filter(Chapter.id == scene.chapter_id).first()
-            if chapter and chapter.chapter_plot:
+
+    async with edit_lock:
+        # Verify story ownership
+        story = db.query(Story).filter(
+            Story.id == story_id,
+            Story.owner_id == current_user.id
+        ).first()
+
+        if not story:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Story not found"
+            )
+
+        # Verify scene belongs to story
+        scene = db.query(Scene).filter(
+            Scene.id == scene_id,
+            Scene.story_id == story_id
+        ).first()
+
+        if not scene:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Scene not found"
+            )
+
+        # Verify variant belongs to scene
+        variant = db.query(SceneVariant).filter(
+            SceneVariant.id == variant_id,
+            SceneVariant.scene_id == scene_id
+        ).first()
+
+        if not variant:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Scene variant not found"
+            )
+
+        # Get user settings (with story for content rating)
+        user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
+
+        try:
+            # Store original content if this is the first edit
+            if not variant.user_edited and not variant.original_content:
+                variant.original_content = variant.content
+
+            # Update variant content
+            variant.content = request.content
+            variant.user_edited = True
+            variant.updated_at = datetime.now(timezone.utc)
+
+            # Update edit history
+            if not variant.edit_history:
+                variant.edit_history = []
+            variant.edit_history.append({
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "content_length": len(request.content)
+            })
+
+            db.commit()
+            db.refresh(variant)
+
+            # Invalidate chapter summary batches if this scene was summarized
+            from .chapters import invalidate_chapter_batches_for_scene
+            invalidate_chapter_batches_for_scene(scene_id, db)
+
+            # Only invalidate extractions (clean up old ones), don't regenerate
+            # Regeneration will happen automatically when extraction threshold is reached
+            from ..services.semantic_integration import cleanup_scene_embeddings
+            from ..services.entity_state_service import EntityStateService
+            await cleanup_scene_embeddings(scene_id, db)
+            logger.info(f"[MODIFY] Cleaned up extractions for scene {scene_id} (regeneration will happen when threshold is reached)")
+
+            # Invalidate entity state batches containing this scene (filtered by branch)
+            entity_service = EntityStateService(user_id=current_user.id, user_settings=user_settings)
+            entity_service.invalidate_entity_batches_for_scenes(
+                db, story_id, scene.sequence_number, scene.sequence_number, branch_id=scene.branch_id
+            )
+
+            # Check if scene is at extraction threshold - if so, regenerate entity states
+            batch_threshold = user_settings.get("context_summary_threshold", 5) if user_settings else 5
+            if scene.sequence_number % batch_threshold == 0:
+                # Run entity recalculation in background to avoid blocking the HTTP request
                 import asyncio
-                asyncio.create_task(run_plot_extraction_in_background(
+                asyncio.create_task(recalculate_entities_in_background(
                     story_id=story_id,
-                    chapter_id=chapter.id,
-                    from_sequence=scene.sequence_number - plot_threshold + 1,
-                    to_sequence=scene.sequence_number,
                     user_id=current_user.id,
-                    user_settings=user_settings
+                    user_settings=user_settings,
+                    up_to_sequence=scene.sequence_number,
+                    branch_id=scene.branch_id
                 ))
-                logger.info(f"[MODIFY] Triggered plot extraction at threshold for scene {scene_id}")
-        
-        return {
-            "message": "Scene variant updated successfully",
-            "variant": {
-                "id": variant.id,
-                "content": variant.content,
-                "user_edited": variant.user_edited,
-                "updated_at": variant.updated_at.isoformat() if variant.updated_at else None
+                logger.info(f"[MODIFY] Scheduled entity state regeneration for scene {scene_id}")
+
+            # Check if scene is at plot extraction threshold - if so, trigger plot event extraction
+            plot_threshold = user_settings.get('context_settings', {}).get('plot_event_extraction_threshold', 5) if user_settings else 5
+            if scene.sequence_number % plot_threshold == 0:
+                chapter = db.query(Chapter).filter(Chapter.id == scene.chapter_id).first()
+                if chapter and chapter.chapter_plot:
+                    import asyncio
+                    asyncio.create_task(run_plot_extraction_in_background(
+                        story_id=story_id,
+                        chapter_id=chapter.id,
+                        from_sequence=scene.sequence_number - plot_threshold + 1,
+                        to_sequence=scene.sequence_number,
+                        user_id=current_user.id,
+                        user_settings=user_settings
+                    ))
+                    logger.info(f"[MODIFY] Triggered plot extraction at threshold for scene {scene_id}")
+
+            return {
+                "message": "Scene variant updated successfully",
+                "variant": {
+                    "id": variant.id,
+                    "content": variant.content,
+                    "user_edited": variant.user_edited,
+                    "updated_at": variant.updated_at.isoformat() if variant.updated_at else None
+                }
             }
-        }
-        
-    except Exception as e:
-        logger.error(f"Failed to update scene variant {variant_id}: {e}")
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update scene variant: {str(e)}"
-        )
+
+        except Exception as e:
+            logger.error(f"Failed to update scene variant {variant_id}: {e}")
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to update scene variant: {str(e)}"
+            )
 
 
 @router.post("/{story_id}/scenes/{scene_id}/variants/{variant_id}/regenerate-choices")
@@ -6323,116 +6394,131 @@ async def delete_scenes_from_sequence(
     op_start = time.perf_counter()
     trace_id = f"scene-del-api-{uuid.uuid4()}"
     logger.info(f"[SCENE:DELETE:START] trace_id={trace_id} story_id={story_id} sequence_start={sequence_number} user_id={current_user.id}")
-    
-    # Phase 1: Query story
-    phase_start = time.perf_counter()
-    story = db.query(Story).filter(
-        Story.id == story_id,
-        Story.owner_id == current_user.id
-    ).first()
-    logger.info(f"[SCENE:DELETE:PHASE] trace_id={trace_id} phase=query_story duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
-    
-    if not story:
+
+    # Get deletion lock for this story to prevent concurrent deletions
+    deletion_lock = await get_story_deletion_lock(story_id)
+    if deletion_lock.locked():
+        logger.warning(f"[SCENE:DELETE:CONFLICT] trace_id={trace_id} story_id={story_id} deletion already in progress")
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Story not found"
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A deletion operation is already in progress for this story. Please wait."
         )
-    
-    # Phase 2: Get user settings for background tasks
-    phase_start = time.perf_counter()
-    user_settings_obj = db.query(UserSettings).filter(
-        UserSettings.user_id == current_user.id
-    ).first()
-    user_settings = user_settings_obj.to_dict() if user_settings_obj else {}
-    logger.info(f"[SCENE:DELETE:PHASE] trace_id={trace_id} phase=query_settings duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
-    
-    # Get branch_id from story's current branch
-    branch_id = story.current_branch_id
-    logger.info(f"[SCENE:DELETE:CONTEXT] trace_id={trace_id} branch_id={branch_id}")
-    
-    # Phase 3: Get scene info for background tasks BEFORE deletion (filtered by branch)
-    phase_start = time.perf_counter()
-    from ..models import Scene as SceneModel
-    scenes_to_delete_query = db.query(SceneModel).filter(
-        SceneModel.story_id == story_id,
-        SceneModel.sequence_number >= sequence_number
-    )
-    if branch_id is not None:
-        scenes_to_delete_query = scenes_to_delete_query.filter(SceneModel.branch_id == branch_id)
-    scenes_to_delete = scenes_to_delete_query.all()
-    logger.info(f"[SCENE:DELETE:PHASE] trace_id={trace_id} phase=query_scenes duration_ms={(time.perf_counter()-phase_start)*1000:.2f} scenes_found={len(scenes_to_delete)}")
-    
-    # Collect scene IDs for semantic cleanup (before scenes are deleted)
-    scene_ids_to_cleanup = [scene.id for scene in scenes_to_delete]
-    min_deleted_seq = min(scene.sequence_number for scene in scenes_to_delete) if scenes_to_delete else sequence_number
-    max_deleted_seq = max(scene.sequence_number for scene in scenes_to_delete) if scenes_to_delete else sequence_number
-    
-    logger.info(f"[SCENE:DELETE:PREP] trace_id={trace_id} scenes_count={len(scene_ids_to_cleanup)} seq_range={min_deleted_seq}-{max_deleted_seq} scene_ids={scene_ids_to_cleanup[:10]}{'...' if len(scene_ids_to_cleanup) > 10 else ''}")
-    
-    # Phase 4: Perform deletion (fast database operations only - semantic cleanup in background)
-    phase_start = time.perf_counter()
-    logger.info(f"[SCENE:DELETE:PHASE] trace_id={trace_id} phase=service_delete_start")
-    service = SceneVariantService(db)
-    success = await service.delete_scenes_from_sequence(story_id, sequence_number, skip_restoration=True, branch_id=branch_id)
-    service_duration = (time.perf_counter() - phase_start) * 1000
-    logger.info(f"[SCENE:DELETE:PHASE] trace_id={trace_id} phase=service_delete_end duration_ms={service_duration:.2f} success={success}")
-    
-    if not success:
-        logger.error(f"[SCENE:DELETE:ERROR] trace_id={trace_id} story_id={story_id} sequence_start={sequence_number} service_returned_false")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Failed to delete scenes"
+
+    async with deletion_lock:
+        # Phase 1: Query story
+        phase_start = time.perf_counter()
+        story = db.query(Story).filter(
+            Story.id == story_id,
+            Story.owner_id == current_user.id
+        ).first()
+        logger.info(f"[SCENE:DELETE:PHASE] trace_id={trace_id} phase=query_story duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
+
+        if not story:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Story not found"
+            )
+
+        # Phase 2: Get user settings for background tasks
+        phase_start = time.perf_counter()
+        user_settings_obj = db.query(UserSettings).filter(
+            UserSettings.user_id == current_user.id
+        ).first()
+        user_settings = user_settings_obj.to_dict() if user_settings_obj else {}
+        logger.info(f"[SCENE:DELETE:PHASE] trace_id={trace_id} phase=query_settings duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
+
+        # Get branch_id from story's current branch
+        branch_id = story.current_branch_id
+        logger.info(f"[SCENE:DELETE:CONTEXT] trace_id={trace_id} branch_id={branch_id}")
+
+        # Phase 3: Get scene info for background tasks BEFORE deletion (filtered by branch)
+        phase_start = time.perf_counter()
+        from ..models import Scene as SceneModel
+        scenes_to_delete_query = db.query(SceneModel).filter(
+            SceneModel.story_id == story_id,
+            SceneModel.sequence_number >= sequence_number
         )
-    
-    # Phase 5: Schedule ALL cleanup/restoration tasks concurrently using asyncio.create_task
-    # Using create_task instead of BackgroundTasks.add_task to run tasks concurrently
-    # This prevents connection pool exhaustion from sequential task execution
-    phase_start = time.perf_counter()
-    
-    # 1. Semantic cleanup (embeddings, character moments, plot events)
-    if scene_ids_to_cleanup:
-        logger.info(f"[SCENE:DELETE:BG_SCHEDULE] trace_id={trace_id} task=semantic_cleanup scene_count={len(scene_ids_to_cleanup)}")
+        if branch_id is not None:
+            scenes_to_delete_query = scenes_to_delete_query.filter(SceneModel.branch_id == branch_id)
+        scenes_to_delete = scenes_to_delete_query.all()
+        logger.info(f"[SCENE:DELETE:PHASE] trace_id={trace_id} phase=query_scenes duration_ms={(time.perf_counter()-phase_start)*1000:.2f} scenes_found={len(scenes_to_delete)}")
+
+        # Idempotency check: if no scenes to delete, return success without doing anything
+        if not scenes_to_delete:
+            logger.info(f"[SCENE:DELETE:IDEMPOTENT] trace_id={trace_id} story_id={story_id} no_scenes_to_delete")
+            return {"message": f"No scenes found from sequence {sequence_number} onwards (already deleted or never existed)"}
+
+        # Collect scene IDs for semantic cleanup (before scenes are deleted)
+        scene_ids_to_cleanup = [scene.id for scene in scenes_to_delete]
+        min_deleted_seq = min(scene.sequence_number for scene in scenes_to_delete)
+        max_deleted_seq = max(scene.sequence_number for scene in scenes_to_delete)
+
+        logger.info(f"[SCENE:DELETE:PREP] trace_id={trace_id} scenes_count={len(scene_ids_to_cleanup)} seq_range={min_deleted_seq}-{max_deleted_seq} scene_ids={scene_ids_to_cleanup[:10]}{'...' if len(scene_ids_to_cleanup) > 10 else ''}")
+
+        # Phase 4: Perform deletion (fast database operations only - semantic cleanup in background)
+        phase_start = time.perf_counter()
+        logger.info(f"[SCENE:DELETE:PHASE] trace_id={trace_id} phase=service_delete_start")
+        service = SceneVariantService(db)
+        success = await service.delete_scenes_from_sequence(story_id, sequence_number, skip_restoration=True, branch_id=branch_id)
+        service_duration = (time.perf_counter() - phase_start) * 1000
+        logger.info(f"[SCENE:DELETE:PHASE] trace_id={trace_id} phase=service_delete_end duration_ms={service_duration:.2f} success={success}")
+
+        if not success:
+            logger.error(f"[SCENE:DELETE:ERROR] trace_id={trace_id} story_id={story_id} sequence_start={sequence_number} service_returned_false")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to delete scenes"
+            )
+
+        # Phase 5: Schedule ALL cleanup/restoration tasks concurrently using asyncio.create_task
+        # Using create_task instead of BackgroundTasks.add_task to run tasks concurrently
+        # This prevents connection pool exhaustion from sequential task execution
+        phase_start = time.perf_counter()
+
+        # 1. Semantic cleanup (embeddings, character moments, plot events)
+        if scene_ids_to_cleanup:
+            logger.info(f"[SCENE:DELETE:BG_SCHEDULE] trace_id={trace_id} task=semantic_cleanup scene_count={len(scene_ids_to_cleanup)}")
+            asyncio.create_task(
+                cleanup_semantic_data_in_background(
+                    scene_ids=scene_ids_to_cleanup,
+                    story_id=story_id
+                )
+            )
+
+        # 2. NPC tracking restoration
+        logger.info(f"[SCENE:DELETE:BG_SCHEDULE] trace_id={trace_id} task=npc_tracking")
         asyncio.create_task(
-            cleanup_semantic_data_in_background(
-                scene_ids=scene_ids_to_cleanup,
-                story_id=story_id
+            restore_npc_tracking_in_background(
+                story_id=story_id,
+                sequence_number=sequence_number,
+                branch_id=branch_id
             )
         )
-    
-    # 2. NPC tracking restoration
-    logger.info(f"[SCENE:DELETE:BG_SCHEDULE] trace_id={trace_id} task=npc_tracking")
-    asyncio.create_task(
-        restore_npc_tracking_in_background(
-            story_id=story_id,
-            sequence_number=sequence_number,
-            branch_id=branch_id
+
+        # 3. Entity states restoration
+        logger.info(f"[SCENE:DELETE:BG_SCHEDULE] trace_id={trace_id} task=entity_states")
+        asyncio.create_task(
+            restore_entity_states_in_background(
+                story_id=story_id,
+                sequence_number=sequence_number,
+                min_deleted_seq=min_deleted_seq,
+                max_deleted_seq=max_deleted_seq,
+                user_id=current_user.id,
+                user_settings=user_settings,
+                branch_id=branch_id
+            )
         )
-    )
-    
-    # 3. Entity states restoration
-    logger.info(f"[SCENE:DELETE:BG_SCHEDULE] trace_id={trace_id} task=entity_states")
-    asyncio.create_task(
-        restore_entity_states_in_background(
-            story_id=story_id,
-            sequence_number=sequence_number,
-            min_deleted_seq=min_deleted_seq,
-            max_deleted_seq=max_deleted_seq,
-            user_id=current_user.id,
-            user_settings=user_settings,
-            branch_id=branch_id
-        )
-    )
-    logger.info(f"[SCENE:DELETE:PHASE] trace_id={trace_id} phase=schedule_background duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
-    
-    duration_ms = (time.perf_counter() - op_start) * 1000
-    if duration_ms > 15000:
-        logger.error(f"[SCENE:DELETE:SLOW] trace_id={trace_id} story_id={story_id} duration_ms={duration_ms:.2f} scenes_deleted={len(scene_ids_to_cleanup)} service_duration_ms={service_duration:.2f}")
-    elif duration_ms > 5000:
-        logger.warning(f"[SCENE:DELETE:SLOW] trace_id={trace_id} story_id={story_id} duration_ms={duration_ms:.2f} scenes_deleted={len(scene_ids_to_cleanup)} service_duration_ms={service_duration:.2f}")
-    else:
-        logger.info(f"[SCENE:DELETE:END] trace_id={trace_id} story_id={story_id} duration_ms={duration_ms:.2f} scenes_deleted={len(scene_ids_to_cleanup)}")
-    
-    return {"message": f"Scenes from sequence {sequence_number} onwards deleted successfully"}
+        logger.info(f"[SCENE:DELETE:PHASE] trace_id={trace_id} phase=schedule_background duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
+
+        duration_ms = (time.perf_counter() - op_start) * 1000
+        if duration_ms > 15000:
+            logger.error(f"[SCENE:DELETE:SLOW] trace_id={trace_id} story_id={story_id} duration_ms={duration_ms:.2f} scenes_deleted={len(scene_ids_to_cleanup)} service_duration_ms={service_duration:.2f}")
+        elif duration_ms > 5000:
+            logger.warning(f"[SCENE:DELETE:SLOW] trace_id={trace_id} story_id={story_id} duration_ms={duration_ms:.2f} scenes_deleted={len(scene_ids_to_cleanup)} service_duration_ms={service_duration:.2f}")
+        else:
+            logger.info(f"[SCENE:DELETE:END] trace_id={trace_id} story_id={story_id} duration_ms={duration_ms:.2f} scenes_deleted={len(scene_ids_to_cleanup)}")
+
+        return {"message": f"Scenes from sequence {sequence_number} onwards deleted successfully"}
 
 # ====== DRAFT STORY MANAGEMENT ======
 
