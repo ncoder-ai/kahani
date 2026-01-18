@@ -6208,33 +6208,43 @@ Chapter Conclusion:"""
             if not skip_restoration:
                 try:
                     from ...models import Story, NPCTracking, NPCTrackingSnapshot
-                    
-                    # Find the last remaining scene's sequence number
-                    last_remaining_scene = db.query(Scene).filter(
+
+                    # Find the last remaining scene's sequence number (filtered by branch)
+                    last_remaining_query = db.query(Scene).filter(
                         Scene.story_id == story_id,
                         Scene.sequence_number < sequence_number
-                    ).order_by(Scene.sequence_number.desc()).first()
-                    
+                    )
+                    if branch_id:
+                        last_remaining_query = last_remaining_query.filter(Scene.branch_id == branch_id)
+                    last_remaining_scene = last_remaining_query.order_by(Scene.sequence_number.desc()).first()
+
                     if last_remaining_scene:
-                        # Get snapshot for the last remaining scene
-                        snapshot = db.query(NPCTrackingSnapshot).filter(
+                        # Get snapshot for the last remaining scene (filtered by branch)
+                        snapshot_query = db.query(NPCTrackingSnapshot).filter(
                             NPCTrackingSnapshot.story_id == story_id,
                             NPCTrackingSnapshot.scene_sequence == last_remaining_scene.sequence_number
-                        ).first()
-                        
+                        )
+                        if branch_id:
+                            snapshot_query = snapshot_query.filter(NPCTrackingSnapshot.branch_id == branch_id)
+                        snapshot = snapshot_query.first()
+
                         if snapshot:
                             # Restore NPCTracking from snapshot
                             snapshot_data = snapshot.snapshot_data or {}
-                            
-                            # Delete all existing NPC tracking records for this story
-                            db.query(NPCTracking).filter(
+
+                            # Delete existing NPC tracking records for this story and branch
+                            npc_delete_query = db.query(NPCTracking).filter(
                                 NPCTracking.story_id == story_id
-                            ).delete()
-                            
+                            )
+                            if branch_id:
+                                npc_delete_query = npc_delete_query.filter(NPCTracking.branch_id == branch_id)
+                            npc_delete_query.delete()
+
                             # Restore from snapshot
                             for character_name, npc_data in snapshot_data.items():
                                 tracking = NPCTracking(
                                     story_id=story_id,
+                                    branch_id=branch_id,
                                     character_name=character_name,
                                     entity_type=npc_data.get("entity_type", "CHARACTER"),
                                     total_mentions=npc_data.get("total_mentions", 0),
@@ -6253,16 +6263,19 @@ Chapter Conclusion:"""
                                     extracted_profile=npc_data.get("extracted_profile", {})
                                 )
                                 db.add(tracking)
-                            
-                            logger.info(f"[DELETE] Restored NPC tracking from snapshot for scene {last_remaining_scene.sequence_number} (story {story_id})")
+
+                            logger.info(f"[DELETE] Restored NPC tracking from snapshot for scene {last_remaining_scene.sequence_number} (story {story_id} branch {branch_id})")
                         else:
-                            logger.warning(f"[DELETE] No snapshot found for last remaining scene {last_remaining_scene.sequence_number}, NPC tracking may be inconsistent")
+                            logger.warning(f"[DELETE] No snapshot found for last remaining scene {last_remaining_scene.sequence_number} (branch {branch_id}), NPC tracking may be inconsistent")
                     else:
-                        # No remaining scenes - delete all NPC tracking
-                        db.query(NPCTracking).filter(
+                        # No remaining scenes - delete NPC tracking for this branch
+                        npc_delete_query = db.query(NPCTracking).filter(
                             NPCTracking.story_id == story_id
-                        ).delete()
-                        logger.info(f"[DELETE] No remaining scenes, deleted all NPC tracking for story {story_id}")
+                        )
+                        if branch_id:
+                            npc_delete_query = npc_delete_query.filter(NPCTracking.branch_id == branch_id)
+                        npc_delete_query.delete()
+                        logger.info(f"[DELETE] No remaining scenes, deleted NPC tracking for story {story_id} branch {branch_id}")
                         
                 except Exception as e:
                     # Don't fail scene deletion if NPC tracking restoration fails
@@ -6349,11 +6362,14 @@ Chapter Conclusion:"""
                     
                     # Update last_extraction_scene_count and last_summary_scene_count to max remaining sequence
                     # This prevents extraction/summary from being skipped due to negative scene counts
-                    remaining_scenes = db.query(Scene).filter(
+                    remaining_scenes_query = db.query(Scene).filter(
                         Scene.story_id == story_id,
                         Scene.chapter_id == chapter_id,
                         Scene.is_deleted == False
-                    ).all()
+                    )
+                    if branch_id:
+                        remaining_scenes_query = remaining_scenes_query.filter(Scene.branch_id == branch_id)
+                    remaining_scenes = remaining_scenes_query.all()
                     
                     if remaining_scenes:
                         max_remaining_seq = max(s.sequence_number for s in remaining_scenes)

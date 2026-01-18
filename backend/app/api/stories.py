@@ -461,13 +461,14 @@ async def invalidate_extractions_for_scene(
     scene_sequence: int,
     user_id: int,
     user_settings: dict,
-    db: Session
+    db: Session,
+    branch_id: int = None
 ) -> None:
     """
     Invalidate (clean up) extractions for a modified scene without regenerating.
-    
+
     Regeneration will happen automatically when extraction threshold is reached.
-    
+
     This function:
     1. Deletes all extractions for the scene (CharacterMemory, PlotEvent, NPCMention, SceneEmbedding)
     2. Invalidates entity state batches containing the scene
@@ -475,15 +476,15 @@ async def invalidate_extractions_for_scene(
     try:
         from ..services.semantic_integration import cleanup_scene_embeddings
         from ..services.entity_state_service import EntityStateService
-        
+
         # Invalidate extractions for the scene
         await cleanup_scene_embeddings(scene_id, db)
         logger.info(f"[MODIFY] Cleaned up extractions for scene {scene_id} (regeneration will happen when threshold is reached)")
-        
-        # Invalidate entity state batches containing this scene
+
+        # Invalidate entity state batches containing this scene (filtered by branch)
         entity_service = EntityStateService(user_id=user_id, user_settings=user_settings)
         entity_service.invalidate_entity_batches_for_scenes(
-            db, story_id, scene_sequence, scene_sequence
+            db, story_id, scene_sequence, scene_sequence, branch_id=branch_id
         )
     except Exception as e:
         logger.error(f"Failed to invalidate extractions for scene {scene_id}: {e}")
@@ -494,11 +495,12 @@ async def invalidate_and_regenerate_extractions_for_scene(
     scene_sequence: int,
     user_id: int,
     user_settings: dict,
-    db: Session
+    db: Session,
+    branch_id: int = None
 ) -> None:
     """
     Invalidate and regenerate extractions for a modified scene.
-    
+
     This function:
     1. Deletes all extractions for the scene (CharacterMemory, PlotEvent, NPCMention, SceneEmbedding)
     2. Invalidates entity state batches containing the scene
@@ -511,33 +513,37 @@ async def invalidate_and_regenerate_extractions_for_scene(
         from ..services.entity_state_service import EntityStateService
         from ..services.npc_tracking_service import NPCTrackingService
         from ..models import Scene, StoryFlow
-        
+
         # Get scene to get content
         scene = db.query(Scene).filter(Scene.id == scene_id).first()
         if not scene:
             logger.warning(f"Scene {scene_id} not found for extraction invalidation")
             return
-        
+
+        # Use scene's branch_id if not provided
+        if branch_id is None:
+            branch_id = scene.branch_id
+
         # Get active variant content
         flow = db.query(StoryFlow).filter(
             StoryFlow.scene_id == scene_id,
             StoryFlow.is_active == True
         ).first()
-        
+
         if not flow or not flow.scene_variant:
             logger.warning(f"No active variant found for scene {scene_id}")
             return
-        
+
         scene_content = flow.scene_variant.content
-        
+
         # 1. Invalidate extractions for the scene
         await cleanup_scene_embeddings(scene_id, db)
         logger.info(f"[MODIFY] Cleaned up extractions for scene {scene_id}")
-        
-        # 2. Invalidate entity state batches containing this scene
+
+        # 2. Invalidate entity state batches containing this scene (filtered by branch)
         entity_service = EntityStateService(user_id=user_id, user_settings=user_settings)
         entity_service.invalidate_entity_batches_for_scenes(
-            db, story_id, scene_sequence, scene_sequence
+            db, story_id, scene_sequence, scene_sequence, branch_id=branch_id
         )
         
         # 3. Regenerate extractions for the modified scene
@@ -554,37 +560,47 @@ async def invalidate_and_regenerate_extractions_for_scene(
         )
         logger.info(f"[MODIFY] Regenerated extractions for scene {scene_id}")
         
-        # 4. Recalculate NPCTracking
+        # 4. Recalculate NPCTracking (filtered by branch)
         try:
             npc_service = NPCTrackingService(user_id=user_id, user_settings=user_settings)
-            await npc_service.recalculate_all_scores(db, story_id)
-            logger.info(f"[MODIFY] Recalculated NPC tracking for story {story_id}")
+            await npc_service.recalculate_all_scores(db, story_id, branch_id=branch_id)
+            logger.info(f"[MODIFY] Recalculated NPC tracking for story {story_id} branch {branch_id}")
         except Exception as e:
             logger.warning(f"[MODIFY] Failed to recalculate NPC tracking: {e}")
-        
+
         # 5. Recalculate entity states if the modified scene affects them
-        # Find last valid batch before this scene
-        last_valid_batch = entity_service.get_last_valid_batch(db, story_id, scene_sequence)
-        
+        # Find last valid batch before this scene (filtered by branch)
+        last_valid_batch = entity_service.get_last_valid_batch(db, story_id, scene_sequence, branch_id=branch_id)
+
         if last_valid_batch:
             # Restore states from batch, then re-extract from modified scene onwards
             entity_service.restore_entity_states_from_batch(db, last_valid_batch)
             start_sequence = last_valid_batch.end_scene_sequence + 1
             logger.info(f"[MODIFY] Restored entity states from batch {last_valid_batch.id} (scenes 1-{last_valid_batch.end_scene_sequence})")
         else:
-            # No valid batch, delete all states and start from scratch
-            db.query(CharacterState).filter(CharacterState.story_id == story_id).delete()
-            db.query(LocationState).filter(LocationState.story_id == story_id).delete()
-            db.query(ObjectState).filter(ObjectState.story_id == story_id).delete()
+            # No valid batch, delete all states for this branch and start from scratch
+            char_del_query = db.query(CharacterState).filter(CharacterState.story_id == story_id)
+            loc_del_query = db.query(LocationState).filter(LocationState.story_id == story_id)
+            obj_del_query = db.query(ObjectState).filter(ObjectState.story_id == story_id)
+            if branch_id is not None:
+                char_del_query = char_del_query.filter(CharacterState.branch_id == branch_id)
+                loc_del_query = loc_del_query.filter(LocationState.branch_id == branch_id)
+                obj_del_query = obj_del_query.filter(ObjectState.branch_id == branch_id)
+            char_del_query.delete()
+            loc_del_query.delete()
+            obj_del_query.delete()
             start_sequence = 1
-            logger.info(f"[MODIFY] No valid batch found, starting entity state recalculation from scene 1")
-        
-        # Re-extract entity states from start_sequence onwards
+            logger.info(f"[MODIFY] No valid batch found, starting entity state recalculation from scene 1 (branch {branch_id})")
+
+        # Re-extract entity states from start_sequence onwards (filtered by branch)
         from ..models import Scene as SceneModel, Chapter
-        scenes_to_reprocess = db.query(SceneModel).filter(
+        scenes_query = db.query(SceneModel).filter(
             SceneModel.story_id == story_id,
             SceneModel.sequence_number >= start_sequence
-        ).order_by(SceneModel.sequence_number).all()
+        )
+        if branch_id is not None:
+            scenes_query = scenes_query.filter(SceneModel.branch_id == branch_id)
+        scenes_to_reprocess = scenes_query.order_by(SceneModel.sequence_number).all()
         
         scenes_processed = 0
         for scene_to_process in scenes_to_reprocess:
@@ -4641,9 +4657,10 @@ async def create_scene_variant(
                     scene_sequence=scene.sequence_number,
                     user_id=current_user.id,
                     user_settings=user_settings,
-                    db=db
+                    db=db,
+                    branch_id=scene.branch_id
                 )
-                
+
                 # Check if scene is at extraction threshold - if so, regenerate entity states
                 from ..services.entity_state_service import EntityStateService
                 batch_threshold = user_settings.get("context_summary_threshold", 5) if user_settings else 5
@@ -5007,9 +5024,10 @@ async def create_scene_variant_streaming(
                         scene_sequence=scene.sequence_number,
                         user_id=current_user.id,
                         user_settings=user_settings,
-                        db=db
+                        db=db,
+                        branch_id=scene.branch_id
                     )
-                    
+
                     # Send multi_variant_complete event
                     yield f"data: {json.dumps({'type': 'multi_variant_complete', 'scene_id': scene_id, 'new_variants_count': len(new_variants), 'variants': variants_response, 'active_variant_id': new_variants[0].id if new_variants else None})}\n\n"
                     
@@ -5200,9 +5218,10 @@ async def create_scene_variant_streaming(
                         scene_sequence=scene.sequence_number,
                         user_id=current_user.id,
                         user_settings=user_settings,
-                        db=db
+                        db=db,
+                        branch_id=scene.branch_id
                     )
-                    
+
                     # Check if scene is at extraction threshold - if so, regenerate entity states
                     from ..services.entity_state_service import EntityStateService
                     batch_threshold = user_settings.get("context_summary_threshold", 5) if user_settings else 5
@@ -5462,7 +5481,7 @@ async def continue_scene(
         # Invalidate chapter summary batches if this scene was summarized
         from ..api.chapters import invalidate_chapter_batches_for_scene
         invalidate_chapter_batches_for_scene(scene_id, db)
-        
+
         # Invalidate extractions for the modified scene (regeneration happens when threshold is reached)
         await invalidate_extractions_for_scene(
             scene_id=scene_id,
@@ -5470,9 +5489,10 @@ async def continue_scene(
             scene_sequence=scene.sequence_number,
             user_id=current_user.id,
             user_settings=user_settings,
-            db=db
+            db=db,
+            branch_id=scene.branch_id
         )
-        
+
         return {
             "message": "Scene continued successfully",
             "scene": {
@@ -5576,7 +5596,7 @@ async def continue_scene_streaming(
             # Invalidate chapter summary batches if this scene was summarized
             from .chapters import invalidate_chapter_batches_for_scene
             invalidate_chapter_batches_for_scene(scene_id, db)
-            
+
             # Invalidate extractions for the modified scene (regeneration happens when threshold is reached)
             await invalidate_extractions_for_scene(
                 scene_id=scene_id,
@@ -5584,9 +5604,10 @@ async def continue_scene_streaming(
                 scene_sequence=scene.sequence_number,
                 user_id=current_user.id,
                 user_settings=user_settings,
-                db=db
+                db=db,
+                branch_id=scene.branch_id
             )
-            
+
             # Generate choices for continuation if parsed, otherwise use fallback
             choices_data = []
             if parsed_choices and len(parsed_choices) >= 2:
@@ -5711,10 +5732,10 @@ async def update_scene_variant(
         await cleanup_scene_embeddings(scene_id, db)
         logger.info(f"[MODIFY] Cleaned up extractions for scene {scene_id} (regeneration will happen when threshold is reached)")
         
-        # Invalidate entity state batches containing this scene
+        # Invalidate entity state batches containing this scene (filtered by branch)
         entity_service = EntityStateService(user_id=current_user.id, user_settings=user_settings)
         entity_service.invalidate_entity_batches_for_scenes(
-            db, story_id, scene.sequence_number, scene.sequence_number
+            db, story_id, scene.sequence_number, scene.sequence_number, branch_id=scene.branch_id
         )
         
         # Check if scene is at extraction threshold - if so, regenerate entity states
