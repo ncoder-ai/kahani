@@ -60,6 +60,14 @@ export default function SceneDisplay({
     }
   }, [isEditing, editContent, editMode]);
 
+  // Focus textarea when entering edit mode
+  useEffect(() => {
+    if (isEditing && editMode === 'textarea' && textareaRef.current) {
+      // Focus with preventScroll to avoid unwanted scroll jumps on mobile
+      textareaRef.current.focus({ preventScroll: true });
+    }
+  }, [isEditing, editMode]);
+
   // Focus contenteditable when entering edit mode and set initial content
   useEffect(() => {
     if (isEditing && editMode === 'contenteditable' && contentEditableRef.current) {
@@ -67,7 +75,8 @@ export default function SceneDisplay({
       if (contentEditableRef.current.textContent !== editContent) {
         contentEditableRef.current.textContent = editContent;
       }
-      contentEditableRef.current.focus();
+      // Use preventScroll to avoid unwanted scroll jumps on mobile
+      contentEditableRef.current.focus({ preventScroll: true });
       // Place cursor at end
       const range = document.createRange();
       const selection = window.getSelection();

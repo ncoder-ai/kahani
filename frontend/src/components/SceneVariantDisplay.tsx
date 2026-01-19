@@ -171,6 +171,7 @@ export default function SceneVariantDisplay({
   const [isClient, setIsClient] = useState(false);
   const [isMenuVisible, setIsMenuVisible] = useState(true);
   const menuTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const choiceInputRef = useRef<HTMLInputElement>(null);
   
   // Global TTS context for play/stop functionality
   const { playScene, stop, currentSceneId, isPlaying: isTTSPlaying } = useGlobalTTS();
@@ -393,6 +394,13 @@ export default function SceneVariantDisplay({
     setEditingChoiceId(choice.id);
     setEditingChoiceText(choice.text);
   }, []);
+
+  // Focus choice input when editing starts, without scrolling
+  useEffect(() => {
+    if (editingChoiceId && choiceInputRef.current) {
+      choiceInputRef.current.focus({ preventScroll: true });
+    }
+  }, [editingChoiceId]);
 
   // Handle saving an edited choice
   const handleSaveEditChoice = useCallback(async () => {
@@ -1186,6 +1194,7 @@ export default function SceneVariantDisplay({
                       >
                         <div className="flex items-center gap-2">
                           <input
+                            ref={choiceInputRef}
                             type="text"
                             value={editingChoiceText}
                             onChange={(e) => setEditingChoiceText(e.target.value)}
@@ -1197,7 +1206,6 @@ export default function SceneVariantDisplay({
                                 handleCancelEditChoice();
                               }
                             }}
-                            autoFocus
                             disabled={isSavingChoice}
                             className="flex-1 bg-transparent outline-none text-gray-200 text-xs leading-tight placeholder-gray-500 min-w-0"
                             placeholder="Edit choice..."
