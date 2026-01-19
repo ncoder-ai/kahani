@@ -9,8 +9,18 @@ from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Inde
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
+from .branch_aware import branch_clone_config
 
 
+def _character_interaction_filter(query, fork_seq, story_id, branch_id):
+    """Filter character interactions that first occurred before the fork point."""
+    return query.filter(CharacterInteraction.first_occurrence_scene <= fork_seq)
+
+
+@branch_clone_config(
+    priority=85,
+    filter_func=_character_interaction_filter,
+)
 class CharacterInteraction(Base):
     """
     Tracks significant interactions between character pairs.

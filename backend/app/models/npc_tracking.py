@@ -9,8 +9,20 @@ from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Floa
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
+from .branch_aware import branch_clone_config
 
 
+def _npc_mention_filter(query, fork_seq, story_id, branch_id):
+    """Filter NPC mentions up to the fork point."""
+    return query.filter(NPCMention.sequence_number <= fork_seq)
+
+
+@branch_clone_config(
+    priority=60,
+    depends_on=['scenes'],
+    fk_remappings={'scene_id': 'scene_id_map'},
+    filter_func=_npc_mention_filter,
+)
 class NPCMention(Base):
     """
     Tracks individual mentions of NPCs in scenes.
@@ -58,10 +70,30 @@ class NPCMention(Base):
         return f"<NPCMention(story_id={self.story_id}, branch_id={self.branch_id}, character_name='{self.character_name}', scene_id={self.scene_id})>"
 
 
+def _npc_tracking_filter(query, fork_seq, story_id, branch_id):
+    """Filter NPC tracking records that first appeared before the fork point."""
+    return query.filter(NPCTracking.first_appearance_scene <= fork_seq)
+
+
+def _npc_tracking_transform(new_data, fork_seq, new_branch_id):
+    """Transform NPCTracking data to clamp last_appearance_scene to fork point."""
+    if new_data.get('last_appearance_scene') is not None:
+        new_data['last_appearance_scene'] = min(
+            new_data['last_appearance_scene'],
+            fork_seq
+        )
+    return new_data
+
+
+@branch_clone_config(
+    priority=60,
+    filter_func=_npc_tracking_filter,
+    clone_transform=_npc_tracking_transform,
+)
 class NPCTracking(Base):
     """
     Aggregated tracking of NPCs across a story.
-    
+
     Maintains:
     - Total mentions and scene appearances
     - Importance score (frequency + significance)
@@ -154,10 +186,21 @@ class NPCTracking(Base):
         return f"<NPCTracking(story_id={self.story_id}, character_name='{self.character_name}', importance_score={self.importance_score:.2f})>"
 
 
+def _npc_tracking_snapshot_filter(query, fork_seq, story_id, branch_id):
+    """Filter NPC tracking snapshots up to the fork point."""
+    return query.filter(NPCTrackingSnapshot.scene_sequence <= fork_seq)
+
+
+@branch_clone_config(
+    priority=65,
+    depends_on=['scenes'],
+    fk_remappings={'scene_id': 'scene_id_map'},
+    filter_func=_npc_tracking_snapshot_filter,
+)
 class NPCTrackingSnapshot(Base):
     """
     Stores per-scene snapshots of NPC tracking aggregated data.
-    
+
     This enables fast rollback on scene deletion without recalculation.
     Each snapshot contains the aggregated state of all NPCs up to that scene.
     """

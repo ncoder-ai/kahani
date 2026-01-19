@@ -1,7 +1,8 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Enum, Table, JSON
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Enum, Table, JSON, and_
 from sqlalchemy.orm import relationship, attributes
 from sqlalchemy.sql import func
 from ..database import Base
+from .branch_aware import branch_clone_config
 import enum
 
 class ChapterStatus(str, enum.Enum):
@@ -21,6 +22,33 @@ chapter_characters = Table(
     # Note: SQLite doesn't support named constraints in Table(), so we'll handle this in migration
 )
 
+def _chapter_filter(query, fork_seq, story_id, branch_id):
+    """Filter chapters that have scenes up to the fork point."""
+    from .scene import Scene
+    from sqlalchemy.orm import Session
+
+    # Get the database session from the query
+    db = query.session
+
+    # Get chapter IDs that have scenes within the fork point
+    chapters_with_scenes = db.query(Scene.chapter_id).filter(
+        and_(
+            Scene.branch_id == branch_id,
+            Scene.sequence_number <= fork_seq
+        )
+    ).distinct().subquery()
+
+    # Include chapters that have scenes before fork point OR chapter 1
+    return query.filter(
+        (Chapter.id.in_(chapters_with_scenes)) | (Chapter.chapter_number == 1)
+    )
+
+
+@branch_clone_config(
+    priority=10,
+    creates_mapping='chapter_id_map',
+    filter_func=_chapter_filter,
+)
 class Chapter(Base):
     """Story chapters for organizing narrative into manageable segments"""
     __tablename__ = "chapters"
@@ -87,6 +115,20 @@ class Chapter(Base):
         return f"<Chapter(id={self.id}, story_id={self.story_id}, number={self.chapter_number}, title='{self.title}')>"
 
 
+def _chapter_summary_batch_filter(query, fork_seq, story_id, branch_id):
+    """Filter chapter summary batches that end before or at the fork point."""
+    return query.filter(ChapterSummaryBatch.end_scene_sequence <= fork_seq)
+
+
+@branch_clone_config(
+    priority=80,
+    depends_on=['chapters'],
+    iterate_via_mapping='chapter_id_map',
+    iterate_fk_field='chapter_id',
+    filter_func=_chapter_summary_batch_filter,
+    has_story_id=False,
+    has_branch_id=False,
+)
 class ChapterSummaryBatch(Base):
     """Stores summary batches for chapters to enable partial regeneration"""
     __tablename__ = "chapter_summary_batches"
@@ -112,6 +154,20 @@ class ChapterSummaryBatch(Base):
         return f"<ChapterSummaryBatch(id={self.id}, chapter_id={self.chapter_id}, scenes={self.start_scene_sequence}-{self.end_scene_sequence})>"
 
 
+def _chapter_plot_progress_batch_filter(query, fork_seq, story_id, branch_id):
+    """Filter chapter plot progress batches that end before or at the fork point."""
+    return query.filter(ChapterPlotProgressBatch.end_scene_sequence <= fork_seq)
+
+
+@branch_clone_config(
+    priority=80,
+    depends_on=['chapters'],
+    iterate_via_mapping='chapter_id_map',
+    iterate_fk_field='chapter_id',
+    filter_func=_chapter_plot_progress_batch_filter,
+    has_story_id=False,
+    has_branch_id=False,
+)
 class ChapterPlotProgressBatch(Base):
     """Stores plot progress batches for chapters to enable rollback on deletion"""
     __tablename__ = "chapter_plot_progress_batches"

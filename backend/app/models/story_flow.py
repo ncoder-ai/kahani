@@ -2,7 +2,24 @@ from sqlalchemy import Column, Integer, ForeignKey, DateTime, Boolean, String, J
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
+from .branch_aware import branch_clone_config
 
+
+def _story_flow_filter(query, fork_seq, story_id, branch_id):
+    """Filter story flows up to and including the fork point."""
+    return query.filter(StoryFlow.sequence_number <= fork_seq)
+
+
+@branch_clone_config(
+    priority=40,
+    depends_on=['scenes', 'scene_variants', 'scene_choices'],
+    fk_remappings={
+        'scene_id': 'scene_id_map',
+        'scene_variant_id': 'scene_variant_id_map',
+        'from_choice_id': 'scene_choice_id_map',
+    },
+    filter_func=_story_flow_filter,
+)
 class StoryFlow(Base):
     """Tracks the active path through scene variants for each story"""
     __tablename__ = "story_flows"

@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Foreign
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
+from .branch_aware import branch_clone_config
 
 class Character(Base):
     __tablename__ = "characters"
@@ -48,6 +49,11 @@ class Character(Base):
     def __repr__(self):
         return f"<Character(id={self.id}, name='{self.name}')>"
 
+@branch_clone_config(
+    priority=20,
+    creates_mapping='story_character_id_map',
+    clone_all=True,  # Clone all characters, not filtered by fork_sequence
+)
 class StoryCharacter(Base):
     """Association table for characters in specific stories with story-specific state"""
     __tablename__ = "story_characters"

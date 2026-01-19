@@ -9,6 +9,7 @@ from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Foreign
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
+from .branch_aware import branch_clone_config, embedding_id_handler
 import enum
 
 
@@ -28,10 +29,25 @@ class EventType(str, enum.Enum):
     RESOLUTION = "resolution"
 
 
+def _character_memory_filter(query, fork_seq, story_id, branch_id):
+    """Filter character memories up to the fork point."""
+    return query.filter(CharacterMemory.sequence_order <= fork_seq)
+
+
+@branch_clone_config(
+    priority=70,
+    depends_on=['scenes', 'chapters'],
+    fk_remappings={
+        'scene_id': 'scene_id_map',
+        'chapter_id': 'chapter_id_map',
+    },
+    special_handlers={'embedding_id': embedding_id_handler},
+    filter_func=_character_memory_filter,
+)
 class CharacterMemory(Base):
     """
     Tracks character moments across the story
-    
+
     Stores metadata about character-specific moments that are embedded
     in the semantic memory system for retrieval and analysis.
     """
@@ -72,10 +88,26 @@ class CharacterMemory(Base):
         return f"<CharacterMemory(id={self.id}, character_id={self.character_id}, branch_id={self.branch_id}, moment_type={self.moment_type})>"
 
 
+def _plot_event_filter(query, fork_seq, story_id, branch_id):
+    """Filter plot events up to the fork point."""
+    return query.filter(PlotEvent.sequence_order <= fork_seq)
+
+
+@branch_clone_config(
+    priority=70,
+    depends_on=['scenes', 'chapters'],
+    fk_remappings={
+        'scene_id': 'scene_id_map',
+        'chapter_id': 'chapter_id_map',
+        'resolution_scene_id': 'scene_id_map',
+    },
+    special_handlers={'embedding_id': embedding_id_handler},
+    filter_func=_plot_event_filter,
+)
 class PlotEvent(Base):
     """
     Tracks plot events and story threads
-    
+
     Stores metadata about key plot events that are embedded for
     semantic retrieval and thread tracking.
     """
@@ -123,10 +155,26 @@ class PlotEvent(Base):
         return f"<PlotEvent(id={self.id}, branch_id={self.branch_id}, event_type={self.event_type}, resolved={self.is_resolved})>"
 
 
+def _scene_embedding_filter(query, fork_seq, story_id, branch_id):
+    """Filter scene embeddings up to the fork point."""
+    return query.filter(SceneEmbedding.sequence_order <= fork_seq)
+
+
+@branch_clone_config(
+    priority=75,
+    depends_on=['scenes', 'scene_variants', 'chapters'],
+    fk_remappings={
+        'scene_id': 'scene_id_map',
+        'variant_id': 'scene_variant_id_map',
+        'chapter_id': 'chapter_id_map',
+    },
+    special_handlers={'embedding_id': embedding_id_handler},
+    filter_func=_scene_embedding_filter,
+)
 class SceneEmbedding(Base):
     """
     Tracks scene embeddings in the vector database
-    
+
     Stores metadata about scene embeddings for tracking and management.
     """
     __tablename__ = "scene_embeddings"

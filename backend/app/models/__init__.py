@@ -1,6 +1,14 @@
 # Import Base from database first
 from ..database import Base
 
+# Import branch-aware infrastructure first (needed by model decorators)
+from .branch_aware import (
+    BranchCloneRegistry,
+    BranchCloneConfig,
+    branch_clone_config,
+    embedding_id_handler,
+)
+
 # Import all models to ensure they're registered with SQLAlchemy
 from .user import User
 from .user_settings import UserSettings
@@ -24,11 +32,14 @@ from .character_interaction import CharacterInteraction
 
 __all__ = [
     "Base",
+    # Branch-aware infrastructure
+    "BranchCloneRegistry", "BranchCloneConfig", "branch_clone_config", "embedding_id_handler",
+    # Models
     "User", "UserSettings", "SystemSettings",
     "Story", "StoryStatus", "PrivacyLevel", "StoryMode",
     "StoryBranch",
     "Chapter", "ChapterStatus", "chapter_characters", "ChapterSummaryBatch", "ChapterPlotProgressBatch",
-    "Character", "StoryCharacter", 
+    "Character", "StoryCharacter",
     "Scene", "SceneChoice", "SceneType",
     "SceneVariant", "StoryFlow", "PromptTemplate",
     "WritingStylePreset",

@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Foreign
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
+from .branch_aware import branch_clone_config
 import enum
 
 class SceneType(str, enum.Enum):
@@ -10,6 +11,21 @@ class SceneType(str, enum.Enum):
     ACTION = "action"
     DESCRIPTION = "description"
 
+
+def _scene_filter(query, fork_seq, story_id, branch_id):
+    """Filter scenes up to and including the fork point."""
+    return query.filter(Scene.sequence_number <= fork_seq)
+
+
+@branch_clone_config(
+    priority=30,
+    depends_on=['chapters'],
+    fk_remappings={'chapter_id': 'chapter_id_map'},
+    self_ref_fk='parent_scene_id',
+    creates_mapping='scene_id_map',
+    filter_func=_scene_filter,
+    nested_models=['scene_variants', 'scene_choices'],
+)
 class Scene(Base):
     """Logical scene container - holds multiple variants/regenerations"""
     __tablename__ = "scenes"
@@ -62,6 +78,15 @@ class Scene(Base):
     def __repr__(self):
         return f"<Scene(id={self.id}, story_id={self.story_id}, sequence={self.sequence_number})>"
 
+@branch_clone_config(
+    priority=32,
+    parent_fk_field='scene_id',  # Nested under Scene
+    fk_remappings={'scene_variant_id': 'scene_variant_id_map'},
+    deferred_fk_remappings={'leads_to_scene_id': 'scene_id_map'},
+    creates_mapping='scene_choice_id_map',
+    reset_fields={'times_selected': 0},
+    has_story_id=False,  # SceneChoice doesn't have story_id column
+)
 class SceneChoice(Base):
     """Choices available at the end of each scene variant"""
     __tablename__ = "scene_choices"

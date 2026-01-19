@@ -148,7 +148,21 @@ async def startup_event():
             logger.warning("Continuing without semantic memory features")
     else:
         logger.info("Semantic memory disabled in configuration")
-    
+
+    # Validate branch-aware registry to catch missing registrations
+    try:
+        from .models import BranchCloneRegistry
+        unregistered = BranchCloneRegistry.validate()
+        if unregistered:
+            logger.warning(
+                f"BRANCH REGISTRY WARNING: The following tables have branch_id but are not registered "
+                f"for branch cloning: {unregistered}. See models/BRANCH_AWARE_GUIDE.md for how to fix this."
+            )
+        else:
+            logger.info("Branch clone registry validated: all branch-aware tables registered")
+    except Exception as e:
+        logger.error(f"Failed to validate branch clone registry: {e}")
+
     logger.info("Application startup complete")
 
 # Configure network settings

@@ -2,7 +2,16 @@ from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Foreign
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
+from .branch_aware import branch_clone_config
 
+
+@branch_clone_config(
+    priority=31,
+    parent_fk_field='scene_id',  # Nested under Scene
+    creates_mapping='scene_variant_id_map',
+    has_story_id=False,
+    has_branch_id=False,
+)
 class SceneVariant(Base):
     """Multiple variations/regenerations of the same logical scene"""
     __tablename__ = "scene_variants"

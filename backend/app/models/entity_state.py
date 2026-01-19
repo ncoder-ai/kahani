@@ -9,8 +9,18 @@ from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Floa
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
+from .branch_aware import branch_clone_config
 
 
+def _character_state_filter(query, fork_seq, story_id, branch_id):
+    """Filter character states updated before or at the fork point."""
+    return query.filter(CharacterState.last_updated_scene <= fork_seq)
+
+
+@branch_clone_config(
+    priority=50,
+    filter_func=_character_state_filter,
+)
 class CharacterState(Base):
     """
     Tracks the current state of a character in a story.
@@ -93,10 +103,19 @@ class CharacterState(Base):
         }
 
 
+def _location_state_filter(query, fork_seq, story_id, branch_id):
+    """Filter location states updated before or at the fork point."""
+    return query.filter(LocationState.last_updated_scene <= fork_seq)
+
+
+@branch_clone_config(
+    priority=50,
+    filter_func=_location_state_filter,
+)
 class LocationState(Base):
     """
     Tracks the current state of a location in a story.
-    
+
     Maintains:
     - Physical condition (damaged, pristine, etc.)
     - Atmosphere and mood
@@ -157,10 +176,19 @@ class LocationState(Base):
         }
 
 
+def _object_state_filter(query, fork_seq, story_id, branch_id):
+    """Filter object states updated before or at the fork point."""
+    return query.filter(ObjectState.last_updated_scene <= fork_seq)
+
+
+@branch_clone_config(
+    priority=50,
+    filter_func=_object_state_filter,
+)
 class ObjectState(Base):
     """
     Tracks the current state of an important object in a story.
-    
+
     Maintains:
     - Physical condition
     - Current location
@@ -228,6 +256,15 @@ class ObjectState(Base):
         }
 
 
+def _entity_state_batch_filter(query, fork_seq, story_id, branch_id):
+    """Filter entity state batches that end before or at the fork point."""
+    return query.filter(EntityStateBatch.end_scene_sequence <= fork_seq)
+
+
+@branch_clone_config(
+    priority=55,
+    filter_func=_entity_state_batch_filter,
+)
 class EntityStateBatch(Base):
     """Stores entity state snapshots in batches to enable partial regeneration"""
     __tablename__ = "entity_state_batches"
