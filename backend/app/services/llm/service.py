@@ -24,6 +24,40 @@ from .client import LLMClient
 from .prompts import prompt_manager
 from .templates import TextCompletionTemplateManager
 from .thinking_parser import ThinkingTagParser
+from .content_cleaner import (
+    clean_scene_content,
+    clean_scene_numbers,
+    clean_instruction_tags,
+    clean_scene_numbers_chunk,
+)
+from .choice_parser import (
+    fix_incomplete_json_array,
+    fix_malformed_json_escaping,
+    extract_choices_with_regex,
+    parse_choices_from_json,
+    extract_choices_from_response_end,
+)
+from .plot_parser import (
+    get_plot_point_name,
+    clean_plot_point,
+    parse_plot_points_json,
+    parse_plot_points,
+    detect_pov,
+    PLOT_POINT_NAMES,
+)
+from .context_formatter import (
+    get_scene_length_description,
+    format_context_for_titles,
+    format_context_for_continuation,
+    format_context_for_scenario,
+    format_elements_for_scenario,
+    format_context_for_plot,
+    format_context_for_chapters,
+    format_context_for_summary,
+    format_characters_section,
+    format_character_voice_styles,
+    batch_scenes_as_messages,
+)
 from ...config import settings
 
 # Import for type hints (will be imported within functions to avoid circular imports)
@@ -1093,204 +1127,27 @@ class UnifiedLLMService:
     def _clean_scene_content(self, content: str) -> str:
         """
         Comprehensive cleaning of LLM-generated scene content.
-        Removes various junk patterns that LLMs commonly add to scenes.
-        Uses multi-pass cleaning to catch nested patterns.
+        Delegates to content_cleaner module.
         """
-        if not content:
-            return content
-        
-        original_content = content
-        
-        # Multi-pass cleaning to catch nested patterns (max 3 passes)
-        for pass_num in range(3):
-            old_content = content
-            
-            # === AGGRESSIVE MARKDOWN HEADER REMOVAL ===
-            # Remove ANY line that starts with markdown-style headers
-            # These are NEVER legitimate prose - always LLM junk
-            # Must come FIRST before other patterns
-            # Exception: Preserve ###CHOICES### marker (used for choice generation)
-            
-            # Remove lines starting with 2+ hash marks (##, ###, ####, etc.)
-            # But NOT ###CHOICES### (negative lookahead)
-            content = re.sub(r'^#{2,}(?!#*CHOICES###)[^\n]*\n?', '', content, flags=re.MULTILINE | re.IGNORECASE).strip()
-            
-            # Remove lines starting with 2+ equals signs (==, ===, ====, etc.)
-            content = re.sub(r'^={2,}[^\n]*\n?', '', content, flags=re.MULTILINE).strip()
-            
-            # Remove lines starting with 2+ dashes (--, ---, ----, etc.)
-            content = re.sub(r'^-{2,}[^\n]*\n?', '', content, flags=re.MULTILINE).strip()
-            
-            # Remove lines starting with 2+ asterisks (**, ***, ****, etc.)
-            # Preserves single * for thoughts
-            content = re.sub(r'^\*{2,}[^\n]*\n?', '', content, flags=re.MULTILINE).strip()
-            
-            # === HEADER/PREFIX PATTERNS (at start of content) ===
-            # Order matters: most specific patterns first, most general last
-            
-            # Markdown scene headers with numbers: "### SCENE 113 ###", "## SCENE 7 ##"
-            # Must come BEFORE generic scene markers to catch specific pattern
-            content = re.sub(r'^#{1,6}\s*SCENE\s+\d+\s*#{1,6}\s*\n?', '', content, flags=re.IGNORECASE).strip()
-            
-            # Scene numbers and titles: "Scene 7:", "Scene 7: The Escape", "### Scene 7 ###", "SCENE 1"
-            content = re.sub(r'^#{1,6}\s*Scene\s+\d+[^#\n]*#{0,6}\s*\n?', '', content, flags=re.IGNORECASE).strip()
-            content = re.sub(r'^Scene\s+\d+(?:\s*[:\-]\s*[^\n]*)?\s*\n', '', content, flags=re.IGNORECASE).strip()
-            
-            # Standalone numbers as titles: "7:", "7. The Beginning"
-            content = re.sub(r'^\d+[:.]\s*[A-Z][^.\n]*(\n|$)', '', content).strip()
-            
-            # Scene response markers: "=== SCENE RESPONSE ==="
-            content = re.sub(r'^[#=\-\*]{2,}\s*SCENE\s+RESPONSE\s*[#=\-\*]*\s*\n?', '', content, flags=re.IGNORECASE).strip()
-            
-            # Scene expansion markers: "### SCENE EXPANSION ###", "=== SCENE EXPANSION ==="
-            content = re.sub(r'^[#=\-\*]{2,}\s*SCENE\s*(?:EXPANSION|CONTINUATION|CONTENT|START|BEGIN)[^#=\-\*\n]*[#=\-\*]*\s*\n?', '', content, flags=re.IGNORECASE).strip()
-            
-            # Regenerated/Revised scene markers: "=== REGENERATED SCENE ===", "### REVISED SCENE ###"
-            # Also handles typos like "REGNERATED" and makes "SCENE" word optional
-            content = re.sub(r'^[#=\-\*]{2,}\s*(?:REGE?NERATED|REVISED|UPDATED|NEW|REWRITTEN)(?:\s+SCENE)?[^#=\-\*\n]*[#=\-\*]*\s*\n?', '', content, flags=re.IGNORECASE).strip()
-            
-            # Generic section markers at start: "### SCENE ###", "=== SCENE ==="
-            content = re.sub(r'^[#=\-\*]{2,}\s*SCENE\s*\d*\s*[#=\-\*]*\s*\n?', '', content, flags=re.IGNORECASE).strip()
-            
-            # "Continue scene" prefixes: "Continue scene:", "Continuing the scene:"
-            content = re.sub(r'^(?:Continue|Continuing|Continued)\s+(?:the\s+)?scene[:\s]*\n?', '', content, flags=re.IGNORECASE).strip()
-            
-            # "Here is" prefixes: "Here is the scene:", "Here's the continuation:"
-            content = re.sub(r'^Here(?:\'s|\s+is)\s+(?:the\s+)?(?:scene|continuation|next\s+part|story)[:\s]*\n?', '', content, flags=re.IGNORECASE).strip()
-            
-            # Instruction acknowledgments: "Understood, here's the scene:", "Got it. Here's the scene:"
-            content = re.sub(r'^(?:Understood|Got\s+it|Okay|Sure|Certainly)[.,!]?\s*(?:Here(?:\'s|\s+is)[^:]*:)?\s*\n?', '', content, flags=re.IGNORECASE).strip()
-            
-            # Chapter/Part markers at start: "Chapter 7:", "Part 3:"
-            content = re.sub(r'^(?:Chapter|Part)\s+\d+[:\s].*?(\n|$)', '', content, flags=re.IGNORECASE).strip()
-            
-            # === INSTRUCTION TAGS (can appear anywhere) ===
-            
-            # Llama-style instruction tags: [/inst], [inst], <<SYS>>, <</SYS>>
-            content = re.sub(r'\[/?inst\]', '', content, flags=re.IGNORECASE)
-            content = re.sub(r'<<?/?SYS>>?', '', content, flags=re.IGNORECASE)
-            
-            # Assistant/User role markers that leak through
-            content = re.sub(r'^(?:Assistant|AI|Model):\s*', '', content, flags=re.IGNORECASE | re.MULTILINE).strip()
-            
-            # === TRAILING JUNK PATTERNS ===
-            
-            # "End of scene" markers: "--- End of Scene ---", "=== END ==="
-            content = re.sub(r'\n?[#=\-\*]{2,}\s*(?:END|FIN|THE\s+END)\s*(?:OF\s+SCENE)?[^#=\-\*\n]*[#=\-\*]*\s*$', '', content, flags=re.IGNORECASE).strip()
-            
-            # "To be continued" markers
-            content = re.sub(r'\n?\s*(?:\[|\()?(?:To\s+be\s+continued|TBC|Continued\s+in\s+next\s+scene)(?:\]|\))?\s*\.?\s*$', '', content, flags=re.IGNORECASE).strip()
-            
-            # Word count annotations: "(Word count: 150)", "[~200 words]"
-            content = re.sub(r'\n?\s*(?:\[|\()?\s*(?:~?\s*\d+\s*words?|word\s*count[:\s]*\d+)\s*(?:\]|\))?\s*$', '', content, flags=re.IGNORECASE).strip()
-            
-            # === EMBEDDED METADATA (anywhere in content) ===
-            
-            # Scene numbers embedded: "### Scene 113 ###" in middle of text
-            content = re.sub(r'\n[#=\-\*]{2,}\s*SCENE\s+\d+\s*[#=\-\*]*\s*\n', '\n', content, flags=re.IGNORECASE)
-            
-            # Remove multiple consecutive blank lines (normalize to max 2)
-            content = re.sub(r'\n{3,}', '\n\n', content)
-            
-            # Check if any changes were made this pass
-            if content == old_content:
-                logger.debug(f"[SCENE_CLEAN] Cleaning converged after {pass_num + 1} pass(es)")
-                break
-        
-        # Log if significant cleaning occurred
-        if len(original_content) - len(content) > 10:
-            removed_preview = original_content[:150].replace('\n', '\\n')
-            logger.info(f"[SCENE_CLEAN] Removed {len(original_content) - len(content)} chars. Preview: {removed_preview}")
-        
-        return content.strip()
-    
+        return clean_scene_content(content)
+
     def _clean_scene_numbers(self, content: str) -> str:
         """
         Remove scene numbers and LLM junk from generated content.
-        This is an alias for _clean_scene_content for backward compatibility.
+        Delegates to content_cleaner module.
         """
-        return self._clean_scene_content(content)
-    
+        return clean_scene_numbers(content)
+
     def _clean_instruction_tags(self, content: str) -> str:
-        """Remove instruction tags like [/inst][inst] that may appear in LLM responses"""
-        # Remove [/inst] and [inst] tags (with or without closing brackets)
-        content = re.sub(r'\[/inst\]\s*\[inst\]', '', content, flags=re.IGNORECASE)
-        content = re.sub(r'\[/inst\]', '', content, flags=re.IGNORECASE)
-        content = re.sub(r'\[inst\]', '', content, flags=re.IGNORECASE)
-        return content.strip()
-    
+        """Remove instruction tags. Delegates to content_cleaner module."""
+        return clean_instruction_tags(content)
+
     def _clean_scene_numbers_chunk(self, chunk: str, chars_processed: int = 0) -> str:
         """
         Clean scene numbers and junk from streaming chunks.
-        Position-aware: aggressive cleaning only at start of response.
-        
-        Args:
-            chunk: The chunk to clean
-            chars_processed: Total characters processed so far (for position awareness)
+        Delegates to content_cleaner module.
         """
-        if not chunk:
-            return chunk
-        
-        stripped = chunk.strip()
-        
-        # === POSITION-AWARE MARKDOWN HEADER REMOVAL ===
-        # Only apply aggressive ## removal in first ~200 chars (where SCENE junk appears)
-        # After that, allow ## patterns through (for ###CHOICES### marker)
-        HEADER_REMOVAL_THRESHOLD = 200  # Only strip ## headers in first 200 chars
-        
-        if stripped.startswith(('##', '==', '--', '**')):
-            if chars_processed < HEADER_REMOVAL_THRESHOLD:
-                # Early in response - this is likely SCENE junk, strip it
-                return ''
-            else:
-                # Later in response - could be CHOICES marker, preserve it
-                pass  # Fall through to return chunk
-        
-        # Check for "START OF SCENE" and similar patterns early in response
-        # These patterns might appear in chunks that don't start with ##
-        # (e.g., when "############\nSTART OF SCENE\n############" is split across chunks)
-        if chars_processed < HEADER_REMOVAL_THRESHOLD:
-            if re.search(r'^(?:#+\s*)?START\s+OF\s+SCENE\s*(?:#+)?$', stripped, re.IGNORECASE):
-                return ''
-            if re.search(r'^(?:#+\s*)?(?:BEGIN|BEGINNING)\s+(?:OF\s+)?SCENE\s*(?:#+)?$', stripped, re.IGNORECASE):
-                return ''
-        
-        # Markdown scene headers with numbers: "### SCENE 113 ###" (most specific first)
-        if stripped.startswith('#'):
-            if re.match(r'^#{1,6}\s*SCENE\s+\d+', stripped, re.IGNORECASE):
-                cleaned = re.sub(r'^#{1,6}\s*SCENE\s+\d+\s*#{1,6}\s*\n?', '', chunk, flags=re.IGNORECASE)
-                return cleaned
-            if re.match(r'^#{1,6}\s*Scene\s+\d+', stripped, re.IGNORECASE):
-                cleaned = re.sub(r'^#{1,6}\s*Scene\s+\d+[^#\n]*#{0,6}\s*\n?', '', chunk, flags=re.IGNORECASE)
-                return cleaned
-        
-        # Scene number patterns at start of chunk: "Scene 123:", "SCENE 42"
-        if stripped.startswith(('Scene ', 'SCENE ', 'scene ')):
-            if re.match(r'^Scene\s+\d+[:\-\s]', chunk, re.IGNORECASE):
-                cleaned = re.sub(r'^Scene\s+\d+[:\-\s]*[^\n]*\n?', '', chunk, flags=re.IGNORECASE)
-                return cleaned
-        
-        # Scene response markers: "=== SCENE RESPONSE ==="
-        if 'SCENE RESPONSE' in stripped.upper():
-            cleaned = re.sub(r'^[#=\-\*]{2,}\s*SCENE\s+RESPONSE\s*[#=\-\*]*\s*\n?', '', chunk, flags=re.IGNORECASE)
-            return cleaned
-        
-        # Scene expansion markers and regenerated variants
-        if any(marker in stripped.upper() for marker in ['SCENE EXPANSION', 'SCENE CONTINUATION', 'REGENERATED SCENE', 'REGNERATED SCENE', 'REVISED SCENE']):
-            cleaned = re.sub(r'^[#=\-\*]{2,}\s*(?:REGE?NERATED|REVISED|SCENE)\s*(?:EXPANSION|CONTINUATION)?[^#=\-\*\n]*[#=\-\*]*\s*\n?', '', chunk, flags=re.IGNORECASE)
-            return cleaned
-        
-        # "Continue scene" prefix
-        if stripped.lower().startswith(('continue scene', 'continuing the scene', 'continued scene')):
-            cleaned = re.sub(r'^(?:Continue|Continuing|Continued)\s+(?:the\s+)?scene[:\s]*\n?', '', chunk, flags=re.IGNORECASE)
-            return cleaned
-        
-        # "Here is" prefix
-        if stripped.lower().startswith(("here's the scene", "here is the scene", "here's the continuation")):
-            cleaned = re.sub(r'^Here(?:\'s|\s+is)\s+(?:the\s+)?(?:scene|continuation)[:\s]*\n?', '', chunk, flags=re.IGNORECASE)
-            return cleaned
-        
-        return chunk
+        return clean_scene_numbers_chunk(chunk, chars_processed)
     
     # Story Generation Functions
     
@@ -1999,378 +1856,24 @@ class UnifiedLLMService:
                 yield cleaned_chunk
     
     def _fix_incomplete_json_array(self, json_str: str) -> Optional[str]:
-        """
-        Attempt to fix an incomplete JSON array by extracting valid complete entries.
-        Returns fixed JSON string or None if fixing is not possible.
-        """
-        if not json_str or not json_str.strip().startswith('['):
-            return None
-        
-        try:
-            # Remove the opening bracket
-            content = json_str.lstrip('[').strip()
-            
-            # Try to extract complete string entries
-            # Pattern: "..." followed by comma or end
-            entries = []
-            current_pos = 0
-            in_string = False
-            escaped = False
-            start_pos = None
-            
-            i = 0
-            while i < len(content):
-                char = content[i]
-                
-                if escaped:
-                    escaped = False
-                    i += 1
-                    continue
-                
-                if char == '\\':
-                    escaped = True
-                    i += 1
-                    continue
-                
-                if char == '"':
-                    if not in_string:
-                        # Start of a new string
-                        in_string = True
-                        start_pos = i
-                    else:
-                        # End of string - check if it's followed by comma or whitespace
-                        end_pos = i + 1
-                        # Look ahead for comma or end of content
-                        remaining = content[end_pos:].lstrip()
-                        if not remaining or remaining.startswith(',') or remaining.startswith(']'):
-                            # This is a complete string entry
-                            entry = content[start_pos:end_pos]
-                            entries.append(entry)
-                            in_string = False
-                            # Skip past comma if present
-                            if remaining.startswith(','):
-                                i = end_pos + remaining.find(',') + 1
-                                continue
-                            elif remaining.startswith(']'):
-                                break
-                    i += 1
-                    continue
-                
-                i += 1
-            
-            # If we found any complete entries, reconstruct the JSON array
-            if entries:
-                fixed_json = '[' + ', '.join(entries) + ']'
-                logger.info(f"[CHOICES PARSE] Fixed incomplete JSON: extracted {len(entries)} complete entries")
-                return fixed_json
-            
-            # Fallback: try to close the last incomplete string if we're in one
-            if in_string and start_pos is not None:
-                # Close the current string
-                incomplete_entry = content[start_pos:] + '"'
-                # Remove trailing comma if present
-                incomplete_entry = re.sub(r',\s*$', '', incomplete_entry)
-                fixed_json = '[' + incomplete_entry + ']'
-                logger.info(f"[CHOICES PARSE] Fixed incomplete JSON: closed last string")
-                return fixed_json
-            
-            return None
-        except Exception as e:
-            logger.warning(f"[CHOICES PARSE] Error fixing incomplete JSON: {e}")
-            return None
-    
+        """Fix incomplete JSON array. Delegates to choice_parser module."""
+        return fix_incomplete_json_array(json_str)
+
     def _fix_malformed_json_escaping(self, text: str) -> str:
-        """
-        Fix common LLM JSON escaping issues:
-        - Mixed quote escaping like \"' or \'
-        - Double-escaped quotes like \\"
-        - Unescaped quotes inside strings
-        """
-        # Fix patterns like \"' (escaped double quote followed by single quote)
-        text = re.sub(r'\\"\'', '"', text)
-        text = re.sub(r'\'\"', '"', text)
-        # Fix escaped single quotes that shouldn't be escaped in JSON
-        text = re.sub(r"\\\'", "'", text)
-        # Fix double-escaped quotes
-        text = re.sub(r'\\\\\"', '\\"', text)
-        # Fix patterns like \'' (escaped single quote followed by single quote)
-        text = re.sub(r"\\''", "'", text)
-        return text
-    
+        """Fix malformed JSON escaping. Delegates to choice_parser module."""
+        return fix_malformed_json_escaping(text)
+
     def _extract_choices_with_regex(self, text: str) -> Optional[List[str]]:
-        """
-        Fallback method to extract choices using regex when JSON parsing fails.
-        Looks for quoted strings that appear to be choices.
-        Handles escaped quotes (\\") inside strings.
-        """
-        choices = []
-        
-        # First try double-quoted strings, handling escaped quotes
-        # Pattern: (?:[^"\\]|\\.) matches either:
-        #   - [^"\\] = any char except quote or backslash
-        #   - \\. = backslash followed by any char (escaped char like \")
-        # Minimum 10 chars, no maximum limit
-        double_quoted = re.findall(r'"((?:[^"\\]|\\.){10,})"', text)
-        for match in double_quoted:
-            # Unescape: convert \" to " and \' to '
-            cleaned = match.replace('\\"', '"').replace("\\'", "'").strip()
-            # Filter out things that look like JSON keys or formatting
-            if cleaned and not cleaned.startswith('{') and not cleaned.endswith(':') and 'choices' not in cleaned.lower():
-                choices.append(cleaned)
-        
-        # If we didn't get enough, try single-quoted strings
-        if len(choices) < 2:
-            single_quoted = re.findall(r"'((?:[^'\\]|\\.){10,})'", text)
-            for match in single_quoted:
-                cleaned = match.replace('\\"', '"').replace("\\'", "'").strip()
-                if cleaned and cleaned not in choices and not cleaned.startswith('{'):
-                    choices.append(cleaned)
-        
-        if len(choices) >= 2:
-            logger.info(f"[CHOICES PARSE] Regex fallback extracted {len(choices)} choices")
-            return choices[:6]  # Limit to reasonable number
-        
-        return None
-    
+        """Extract choices with regex fallback. Delegates to choice_parser module."""
+        return extract_choices_with_regex(text)
+
     def _parse_choices_from_json(self, text: str) -> Optional[List[str]]:
-        """
-        Parse choices from JSON array string.
-        Handles various formats and extracts valid choices.
-        Returns None if parsing fails.
-        """
-        if not text or not text.strip():
-            logger.warning("[CHOICES PARSE] Empty text provided")
-            return None
-            
-        try:
-            # Clean the text - remove any markdown code blocks
-            original_text = text
-            text = text.strip()
-            
-            # Handle markdown code blocks (```json ... ``` or ``` ... ```)
-            # Improved markdown removal that handles various formats
-            if '```' in text:
-                # Strategy 1: Use regex to extract content between code block markers
-                # This handles both ```json and ``` markers
-                code_block_match = re.search(r'```(?:json)?\s*\n(.*?)\n```', text, re.DOTALL)
-                if code_block_match:
-                    # Extract content from inside code blocks
-                    cleaned_text = code_block_match.group(1).strip()
-                    logger.debug(f"[CHOICES PARSE] Extracted content from markdown code block, length: {len(cleaned_text)}")
-                else:
-                    # Fallback: Remove lines that are just ``` markers
-                    lines = text.split('\n')
-                    filtered_lines = []
-                    inside_code_block = False
-                    for line in lines:
-                        stripped = line.strip()
-                        if stripped.startswith('```'):
-                            inside_code_block = not inside_code_block
-                            continue  # Skip the marker line
-                        # Add line if we're inside a code block (content) or outside (no code blocks)
-                        # But if we're inside, we want the content
-                        if inside_code_block or not any('```' in l for l in lines):
-                            filtered_lines.append(line)
-                    cleaned_text = '\n'.join(filtered_lines).strip()
-                    
-                    # Strategy 2: If that didn't work, try regex removal of markers
-                    if '```' in cleaned_text:
-                        # Remove any remaining ``` markers
-                        cleaned_text = re.sub(r'```[a-z]*\s*\n?', '', cleaned_text, flags=re.IGNORECASE)
-                        cleaned_text = cleaned_text.strip()
-                
-                text = cleaned_text
-                logger.debug(f"[CHOICES PARSE] Removed markdown code blocks, final text length: {len(text)}")
-            
-            # Helper function to validate and return choices
-            def validate_and_return_choices(choices: Any) -> Optional[List[str]]:
-                """Validate parsed choices and return cleaned list"""
-                if isinstance(choices, list) and len(choices) >= 2:
-                    # Clean and validate each choice
-                    cleaned_choices = []
-                    for i, choice in enumerate(choices):
-                        if isinstance(choice, str):
-                            cleaned = choice.strip()
-                            # Remove any leading/trailing quotes that might have been double-escaped
-                            cleaned = cleaned.strip('"\'')
-                            if len(cleaned) > 5:  # Minimum reasonable choice length
-                                cleaned_choices.append(cleaned)
-                            else:
-                                logger.debug(f"[CHOICES PARSE] Choice {i+1} too short: {len(cleaned)} chars")
-                        else:
-                            logger.debug(f"[CHOICES PARSE] Choice {i+1} not a string: {type(choice)}")
-                    
-                    if len(cleaned_choices) >= 2:
-                        logger.info(f"[CHOICES PARSE] Successfully parsed {len(cleaned_choices)} choices")
-                        return cleaned_choices
-                    else:
-                        logger.warning(f"[CHOICES PARSE] Not enough valid choices: {len(cleaned_choices)} < 2")
-                else:
-                    logger.warning(f"[CHOICES PARSE] Invalid format: got {type(choices)}, length: {len(choices) if isinstance(choices, list) else 'N/A'}")
-                return None
-            
-            # === STRATEGY 1: Try to parse as {"choices": [...]} wrapper first ===
-            # This is the format we request in the prompt
-            try:
-                parsed = json.loads(text)
-                if isinstance(parsed, dict) and "choices" in parsed:
-                    choices = parsed["choices"]
-                    result = validate_and_return_choices(choices)
-                    if result:
-                        return result
-            except json.JSONDecodeError:
-                pass
-            
-            # === STRATEGY 2: Try with malformed escaping fixes ===
-            fixed_text = self._fix_malformed_json_escaping(text)
-            if fixed_text != text:
-                try:
-                    parsed = json.loads(fixed_text)
-                    if isinstance(parsed, dict) and "choices" in parsed:
-                        choices = parsed["choices"]
-                        result = validate_and_return_choices(choices)
-                        if result:
-                            logger.info("[CHOICES PARSE] Succeeded after fixing malformed escaping")
-                            return result
-                    elif isinstance(parsed, list):
-                        result = validate_and_return_choices(parsed)
-                        if result:
-                            logger.info("[CHOICES PARSE] Succeeded after fixing malformed escaping (array)")
-                            return result
-                except json.JSONDecodeError:
-                    pass
-            
-            # === STRATEGY 3: Try to find JSON array directly ===
-            # First check if we have an incomplete array (starts with [ but doesn't end with ])
-            incomplete_match = None
-            if text.strip().startswith('[') and not text.strip().endswith(']'):
-                # Try to find the opening bracket and extract everything after it
-                bracket_pos = text.find('[')
-                if bracket_pos != -1:
-                    incomplete_match = text[bracket_pos:]
-            
-            # Use non-greedy match first, then try greedy if that fails
-            json_match = re.search(r'\[.*?\]', text, re.DOTALL)
-            if not json_match:
-                # Try greedy match in case array spans multiple lines
-                json_match = re.search(r'\[.*\]', text, re.DOTALL)
-            
-            # If we found a complete match, use it
-            if json_match:
-                json_str = json_match.group(0)
-                
-                try:
-                    choices = json.loads(json_str)
-                    return validate_and_return_choices(choices)
-                except json.JSONDecodeError as e:
-                    logger.warning(f"[CHOICES PARSE] JSON decode error: {e}, JSON string: {json_str[:200]}")
-                    
-                    # Try with malformed escaping fixes
-                    fixed_json_str = self._fix_malformed_json_escaping(json_str)
-                    try:
-                        choices = json.loads(fixed_json_str)
-                        result = validate_and_return_choices(choices)
-                        if result:
-                            logger.info("[CHOICES PARSE] Succeeded after fixing array escaping")
-                            return result
-                    except json.JSONDecodeError:
-                        pass
-                    
-                    # Try to fix common JSON issues - remove trailing commas
-                    json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
-                    try:
-                        choices = json.loads(json_str)
-                        return validate_and_return_choices(choices)
-                    except json.JSONDecodeError as e2:
-                        logger.warning(f"[CHOICES PARSE] Still failed after cleanup: {e2}")
-                        # Try to fix incomplete JSON
-                        fixed_json = self._fix_incomplete_json_array(json_str)
-                        if fixed_json:
-                            try:
-                                choices = json.loads(fixed_json)
-                                return validate_and_return_choices(choices)
-                            except json.JSONDecodeError:
-                                pass
-            elif incomplete_match:
-                # We have an incomplete array, try to fix it
-                logger.warning(f"[CHOICES PARSE] Incomplete JSON array detected, attempting to fix. Text preview: {incomplete_match[:200]}")
-                fixed_json = self._fix_incomplete_json_array(incomplete_match)
-                if fixed_json:
-                    try:
-                        choices = json.loads(fixed_json)
-                        return validate_and_return_choices(choices)
-                    except json.JSONDecodeError as e:
-                        logger.warning(f"[CHOICES PARSE] Failed to parse fixed incomplete JSON: {e}")
-            
-            # === STRATEGY 4: Regex fallback - extract quoted strings directly ===
-            logger.info("[CHOICES PARSE] Trying regex fallback to extract choices")
-            regex_choices = self._extract_choices_with_regex(original_text)
-            if regex_choices:
-                return regex_choices
-            
-            # If we get here, all parsing attempts failed
-            # Check if text looks like it was cut off (incomplete JSON)
-            if text.strip().startswith('[') and not text.strip().endswith(']'):
-                logger.warning(f"[CHOICES PARSE] Incomplete JSON array detected (starts with '[' but doesn't end with ']'). Text may have been truncated. Text preview: {text[:200]}")
-            elif text.strip().startswith('{') and not text.strip().endswith('}'):
-                logger.warning(f"[CHOICES PARSE] Incomplete JSON object detected. Text may have been truncated. Text preview: {text[:200]}")
-            elif '```json' in text.lower() or '```' in text:
-                logger.warning(f"[CHOICES PARSE] Markdown code block found but no valid JSON inside. Text preview: {text[:200]}")
-            else:
-                logger.warning(f"[CHOICES PARSE] No valid JSON found in text. Text preview: {text[:200]}")
-            
-            return None
-        except (json.JSONDecodeError, ValueError, AttributeError, Exception) as e:
-            logger.warning(f"[CHOICES PARSE] Failed to parse choices from JSON: {e}, text preview: {text[:200] if 'text' in locals() and text else 'empty'}")
-            return None
-    
+        """Parse choices from JSON. Delegates to choice_parser module."""
+        return parse_choices_from_json(text)
+
     def _extract_choices_from_response_end(self, full_text: str) -> Tuple[str, Optional[List[str]]]:
-        """
-        Extract choices from the end of a response.
-        Looks for choices in the last ~1500 chars where they typically appear.
-        
-        Returns:
-            Tuple of (scene_content, parsed_choices) where parsed_choices may be None
-        """
-        if not full_text:
-            return (full_text, None)
-        
-        # Only search in the last portion of the response
-        search_region = full_text[-1500:] if len(full_text) > 1500 else full_text
-        search_start = len(full_text) - len(search_region)
-        
-        # Try multiple marker patterns
-        marker_patterns = [
-            r'###\s*CHOICES\s*###',
-            r'##\s*CHOICES\s*##', 
-            r'#\s*CHOICES\s*#',
-            r'\n\s*CHOICES\s*:\s*\n',
-            r'\n\s*\*\*CHOICES\*\*\s*\n',
-        ]
-        
-        for pattern in marker_patterns:
-            match = re.search(pattern, search_region, re.IGNORECASE)
-            if match:
-                # Calculate position in full text
-                marker_pos = search_start + match.start()
-                scene = full_text[:marker_pos].strip()
-                choices_text = full_text[marker_pos + len(match.group()):].strip()
-                parsed = self._parse_choices_from_json(choices_text)
-                if parsed:
-                    logger.info(f"[CHOICES EXTRACTION] Found marker '{match.group().strip()}' at position {marker_pos}")
-                    return (scene, parsed)
-        
-        # Fallback: Look for JSON array at the very end
-        json_match = re.search(r'\[\s*"[^"]+"\s*(?:,\s*"[^"]+"\s*)+\]\s*$', search_region)
-        if json_match:
-            parsed = self._parse_choices_from_json(json_match.group())
-            if parsed and len(parsed) >= 2:
-                marker_pos = search_start + json_match.start()
-                scene = full_text[:marker_pos].strip()
-                logger.info(f"[CHOICES EXTRACTION] Found JSON array at end (position {marker_pos})")
-                return (scene, parsed)
-        
-        return (full_text, None)
+        """Extract choices from response end. Delegates to choice_parser module."""
+        return extract_choices_from_response_end(full_text)
     
     async def generate_scene_with_choices_streaming(
         self, 
@@ -4309,36 +3812,8 @@ Chapter Conclusion:"""
     # =====================================================================
     
     def _detect_pov(self, text: str) -> str:
-        """
-        Detect point of view (1st person vs 3rd person) from text.
-        Returns 'first' or 'third'
-        """
-        if not text:
-            return 'third'  # Default to third person
-        
-        # Look for first person indicators
-        first_person_patterns = [
-            r'\bI\b', r'\bme\b', r'\bmy\b', r'\bmyself\b', r'\bmine\b',
-            r'\bwe\b', r'\bus\b', r'\bour\b', r'\bourselves\b'
-        ]
-        
-        # Look for third person indicators
-        third_person_patterns = [
-            r'\bhe\b', r'\bshe\b', r'\bthey\b', r'\bhim\b', r'\bher\b',
-            r'\bhis\b', r'\bhers\b', r'\btheirs\b', r'\bthem\b'
-        ]
-        
-        text_lower = text.lower()
-        
-        first_person_count = sum(len(re.findall(pattern, text_lower)) for pattern in first_person_patterns)
-        third_person_count = sum(len(re.findall(pattern, text_lower)) for pattern in third_person_patterns)
-        
-        # If first person indicators are significantly more common, return first
-        if first_person_count > third_person_count * 1.5:
-            return 'first'
-        
-        # Default to third person
-        return 'third'
+        """Detect POV. Delegates to plot_parser module."""
+        return detect_pov(text)
     
     async def generate_choices(self, scene_content: str, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], db: Optional[Session] = None) -> List[str]:
         """
@@ -4616,169 +4091,20 @@ Chapter Conclusion:"""
     # Helper methods for context formatting
     
     def _format_context_for_titles(self, context: Dict[str, Any]) -> str:
-        """Format context for title generation"""
-        context_parts = []
-        
-        if context.get("genre"):
-            context_parts.append(f"Genre: {context['genre']}")
-        
-        if context.get("tone"):
-            context_parts.append(f"Tone: {context['tone']}")
-        
-        # Character information
-        characters = context.get("characters", [])
-        if characters:
-            char_descriptions = []
-            for char in characters:
-                char_info = f"• {char.get('name', 'Unknown')}"
-                if char.get('role'):
-                    char_info += f" ({char['role']})"
-                if char.get('description'):
-                    char_info += f": {char['description']}"
-                char_descriptions.append(char_info)
-            context_parts.append(f"Main Characters:\n{chr(10).join(char_descriptions)}")
-        
-        # Story scenario
-        if context.get("scenario"):
-            context_parts.append(f"Story Scenario:\n{context['scenario']}")
-        
-        # Story elements
-        story_elements = context.get("story_elements", {})
-        if story_elements:
-            elements = []
-            for key, value in story_elements.items():
-                if value:
-                    elements.append(f"{key.title()}: {value}")
-            if elements:
-                context_parts.append(f"Story Elements:\n{chr(10).join(elements)}")
-        
-        return "\n".join(context_parts)
-    
+        """Format context for title generation. Delegates to context_formatter module."""
+        return format_context_for_titles(context)
+
     def _get_scene_length_description(self, scene_length: str) -> str:
-        """Convert scene_length setting to word range description"""
-        length_map = {
-            "short": "approximately 100-150 words",
-            "medium": "approximately 200-300 words", 
-            "long": "approximately 400-500 words"
-        }
-        return length_map.get(scene_length, "approximately 200-300 words")
+        """Convert scene_length setting. Delegates to context_formatter module."""
+        return get_scene_length_description(scene_length)
     
     def _format_characters_section(self, characters: Any, include_voice_style: bool = True) -> str:
-        """
-        Format characters section for context.
-        
-        Args:
-            characters: Either a list of character dicts or a dict with active_characters/inactive_characters
-            include_voice_style: Whether to include voice style in character descriptions (default: True)
-            
-        Returns:
-            Formatted characters string
-        """
-        if not characters:
-            return ""
-        
-        char_descriptions = []
-        
-        # Check if characters is a dict with active_characters/inactive_characters
-        if isinstance(characters, dict) and "active_characters" in characters:
-            active_chars = characters.get("active_characters", [])
-            inactive_chars = characters.get("inactive_characters", [])
-            
-            # Active characters - full details
-            if active_chars:
-                char_descriptions.append("Active Characters (in this chapter):")
-                for char in active_chars:
-                    char_desc = f"- {char.get('name', 'Unknown')}"
-                    if char.get('role'):
-                        char_desc += f" ({char['role']})"
-                    char_desc += f": {char.get('description', 'No description')}"
-                    if char.get('personality'):
-                        char_desc += f". Personality: {char['personality']}"
-                    if char.get('background'):
-                        char_desc += f". Background: {char['background']}"
-                    if char.get('goals'):
-                        char_desc += f". Goals: {char['goals']}"
-                    if char.get('fears'):
-                        char_desc += f". Fears & Weaknesses: {char['fears']}"
-                    if char.get('appearance'):
-                        char_desc += f". Appearance: {char['appearance']}"
-                    # Add voice/speech style if specified and requested
-                    if include_voice_style and char.get('voice_style'):
-                        voice_instruction = prompt_manager.get_voice_style_instruction(char['voice_style'])
-                        if voice_instruction:
-                            char_desc += f"\n  {voice_instruction}"
-                    char_descriptions.append(char_desc)
-            
-            # Inactive characters - brief format
-            if inactive_chars:
-                char_descriptions.append("\nInactive Characters (available for reference):")
-                for char in inactive_chars:
-                    char_desc = f"- {char.get('name', 'Unknown')}"
-                    if char.get('role'):
-                        char_desc += f" ({char['role']})"
-                    char_descriptions.append(char_desc)
-        else:
-            # Legacy format - list of character dicts
-            for char in characters:
-                char_desc = f"- {char.get('name', 'Unknown')}"
-                if char.get('role'):
-                    char_desc += f" ({char['role']})"
-                char_desc += f": {char.get('description', 'No description')}"
-                if char.get('personality'):
-                    char_desc += f". Personality: {char['personality']}"
-                if char.get('background'):
-                    char_desc += f". Background: {char['background']}"
-                if char.get('goals'):
-                    char_desc += f". Goals: {char['goals']}"
-                if char.get('fears'):
-                    char_desc += f". Fears & Weaknesses: {char['fears']}"
-                if char.get('appearance'):
-                    char_desc += f". Appearance: {char['appearance']}"
-                # Add voice/speech style if specified and requested
-                if include_voice_style and char.get('voice_style'):
-                    voice_instruction = prompt_manager.get_voice_style_instruction(char['voice_style'])
-                    if voice_instruction:
-                        char_desc += f"\n  {voice_instruction}"
-                char_descriptions.append(char_desc)
-        
-        if char_descriptions:
-            return f"Characters:\n{chr(10).join(char_descriptions)}"
-        return ""
-    
+        """Format characters section. Delegates to context_formatter module."""
+        return format_characters_section(characters, include_voice_style)
+
     def _format_character_voice_styles(self, characters: Any) -> str:
-        """
-        Format character voice/dialogue styles as a separate section.
-        
-        This creates a dedicated, prominent section for character dialogue instructions
-        to ensure the LLM follows them.
-        
-        Args:
-            characters: Either a list of character dicts or a dict with active_characters/inactive_characters
-            
-        Returns:
-            Formatted voice styles string, or empty string if no voice styles defined
-        """
-        if not characters:
-            return ""
-        
-        voice_styles = []
-        
-        # Get all characters (active only for voice styles)
-        if isinstance(characters, dict) and "active_characters" in characters:
-            chars_to_process = characters.get("active_characters", [])
-        else:
-            chars_to_process = characters if isinstance(characters, list) else []
-        
-        for char in chars_to_process:
-            if char.get('voice_style'):
-                voice_instruction = prompt_manager.get_voice_style_instruction(char['voice_style'])
-                if voice_instruction:
-                    char_name = char.get('name', 'Unknown')
-                    voice_styles.append(f"{char_name}:\n  {voice_instruction}")
-        
-        if voice_styles:
-            return "\n\n".join(voice_styles)
-        return ""
+        """Format character voice styles. Delegates to context_formatter module."""
+        return format_character_voice_styles(characters)
     
     def _format_context_as_messages(self, context: Dict[str, Any], scene_batch_size: int = 10) -> List[Dict[str, str]]:
         """
@@ -5015,105 +4341,8 @@ Chapter Conclusion:"""
         return messages
     
     def _batch_scenes_as_messages(self, scenes_text: str, batch_size: int = 10) -> List[Dict[str, str]]:
-        """
-        Parse scenes and group them into batch-aligned messages for optimal caching.
-        
-        Context manager now provides batch-aligned scenes, so:
-        - All batches except the last are complete (have all scenes from batch_start to batch_end)
-        - The last batch is the "active" batch that changes each scene
-        
-        Complete batches use fixed headers (=== SCENES 41-50 ===) for stable caching.
-        Active batch uses fixed header (=== RECENT SCENES ===) for stable caching.
-        
-        Args:
-            scenes_text: Raw text containing scenes in format "Scene XX: content"
-            batch_size: Number of scenes per batch (default: 10)
-            
-        Returns:
-            List of message dicts, one per batch
-        """
-        messages = []
-        
-        # Parse individual scenes using regex
-        # Pattern matches "Scene XX:" followed by content until next "Scene XX:" or end
-        scene_pattern = re.compile(r'Scene\s+(\d+):\s*(.*?)(?=Scene\s+\d+:|$)', re.DOTALL)
-        matches = list(scene_pattern.finditer(scenes_text))
-        
-        if not matches:
-            # No scene pattern found, return as single message
-            if scenes_text.strip():
-                messages.append({
-                    "role": "user",
-                    "content": "=== RECENT SCENES ===\n" + scenes_text.strip()
-                })
-            return messages
-        
-        # Group scenes by batch
-        # Batch boundaries: 1-10, 11-20, 21-30, etc. (based on scene numbers, not indices)
-        batches: Dict[int, List[Tuple[int, str]]] = {}
-        
-        for match in matches:
-            scene_num = int(match.group(1))
-            scene_content = match.group(2).strip()
-            
-            # Calculate batch number (0-indexed): scenes 1-10 -> batch 0, 11-20 -> batch 1, etc.
-            batch_num = (scene_num - 1) // batch_size
-            
-            if batch_num not in batches:
-                batches[batch_num] = []
-            batches[batch_num].append((scene_num, scene_content))
-        
-        if not batches:
-            return messages
-        
-        # Sort batches by batch number
-        sorted_batch_nums = sorted(batches.keys())
-        
-        # The last batch in sorted order is the active batch (changes each scene)
-        # All other batches are complete and stable (context_manager guarantees this)
-        last_batch_idx = len(sorted_batch_nums) - 1
-        
-        for idx, batch_num in enumerate(sorted_batch_nums):
-            scenes_in_batch = batches[batch_num]
-            # Sort scenes within batch by scene number
-            scenes_in_batch.sort(key=lambda x: x[0])
-            
-            # Calculate FIXED batch range based on batch number
-            # Batch 4 is always scenes 41-50, batch 5 is always 51-60, etc.
-            batch_start = batch_num * batch_size + 1
-            batch_end = batch_start + batch_size - 1
-            
-            # Get actual scene numbers in this batch
-            actual_scene_nums = [s[0] for s in scenes_in_batch]
-            actual_start = min(actual_scene_nums)
-            actual_end = max(actual_scene_nums)
-            
-            # Format scenes without "Scene X:" prefix to avoid teaching LLM bad habits
-            formatted_scenes = []
-            for scene_num, content in scenes_in_batch:
-                formatted_scenes.append(content)
-            
-            batch_content = "\n\n".join(formatted_scenes)
-            
-            # Last batch is always the active batch (changes each scene)
-            # All other batches are complete and stable (context_manager guarantees this)
-            is_active_batch = (idx == last_batch_idx)
-            
-            if is_active_batch:
-                # Active batch - use FIXED header for stable caching (scene numbers change content, not header)
-                header = f"=== RECENT SCENES ==="
-            else:
-                # Complete batch - use FIXED batch boundaries for stable caching
-                header = f"=== SCENES {batch_start}-{batch_end} ==="
-            
-            messages.append({
-                "role": "user",
-                "content": f"{header}\n{batch_content}"
-            })
-        
-        logger.debug(f"[SCENE BATCHING] Created {len(messages)} batch messages from {len(matches)} scenes (batch_size={batch_size})")
-        
-        return messages
+        """Batch scenes as messages. Delegates to context_formatter module."""
+        return batch_scenes_as_messages(scenes_text, batch_size)
     
     def _format_context_for_scene(self, context: Dict[str, Any], exclude_last_scene: bool = False) -> str:
         """Format context for scene generation, handling active/inactive characters
@@ -5384,430 +4613,48 @@ Chapter Conclusion:"""
         return "\n\n".join(context_parts)
     
     def _format_context_for_continuation(self, context: Dict[str, Any]) -> str:
-        """Format context for scene continuation"""
-        context_parts = []
-        
-        if context.get("genre"):
-            context_parts.append(f"Genre: {context['genre']}")
-        
-        if context.get("tone"):
-            context_parts.append(f"Tone: {context['tone']}")
-        
-        if context.get("characters"):
-            char_descriptions = [f"- {char.get('name', 'Unknown')}: {char.get('description', 'No description')}" 
-                               for char in context["characters"]]
-            context_parts.append(f"Characters:\n{chr(10).join(char_descriptions)}")
-        
-        if context.get("previous_content"):
-            context_parts.append(f"Previous content: {context['previous_content'][-600:]}")  # Last 600 chars
-        
-        if context.get("choice_made"):
-            context_parts.append(f"Reader's choice: {context['choice_made']}")
-        
-        if context.get("current_situation"):
-            context_parts.append(f"Current situation: {context['current_situation']}")
-        
-        if context.get("continuation_prompt"):
-            context_parts.append(f"Continuation instruction: {context['continuation_prompt']}")
-        
-        return "\n".join(context_parts)
-    
+        """Format context for scene continuation. Delegates to context_formatter module."""
+        return format_context_for_continuation(context)
+
     def _format_context_for_choices(self, context: Dict[str, Any]) -> str:
-        """Format context for choice generation
-        CRITICAL: Reuse _format_context_for_scene() to ensure identical formatting
-        This maximizes LLM cache hits by keeping the initial prompt parts identical
-        """
-        # Reuse the same formatting as scene generation to maximize cache hits
+        """Format context for choice generation - reuses scene formatting for cache hits."""
         return self._format_context_for_scene(context, exclude_last_scene=False)
-    
+
     def _format_context_for_scenario(self, context: Dict[str, Any]) -> str:
-        """Format context for scenario generation"""
-        context_parts = []
-        
-        if context.get("genre"):
-            context_parts.append(f"Genre: {context['genre']}")
-        
-        if context.get("tone"):
-            context_parts.append(f"Tone: {context['tone']}")
-        
-        # Character information
-        characters = context.get("characters", [])
-        if characters:
-            char_descriptions = []
-            for char in characters:
-                char_info = f"• {char.get('name', 'Unknown')}"
-                if char.get('role'):
-                    char_info += f" ({char['role']})"
-                if char.get('description'):
-                    char_info += f": {char['description']}"
-                char_descriptions.append(char_info)
-            context_parts.append(f"Main Characters:\n{chr(10).join(char_descriptions)}")
-        
-        return "\n".join(context_parts)
-    
+        """Format context for scenario generation. Delegates to context_formatter module."""
+        return format_context_for_scenario(context)
+
     def _format_elements_for_scenario(self, context: Dict[str, Any]) -> str:
-        """Format story elements for scenario generation"""
-        elements = []
-        if context.get("opening"):
-            elements.append(f"Story opening: {context['opening']}")
-        if context.get("setting"):
-            elements.append(f"Setting: {context['setting']}")
-        if context.get("conflict"):
-            elements.append(f"Driving force: {context['conflict']}")
-        
-        return "\n".join(elements)
-    
+        """Format story elements for scenario. Delegates to context_formatter module."""
+        return format_elements_for_scenario(context)
+
     def _format_context_for_plot(self, context: Dict[str, Any]) -> str:
-        """Format context for plot generation"""
-        context_parts = []
-        
-        if context.get("genre"):
-            context_parts.append(f"Genre: {context['genre']}")
-        
-        if context.get("tone"):
-            context_parts.append(f"Tone: {context['tone']}")
-        
-        # Character information
-        characters = context.get("characters", [])
-        if characters:
-            char_descriptions = []
-            for char in characters:
-                char_info = f"• {char.get('name', 'Unknown')}"
-                if char.get('role'):
-                    char_info += f" ({char['role']})"
-                if char.get('description'):
-                    char_info += f": {char['description']}"
-                char_descriptions.append(char_info)
-            context_parts.append(f"Main Characters:\n{chr(10).join(char_descriptions)}")
-        
-        # Story scenario
-        if context.get("scenario"):
-            context_parts.append(f"Story Scenario:\n{context['scenario']}")
-        
-        # World setting
-        if context.get("world_setting"):
-            context_parts.append(f"World Setting:\n{context['world_setting']}")
-        
-        return "\n".join(context_parts)
-    
+        """Format context for plot generation. Delegates to context_formatter module."""
+        return format_context_for_plot(context)
+
     def _format_context_for_chapters(self, context: Dict[str, Any]) -> str:
-        """Format context for chapter generation"""
-        return self._format_context_for_plot(context)  # Same format as plot
-    
+        """Format context for chapter generation. Delegates to context_formatter module."""
+        return format_context_for_chapters(context)
+
     def _format_context_for_summary(self, context: Dict[str, Any]) -> str:
-        """Format context for summary generation"""
-        context_parts = []
-        
-        if context.get("title"):
-            context_parts.append(f"Title: {context['title']}")
-        
-        if context.get("genre"):
-            context_parts.append(f"Genre: {context['genre']}")
-        
-        if context.get("scene_count"):
-            context_parts.append(f"Number of scenes: {context['scene_count']}")
-        
-        return "\n".join(context_parts)
+        """Format context for summary generation. Delegates to context_formatter module."""
+        return format_context_for_summary(context)
     
     def _get_plot_point_name(self, index: int) -> str:
-        """Get plot point name by index"""
-        plot_point_names = [
-            "Opening Hook", "Inciting Incident", "Rising Action", "Climax", "Resolution"
-        ]
-        return plot_point_names[min(index, len(plot_point_names)-1)]
+        """Get plot point name by index. Delegates to plot_parser module."""
+        return get_plot_point_name(index)
     
     def _parse_plot_points_json(self, response: str) -> List[str]:
-        """Parse plot points from JSON response"""
-        plot_points = []
-        
-        logger.warning("=" * 80)
-        logger.warning("PARSING PLOT POINTS FROM JSON")
-        logger.warning("=" * 80)
-        logger.warning(f"Input response length: {len(response)} characters")
-        
-        try:
-            # Clean response - remove markdown code blocks if present
-            response_clean = response.strip()
-            
-            # Remove markdown code blocks (```json ... ``` or ``` ... ```)
-            if response_clean.startswith("```"):
-                # Find the closing ```
-                end_idx = response_clean.find("```", 3)
-                if end_idx != -1:
-                    response_clean = response_clean[3:end_idx].strip()
-                    # Remove "json" if it's ```json
-                    if response_clean.startswith("json"):
-                        response_clean = response_clean[4:].strip()
-            
-            logger.warning(f"Cleaned response (first 200 chars): {response_clean[:200]}...")
-            
-            # Parse JSON
-            try:
-                data = json.loads(response_clean)
-            except json.JSONDecodeError as e:
-                logger.error(f"JSON decode error: {e}")
-                logger.error(f"Response that failed to parse: {response_clean[:500]}")
-                # Try to extract JSON from the response if it's embedded in text
-                # Look for JSON object with plot_points key
-                json_start = response_clean.find('{"plot_points"')
-                if json_start == -1:
-                    json_start = response_clean.find("{'plot_points'")
-                if json_start != -1:
-                    # Find matching closing brace
-                    brace_count = 0
-                    json_end = json_start
-                    for i, char in enumerate(response_clean[json_start:], start=json_start):
-                        if char == '{':
-                            brace_count += 1
-                        elif char == '}':
-                            brace_count -= 1
-                            if brace_count == 0:
-                                json_end = i + 1
-                                break
-                    
-                    if json_end > json_start:
-                        json_str = response_clean[json_start:json_end]
-                        logger.warning("Found JSON-like structure, attempting to parse...")
-                        try:
-                            # Replace single quotes with double quotes if needed
-                            if "'" in json_str and '"' not in json_str:
-                                json_str = json_str.replace("'", '"')
-                            data = json.loads(json_str)
-                        except json.JSONDecodeError as json_err:
-                            logger.error(f"Failed to parse extracted JSON: {json_err}")
-                            raise ValueError(f"Failed to parse JSON from response: {e}")
-                    else:
-                        raise ValueError(f"Failed to parse JSON from response: {e}")
-                else:
-                    raise ValueError(f"Failed to parse JSON from response: {e}")
-            
-            # Extract plot_points from JSON
-            if isinstance(data, dict) and "plot_points" in data:
-                plot_points = data["plot_points"]
-                if not isinstance(plot_points, list):
-                    raise ValueError(f"plot_points is not a list, got {type(plot_points)}")
-                
-                # Validate and clean each plot point
-                plot_point_names = ["Opening Hook", "Inciting Incident", "Rising Action", "Climax", "Resolution"]
-                cleaned_points = []
-                for i, point in enumerate(plot_points):
-                    if not isinstance(point, str):
-                        point = str(point)
-                    point = point.strip()
-                    
-                    # Remove any plot point name prefixes that might be in the text
-                    for name in plot_point_names:
-                        # Remove patterns like "Opening Hook:", "Opening Hook -", etc.
-                        point = re.sub(rf'^{re.escape(name)}\s*[:-]\s*', '', point, flags=re.IGNORECASE)
-                    
-                    if point and len(point) > 10:  # Minimum length check
-                        cleaned_points.append(point)
-                        logger.warning(f"Extracted plot point #{len(cleaned_points)}: {point[:100]}...")
-                    else:
-                        logger.warning(f"Rejected plot point #{i+1} (too short or empty): '{point[:50] if point else 'empty'}...'")
-                
-                plot_points = cleaned_points
-                
-                logger.warning(f"Total plot points extracted from JSON: {len(plot_points)}")
-            else:
-                raise ValueError(f"JSON does not contain 'plot_points' key. Keys found: {list(data.keys()) if isinstance(data, dict) else 'not a dict'}")
-            
-        except (json.JSONDecodeError, ValueError, KeyError, TypeError) as e:
-            logger.error(f"Failed to parse JSON response: {e}")
-            logger.error(f"Error type: {type(e).__name__}")
-            logger.error(f"Response that failed: {response[:500]}")
-            raise ValueError(f"Failed to parse plot points from JSON response: {str(e)}")
-        
-        # Ensure we have exactly 5 plot points
-        if len(plot_points) < 5:
-            logger.warning(f"WARNING: Only {len(plot_points)} plot points extracted from JSON, using fallback for remaining")
-            fallback_points = [
-                "The story begins with an intriguing hook that draws readers in.",
-                "A pivotal event changes everything and sets the main conflict in motion.",
-                "Challenges and obstacles test the characters' resolve and growth.",
-                "The climax brings all conflicts to a head in an intense confrontation.",
-                "The resolution ties up loose ends and shows character transformation."
-            ]
-            plot_points.extend(fallback_points[len(plot_points):])
-        
-        logger.warning("-" * 80)
-        logger.warning("FINAL PARSED PLOT POINTS FROM JSON:")
-        for i, point in enumerate(plot_points[:5], 1):
-            logger.warning(f"{i}. {point[:150]}...")
-        logger.warning("=" * 80)
-        
-        return plot_points[:5]
+        """Parse plot points from JSON. Delegates to plot_parser module."""
+        return parse_plot_points_json(response)
     
     def _parse_plot_points(self, response: str) -> List[str]:
-        """Parse plot points from response - handles multiple formats"""
-        plot_points = []
-        
-        logger.warning("=" * 80)
-        logger.warning("PARSING PLOT POINTS")
-        logger.warning("=" * 80)
-        logger.warning(f"Input response length: {len(response)} characters")
-        logger.warning(f"Input response lines: {len(response.split(chr(10)))} lines")
-        
-        # Plot point names for pattern matching
-        plot_point_names = ["Opening Hook", "Inciting Incident", "Rising Action", "Climax", "Resolution"]
-        plot_point_pattern = "|".join(plot_point_names)
-        
-        # Try multiple parsing strategies
-        # Strategy 1: Look for numbered list format (1. Opening Hook:, 2. Inciting Incident:, etc.)
-        numbered_pattern = re.compile(
-            r'^\s*\d+\.\s*(?:' + plot_point_pattern + r')?\s*:?\s*(.+)$',
-            re.IGNORECASE | re.MULTILINE
-        )
-        
-        # Strategy 2: Look for plot point names with colons
-        named_pattern = re.compile(
-            r'^\s*(?:' + plot_point_pattern + r')\s*:?\s*(.+)$',
-            re.IGNORECASE | re.MULTILINE
-        )
-        
-        # Strategy 3: Look for markdown bold format
-        markdown_pattern = re.compile(
-            r'\*\*(' + plot_point_pattern + r')\*\*\s*:?\s*(.+?)(?=\n\s*(?:\d+\.|' + plot_point_pattern + r'|\*\*|$))',
-            re.IGNORECASE | re.DOTALL
-        )
-        
-        # Strategy 4: Line-by-line parsing with continuation
-        lines = response.split('\n')
-        current_point = ""
-        found_any_marker = False
-        
-        for line in lines:
-            original_line = line
-            line = line.strip()
-            if not line:
-                # Empty line - if we have a current point, it might be complete
-                if current_point and found_any_marker:
-                    clean_point = self._clean_plot_point(current_point, plot_point_names)
-                    if clean_point and len(clean_point) > 20:
-                        plot_points.append(clean_point)
-                        logger.warning(f"Extracted plot point #{len(plot_points)}: {clean_point[:100]}...")
-                    current_point = ""
-                    found_any_marker = False
-                continue
-            
-            # Check if this line starts a new plot point
-            is_new_point = False
-            
-            # Check for numbered format (1., 2., etc.)
-            if re.match(r'^\d+\.\s*', line):
-                is_new_point = True
-                found_any_marker = True
-                logger.warning(f"Found numbered marker: {line[:50]}...")
-            
-            # Check for plot point name at start
-            elif re.match(r'^(' + plot_point_pattern + r')\s*:?\s*', line, re.IGNORECASE):
-                is_new_point = True
-                found_any_marker = True
-                logger.warning(f"Found named marker: {line[:50]}...")
-            
-            # Check for markdown bold
-            elif re.search(r'\*\*(' + plot_point_pattern + r')\*\*', line, re.IGNORECASE):
-                is_new_point = True
-                found_any_marker = True
-                logger.warning(f"Found markdown marker: {line[:50]}...")
-            
-            # Check for bullet points
-            elif re.match(r'^[\-\*\•]\s+', line):
-                is_new_point = True
-                found_any_marker = True
-                logger.warning(f"Found bullet marker: {line[:50]}...")
-            
-            if is_new_point:
-                # Save previous point if exists
-                if current_point:
-                    clean_point = self._clean_plot_point(current_point, plot_point_names)
-                    if clean_point and len(clean_point) > 20:
-                        plot_points.append(clean_point)
-                        logger.warning(f"Extracted plot point #{len(plot_points)}: {clean_point[:100]}...")
-                    else:
-                        logger.warning(f"Rejected plot point (too short): '{clean_point[:50] if clean_point else 'empty'}...'")
-                current_point = line
-            else:
-                # Continuation of current point
-                if current_point:
-                    current_point += " " + line
-                elif not found_any_marker:
-                    # No markers found yet, might be plain text format
-                    # Check if line looks like it could be a plot point
-                    if len(line) > 20 and not re.match(r'^[A-Z\s]+$', line):  # Not all caps (likely a heading)
-                        current_point = line
-                        found_any_marker = True
-        
-        # Don't forget the last point
-        if current_point:
-            clean_point = self._clean_plot_point(current_point, plot_point_names)
-            if clean_point and len(clean_point) > 20:
-                plot_points.append(clean_point)
-                logger.warning(f"Extracted plot point #{len(plot_points)}: {clean_point[:100]}...")
-            else:
-                logger.warning(f"Rejected final plot point (too short): '{clean_point[:50] if clean_point else 'empty'}...'")
-        
-        # If we didn't find any markers, try to split by common separators
-        if len(plot_points) == 0:
-            logger.warning("No plot points found with markers, trying alternative parsing...")
-            # Try splitting by double newlines or numbered patterns
-            sections = re.split(r'\n\s*\n|\d+\.\s*', response)
-            for section in sections:
-                section = section.strip()
-                if section and len(section) > 20:
-                    # Remove any plot point names from the start
-                    clean_section = self._clean_plot_point(section, plot_point_names)
-                    if clean_section and len(clean_section) > 20:
-                        plot_points.append(clean_section)
-                        logger.warning(f"Extracted plot point #{len(plot_points)} (alternative method): {clean_section[:100]}...")
-        
-        logger.warning(f"Total plot points extracted: {len(plot_points)}")
-        
-        # Ensure we have exactly 5 plot points
-        if len(plot_points) < 5:
-            logger.warning(f"WARNING: Only {len(plot_points)} plot points extracted, using fallback for remaining")
-            logger.warning(f"Response format analysis: Found markers={found_any_marker}, Response preview: {response[:200]}...")
-            fallback_points = [
-                "The story begins with an intriguing hook that draws readers in.",
-                "A pivotal event changes everything and sets the main conflict in motion.",
-                "Challenges and obstacles test the characters' resolve and growth.",
-                "The climax brings all conflicts to a head in an intense confrontation.",
-                "The resolution ties up loose ends and shows character transformation."
-            ]
-            plot_points.extend(fallback_points[len(plot_points):])
-        
-        logger.warning("-" * 80)
-        logger.warning("FINAL PARSED PLOT POINTS:")
-        for i, point in enumerate(plot_points[:5], 1):
-            logger.warning(f"{i}. {point[:150]}...")
-        logger.warning("=" * 80)
-        
-        return plot_points[:5]
-    
+        """Parse plot points from response. Delegates to plot_parser module."""
+        return parse_plot_points(response)
+
     def _clean_plot_point(self, text: str, plot_point_names: List[str]) -> str:
-        """Clean a plot point by removing markers and formatting"""
-        clean_text = text.strip()
-        
-        # Remove leading numbers and dots (1., 2., etc.)
-        clean_text = re.sub(r'^\d+\.\s*', '', clean_text)
-        
-        # Remove leading bullets
-        clean_text = re.sub(r'^[\-\*\•]\s+', '', clean_text)
-        
-        # Remove markdown bold formatting
-        plot_point_pattern = "|".join(plot_point_names)
-        clean_text = re.sub(r'^\*\*(' + plot_point_pattern + r')\*\*\s*:?\s*', '', clean_text, flags=re.IGNORECASE)
-        
-        # Remove plot point names with colons
-        clean_text = re.sub(r'^(' + plot_point_pattern + r')\s*:?\s*', '', clean_text, flags=re.IGNORECASE)
-        
-        # Remove any remaining leading markers
-        clean_text = re.sub(r'^[\d\.\-\*\•\s]*', '', clean_text)
-        
-        # Clean up extra whitespace
-        clean_text = re.sub(r'\s+', ' ', clean_text).strip()
-        
-        return clean_text
+        """Clean a plot point. Delegates to plot_parser module."""
+        return clean_plot_point(text, plot_point_names)
 
     # Scene Variant Database Operations
     def _get_active_branch_id(self, db: Session, story_id: int) -> int:
