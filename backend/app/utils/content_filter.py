@@ -190,10 +190,10 @@ def validate_genre(genre: str, allow_nsfw: bool = False) -> Tuple[bool, str]:
 def should_inject_nsfw_filter(user_allow_nsfw: bool) -> bool:
     """
     Determine if NSFW filter should be injected into LLM prompts.
-    
+
     Args:
         user_allow_nsfw: User's allow_nsfw permission
-        
+
     Returns:
         True if filter should be injected, False otherwise
     """
@@ -205,4 +205,48 @@ def should_inject_nsfw_filter(user_allow_nsfw: bool) -> bool:
         return user_allow_nsfw.lower() not in ('true', '1', 'yes')
     # For boolean or int (0/1), use truthiness
     return not bool(user_allow_nsfw)
+
+
+def inject_nsfw_filter_if_needed(
+    system_prompt: str,
+    user_settings: dict,
+    user_id: int = None,
+    skip_nsfw_filter: bool = False,
+    context: str = ""
+) -> str:
+    """
+    Inject NSFW filter into system prompt if needed.
+
+    This is a helper function to reduce code duplication in LLM services.
+    It checks user permissions and injects the NSFW prevention prompt when needed.
+
+    Args:
+        system_prompt: The existing system prompt (may be None or empty)
+        user_settings: User settings dictionary containing 'allow_nsfw' key
+        user_id: User ID for logging purposes
+        skip_nsfw_filter: If True, skip injection regardless of user permissions
+        context: Optional context string for logging (e.g., "streaming", "text completion")
+
+    Returns:
+        The system prompt with NSFW filter injected if needed, or the original prompt
+    """
+    if skip_nsfw_filter:
+        return system_prompt
+
+    user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
+
+    if not should_inject_nsfw_filter(user_allow_nsfw):
+        return system_prompt
+
+    # Need to inject NSFW filter
+    nsfw_prompt = get_nsfw_prevention_prompt()
+    context_str = f" ({context})" if context else ""
+
+    if system_prompt:
+        result = system_prompt.strip() + "\n\n" + nsfw_prompt
+        logger.debug(f"NSFW filter injected{context_str} for user {user_id}")
+        return result
+    else:
+        logger.debug(f"NSFW filter injected (no system prompt){context_str} for user {user_id}")
+        return nsfw_prompt
 

@@ -219,23 +219,20 @@ class UnifiedLLMService:
             )
         
         logger.debug(f"Using chat completion API for user {user_id}")
-        
-        # Check if NSFW filter should be injected
-        from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
-        user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
+
+        # Inject NSFW filter if needed
+        from ...utils.content_filter import inject_nsfw_filter_if_needed
+        final_system_prompt = inject_nsfw_filter_if_needed(
+            system_prompt=system_prompt,
+            user_settings=user_settings,
+            user_id=user_id,
+            skip_nsfw_filter=skip_nsfw_filter,
+            context="chat completion"
+        )
         messages = []
-        if system_prompt and system_prompt.strip():
-            # Inject NSFW filter if user doesn't have NSFW permissions (unless explicitly skipped)
-            if not skip_nsfw_filter and should_inject_nsfw_filter(user_allow_nsfw):
-                system_prompt = system_prompt.strip() + "\n\n" + get_nsfw_prevention_prompt()
-                logger.debug(f"NSFW filter injected for user {user_id}")
-            
-            messages.append({"role": "system", "content": system_prompt.strip()})
-        elif not skip_nsfw_filter and should_inject_nsfw_filter(user_allow_nsfw):
-            # No system prompt provided, but we need to inject NSFW filter
-            messages.append({"role": "system", "content": get_nsfw_prevention_prompt()})
-            logger.debug(f"NSFW filter injected (no system prompt) for user {user_id}")
-        
+        if final_system_prompt:
+            messages.append({"role": "system", "content": final_system_prompt})
+
         # Ensure prompt is valid string
         if not prompt or not isinstance(prompt, str) or not prompt.strip():
             raise ValueError("Prompt must be a non-empty string")
@@ -332,20 +329,17 @@ class UnifiedLLMService:
         """Internal method for text completion generation"""
         
         client = self.get_user_client(user_id, user_settings)
-        
-        # Check if NSFW filter should be injected
-        from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
-        user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
-        # Inject NSFW filter into system prompt if needed (unless explicitly skipped)
-        if system_prompt and system_prompt.strip():
-            if not skip_nsfw_filter and should_inject_nsfw_filter(user_allow_nsfw):
-                system_prompt = system_prompt.strip() + "\n\n" + get_nsfw_prevention_prompt()
-                logger.debug(f"NSFW filter injected for user {user_id}")
-        elif not skip_nsfw_filter and should_inject_nsfw_filter(user_allow_nsfw):
-            # No system prompt provided, but we need to inject NSFW filter
-            system_prompt = get_nsfw_prevention_prompt()
-            logger.debug(f"NSFW filter injected (no system prompt) for user {user_id}")
-        
+
+        # Inject NSFW filter if needed
+        from ...utils.content_filter import inject_nsfw_filter_if_needed
+        system_prompt = inject_nsfw_filter_if_needed(
+            system_prompt=system_prompt,
+            user_settings=user_settings,
+            user_id=user_id,
+            skip_nsfw_filter=skip_nsfw_filter,
+            context="text completion"
+        )
+
         # Ensure prompt is valid string
         if not prompt or not isinstance(prompt, str) or not prompt.strip():
             raise ValueError("Prompt must be a non-empty string")
@@ -835,24 +829,20 @@ class UnifiedLLMService:
             return
         
         logger.debug(f"Using chat completion streaming API for user {user_id}")
-        
-        # Check if NSFW filter should be injected
-        from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
-        user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
-        
+
+        # Inject NSFW filter if needed
+        from ...utils.content_filter import inject_nsfw_filter_if_needed
+        final_system_prompt = inject_nsfw_filter_if_needed(
+            system_prompt=system_prompt,
+            user_settings=user_settings,
+            user_id=user_id,
+            skip_nsfw_filter=skip_nsfw_filter,
+            context="chat streaming"
+        )
         messages = []
-        if system_prompt and system_prompt.strip():
-            # Inject NSFW filter if user doesn't have NSFW permissions (unless explicitly skipped)
-            if not skip_nsfw_filter and should_inject_nsfw_filter(user_allow_nsfw):
-                system_prompt = system_prompt.strip() + "\n\n" + get_nsfw_prevention_prompt()
-                logger.debug(f"NSFW filter injected for streaming user {user_id}")
-            
-            messages.append({"role": "system", "content": system_prompt.strip()})
-        elif not skip_nsfw_filter and should_inject_nsfw_filter(user_allow_nsfw):
-            # No system prompt provided, but we need to inject NSFW filter
-            messages.append({"role": "system", "content": get_nsfw_prevention_prompt()})
-            logger.debug(f"NSFW filter injected (no system prompt) for streaming user {user_id}")
-        
+        if final_system_prompt:
+            messages.append({"role": "system", "content": final_system_prompt})
+
         # Ensure prompt is valid string
         if not prompt or not isinstance(prompt, str) or not prompt.strip():
             raise ValueError("Prompt must be a non-empty string")
@@ -943,22 +933,17 @@ class UnifiedLLMService:
         """Internal method for streaming text completion generation"""
         
         client = self.get_user_client(user_id, user_settings)
-        
-        # Check if NSFW filter should be injected
-        from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
-        user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
-        logger.debug(f"NSFW check for user {user_id} (text completion streaming): user_settings.get('allow_nsfw')={user_settings.get('allow_nsfw') if user_settings else None}, user_allow_nsfw={user_allow_nsfw}, type={type(user_allow_nsfw)}")
-        
-        # Inject NSFW filter into system prompt if needed (unless explicitly skipped)
-        if system_prompt and system_prompt.strip():
-            if not skip_nsfw_filter and should_inject_nsfw_filter(user_allow_nsfw):
-                system_prompt = system_prompt.strip() + "\n\n" + get_nsfw_prevention_prompt()
-                logger.debug(f"NSFW filter injected for streaming user {user_id}")
-        elif not skip_nsfw_filter and should_inject_nsfw_filter(user_allow_nsfw):
-            # No system prompt provided, but we need to inject NSFW filter
-            system_prompt = get_nsfw_prevention_prompt()
-            logger.debug(f"NSFW filter injected (no system prompt) for streaming user {user_id}")
-        
+
+        # Inject NSFW filter if needed
+        from ...utils.content_filter import inject_nsfw_filter_if_needed
+        system_prompt = inject_nsfw_filter_if_needed(
+            system_prompt=system_prompt,
+            user_settings=user_settings,
+            user_id=user_id,
+            skip_nsfw_filter=skip_nsfw_filter,
+            context="text completion streaming"
+        )
+
         # Ensure prompt is valid string
         if not prompt or not isinstance(prompt, str) or not prompt.strip():
             raise ValueError("Prompt must be a non-empty string")
