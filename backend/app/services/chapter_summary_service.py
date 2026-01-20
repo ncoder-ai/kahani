@@ -1,0 +1,533 @@
+"""
+Chapter Summary Service
+
+Handles generation and management of chapter summaries including:
+- Full chapter summaries
+- Incremental summary updates
+- Story-so-far generation
+- Batch summary management
+"""
+
+import time
+import uuid
+import logging
+from typing import Optional
+from sqlalchemy.orm import Session
+
+from ..models import (
+    Chapter, Scene, Story, User, UserSettings,
+    ChapterSummaryBatch, StoryFlow
+)
+from .llm.service import UnifiedLLMService
+from .llm.prompts import prompt_manager
+
+logger = logging.getLogger(__name__)
+
+
+class ChapterSummaryService:
+    """Service for managing chapter summaries."""
+
+    def __init__(self, db: Session, user_id: int):
+        self.db = db
+        self.user_id = user_id
+        self.llm_service = UnifiedLLMService()
+        self._user_settings = None
+
+    def _get_user_settings(self) -> Optional[dict]:
+        """Get user settings with caching."""
+        if self._user_settings is None:
+            user_settings_obj = self.db.query(UserSettings).filter(
+                UserSettings.user_id == self.user_id
+            ).first()
+            self._user_settings = user_settings_obj.to_dict() if user_settings_obj else None
+
+            # Add allow_nsfw from user
+            if self._user_settings is not None:
+                user = self.db.query(User).filter(User.id == self.user_id).first()
+                if user:
+                    self._user_settings['allow_nsfw'] = user.allow_nsfw
+
+        return self._user_settings
+
+    async def generate_chapter_summary(self, chapter_id: int) -> str:
+        """
+        Generate a summary of the chapter's scenes WITH CONTEXT from previous chapters.
+        This is stored in chapter.auto_summary and represents ONLY this chapter's content,
+        but the LLM receives previous chapter summaries to maintain consistency.
+
+        Note: Filters by branch_id to ensure only chapters from the same branch are included.
+        """
+        op_start = time.perf_counter()
+        trace_id = f"chap-sum-{uuid.uuid4()}"
+        status = "error"
+        summary_text = ""
+
+        try:
+            chapter = self.db.query(Chapter).filter(Chapter.id == chapter_id).first()
+            if not chapter:
+                logger.warning(f"[CHAPTER:SUMMARY:SKIP] trace_id={trace_id} chapter_id={chapter_id} reason=not_found")
+                return ""
+
+            logger.info(f"[CHAPTER:SUMMARY:START] trace_id={trace_id} chapter_id={chapter_id} story_id={chapter.story_id} branch_id={chapter.branch_id}")
+
+            # Get ALL PREVIOUS chapters' summaries for context (filtered by branch_id)
+            previous_chapters_query = self.db.query(Chapter).filter(
+                Chapter.story_id == chapter.story_id,
+                Chapter.chapter_number < chapter.chapter_number
+            )
+            if chapter.branch_id:
+                previous_chapters_query = previous_chapters_query.filter(Chapter.branch_id == chapter.branch_id)
+            previous_chapters = previous_chapters_query.order_by(Chapter.chapter_number).all()
+
+            previous_summaries = []
+            for ch in previous_chapters:
+                if ch.auto_summary:
+                    previous_summaries.append(f"Chapter {ch.chapter_number} ({ch.title or 'Untitled'}): {ch.auto_summary}")
+
+            # Get all scenes in THIS chapter with their active variants
+            scene_query = self.db.query(Scene).filter(Scene.chapter_id == chapter_id)
+            if chapter.branch_id:
+                scene_query = scene_query.filter(Scene.branch_id == chapter.branch_id)
+            scenes = scene_query.order_by(Scene.sequence_number).all()
+
+            if not scenes:
+                logger.warning(f"[CHAPTER:SUMMARY:EMPTY] trace_id={trace_id} chapter_id={chapter_id} reason=no_scenes")
+                return "No scenes in this chapter yet."
+
+            # Build scene content from active variants
+            scene_contents = []
+            for scene in scenes:
+                flow = self.db.query(StoryFlow).filter(
+                    StoryFlow.scene_id == scene.id,
+                    StoryFlow.is_active == True
+                ).first()
+
+                if flow and flow.scene_variant:
+                    scene_contents.append(f"Scene {scene.sequence_number}: {flow.scene_variant.content}")
+
+            if not scene_contents:
+                logger.warning(f"[CHAPTER:SUMMARY:EMPTY] trace_id={trace_id} chapter_id={chapter_id} reason=no_active_variants")
+                return "No content available to summarize."
+
+            # Prepare context for LLM
+            combined_content = "\n\n".join(scene_contents)
+            context_section = ""
+            if previous_summaries:
+                context_section = f"Previous Chapters (for context):\n{chr(10).join(previous_summaries)}\n\n"
+
+            # Get prompt from prompts.yml
+            prompt = prompt_manager.get_prompt(
+                "chapter_summary", "user",
+                user_id=self.user_id, db=self.db,
+                context_section=context_section,
+                chapter_number=chapter.chapter_number,
+                chapter_title=chapter.title or 'Untitled',
+                scenes_content=combined_content
+            )
+            if not prompt:
+                prompt = f"{context_section}Chapter {chapter.chapter_number}: {chapter.title or 'Untitled'}\n\nScenes:\n{combined_content}\n\nSummarize this chapter factually."
+
+            user_settings = self._get_user_settings()
+
+            # Get system prompt
+            system_prompt = prompt_manager.get_prompt("chapter_summary", "system", user_id=self.user_id, db=self.db)
+            if not system_prompt:
+                system_prompt = "You are a helpful assistant that creates concise narrative summaries."
+
+            # Generate summary
+            llm_start = time.perf_counter()
+            summary = await self._generate_with_llm(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                user_settings=user_settings,
+                max_tokens=400,
+                trace_context=f"chapter_summary_{chapter_id}"
+            )
+            logger.info(f"[CHAPTER:SUMMARY:LLM] trace_id={trace_id} duration_ms={(time.perf_counter() - llm_start) * 1000:.2f}")
+
+            # Update chapter
+            chapter.auto_summary = summary
+            if scenes:
+                chapter.last_summary_scene_count = max(s.sequence_number for s in scenes)
+            else:
+                chapter.last_summary_scene_count = 0
+            self.db.commit()
+            summary_text = summary
+
+            status = "success"
+            logger.info(f"[CHAPTER] Generated summary for chapter {chapter_id}: {len(summary)} chars trace_id={trace_id}")
+
+            return summary
+
+        except Exception as e:
+            logger.error(f"[CHAPTER:SUMMARY:ERROR] trace_id={trace_id} chapter_id={chapter_id} error={e}")
+            return ""
+        finally:
+            duration_ms = (time.perf_counter() - op_start) * 1000
+            if duration_ms > 15000:
+                logger.error(f"[CHAPTER:SUMMARY:SLOW] trace_id={trace_id} chapter_id={chapter_id} status={status} duration_ms={duration_ms:.2f} summary_len={len(summary_text)}")
+            elif duration_ms > 5000:
+                logger.warning(f"[CHAPTER:SUMMARY:SLOW] trace_id={trace_id} chapter_id={chapter_id} status={status} duration_ms={duration_ms:.2f} summary_len={len(summary_text)}")
+            else:
+                logger.info(f"[CHAPTER:SUMMARY:DONE] trace_id={trace_id} chapter_id={chapter_id} status={status} duration_ms={duration_ms:.2f} summary_len={len(summary_text)}")
+
+    async def generate_chapter_summary_incremental(self, chapter_id: int) -> str:
+        """
+        Generate or extend chapter summary incrementally.
+
+        Instead of re-summarizing all scenes, this:
+        1. Takes existing summary (if exists)
+        2. Gets only NEW scenes since last summary
+        3. Asks LLM to create cohesive summary combining existing + new
+        """
+        op_start = time.perf_counter()
+        trace_id = f"chap-sum-inc-{uuid.uuid4()}"
+        status = "error"
+        combined_summary = ""
+
+        try:
+            chapter = self.db.query(Chapter).filter(Chapter.id == chapter_id).first()
+            if not chapter:
+                logger.warning(f"[CHAPTER:SUMMARY:INC:SKIP] trace_id={trace_id} chapter_id={chapter_id} reason=not_found")
+                return ""
+
+            logger.info(f"[CHAPTER:SUMMARY:INC:START] trace_id={trace_id} chapter_id={chapter_id} story_id={chapter.story_id} branch_id={chapter.branch_id}")
+
+            # Get scenes since last summary
+            last_summary_count = chapter.last_summary_scene_count or 0
+            new_scene_query = self.db.query(Scene).filter(
+                Scene.chapter_id == chapter_id,
+                Scene.sequence_number > last_summary_count
+            )
+            if chapter.branch_id:
+                new_scene_query = new_scene_query.filter(Scene.branch_id == chapter.branch_id)
+            new_scenes = new_scene_query.order_by(Scene.sequence_number).all()
+
+            if not new_scenes:
+                logger.info(f"[CHAPTER:SUMMARY:INC:EMPTY] trace_id={trace_id} chapter_id={chapter_id} reason=no_new_scenes")
+                status = "no_new_scenes"
+                return chapter.auto_summary or ""
+
+            # Build scene content from active variants
+            scene_contents = []
+            for scene in new_scenes:
+                flow = self.db.query(StoryFlow).filter(
+                    StoryFlow.scene_id == scene.id,
+                    StoryFlow.is_active == True
+                ).first()
+
+                if flow and flow.scene_variant:
+                    scene_contents.append(f"Scene {scene.sequence_number}: {flow.scene_variant.content}")
+
+            if not scene_contents:
+                logger.info(f"[CHAPTER:SUMMARY:INC:EMPTY] trace_id={trace_id} chapter_id={chapter_id} reason=no_active_variants")
+                status = "no_active_variants"
+                return chapter.auto_summary or ""
+
+            new_scenes_text = "\n\n".join(scene_contents)
+
+            # Get previous chapter summary for narrative continuity
+            previous_chapter_text = ""
+            if chapter.chapter_number > 1:
+                previous_chapter_query = self.db.query(Chapter).filter(
+                    Chapter.story_id == chapter.story_id,
+                    Chapter.chapter_number == chapter.chapter_number - 1,
+                    Chapter.auto_summary.isnot(None)
+                )
+                if chapter.branch_id:
+                    previous_chapter_query = previous_chapter_query.filter(Chapter.branch_id == chapter.branch_id)
+                previous_chapter = previous_chapter_query.first()
+                if previous_chapter and previous_chapter.auto_summary:
+                    previous_chapter_text = f"\nPrevious Chapter Summary:\n{previous_chapter.auto_summary}\n"
+
+            # Build prompt based on whether we have existing summary
+            existing_summary = chapter.auto_summary
+
+            if existing_summary:
+                prompt = prompt_manager.get_prompt(
+                    "chapter_summary_incremental", "user",
+                    user_id=self.user_id, db=self.db,
+                    previous_chapter_text=previous_chapter_text,
+                    last_summary_count=last_summary_count,
+                    existing_summary=existing_summary,
+                    new_scenes_start=last_summary_count + 1,
+                    new_scenes_end=chapter.scenes_count,
+                    new_scenes_text=new_scenes_text
+                )
+                template_key = "chapter_summary_incremental"
+            else:
+                prompt = prompt_manager.get_prompt(
+                    "chapter_summary_initial", "user",
+                    user_id=self.user_id, db=self.db,
+                    previous_chapter_text=previous_chapter_text,
+                    chapter_number=chapter.chapter_number,
+                    chapter_title=chapter.title or 'Untitled',
+                    new_scenes_text=new_scenes_text
+                )
+                template_key = "chapter_summary_initial"
+
+            if not prompt:
+                prompt = f"{previous_chapter_text}Chapter {chapter.chapter_number}: {chapter.title or 'Untitled'}\n\nScenes:\n{new_scenes_text}\n\nSummarize factually."
+
+            user_settings = self._get_user_settings()
+
+            system_prompt = prompt_manager.get_prompt(template_key, "system", user_id=self.user_id, db=self.db)
+            if not system_prompt:
+                system_prompt = "You are a story state tracker. Extract facts, not prose."
+
+            # Generate summary
+            llm_start = time.perf_counter()
+            batch_summary = await self._generate_with_llm(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                user_settings=user_settings,
+                max_tokens=500,
+                trace_context=f"chapter_summary_inc_{chapter_id}"
+            )
+            logger.info(f"[CHAPTER:SUMMARY:INC:LLM] trace_id={trace_id} duration_ms={(time.perf_counter() - llm_start) * 1000:.2f}")
+
+            # Determine scene range for this batch
+            batch_start = last_summary_count + 1
+            batch_end = max(s.sequence_number for s in new_scenes)
+
+            # Store this batch
+            batch = ChapterSummaryBatch(
+                chapter_id=chapter_id,
+                start_scene_sequence=batch_start,
+                end_scene_sequence=batch_end,
+                summary=batch_summary
+            )
+            self.db.add(batch)
+            self.db.flush()
+
+            # Update chapter's auto_summary from all batches
+            update_chapter_summary_from_batches(chapter_id, self.db)
+
+            # Get batch count for logging
+            all_batches = self.db.query(ChapterSummaryBatch).filter(
+                ChapterSummaryBatch.chapter_id == chapter_id
+            ).all()
+
+            combined_summary = chapter.auto_summary or ""
+
+            logger.info(f"[CHAPTER] {'Extended' if existing_summary else 'Created'} summary for chapter {chapter_id}: {len(batch_summary)} chars (scenes {batch_start}-{batch_end}), total batches: {len(all_batches)}, trace_id={trace_id}")
+            status = "success"
+            return combined_summary
+
+        except Exception as e:
+            logger.error(f"[CHAPTER:SUMMARY:INC:ERROR] trace_id={trace_id} chapter_id={chapter_id} error={e}")
+            status = "error"
+            raise
+
+        finally:
+            duration_ms = (time.perf_counter() - op_start) * 1000
+            if duration_ms > 15000:
+                logger.error(f"[CHAPTER:SUMMARY:INC:SLOW] trace_id={trace_id} chapter_id={chapter_id} status={status} duration_ms={duration_ms:.2f} summary_len={len(combined_summary)}")
+            elif duration_ms > 5000:
+                logger.warning(f"[CHAPTER:SUMMARY:INC:SLOW] trace_id={trace_id} chapter_id={chapter_id} status={status} duration_ms={duration_ms:.2f} summary_len={len(combined_summary)}")
+            else:
+                logger.info(f"[CHAPTER:SUMMARY:INC:DONE] trace_id={trace_id} chapter_id={chapter_id} status={status} duration_ms={duration_ms:.2f} summary_len={len(combined_summary)}")
+
+    async def generate_story_so_far(self, chapter_id: int) -> Optional[str]:
+        """
+        Generate "Story So Far" for a chapter by combining summaries of ALL PREVIOUS chapters.
+        Does NOT include the current chapter's summary.
+
+        Returns None if there are no previous chapters with summaries.
+        Note: Filters by branch_id to ensure only chapters from the same branch are included.
+        """
+        chapter = self.db.query(Chapter).filter(Chapter.id == chapter_id).first()
+        if not chapter:
+            return None
+
+        story_id = chapter.story_id
+
+        # Get all previous chapters
+        previous_chapters_query = self.db.query(Chapter).filter(
+            Chapter.story_id == story_id,
+            Chapter.chapter_number < chapter.chapter_number
+        )
+        if chapter.branch_id:
+            previous_chapters_query = previous_chapters_query.filter(Chapter.branch_id == chapter.branch_id)
+        previous_chapters = previous_chapters_query.order_by(Chapter.chapter_number).all()
+
+        # Build the story so far from previous chapter summaries
+        previous_summaries = []
+        for prev_ch in previous_chapters:
+            if prev_ch.auto_summary:
+                previous_summaries.append(f"Chapter {prev_ch.chapter_number} ({prev_ch.title or 'Untitled'}): {prev_ch.auto_summary}")
+
+        if not previous_summaries:
+            logger.info(f"[CHAPTER] No previous chapter summaries available for chapter {chapter_id}")
+            chapter.story_so_far = None
+            self.db.commit()
+            return None
+
+        combined_story = "=== Previous Chapters ===\n" + "\n\n".join(previous_summaries)
+
+        # Get story details
+        story = self.db.query(Story).filter(Story.id == story_id).first()
+        genre = story.genre if story else "fiction"
+        content_rating = story.content_rating if story and hasattr(story, 'content_rating') else "general"
+        tone = story.tone if story else "neutral"
+
+        # Get prompt
+        prompt = prompt_manager.get_prompt(
+            "story_so_far", "user",
+            user_id=self.user_id, db=self.db,
+            combined_chapters=combined_story,
+            genre=genre or "fiction",
+            content_rating=content_rating or "general",
+            tone=tone or "neutral"
+        )
+        if not prompt:
+            prompt = f"{combined_story}\n\nConsolidate into a factual story summary for this {genre} story."
+
+        user_settings = self._get_user_settings()
+
+        system_prompt = prompt_manager.get_prompt("story_so_far", "system", user_id=self.user_id, db=self.db)
+        if not system_prompt:
+            system_prompt = "You are a story state tracker. Consolidate chapter facts into a single state document."
+
+        # Generate story so far
+        story_so_far = await self._generate_with_llm(
+            prompt=prompt,
+            system_prompt=system_prompt,
+            user_settings=user_settings,
+            max_tokens=600,
+            trace_context=f"story_so_far_{chapter_id}"
+        )
+
+        # Update chapter
+        chapter.story_so_far = story_so_far
+        self.db.commit()
+
+        logger.info(f"[CHAPTER] Generated story_so_far for chapter {chapter_id} using {len(previous_chapters)} previous chapters: {len(story_so_far)} chars")
+
+        return story_so_far
+
+    async def _generate_with_llm(
+        self,
+        prompt: str,
+        system_prompt: str,
+        user_settings: Optional[dict],
+        max_tokens: int,
+        trace_context: str
+    ) -> str:
+        """
+        Generate content using either extraction LLM or main LLM based on user settings.
+        """
+        use_extraction_llm = user_settings.get('generation_preferences', {}).get('use_extraction_llm_for_summary', False) if user_settings else False
+        extraction_enabled = user_settings.get('extraction_model_settings', {}).get('enabled', False) if user_settings else False
+
+        if use_extraction_llm and extraction_enabled:
+            try:
+                from .llm.extraction_service import ExtractionLLMService
+                logger.info(f"[CHAPTER:SUMMARY] Using extraction LLM for {trace_context}")
+
+                ext_settings = user_settings.get('extraction_model_settings', {})
+                extraction_service = ExtractionLLMService(
+                    url=ext_settings.get('url', 'http://localhost:1234/v1'),
+                    model=ext_settings.get('model_name', 'qwen2.5-3b-instruct'),
+                    api_key=ext_settings.get('api_key', ''),
+                    temperature=ext_settings.get('temperature', 0.3),
+                    max_tokens=ext_settings.get('max_tokens', 1000)
+                )
+
+                from litellm import acompletion
+                params = extraction_service._get_generation_params(max_tokens=max_tokens)
+                response = await acompletion(
+                    **params,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": prompt}
+                    ],
+                    timeout=extraction_service.timeout.total * 2
+                )
+                result = response.choices[0].message.content.strip()
+                logger.info(f"[CHAPTER:SUMMARY] Successfully generated with extraction LLM for {trace_context} (length={len(result)})")
+                return result
+
+            except Exception as e:
+                logger.warning(f"[CHAPTER:SUMMARY] Extraction LLM failed for {trace_context}, falling back to main LLM: {e}")
+
+        # Use main LLM (default or fallback)
+        logger.info(f"[CHAPTER:SUMMARY] Using main LLM for {trace_context}")
+        return await self.llm_service.generate(
+            prompt=prompt,
+            user_id=self.user_id,
+            user_settings=user_settings,
+            system_prompt=system_prompt,
+            max_tokens=max_tokens
+        )
+
+
+# Module-level helper functions (for use by other modules)
+
+def combine_chapter_batches(chapter_id: int, db: Session) -> Optional[str]:
+    """
+    Get the latest chapter summary from batches.
+
+    Each batch stores the complete cumulative summary up to that point.
+    Returns None if no batches exist.
+    """
+    latest_batch = db.query(ChapterSummaryBatch).filter(
+        ChapterSummaryBatch.chapter_id == chapter_id
+    ).order_by(ChapterSummaryBatch.end_scene_sequence.desc()).first()
+
+    if not latest_batch:
+        return None
+
+    return latest_batch.summary
+
+
+def update_chapter_summary_from_batches(chapter_id: int, db: Session) -> None:
+    """
+    Update chapter.auto_summary and last_summary_scene_count from current batches.
+    """
+    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+    if not chapter:
+        return
+
+    batches = db.query(ChapterSummaryBatch).filter(
+        ChapterSummaryBatch.chapter_id == chapter_id
+    ).order_by(ChapterSummaryBatch.start_scene_sequence).all()
+
+    if batches:
+        chapter.auto_summary = combine_chapter_batches(chapter_id, db)
+        chapter.last_summary_scene_count = max(b.end_scene_sequence for b in batches)
+    else:
+        chapter.auto_summary = None
+        chapter.last_summary_scene_count = 0
+
+    db.commit()
+
+
+def invalidate_chapter_batches_for_scene(scene_id: int, db: Session) -> None:
+    """
+    Invalidate chapter summary batches if scene was part of summarized range.
+    This should be called when a scene's content is modified.
+    """
+    scene = db.query(Scene).filter(Scene.id == scene_id).first()
+    if not scene or not scene.chapter_id:
+        return
+
+    chapter = db.query(Chapter).filter(Chapter.id == scene.chapter_id).first()
+    if not chapter:
+        return
+
+    # Find batches that contain this scene
+    affected_batches = db.query(ChapterSummaryBatch).filter(
+        ChapterSummaryBatch.chapter_id == chapter.id,
+        ChapterSummaryBatch.start_scene_sequence <= scene.sequence_number,
+        ChapterSummaryBatch.end_scene_sequence >= scene.sequence_number
+    ).all()
+
+    if affected_batches:
+        for batch in affected_batches:
+            db.delete(batch)
+
+        logger.info(f"[INVALIDATE] Invalidated {len(affected_batches)} batch(es) for chapter {chapter.id} due to scene {scene_id} modification")
+
+        # Recalculate summary from remaining batches
+        update_chapter_summary_from_batches(chapter.id, db)
