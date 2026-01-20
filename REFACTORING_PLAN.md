@@ -4,16 +4,19 @@
 
 This plan outlines the systematic refactoring of large monolithic files into smaller, logically organized modules. The goal is to improve maintainability, testability, and code organization.
 
-## Current State (After Phases 1-4)
+## Current State (After Phases 1-6)
 
 | File | Lines | Status |
 |------|-------|--------|
 | `services/llm/service.py` | 3,346 | Phase 5 complete |
-| `api/stories.py` | 4,460 | Needs further extraction |
+| `api/stories.py` | 1,182 | Phase 6 complete (73% reduction!) |
+| `api/scene_endpoints.py` | 1,283 | New - extracted from stories.py |
+| `api/variant_endpoints.py` | 1,513 | New - extracted from stories.py |
+| `api/story_helpers.py` | 663 | New - extracted from stories.py |
 | `api/chapters.py` | 2,072 | Recently refactored |
 | `routers/tts.py` | 1,875 | Lower priority |
 
-### Already Extracted (Phases 1-4)
+### Already Extracted (Phases 1-6)
 - `api/story_tasks/background_tasks.py` - Background task functions
 - `api/entity_states.py` - Entity state endpoints
 - `api/drafts.py` - Draft management endpoints
@@ -29,6 +32,9 @@ This plan outlines the systematic refactoring of large monolithic files into sma
 - `services/llm/scene_database_operations.py` - Scene database operations (~550 lines)
 - `services/llm/llm_generation_core.py` - Core LLM generation methods (~800 lines)
 - `services/llm/multi_variant_generation.py` - Multi-variant (n-sampling) generation (~1,050 lines)
+- `api/scene_endpoints.py` - Scene generation endpoints (1,283 lines)
+- `api/variant_endpoints.py` - Variant management endpoints (1,513 lines)
+- `api/story_helpers.py` - Story helper functions and adapters (663 lines)
 
 ---
 
@@ -177,11 +183,11 @@ Extract generation logic:
 - [x] Test variant generation flow
 
 ### Phase 6: Stories API
-- [ ] 6.1 Extract scene_endpoints.py
-- [ ] 6.2 Extract variant_endpoints.py
-- [ ] 6.3 Extract story_helpers.py
-- [ ] Update main.py router registrations
-- [ ] Test all story endpoints
+- [x] 6.1 Extract scene_endpoints.py (1,283 lines)
+- [x] 6.2 Extract variant_endpoints.py (1,513 lines)
+- [x] 6.3 Extract story_helpers.py (663 lines)
+- [x] Update main.py router registrations
+- [x] Test all story endpoints
 
 ### Phase 7: TTS Router
 - [ ] 7.1 Extract tts_generation_service.py
@@ -200,9 +206,9 @@ Extract generation logic:
 | File | Original | Current | Target | Reduction |
 |------|----------|---------|--------|-----------|
 | `services/llm/service.py` | 5,543 | 3,346 | ~2,500 | 40% achieved |
-| `api/stories.py` | 4,460 | ~1,500 | 66% |
-| `routers/tts.py` | 1,875 | ~1,275 | 32% |
-| **Total** | **11,878** | **~5,275** | **56%** |
+| `api/stories.py` | 4,460 | 1,182 | ~1,500 | 73% achieved! |
+| `routers/tts.py` | 1,875 | 1,875 | ~1,275 | Pending |
+| **Total** | **11,878** | **6,403** | **~5,275** | **46% achieved** |
 
 ---
 
@@ -229,6 +235,6 @@ Extract generation logic:
 | 2026-01-20 | 5.1 | Extract scene_database_operations.py | Done |
 | 2026-01-20 | 5.2 | Extract llm_generation_core.py | Done |
 | 2026-01-20 | 5.3 | Extract multi_variant_generation.py | Done |
-| | 6.1 | Extract scene_endpoints.py | Pending |
-| | 6.2 | Extract variant_endpoints.py | Pending |
-| | 6.3 | Extract story_helpers.py | Pending |
+| 2026-01-20 | 6.1 | Extract scene_endpoints.py (1,283 lines) | Done |
+| 2026-01-20 | 6.2 | Extract variant_endpoints.py (1,513 lines) | Done |
+| 2026-01-20 | 6.3 | Extract story_helpers.py (663 lines) | Done |
