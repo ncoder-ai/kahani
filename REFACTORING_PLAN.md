@@ -8,7 +8,7 @@ This plan outlines the systematic refactoring of large monolithic files into sma
 
 | File | Lines | Status |
 |------|-------|--------|
-| `services/llm/service.py` | 5,543 | Needs further extraction |
+| `services/llm/service.py` | 3,346 | Phase 5 complete |
 | `api/stories.py` | 4,460 | Needs further extraction |
 | `api/chapters.py` | 2,072 | Recently refactored |
 | `routers/tts.py` | 1,875 | Lower priority |
@@ -26,6 +26,9 @@ This plan outlines the systematic refactoring of large monolithic files into sma
 - `services/llm/choice_parser.py` - Choice parsing utilities
 - `services/llm/plot_parser.py` - Plot parsing utilities
 - `services/llm/context_formatter.py` - Context formatting utilities
+- `services/llm/scene_database_operations.py` - Scene database operations (~550 lines)
+- `services/llm/llm_generation_core.py` - Core LLM generation methods (~800 lines)
+- `services/llm/multi_variant_generation.py` - Multi-variant (n-sampling) generation (~1,050 lines)
 
 ---
 
@@ -166,12 +169,12 @@ Extract generation logic:
 ## Execution Checklist
 
 ### Phase 5: LLM Service
-- [ ] 5.1 Extract scene_database_operations.py
-- [ ] 5.2 Extract llm_generation_core.py
-- [ ] 5.3 Extract multi_variant_generation.py
-- [ ] Verify all imports work correctly
-- [ ] Test scene generation flow
-- [ ] Test variant generation flow
+- [x] 5.1 Extract scene_database_operations.py
+- [x] 5.2 Extract llm_generation_core.py
+- [x] 5.3 Extract multi_variant_generation.py
+- [x] Verify all imports work correctly
+- [x] Test scene generation flow
+- [x] Test variant generation flow
 
 ### Phase 6: Stories API
 - [ ] 6.1 Extract scene_endpoints.py
@@ -194,9 +197,9 @@ Extract generation logic:
 
 ## Success Metrics
 
-| File | Current | Target | Reduction |
-|------|---------|--------|-----------|
-| `services/llm/service.py` | 5,543 | ~2,500 | 55% |
+| File | Original | Current | Target | Reduction |
+|------|----------|---------|--------|-----------|
+| `services/llm/service.py` | 5,543 | 3,346 | ~2,500 | 40% achieved |
 | `api/stories.py` | 4,460 | ~1,500 | 66% |
 | `routers/tts.py` | 1,875 | ~1,275 | 32% |
 | **Total** | **11,878** | **~5,275** | **56%** |
@@ -223,9 +226,9 @@ Extract generation logic:
 | 2026-01-19 | 4 | Extract LLM utility modules | Done |
 | 2026-01-20 | - | Extract chapter_brainstorm.py | Done |
 | 2026-01-20 | - | Extract chapter_summary_service.py | Done |
-| | 5.1 | Extract scene_database_operations.py | Pending |
-| | 5.2 | Extract llm_generation_core.py | Pending |
-| | 5.3 | Extract multi_variant_generation.py | Pending |
+| 2026-01-20 | 5.1 | Extract scene_database_operations.py | Done |
+| 2026-01-20 | 5.2 | Extract llm_generation_core.py | Done |
+| 2026-01-20 | 5.3 | Extract multi_variant_generation.py | Done |
 | | 6.1 | Extract scene_endpoints.py | Pending |
 | | 6.2 | Extract variant_endpoints.py | Pending |
 | | 6.3 | Extract story_helpers.py | Pending |

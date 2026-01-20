@@ -58,6 +58,9 @@ from .context_formatter import (
     format_character_voice_styles,
     batch_scenes_as_messages,
 )
+from .scene_database_operations import SceneDatabaseOperations
+from .llm_generation_core import LLMGenerationCore
+from .multi_variant_generation import MultiVariantGeneration
 from ...config import settings
 
 # Import for type hints (will be imported within functions to avoid circular imports)
@@ -81,6 +84,9 @@ class UnifiedLLMService:
     
     def __init__(self):
         self._client_cache: Dict[int, LLMClient] = {}
+        self._scene_db_ops = SceneDatabaseOperations()
+        self._generation_core = LLMGenerationCore(self)
+        self._multi_variant = MultiVariantGeneration(self)
     
     def get_user_client(self, user_id: int, user_settings: Dict[str, Any]) -> LLMClient:
         """Get or create LLM client configuration for user"""
@@ -239,116 +245,13 @@ class UnifiedLLMService:
         temperature: Optional[float] = None,
         skip_nsfw_filter: bool = False
     ) -> str:
-        """Internal method for non-streaming generation"""
-        
-        client = self.get_user_client(user_id, user_settings)
-        
-        # Check completion mode and branch accordingly
-        completion_mode = client.completion_mode
-        logger.debug(f"User {user_id} generation mode: {completion_mode} (from client.completion_mode={client.completion_mode})")
-        if completion_mode == "text":
-            logger.debug(f"Using text completion API for user {user_id}")
-            return await self._generate_text_completion(
-                prompt, user_id, user_settings, system_prompt, max_tokens, temperature, skip_nsfw_filter
-            )
-        
-        logger.debug(f"Using chat completion API for user {user_id}")
+        """Internal method for non-streaming generation.
 
-        # Inject NSFW filter if needed
-        from ...utils.content_filter import inject_nsfw_filter_if_needed
-        final_system_prompt = inject_nsfw_filter_if_needed(
-            system_prompt=system_prompt,
-            user_settings=user_settings,
-            user_id=user_id,
-            skip_nsfw_filter=skip_nsfw_filter,
-            context="chat completion"
+        Wrapper for LLMGenerationCore.generate.
+        """
+        return await self._generation_core.generate(
+            prompt, user_id, user_settings, system_prompt, max_tokens, temperature, skip_nsfw_filter
         )
-        messages = []
-        if final_system_prompt:
-            messages.append({"role": "system", "content": final_system_prompt})
-
-        # Ensure prompt is valid string
-        if not prompt or not isinstance(prompt, str) or not prompt.strip():
-            raise ValueError("Prompt must be a non-empty string")
-        
-        messages.append({"role": "user", "content": prompt.strip()})
-        
-        # Get generation parameters
-        gen_params = client.get_generation_params(max_tokens, temperature)
-        gen_params["messages"] = messages
-        
-        # Get timeout from user settings or fallback to system default
-        user_timeout = None
-        if user_settings:
-            llm_settings = user_settings.get('llm_settings', {})
-            user_timeout = llm_settings.get('timeout_total')
-        timeout_value = user_timeout if user_timeout is not None else settings.llm_timeout_total
-        gen_params["timeout"] = timeout_value
-        
-        # Get prompts for file logging (only if prompt_debug is enabled)
-        system_prompt_log = next((msg["content"] for msg in messages if msg.get("role") == "system"), "")
-        user_prompt_log = next((msg["content"] for msg in messages if msg.get("role") == "user"), "")
-        
-        try:
-            response = await acompletion(**gen_params)
-            
-            # Check finish_reason for truncation
-            if hasattr(response, 'choices') and len(response.choices) > 0:
-                finish_reason = getattr(response.choices[0], 'finish_reason', None)
-                if finish_reason == 'length':
-                    logger.warning(f"[TRUNCATION] Response truncated due to token limit! max_tokens={max_tokens}")
-                    logger.warning(f"[TRUNCATION] Consider increasing max_tokens or reducing prompt size")
-                elif finish_reason:
-                    logger.debug(f"[GENERATION] Finish reason: {finish_reason}")
-            
-            content = response.choices[0].message.content
-            
-            # Check for reasoning_content from LiteLLM (supported by DeepSeek, Anthropic, OpenRouter, etc.)
-            reasoning_content = getattr(response.choices[0].message, 'reasoning_content', None)
-            if reasoning_content:
-                logger.info(f"[REASONING] Captured reasoning content ({len(reasoning_content)} chars)")
-                # For non-streaming, we return content only but log the reasoning
-                # The streaming endpoint handles reasoning display
-            
-            # If content is empty but reasoning exists, warn about token limits
-            if not content and reasoning_content:
-                logger.warning("[REASONING] Content empty but reasoning present - model may need more max_tokens")
-            
-            return content
-            
-        except Exception as e:
-            error_msg = str(e)
-            logger.warning(f"LiteLLM generation failed for user {user_id}: {error_msg}")
-            
-            # Log timeout information
-            timeout_used = gen_params.get('timeout', 'not set (using LiteLLM default ~60s)')
-            logger.warning(f"Timeout used: {timeout_used}, max_tokens: {gen_params.get('max_tokens')}")
-            
-            # Try to capture partial response
-            if hasattr(e, 'response') and hasattr(e.response, 'text'):
-                partial_response = e.response.text
-                logger.warning(f"Partial response received (length: {len(partial_response)} chars):\n{partial_response[:1000]}")
-            
-            # Provide helpful error messages for common connection issues
-            if "404" in error_msg or "Not Found" in error_msg:
-                if client.api_type == "openai_compatible":
-                    raise ValueError(f"API endpoint not found. For TabbyAPI and similar services, try adding '/v1' to your URL: {client.api_url}/v1")
-                else:
-                    raise ValueError(f"API endpoint not found at {client.api_url}. Please check your URL.")
-            elif "401" in error_msg or "Unauthorized" in error_msg:
-                raise ValueError(f"Authentication failed. Please check your API key.")
-            elif "403" in error_msg or "Forbidden" in error_msg:
-                raise ValueError(f"Access forbidden. Please check your API key and permissions.")
-            elif "Connection" in error_msg or "timeout" in error_msg.lower():
-                raise ValueError(f"Cannot connect to {client.api_url}. Please check if the service is running and accessible.")
-            else:
-                # Fallback to direct HTTP for LM Studio and TabbyAPI
-                if client.api_type in ["lm_studio", "openai_compatible"]:
-                    logger.info(f"Attempting direct HTTP fallback for {client.api_type}")
-                    return await self._direct_http_fallback(client, messages, max_tokens, temperature, False, user_settings)
-                else:
-                    logger.error(f"LLM generation failed for user {user_id}: {error_msg}")
-                    raise ValueError(f"LLM generation failed: {error_msg}")
     
     async def _generate_text_completion(
         self,
@@ -360,482 +263,31 @@ class UnifiedLLMService:
         temperature: Optional[float] = None,
         skip_nsfw_filter: bool = False
     ) -> str:
-        """Internal method for text completion generation"""
-        
-        client = self.get_user_client(user_id, user_settings)
+        """Internal method for text completion generation.
 
-        # Inject NSFW filter if needed
-        from ...utils.content_filter import inject_nsfw_filter_if_needed
-        system_prompt = inject_nsfw_filter_if_needed(
-            system_prompt=system_prompt,
-            user_settings=user_settings,
-            user_id=user_id,
-            skip_nsfw_filter=skip_nsfw_filter,
-            context="text completion"
+        Wrapper for LLMGenerationCore.generate_text_completion.
+        """
+        return await self._generation_core.generate_text_completion(
+            prompt, user_id, user_settings, system_prompt, max_tokens, temperature, skip_nsfw_filter
         )
-
-        # Ensure prompt is valid string
-        if not prompt or not isinstance(prompt, str) or not prompt.strip():
-            raise ValueError("Prompt must be a non-empty string")
-        
-        # Get template and render prompt
-        template = TextCompletionTemplateManager.get_template_for_user(
-            client.text_completion_template,
-            client.text_completion_preset
-        )
-        
-        rendered_prompt = TextCompletionTemplateManager.render_template(
-            template,
-            system_prompt=system_prompt or "",
-            user_prompt=prompt.strip()
-        )
-        
-        logger.debug(f"Rendered text completion prompt (length: {len(rendered_prompt)})")
-        
-        # Get generation parameters
-        gen_params = client.get_text_completion_params(max_tokens, temperature)
-        gen_params["prompt"] = rendered_prompt
-        
-        # Get timeout from user settings or fallback to system default
-        user_timeout = None
-        if user_settings:
-            llm_settings = user_settings.get('llm_settings', {})
-            user_timeout = llm_settings.get('timeout_total')
-        timeout_value = user_timeout if user_timeout is not None else settings.llm_timeout_total
-        gen_params["timeout"] = timeout_value
-        
-        # Log complete prompt being sent to LLM
-        logger.debug("=" * 80)
-        logger.debug("COMPLETE PROMPT BEING SENT TO LLM (TEXT COMPLETION)")
-        logger.debug("=" * 80)
-        logger.debug(f"SYSTEM PROMPT:\n{system_prompt or '(none)'}")
-        logger.debug("-" * 80)
-        logger.debug(f"USER PROMPT:\n{prompt.strip()}")
-        logger.debug("-" * 80)
-        logger.debug(f"RENDERED PROMPT (FULL):\n{rendered_prompt}")
-        logger.debug("-" * 80)
-        logger.info(f"GENERATION PARAMETERS: max_tokens={gen_params.get('max_tokens')}, temperature={gen_params.get('temperature')}, model={client.model_string}")
-        logger.info("=" * 80)
-        
-        # For OpenAI-compatible providers (LM Studio, TabbyAPI, KoboldCpp), skip LiteLLM
-        # and use direct HTTP to ensure correct /v1/completions endpoint is called
-        if client.api_type in ["lm_studio", "openai_compatible", "openai-compatible", "tabbyapi", "koboldcpp"]:
-            logger.info(f"Using direct HTTP for text completion with {client.api_type}")
-            return await self._direct_http_text_completion_fallback(client, rendered_prompt, max_tokens, temperature, False, user_settings)
-        
-        # For other providers, try LiteLLM
-        try:
-            logger.info(f"Text completion with {client.model_string} for user {user_id}")
-            logger.debug(f"Calling text_completion with model={gen_params['model']}, prompt_length={len(gen_params['prompt'])}")
-            
-            # Use litellm.text_completion for text completion (synchronous, run in thread)
-            from litellm import text_completion
-            import asyncio
-            
-            response = await asyncio.to_thread(text_completion, **gen_params)
-            
-            # Check finish_reason for truncation
-            if hasattr(response, 'choices') and len(response.choices) > 0:
-                finish_reason = getattr(response.choices[0], 'finish_reason', None)
-                if finish_reason == 'length':
-                    logger.warning(f"[TRUNCATION] Text completion truncated due to token limit! max_tokens={max_tokens}")
-                    logger.warning(f"[TRUNCATION] Consider increasing max_tokens or reducing prompt size")
-                elif finish_reason:
-                    logger.debug(f"[TEXT COMPLETION] Finish reason: {finish_reason}")
-            
-            content = response.choices[0].text if hasattr(response.choices[0], 'text') else response.choices[0].message.content
-            logger.info(f"Generated {len(content)} characters for user {user_id}")
-            
-            # Strip thinking tags from response
-            cleaned_content = ThinkingTagParser.strip_thinking_tags(content)
-            if len(cleaned_content) != len(content):
-                logger.info(f"Stripped thinking tags, reduced from {len(content)} to {len(cleaned_content)} characters")
-            
-            return cleaned_content
-            
-        except Exception as e:
-            error_msg = str(e)
-            logger.warning(f"LiteLLM text completion failed for user {user_id}: {error_msg}")
-            logger.error(f"Text completion failed for user {user_id}: {error_msg}")
-            raise ValueError(f"Text completion failed: {error_msg}")
     
     async def _direct_http_fallback(self, client, messages, max_tokens, temperature, stream, user_settings: Optional[Dict[str, Any]] = None):
-        """Direct HTTP fallback for LM Studio when LiteLLM fails"""
-        # Get timeout from user settings or fallback to system default
-        user_timeout = None
-        if user_settings:
-            llm_settings = user_settings.get('llm_settings', {})
-            user_timeout = llm_settings.get('timeout_total')
-        timeout_total = user_timeout if user_timeout is not None else settings.llm_timeout_total
-        
-        # Configure timeout from settings
-        timeout = httpx.Timeout(
-            timeout_total,
-            connect=settings.llm_timeout_connect,
-            read=settings.llm_timeout_read,
-            write=settings.llm_timeout_write
+        """Direct HTTP fallback for LM Studio when LiteLLM fails.
+
+        Wrapper for LLMGenerationCore.direct_http_fallback.
+        """
+        return await self._generation_core.direct_http_fallback(
+            client, messages, max_tokens, temperature, stream, user_settings
         )
-        max_retries = settings.llm_max_retries
-        base_delay = settings.llm_retry_base_delay
-        
-        payload = {
-            "model": client.model_name,  # Use the actual model name, not the prefixed one
-            "messages": messages,
-            "max_tokens": max_tokens or client.max_tokens,
-            "temperature": temperature if temperature is not None else client.temperature,
-            "stream": stream
-        }
-        
-        headers = {
-            "Content-Type": "application/json"
-        }
-        
-        if client.api_key:
-            headers["Authorization"] = f"Bearer {client.api_key}"
-        
-        # Determine the correct endpoint URL
-        if client.api_url.endswith("/v1"):
-            endpoint_url = f"{client.api_url}/chat/completions"
-        else:
-            endpoint_url = f"{client.api_url}/v1/chat/completions"
-        
-        if stream:
-            # For streaming, retry logic must be inside the generator
-            async def stream_generator():
-                last_error = None
-                for attempt in range(max_retries):
-                    try:
-                        async with httpx.AsyncClient(timeout=timeout) as http_client:
-                            async with http_client.stream(
-                                "POST",
-                                endpoint_url,
-                                json=payload,
-                                headers=headers
-                            ) as response:
-                                response.raise_for_status()
-                                async for line in response.aiter_lines():
-                                    if line.startswith("data: "):
-                                        data = line[6:]  # Remove "data: " prefix
-                                        if data.strip() == "[DONE]":
-                                            break
-                                        try:
-                                            chunk = json.loads(data)
-                                            if "choices" in chunk and len(chunk["choices"]) > 0:
-                                                delta = chunk["choices"][0].get("delta", {})
-                                                content = delta.get("content", "")
-                                                if content:
-                                                    yield content
-                                        except json.JSONDecodeError:
-                                            continue
-                                return  # Success, exit retry loop
-                    except httpx.HTTPStatusError as e:
-                        # Check if it's a 504 Gateway Timeout
-                        if e.response.status_code == 504:
-                            last_error = e
-                            if attempt < max_retries - 1:
-                                delay = base_delay * (2 ** attempt)  # Exponential backoff
-                                logger.warning(
-                                    f"504 Gateway Timeout on attempt {attempt + 1}/{max_retries} for {endpoint_url}. "
-                                    f"Retrying in {delay:.1f}s..."
-                                )
-                                await asyncio.sleep(delay)
-                                continue
-                            else:
-                                logger.error(f"504 Gateway Timeout after {max_retries} attempts: {e}")
-                                raise ValueError(f"LLM generation failed: Gateway timeout after {max_retries} attempts. The API may be overloaded or slow.")
-                        else:
-                            # For other HTTP errors, don't retry
-                            logger.error(f"HTTP error {e.response.status_code} from {endpoint_url}: {e}")
-                            raise ValueError(f"LLM generation failed: HTTP {e.response.status_code}")
-                    except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as e:
-                        last_error = e
-                        if attempt < max_retries - 1:
-                            delay = base_delay * (2 ** attempt)  # Exponential backoff
-                            logger.warning(
-                                f"Network/timeout error on attempt {attempt + 1}/{max_retries} for {endpoint_url}. "
-                                f"Retrying in {delay:.1f}s... Error: {str(e)}"
-                            )
-                            await asyncio.sleep(delay)
-                            continue
-                        else:
-                            logger.error(f"Network/timeout error after {max_retries} attempts: {e}")
-                            raise ValueError(f"LLM generation failed: {str(e)}")
-                    except Exception as e:
-                        # For other exceptions, don't retry
-                        logger.error(f"Direct HTTP fallback failed: {e}", exc_info=True)
-                        raise ValueError(f"LLM generation failed: {str(e)}")
-                
-                # If we exhausted all retries
-                if last_error:
-                    raise ValueError(f"LLM generation failed after {max_retries} attempts: {str(last_error)}")
-                else:
-                    raise ValueError("LLM generation failed: Unknown error")
-            return stream_generator()
-        else:
-            # Handle non-streaming response with retry logic
-            last_error = None
-            for attempt in range(max_retries):
-                try:
-                    async with httpx.AsyncClient(timeout=timeout) as http_client:
-                        response = await http_client.post(
-                            endpoint_url,
-                            json=payload,
-                            headers=headers
-                        )
-                        response.raise_for_status()
-                        data = response.json()
-                        if "choices" in data and len(data["choices"]) > 0:
-                            return data["choices"][0]["message"]["content"]
-                        else:
-                            raise ValueError("Invalid response format from LM Studio")
-                            
-                except httpx.HTTPStatusError as e:
-                    # Check if it's a 504 Gateway Timeout
-                    if e.response.status_code == 504:
-                        last_error = e
-                        if attempt < max_retries - 1:
-                            delay = base_delay * (2 ** attempt)  # Exponential backoff
-                            logger.warning(
-                                f"504 Gateway Timeout on attempt {attempt + 1}/{max_retries} for {endpoint_url}. "
-                                f"Retrying in {delay:.1f}s..."
-                            )
-                            await asyncio.sleep(delay)
-                            continue
-                        else:
-                            logger.error(f"504 Gateway Timeout after {max_retries} attempts: {e}")
-                            raise ValueError(f"LLM generation failed: Gateway timeout after {max_retries} attempts. The API may be overloaded or slow.")
-                    else:
-                        # For other HTTP errors, don't retry
-                        logger.error(f"HTTP error {e.response.status_code} from {endpoint_url}: {e}")
-                        raise ValueError(f"LLM generation failed: HTTP {e.response.status_code}")
-                        
-                except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as e:
-                    last_error = e
-                    if attempt < max_retries - 1:
-                        delay = base_delay * (2 ** attempt)  # Exponential backoff
-                        logger.warning(
-                            f"Network/timeout error on attempt {attempt + 1}/{max_retries} for {endpoint_url}. "
-                            f"Retrying in {delay:.1f}s... Error: {str(e)}"
-                        )
-                        await asyncio.sleep(delay)
-                        continue
-                    else:
-                        logger.error(f"Network/timeout error after {max_retries} attempts: {e}")
-                        raise ValueError(f"LLM generation failed: {str(e)}")
-                        
-                except Exception as e:
-                    # For other exceptions, don't retry
-                    logger.error(f"Direct HTTP fallback failed: {e}", exc_info=True)
-                    raise ValueError(f"LLM generation failed: {str(e)}")
-            
-            # If we exhausted all retries
-            if last_error:
-                raise ValueError(f"LLM generation failed after {max_retries} attempts: {str(last_error)}")
-            else:
-                raise ValueError("LLM generation failed: Unknown error")
     
     async def _direct_http_text_completion_fallback(self, client, prompt, max_tokens, temperature, stream, user_settings: Optional[Dict[str, Any]] = None):
-        """Direct HTTP call to /v1/completions endpoint for text completion"""
-        # Get timeout from user settings or fallback to system default
-        user_timeout = None
-        if user_settings:
-            llm_settings = user_settings.get('llm_settings', {})
-            user_timeout = llm_settings.get('timeout_total')
-        timeout_total = user_timeout if user_timeout is not None else settings.llm_timeout_total
-        
-        # Configure timeout from settings
-        timeout = httpx.Timeout(
-            timeout_total,
-            connect=settings.llm_timeout_connect,
-            read=settings.llm_timeout_read,
-            write=settings.llm_timeout_write
+        """Direct HTTP call to /v1/completions endpoint for text completion.
+
+        Wrapper for LLMGenerationCore.direct_http_text_completion_fallback.
+        """
+        return await self._generation_core.direct_http_text_completion_fallback(
+            client, prompt, max_tokens, temperature, stream, user_settings
         )
-        max_retries = settings.llm_max_retries
-        base_delay = settings.llm_retry_base_delay
-        
-        logger.info(f"Direct HTTP text completion: stream={stream}, model={client.model_name}")
-        
-        payload = {
-            "model": client.model_name,  # Use the actual model name, not the prefixed one
-            "prompt": prompt,
-            "max_tokens": max_tokens or client.max_tokens,
-            "temperature": temperature if temperature is not None else client.temperature,
-            "stream": stream
-        }
-        
-        # Add stop sequences based on template
-        if client.text_completion_template:
-            # Parse template to get EOS token
-            try:
-                template = json.loads(client.text_completion_template)
-                eos_token = template.get("eos_token")
-                if eos_token:
-                    payload["stop"] = [eos_token]
-            except:
-                pass
-        elif client.text_completion_preset:
-            # Get preset template EOS token
-            from .templates import TextCompletionTemplateManager
-            preset_template = TextCompletionTemplateManager.get_preset_template(client.text_completion_preset)
-            if preset_template and preset_template.get("eos_token"):
-                payload["stop"] = [preset_template["eos_token"]]
-        
-        headers = {
-            "Content-Type": "application/json"
-        }
-        
-        if client.api_key:
-            headers["Authorization"] = f"Bearer {client.api_key}"
-        
-        # Determine the correct endpoint URL for text completion
-        if client.api_url.endswith("/v1"):
-            endpoint_url = f"{client.api_url}/completions"
-        else:
-            endpoint_url = f"{client.api_url}/v1/completions"
-        
-        logger.info(f"Calling text completion endpoint: {endpoint_url}")
-        logger.debug(f"Payload: model={client.model_name}, prompt_length={len(prompt)}, stream={stream}, stop={payload.get('stop')}")
-        
-        if stream:
-            # For streaming, retry logic must be inside the generator
-            async def stream_generator():
-                last_error = None
-                for attempt in range(max_retries):
-                    try:
-                        async with httpx.AsyncClient(timeout=timeout) as http_client:
-                            async with http_client.stream(
-                                "POST",
-                                endpoint_url,
-                                json=payload,
-                                headers=headers
-                            ) as response:
-                                response.raise_for_status()
-                                async for line in response.aiter_lines():
-                                    if line.startswith("data: "):
-                                        data = line[6:]  # Remove "data: " prefix
-                                        if data.strip() == "[DONE]":
-                                            break
-                                        try:
-                                            chunk = json.loads(data)
-                                            if "choices" in chunk and len(chunk["choices"]) > 0:
-                                                # Text completion uses 'text' field, not 'delta'
-                                                text = chunk["choices"][0].get("text", "")
-                                                if text:
-                                                    # Strip thinking tags from each chunk
-                                                    # Preserve whitespace for streaming chunks to maintain word boundaries
-                                                    cleaned_text = ThinkingTagParser.strip_thinking_tags(text, preserve_whitespace=True)
-                                                    if cleaned_text:
-                                                        yield cleaned_text
-                                        except json.JSONDecodeError:
-                                            continue
-                                return  # Success, exit retry loop
-                    except httpx.HTTPStatusError as e:
-                        # Check if it's a 504 Gateway Timeout
-                        if e.response.status_code == 504:
-                            last_error = e
-                            if attempt < max_retries - 1:
-                                delay = base_delay * (2 ** attempt)  # Exponential backoff
-                                logger.warning(
-                                    f"504 Gateway Timeout on attempt {attempt + 1}/{max_retries} for {endpoint_url}. "
-                                    f"Retrying in {delay:.1f}s..."
-                                )
-                                await asyncio.sleep(delay)
-                                continue
-                            else:
-                                logger.error(f"504 Gateway Timeout after {max_retries} attempts: {e}")
-                                raise ValueError(f"Text completion failed: Gateway timeout after {max_retries} attempts. The API may be overloaded or slow.")
-                        else:
-                            # For other HTTP errors, don't retry
-                            logger.error(f"HTTP error {e.response.status_code} from {endpoint_url}: {e}")
-                            raise ValueError(f"Text completion failed: HTTP {e.response.status_code}")
-                    except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as e:
-                        last_error = e
-                        if attempt < max_retries - 1:
-                            delay = base_delay * (2 ** attempt)  # Exponential backoff
-                            logger.warning(
-                                f"Network/timeout error on attempt {attempt + 1}/{max_retries} for {endpoint_url}. "
-                                f"Retrying in {delay:.1f}s... Error: {str(e)}"
-                            )
-                            await asyncio.sleep(delay)
-                            continue
-                        else:
-                            logger.error(f"Network/timeout error after {max_retries} attempts: {e}")
-                            raise ValueError(f"Text completion failed: {str(e)}")
-                    except Exception as e:
-                        # For other exceptions, don't retry
-                        logger.error(f"Direct HTTP text completion fallback failed: {e}", exc_info=True)
-                        raise ValueError(f"Text completion failed: {str(e)}")
-                
-                # If we exhausted all retries
-                if last_error:
-                    raise ValueError(f"Text completion failed after {max_retries} attempts: {str(last_error)}")
-                else:
-                    raise ValueError("Text completion failed: Unknown error")
-            return stream_generator()
-        else:
-            # Handle non-streaming response with retry logic
-            last_error = None
-            for attempt in range(max_retries):
-                try:
-                    async with httpx.AsyncClient(timeout=timeout) as http_client:
-                        response = await http_client.post(
-                            endpoint_url,
-                            json=payload,
-                            headers=headers
-                        )
-                        response.raise_for_status()
-                        data = response.json()
-                        if "choices" in data and len(data["choices"]) > 0:
-                            content = data["choices"][0]["text"]
-                            # Strip thinking tags from response
-                            return ThinkingTagParser.strip_thinking_tags(content)
-                        else:
-                            raise ValueError("Invalid response format from text completion endpoint")
-                            
-                except httpx.HTTPStatusError as e:
-                    # Check if it's a 504 Gateway Timeout
-                    if e.response.status_code == 504:
-                        last_error = e
-                        if attempt < max_retries - 1:
-                            delay = base_delay * (2 ** attempt)  # Exponential backoff
-                            logger.warning(
-                                f"504 Gateway Timeout on attempt {attempt + 1}/{max_retries} for {endpoint_url}. "
-                                f"Retrying in {delay:.1f}s..."
-                            )
-                            await asyncio.sleep(delay)
-                            continue
-                        else:
-                            logger.error(f"504 Gateway Timeout after {max_retries} attempts: {e}")
-                            raise ValueError(f"Text completion failed: Gateway timeout after {max_retries} attempts. The API may be overloaded or slow.")
-                    else:
-                        # For other HTTP errors, don't retry
-                        logger.error(f"HTTP error {e.response.status_code} from {endpoint_url}: {e}")
-                        raise ValueError(f"Text completion failed: HTTP {e.response.status_code}")
-                        
-                except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as e:
-                    last_error = e
-                    if attempt < max_retries - 1:
-                        delay = base_delay * (2 ** attempt)  # Exponential backoff
-                        logger.warning(
-                            f"Network/timeout error on attempt {attempt + 1}/{max_retries} for {endpoint_url}. "
-                            f"Retrying in {delay:.1f}s... Error: {str(e)}"
-                        )
-                        await asyncio.sleep(delay)
-                        continue
-                    else:
-                        logger.error(f"Network/timeout error after {max_retries} attempts: {e}")
-                        raise ValueError(f"Text completion failed: {str(e)}")
-                        
-                except Exception as e:
-                    # For other exceptions, don't retry
-                    logger.error(f"Direct HTTP text completion fallback failed: {e}", exc_info=True)
-                    raise ValueError(f"Text completion failed: {str(e)}")
-            
-            # If we exhausted all retries
-            if last_error:
-                raise ValueError(f"Text completion failed after {max_retries} attempts: {str(last_error)}")
-            else:
-                raise ValueError("Text completion failed: Unknown error")
     
     async def _generate_stream(
         self,
@@ -847,112 +299,14 @@ class UnifiedLLMService:
         temperature: Optional[float] = None,
         skip_nsfw_filter: bool = False
     ) -> AsyncGenerator[str, None]:
-        """Internal method for streaming generation"""
-        
-        client = self.get_user_client(user_id, user_settings)
-        
-        # Check completion mode and branch accordingly
-        completion_mode = client.completion_mode
-        logger.debug(f"User {user_id} streaming generation mode: {completion_mode} (from client.completion_mode={client.completion_mode})")
-        if completion_mode == "text":
-            logger.debug(f"Using text completion streaming API for user {user_id}")
-            async for chunk in self._generate_text_completion_stream(
-                prompt, user_id, user_settings, system_prompt, max_tokens, temperature, skip_nsfw_filter
-            ):
-                yield chunk
-            return
-        
-        logger.debug(f"Using chat completion streaming API for user {user_id}")
+        """Internal method for streaming generation.
 
-        # Inject NSFW filter if needed
-        from ...utils.content_filter import inject_nsfw_filter_if_needed
-        final_system_prompt = inject_nsfw_filter_if_needed(
-            system_prompt=system_prompt,
-            user_settings=user_settings,
-            user_id=user_id,
-            skip_nsfw_filter=skip_nsfw_filter,
-            context="chat streaming"
-        )
-        messages = []
-        if final_system_prompt:
-            messages.append({"role": "system", "content": final_system_prompt})
-
-        # Ensure prompt is valid string
-        if not prompt or not isinstance(prompt, str) or not prompt.strip():
-            raise ValueError("Prompt must be a non-empty string")
-        
-        messages.append({"role": "user", "content": prompt.strip()})
-        
-        # Get streaming parameters
-        gen_params = client.get_streaming_params(max_tokens, temperature)
-        gen_params["messages"] = messages
-        
-        # Get timeout from user settings or fallback to system default
-        user_timeout = None
-        if user_settings:
-            llm_settings = user_settings.get('llm_settings', {})
-            user_timeout = llm_settings.get('timeout_total')
-        timeout_value = user_timeout if user_timeout is not None else settings.llm_timeout_total
-        gen_params["timeout"] = timeout_value
-        
-        # Get prompts for file logging (only if prompt_debug is enabled)
-        system_prompt_log = next((msg["content"] for msg in messages if msg.get("role") == "system"), "")
-        user_prompt_log = next((msg["content"] for msg in messages if msg.get("role") == "user"), "")
-        
-        # Write prompt to file for streaming generation (only if prompt_debug is enabled)
-        if settings.prompt_debug:
-            try:
-                import json
-                prompt_file_path = self._get_prompt_debug_path("prompt_sent.json")
-                debug_data = {
-                    "messages": gen_params["messages"],
-                    "generation_parameters": {
-                        "max_tokens": gen_params.get('max_tokens'),
-                        "temperature": gen_params.get('temperature'),
-                        "model": client.model_string
-                    }
-                }
-                with open(prompt_file_path, "w", encoding="utf-8") as f:
-                    json.dump(debug_data, f, indent=2, ensure_ascii=False)
-            except Exception as e:
-                pass  # Silently fail if file writing fails
-        
-        try:
-            response = await acompletion(**gen_params)
-            
-            # Track if we've seen reasoning content (for logging)
-            has_reasoning = False
-            reasoning_chars = 0
-            content_chars = 0
-            chunk_count = 0
-            
-            async for chunk in response:
-                chunk_count += 1
-                
-                # Check for reasoning_content (LiteLLM's standardized field for all providers)
-                # This works for OpenRouter, Anthropic, DeepSeek, etc. when using proper LiteLLM params
-                delta = chunk.choices[0].delta
-                if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
-                    has_reasoning = True
-                    reasoning_chars += len(delta.reasoning_content)
-                    # Yield reasoning with special prefix for frontend to detect
-                    yield f"__THINKING__:{delta.reasoning_content}"
-                
-                # Regular content
-                if delta.content:
-                    content_chars += len(delta.content)
-                    yield delta.content
-            
-            # Log summary of what was received
-            logger.info(f"[STREAMING COMPLETE] chunks={chunk_count}, content_chars={content_chars}, reasoning_chars={reasoning_chars}")
-            if chunk_count > 0 and content_chars == 0:
-                logger.warning(f"[STREAMING] Received {chunk_count} chunks but no content! Model may need higher max_tokens or reasoning disabled.")
-            if has_reasoning:
-                logger.info(f"[REASONING] Streamed {reasoning_chars} chars of reasoning content")
-                    
-        except Exception as e:
-            logger.error(f"LLM streaming failed for user {user_id}: {e}")
-            raise ValueError(f"LLM streaming failed: {str(e)}")
+        Wrapper for LLMGenerationCore.generate_stream.
+        """
+        async for chunk in self._generation_core.generate_stream(
+            prompt, user_id, user_settings, system_prompt, max_tokens, temperature, skip_nsfw_filter
+        ):
+            yield chunk
     
     async def _generate_text_completion_stream(
         self,
@@ -964,165 +318,14 @@ class UnifiedLLMService:
         temperature: Optional[float] = None,
         skip_nsfw_filter: bool = False
     ) -> AsyncGenerator[str, None]:
-        """Internal method for streaming text completion generation"""
-        
-        client = self.get_user_client(user_id, user_settings)
+        """Internal method for streaming text completion generation.
 
-        # Inject NSFW filter if needed
-        from ...utils.content_filter import inject_nsfw_filter_if_needed
-        system_prompt = inject_nsfw_filter_if_needed(
-            system_prompt=system_prompt,
-            user_settings=user_settings,
-            user_id=user_id,
-            skip_nsfw_filter=skip_nsfw_filter,
-            context="text completion streaming"
-        )
-
-        # Ensure prompt is valid string
-        if not prompt or not isinstance(prompt, str) or not prompt.strip():
-            raise ValueError("Prompt must be a non-empty string")
-        
-        # Get template and render prompt
-        template = TextCompletionTemplateManager.get_template_for_user(
-            client.text_completion_template,
-            client.text_completion_preset
-        )
-        
-        rendered_prompt = TextCompletionTemplateManager.render_template(
-            template,
-            system_prompt=system_prompt or "",
-            user_prompt=prompt.strip()
-        )
-        
-        logger.debug(f"Rendered streaming text completion prompt (length: {len(rendered_prompt)})")
-        
-        # Get streaming parameters
-        gen_params = client.get_text_completion_streaming_params(max_tokens, temperature)
-        gen_params["prompt"] = rendered_prompt
-        
-        # Get timeout from user settings or fallback to system default
-        user_timeout = None
-        if user_settings:
-            llm_settings = user_settings.get('llm_settings', {})
-            user_timeout = llm_settings.get('timeout_total')
-        timeout_value = user_timeout if user_timeout is not None else settings.llm_timeout_total
-        gen_params["timeout"] = timeout_value
-        
-        # Log complete prompt being sent to LLM
-        logger.debug("=" * 80)
-        logger.debug("COMPLETE PROMPT BEING SENT TO LLM (TEXT COMPLETION STREAMING)")
-        logger.debug("=" * 80)
-        logger.debug(f"SYSTEM PROMPT:\n{system_prompt or '(none)'}")
-        logger.debug("-" * 80)
-        logger.debug(f"USER PROMPT:\n{prompt.strip()}")
-        logger.debug("-" * 80)
-        logger.debug(f"RENDERED PROMPT (FULL):\n{rendered_prompt}")
-        logger.info("-" * 80)
-        logger.info(f"GENERATION PARAMETERS: max_tokens={gen_params.get('max_tokens')}, temperature={gen_params.get('temperature')}, model={client.model_string}")
-        logger.info("=" * 80)
-        
-        # Write prompt to file for text completion streaming generation (only if prompt_debug is enabled)
-        if settings.prompt_debug:
-            try:
-                import json
-                prompt_file_path = self._get_prompt_debug_path("prompt_sent.json")
-                debug_data = {
-                    "system_prompt": system_prompt or None,
-                    "user_prompt": prompt.strip(),
-                    "rendered_prompt": rendered_prompt,
-                    "generation_parameters": {
-                        "max_tokens": gen_params.get('max_tokens'),
-                        "temperature": gen_params.get('temperature'),
-                        "model": client.model_string,
-                        "prompt": gen_params.get('prompt', '')
-                    }
-                }
-                with open(prompt_file_path, "w", encoding="utf-8") as f:
-                    json.dump(debug_data, f, indent=2, ensure_ascii=False)
-            except Exception as e:
-                logger.debug(f"Failed to write prompt to file: {e}")
-        
-        # For OpenAI-compatible providers (LM Studio, TabbyAPI, KoboldCpp), skip LiteLLM
-        # and use direct HTTP to ensure correct /v1/completions endpoint is called
-        if client.api_type in ["lm_studio", "openai_compatible", "openai-compatible", "tabbyapi", "koboldcpp"]:
-            logger.info(f"Using direct HTTP streaming for text completion with {client.api_type}")
-            async for chunk in await self._direct_http_text_completion_fallback(client, rendered_prompt, max_tokens, temperature, True, user_settings):
-                yield chunk
-            return
-        
-        # For other providers, try LiteLLM
-        try:
-            logger.info(f"Streaming text completion with {client.model_string} for user {user_id}")
-            logger.debug(f"Calling text_completion (streaming) with model={gen_params['model']}, prompt_length={len(gen_params['prompt'])}")
-            
-            # Use litellm.text_completion for text completion
-            # text_completion returns a synchronous generator when stream=True
-            from litellm import text_completion
-            import asyncio
-            
-            # Call text_completion (it returns a synchronous generator for streaming)
-            response_stream = text_completion(**gen_params)
-            
-            # Buffer for accumulating chunks to detect thinking tags
-            buffer = ""
-            thinking_detected = False
-            
-            # Convert synchronous generator to async by yielding in executor
-            for chunk in response_stream:
-                # Get text from chunk (text completion uses 'text' field)
-                chunk_text = ""
-                if hasattr(chunk.choices[0], 'text'):
-                    chunk_text = chunk.choices[0].text
-                elif hasattr(chunk.choices[0], 'delta') and hasattr(chunk.choices[0].delta, 'content'):
-                    chunk_text = chunk.choices[0].delta.content or ""
-                
-                if chunk_text:
-                    buffer += chunk_text
-                    
-                    # Check if we've accumulated enough to detect thinking tags
-                    if len(buffer) > 50:  # Arbitrary threshold
-                        # Try to detect and strip thinking tags from buffer
-                        # Preserve whitespace for streaming chunks to maintain word boundaries
-                        cleaned_buffer = ThinkingTagParser.strip_thinking_tags(buffer, preserve_whitespace=True)
-                        
-                        if len(cleaned_buffer) < len(buffer):
-                            # Thinking tags detected and removed
-                            thinking_detected = True
-                            logger.debug(f"Thinking tags detected in stream, stripped {len(buffer) - len(cleaned_buffer)} chars")
-                            buffer = cleaned_buffer
-                        
-                        # Yield the cleaned buffer and reset
-                        if buffer:
-                            yield buffer
-                            buffer = ""
-                    else:
-                        # Buffer not large enough yet, keep accumulating
-                        pass
-                
-                # Allow other tasks to run
-                await asyncio.sleep(0)
-            
-            # Yield any remaining buffer
-            if buffer:
-                # Preserve whitespace for streaming chunks to maintain word boundaries
-                cleaned_buffer = ThinkingTagParser.strip_thinking_tags(buffer, preserve_whitespace=True)
-                if cleaned_buffer:
-                    yield cleaned_buffer
-                    
-        except Exception as e:
-            error_msg = str(e)
-            logger.warning(f"LiteLLM streaming text completion failed for user {user_id}: {error_msg}")
-            logger.error(f"Streaming text completion failed for user {user_id}: {error_msg}")
-            raise ValueError(f"Streaming text completion failed: {error_msg}")
-            
-            # Fallback to direct HTTP for LM Studio and TabbyAPI
-            if client.api_type in ["lm_studio", "openai_compatible"]:
-                logger.info(f"Attempting direct HTTP streaming text completion fallback for {client.api_type}")
-                async for chunk in await self._direct_http_text_completion_fallback(client, rendered_prompt, max_tokens, temperature, True, user_settings):
-                    yield chunk
-            else:
-                logger.error(f"Streaming text completion failed for user {user_id}: {error_msg}")
-                raise ValueError(f"Streaming text completion failed: {str(e)}")
+        Wrapper for LLMGenerationCore.generate_text_completion_stream.
+        """
+        async for chunk in self._generation_core.generate_text_completion_stream(
+            prompt, user_id, user_settings, system_prompt, max_tokens, temperature, skip_nsfw_filter
+        ):
+            yield chunk
     
     def _clean_scene_content(self, content: str) -> str:
         """
@@ -2773,9 +1976,9 @@ Chapter Conclusion:"""
     
     # =====================================================================
     # MULTI-GENERATION METHODS (n > 1)
-    # These methods handle generating multiple completions in a single API call
+    # Wrappers that delegate to MultiVariantGeneration class
     # =====================================================================
-    
+
     async def _generate_stream_with_messages_multi(
         self,
         messages: List[Dict[str, str]],
@@ -2785,84 +1988,12 @@ Chapter Conclusion:"""
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None
     ) -> AsyncGenerator[Tuple[str, bool, List[str]], None]:
-        """
-        Core streaming helper for n > 1 completions.
-        
-        Streams the first completion (index 0) to the frontend while accumulating
-        all n completions in the background.
-        
-        Yields:
-            Tuple of (chunk, is_complete, contents_list)
-            - During streaming: (chunk_text, False, [])
-            - On completion: ("", True, [content_0, content_1, ..., content_n-1])
-        """
-        client = self.get_user_client(user_id, user_settings)
-        
-        # Inject NSFW filter into system message if needed (SAME as _generate_stream_with_messages)
-        from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
-        user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
-        
-        if should_inject_nsfw_filter(user_allow_nsfw):
-            # Find and modify system message, or add one
-            system_idx = next((i for i, m in enumerate(messages) if m["role"] == "system"), None)
-            if system_idx is not None:
-                messages[system_idx]["content"] = messages[system_idx]["content"].strip() + "\n\n" + get_nsfw_prevention_prompt()
-            else:
-                messages.insert(0, {"role": "system", "content": get_nsfw_prevention_prompt()})
-            logger.debug(f"[MULTI-GEN] NSFW filter injected for user {user_id}")
-        
-        # Get generation params and add n parameter
-        gen_params = client.get_generation_params(max_tokens, temperature)
-        gen_params["messages"] = messages
-        gen_params["stream"] = True
-        
-        # Add n to extra_body
-        if "extra_body" not in gen_params:
-            gen_params["extra_body"] = {}
-        gen_params["extra_body"]["n"] = n
-        
-        # Get timeout from user settings
-        user_timeout = user_settings.get('llm_settings', {}).get('timeout_total') if user_settings else None
-        gen_params["timeout"] = user_timeout if user_timeout is not None else settings.llm_timeout_total
-        
-        logger.info(f"[MULTI-GEN] Starting streaming with n={n}")
-        
-        try:
-            response = await acompletion(**gen_params)
-            
-            # Track content for each completion index
-            contents = [""] * n
-            chunk_count = 0
-            
-            async for chunk in response:
-                chunk_count += 1
-                if hasattr(chunk, 'choices') and len(chunk.choices) > 0:
-                    # Process all choices in the chunk
-                    for choice in chunk.choices:
-                        idx = choice.index if hasattr(choice, 'index') else 0
-                        if idx >= n:
-                            continue  # Safety check
-                        
-                        delta = choice.delta if hasattr(choice, 'delta') else None
-                        if delta and hasattr(delta, 'content') and delta.content:
-                            contents[idx] += delta.content
-                            
-                            # Only stream index 0 to the frontend
-                            if idx == 0:
-                                yield (delta.content, False, [])
-            
-            logger.info(f"[MULTI-GEN] Streaming complete: {chunk_count} chunks, {n} completions")
-            for i, content in enumerate(contents):
-                logger.info(f"[MULTI-GEN] Content {i}: {len(content)} chars")
-            
-            # Yield final result with all contents
-            yield ("", True, contents)
-            
-        except Exception as e:
-            error_msg = str(e)
-            logger.error(f"[MULTI-GEN] Streaming failed: {error_msg}")
-            raise ValueError(f"Multi-generation streaming failed: {error_msg}")
-    
+        """Wrapper for MultiVariantGeneration.generate_stream_with_messages_multi."""
+        async for chunk in self._multi_variant.generate_stream_with_messages_multi(
+            messages, user_id, user_settings, n, max_tokens, temperature
+        ):
+            yield chunk
+
     async def _generate_multi_completions(
         self,
         messages: List[Dict[str, str]],
@@ -2872,483 +2003,65 @@ Chapter Conclusion:"""
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None
     ) -> List[str]:
-        """
-        Non-streaming helper for n > 1 completions.
-        
-        Returns:
-            List of n completion contents
-        """
-        client = self.get_user_client(user_id, user_settings)
-        
-        # Inject NSFW filter into system message if needed (SAME as _generate_stream_with_messages)
-        from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
-        user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
-        
-        if should_inject_nsfw_filter(user_allow_nsfw):
-            system_idx = next((i for i, m in enumerate(messages) if m["role"] == "system"), None)
-            if system_idx is not None:
-                messages[system_idx]["content"] = messages[system_idx]["content"].strip() + "\n\n" + get_nsfw_prevention_prompt()
-            else:
-                messages.insert(0, {"role": "system", "content": get_nsfw_prevention_prompt()})
-            logger.debug(f"[MULTI-GEN] NSFW filter injected for user {user_id}")
-        
-        # Get generation params and add n parameter
-        gen_params = client.get_generation_params(max_tokens, temperature)
-        gen_params["messages"] = messages
-        
-        # Add n to extra_body
-        if "extra_body" not in gen_params:
-            gen_params["extra_body"] = {}
-        gen_params["extra_body"]["n"] = n
-        
-        # Get timeout from user settings
-        user_timeout = user_settings.get('llm_settings', {}).get('timeout_total') if user_settings else None
-        gen_params["timeout"] = user_timeout if user_timeout is not None else settings.llm_timeout_total
-        
-        logger.info(f"[MULTI-GEN] Starting non-streaming with n={n}")
-        
-        try:
-            response = await acompletion(**gen_params)
-            
-            # Extract content from each choice
-            contents = []
-            for choice in response.choices:
-                content = choice.message.content if hasattr(choice.message, 'content') else ""
-                contents.append(content)
-            
-            logger.info(f"[MULTI-GEN] Non-streaming complete: {len(contents)} completions")
-            return contents
-            
-        except Exception as e:
-            error_msg = str(e)
-            logger.error(f"[MULTI-GEN] Non-streaming failed: {error_msg}")
-            raise ValueError(f"Multi-generation failed: {error_msg}")
-    
+        """Wrapper for MultiVariantGeneration.generate_multi_completions."""
+        return await self._multi_variant.generate_multi_completions(
+            messages, user_id, user_settings, n, max_tokens, temperature
+        )
+
     async def generate_scene_with_choices_streaming_multi(
-        self, 
-        context: Dict[str, Any], 
-        user_id: int, 
+        self,
+        context: Dict[str, Any],
+        user_id: int,
         user_settings: Dict[str, Any],
         db: Optional[Session],
         n: int
     ) -> AsyncGenerator[Tuple[str, bool, Optional[List[Dict[str, Any]]]], None]:
-        """
-        Generate n scene variants with choices in a single streaming call (Combined + Streaming).
-        
-        Streams the first variant to the frontend while accumulating all n variants.
-        Each variant's choices are parsed from its content.
-        
-        Yields:
-            Tuple of (chunk, is_complete, variants_data)
-            - During streaming: (chunk_text, False, None)
-            - On completion: ("", True, [{"content": str, "choices": list}, ...])
-        """
-        CHOICES_MARKER = "###CHOICES###"
-        
-        # Get scene length, choices count from user settings
-        generation_prefs = user_settings.get("generation_preferences", {})
-        scene_length = generation_prefs.get("scene_length", "medium")
-        choices_count = generation_prefs.get("choices_count", 4)
-        separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
-        scene_length_description = self._get_scene_length_description(scene_length)
-        
-        # Get POV and prose style from writing preset
-        pov = 'third'
-        prose_style = 'balanced'
-        if db and user_id:
-            from ...models.writing_style_preset import WritingStylePreset
-            active_preset = db.query(WritingStylePreset).filter(
-                WritingStylePreset.user_id == user_id,
-                WritingStylePreset.is_active == True
-            ).first()
-            if active_preset:
-                if hasattr(active_preset, 'pov') and active_preset.pov:
-                    pov = active_preset.pov
-                if hasattr(active_preset, 'prose_style') and active_preset.prose_style:
-                    prose_style = active_preset.prose_style
-        
-        # Build system prompt (same as single generation)
-        system_prompt = prompt_manager.get_prompt(
-            "scene_with_immediate", "system",
-            user_id=user_id,
-            db=db,
-            scene_length_description=scene_length_description,
-            choices_count=choices_count,
-            skip_choices=separate_choice_generation
-        )
-        
-        pov_reminder = prompt_manager.get_pov_reminder(pov)
-        if pov_reminder:
-            system_prompt += "\n\n" + pov_reminder
-        
-        # Calculate max tokens
-        base_max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
-        choices_buffer_tokens = max(300, choices_count * 50)
-        max_tokens = base_max_tokens + choices_buffer_tokens
-        
-        # Build messages
-        messages = [{"role": "system", "content": system_prompt.strip()}]
-        
-        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-        messages.extend(context_messages)
-        
-        # Get task instruction
-        immediate_situation = context.get("current_situation") or ""
-        immediate_situation = str(immediate_situation) if immediate_situation else ""
-        has_immediate = bool(immediate_situation and immediate_situation.strip())
-        tone = context.get('tone', '')
-        
-        task_content = prompt_manager.get_task_instruction(
-            has_immediate=has_immediate,
-            prose_style=prose_style,
-            tone=tone,
-            immediate_situation=immediate_situation or "",
-            scene_length_description=scene_length_description
-        )
-        
-        if not separate_choice_generation:
-            choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
-            if choices_reminder:
-                task_content = task_content + "\n\n" + choices_reminder
-        
-        messages.append({"role": "user", "content": task_content})
-        
-        logger.info(f"[MULTI-GEN SCENE] Starting combined streaming with n={n}")
-        
-        # Track streaming content for first variant (index 0)
-        streaming_buffer = ""
-        found_marker_in_stream = False
-        
-        async for chunk, is_complete, contents in self._generate_stream_with_messages_multi(
-            messages=messages,
-            user_id=user_id,
-            user_settings=user_settings,
-            n=n,
-            max_tokens=max_tokens
+        """Wrapper for MultiVariantGeneration.generate_scene_with_choices_streaming_multi."""
+        async for chunk in self._multi_variant.generate_scene_with_choices_streaming_multi(
+            context, user_id, user_settings, db, n
         ):
-            if not is_complete:
-                # Stream chunk from index 0 to frontend
-                streaming_buffer += chunk
-                
-                # Check for marker in streaming buffer
-                if not found_marker_in_stream and CHOICES_MARKER in streaming_buffer:
-                    # Only yield content before the marker
-                    parts = streaming_buffer.split(CHOICES_MARKER, 1)
-                    yield (parts[0], False, None)
-                    found_marker_in_stream = True
-                elif not found_marker_in_stream:
-                    # Keep buffer small, yield excess
-                    if len(streaming_buffer) > len(CHOICES_MARKER) * 2:
-                        excess_length = len(streaming_buffer) - len(CHOICES_MARKER)
-                        yield (streaming_buffer[:excess_length], False, None)
-                        streaming_buffer = streaming_buffer[excess_length:]
-            else:
-                # Streaming complete - process all n contents
-                variants_data = []
-                
-                for idx, content in enumerate(contents):
-                    # Clean the content
-                    cleaned_content = self._clean_scene_content(content)
-                    
-                    # Extract scene and choices
-                    scene_content, parsed_choices = self._extract_choices_from_response_end(cleaned_content)
-                    
-                    # If separate_choice_generation is enabled, discard inline choices
-                    if separate_choice_generation:
-                        parsed_choices = None
-                    
-                    variants_data.append({
-                        "content": scene_content.strip(),
-                        "choices": parsed_choices or []
-                    })
-                    
-                    logger.info(f"[MULTI-GEN SCENE] Variant {idx}: {len(scene_content)} chars, {len(parsed_choices or [])} choices")
-                
-                yield ("", True, variants_data)
-    
+            yield chunk
+
     async def generate_scene_with_choices_multi(
-        self, 
-        context: Dict[str, Any], 
-        user_id: int, 
+        self,
+        context: Dict[str, Any],
+        user_id: int,
         user_settings: Dict[str, Any],
         db: Optional[Session],
         n: int
     ) -> List[Dict[str, Any]]:
-        """
-        Generate n scene variants with choices in a single non-streaming call (Combined + Non-streaming).
-        
-        Returns:
-            List of dicts: [{"content": str, "choices": list}, ...]
-        """
-        CHOICES_MARKER = "###CHOICES###"
-        
-        # Get scene settings
-        generation_prefs = user_settings.get("generation_preferences", {})
-        scene_length = generation_prefs.get("scene_length", "medium")
-        choices_count = generation_prefs.get("choices_count", 4)
-        separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
-        scene_length_description = self._get_scene_length_description(scene_length)
-        
-        # Get POV and prose style
-        pov = 'third'
-        prose_style = 'balanced'
-        if db and user_id:
-            from ...models.writing_style_preset import WritingStylePreset
-            active_preset = db.query(WritingStylePreset).filter(
-                WritingStylePreset.user_id == user_id,
-                WritingStylePreset.is_active == True
-            ).first()
-            if active_preset:
-                if hasattr(active_preset, 'pov') and active_preset.pov:
-                    pov = active_preset.pov
-                if hasattr(active_preset, 'prose_style') and active_preset.prose_style:
-                    prose_style = active_preset.prose_style
-        
-        # Build system prompt
-        system_prompt = prompt_manager.get_prompt(
-            "scene_with_immediate", "system",
-            user_id=user_id,
-            db=db,
-            scene_length_description=scene_length_description,
-            choices_count=choices_count,
-            skip_choices=separate_choice_generation
+        """Wrapper for MultiVariantGeneration.generate_scene_with_choices_multi."""
+        return await self._multi_variant.generate_scene_with_choices_multi(
+            context, user_id, user_settings, db, n
         )
-        
-        pov_reminder = prompt_manager.get_pov_reminder(pov)
-        if pov_reminder:
-            system_prompt += "\n\n" + pov_reminder
-        
-        base_max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
-        choices_buffer_tokens = max(300, choices_count * 50)
-        max_tokens = base_max_tokens + choices_buffer_tokens
-        
-        # Build messages
-        messages = [{"role": "system", "content": system_prompt.strip()}]
-        
-        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-        messages.extend(context_messages)
-        
-        immediate_situation = context.get("current_situation") or ""
-        immediate_situation = str(immediate_situation) if immediate_situation else ""
-        has_immediate = bool(immediate_situation and immediate_situation.strip())
-        tone = context.get('tone', '')
-        
-        task_content = prompt_manager.get_task_instruction(
-            has_immediate=has_immediate,
-            prose_style=prose_style,
-            tone=tone,
-            immediate_situation=immediate_situation or "",
-            scene_length_description=scene_length_description
-        )
-        
-        if not separate_choice_generation:
-            choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
-            if choices_reminder:
-                task_content = task_content + "\n\n" + choices_reminder
-        
-        messages.append({"role": "user", "content": task_content})
-        
-        logger.info(f"[MULTI-GEN SCENE] Starting combined non-streaming with n={n}")
-        
-        # Get all completions
-        contents = await self._generate_multi_completions(
-            messages=messages,
-            user_id=user_id,
-            user_settings=user_settings,
-            n=n,
-            max_tokens=max_tokens
-        )
-        
-        # Process each completion
-        variants_data = []
-        for idx, content in enumerate(contents):
-            cleaned_content = self._clean_scene_content(content)
-            scene_content, parsed_choices = self._extract_choices_from_response_end(cleaned_content)
-            
-            if separate_choice_generation:
-                parsed_choices = None
-            
-            variants_data.append({
-                "content": scene_content.strip(),
-                "choices": parsed_choices or []
-            })
-            
-            logger.info(f"[MULTI-GEN SCENE] Variant {idx}: {len(scene_content)} chars, {len(parsed_choices or [])} choices")
-        
-        return variants_data
-    
+
     async def generate_scene_streaming_multi(
-        self, 
-        context: Dict[str, Any], 
-        user_id: int, 
+        self,
+        context: Dict[str, Any],
+        user_id: int,
         user_settings: Dict[str, Any],
         db: Optional[Session],
         n: int
     ) -> AsyncGenerator[Tuple[str, bool, Optional[List[str]]], None]:
-        """
-        Generate n scene variants without choices (Separate + Streaming).
-        
-        Yields:
-            Tuple of (chunk, is_complete, contents_list)
-            - During streaming: (chunk_text, False, None)
-            - On completion: ("", True, [content_0, ..., content_n-1])
-        """
-        generation_prefs = user_settings.get("generation_preferences", {})
-        scene_length = generation_prefs.get("scene_length", "medium")
-        choices_count = generation_prefs.get("choices_count", 4)
-        scene_length_description = self._get_scene_length_description(scene_length)
-        
-        pov = 'third'
-        prose_style = 'balanced'
-        if db and user_id:
-            from ...models.writing_style_preset import WritingStylePreset
-            active_preset = db.query(WritingStylePreset).filter(
-                WritingStylePreset.user_id == user_id,
-                WritingStylePreset.is_active == True
-            ).first()
-            if active_preset:
-                if hasattr(active_preset, 'pov') and active_preset.pov:
-                    pov = active_preset.pov
-                if hasattr(active_preset, 'prose_style') and active_preset.prose_style:
-                    prose_style = active_preset.prose_style
-        
-        # Build system prompt with skip_choices=True
-        system_prompt = prompt_manager.get_prompt(
-            "scene_with_immediate", "system",
-            user_id=user_id,
-            db=db,
-            scene_length_description=scene_length_description,
-            choices_count=choices_count,
-            skip_choices=True  # Don't include choices in generation
-        )
-        
-        pov_reminder = prompt_manager.get_pov_reminder(pov)
-        if pov_reminder:
-            system_prompt += "\n\n" + pov_reminder
-        
-        max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
-        
-        messages = [{"role": "system", "content": system_prompt.strip()}]
-        
-        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-        messages.extend(context_messages)
-        
-        immediate_situation = context.get("current_situation") or ""
-        immediate_situation = str(immediate_situation) if immediate_situation else ""
-        has_immediate = bool(immediate_situation and immediate_situation.strip())
-        tone = context.get('tone', '')
-        
-        task_content = prompt_manager.get_task_instruction(
-            has_immediate=has_immediate,
-            prose_style=prose_style,
-            tone=tone,
-            immediate_situation=immediate_situation or "",
-            scene_length_description=scene_length_description
-        )
-        # Don't add choices reminder - separate generation
-        
-        messages.append({"role": "user", "content": task_content})
-        
-        logger.info(f"[MULTI-GEN SCENE] Starting separate streaming with n={n}")
-        
-        async for chunk, is_complete, contents in self._generate_stream_with_messages_multi(
-            messages=messages,
-            user_id=user_id,
-            user_settings=user_settings,
-            n=n,
-            max_tokens=max_tokens
+        """Wrapper for MultiVariantGeneration.generate_scene_streaming_multi."""
+        async for chunk in self._multi_variant.generate_scene_streaming_multi(
+            context, user_id, user_settings, db, n
         ):
-            if not is_complete:
-                yield (chunk, False, None)
-            else:
-                # Clean all contents
-                cleaned_contents = [self._clean_scene_content(c).strip() for c in contents]
-                yield ("", True, cleaned_contents)
-    
+            yield chunk
+
     async def generate_scene_multi(
-        self, 
-        context: Dict[str, Any], 
-        user_id: int, 
+        self,
+        context: Dict[str, Any],
+        user_id: int,
         user_settings: Dict[str, Any],
         db: Optional[Session],
         n: int
     ) -> List[str]:
-        """
-        Generate n scene variants without choices (Separate + Non-streaming).
-        
-        Returns:
-            List of scene contents
-        """
-        generation_prefs = user_settings.get("generation_preferences", {})
-        scene_length = generation_prefs.get("scene_length", "medium")
-        choices_count = generation_prefs.get("choices_count", 4)
-        scene_length_description = self._get_scene_length_description(scene_length)
-        
-        pov = 'third'
-        prose_style = 'balanced'
-        if db and user_id:
-            from ...models.writing_style_preset import WritingStylePreset
-            active_preset = db.query(WritingStylePreset).filter(
-                WritingStylePreset.user_id == user_id,
-                WritingStylePreset.is_active == True
-            ).first()
-            if active_preset:
-                if hasattr(active_preset, 'pov') and active_preset.pov:
-                    pov = active_preset.pov
-                if hasattr(active_preset, 'prose_style') and active_preset.prose_style:
-                    prose_style = active_preset.prose_style
-        
-        system_prompt = prompt_manager.get_prompt(
-            "scene_with_immediate", "system",
-            user_id=user_id,
-            db=db,
-            scene_length_description=scene_length_description,
-            choices_count=choices_count,
-            skip_choices=True
+        """Wrapper for MultiVariantGeneration.generate_scene_multi."""
+        return await self._multi_variant.generate_scene_multi(
+            context, user_id, user_settings, db, n
         )
-        
-        pov_reminder = prompt_manager.get_pov_reminder(pov)
-        if pov_reminder:
-            system_prompt += "\n\n" + pov_reminder
-        
-        max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
-        
-        messages = [{"role": "system", "content": system_prompt.strip()}]
-        
-        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-        messages.extend(context_messages)
-        
-        immediate_situation = context.get("current_situation") or ""
-        immediate_situation = str(immediate_situation) if immediate_situation else ""
-        has_immediate = bool(immediate_situation and immediate_situation.strip())
-        tone = context.get('tone', '')
-        
-        task_content = prompt_manager.get_task_instruction(
-            has_immediate=has_immediate,
-            prose_style=prose_style,
-            tone=tone,
-            immediate_situation=immediate_situation or "",
-            scene_length_description=scene_length_description
-        )
-        
-        messages.append({"role": "user", "content": task_content})
-        
-        logger.info(f"[MULTI-GEN SCENE] Starting separate non-streaming with n={n}")
-        
-        contents = await self._generate_multi_completions(
-            messages=messages,
-            user_id=user_id,
-            user_settings=user_settings,
-            n=n,
-            max_tokens=max_tokens
-        )
-        
-        return [self._clean_scene_content(c).strip() for c in contents]
-    
+
     async def generate_choices_for_variants(
         self,
         scene_contents: List[str],
@@ -3357,44 +2070,11 @@ Chapter Conclusion:"""
         user_settings: Dict[str, Any],
         db: Optional[Session]
     ) -> List[List[str]]:
-        """
-        Generate choices for multiple scene variants in parallel.
-        
-        Args:
-            scene_contents: List of scene content strings
-            context: Scene generation context
-            user_id: User ID
-            user_settings: User settings dict
-            db: Database session
-            
-        Returns:
-            List of choice lists, one per scene content
-        """
-        import asyncio
-        
-        logger.info(f"[MULTI-GEN CHOICES] Generating choices for {len(scene_contents)} variants in parallel")
-        
-        # Create tasks for parallel execution
-        tasks = [
-            self.generate_choices(content, context, user_id, user_settings, db)
-            for content in scene_contents
-        ]
-        
-        # Execute in parallel
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Process results, converting exceptions to empty lists
-        all_choices = []
-        for idx, result in enumerate(results):
-            if isinstance(result, Exception):
-                logger.error(f"[MULTI-GEN CHOICES] Failed for variant {idx}: {result}")
-                all_choices.append([])
-            else:
-                all_choices.append(result)
-                logger.info(f"[MULTI-GEN CHOICES] Variant {idx}: {len(result)} choices")
-        
-        return all_choices
-    
+        """Wrapper for MultiVariantGeneration.generate_choices_for_variants."""
+        return await self._multi_variant.generate_choices_for_variants(
+            scene_contents, context, user_id, user_settings, db
+        )
+
     async def generate_concluding_scene_streaming_multi(
         self,
         context: Dict[str, Any],
@@ -3404,77 +2084,12 @@ Chapter Conclusion:"""
         db: Optional[Session],
         n: int
     ) -> AsyncGenerator[Tuple[str, bool, Optional[List[str]]], None]:
-        """
-        Generate n concluding scene variants (streaming, no choices).
-        
-        Yields:
-            Tuple of (chunk, is_complete, contents_list)
-        """
-        generation_prefs = user_settings.get("generation_preferences", {})
-        scene_length = generation_prefs.get("scene_length", "medium")
-        scene_length_description = self._get_scene_length_description(scene_length)
-        
-        pov = 'third'
-        prose_style = 'balanced'
-        if db and user_id:
-            from ...models.writing_style_preset import WritingStylePreset
-            active_preset = db.query(WritingStylePreset).filter(
-                WritingStylePreset.user_id == user_id,
-                WritingStylePreset.is_active == True
-            ).first()
-            if active_preset:
-                if hasattr(active_preset, 'pov') and active_preset.pov:
-                    pov = active_preset.pov
-                if hasattr(active_preset, 'prose_style') and active_preset.prose_style:
-                    prose_style = active_preset.prose_style
-        
-        # Build system prompt for concluding scene
-        system_prompt = prompt_manager.get_prompt(
-            "chapter_conclusion", "system",
-            user_id=user_id,
-            db=db,
-            scene_length_description=scene_length_description
-        )
-        
-        pov_reminder = prompt_manager.get_pov_reminder(pov)
-        if pov_reminder:
-            system_prompt += "\n\n" + pov_reminder
-        
-        max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
-        
-        messages = [{"role": "system", "content": system_prompt.strip()}]
-        
-        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-        messages.extend(context_messages)
-        
-        # Build task instruction for chapter conclusion
-        task_content = prompt_manager.get_prompt(
-            "chapter_conclusion", "user",
-            user_id=user_id,
-            db=db,
-            chapter_number=chapter_info.get("chapter_number", 1),
-            chapter_title=chapter_info.get("chapter_title", ""),
-            scene_length_description=scene_length_description
-        )
-        
-        messages.append({"role": "user", "content": task_content})
-        
-        logger.info(f"[MULTI-GEN CONCLUSION] Starting streaming with n={n}")
-        
-        async for chunk, is_complete, contents in self._generate_stream_with_messages_multi(
-            messages=messages,
-            user_id=user_id,
-            user_settings=user_settings,
-            n=n,
-            max_tokens=max_tokens
+        """Wrapper for MultiVariantGeneration.generate_concluding_scene_streaming_multi."""
+        async for chunk in self._multi_variant.generate_concluding_scene_streaming_multi(
+            context, chapter_info, user_id, user_settings, db, n
         ):
-            if not is_complete:
-                yield (chunk, False, None)
-            else:
-                cleaned_contents = [self._clean_scene_content(c).strip() for c in contents]
-                yield ("", True, cleaned_contents)
-    
+            yield chunk
+
     async def generate_concluding_scene_multi(
         self,
         context: Dict[str, Any],
@@ -3484,72 +2099,11 @@ Chapter Conclusion:"""
         db: Optional[Session],
         n: int
     ) -> List[str]:
-        """
-        Generate n concluding scene variants (non-streaming, no choices).
-        
-        Returns:
-            List of scene contents
-        """
-        generation_prefs = user_settings.get("generation_preferences", {})
-        scene_length = generation_prefs.get("scene_length", "medium")
-        scene_length_description = self._get_scene_length_description(scene_length)
-        
-        pov = 'third'
-        prose_style = 'balanced'
-        if db and user_id:
-            from ...models.writing_style_preset import WritingStylePreset
-            active_preset = db.query(WritingStylePreset).filter(
-                WritingStylePreset.user_id == user_id,
-                WritingStylePreset.is_active == True
-            ).first()
-            if active_preset:
-                if hasattr(active_preset, 'pov') and active_preset.pov:
-                    pov = active_preset.pov
-                if hasattr(active_preset, 'prose_style') and active_preset.prose_style:
-                    prose_style = active_preset.prose_style
-        
-        system_prompt = prompt_manager.get_prompt(
-            "chapter_conclusion", "system",
-            user_id=user_id,
-            db=db,
-            scene_length_description=scene_length_description
+        """Wrapper for MultiVariantGeneration.generate_concluding_scene_multi."""
+        return await self._multi_variant.generate_concluding_scene_multi(
+            context, chapter_info, user_id, user_settings, db, n
         )
-        
-        pov_reminder = prompt_manager.get_pov_reminder(pov)
-        if pov_reminder:
-            system_prompt += "\n\n" + pov_reminder
-        
-        max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
-        
-        messages = [{"role": "system", "content": system_prompt.strip()}]
-        
-        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-        messages.extend(context_messages)
-        
-        task_content = prompt_manager.get_prompt(
-            "chapter_conclusion", "user",
-            user_id=user_id,
-            db=db,
-            chapter_number=chapter_info.get("chapter_number", 1),
-            chapter_title=chapter_info.get("chapter_title", ""),
-            scene_length_description=scene_length_description
-        )
-        
-        messages.append({"role": "user", "content": task_content})
-        
-        logger.info(f"[MULTI-GEN CONCLUSION] Starting non-streaming with n={n}")
-        
-        contents = await self._generate_multi_completions(
-            messages=messages,
-            user_id=user_id,
-            user_settings=user_settings,
-            n=n,
-            max_tokens=max_tokens
-        )
-        
-        return [self._clean_scene_content(c).strip() for c in contents]
-    
+
     async def regenerate_scene_variant_streaming_multi(
         self,
         db: Session,
@@ -3560,134 +2114,12 @@ Chapter Conclusion:"""
         n: int,
         custom_prompt: Optional[str] = None
     ) -> AsyncGenerator[Tuple[str, bool, Optional[List[Dict[str, Any]]]], None]:
-        """
-        Regenerate n scene variants with choices (streaming).
-        Uses the same context as the original scene.
-        
-        Yields:
-            Tuple of (chunk, is_complete, variants_data)
-        """
-        CHOICES_MARKER = "###CHOICES###"
-        
-        generation_prefs = user_settings.get("generation_preferences", {})
-        scene_length = generation_prefs.get("scene_length", "medium")
-        choices_count = generation_prefs.get("choices_count", 4)
-        separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
-        scene_length_description = self._get_scene_length_description(scene_length)
-        
-        pov = 'third'
-        prose_style = 'balanced'
-        if db and user_id:
-            from ...models.writing_style_preset import WritingStylePreset
-            active_preset = db.query(WritingStylePreset).filter(
-                WritingStylePreset.user_id == user_id,
-                WritingStylePreset.is_active == True
-            ).first()
-            if active_preset:
-                if hasattr(active_preset, 'pov') and active_preset.pov:
-                    pov = active_preset.pov
-                if hasattr(active_preset, 'prose_style') and active_preset.prose_style:
-                    prose_style = active_preset.prose_style
-        
-        # Build system prompt
-        system_prompt = prompt_manager.get_prompt(
-            "scene_with_immediate", "system",
-            user_id=user_id,
-            db=db,
-            scene_length_description=scene_length_description,
-            choices_count=choices_count,
-            skip_choices=separate_choice_generation
-        )
-        
-        pov_reminder = prompt_manager.get_pov_reminder(pov)
-        if pov_reminder:
-            system_prompt += "\n\n" + pov_reminder
-        
-        base_max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
-        choices_buffer_tokens = max(300, choices_count * 50)
-        max_tokens = base_max_tokens + choices_buffer_tokens
-        
-        messages = [{"role": "system", "content": system_prompt.strip()}]
-        
-        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-        messages.extend(context_messages)
-        
-        # Add custom prompt or regeneration instruction
-        immediate_situation = context.get("current_situation") or ""
-        immediate_situation = str(immediate_situation) if immediate_situation else ""
-        has_immediate = bool(immediate_situation and immediate_situation.strip())
-        tone = context.get('tone', '')
-        
-        if custom_prompt and custom_prompt.strip():
-            task_content = f"Regenerate the scene with the following guidance: {custom_prompt.strip()}\n\n"
-            task_content += prompt_manager.get_task_instruction(
-                has_immediate=has_immediate,
-                prose_style=prose_style,
-                tone=tone,
-                immediate_situation=immediate_situation or "",
-                scene_length_description=scene_length_description
-            )
-        else:
-            task_content = "Regenerate this scene with a fresh take, maintaining the same context but with different creative choices.\n\n"
-            task_content += prompt_manager.get_task_instruction(
-                has_immediate=has_immediate,
-                prose_style=prose_style,
-                tone=tone,
-                immediate_situation=immediate_situation or "",
-                scene_length_description=scene_length_description
-            )
-        
-        if not separate_choice_generation:
-            choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
-            if choices_reminder:
-                task_content = task_content + "\n\n" + choices_reminder
-        
-        messages.append({"role": "user", "content": task_content})
-        
-        logger.info(f"[MULTI-GEN VARIANT] Starting streaming regeneration with n={n} for scene {scene_id}")
-        
-        streaming_buffer = ""
-        found_marker_in_stream = False
-        
-        async for chunk, is_complete, contents in self._generate_stream_with_messages_multi(
-            messages=messages,
-            user_id=user_id,
-            user_settings=user_settings,
-            n=n,
-            max_tokens=max_tokens
+        """Wrapper for MultiVariantGeneration.regenerate_scene_variant_streaming_multi."""
+        async for chunk in self._multi_variant.regenerate_scene_variant_streaming_multi(
+            db, scene_id, context, user_id, user_settings, n, custom_prompt
         ):
-            if not is_complete:
-                streaming_buffer += chunk
-                
-                if not found_marker_in_stream and CHOICES_MARKER in streaming_buffer:
-                    parts = streaming_buffer.split(CHOICES_MARKER, 1)
-                    yield (parts[0], False, None)
-                    found_marker_in_stream = True
-                elif not found_marker_in_stream:
-                    if len(streaming_buffer) > len(CHOICES_MARKER) * 2:
-                        excess_length = len(streaming_buffer) - len(CHOICES_MARKER)
-                        yield (streaming_buffer[:excess_length], False, None)
-                        streaming_buffer = streaming_buffer[excess_length:]
-            else:
-                variants_data = []
-                
-                for idx, content in enumerate(contents):
-                    cleaned_content = self._clean_scene_content(content)
-                    scene_content, parsed_choices = self._extract_choices_from_response_end(cleaned_content)
-                    
-                    if separate_choice_generation:
-                        parsed_choices = None
-                    
-                    variants_data.append({
-                        "content": scene_content.strip(),
-                        "choices": parsed_choices or []
-                    })
-                    
-                    logger.info(f"[MULTI-GEN VARIANT] Variant {idx}: {len(scene_content)} chars, {len(parsed_choices or [])} choices")
-                
-                yield ("", True, variants_data)
-    
+            yield chunk
+
     async def regenerate_scene_variant_multi(
         self,
         db: Session,
@@ -3698,115 +2130,11 @@ Chapter Conclusion:"""
         n: int,
         custom_prompt: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """
-        Regenerate n scene variants with choices (non-streaming).
-        
-        Returns:
-            List of dicts: [{"content": str, "choices": list}, ...]
-        """
-        CHOICES_MARKER = "###CHOICES###"
-        
-        generation_prefs = user_settings.get("generation_preferences", {})
-        scene_length = generation_prefs.get("scene_length", "medium")
-        choices_count = generation_prefs.get("choices_count", 4)
-        separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
-        scene_length_description = self._get_scene_length_description(scene_length)
-        
-        pov = 'third'
-        prose_style = 'balanced'
-        if db and user_id:
-            from ...models.writing_style_preset import WritingStylePreset
-            active_preset = db.query(WritingStylePreset).filter(
-                WritingStylePreset.user_id == user_id,
-                WritingStylePreset.is_active == True
-            ).first()
-            if active_preset:
-                if hasattr(active_preset, 'pov') and active_preset.pov:
-                    pov = active_preset.pov
-                if hasattr(active_preset, 'prose_style') and active_preset.prose_style:
-                    prose_style = active_preset.prose_style
-        
-        system_prompt = prompt_manager.get_prompt(
-            "scene_with_immediate", "system",
-            user_id=user_id,
-            db=db,
-            scene_length_description=scene_length_description,
-            choices_count=choices_count,
-            skip_choices=separate_choice_generation
+        """Wrapper for MultiVariantGeneration.regenerate_scene_variant_multi."""
+        return await self._multi_variant.regenerate_scene_variant_multi(
+            db, scene_id, context, user_id, user_settings, n, custom_prompt
         )
-        
-        pov_reminder = prompt_manager.get_pov_reminder(pov)
-        if pov_reminder:
-            system_prompt += "\n\n" + pov_reminder
-        
-        base_max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
-        choices_buffer_tokens = max(300, choices_count * 50)
-        max_tokens = base_max_tokens + choices_buffer_tokens
-        
-        messages = [{"role": "system", "content": system_prompt.strip()}]
-        
-        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-        messages.extend(context_messages)
-        
-        immediate_situation = context.get("current_situation") or ""
-        immediate_situation = str(immediate_situation) if immediate_situation else ""
-        has_immediate = bool(immediate_situation and immediate_situation.strip())
-        tone = context.get('tone', '')
-        
-        if custom_prompt and custom_prompt.strip():
-            task_content = f"Regenerate the scene with the following guidance: {custom_prompt.strip()}\n\n"
-            task_content += prompt_manager.get_task_instruction(
-                has_immediate=has_immediate,
-                prose_style=prose_style,
-                tone=tone,
-                immediate_situation=immediate_situation or "",
-                scene_length_description=scene_length_description
-            )
-        else:
-            task_content = "Regenerate this scene with a fresh take, maintaining the same context but with different creative choices.\n\n"
-            task_content += prompt_manager.get_task_instruction(
-                has_immediate=has_immediate,
-                prose_style=prose_style,
-                tone=tone,
-                immediate_situation=immediate_situation or "",
-                scene_length_description=scene_length_description
-            )
-        
-        if not separate_choice_generation:
-            choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
-            if choices_reminder:
-                task_content = task_content + "\n\n" + choices_reminder
-        
-        messages.append({"role": "user", "content": task_content})
-        
-        logger.info(f"[MULTI-GEN VARIANT] Starting non-streaming regeneration with n={n} for scene {scene_id}")
-        
-        contents = await self._generate_multi_completions(
-            messages=messages,
-            user_id=user_id,
-            user_settings=user_settings,
-            n=n,
-            max_tokens=max_tokens
-        )
-        
-        variants_data = []
-        for idx, content in enumerate(contents):
-            cleaned_content = self._clean_scene_content(content)
-            scene_content, parsed_choices = self._extract_choices_from_response_end(cleaned_content)
-            
-            if separate_choice_generation:
-                parsed_choices = None
-            
-            variants_data.append({
-                "content": scene_content.strip(),
-                "choices": parsed_choices or []
-            })
-            
-            logger.info(f"[MULTI-GEN VARIANT] Variant {idx}: {len(scene_content)} chars, {len(parsed_choices or [])} choices")
-        
-        return variants_data
-    
+
     # =====================================================================
     # END OF MULTI-GENERATION METHODS
     # =====================================================================
@@ -4658,21 +2986,17 @@ Chapter Conclusion:"""
 
     # Scene Variant Database Operations
     def _get_active_branch_id(self, db: Session, story_id: int) -> int:
-        """Get the active branch ID for a story."""
-        from ...models import StoryBranch
-        active_branch = db.query(StoryBranch).filter(
-            and_(
-                StoryBranch.story_id == story_id,
-                StoryBranch.is_active == True
-            )
-        ).first()
-        return active_branch.id if active_branch else None
+        """Get the active branch ID for a story.
+
+        Wrapper for SceneDatabaseOperations.get_active_branch_id.
+        """
+        return self._scene_db_ops.get_active_branch_id(db, story_id)
     
     def create_scene_with_variant(
-        self, 
+        self,
         db: Session,
-        story_id: int, 
-        sequence_number: int, 
+        story_id: int,
+        sequence_number: int,
         content: str,
         title: str = None,
         custom_prompt: str = None,
@@ -4680,71 +3004,14 @@ Chapter Conclusion:"""
         generation_method: str = "auto",
         branch_id: int = None
     ) -> Tuple[Any, Any]:
-        """Create a new scene with its first variant"""
-        from ...models import Scene, SceneVariant, SceneChoice, StoryFlow
-        
-        # Get active branch if not specified
-        if branch_id is None:
-            branch_id = self._get_active_branch_id(db, story_id)
-        
-        # Check if a scene already exists for this sequence in this story/branch
-        existing_flow_query = db.query(StoryFlow).filter(
-            StoryFlow.story_id == story_id,
-            StoryFlow.sequence_number == sequence_number
+        """Create a new scene with its first variant.
+
+        Wrapper for SceneDatabaseOperations.create_scene_with_variant.
+        """
+        return self._scene_db_ops.create_scene_with_variant(
+            db, story_id, sequence_number, content, title,
+            custom_prompt, choices, generation_method, branch_id
         )
-        if branch_id:
-            existing_flow_query = existing_flow_query.filter(StoryFlow.branch_id == branch_id)
-        existing_flow = existing_flow_query.first()
-        
-        if existing_flow:
-            # Return the existing scene and variant instead of creating duplicates
-            existing_scene = db.query(Scene).filter(Scene.id == existing_flow.scene_id).first()
-            existing_variant = db.query(SceneVariant).filter(SceneVariant.id == existing_flow.scene_variant_id).first()
-            logger.warning(f"Scene already exists for story {story_id} sequence {sequence_number} (branch {branch_id}), returning existing scene {existing_scene.id}")
-            return existing_scene, existing_variant
-        
-        # Create the logical scene
-        scene = Scene(
-            story_id=story_id,
-            branch_id=branch_id,
-            sequence_number=sequence_number,
-            title=title or f"Scene {sequence_number}",
-        )
-        db.add(scene)
-        db.flush()  # Get the scene ID
-        
-        # Create the first variant
-        variant = SceneVariant(
-            scene_id=scene.id,
-            variant_number=1,
-            is_original=True,
-            content=content,
-            title=title,
-            original_content=content,
-            generation_prompt=custom_prompt,
-            generation_method=generation_method
-        )
-        db.add(variant)
-        db.flush()  # Get the variant ID
-        
-        # Create choices if provided
-        if choices:
-            for choice_data in choices:
-                choice = SceneChoice(
-                    scene_id=scene.id,
-                    scene_variant_id=variant.id,
-                    choice_text=choice_data.get('text', ''),
-                    choice_order=choice_data.get('order', 0),
-                    choice_description=choice_data.get('description')
-                )
-                db.add(choice)
-        
-        # Update story flow
-        self._update_story_flow(db, story_id, sequence_number, scene.id, variant.id, branch_id=branch_id)
-        
-        db.commit()
-        logger.info(f"Successfully created scene {scene.id} with variant {variant.id} at sequence {sequence_number} (branch {branch_id})")
-        return scene, variant
 
     async def regenerate_scene_variant(
         self, 
@@ -4821,522 +3088,58 @@ Chapter Conclusion:"""
         return variant
 
     def switch_to_variant(self, db: Session, story_id: int, scene_id: int, variant_id: int, branch_id: int = None) -> bool:
-        """Switch the active variant for a scene in the story flow"""
-        from ...models import StoryFlow, SceneVariant
-        
-        # Verify the variant exists
-        variant = db.query(SceneVariant).filter(SceneVariant.id == variant_id).first()
-        if not variant or variant.scene_id != scene_id:
-            return False
-        
-        # Get active branch if not specified
-        if branch_id is None:
-            branch_id = self._get_active_branch_id(db, story_id)
-        
-        # Update story flow to use this variant (filtered by branch)
-        flow_query = db.query(StoryFlow).filter(
-            StoryFlow.story_id == story_id,
-            StoryFlow.scene_id == scene_id
-        )
-        if branch_id:
-            flow_query = flow_query.filter(StoryFlow.branch_id == branch_id)
-        flow_entry = flow_query.first()
-        
-        if flow_entry:
-            flow_entry.scene_variant_id = variant_id
-            db.commit()
-            logger.info(f"Switched to variant {variant_id} for scene {scene_id} in story {story_id} (branch {branch_id})")
-            return True
-        
-        return False
+        """Switch the active variant for a scene in the story flow.
+
+        Wrapper for SceneDatabaseOperations.switch_to_variant.
+        """
+        return self._scene_db_ops.switch_to_variant(db, story_id, scene_id, variant_id, branch_id)
 
     def get_scene_variants(self, db: Session, scene_id: int) -> List[Any]:
-        """Get all variants for a scene"""
-        from ...models import SceneVariant
-        
-        return db.query(SceneVariant)\
-            .filter(SceneVariant.scene_id == scene_id)\
-            .order_by(SceneVariant.variant_number)\
-            .all()
+        """Get all variants for a scene.
+
+        Wrapper for SceneDatabaseOperations.get_scene_variants.
+        """
+        return self._scene_db_ops.get_scene_variants(db, scene_id)
 
     def get_active_scene_count(self, db: Session, story_id: int, chapter_id: Optional[int] = None, branch_id: int = None) -> int:
         """
         Get count of active scenes from StoryFlow.
-        
+
+        Wrapper for SceneDatabaseOperations.get_active_scene_count.
+
         Args:
             db: Database session
             story_id: Story ID
             chapter_id: Optional chapter ID to filter scenes by chapter
             branch_id: Optional branch ID for filtering
-            
+
         Returns:
             Count of active scenes in the story flow
         """
-        from ...models import StoryFlow, Scene
-        
-        # Get active branch if not specified
-        if branch_id is None:
-            branch_id = self._get_active_branch_id(db, story_id)
-        
-        query = db.query(StoryFlow).filter(
-            StoryFlow.story_id == story_id,
-            StoryFlow.is_active == True
-        )
-        
-        if branch_id:
-            query = query.filter(StoryFlow.branch_id == branch_id)
-        
-        if chapter_id:
-            # Join with Scene to filter by chapter
-            query = query.join(Scene).filter(Scene.chapter_id == chapter_id)
-        
-        return query.count()
+        return self._scene_db_ops.get_active_scene_count(db, story_id, chapter_id, branch_id)
     
     def get_active_story_flow(self, db: Session, story_id: int, branch_id: int = None) -> List[Dict[str, Any]]:
-        """Get the active story flow with scene variants"""
-        from ...models import StoryFlow, Scene, SceneVariant, SceneChoice
-        
-        # Get active branch if not specified
-        if branch_id is None:
-            branch_id = self._get_active_branch_id(db, story_id)
-        
-        # Get the story flow ordered by sequence (filtered by branch)
-        flow_query = db.query(StoryFlow).filter(StoryFlow.story_id == story_id)
-        if branch_id:
-            flow_query = flow_query.filter(StoryFlow.branch_id == branch_id)
-        flow_entries = flow_query.order_by(StoryFlow.sequence_number).all()
-        
-        result = []
-        for flow_entry in flow_entries:
-            # Get the scene
-            scene = db.query(Scene).filter(Scene.id == flow_entry.scene_id).first()
-            if not scene:
-                continue
-                
-            # Get the active variant
-            variant = db.query(SceneVariant).filter(SceneVariant.id == flow_entry.scene_variant_id).first()
-            if not variant:
-                continue
-                
-            # Get choices for this variant
-            choices = db.query(SceneChoice)\
-                .filter(SceneChoice.scene_variant_id == variant.id)\
-                .order_by(SceneChoice.choice_order)\
-                .all()
-            
-            # Check if there are multiple variants for this scene
-            variant_count = db.query(SceneVariant)\
-                .filter(SceneVariant.scene_id == scene.id)\
-                .count()
-            
-            result.append({
-                'scene_id': scene.id,
-                'chapter_id': scene.chapter_id,  # Add chapter_id for frontend filtering
-                'sequence_number': flow_entry.sequence_number,
-                'title': variant.title or scene.title,
-                'content': variant.content,
-                'location': variant.location or '',
-                'characters_present': [],  # Could be enhanced to get actual characters
-                'variant': {
-                    'id': variant.id,
-                    'variant_number': variant.variant_number,
-                    'is_original': variant.is_original,
-                    'content': variant.content,
-                    'title': variant.title,
-                    'generation_method': variant.generation_method
-                },
-                'variant_id': variant.id,
-                'variant_number': variant.variant_number,
-                'is_original': variant.is_original,
-                'has_multiple_variants': variant_count > 1,
-                'choices': [
-                    {
-                        'id': choice.id,
-                        'text': choice.choice_text,
-                        'description': choice.choice_description,
-                        'order': choice.choice_order
-                    } for choice in choices
-                ]
-            })
-        
-        return result
+        """Get the active story flow with scene variants.
+
+        Wrapper for SceneDatabaseOperations.get_active_story_flow.
+        """
+        return self._scene_db_ops.get_active_story_flow(db, story_id, branch_id)
 
     def _update_story_flow(self, db: Session, story_id: int, sequence_number: int, scene_id: int, variant_id: int, branch_id: int = None):
-        """Update or create story flow entry"""
-        from ...models import StoryFlow
-        
-        # Get active branch if not specified
-        if branch_id is None:
-            branch_id = self._get_active_branch_id(db, story_id)
-        
-        # Check if flow entry already exists for this sequence (filtered by branch)
-        existing_flow_query = db.query(StoryFlow).filter(
-            StoryFlow.story_id == story_id,
-            StoryFlow.sequence_number == sequence_number
-        )
-        if branch_id:
-            existing_flow_query = existing_flow_query.filter(StoryFlow.branch_id == branch_id)
-        existing_flow = existing_flow_query.first()
-        
-        if existing_flow:
-            # Update existing entry
-            existing_flow.scene_id = scene_id
-            existing_flow.scene_variant_id = variant_id
-        else:
-            # Create new flow entry
-            flow_entry = StoryFlow(
-                story_id=story_id,
-                branch_id=branch_id,
-                sequence_number=sequence_number,
-                scene_id=scene_id,
-                scene_variant_id=variant_id
-            )
-            db.add(flow_entry)
+        """Update or create story flow entry.
+
+        Wrapper for SceneDatabaseOperations.update_story_flow.
+        """
+        return self._scene_db_ops.update_story_flow(db, story_id, sequence_number, scene_id, variant_id, branch_id)
 
     async def delete_scenes_from_sequence(self, db: Session, story_id: int, sequence_number: int, skip_restoration: bool = False, branch_id: int = None) -> bool:
-        """Delete all scenes from a given sequence number onwards"""
-        start_time = time.perf_counter()
-        trace_id = f"scene-del-{uuid.uuid4()}"
-        status = "error"
-        story_flows_deleted = 0
-        scenes_deleted = 0
-        try:
-            from ...models import StoryFlow, Scene
-            
-            # Get active branch if not specified
-            phase_start = time.perf_counter()
-            if branch_id is None:
-                branch_id = self._get_active_branch_id(db, story_id)
-            logger.info(f"[DELETE:START] trace_id={trace_id} story_id={story_id} sequence_start={sequence_number} branch_id={branch_id} skip_restoration={skip_restoration}")
-            
-            # Phase 1: Delete all StoryFlow entries for this story with sequence_number >= sequence_number (filtered by branch)
-            phase_start = time.perf_counter()
-            flow_delete_query = db.query(StoryFlow).filter(
-                StoryFlow.story_id == story_id,
-                StoryFlow.sequence_number >= sequence_number
-            )
-            if branch_id:
-                flow_delete_query = flow_delete_query.filter(StoryFlow.branch_id == branch_id)
-            story_flows_deleted = flow_delete_query.delete()
-            logger.info(f"[DELETE:PHASE] trace_id={trace_id} phase=delete_story_flows duration_ms={(time.perf_counter()-phase_start)*1000:.2f} flows_deleted={story_flows_deleted}")
-            
-            # Phase 2: Get scenes to delete (don't use bulk delete to ensure cascades work) - filtered by branch
-            phase_start = time.perf_counter()
-            scene_query = db.query(Scene).filter(
-                Scene.story_id == story_id,
-                Scene.sequence_number >= sequence_number
-            )
-            if branch_id:
-                scene_query = scene_query.filter(Scene.branch_id == branch_id)
-            scenes_to_delete = scene_query.all()
-            logger.info(f"[DELETE:PHASE] trace_id={trace_id} phase=query_scenes duration_ms={(time.perf_counter()-phase_start)*1000:.2f} scenes_found={len(scenes_to_delete)}")
-            
-            # NOTE: Semantic cleanup (embeddings, character moments, plot events) is now handled
-            # as a background task by the API endpoint to avoid blocking the response.
-            # This method only handles fast database deletions.
-            logger.info(f"[DELETE:CONTEXT] trace_id={trace_id} scenes_to_delete={len(scenes_to_delete)} sequence_start={sequence_number} scene_ids={[s.id for s in scenes_to_delete[:5]]}{'...' if len(scenes_to_delete) > 5 else ''}")
-            
-            # Restore NPCTracking from snapshot after scene deletion (skip if doing in background)
-            if not skip_restoration:
-                try:
-                    from ...models import Story, NPCTracking, NPCTrackingSnapshot
+        """Delete all scenes from a given sequence number onwards.
 
-                    # Find the last remaining scene's sequence number (filtered by branch)
-                    last_remaining_query = db.query(Scene).filter(
-                        Scene.story_id == story_id,
-                        Scene.sequence_number < sequence_number
-                    )
-                    if branch_id:
-                        last_remaining_query = last_remaining_query.filter(Scene.branch_id == branch_id)
-                    last_remaining_scene = last_remaining_query.order_by(Scene.sequence_number.desc()).first()
-
-                    if last_remaining_scene:
-                        # Get snapshot for the last remaining scene (filtered by branch)
-                        snapshot_query = db.query(NPCTrackingSnapshot).filter(
-                            NPCTrackingSnapshot.story_id == story_id,
-                            NPCTrackingSnapshot.scene_sequence == last_remaining_scene.sequence_number
-                        )
-                        if branch_id:
-                            snapshot_query = snapshot_query.filter(NPCTrackingSnapshot.branch_id == branch_id)
-                        snapshot = snapshot_query.first()
-
-                        if snapshot:
-                            # Restore NPCTracking from snapshot
-                            snapshot_data = snapshot.snapshot_data or {}
-
-                            # Delete existing NPC tracking records for this story and branch
-                            npc_delete_query = db.query(NPCTracking).filter(
-                                NPCTracking.story_id == story_id
-                            )
-                            if branch_id:
-                                npc_delete_query = npc_delete_query.filter(NPCTracking.branch_id == branch_id)
-                            npc_delete_query.delete()
-
-                            # Restore from snapshot
-                            for character_name, npc_data in snapshot_data.items():
-                                tracking = NPCTracking(
-                                    story_id=story_id,
-                                    branch_id=branch_id,
-                                    character_name=character_name,
-                                    entity_type=npc_data.get("entity_type", "CHARACTER"),
-                                    total_mentions=npc_data.get("total_mentions", 0),
-                                    scene_count=npc_data.get("scene_count", 0),
-                                    importance_score=npc_data.get("importance_score", 0.0),
-                                    frequency_score=npc_data.get("frequency_score", 0.0),
-                                    significance_score=npc_data.get("significance_score", 0.0),
-                                    first_appearance_scene=npc_data.get("first_appearance_scene"),
-                                    last_appearance_scene=npc_data.get("last_appearance_scene"),
-                                    has_dialogue_count=npc_data.get("has_dialogue_count", 0),
-                                    has_actions_count=npc_data.get("has_actions_count", 0),
-                                    crossed_threshold=npc_data.get("crossed_threshold", False),
-                                    user_prompted=npc_data.get("user_prompted", False),
-                                    profile_extracted=npc_data.get("profile_extracted", False),
-                                    converted_to_character=npc_data.get("converted_to_character", False),
-                                    extracted_profile=npc_data.get("extracted_profile", {})
-                                )
-                                db.add(tracking)
-
-                            logger.info(f"[DELETE] Restored NPC tracking from snapshot for scene {last_remaining_scene.sequence_number} (story {story_id} branch {branch_id})")
-                        else:
-                            logger.warning(f"[DELETE] No snapshot found for last remaining scene {last_remaining_scene.sequence_number} (branch {branch_id}), NPC tracking may be inconsistent")
-                    else:
-                        # No remaining scenes - delete NPC tracking for this branch
-                        npc_delete_query = db.query(NPCTracking).filter(
-                            NPCTracking.story_id == story_id
-                        )
-                        if branch_id:
-                            npc_delete_query = npc_delete_query.filter(NPCTracking.branch_id == branch_id)
-                        npc_delete_query.delete()
-                        logger.info(f"[DELETE] No remaining scenes, deleted NPC tracking for story {story_id} branch {branch_id}")
-                        
-                except Exception as e:
-                    # Don't fail scene deletion if NPC tracking restoration fails
-                    logger.warning(f"[DELETE] Failed to restore NPC tracking from snapshot after scene deletion: {e}")
-                    import traceback
-                    logger.warning(f"[DELETE] Traceback: {traceback.format_exc()}")
-            
-            # Get min and max deleted sequence numbers for batch invalidation (before deleting scenes)
-            if scenes_to_delete:
-                min_deleted_seq = min(scene.sequence_number for scene in scenes_to_delete)
-                max_deleted_seq = max(scene.sequence_number for scene in scenes_to_delete)
-            else:
-                min_deleted_seq = sequence_number
-                max_deleted_seq = sequence_number
-            
-            # Get affected chapter IDs before deleting scenes
-            affected_chapter_ids = set()
-            for scene in scenes_to_delete:
-                if scene.chapter_id:
-                    affected_chapter_ids.add(scene.chapter_id)
-            logger.info(f"[DELETE:CONTEXT] trace_id={trace_id} affected_chapters={list(affected_chapter_ids)}")
-            
-            # Phase 2.5: Clear leads_to_scene_id references in SceneChoice before deleting scenes
-            # This prevents foreign key constraint violations
-            if scenes_to_delete:
-                from ...models import SceneChoice
-                scene_ids_to_delete = [s.id for s in scenes_to_delete]
-                phase_start = time.perf_counter()
-                leads_to_cleared = db.query(SceneChoice).filter(
-                    SceneChoice.leads_to_scene_id.in_(scene_ids_to_delete)
-                ).update({SceneChoice.leads_to_scene_id: None}, synchronize_session='fetch')
-                logger.info(f"[DELETE:PHASE] trace_id={trace_id} phase=clear_leads_to_refs duration_ms={(time.perf_counter()-phase_start)*1000:.2f} refs_cleared={leads_to_cleared}")
-            
-            # Phase 3: Delete each scene individually to trigger cascade relationships
-            phase_start = time.perf_counter()
-            scenes_deleted = 0
-            total_scenes = len(scenes_to_delete)
-            batch_log_interval = max(1, total_scenes // 10) if total_scenes > 10 else 1  # Log every 10% or every scene if < 10
-            
-            logger.info(f"[DELETE:SCENE_LOOP:START] trace_id={trace_id} total_scenes={total_scenes}")
-            for i, scene in enumerate(scenes_to_delete):
-                scene_start = time.perf_counter()
-                db.delete(scene)
-                scenes_deleted += 1
-                scene_duration = (time.perf_counter() - scene_start) * 1000
-                
-                # Log progress every batch_log_interval scenes or if a single delete takes > 100ms
-                if (i + 1) % batch_log_interval == 0 or scene_duration > 100:
-                    elapsed_ms = (time.perf_counter() - phase_start) * 1000
-                    logger.info(f"[DELETE:PROGRESS] trace_id={trace_id} progress={i+1}/{total_scenes} ({((i+1)/total_scenes*100):.1f}%) elapsed_ms={elapsed_ms:.2f} last_scene_ms={scene_duration:.2f} scene_id={scene.id}")
-            
-            loop_duration = (time.perf_counter() - phase_start) * 1000
-            logger.info(f"[DELETE:SCENE_LOOP:END] trace_id={trace_id} scenes_deleted={scenes_deleted} duration_ms={loop_duration:.2f} avg_per_scene_ms={loop_duration/max(1,scenes_deleted):.2f}")
-            
-            # Phase 4: Recalculate scenes_count and invalidate affected batches for affected chapters
-            phase_start = time.perf_counter()
-            from ...models import Chapter, ChapterSummaryBatch
-            from ...api.chapters import update_chapter_summary_from_batches
-            
-            logger.info(f"[DELETE:CHAPTER_UPDATE:START] trace_id={trace_id} chapters_to_update={len(affected_chapter_ids)}")
-            for chapter_idx, chapter_id in enumerate(affected_chapter_ids):
-                chapter_start = time.perf_counter()
-                chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
-                if chapter:
-                    chapter.scenes_count = self.get_active_scene_count(db, story_id, chapter_id, branch_id=chapter.branch_id)
-                    logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} new_scenes_count={chapter.scenes_count}")
-                    
-                    # Invalidate batches that overlap with deleted scenes
-                    affected_batches = db.query(ChapterSummaryBatch).filter(
-                        ChapterSummaryBatch.chapter_id == chapter_id,
-                        ChapterSummaryBatch.start_scene_sequence <= max_deleted_seq,
-                        ChapterSummaryBatch.end_scene_sequence >= min_deleted_seq
-                    ).all()
-                    
-                    if affected_batches:
-                        for batch in affected_batches:
-                            db.delete(batch)
-                        logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} batches_invalidated={len(affected_batches)}")
-                        
-                        # Recalculate summary from remaining batches
-                        summary_start = time.perf_counter()
-                        update_chapter_summary_from_batches(chapter_id, db)
-                        logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} summary_recalc_ms={(time.perf_counter()-summary_start)*1000:.2f}")
-                    
-                    # Update last_extraction_scene_count and last_summary_scene_count to max remaining sequence
-                    # This prevents extraction/summary from being skipped due to negative scene counts
-                    remaining_scenes_query = db.query(Scene).filter(
-                        Scene.story_id == story_id,
-                        Scene.chapter_id == chapter_id,
-                        Scene.is_deleted == False
-                    )
-                    if branch_id:
-                        remaining_scenes_query = remaining_scenes_query.filter(Scene.branch_id == branch_id)
-                    remaining_scenes = remaining_scenes_query.all()
-                    
-                    if remaining_scenes:
-                        max_remaining_seq = max(s.sequence_number for s in remaining_scenes)
-                        # Only lower them, never raise them (scenes were deleted, not added)
-                        if chapter.last_extraction_scene_count and chapter.last_extraction_scene_count > max_remaining_seq:
-                            chapter.last_extraction_scene_count = max_remaining_seq
-                            logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} extraction_count_updated_to={max_remaining_seq}")
-                        if chapter.last_summary_scene_count and chapter.last_summary_scene_count > max_remaining_seq:
-                            chapter.last_summary_scene_count = max_remaining_seq
-                            logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} summary_count_updated_to={max_remaining_seq}")
-                        if chapter.last_plot_extraction_scene_count and chapter.last_plot_extraction_scene_count > max_remaining_seq:
-                            chapter.last_plot_extraction_scene_count = max_remaining_seq
-                            logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} plot_extraction_count_updated_to={max_remaining_seq}")
-                        # Restore plot_progress from batches instead of resetting to None
-                        # This preserves events from earlier batches that are still valid
-                        from ...services.chapter_progress_service import ChapterProgressService
-                        progress_service = ChapterProgressService(db)
-                        progress_service.update_plot_progress_from_batches(chapter.id)
-                        logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} plot_progress_restored_from_batches")
-                    else:
-                        chapter.last_extraction_scene_count = 0
-                        chapter.last_summary_scene_count = 0
-                        chapter.last_plot_extraction_scene_count = 0
-                        # No remaining scenes, so restore from batches (will set to None if no batches)
-                        from ...services.chapter_progress_service import ChapterProgressService
-                        progress_service = ChapterProgressService(db)
-                        progress_service.update_plot_progress_from_batches(chapter.id)
-                        logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} extraction_summary_plot_count_reset_to=0")
-                    
-                    chapter_duration = (time.perf_counter() - chapter_start) * 1000
-                    logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} chapter_update_ms={chapter_duration:.2f}")
-            
-            chapter_phase_duration = (time.perf_counter() - phase_start) * 1000
-            logger.info(f"[DELETE:CHAPTER_UPDATE:END] trace_id={trace_id} chapters_updated={len(affected_chapter_ids)} duration_ms={chapter_phase_duration:.2f}")
-            
-            # Invalidate and restore entity states using batch system (skip if doing in background)
-            if not skip_restoration:
-                try:
-                    from ...models import Story, UserSettings, Scene
-                    from ...services.entity_state_service import EntityStateService
-                    
-                    # Get story to find owner_id
-                    story = db.query(Story).filter(Story.id == story_id).first()
-                    if story:
-                        # Get user settings
-                        user_settings_obj = db.query(UserSettings).filter(
-                            UserSettings.user_id == story.owner_id
-                        ).first()
-                        
-                        if user_settings_obj:
-                            user_settings = user_settings_obj.to_dict()
-                            entity_service = EntityStateService(
-                                user_id=story.owner_id,
-                                user_settings=user_settings
-                            )
-                            
-                            # Invalidate batches that overlap with deleted scenes
-                            entity_service.invalidate_entity_batches_for_scenes(
-                                db, story_id, min_deleted_seq, max_deleted_seq
-                            )
-                            
-                            # Check if remaining scenes form a complete batch (filtered by branch)
-                            remaining_scene_query = db.query(Scene).filter(
-                                Scene.story_id == story_id,
-                                Scene.sequence_number < sequence_number
-                            )
-                            if branch_id:
-                                remaining_scene_query = remaining_scene_query.filter(Scene.branch_id == branch_id)
-                            last_remaining_scene = remaining_scene_query.order_by(Scene.sequence_number.desc()).first()
-
-                            if last_remaining_scene:
-                                batch_threshold = user_settings.get("context_summary_threshold", 5)
-                                last_sequence = last_remaining_scene.sequence_number
-                                is_complete_batch = (last_sequence % batch_threshold) == 0
-
-                                if is_complete_batch:
-                                    # Complete batch - recalculate (will re-extract)
-                                    await entity_service.recalculate_entity_states_from_batches(
-                                        db, story_id, story.owner_id, user_settings, max_deleted_seq, branch_id=branch_id
-                                    )
-                                    logger.info(f"[DELETE] Recalculated entity states (complete batch) for story {story_id} branch {branch_id}")
-                                else:
-                                    # Incomplete batch - only restore, don't re-extract
-                                    entity_service.restore_from_last_complete_batch(
-                                        db, story_id, max_deleted_seq, branch_id=branch_id
-                                    )
-                                    logger.info(f"[DELETE] Restored entity states from last complete batch (incomplete batch remains, waiting for threshold) for story {story_id} branch {branch_id}")
-                            else:
-                                # No remaining scenes on this branch - clear entity states for this branch only
-                                from ...models import CharacterState, LocationState, ObjectState
-                                char_del_query = db.query(CharacterState).filter(CharacterState.story_id == story_id)
-                                loc_del_query = db.query(LocationState).filter(LocationState.story_id == story_id)
-                                obj_del_query = db.query(ObjectState).filter(ObjectState.story_id == story_id)
-                                if branch_id:
-                                    char_del_query = char_del_query.filter(CharacterState.branch_id == branch_id)
-                                    loc_del_query = loc_del_query.filter(LocationState.branch_id == branch_id)
-                                    obj_del_query = obj_del_query.filter(ObjectState.branch_id == branch_id)
-                                char_del_query.delete()
-                                loc_del_query.delete()
-                                obj_del_query.delete()
-                                logger.info(f"[DELETE] No remaining scenes, cleared entity states for story {story_id} branch {branch_id}")
-                        else:
-                            logger.warning(f"[DELETE] No user settings found for story owner {story.owner_id}, skipping entity state restoration")
-                    else:
-                        logger.warning(f"[DELETE] Story {story_id} not found, skipping entity state restoration")
-                except Exception as e:
-                    # Don't fail scene deletion if entity state restoration fails
-                    logger.warning(f"[DELETE] Failed to restore entity states after scene deletion: {e}")
-                    import traceback
-                    logger.warning(f"[DELETE] Traceback: {traceback.format_exc()}")
-            
-            # Phase 5: Commit the transaction
-            phase_start = time.perf_counter()
-            logger.info(f"[DELETE:COMMIT:START] trace_id={trace_id} story_id={story_id}")
-            db.commit()
-            commit_duration = (time.perf_counter() - phase_start) * 1000
-            logger.info(f"[DELETE:COMMIT:END] trace_id={trace_id} commit_duration_ms={commit_duration:.2f}")
-            status = "success"
-            
-            total_duration = (time.perf_counter() - start_time) * 1000
-            logger.info(f"[DELETE:END] trace_id={trace_id} story_id={story_id} sequence_start={sequence_number} flows_deleted={story_flows_deleted} scenes_deleted={scenes_deleted} total_duration_ms={total_duration:.2f}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"[DELETE:ERROR] trace_id={trace_id} story_id={story_id} sequence_start={sequence_number} error={e}")
-            db.rollback()
-            return False
-        finally:
-            duration_ms = (time.perf_counter() - start_time) * 1000
-            if duration_ms > 15000:
-                logger.error(f"[DELETE:SLOW] trace_id={trace_id} duration_ms={duration_ms:.2f} status={status} story_id={story_id}")
-            elif duration_ms > 5000:
-                logger.warning(f"[DELETE:SLOW] trace_id={trace_id} duration_ms={duration_ms:.2f} status={status} story_id={story_id}")
-            else:
-                logger.info(f"[DELETE:DONE] trace_id={trace_id} duration_ms={duration_ms:.2f} status={status} story_id={story_id}")
+        Wrapper for SceneDatabaseOperations.delete_scenes_from_sequence.
+        """
+        return await self._scene_db_ops.delete_scenes_from_sequence(
+            db, story_id, sequence_number, skip_restoration, branch_id
+        )
 
     async def _generate_with_messages(
         self,
