@@ -20,8 +20,15 @@ docker-compose up -d
 
 ### Database
 ```bash
-cd backend && alembic upgrade head              # Apply migrations
-cd backend && alembic revision -m "description" # Create new migration
+cd backend && alembic upgrade head                    # Apply migrations
+cd backend && alembic revision --autogenerate -m "description"  # Create migration from model changes
+```
+
+### Frontend
+```bash
+cd frontend && npm run dev      # Start dev server (port 6789)
+cd frontend && npm run build    # Production build
+cd frontend && npm run lint     # Run ESLint
 ```
 
 ### Docker Commands
@@ -42,29 +49,34 @@ docker-compose up -d --build  # Rebuild and start
 ## Architecture
 
 ### Backend (FastAPI) - `backend/app/`
-- **Entry point**: `main.py`
-- **API routes**: `api/` - REST endpoints (stories, chapters, characters, brainstorm, etc.)
+- **Entry point**: `main.py` - App initialization, middleware, router registration
+- **API routes**: `api/` - REST endpoints organized by domain
 - **Services**: `services/` - Business logic layer
-  - `llm/service.py` - Core LLM interaction via LiteLLM
-  - `context_manager.py` - Token counting and context optimization
-  - `semantic_integration.py` - ChromaDB-based memory and embeddings
-  - `character_memory_service.py` - Character consistency tracking
-  - `entity_state_service.py` - Story world state management
-  - `brainstorm_service.py` - Story brainstorming sessions
-  - `chapter_brainstorm_service.py` - Chapter planning
-  - `npc_tracking_service.py` - NPC behavior tracking
-- **Models**: `models/` - SQLAlchemy ORM models
-- **Database**: SQLite (default) or PostgreSQL, migrations in `backend/alembic/`
+  - `llm/` - LLM module (decomposed into client, prompts, templates, parsers)
+    - `service.py` - Main UnifiedLLMService orchestrating LLM operations
+    - `client.py` - LiteLLM client wrapper
+    - `prompts.py` - Prompt template management
+    - `extraction_service.py` - Entity/character extraction from text
+  - `context_manager.py` - Token counting and context window optimization
+  - `semantic_memory.py` - ChromaDB vector store for semantic search
+  - `entity_state_service.py` - Story world state (characters, locations, objects)
+  - `brainstorm_service.py` / `chapter_brainstorm_service.py` - AI brainstorming
+  - `branch_service.py` / `branch_cloner.py` - Story branching/forking
+- **Models**: `models/` - SQLAlchemy ORM models with branch-aware support
+- **Database**: SQLite (default) or PostgreSQL, Alembic migrations in `backend/alembic/`
 
-### Frontend (Next.js) - `frontend/src/`
-- **Pages**: `app/` - Next.js app router pages
-- **State**: `store/index.ts` - Zustand store
-- **API client**: `lib/api.ts` - Axios-based API calls
-- **Components**: `components/` - React components with `'use client'` directives
+### Frontend (Next.js 16 / React 19) - `frontend/src/`
+- **Pages**: `app/` - Next.js App Router pages
+- **State**: `store/index.ts` - Zustand store for auth and global state
+- **API client**: `lib/api/` - Modular Axios client
+  - `base.ts` - Axios instance with interceptors
+  - `auth.ts`, `settings.ts`, `characters.ts`, etc. - Domain-specific modules
+  - `index.ts` - Re-exports all API modules
+- **Components**: `components/` - React components (require `'use client'` directive)
 
 ### Configuration
-- `config.yaml` - All application settings (ports, features, defaults)
-- `.env` - Secrets only (SECRET_KEY, JWT_SECRET_KEY)
+- `config.yaml` - All application settings (ports, features, LLM defaults, user defaults)
+- `.env` - Secrets only (SECRET_KEY, JWT_SECRET_KEY, DATABASE_URL for PostgreSQL)
 - Environment variables override config.yaml values
 
 ### Prompts
@@ -74,16 +86,20 @@ docker-compose up -d --build  # Rebuild and start
 ## Key Patterns
 
 ### API Routes
-FastAPI routes use dependency injection. Routes in `app/api/*.py`, registered in `app/main.py`.
+FastAPI routes use dependency injection. Routes in `app/api/*.py`, registered in `app/main.py`. Use `get_current_user` dependency for authenticated endpoints.
 
-### Streaming
-Long-running LLM operations use `StreamingResponse` for real-time output.
+### Streaming Responses
+LLM operations use `StreamingResponse` with `text/event-stream` for real-time output. Frontend consumes via `fetch` with response body reader.
 
 ### WebSocket
-Real-time audio at `/ws/tts` (text-to-speech) and `/ws/stt` (speech-to-text).
+- `/ws/tts` - Text-to-speech streaming
+- `/ws/stt` - Speech-to-text streaming
 
-### CORS
-CORS origins loaded from `config.yaml` (`cors.origins`), can be overridden with `CORS_ORIGINS` env var.
+### Branch-Aware Models
+Models with `branch_id` column support story branching. Register in `BranchCloneRegistry` (see `models/BRANCH_AWARE_GUIDE.md`).
+
+### User Settings
+Per-user LLM/TTS settings stored in `user_settings` table. Access via `get_user_llm_settings()` dependency.
 
 ## Common Tasks
 
@@ -91,11 +107,14 @@ CORS origins loaded from `config.yaml` (`cors.origins`), can be overridden with 
 1. Create or edit route file in `backend/app/api/`
 2. Add business logic in `backend/app/services/`
 3. Register router in `backend/app/main.py` if new file
+4. Add frontend API call in `frontend/src/lib/api/` (appropriate module)
 
 ### Adding a database model
 1. Create model in `backend/app/models/`
-2. Create migration: `cd backend && alembic revision -m "description"`
-3. Apply migration: `cd backend && alembic upgrade head`
+2. Export in `backend/app/models/__init__.py`
+3. Create migration: `cd backend && alembic revision --autogenerate -m "description"`
+4. Apply migration: `cd backend && alembic upgrade head`
+5. If branch-aware, register in `BranchCloneRegistry`
 
 ### Modifying LLM prompts
-Edit `backend/prompts.yml` - changes take effect on next request.
+Edit `backend/prompts.yml` - changes take effect on next request (hot reload).
