@@ -219,7 +219,7 @@ async def health_check():
     }
 
 # Import and include routers
-from .api import auth, stories, characters, summaries, chapters, websocket, semantic_search, admin, character_assistant, branches, brainstorm, entity_states, drafts, story_arc, interactions
+from .api import auth, stories, characters, summaries, chapters, websocket, semantic_search, admin, character_assistant, branches, brainstorm, entity_states, drafts, story_arc, interactions, story_generation
 from .api import settings as settings_router, stt_websocket, config
 from .routers import prompt_templates, writing_presets, tts
 
@@ -230,6 +230,7 @@ app.include_router(entity_states.router, prefix="/api", tags=["entity-states"])
 app.include_router(drafts.router, prefix="/api", tags=["drafts"])
 app.include_router(story_arc.router, prefix="/api", tags=["story-arc"])
 app.include_router(interactions.router, prefix="/api", tags=["interactions"])
+app.include_router(story_generation.router, prefix="/api", tags=["story-generation"])
 app.include_router(chapters.router, prefix="/api/stories", tags=["chapters"])
 app.include_router(branches.router, prefix="/api", tags=["branches"])
 app.include_router(characters.router, prefix="/api/characters", tags=["characters"])
