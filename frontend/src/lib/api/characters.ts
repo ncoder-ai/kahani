@@ -123,9 +123,30 @@ export class CharactersApi extends BaseApiClient {
 
   /**
    * Get characters associated with a story
+   * @param storyId - The story ID
+   * @param branchId - Optional branch ID to filter characters by branch
    */
-  async getStoryCharacters(storyId: number): Promise<StoryCharacter[]> {
-    return this.request<StoryCharacter[]>(`/api/stories/${storyId}/characters`);
+  async getStoryCharacters(storyId: number, branchId?: number): Promise<StoryCharacter[]> {
+    const params = branchId !== undefined ? `?branch_id=${branchId}` : '';
+    return this.request<StoryCharacter[]>(`/api/stories/${storyId}/characters${params}`);
+  }
+
+  /**
+   * Remove a character from a story (deletes the StoryCharacter association)
+   * This does NOT delete the underlying Character from the library
+   */
+  async removeStoryCharacter(
+    storyId: number,
+    storyCharacterId: number
+  ): Promise<{
+    message: string;
+    deleted_story_character_id: number;
+    character_id: number | null;
+    branch_id: number | null;
+  }> {
+    return this.request(`/api/stories/${storyId}/characters/${storyCharacterId}`, {
+      method: 'DELETE',
+    });
   }
 
   /**

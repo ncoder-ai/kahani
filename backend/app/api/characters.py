@@ -440,6 +440,7 @@ class StoryCharacterResponse(BaseModel):
     id: int  # story_character id
     character_id: int
     story_id: int
+    branch_id: Optional[int] = None  # Branch this character belongs to
     role: Optional[str] = None
     voice_style_override: Optional[Dict[str, Any]] = None
     # Include character details
@@ -454,28 +455,39 @@ class StoryCharacterResponse(BaseModel):
 @router.get("/story/{story_id}/characters", response_model=List[StoryCharacterResponse])
 async def get_story_characters(
     story_id: int,
+    branch_id: Optional[int] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get all characters linked to a specific story with their voice style settings"""
-    
+    """
+    Get all characters linked to a specific story with their voice style settings.
+
+    Args:
+        story_id: The story ID
+        branch_id: Optional branch ID to filter characters by branch.
+                   If not provided, returns characters from all branches.
+    """
+
     # Verify story ownership
     story = db.query(Story).filter(
         Story.id == story_id,
         Story.owner_id == current_user.id
     ).first()
-    
+
     if not story:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Story not found"
         )
-    
-    # Get story characters with their character details
-    story_characters = db.query(StoryCharacter).filter(
-        StoryCharacter.story_id == story_id
-    ).all()
-    
+
+    # Build query with optional branch filter
+    query = db.query(StoryCharacter).filter(StoryCharacter.story_id == story_id)
+
+    if branch_id is not None:
+        query = query.filter(StoryCharacter.branch_id == branch_id)
+
+    story_characters = query.all()
+
     result = []
     for sc in story_characters:
         character = db.query(Character).filter(Character.id == sc.character_id).first()
@@ -484,13 +496,14 @@ async def get_story_characters(
                 id=sc.id,
                 character_id=sc.character_id,
                 story_id=sc.story_id,
+                branch_id=sc.branch_id,
                 role=sc.role,
                 voice_style_override=sc.voice_style_override,
                 name=character.name,
                 description=character.description,
                 default_voice_style=character.voice_style
             ))
-    
+
     return result
 
 
@@ -542,6 +555,7 @@ async def update_story_character_voice_style(
         id=story_character.id,
         character_id=story_character.character_id,
         story_id=story_character.story_id,
+        branch_id=story_character.branch_id,
         role=story_character.role,
         voice_style_override=story_character.voice_style_override,
         name=character.name if character else "Unknown",
@@ -601,48 +615,106 @@ async def update_story_character_role(
     db: Session = Depends(get_db)
 ):
     """Update the role for a character in a specific story"""
-    
+
     # Verify story ownership
     story = db.query(Story).filter(
         Story.id == story_id,
         Story.owner_id == current_user.id
     ).first()
-    
+
     if not story:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Story not found"
         )
-    
+
     # Get the story character
     story_character = db.query(StoryCharacter).filter(
         StoryCharacter.id == story_character_id,
         StoryCharacter.story_id == story_id
     ).first()
-    
+
     if not story_character:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Story character not found"
         )
-    
+
     # Update role
     story_character.role = update_data.role
     db.commit()
     db.refresh(story_character)
-    
+
     # Get character details for response
     character = db.query(Character).filter(Character.id == story_character.character_id).first()
-    
+
     logger.info(f"Updated role for story_character {story_character_id} in story {story_id} to '{update_data.role}'")
-    
+
     return StoryCharacterResponse(
         id=story_character.id,
         character_id=story_character.character_id,
         story_id=story_character.story_id,
+        branch_id=story_character.branch_id,
         role=story_character.role,
         voice_style_override=story_character.voice_style_override,
         name=character.name if character else "Unknown",
         description=character.description if character else None,
         default_voice_style=character.voice_style if character else None
     )
+
+
+@router.delete("/story/{story_id}/characters/{story_character_id}")
+async def remove_character_from_story(
+    story_id: int,
+    story_character_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Remove a character from a story (deletes the StoryCharacter association).
+
+    This does NOT delete the underlying Character from the character library,
+    it only removes the character's association with this specific story/branch.
+    """
+
+    # Verify story ownership
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found"
+        )
+
+    # Get the story character
+    story_character = db.query(StoryCharacter).filter(
+        StoryCharacter.id == story_character_id,
+        StoryCharacter.story_id == story_id
+    ).first()
+
+    if not story_character:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story character not found"
+        )
+
+    # Get character name for logging before deletion
+    character = db.query(Character).filter(Character.id == story_character.character_id).first()
+    character_name = character.name if character else "Unknown"
+    branch_id = story_character.branch_id
+
+    # Delete the story character association
+    db.delete(story_character)
+    db.commit()
+
+    logger.info(f"Removed character '{character_name}' (story_character_id={story_character_id}) from story {story_id}, branch {branch_id}")
+
+    return {
+        "message": f"Character '{character_name}' removed from story",
+        "deleted_story_character_id": story_character_id,
+        "character_id": character.id if character else None,
+        "branch_id": branch_id
+    }

@@ -31,6 +31,9 @@ from ..services.llm.service import UnifiedLLMService
 from ..dependencies import get_current_user
 from ..config import settings
 
+# Import from stories.py for shared models
+from .stories import ContinuationRequest, SceneVariantUpdateRequest
+
 # Import from story_helpers.py for shared functions
 from .story_helpers import (
     get_or_create_user_settings,

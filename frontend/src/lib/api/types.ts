@@ -204,9 +204,15 @@ export interface StoryCharacter {
   id: number;
   story_id: number;
   character_id: number;
-  character: Character;
+  branch_id?: number | null;
   role?: string;
   voice_style_override?: VoiceStyle | null;
+  // Character details included in response
+  name: string;
+  description?: string | null;
+  default_voice_style?: VoiceStyle | null;
+  // Legacy field for backwards compatibility
+  character?: Character;
 }
 
 // ========== Chapter Types ==========

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from litellm import acompletion
 
 from ...config import settings
-from ...services.prompt_manager import prompt_manager
+from .prompts import prompt_manager
 
 if TYPE_CHECKING:
     from .service import UnifiedLLMService
