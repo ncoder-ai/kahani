@@ -58,6 +58,7 @@ class ChapterProgressService:
                 "progress_percentage": 0,
                 "remaining_events": [],
                 "climax_reached": False,
+                "resolution_reached": False,
                 "scene_count": 0
             }
         
@@ -69,6 +70,7 @@ class ChapterProgressService:
             "completed_events": [],
             "scene_count": 0,
             "climax_reached": False,
+            "resolution_reached": False,
             "last_updated": None
         }
         
@@ -100,6 +102,7 @@ class ChapterProgressService:
             "progress_percentage": round(progress_percentage, 1),
             "remaining_events": remaining_events,
             "climax_reached": progress_data.get("climax_reached", False),
+            "resolution_reached": progress_data.get("resolution_reached", False),
             "scene_count": actual_scene_count,  # Use actual scene count, not stored
             "climax": chapter.chapter_plot.get("climax"),
             "resolution": chapter.chapter_plot.get("resolution"),
@@ -138,6 +141,7 @@ class ChapterProgressService:
             "completed_events": list(existing_progress.get("completed_events", [])),
             "scene_count": existing_progress.get("scene_count", 0),
             "climax_reached": existing_progress.get("climax_reached", False),
+            "resolution_reached": existing_progress.get("resolution_reached", False),
             "last_updated": existing_progress.get("last_updated")
         }
         
@@ -194,31 +198,32 @@ class ChapterProgressService:
             "completed_events": list(existing_progress.get("completed_events", [])),
             "scene_count": existing_progress.get("scene_count", 0),
             "climax_reached": existing_progress.get("climax_reached", False),
+            "resolution_reached": existing_progress.get("resolution_reached", False),
             "last_updated": existing_progress.get("last_updated")
         }
-        
+
         completed_events = set(progress_data.get("completed_events", []))
-        
+
         if completed:
             completed_events.add(event)
         else:
             completed_events.discard(event)
-        
+
         progress_data["completed_events"] = list(completed_events)
         progress_data["last_updated"] = datetime.utcnow().isoformat()
-        
+
         # Assign a new dict to ensure SQLAlchemy detects the change
         chapter.plot_progress = progress_data
-        
+
         # Force SQLAlchemy to detect the change by flagging the attribute as modified
         from sqlalchemy.orm.attributes import flag_modified
         flag_modified(chapter, "plot_progress")
-        
+
         self.db.commit()
         self.db.refresh(chapter)
-        
+
         logger.info(f"Toggled event '{event[:50]}...' to {completed} for chapter {chapter.id}")
-        
+
         return chapter.plot_progress
     
     # ==================== BATCH-BASED PLOT PROGRESS METHODS ====================
@@ -376,29 +381,30 @@ class ChapterProgressService:
             "completed_events": list(existing_progress.get("completed_events", [])),
             "scene_count": existing_progress.get("scene_count", 0),
             "climax_reached": existing_progress.get("climax_reached", False),
+            "resolution_reached": existing_progress.get("resolution_reached", False),
             "last_updated": existing_progress.get("last_updated")
         }
-        
+
         completed_events = set(progress_data.get("completed_events", []))
-        
+
         if completed:
             completed_events.add(event)
         else:
             completed_events.discard(event)
-        
+
         progress_data["completed_events"] = list(completed_events)
         progress_data["last_updated"] = datetime.utcnow().isoformat()
-        
+
         # Update chapter.plot_progress
         chapter.plot_progress = progress_data
         flag_modified(chapter, "plot_progress")
-        
+
         # ALSO update the latest batch to keep it in sync
         # This ensures the manual toggle persists even if new batches are created
         latest_batch = self.db.query(ChapterPlotProgressBatch).filter(
             ChapterPlotProgressBatch.chapter_id == chapter.id
         ).order_by(ChapterPlotProgressBatch.end_scene_sequence.desc()).first()
-        
+
         if latest_batch:
             batch_events = set(latest_batch.completed_events or [])
             if completed:
@@ -407,12 +413,63 @@ class ChapterProgressService:
                 batch_events.discard(event)
             latest_batch.completed_events = list(batch_events)
             flag_modified(latest_batch, "completed_events")
-        
+
         self.db.commit()
         self.db.refresh(chapter)
-        
+
         logger.info(f"[PLOT_PROGRESS:TOGGLE] Toggled event '{event[:50]}...' to {completed} for chapter {chapter.id}")
-        
+
+        return chapter.plot_progress
+
+    def toggle_milestone_completion(
+        self,
+        chapter: Chapter,
+        milestone: str,
+        completed: bool
+    ) -> Dict[str, Any]:
+        """
+        Manually toggle the completion status of a milestone (climax or resolution).
+
+        Args:
+            chapter: The chapter to update
+            milestone: Either "climax" or "resolution"
+            completed: Whether the milestone is completed
+
+        Returns:
+            Updated progress data
+        """
+        from sqlalchemy.orm.attributes import flag_modified
+
+        if milestone not in ("climax", "resolution"):
+            raise ValueError(f"Invalid milestone: {milestone}. Must be 'climax' or 'resolution'.")
+
+        # Get existing progress or initialize
+        existing_progress = chapter.plot_progress or {}
+        progress_data = {
+            "completed_events": list(existing_progress.get("completed_events", [])),
+            "scene_count": existing_progress.get("scene_count", 0),
+            "climax_reached": existing_progress.get("climax_reached", False),
+            "resolution_reached": existing_progress.get("resolution_reached", False),
+            "last_updated": existing_progress.get("last_updated")
+        }
+
+        # Update the milestone status
+        if milestone == "climax":
+            progress_data["climax_reached"] = completed
+        else:  # resolution
+            progress_data["resolution_reached"] = completed
+
+        progress_data["last_updated"] = datetime.utcnow().isoformat()
+
+        # Update chapter.plot_progress
+        chapter.plot_progress = progress_data
+        flag_modified(chapter, "plot_progress")
+
+        self.db.commit()
+        self.db.refresh(chapter)
+
+        logger.info(f"[PLOT_PROGRESS:MILESTONE] Toggled {milestone}_reached to {completed} for chapter {chapter.id}")
+
         return chapter.plot_progress
     
     def generate_pacing_guidance(self, chapter: Chapter) -> str:

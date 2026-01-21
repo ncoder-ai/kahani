@@ -51,6 +51,8 @@ from .story_helpers import (
 from .story_tasks import (
     get_scene_variant_lock,
     get_variant_edit_lock,
+    run_plot_extraction_in_background,
+    recalculate_entities_in_background,
 )
 
 # Lazy import for semantic integration

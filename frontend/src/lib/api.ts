@@ -2853,6 +2853,13 @@ class ApiClient {
     });
   }
 
+  async toggleMilestoneCompletion(storyId: number, chapterId: number, milestone: 'climax' | 'resolution', completed: boolean): Promise<ChapterProgress> {
+    return this.request<ChapterProgress>(`/api/stories/${storyId}/chapters/${chapterId}/progress/milestone`, {
+      method: 'PUT',
+      body: JSON.stringify({ milestone, completed })
+    });
+  }
+
   // Generic HTTP methods
   async get<T>(endpoint: string): Promise<T> {
     return this.request<T>(endpoint, { method: 'GET' });

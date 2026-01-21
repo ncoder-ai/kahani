@@ -1449,7 +1449,7 @@ async def delete_chapter_content(
         )
         
         # 2. NPC tracking restoration
-        from .stories import restore_npc_tracking_in_background
+        from .story_tasks import restore_npc_tracking_in_background
         logger.info(f"[CHAPTER:CONTENT:DELETE:BG_SCHEDULE] trace_id={trace_id} task=npc_tracking")
         background_tasks.add_task(
             restore_npc_tracking_in_background,
@@ -1457,9 +1457,10 @@ async def delete_chapter_content(
             sequence_number=min_deleted_seq,
             branch_id=chapter.branch_id
         )
-        
+
         # 3. Entity states restoration
-        from .stories import restore_entity_states_in_background, get_or_create_user_settings
+        from .story_tasks import restore_entity_states_in_background
+        from .story_helpers import get_or_create_user_settings
         user_settings = get_or_create_user_settings(current_user.id, db, current_user)
         logger.info(f"[CHAPTER:CONTENT:DELETE:BG_SCHEDULE] trace_id={trace_id} task=entity_states")
         background_tasks.add_task(
@@ -1654,7 +1655,7 @@ async def delete_chapter(
         )
         
         # 2. NPC tracking restoration
-        from .stories import restore_npc_tracking_in_background
+        from .story_tasks import restore_npc_tracking_in_background
         logger.info(f"[CHAPTER:DELETE:BG_SCHEDULE] trace_id={trace_id} task=npc_tracking")
         background_tasks.add_task(
             restore_npc_tracking_in_background,
@@ -1662,9 +1663,10 @@ async def delete_chapter(
             sequence_number=min_deleted_seq,
             branch_id=chapter.branch_id
         )
-        
+
         # 3. Entity states restoration
-        from .stories import restore_entity_states_in_background, get_or_create_user_settings
+        from .story_tasks import restore_entity_states_in_background
+        from .story_helpers import get_or_create_user_settings
         user_settings = get_or_create_user_settings(current_user.id, db, current_user)
         logger.info(f"[CHAPTER:DELETE:BG_SCHEDULE] trace_id={trace_id} task=entity_states")
         background_tasks.add_task(
@@ -1693,65 +1695,8 @@ async def delete_chapter(
     }
 
 
-async def cleanup_semantic_data_in_background(scene_ids: list, story_id: int):
-    """Background task to clean up semantic data for deleted scenes"""
-    import time
-    import uuid
-    
-    trace_id = f"chapter-semantic-bg-{uuid.uuid4()}"
-    task_start = time.perf_counter()
-    total_scenes = len(scene_ids)
-    
-    logger.info(f"[CHAPTER-BG:SEMANTIC:START] trace_id={trace_id} story_id={story_id} scene_count={total_scenes} scene_ids={scene_ids[:5]}{'...' if total_scenes > 5 else ''}")
-    
-    try:
-        import asyncio
-        # Delay to ensure database commits from main session are visible
-        await asyncio.sleep(0.3)
-        logger.info(f"[CHAPTER-BG:SEMANTIC:PHASE] trace_id={trace_id} phase=delay_complete")
-        
-        from ..database import SessionLocal
-        bg_db = SessionLocal()
-        try:
-            from ..services.semantic_integration import cleanup_scene_embeddings
-            
-            # Determine logging interval (every 10% or every scene if < 10)
-            batch_log_interval = max(1, total_scenes // 10) if total_scenes > 10 else 1
-            
-            cleanup_start = time.perf_counter()
-            cleaned_count = 0
-            failed_count = 0
-            
-            for i, scene_id in enumerate(scene_ids):
-                scene_start = time.perf_counter()
-                try:
-                    await cleanup_scene_embeddings(scene_id, bg_db)
-                    cleaned_count += 1
-                    scene_duration = (time.perf_counter() - scene_start) * 1000
-                    
-                    # Log progress at intervals or if cleanup takes > 500ms
-                    if (i + 1) % batch_log_interval == 0 or scene_duration > 500:
-                        elapsed_ms = (time.perf_counter() - cleanup_start) * 1000
-                        logger.info(f"[CHAPTER-BG:SEMANTIC:PROGRESS] trace_id={trace_id} progress={i+1}/{total_scenes} ({((i+1)/total_scenes*100):.1f}%) elapsed_ms={elapsed_ms:.2f} last_scene_ms={scene_duration:.2f}")
-                except Exception as e:
-                    failed_count += 1
-                    logger.warning(f"[CHAPTER-BG:SEMANTIC:SCENE_ERROR] trace_id={trace_id} scene_id={scene_id} error={e}")
-                    # Continue with other scenes even if one fails
-            
-            cleanup_duration = (time.perf_counter() - cleanup_start) * 1000
-            total_duration = (time.perf_counter() - task_start) * 1000
-            
-            if failed_count > 0:
-                logger.warning(f"[CHAPTER-BG:SEMANTIC:END] trace_id={trace_id} total_duration_ms={total_duration:.2f} cleaned={cleaned_count} failed={failed_count}")
-            else:
-                logger.info(f"[CHAPTER-BG:SEMANTIC:END] trace_id={trace_id} total_duration_ms={total_duration:.2f} cleaned={cleaned_count} avg_per_scene_ms={cleanup_duration/max(1,cleaned_count):.2f}")
-        finally:
-            bg_db.close()
-    except Exception as e:
-        total_duration = (time.perf_counter() - task_start) * 1000
-        logger.error(f"[CHAPTER-BG:SEMANTIC:ERROR] trace_id={trace_id} duration_ms={total_duration:.2f} error={e}")
-        import traceback
-        logger.error(f"[CHAPTER-BG:SEMANTIC:TRACEBACK] trace_id={trace_id} {traceback.format_exc()}")
+# Import cleanup_semantic_data_in_background from story_tasks (has retry logic)
+from .story_tasks import cleanup_semantic_data_in_background
 
 
 @router.get("/{story_id}/available-characters")
@@ -1883,6 +1828,7 @@ class ChapterProgressResponse(BaseModel):
     progress_percentage: float
     remaining_events: List[str]
     climax_reached: bool
+    resolution_reached: bool
     scene_count: int
     climax: Optional[str] = None
     resolution: Optional[str] = None
@@ -1892,6 +1838,12 @@ class ChapterProgressResponse(BaseModel):
 class EventToggleRequest(BaseModel):
     """Request model for toggling event completion"""
     event: str
+    completed: bool
+
+
+class MilestoneToggleRequest(BaseModel):
+    """Request model for toggling milestone (climax/resolution) completion"""
+    milestone: str  # "climax" or "resolution"
     completed: bool
 
 
@@ -1971,6 +1923,56 @@ async def toggle_event_completion(
     except Exception as e:
         logger.error(f"[CHAPTER_PROGRESS:TOGGLE] Error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to update event: {str(e)}")
+
+
+@router.put("/{story_id}/chapters/{chapter_id}/progress/milestone")
+async def toggle_milestone_completion(
+    story_id: int,
+    chapter_id: int,
+    request: MilestoneToggleRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Manually toggle the completion status of a milestone (climax or resolution).
+
+    This allows users to manually mark the climax or resolution as complete
+    or incomplete, useful when the story has reached these points.
+    """
+    # Verify story ownership
+    story = db.query(Story).filter(Story.id == story_id, Story.owner_id == current_user.id).first()
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+
+    # Get the chapter
+    chapter = db.query(Chapter).filter(Chapter.id == chapter_id, Chapter.story_id == story_id).first()
+    if not chapter:
+        raise HTTPException(status_code=404, detail="Chapter not found")
+
+    if not chapter.chapter_plot:
+        raise HTTPException(status_code=400, detail="Chapter has no plot to track")
+
+    # Validate milestone value
+    if request.milestone not in ("climax", "resolution"):
+        raise HTTPException(status_code=400, detail="Milestone must be 'climax' or 'resolution'")
+
+    try:
+        from ..services.chapter_progress_service import ChapterProgressService
+        progress_service = ChapterProgressService(db)
+        updated_progress = progress_service.toggle_milestone_completion(
+            chapter=chapter,
+            milestone=request.milestone,
+            completed=request.completed
+        )
+
+        # Return full progress info
+        progress = progress_service.get_chapter_progress(chapter)
+        return progress
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"[CHAPTER_PROGRESS:MILESTONE] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to update milestone: {str(e)}")
 
 
 @router.post("/{story_id}/chapters/{chapter_id}/progress/extract")

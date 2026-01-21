@@ -73,6 +73,24 @@ export default function ChapterProgressIndicator({
     }
   };
 
+  // Toggle milestone (climax/resolution) completion
+  const handleToggleMilestone = async (milestone: 'climax' | 'resolution', currentlyCompleted: boolean) => {
+    if (!storyId || !chapterId) return;
+
+    try {
+      const updatedProgress = await apiClient.toggleMilestoneCompletion(
+        storyId,
+        chapterId,
+        milestone,
+        !currentlyCompleted
+      );
+      setProgress(updatedProgress);
+      onProgressChange?.(updatedProgress);
+    } catch (err) {
+      console.error('Failed to toggle milestone:', err);
+    }
+  };
+
   // Don't render if disabled or no chapter
   if (!enabled || !chapterId) {
     return null;
@@ -270,18 +288,80 @@ export default function ChapterProgressIndicator({
 
               {/* Climax & Resolution - inside scrollable area */}
               {(progress.climax || progress.resolution) && (
-                <div className="px-4 pb-4 pt-2 border-t border-white/10">
+                <div className="px-4 pb-4 pt-2 border-t border-white/10 space-y-2">
                   {progress.climax && (
-                    <div className="mb-2">
-                      <span className="text-xs text-amber-400 font-medium">Building toward:</span>
-                      <p className="text-sm text-gray-300 mt-0.5 break-words">{progress.climax}</p>
-                    </div>
+                    <button
+                      onClick={() => handleToggleMilestone('climax', progress.climax_reached)}
+                      className={`
+                        w-full flex items-start gap-3 p-2 rounded-lg
+                        text-left transition-colors
+                        ${progress.climax_reached
+                          ? 'bg-amber-500/10 hover:bg-amber-500/20'
+                          : 'bg-white/5 hover:bg-white/10'
+                        }
+                      `}
+                      style={{ minHeight: '44px' }}
+                    >
+                      {/* Checkbox */}
+                      <div className={`
+                        flex-shrink-0 w-5 h-5 rounded-full border-2 mt-0.5
+                        flex items-center justify-center transition-colors
+                        ${progress.climax_reached
+                          ? 'bg-amber-500 border-amber-500'
+                          : 'border-amber-500/50'
+                        }
+                      `}>
+                        {progress.climax_reached && (
+                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </div>
+                      {/* Content */}
+                      <div className="flex-1">
+                        <span className="text-xs text-amber-400 font-medium">Climax:</span>
+                        <p className={`text-sm mt-0.5 break-words ${progress.climax_reached ? 'text-gray-400 line-through' : 'text-gray-300'}`}>
+                          {progress.climax}
+                        </p>
+                      </div>
+                    </button>
                   )}
                   {progress.resolution && (
-                    <div>
-                      <span className="text-xs text-emerald-400 font-medium">Resolution:</span>
-                      <p className="text-sm text-gray-300 mt-0.5 break-words">{progress.resolution}</p>
-                    </div>
+                    <button
+                      onClick={() => handleToggleMilestone('resolution', progress.resolution_reached)}
+                      className={`
+                        w-full flex items-start gap-3 p-2 rounded-lg
+                        text-left transition-colors
+                        ${progress.resolution_reached
+                          ? 'bg-emerald-500/10 hover:bg-emerald-500/20'
+                          : 'bg-white/5 hover:bg-white/10'
+                        }
+                      `}
+                      style={{ minHeight: '44px' }}
+                    >
+                      {/* Checkbox */}
+                      <div className={`
+                        flex-shrink-0 w-5 h-5 rounded-full border-2 mt-0.5
+                        flex items-center justify-center transition-colors
+                        ${progress.resolution_reached
+                          ? 'bg-emerald-500 border-emerald-500'
+                          : 'border-emerald-500/50'
+                        }
+                      `}>
+                        {progress.resolution_reached && (
+                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </div>
+                      {/* Content */}
+                      <div className="flex-1">
+                        <span className="text-xs text-emerald-400 font-medium">Resolution:</span>
+                        <p className={`text-sm mt-0.5 break-words ${progress.resolution_reached ? 'text-gray-400 line-through' : 'text-gray-300'}`}>
+                          {progress.resolution}
+                        </p>
+                      </div>
+                    </button>
                   )}
                 </div>
               )}
