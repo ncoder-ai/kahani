@@ -172,6 +172,8 @@ export default function SceneVariantDisplay({
   const [isMenuVisible, setIsMenuVisible] = useState(true);
   const menuTimerRef = useRef<NodeJS.Timeout | null>(null);
   const choiceInputRef = useRef<HTMLInputElement>(null);
+  const customPromptInputRef = useRef<HTMLInputElement>(null);
+  const customPromptFocusHandledRef = useRef(false);
   
   // Global TTS context for play/stop functionality
   const { playScene, stop, currentSceneId, isPlaying: isTTSPlaying } = useGlobalTTS();
@@ -1342,12 +1344,25 @@ export default function SceneVariantDisplay({
                 : 'opacity-30 pointer-events-none')}>
               <div className="flex items-center justify-between">
                 <input
+                  ref={customPromptInputRef}
                   type="text"
                   value={customPrompt}
                   onChange={(e) => onCustomPromptChange?.(e.target.value)}
                   placeholder="Write what happens next..."
                   className="flex-1 bg-transparent outline-none theme-placeholder"
                   style={{ color: 'var(--color-textPrimary)' }}
+                  onFocus={() => {
+                    // Prevent scroll on mobile when focusing
+                    if (customPromptFocusHandledRef.current) {
+                      customPromptFocusHandledRef.current = false;
+                      return;
+                    }
+                    customPromptFocusHandledRef.current = true;
+                    customPromptInputRef.current?.blur();
+                    requestAnimationFrame(() => {
+                      customPromptInputRef.current?.focus({ preventScroll: true });
+                    });
+                  }}
                   onKeyPress={(e) => {
                     const currentValue = customPrompt;
                     if (e.key === 'Enter' && currentValue.trim()) {
