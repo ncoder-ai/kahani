@@ -19,7 +19,7 @@ function LoginForm() {
   // On iOS/mobile, autofill may not trigger onChange events, leaving React state empty
   const identifierRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
-  
+
   const router = useRouter();
   const searchParams = useSearchParams();
   const { login } = useAuthStore();
@@ -28,14 +28,60 @@ function LoginForm() {
     // Check if redirected due to session expiry
     if (searchParams.get('expired') === 'true') {
       setSessionExpiredMessage(true);
+      return;
     }
-    
+
     // Clear any stale tokens when landing on login page
     const { logout } = useAuthStore.getState();
     logout();
     // Apply default theme for login page
     applyTheme('pure-dark');
+
+    // Check for SSO auto-login (non-blocking)
+    checkSSOLogin();
   }, [searchParams]);
+
+  const checkSSOLogin = async () => {
+    // Skip SSO check if not in browser
+    if (typeof window === 'undefined') return;
+
+    try {
+      // Add timeout to prevent hanging
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+      const response = await fetch('/api/auth/sso-check', {
+        method: 'GET',
+        credentials: 'include',
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) return;
+
+      const data = await response.json();
+
+      if (data.access_token && data.user) {
+        // SSO login successful - set token and auth state
+        apiClient.setToken(data.access_token);
+        login(data.user, data.access_token);
+
+        // Wait for Zustand persist to write to localStorage
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        // Redirect based on approval status
+        if (!data.user.is_approved && !data.user.is_admin) {
+          window.location.href = '/pending-approval';
+          return;
+        }
+
+        window.location.href = '/dashboard';
+      }
+    } catch {
+      // SSO check failed silently - show login form
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -154,7 +200,7 @@ function LoginForm() {
     <div className="min-h-screen theme-bg-primary flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       {/* Header */}
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center mb-8">
-        <h1 className="text-4xl font-bold text-white mb-2">✨ Kahani</h1>
+        <h1 className="text-4xl font-bold text-white mb-2">Kahani</h1>
         <p className="text-white/80 text-lg">Interactive Storytelling Platform</p>
       </div>
 

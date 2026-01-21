@@ -33,6 +33,18 @@ export interface RefreshTokenResponse {
   token_type: string;
 }
 
+export interface SSOCheckResponse {
+  sso_enabled: boolean;
+  authenticated?: boolean;
+  user_exists?: boolean;
+  active?: boolean;
+  approved?: boolean;
+  access_token?: string;
+  token_type?: string;
+  user?: User;
+  message?: string;
+}
+
 export interface User {
   id: number;
   email: string;
@@ -63,6 +75,13 @@ export class AuthApi extends BaseApiClient {
       method: 'POST',
       body: JSON.stringify({ refresh_token: refreshToken }),
     });
+  }
+
+  /**
+   * Check for SSO auto-login via reverse proxy headers
+   */
+  async ssoCheck(): Promise<SSOCheckResponse> {
+    return this.request<SSOCheckResponse>('/api/auth/sso-check');
   }
 
   /**

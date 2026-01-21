@@ -375,7 +375,22 @@ class Settings(BaseSettings):
     def chapter_context_threshold_percentage(self) -> int:
         """Get chapter context threshold percentage from config.yaml"""
         return self._yaml_config.get('context', {}).get('chapter_context_threshold_percentage', 80)
-    
+
+    @property
+    def sso_config(self) -> dict:
+        """Get SSO configuration from config.yaml"""
+        defaults = {
+            'enabled': False,
+            'header_username': 'Remote-User',
+            'header_email': 'Remote-Email',
+            'header_groups': 'Remote-Groups',
+            'auto_login': True,
+            'create_users': False,
+            'trusted_proxies': [],
+        }
+        sso = self._yaml_config.get('sso', {})
+        return {**defaults, **sso}
+
     class Config:
         env_file = "../.env"
         case_sensitive = False

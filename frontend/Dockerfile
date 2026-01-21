@@ -56,8 +56,8 @@ COPY --from=builder --chown=nextjs:nodejs /app/package*.json ./
 # Copy custom start script with logging
 COPY --chown=nextjs:nodejs docker-start.sh ./
 
-# Create public directory if it doesn't exist (optional for Next.js)
-RUN mkdir -p ./public
+# Copy public folder (contains sw.js, recorderWorklet.js, etc.)
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 
 # Install only production dependencies
 RUN npm ci --only=production --legacy-peer-deps && npm cache clean --force

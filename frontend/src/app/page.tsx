@@ -5,21 +5,63 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore, useHasHydrated } from '@/store';
 import { applyTheme } from '@/lib/themes';
+import apiClient from '@/lib/api';
 
 export default function HomePage() {
   const router = useRouter();
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, login } = useAuthStore();
   const hasHydrated = useHasHydrated();
+
+  // Check for SSO auto-login
+  const checkSSOLogin = async () => {
+    if (typeof window === 'undefined') return;
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+      const response = await fetch('/api/auth/sso-check', {
+        method: 'GET',
+        credentials: 'include',
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) return;
+
+      const data = await response.json();
+
+      if (data.access_token && data.user) {
+        apiClient.setToken(data.access_token);
+        login(data.user, data.access_token);
+
+        // Wait for Zustand to persist
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        if (!data.user.is_approved && !data.user.is_admin) {
+          window.location.href = '/pending-approval';
+          return;
+        }
+
+        window.location.href = '/dashboard';
+      }
+    } catch {
+      // SSO check failed silently
+    }
+  };
 
   useEffect(() => {
     // Apply default theme for landing page
     applyTheme('pure-dark');
-    
+
     // Prefetch dashboard when authenticated for faster navigation
     if (hasHydrated && isAuthenticated) {
       router.prefetch('/dashboard');
       router.push('/dashboard');
     } else if (hasHydrated && !isAuthenticated) {
+      // Check for SSO auto-login when not authenticated
+      checkSSOLogin();
       // Prefetch login/register pages for faster navigation
       router.prefetch('/login');
       router.prefetch('/register');

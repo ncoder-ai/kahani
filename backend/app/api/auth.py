@@ -373,3 +373,128 @@ async def refresh_token(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Token refresh failed"
         )
+
+
+@router.get("/sso-check")
+async def sso_check(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Check for SSO headers from reverse proxy (e.g., Authelia).
+    If valid headers are present and match a Kahani user, return a JWT token.
+    """
+    sso_config = settings.sso_config
+
+    # Check if SSO is enabled
+    if not sso_config.get('enabled', False):
+        return {"sso_enabled": False, "message": "SSO is not enabled"}
+
+    # Check if auto_login is enabled
+    if not sso_config.get('auto_login', True):
+        return {"sso_enabled": True, "auto_login": False, "message": "SSO auto-login is disabled"}
+
+    # Get header names from config
+    header_username = sso_config.get('header_username', 'Remote-User')
+    header_email = sso_config.get('header_email', 'Remote-Email')
+
+    # Read headers (case-insensitive)
+    remote_user = request.headers.get(header_username)
+    remote_email = request.headers.get(header_email)
+
+    client_host = request.client.host if request.client else "unknown"
+
+    # Check trusted proxies if configured
+    trusted_proxies = sso_config.get('trusted_proxies', [])
+    if trusted_proxies and client_host not in trusted_proxies:
+        logger.warning(f"SSO check from untrusted proxy {client_host}")
+        return {"sso_enabled": True, "authenticated": False, "message": "Request not from trusted proxy"}
+
+    if not remote_user:
+        # Log all headers for debugging
+        all_headers = dict(request.headers)
+        logger.info(f"SSO check: No {header_username} header. Client: {client_host}. Headers: {list(all_headers.keys())}")
+        return {"sso_enabled": True, "authenticated": False, "message": "No SSO headers present"}
+
+    logger.info(f"=== SSO CHECK ===")
+    logger.info(f"Remote-User: {remote_user}")
+    logger.info(f"Remote-Email: {remote_email}")
+    logger.info(f"Client IP: {client_host}")
+
+    # Look up user by username
+    user = db.query(User).filter(User.username == remote_user).first()
+
+    if not user:
+        logger.info(f"SSO: No Kahani user found with username '{remote_user}'")
+        return {
+            "sso_enabled": True,
+            "authenticated": True,
+            "user_exists": False,
+            "message": f"No Kahani account found for username '{remote_user}'"
+        }
+
+    # Check if user is active
+    if not user.is_active:
+        logger.warning(f"SSO: User {remote_user} is inactive")
+        return {
+            "sso_enabled": True,
+            "authenticated": True,
+            "user_exists": True,
+            "active": False,
+            "message": "User account is inactive"
+        }
+
+    # Check if user is approved
+    if not user.is_approved and not user.is_admin:
+        logger.info(f"SSO: User {remote_user} is pending approval")
+        return {
+            "sso_enabled": True,
+            "authenticated": True,
+            "user_exists": True,
+            "active": True,
+            "approved": False,
+            "message": "User account is pending approval"
+        }
+
+    # Generate JWT token for the user
+    access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
+    access_token = create_access_token(
+        data={"sub": str(user.id)}, expires_delta=access_token_expires
+    )
+
+    logger.info(f"SSO: Auto-login successful for user {user.id} ({user.username})")
+
+    return {
+        "sso_enabled": True,
+        "authenticated": True,
+        "user_exists": True,
+        "active": True,
+        "approved": True,
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "display_name": user.display_name,
+            "is_admin": user.is_admin,
+            "is_approved": user.is_approved,
+            "allow_nsfw": user.allow_nsfw,
+            "can_change_llm_provider": user.can_change_llm_provider,
+            "can_change_tts_settings": user.can_change_tts_settings,
+            "can_use_stt": user.can_use_stt,
+            "can_use_image_generation": user.can_use_image_generation,
+            "can_export_stories": user.can_export_stories,
+            "can_import_stories": user.can_import_stories,
+        }
+    }
+
+
+@router.get("/sso-status")
+async def sso_status():
+    """Return SSO configuration status (for frontend to know if SSO is available)"""
+    sso_config = settings.sso_config
+    return {
+        "sso_enabled": sso_config.get('enabled', False),
+        "auto_login": sso_config.get('auto_login', True),
+    }

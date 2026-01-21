@@ -705,6 +705,34 @@ class ApiClient {
     });
   }
 
+  async ssoCheck() {
+    // SSO check MUST use relative URL to go through the reverse proxy (NPM/Authelia)
+    // so that the auth headers are added. Using this.baseURL would bypass the proxy.
+    const response = await fetch('/api/auth/sso-check', {
+      method: 'GET',
+      credentials: 'include',  // Include cookies for Authelia session
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`SSO check failed: ${response.status}`);
+    }
+
+    return response.json() as Promise<{
+      sso_enabled: boolean;
+      authenticated?: boolean;
+      user_exists?: boolean;
+      active?: boolean;
+      approved?: boolean;
+      access_token?: string;
+      token_type?: string;
+      user?: any;
+      message?: string;
+    }>;
+  }
+
   async register(data: { email: string; username: string; password: string; display_name?: string; }) {
     return this.request<{ access_token: string; token_type: string; user: any; }>(`/api/auth/register`, {
       method: 'POST',

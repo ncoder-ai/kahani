@@ -97,6 +97,25 @@ features:
   enable_public_stories: false
 
 # ----------------------------------------------------------------------------
+# SSO / EXTERNAL AUTH
+# ----------------------------------------------------------------------------
+# Single Sign-On via reverse proxy headers (e.g., Authelia, Authentik)
+# When enabled, users authenticated via the proxy can skip Kahani login
+# if their proxy username matches a Kahani username
+sso:
+  enabled: true  # Set to true to enable SSO auto-login
+  # Header names sent by your auth proxy (Authelia defaults shown)
+  header_username: "Remote-User"
+  header_email: "Remote-Email"
+  header_groups: "Remote-Groups"
+  # If true, auto-login when valid headers are present and user exists
+  auto_login: true
+  # If true, create Kahani user if they don't exist (requires approval if enabled)
+  create_users: false
+  # Trust proxy headers only from these IPs (empty = trust all - use with caution)
+  trusted_proxies: []
+
+# ----------------------------------------------------------------------------
 # CONTEXT MANAGEMENT
 # ----------------------------------------------------------------------------
 context:
