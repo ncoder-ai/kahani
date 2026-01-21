@@ -52,7 +52,8 @@ export default function FormattedText({ content, className = "" }: FormattedText
     
     // Regular expressions for different text types
     // Support both straight quotes (") and curly quotes (" ") for dialogue
-    const dialogueRegex = /[""]([^""]*?)[""]/g;
+    // Include all quote variants: " (U+0022), " (U+201C left), " (U+201D right)
+    const dialogueRegex = /["\u201C\u201D]([^"\u201C\u201D]*?)["\u201C\u201D]/g;
     const thoughtRegex = /\*([^*]*?)\*/g;
     
     // Find all matches and their positions
