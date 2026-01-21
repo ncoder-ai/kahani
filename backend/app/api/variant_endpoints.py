@@ -70,6 +70,8 @@ router = APIRouter()
 # Request model for variant generation
 class VariantGenerateRequest(BaseModel):
     custom_prompt: Optional[str] = None
+    variant_id: Optional[int] = None  # Specific variant to regenerate from
+    is_concluding: Optional[bool] = False  # Whether to generate a concluding scene
 
 
 @router.get("/{story_id}/scenes/{scene_id}/variants")
