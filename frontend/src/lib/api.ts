@@ -683,7 +683,7 @@ class ApiClient {
   }
 
   // Authentication
-  async login(email: string, password: string, rememberMe: boolean = false) {
+  async login(identifier: string, password: string, rememberMe: boolean = false) {
     return this.request<{
       access_token: string;
       token_type: string;
@@ -691,7 +691,7 @@ class ApiClient {
       user: any;
     }>(`/api/auth/login`, {
       method: 'POST',
-      body: JSON.stringify({ email, password, remember_me: rememberMe }),
+      body: JSON.stringify({ identifier, password, remember_me: rememberMe }),
     });
   }
 

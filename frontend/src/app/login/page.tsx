@@ -8,16 +8,16 @@ import apiClient, { getApiBaseUrl } from '@/lib/api';
 import { applyTheme } from '@/lib/themes';
 
 function LoginForm() {
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');  // Can be email or username
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [sessionExpiredMessage, setSessionExpiredMessage] = useState(false);
-  
+
   // Refs to handle mobile autofill race condition
   // On iOS/mobile, autofill may not trigger onChange events, leaving React state empty
-  const emailRef = useRef<HTMLInputElement>(null);
+  const identifierRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   
   const router = useRouter();
@@ -45,16 +45,16 @@ function LoginForm() {
     // CRITICAL: Read values directly from DOM refs to handle mobile autofill
     // On iOS/mobile browsers, password managers may autofill without triggering onChange,
     // leaving React state empty. Reading from refs ensures we get the actual input values.
-    const actualEmail = emailRef.current?.value || email;
+    const actualIdentifier = identifierRef.current?.value || identifier;
     const actualPassword = passwordRef.current?.value || password;
-    
+
     // Sync React state with actual values (for UI consistency)
-    if (actualEmail !== email) setEmail(actualEmail);
+    if (actualIdentifier !== identifier) setIdentifier(actualIdentifier);
     if (actualPassword !== password) setPassword(actualPassword);
 
     // Validate that we have credentials
-    if (!actualEmail || !actualPassword) {
-      setError('Please enter both email and password.');
+    if (!actualIdentifier || !actualPassword) {
+      setError('Please enter both email/username and password.');
       setIsLoading(false);
       return;
     }
@@ -75,7 +75,7 @@ function LoginForm() {
         // For other errors, continue and let login attempt show the error
       }
       
-      const response = await apiClient.login(actualEmail, actualPassword, rememberMe);
+      const response = await apiClient.login(actualIdentifier, actualPassword, rememberMe);
       
       // Set token in API client immediately
       apiClient.setToken(response.access_token);
@@ -182,20 +182,20 @@ function LoginForm() {
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-white/80 mb-2">
-                Email address
+              <label htmlFor="identifier" className="block text-sm font-medium text-white/80 mb-2">
+                Email or Username
               </label>
               <input
-                ref={emailRef}
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
+                ref={identifierRef}
+                id="identifier"
+                name="identifier"
+                type="text"
+                autoComplete="username"
                 required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
                 className="w-full px-4 py-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-transparent"
-                placeholder="Enter your email"
+                placeholder="Enter your email or username"
               />
             </div>
 

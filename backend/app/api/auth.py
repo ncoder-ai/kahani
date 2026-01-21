@@ -25,12 +25,12 @@ class UserRegister(BaseModel):
         extra = "forbid"
 
 class UserLogin(BaseModel):
-    email: str
+    identifier: str  # Can be email or username
     password: str
     remember_me: Optional[bool] = False
-    
+
     class Config:
-        # Don't include password in response representations  
+        # Don't include password in response representations
         extra = "forbid"
 
 router = APIRouter()
@@ -178,38 +178,44 @@ async def login(
     user_agent = request.headers.get("user-agent", "unknown")
     origin = request.headers.get("origin", "unknown")
     referer = request.headers.get("referer", "unknown")
-    
+
     logger.info(f"=== LOGIN ATTEMPT ===")
-    logger.info(f"Email: {user_data.email}")
+    logger.info(f"Identifier: {user_data.identifier}")
     logger.info(f"Client IP: {client_host}")
     logger.info(f"User-Agent: {user_agent}")
     logger.info(f"Origin: {origin}")
     logger.info(f"Referer: {referer}")
-    
+
     try:
-        # Check if user exists
-        user = db.query(User).filter(User.email == user_data.email).first()
-        
+        # Check if user exists by email or username
+        from sqlalchemy import or_
+        user = db.query(User).filter(
+            or_(
+                User.email == user_data.identifier,
+                User.username == user_data.identifier
+            )
+        ).first()
+
         if not user:
-            logger.warning(f"Login failed: User not found for email {user_data.email} from {client_host}")
+            logger.warning(f"Login failed: User not found for identifier {user_data.identifier} from {client_host}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Incorrect email or password",
+                detail="Incorrect email/username or password",
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
         # Verify password
         if not verify_password(user_data.password, user.hashed_password):
-            logger.warning(f"Login failed: Invalid password for {user_data.email} from {client_host}")
+            logger.warning(f"Login failed: Invalid password for {user_data.identifier} from {client_host}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Incorrect email or password",
+                detail="Incorrect email/username or password",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        
+
         # Check if user is active
         if not user.is_active:
-            logger.warning(f"Login failed: Inactive user {user_data.email} from {client_host}")
+            logger.warning(f"Login failed: Inactive user {user_data.identifier} from {client_host}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Inactive user"
@@ -269,7 +275,7 @@ async def login(
         # Re-raise HTTP exceptions
         raise
     except Exception as e:
-        logger.error(f"Login error for {user_data.email} from {client_host}: {str(e)}", exc_info=True)
+        logger.error(f"Login error for {user_data.identifier} from {client_host}: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Login failed: {str(e)}"

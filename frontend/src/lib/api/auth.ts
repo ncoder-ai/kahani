@@ -46,12 +46,12 @@ export interface User {
 
 export class AuthApi extends BaseApiClient {
   /**
-   * Login with email and password
+   * Login with email or username and password
    */
-  async login(email: string, password: string, rememberMe: boolean = false): Promise<LoginResponse> {
+  async login(identifier: string, password: string, rememberMe: boolean = false): Promise<LoginResponse> {
     return this.request<LoginResponse>('/api/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password, remember_me: rememberMe }),
+      body: JSON.stringify({ identifier, password, remember_me: rememberMe }),
     });
   }
 
