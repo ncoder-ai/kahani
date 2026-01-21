@@ -221,6 +221,7 @@ export interface ChapterProgress {
   progress_percentage: number;
   remaining_events: string[];
   climax_reached: boolean;
+  resolution_reached: boolean;
   scene_count: number;
   climax?: string;
   resolution?: string;
