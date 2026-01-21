@@ -308,3 +308,4 @@ postgres_backup.tar.gz
 # Log files (additional patterns)
 *.log
 realtimesst.log
+backups/
