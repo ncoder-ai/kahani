@@ -11,7 +11,7 @@ Kahani ("story" in Hindi) is an AI-powered interactive storytelling platform wit
 ### Running the Application
 ```bash
 # Docker (recommended)
-docker-compose up -d
+docker compose up -d
 
 # Baremetal
 ./install.sh      # First time setup
@@ -32,13 +32,14 @@ cd frontend && npm run lint     # Run ESLint
 ```
 
 ### Docker Commands
+**Important**: Use `docker compose` (V2, without hyphen), not `docker-compose` (legacy V1).
 ```bash
-docker-compose up -d        # Start services
-docker-compose down         # Stop services
-docker-compose logs -f      # View logs
-docker-compose logs backend # View backend logs only
-docker-compose restart      # Restart services
-docker-compose up -d --build  # Rebuild and start
+docker compose up -d          # Start services
+docker compose down           # Stop services
+docker compose logs -f        # View logs
+docker compose logs backend   # View backend logs only
+docker compose restart        # Restart services
+docker compose up -d --build  # Rebuild and start
 ```
 
 ### Ports
