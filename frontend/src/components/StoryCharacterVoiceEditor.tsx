@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Volume2, RotateCcw } from 'lucide-react';
+import { X, Volume2, RotateCcw, Trash2 } from 'lucide-react';
 import apiClient, { VoiceStyle, VoiceStylePresetsResponse } from '@/lib/api';
 
 interface StoryCharacter {
@@ -35,6 +35,8 @@ export default function StoryCharacterVoiceEditor({
   const [editingCharacterId, setEditingCharacterId] = useState<number | null>(null);
   const [editingVoiceStyle, setEditingVoiceStyle] = useState<VoiceStyle | null>(null);
   const [showCustomization, setShowCustomization] = useState(false);
+  const [deletingCharacterId, setDeletingCharacterId] = useState<number | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -117,6 +119,24 @@ export default function StoryCharacterVoiceEditor({
     setEditingCharacterId(null);
     setEditingVoiceStyle(null);
     setShowCustomization(false);
+  };
+
+  const handleRemoveCharacter = async (characterId: number) => {
+    try {
+      setDeletingCharacterId(characterId);
+      await apiClient.removeStoryCharacter(storyId, characterId);
+
+      // Remove from local state
+      setCharacters(prev => prev.filter(c => c.id !== characterId));
+      setConfirmDelete(null);
+
+      if (onUpdate) onUpdate();
+    } catch (error) {
+      console.error('Failed to remove character from story:', error);
+      alert('Failed to remove character. Please try again.');
+    } finally {
+      setDeletingCharacterId(null);
+    }
   };
 
   const getEffectiveVoiceStyle = (character: StoryCharacter): VoiceStyle | null => {
@@ -494,6 +514,33 @@ export default function StoryCharacterVoiceEditor({
                         >
                           Edit Voice
                         </button>
+                        {confirmDelete === character.id ? (
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => handleRemoveCharacter(character.id)}
+                              disabled={deletingCharacterId === character.id}
+                              className="px-2 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg transition-colors disabled:opacity-50"
+                            >
+                              {deletingCharacterId === character.id ? 'Removing...' : 'Confirm'}
+                            </button>
+                            <button
+                              onClick={() => setConfirmDelete(null)}
+                              disabled={deletingCharacterId === character.id}
+                              className="px-2 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs rounded-lg transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmDelete(character.id)}
+                            disabled={saving !== null || deletingCharacterId !== null}
+                            className="p-2 text-white/40 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors disabled:opacity-50"
+                            title="Remove character from story"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>

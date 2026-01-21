@@ -1582,6 +1582,17 @@ class ApiClient {
     });
   }
 
+  async removeStoryCharacter(storyId: number, storyCharacterId: number) {
+    return this.request<{
+      message: string;
+      deleted_story_character_id: number;
+      character_id: number | null;
+      branch_id: number | null;
+    }>(`/api/characters/story/${storyId}/characters/${storyCharacterId}`, {
+      method: 'DELETE'
+    });
+  }
+
   async generateCharacterWithAI(prompt: string, storyContext?: { genre?: string; tone?: string; world_setting?: string }, previousGeneration?: any) {
     return this.request<{ id: number; name: string; description: string; personality_traits: string[]; background: string; goals: string; fears: string; appearance: string; is_template: boolean; is_public: boolean; creator_id: number; created_at: string; updated_at: string | null; background_structured?: Record<string, any>; goals_structured?: Record<string, any>; fears_structured?: Record<string, any>; appearance_structured?: Record<string, any>; suggested_voice_style?: string }>(`/api/characters/generate-with-ai`, {
       method: 'POST',
