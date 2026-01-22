@@ -350,11 +350,12 @@ class LLMClient:
         
         if self.reasoning_effort and self.reasoning_effort != "disabled":
             if is_openrouter:
-                # OpenRouter: use top-level reasoning_effort with allowed_openai_params
-                # This is required for LiteLLM to properly handle reasoning_content in streaming
-                params["reasoning_effort"] = self.reasoning_effort
-                params["allowed_openai_params"] = ["reasoning_effort"]
-                logger.info(f"Reasoning effort set to: {self.reasoning_effort} (OpenRouter)")
+                # OpenRouter: pass reasoning_effort via extra_body for thinking models
+                # LiteLLM/OpenRouter handles this in the request body
+                if "extra_body" not in params:
+                    params["extra_body"] = {}
+                params["extra_body"]["reasoning"] = {"effort": self.reasoning_effort}
+                logger.info(f"Reasoning effort set to: {self.reasoning_effort} (OpenRouter via extra_body)")
             else:
                 # Other providers: use extra_body approach
                 if "extra_body" not in params:
