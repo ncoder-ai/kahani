@@ -751,14 +751,21 @@ class LLMGenerationCore:
             async for chunk in response:
                 chunk_count += 1
 
-                # Check for reasoning_content (LiteLLM's standardized field for all providers)
-                # This works for OpenRouter, Anthropic, DeepSeek, etc. when using proper LiteLLM params
+                # Check for reasoning content - different providers use different field names:
+                # - reasoning_content: LiteLLM's standardized field (Anthropic, DeepSeek)
+                # - reasoning: OpenRouter's field for models like GLM-4.7
                 delta = chunk.choices[0].delta
+                reasoning_text = None
                 if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
+                    reasoning_text = delta.reasoning_content
+                elif hasattr(delta, 'reasoning') and delta.reasoning:
+                    reasoning_text = delta.reasoning
+
+                if reasoning_text:
                     has_reasoning = True
-                    reasoning_chars += len(delta.reasoning_content)
+                    reasoning_chars += len(reasoning_text)
                     # Yield reasoning with special prefix for frontend to detect
-                    yield f"__THINKING__:{delta.reasoning_content}"
+                    yield f"__THINKING__:{reasoning_text}"
 
                 # Regular content
                 if delta.content:

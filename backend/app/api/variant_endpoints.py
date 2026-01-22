@@ -28,6 +28,37 @@ from ..database import get_db
 from ..models import (
     Story, Scene, User, UserSettings, SceneChoice, SceneVariant, StoryFlow, Chapter, ChapterStatus
 )
+
+
+class ThinkingStreamHandler:
+    """Helper class to handle thinking/reasoning content in SSE streams."""
+
+    def __init__(self):
+        self.is_thinking = False
+        self.thinking_content = ""
+
+    def process_chunk(self, chunk: str) -> list:
+        """
+        Process a chunk and return list of SSE event strings to yield.
+
+        Returns list of formatted SSE data strings (without the 'data: ' prefix).
+        """
+        events = []
+
+        if chunk.startswith("__THINKING__:"):
+            thinking_chunk = chunk[13:]
+            self.thinking_content += thinking_chunk
+            if not self.is_thinking:
+                self.is_thinking = True
+                events.append(json.dumps({'type': 'thinking_start'}))
+            events.append(json.dumps({'type': 'thinking_chunk', 'chunk': thinking_chunk}))
+            return events, None  # No content to accumulate
+        else:
+            if self.is_thinking:
+                self.is_thinking = False
+                events.append(json.dumps({'type': 'thinking_end', 'total_chars': len(self.thinking_content)}))
+            events.append(json.dumps({'type': 'content', 'chunk': chunk}))
+            return events, chunk  # Return chunk for content accumulation
 from ..services.llm.service import UnifiedLLMService
 from ..dependencies import get_current_user
 from ..config import settings
@@ -457,7 +488,10 @@ async def create_scene_variant_streaming(
             
             # Send initial metadata
             yield f"data: {json.dumps({'type': 'start', 'scene_id': scene_id})}\n\n"
-            
+
+            # Thinking/reasoning handler
+            thinking_handler = ThinkingStreamHandler()
+
             # Build context for variant generation - use same context manager as new scene generation
             context_manager = get_context_manager_for_user(user_settings, current_user.id)
             
@@ -517,10 +551,12 @@ async def create_scene_variant_streaming(
                         n_value
                     ):
                         if not is_complete:
-                            yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                            events, _ = thinking_handler.process_chunk(chunk)
+                            for event in events:
+                                yield f"data: {event}\n\n"
                         else:
                             variants_data = [{"content": c, "choices": []} for c in contents]
-                
+
                 elif separate_choice_generation:
                     # Separate mode: generate variants, then choices in parallel
                     async for chunk, is_complete, contents in llm_service.generate_scene_streaming_multi(
@@ -531,7 +567,9 @@ async def create_scene_variant_streaming(
                         n_value
                     ):
                         if not is_complete:
-                            yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                            events, _ = thinking_handler.process_chunk(chunk)
+                            for event in events:
+                                yield f"data: {event}\n\n"
                         else:
                             yield f"data: {json.dumps({'type': 'status', 'message': 'Generating choices for all variants...'})}\n\n"
                             all_choices = await llm_service.generate_choices_for_variants(
@@ -558,10 +596,12 @@ async def create_scene_variant_streaming(
                         custom_prompt=custom_prompt
                     ):
                         if not is_complete:
-                            yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                            events, _ = thinking_handler.process_chunk(chunk)
+                            for event in events:
+                                yield f"data: {event}\n\n"
                         else:
                             variants_data = vdata
-                
+
                 # Create additional variants
                 if variants_data:
                     new_variants = create_additional_variants(
@@ -646,9 +686,12 @@ async def create_scene_variant_streaming(
                     user_settings,
                     db
                 ):
-                    variant_content += chunk
-                    yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
-                
+                    events, content = thinking_handler.process_chunk(chunk)
+                    for event in events:
+                        yield f"data: {event}\n\n"
+                    if content:
+                        variant_content += content
+
                 # Concluding scenes don't have choices
                 parsed_choices = None
             elif custom_prompt:
@@ -668,8 +711,11 @@ async def create_scene_variant_streaming(
                     db
                 ):
                     if not scene_complete:
-                        variant_content += chunk
-                        yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                        events, content = thinking_handler.process_chunk(chunk)
+                        for event in events:
+                            yield f"data: {event}\n\n"
+                        if content:
+                            variant_content += content
                     else:
                         parsed_choices = choices
                         break
@@ -699,12 +745,15 @@ async def create_scene_variant_streaming(
                     db
                 ):
                     if not scene_complete:
-                        variant_content += chunk
-                        yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                        events, content = thinking_handler.process_chunk(chunk)
+                        for event in events:
+                            yield f"data: {event}\n\n"
+                        if content:
+                            variant_content += content
                     else:
                         parsed_choices = choices
                         break
-            
+
             # Create the new variant manually since we already have the content
             from ..models import SceneVariant
             from sqlalchemy import desc
@@ -1130,19 +1179,22 @@ async def continue_scene_streaming(
             
             # Send initial metadata
             yield f"data: {json.dumps({'type': 'start', 'scene_id': scene_id, 'original_length': len(current_variant.content)})}\n\n"
-            
+
+            # Thinking/reasoning handler
+            thinking_handler = ThinkingStreamHandler()
+
             # Build context for continuation - use get_context_manager_for_user to get SemanticContextManager
             # which produces structured format needed for multi-message LLM caching
             context_manager = get_context_manager_for_user(user_settings, current_user.id)
-            
+
             # Get custom_prompt from the request model
             custom_prompt = request.custom_prompt
-                
+
             context = await context_manager.build_scene_continuation_context(
                 story_id, scene_id, current_variant.content, db, custom_prompt,
                 branch_id=story.current_branch_id  # Pass branch_id for branch-aware context
             )
-            
+
             # Stream continuation generation with combined choices
             continuation_content = ""
             parsed_choices = None
@@ -1150,9 +1202,11 @@ async def continue_scene_streaming(
                 context, current_user.id, user_settings, db
             ):
                 if not scene_complete:
-                    # Still streaming continuation content
-                    continuation_content += chunk
-                    yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                    events, content = thinking_handler.process_chunk(chunk)
+                    for event in events:
+                        yield f"data: {event}\n\n"
+                    if content:
+                        continuation_content += content
                 else:
                     # Continuation complete, choices parsed
                     parsed_choices = choices

@@ -3318,16 +3318,23 @@ Chapter Conclusion:"""
                     
                     # Debug: Log first few chunks to see what fields are available
                     if chunk_count <= 3:
-                        logger.debug(f"[STREAM DEBUG] Chunk {chunk_count} reasoning_content: {getattr(delta, 'reasoning_content', None)}")
-                    
-                    # Check for reasoning_content (LiteLLM's standardized field for all providers)
-                    # This works for OpenRouter, Anthropic, DeepSeek, etc. when using proper LiteLLM params
+                        logger.debug(f"[STREAM DEBUG] Chunk {chunk_count} reasoning_content: {getattr(delta, 'reasoning_content', None)}, reasoning: {getattr(delta, 'reasoning', None)}")
+
+                    # Check for reasoning content - different providers use different field names:
+                    # - reasoning_content: LiteLLM's standardized field (Anthropic, DeepSeek)
+                    # - reasoning: OpenRouter's field for models like GLM-4.7
+                    reasoning_text = None
                     if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
+                        reasoning_text = delta.reasoning_content
+                    elif hasattr(delta, 'reasoning') and delta.reasoning:
+                        reasoning_text = delta.reasoning
+
+                    if reasoning_text:
                         has_reasoning = True
-                        reasoning_chars += len(delta.reasoning_content)
+                        reasoning_chars += len(reasoning_text)
                         # Yield reasoning with special prefix for frontend to detect
-                        yield f"__THINKING__:{delta.reasoning_content}"
-                    
+                        yield f"__THINKING__:{reasoning_text}"
+
                     # Regular content
                     if hasattr(delta, 'content') and delta.content:
                         content_chars += len(delta.content)
