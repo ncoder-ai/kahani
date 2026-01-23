@@ -391,6 +391,43 @@ class Settings(BaseSettings):
         sso = self._yaml_config.get('sso', {})
         return {**defaults, **sso}
 
+    @property
+    def image_generation(self) -> dict:
+        """Get image generation configuration from config.yaml"""
+        defaults = {
+            'enabled': True,
+            'storage_path': './data/images',
+            'comfyui': {
+                'server_url': 'http://localhost:8188',
+                'api_key': '',
+                'timeout': 300,
+                'websocket_fallback_to_polling': True,
+                'polling_interval': 2,
+            },
+            'defaults': {
+                'width': 1024,
+                'height': 1024,
+                'steps': 4,
+                'cfg_scale': 1.5,
+                'sampler': 'euler',
+                'prompt_llm': 'main',
+            },
+            'style_presets': {},
+            'consistency': {
+                'sdxl': {'method': 'ip_adapter', 'weight': 0.7},
+                'flux': {'method': 'pulid', 'weight': 0.8},
+            },
+        }
+        config = self._yaml_config.get('image_generation', {})
+        # Deep merge defaults with config
+        result = {**defaults}
+        for key, value in config.items():
+            if isinstance(value, dict) and key in result and isinstance(result[key], dict):
+                result[key] = {**result[key], **value}
+            else:
+                result[key] = value
+        return result
+
     class Config:
         env_file = "../.env"
         case_sensitive = False

@@ -91,6 +91,9 @@ class Story(Base):
     
     # Brainstorm Session (if story was created from brainstorm)
     brainstorm_session = relationship("BrainstormSession", back_populates="story", uselist=False)
+
+    # Generated Images
+    generated_images = relationship("GeneratedImage", back_populates="story", cascade="all, delete-orphan")
     
     # Story Arc - AI-generated narrative structure
     story_arc = Column(JSON, nullable=True)

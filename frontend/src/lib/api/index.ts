@@ -16,17 +16,6 @@
  * Domain-specific clients (authApi, etc.) provide typed, focused interfaces.
  */
 
-// Re-export domain-specific API classes for direct usage
-export { AuthApi } from './auth';
-export { SettingsApi } from './settings';
-export { CharactersApi } from './characters';
-export { BranchesApi } from './branches';
-export { AdminApi } from './admin';
-export { WritingPresetsApi } from './writing-presets';
-
-// Re-export base utilities (not in legacy api.ts)
-export { circuitBreaker } from './base';
-
 // Import domain clients for composition
 import { AuthApi } from './auth';
 import { SettingsApi } from './settings';
@@ -34,31 +23,55 @@ import { CharactersApi } from './characters';
 import { BranchesApi } from './branches';
 import { AdminApi } from './admin';
 import { WritingPresetsApi } from './writing-presets';
+import { ImageGenerationApi } from './imageGeneration';
+import LegacyApiClient from '../api';
 
 // Create singleton instances of domain clients
-export const authApi = new AuthApi();
-export const settingsApi = new SettingsApi();
-export const charactersApi = new CharactersApi();
-export const branchesApi = new BranchesApi();
-export const adminApi = new AdminApi();
-export const writingPresetsApi = new WritingPresetsApi();
-
-/**
- * For backward compatibility, we re-export the original ApiClient
- * from the legacy api.ts file. This allows gradual migration.
- *
- * New code should prefer using domain-specific clients:
- *   import { authApi, charactersApi } from '@/lib/api';
- *
- * Legacy code can continue using:
- *   import apiClient from '@/lib/api';
- *   // or
- *   import { apiClient } from '@/lib/api';
- */
+const authApiInstance = new AuthApi();
+const settingsApiInstance = new SettingsApi();
+const charactersApiInstance = new CharactersApi();
+const branchesApiInstance = new BranchesApi();
+const adminApiInstance = new AdminApi();
+const writingPresetsApiInstance = new WritingPresetsApi();
+const imageGenerationApiInstance = new ImageGenerationApi();
 
 // Re-export everything from the legacy api.ts for backward compatibility
-// This includes ApiClient, apiClient (default), and all type exports
 export * from '../api';
-import LegacyApiClient from '../api';
+
+// Export domain-specific API classes
+export { AuthApi } from './auth';
+export { SettingsApi } from './settings';
+export { CharactersApi } from './characters';
+export { BranchesApi } from './branches';
+export { AdminApi } from './admin';
+export { WritingPresetsApi } from './writing-presets';
+export { ImageGenerationApi } from './imageGeneration';
+
+// Export types from imageGeneration
+export type {
+  ServerStatus as ImageGenServerStatus,
+  AvailableModels as ImageGenAvailableModels,
+  StylePreset,
+  StylePresetsResponse,
+  GeneratePortraitRequest,
+  GenerateSceneImageRequest,
+  GenerationJobResponse,
+  GeneratedImage,
+  ImageGenerationSettings,
+} from './imageGeneration';
+
+// Re-export base utilities
+export { circuitBreaker } from './base';
+
+// Export singleton instances
+export const authApi = authApiInstance;
+export const settingsApi = settingsApiInstance;
+export const charactersApi = charactersApiInstance;
+export const branchesApi = branchesApiInstance;
+export const adminApi = adminApiInstance;
+export const writingPresetsApi = writingPresetsApiInstance;
+export const imageGenerationApi = imageGenerationApiInstance;
+
+// Export legacy client
 export const apiClient = LegacyApiClient;
 export default LegacyApiClient;

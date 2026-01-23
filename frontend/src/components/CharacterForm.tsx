@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import apiClient, { VoiceStyle, VoiceStylePreset, VoiceStylePresetsResponse } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import RoleSelector, { CHARACTER_ROLES, isCustomRole, parseRoleValue, getFinalRoleValue } from '@/components/RoleSelector';
+import CharacterPortrait from '@/components/CharacterPortrait';
 
 interface CharacterFormProps {
   characterId?: number;
@@ -21,6 +22,7 @@ interface CharacterFormProps {
     is_template?: boolean;
     is_public?: boolean;
     voice_style?: VoiceStyle | null;
+    portrait_image_id?: number | null;
   };
   storyCharacterRole?: string; // For linking to story after creation
   storyId?: number; // For linking to story after creation
@@ -51,6 +53,7 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
 
   const [newTrait, setNewTrait] = useState('');
   const [selectedRole, setSelectedRole] = useState<string>('');
+  const [portraitImageId, setPortraitImageId] = useState<number | null>(null);
   
   // Voice style state
   const [voicePresets, setVoicePresets] = useState<VoiceStylePresetsResponse | null>(null);
@@ -133,6 +136,8 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
         is_public: character.is_public,
         voice_style: character.voice_style || null
       });
+      // Set portrait image id
+      setPortraitImageId(character.portrait_image_id || null);
       // If character has custom voice style, show customization
       if (character.voice_style?.preset === 'custom') {
         setShowVoiceCustomization(true);
@@ -786,6 +791,22 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
                   className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
                 />
               </div>
+            </div>
+
+            {/* Character Portrait */}
+            <div className="space-y-4">
+              <h3 className="text-xl font-semibold text-white">Character Portrait</h3>
+              <p className="text-white/60 text-sm">
+                Generate an AI portrait or upload an existing image for your character
+              </p>
+              <CharacterPortrait
+                characterId={characterId}
+                appearance={formData.appearance}
+                portraitImageId={portraitImageId}
+                onPortraitChange={setPortraitImageId}
+                mode={mode === 'edit' ? 'edit' : 'create'}
+                disabled={saving}
+              />
             </div>
 
             {/* Voice & Speech Style */}

@@ -109,7 +109,7 @@ sso:
   header_email: "Remote-Email"
   header_groups: "Remote-Groups"
   # If true, auto-login when valid headers are present and user exists
-  auto_login: true
+  auto_login: false
   # If true, create Kahani user if they don't exist (requires approval if enabled)
   create_users: false
   # Trust proxy headers only from these IPs (empty = trust all - use with caution)
@@ -305,6 +305,18 @@ user_defaults:
   advanced:
     custom_system_prompt: ""
     experimental_features: false
+  image_generation_settings:
+    enabled: false
+    server_url: ""
+    api_key: ""
+    checkpoint: ""
+    model_type: "sdxl"
+    width: 1024
+    height: 1024
+    steps: 4
+    cfg_scale: 1.5
+    default_style: "illustrated"
+    use_extraction_llm_for_prompts: false
 
 # ----------------------------------------------------------------------------
 # SYSTEM DEFAULTS
@@ -363,3 +375,72 @@ service_defaults:
   character_generation:
     max_tokens: 2000
     temperature: 0.8
+
+# ----------------------------------------------------------------------------
+# IMAGE GENERATION
+# AI-powered image generation using ComfyUI
+# ----------------------------------------------------------------------------
+image_generation:
+  enabled: true
+  storage_path: "./data/images"
+
+  # Default ComfyUI settings (users override in their settings)
+  comfyui:
+    server_url: "http://localhost:8188"
+    api_key: ""
+    timeout: 300
+    websocket_fallback_to_polling: true
+    polling_interval: 2  # seconds
+
+  defaults:
+    width: 1024
+    height: 1024
+    steps: 4
+    cfg_scale: 1.5
+    sampler: "euler"
+    # Which LLM to use for text->image prompt conversion
+    prompt_llm: "main"  # "main" or "extraction"
+
+  # Style presets (prompt suffixes, not checkpoint-specific)
+  style_presets:
+    illustrated:
+      name: "Illustrated"
+      description: "Digital art with vibrant colors"
+      prompt_suffix: "digital art, illustration, vibrant colors"
+      negative_prompt: "photo, realistic, 3d render"
+    semi_realistic:
+      name: "Semi-Realistic"
+      description: "Detailed cinematic style"
+      prompt_suffix: "semi-realistic, detailed, cinematic"
+      negative_prompt: "cartoon, anime, low quality"
+    anime:
+      name: "Anime"
+      description: "Japanese anime art style"
+      prompt_suffix: "anime style, detailed, masterpiece"
+      negative_prompt: "photo, realistic, western"
+    photorealistic:
+      name: "Photorealistic"
+      description: "High-quality realistic images"
+      prompt_suffix: "photorealistic, detailed, 8k"
+      negative_prompt: "cartoon, illustration, painting"
+    fantasy:
+      name: "Fantasy Art"
+      description: "Epic fantasy illustration style"
+      prompt_suffix: "fantasy art, epic, detailed, magical lighting"
+      negative_prompt: "photo, realistic, modern"
+    noir:
+      name: "Film Noir"
+      description: "Dark, dramatic black and white style"
+      prompt_suffix: "film noir, dramatic lighting, high contrast, black and white"
+      negative_prompt: "colorful, bright, cheerful"
+
+  # Character consistency settings by model type
+  consistency:
+    sdxl:
+      method: "ip_adapter"
+      model: "ip-adapter-plus-face_sdxl_vit-h.safetensors"
+      weight: 0.7
+    flux:
+      method: "pulid"  # or "redux" or "prompt_only"
+      model: "pulid_flux_v0.9.0.safetensors"
+      weight: 0.8

@@ -31,6 +31,9 @@ class Character(Base):
     # }
     voice_style = Column(JSON, nullable=True)  # Character's default speaking style
     
+    # Portrait image (generated or uploaded)
+    portrait_image_id = Column(Integer, ForeignKey("generated_images.id", ondelete="SET NULL"), nullable=True)
+
     # Meta information
     creator_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     is_template = Column(Boolean, default=False)  # Can be reused across stories
@@ -45,6 +48,7 @@ class Character(Base):
     story_characters = relationship("StoryCharacter", back_populates="character", cascade="all, delete-orphan")
     memories = relationship("CharacterMemory", back_populates="character", cascade="all, delete-orphan")
     state = relationship("CharacterState", back_populates="character", uselist=False, cascade="all, delete-orphan")
+    portrait_image = relationship("GeneratedImage", foreign_keys=[portrait_image_id])
     
     def __repr__(self):
         return f"<Character(id={self.id}, name='{self.name}')>"

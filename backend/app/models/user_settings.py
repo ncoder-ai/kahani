@@ -118,6 +118,27 @@ class UserSettings(Base):
     # Stores all TabbyAPI/OpenAI-compatible sampler configurations
     # Each sampler has an 'enabled' flag and a 'value' field
     sampler_settings = Column(Text, nullable=True)
+
+    # Image Generation Settings
+    image_gen_enabled = Column(Boolean, nullable=True)
+
+    # ComfyUI Connection
+    comfyui_server_url = Column(String(500), nullable=True)
+    comfyui_api_key = Column(String(500), nullable=True)
+
+    # Model Selection
+    comfyui_checkpoint = Column(String(200), nullable=True)  # e.g., "sdxl_lightning_4step.safetensors"
+    comfyui_model_type = Column(String(50), nullable=True)   # "sdxl", "flux", "sd15" - for workflow selection
+
+    # Generation Defaults
+    image_gen_width = Column(Integer, nullable=True)
+    image_gen_height = Column(Integer, nullable=True)
+    image_gen_steps = Column(Integer, nullable=True)
+    image_gen_cfg_scale = Column(Float, nullable=True)
+    image_gen_default_style = Column(String(50), nullable=True)  # "illustrated", "anime", etc.
+
+    # LLM for Prompt Generation
+    use_extraction_llm_for_image_prompts = Column(Boolean, nullable=True)  # True = extraction LLM, False = main LLM
     
     # Relationships
     user = relationship("User", back_populates="settings")
@@ -233,23 +254,42 @@ class UserSettings(Base):
             },
             "engine_settings": self._parse_engine_settings(),
             "current_engine": self.current_engine or "",
-            "sampler_settings": self._get_merged_sampler_settings()
+            "sampler_settings": self._get_merged_sampler_settings(),
+            "image_generation_settings": self._get_image_generation_settings()
         }
     
     def _get_merged_sampler_settings(self):
         """Get sampler settings merged with defaults.
-        
+
         User settings override defaults, but missing keys get default values.
         """
         defaults = self.get_default_sampler_settings()
         user_settings = self._parse_sampler_settings()
-        
+
         # Merge user settings over defaults
         for key, value in user_settings.items():
             if key in defaults:
                 defaults[key] = value
-        
+
         return defaults
+
+    def _get_image_generation_settings(self):
+        """Get image generation settings merged with config defaults"""
+        img_defaults = settings.user_defaults.get("image_generation_settings", {})
+
+        return {
+            "enabled": self.image_gen_enabled if self.image_gen_enabled is not None else img_defaults.get("enabled", False),
+            "comfyui_server_url": self.comfyui_server_url or img_defaults.get("server_url", ""),
+            "comfyui_api_key": self.comfyui_api_key or "",
+            "comfyui_checkpoint": self.comfyui_checkpoint or img_defaults.get("checkpoint", ""),
+            "comfyui_model_type": self.comfyui_model_type or img_defaults.get("model_type", "sdxl"),
+            "width": self.image_gen_width if self.image_gen_width is not None else img_defaults.get("width", 1024),
+            "height": self.image_gen_height if self.image_gen_height is not None else img_defaults.get("height", 1024),
+            "steps": self.image_gen_steps if self.image_gen_steps is not None else img_defaults.get("steps", 4),
+            "cfg_scale": self.image_gen_cfg_scale if self.image_gen_cfg_scale is not None else img_defaults.get("cfg_scale", 1.5),
+            "default_style": self.image_gen_default_style if self.image_gen_default_style is not None else img_defaults.get("default_style", "illustrated"),
+            "use_extraction_llm_for_prompts": self.use_extraction_llm_for_image_prompts if self.use_extraction_llm_for_image_prompts is not None else img_defaults.get("use_extraction_llm_for_prompts", False)
+        }
     
     def _parse_engine_settings(self):
         """Parse engine_settings JSON string to dictionary"""
@@ -512,6 +552,31 @@ class UserSettings(Base):
             self.custom_system_prompt = adv.get("custom_system_prompt")
         if self.enable_experimental_features is None:
             self.enable_experimental_features = adv.get("experimental_features", False)
+
+        # Image Generation Settings
+        img_gen = user_defaults.get("image_generation_settings", {})
+        if self.image_gen_enabled is None:
+            self.image_gen_enabled = img_gen.get("enabled", False)
+        if self.comfyui_server_url is None:
+            self.comfyui_server_url = img_gen.get("server_url", "")
+        if self.comfyui_api_key is None:
+            self.comfyui_api_key = img_gen.get("api_key", "")
+        if self.comfyui_checkpoint is None:
+            self.comfyui_checkpoint = img_gen.get("checkpoint", "")
+        if self.comfyui_model_type is None:
+            self.comfyui_model_type = img_gen.get("model_type", "sdxl")
+        if self.image_gen_width is None:
+            self.image_gen_width = img_gen.get("width", 1024)
+        if self.image_gen_height is None:
+            self.image_gen_height = img_gen.get("height", 1024)
+        if self.image_gen_steps is None:
+            self.image_gen_steps = img_gen.get("steps", 4)
+        if self.image_gen_cfg_scale is None:
+            self.image_gen_cfg_scale = img_gen.get("cfg_scale", 1.5)
+        if self.image_gen_default_style is None:
+            self.image_gen_default_style = img_gen.get("default_style", "illustrated")
+        if self.use_extraction_llm_for_image_prompts is None:
+            self.use_extraction_llm_for_image_prompts = img_gen.get("use_extraction_llm_for_prompts", False)
     
     @classmethod
     def get_defaults(cls):
@@ -528,5 +593,6 @@ class UserSettings(Base):
             "character_assistant_settings": user_defaults.get("character_assistant_settings", {}),
             "advanced": user_defaults.get("advanced", {}),
             "extraction_model_settings": user_defaults.get("extraction_model_settings", {}),
-            "sampler_settings": cls.get_default_sampler_settings()
+            "sampler_settings": cls.get_default_sampler_settings(),
+            "image_generation_settings": user_defaults.get("image_generation_settings", {})
         }

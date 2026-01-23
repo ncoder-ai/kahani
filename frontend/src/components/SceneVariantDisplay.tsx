@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { PlayIcon, ArrowPathIcon, PlusCircleIcon, StopIcon, SparklesIcon, TrashIcon, ClipboardIcon, XMarkIcon, FlagIcon, PencilIcon, CheckIcon } from '@heroicons/react/24/outline';
 import { GitFork, Volume2 } from 'lucide-react';
 import SceneDisplay from './SceneDisplay';
+import SceneImageGenerator from './SceneImageGenerator';
 import { SceneTTSButton } from './SceneTTSButton';
 import MicrophoneButton from './MicrophoneButton';
 import { useGlobalTTS } from '@/contexts/GlobalTTSContext';
@@ -824,7 +825,14 @@ export default function SceneVariantDisplay({
         isStreamingVariant={isStreamingVariant}
         userSettings={userSettings}
       />
-      
+
+      {/* Inline Scene Image Generator */}
+      <SceneImageGenerator
+        sceneId={scene.id}
+        storyId={storyId}
+        sceneContent={getDisplayScene().content}
+      />
+
       {/* Variant Indicator - Below scene content */}
       {isLastScene && shouldShowNavigation() && (
         <div className="flex items-center justify-center gap-3 mt-2 mb-4">
@@ -1040,7 +1048,7 @@ export default function SceneVariantDisplay({
                   <PencilIcon className="w-5 h-5" />
                   <span className="text-sm font-medium">Edit Scene</span>
                 </button>
-                
+
                 {/* Play/Stop TTS */}
                 <button
                   onClick={() => {

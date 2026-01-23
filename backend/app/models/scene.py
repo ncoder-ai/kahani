@@ -62,6 +62,9 @@ class Scene(Base):
     
     # Legacy relationship (will be deprecated)
     choices = relationship("SceneChoice", back_populates="scene", foreign_keys="SceneChoice.scene_id", cascade="all, delete-orphan")
+
+    # Generated images for this scene
+    generated_images = relationship("GeneratedImage", back_populates="scene")
     
     @property
     def active_variant(self):

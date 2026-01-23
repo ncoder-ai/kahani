@@ -7,6 +7,7 @@ export interface StoryActions {
   onAddCharacter?: () => void;
   onEditCharacterVoices?: () => void;
   onEditCharacterRoles?: () => void;
+  onManageStoryCharacters?: () => void;
   onViewAllCharacters?: () => void;
   onDirectorMode?: () => void;
   onDeleteMode?: () => void;

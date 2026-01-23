@@ -15,9 +15,11 @@ import {
   LLMSettingsTab,
   ContextSettingsTab,
   VoiceSettingsTab,
+  ImageGenSettingsTab,
   LLMSettings,
   ContextSettings,
   ExtractionModelSettings,
+  ImageGenSettings,
 } from './settings';
 
 interface SettingsModalProps {
@@ -28,7 +30,7 @@ interface SettingsModalProps {
 export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { token } = useAuthStore();
   const config = useConfig();
-  const [activeTab, setActiveTab] = useState<'interface' | 'writing' | 'llm' | 'context' | 'voice'>('interface');
+  const [activeTab, setActiveTab] = useState<'interface' | 'writing' | 'llm' | 'context' | 'voice' | 'image'>('interface');
 
   // UI Settings
   const [uiSettings, setUiSettings] = useState<UIPreferences>({
@@ -108,6 +110,21 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     alert_on_high_context: true,
     use_extraction_llm_for_summary: false,
     separate_choice_generation: false,
+  });
+
+  // Image Generation Settings
+  const [imageGenSettings, setImageGenSettings] = useState<ImageGenSettings>({
+    enabled: false,
+    comfyui_server_url: '',
+    comfyui_api_key: '',
+    comfyui_checkpoint: '',
+    comfyui_model_type: 'sdxl',
+    width: 1024,
+    height: 1024,
+    steps: 4,
+    cfg_scale: 1.5,
+    default_style: 'illustrated',
+    use_extraction_llm_for_prompts: false,
   });
 
   // Messages
@@ -264,6 +281,23 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             ...settings.sampler_settings,
           });
         }
+
+        // Load Image Generation settings
+        if (settings?.image_generation_settings) {
+          setImageGenSettings({
+            enabled: settings.image_generation_settings.enabled ?? false,
+            comfyui_server_url: settings.image_generation_settings.comfyui_server_url || '',
+            comfyui_api_key: settings.image_generation_settings.comfyui_api_key || '',
+            comfyui_checkpoint: settings.image_generation_settings.comfyui_checkpoint || '',
+            comfyui_model_type: settings.image_generation_settings.comfyui_model_type || 'sdxl',
+            width: settings.image_generation_settings.width ?? 1024,
+            height: settings.image_generation_settings.height ?? 1024,
+            steps: settings.image_generation_settings.steps ?? 4,
+            cfg_scale: settings.image_generation_settings.cfg_scale ?? 1.5,
+            default_style: settings.image_generation_settings.default_style || 'illustrated',
+            use_extraction_llm_for_prompts: settings.image_generation_settings.use_extraction_llm_for_prompts ?? false,
+          });
+        }
       }
     } catch (error) {
       console.error('Failed to load settings:', error);
@@ -342,6 +376,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             { id: 'llm', name: 'LLM Settings' },
             { id: 'context', name: 'Generation & Context' },
             { id: 'voice', name: 'Voice Settings' },
+            { id: 'image', name: 'Image Generation' },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -432,6 +467,16 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             <VoiceSettingsTab
               token={token || ''}
               showMessage={showMessage}
+            />
+          )}
+
+          {/* Image Generation Tab */}
+          {activeTab === 'image' && (
+            <ImageGenSettingsTab
+              token={token || ''}
+              showMessage={showMessage}
+              imageGenSettings={imageGenSettings}
+              setImageGenSettings={setImageGenSettings}
             />
           )}
         </div>

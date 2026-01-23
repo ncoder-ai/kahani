@@ -261,6 +261,7 @@ backend/data/kahani.db
 backend/data/*.db
 backend/data/chromadb/
 backend/data/audio/
+backend/data/images/
 
 # Alembic - migrations should be tracked in git
 # Only ignore __pycache__ in alembic directories (already covered by __pycache__/ rule)

@@ -29,6 +29,7 @@ from .npc_tracking import NPCMention, NPCTracking, NPCTrackingSnapshot
 from .brainstorm_session import BrainstormSession
 from .chapter_brainstorm_session import ChapterBrainstormSession
 from .character_interaction import CharacterInteraction
+from .generated_image import GeneratedImage
 
 __all__ = [
     "Base",
@@ -49,5 +50,6 @@ __all__ = [
     "NPCMention", "NPCTracking", "NPCTrackingSnapshot",
     "BrainstormSession",
     "ChapterBrainstormSession",
-    "CharacterInteraction"
+    "CharacterInteraction",
+    "GeneratedImage"
 ]

@@ -183,6 +183,21 @@ class SamplerSettingsUpdate(BaseModel):
     n: Optional[SamplerSettingValue] = None  # Number of completions to generate (1-5)
 
 
+class ImageGenerationSettingsUpdate(BaseModel):
+    """Settings for AI image generation"""
+    enabled: Optional[bool] = None
+    comfyui_server_url: Optional[str] = None
+    comfyui_api_key: Optional[str] = None
+    comfyui_checkpoint: Optional[str] = None
+    comfyui_model_type: Optional[str] = None
+    width: Optional[int] = Field(default=None, ge=256, le=2048)
+    height: Optional[int] = Field(default=None, ge=256, le=2048)
+    steps: Optional[int] = Field(default=None, ge=1, le=100)
+    cfg_scale: Optional[float] = Field(default=None, ge=1.0, le=20.0)
+    default_style: Optional[str] = None
+    use_extraction_llm_for_prompts: Optional[bool] = None
+
+
 class UserSettingsUpdate(BaseModel):
     llm_settings: LLMSettingsUpdate = None
     context_settings: ContextSettingsUpdate = None
@@ -195,6 +210,7 @@ class UserSettingsUpdate(BaseModel):
     advanced: AdvancedSettingsUpdate = None
     character_assistant_settings: CharacterAssistantSettingsUpdate = None
     sampler_settings: Optional[SamplerSettingsUpdate] = None
+    image_generation_settings: Optional[ImageGenerationSettingsUpdate] = None
 
 @router.get("/")
 async def get_user_settings(
@@ -468,7 +484,33 @@ async def update_user_settings(
         
         # Save as JSON string
         user_settings.sampler_settings = json.dumps(existing_samplers)
-    
+
+    # Update image generation settings
+    if settings_update.image_generation_settings:
+        img = settings_update.image_generation_settings
+        if img.enabled is not None:
+            user_settings.image_gen_enabled = img.enabled
+        if img.comfyui_server_url is not None:
+            user_settings.comfyui_server_url = img.comfyui_server_url
+        if img.comfyui_api_key is not None:
+            user_settings.comfyui_api_key = img.comfyui_api_key
+        if img.comfyui_checkpoint is not None:
+            user_settings.comfyui_checkpoint = img.comfyui_checkpoint
+        if img.comfyui_model_type is not None:
+            user_settings.comfyui_model_type = img.comfyui_model_type
+        if img.width is not None:
+            user_settings.image_gen_width = img.width
+        if img.height is not None:
+            user_settings.image_gen_height = img.height
+        if img.steps is not None:
+            user_settings.image_gen_steps = img.steps
+        if img.cfg_scale is not None:
+            user_settings.image_gen_cfg_scale = img.cfg_scale
+        if img.default_style is not None:
+            user_settings.image_gen_default_style = img.default_style
+        if img.use_extraction_llm_for_prompts is not None:
+            user_settings.use_extraction_llm_for_image_prompts = img.use_extraction_llm_for_prompts
+
     try:
         db.commit()
         db.refresh(user_settings)

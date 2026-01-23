@@ -2985,3 +2985,36 @@ dialog_styles:
         name: "Vietnamese"
       - id: "swahili"
         name: "Swahili"
+
+# Image Generation Prompts
+image_prompt_generation:
+  portrait_from_appearance: |
+    Convert this character appearance description into an image generation prompt.
+    Focus on visual details only. Output ONLY the prompt, no explanations.
+
+    Character: {character_name}
+    Appearance: {appearance}
+    Style: {style_preset}
+    {additional_context}
+
+    Generate a concise portrait prompt that captures their key visual features.
+    Focus on: face, hair, eyes, skin tone, distinctive features, clothing if mentioned.
+    Do not include names or non-visual information.
+
+  scene_to_image_prompt: |
+    Convert this story scene into an image generation prompt.
+    Focus on the visual composition, setting, and action.
+    Output ONLY the prompt, no explanations.
+
+    Scene content:
+    {scene_content}
+
+    Characters present: {characters}
+    Location: {location}
+    Mood: {mood}
+    Style: {style_preset}
+    {chapter_context}
+
+    Generate a detailed image prompt capturing this moment visually.
+    Focus on: composition, lighting, character poses, environment details, atmosphere.
+    Keep it under 100 words. Do not include dialogue or internal thoughts.

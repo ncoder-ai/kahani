@@ -12,6 +12,7 @@ import { useUISettings } from '@/hooks/useUISettings';
 import apiClient, { getApiBaseUrl, StoryArc } from '@/lib/api';
 import CharacterQuickAdd from '@/components/CharacterQuickAdd';
 import StoryCharacterVoiceEditor from '@/components/StoryCharacterVoiceEditor';
+import StoryCharacterManager from '@/components/StoryCharacterManager';
 import { ContextInfo } from '@/components/ContextInfo';
 import FormattedText from '@/components/FormattedText';
 import SceneDisplay from '@/components/SceneDisplay';
@@ -186,6 +187,7 @@ export default function StoryPage() {
   const [showCharacterWizard, setShowCharacterWizard] = useState(false);
   const [showCharacterVoiceEditor, setShowCharacterVoiceEditor] = useState(false);
   const [showCharacterRoleEditor, setShowCharacterRoleEditor] = useState(false);
+  const [showStoryCharacterManager, setShowStoryCharacterManager] = useState(false);
   const [showCharacterBanner, setShowCharacterBanner] = useState(false);
   const [showChapterBrainstormModal, setShowChapterBrainstormModal] = useState(false);
   const [brainstormChapterId, setBrainstormChapterId] = useState<number | undefined>(undefined);
@@ -400,6 +402,7 @@ export default function StoryPage() {
         onAddCharacter: () => setShowCharacterQuickAdd(true),
         onEditCharacterVoices: () => setShowCharacterVoiceEditor(true),
         onEditCharacterRoles: () => setShowCharacterRoleEditor(true),
+        onManageStoryCharacters: () => setShowStoryCharacterManager(true),
         onViewAllCharacters: () => router.push('/characters'),
         onDirectorMode: () => setDirectorMode(!directorMode),
         onDeleteMode: () => setIsInDeleteMode(!isInDeleteMode),
@@ -3371,6 +3374,14 @@ export default function StoryPage() {
         storyId={storyId}
         isOpen={showCharacterRoleEditor}
         onClose={() => setShowCharacterRoleEditor(false)}
+      />
+
+      {/* Story Character Manager Modal */}
+      <StoryCharacterManager
+        storyId={storyId}
+        branchId={currentBranchId}
+        isOpen={showStoryCharacterManager}
+        onClose={() => setShowStoryCharacterManager(false)}
       />
 
       {/* Branch Creation Modal */}

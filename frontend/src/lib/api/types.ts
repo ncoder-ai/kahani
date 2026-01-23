@@ -197,6 +197,7 @@ export interface Character {
   is_template?: boolean;
   is_public?: boolean;
   voice_style?: VoiceStyle | null;
+  portrait_image_id?: number | null;
   created_at?: string;
   updated_at?: string;
 }

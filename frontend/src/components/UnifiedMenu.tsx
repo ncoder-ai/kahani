@@ -17,6 +17,7 @@ interface StoryActions {
   onEditCharacterVoices?: () => void;
   onViewAllCharacters?: () => void;
   onEditCharacterRoles?: () => void;
+  onManageStoryCharacters?: () => void;
   onDirectorMode?: () => void;
   onDeleteMode?: () => void;
   onEditStorySettings?: () => void;
@@ -298,6 +299,25 @@ export default function UnifiedMenu({
                         <div className="flex-1">
                           <div className="text-sm font-medium text-white">Add Character</div>
                           <div className="text-xs text-gray-400">Quick add to story</div>
+                        </div>
+                      </button>
+                    )}
+
+                    {/* Manage Story Characters */}
+                    {storyActions.onManageStoryCharacters && (
+                      <button
+                        onClick={() => {
+                          onClose();
+                          storyActions.onManageStoryCharacters?.();
+                        }}
+                        className="w-full flex items-center gap-3 p-2.5 hover:bg-white/10 rounded-lg transition-colors text-left group"
+                      >
+                        <div className="p-1.5 bg-blue-600/20 rounded-lg group-hover:bg-blue-600/30 transition-colors">
+                          <Edit className="w-4 h-4 text-blue-400" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="text-sm font-medium text-white">Manage Story Characters</div>
+                          <div className="text-xs text-gray-400">Edit details, portraits & more</div>
                         </div>
                       </button>
                     )}
