@@ -180,6 +180,7 @@ export default function StoryPage() {
   const [currentChapterIndex, setCurrentChapterIndex] = useState(0);
   const [showChoices, setShowChoices] = useState(true);
   const [directorMode, setDirectorMode] = useState(false);
+  const [showImages, setShowImages] = useState(true); // Global toggle for scene images
   const [editingScene, setEditingScene] = useState<number | null>(null);
   const [editingVariantId, setEditingVariantId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState('');
@@ -332,6 +333,33 @@ export default function StoryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, hasHydrated, storyId]); // router intentionally excluded - it can be unstable and cause unwanted reloads
 
+  // Initialize showImages from user settings when they load
+  useEffect(() => {
+    if (userSettings?.ui_preferences?.show_scene_images !== undefined) {
+      setShowImages(userSettings.ui_preferences.show_scene_images);
+    }
+  }, [userSettings?.ui_preferences?.show_scene_images]);
+
+  // Toggle images and save to user settings
+  const toggleShowImages = useCallback(async () => {
+    const newValue = !showImages;
+    setShowImages(newValue);
+    try {
+      await fetch(`${await getApiBaseUrl()}/api/settings/`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          ui_preferences: { show_scene_images: newValue }
+        }),
+      });
+    } catch (err) {
+      console.error('Failed to save show_scene_images setting:', err);
+    }
+  }, [showImages, token]);
+
   const loadUserSettings = async () => {
     try {
       const settings = await apiClient.getUserSettings();
@@ -411,6 +439,8 @@ export default function StoryPage() {
         onShowEntityStates: () => setShowEntityStatesModal(true),
         directorModeActive: directorMode,
         deleteModeActive: isInDeleteMode,
+        showImagesActive: showImages,
+        onToggleImages: toggleShowImages,
         showCharacterBanner: showCharacterBanner,
         onDiscoverCharacters: () => setShowCharacterWizard(true),
         // Generation/extraction status
@@ -442,7 +472,7 @@ export default function StoryPage() {
     } else {
       setStoryActions(undefined);
     }
-  }, [story, directorMode, isInDeleteMode, showCharacterBanner, lastGenerationTime, generationStartTime, extractionStatus, setStoryActions, router, storyId, currentBranchId]);
+  }, [story, directorMode, isInDeleteMode, showImages, toggleShowImages, showCharacterBanner, lastGenerationTime, generationStartTime, extractionStatus, setStoryActions, router, storyId, currentBranchId]);
 
   // Auto-scroll to bottom when streaming starts
   useEffect(() => {
@@ -2994,6 +3024,7 @@ export default function StoryPage() {
                             setBranchCreationFromScene(sceneSequence);
                           }}
                           isGeneratingChoices={isGeneratingChoices && waitingForChoicesSceneId === scene.id}
+                          showImages={showImages}
                         />
                       </div>
                     );

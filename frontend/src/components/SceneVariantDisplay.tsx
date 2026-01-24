@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { PlayIcon, ArrowPathIcon, PlusCircleIcon, StopIcon, SparklesIcon, TrashIcon, ClipboardIcon, XMarkIcon, FlagIcon, PencilIcon, CheckIcon } from '@heroicons/react/24/outline';
-import { GitFork, Volume2 } from 'lucide-react';
+import { GitFork, Volume2, Image } from 'lucide-react';
 import SceneDisplay from './SceneDisplay';
 import SceneImageGenerator from './SceneImageGenerator';
 import { SceneTTSButton } from './SceneTTSButton';
@@ -105,6 +105,8 @@ interface SceneVariantDisplayProps {
   isGeneratingChoices?: boolean;
   // Variant reload trigger from parent
   variantReloadTrigger?: number;
+  // Image display toggle
+  showImages?: boolean;
 }
 
 export default function SceneVariantDisplay({
@@ -152,7 +154,8 @@ export default function SceneVariantDisplay({
   onCopySceneText,
   onCreateBranch,
   isGeneratingChoices = false,
-  variantReloadTrigger
+  variantReloadTrigger,
+  showImages = true
 }: SceneVariantDisplayProps) {
   const [variants, setVariants] = useState<SceneVariant[]>([]);
   const [currentVariantId, setCurrentVariantId] = useState<number | null>(null);
@@ -170,6 +173,7 @@ export default function SceneVariantDisplay({
   const [copySuccess, setCopySuccess] = useState(false);
   const [showFloatingMenu, setShowFloatingMenu] = useState(false);
   const [isClient, setIsClient] = useState(false);
+  const [showImageGenerator, setShowImageGenerator] = useState(false);
   const [isMenuVisible, setIsMenuVisible] = useState(true);
   const menuTimerRef = useRef<NodeJS.Timeout | null>(null);
   const choiceInputRef = useRef<HTMLInputElement>(null);
@@ -826,12 +830,18 @@ export default function SceneVariantDisplay({
         userSettings={userSettings}
       />
 
-      {/* Inline Scene Image Generator */}
-      <SceneImageGenerator
-        sceneId={scene.id}
-        storyId={storyId}
-        sceneContent={getDisplayScene().content}
-      />
+      {/* Inline Scene Image Generator - show if global toggle is on OR user clicked to open */}
+      {(showImages || showImageGenerator) && (
+        <SceneImageGenerator
+          sceneId={scene.id}
+          storyId={storyId}
+          sceneContent={getDisplayScene().content}
+          forceShow={showImageGenerator}
+          onClose={() => setShowImageGenerator(false)}
+          defaultCheckpoint={userSettings?.image_generation_settings?.comfyui_checkpoint || ''}
+          defaultStyle={userSettings?.image_generation_settings?.default_style || 'illustrated'}
+        />
+      )}
 
       {/* Variant Indicator - Below scene content */}
       {isLastScene && shouldShowNavigation() && (
@@ -940,6 +950,17 @@ export default function SceneVariantDisplay({
             title="Create branch from this scene"
           >
             <GitFork className="w-3.5 h-3.5 md:w-4 md:h-4" />
+          </button>
+
+          {/* Generate Image Button */}
+          <button
+            onClick={() => setShowImageGenerator(!showImageGenerator)}
+            className={`flex items-center justify-center transition-all duration-200 flex-shrink-0 hover:bg-gray-800/50 rounded p-1 ${
+              showImageGenerator ? 'text-purple-400' : 'text-gray-400 hover:text-gray-300'
+            }`}
+            title={showImageGenerator ? 'Hide image generator' : 'Generate image for this scene'}
+          >
+            <Image className="w-3.5 h-3.5 md:w-4 md:h-4" />
           </button>
 
           {/* Audio Controls - Floating speaker button */}

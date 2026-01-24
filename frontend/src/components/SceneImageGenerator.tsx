@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Sparkles, ChevronDown, ChevronLeft, ChevronRight, Download, Trash2, RefreshCw } from 'lucide-react';
+import { Sparkles, ChevronDown, ChevronLeft, ChevronRight, Download, Trash2, RefreshCw, X } from 'lucide-react';
 import { imageGenerationApi } from '@/lib/api/index';
 import type { ImageGenServerStatus, ImageGenAvailableModels, StylePreset } from '@/lib/api/index';
 
@@ -16,6 +16,10 @@ interface SceneImageGeneratorProps {
   storyId: number;
   sceneContent?: string;
   onImageGenerated?: (imageId: number) => void;
+  forceShow?: boolean;  // When true, always show the component even without images
+  onClose?: () => void; // Callback when user closes the generator
+  defaultCheckpoint?: string; // User's preferred checkpoint from settings
+  defaultStyle?: string; // User's preferred style from settings
 }
 
 interface GenerationProgress {
@@ -29,6 +33,10 @@ export default function SceneImageGenerator({
   storyId,
   sceneContent = '',
   onImageGenerated,
+  forceShow = false,
+  onClose,
+  defaultCheckpoint = '',
+  defaultStyle = 'illustrated',
 }: SceneImageGeneratorProps) {
   const [images, setImages] = useState<SceneImage[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -37,8 +45,8 @@ export default function SceneImageGenerator({
   const [serverStatus, setServerStatus] = useState<ImageGenServerStatus | null>(null);
   const [availableModels, setAvailableModels] = useState<ImageGenAvailableModels | null>(null);
   const [stylePresets, setStylePresets] = useState<Record<string, StylePreset>>({});
-  const [selectedCheckpoint, setSelectedCheckpoint] = useState<string>('');
-  const [selectedStyle, setSelectedStyle] = useState<string>('illustrated');
+  const [selectedCheckpoint, setSelectedCheckpoint] = useState<string>(defaultCheckpoint);
+  const [selectedStyle, setSelectedStyle] = useState<string>(defaultStyle);
   const [customPrompt, setCustomPrompt] = useState<string>('');
   const [generationProgress, setGenerationProgress] = useState<GenerationProgress>({ status: 'idle' });
   const [showOptions, setShowOptions] = useState(false);
@@ -85,8 +93,12 @@ export default function SceneImageGenerator({
         setAvailableModels(models);
         setStylePresets(presetsResponse?.presets || {});
 
+        // Only set checkpoint if user doesn't have a default selected
+        // or if their default isn't in the available models
         if (models?.checkpoints && models.checkpoints.length > 0) {
-          setSelectedCheckpoint(models.checkpoints[0]);
+          if (!defaultCheckpoint || !models.checkpoints.includes(defaultCheckpoint)) {
+            setSelectedCheckpoint(models.checkpoints[0]);
+          }
         }
       } catch (err) {
         console.error('Failed to load image generation info:', err);
@@ -94,7 +106,7 @@ export default function SceneImageGenerator({
     };
 
     loadServerInfo();
-  }, []);
+  }, [defaultCheckpoint]);
 
   // Set default prompt when scene content or style changes
   useEffect(() => {
@@ -332,8 +344,28 @@ export default function SceneImageGenerator({
   const canNavigatePrev = currentIndex < images.length - 1;
   const canNavigateNext = currentIndex > 0;
 
+  // Don't render anything if no images and not currently generating
+  // Unless forceShow is true (user clicked to open the generator)
+  if (!hasImages && !isGenerating && !loading && !forceShow) {
+    return null;
+  }
+
   return (
     <div className="mt-4 pt-4 border-t border-white/10">
+      {/* Header with close button when forceShow */}
+      {forceShow && onClose && (
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-sm font-medium text-white/70">Scene Image</span>
+          <button
+            onClick={onClose}
+            className="p-1 text-white/50 hover:text-white/80 rounded"
+            title="Close"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Image Display */}
       {hasImages && currentImageUrl && (
         <div className="relative mb-3">
@@ -399,19 +431,19 @@ export default function SceneImageGenerator({
         </div>
       )}
 
-      {/* Generate placeholder when no images */}
-      {!hasImages && !isGenerating && (
-        <div className="mb-3 p-6 border border-dashed border-white/20 rounded-lg text-center">
-          <Sparkles className="w-8 h-8 text-purple-400/50 mx-auto mb-2" />
-          <p className="text-sm text-white/50">No scene image yet</p>
-        </div>
-      )}
-
       {/* Generating placeholder when no existing images */}
       {!hasImages && isGenerating && (
         <div className="mb-3 p-6 bg-white/5 rounded-lg text-center">
           <div className="w-8 h-8 border-2 border-purple-400/30 border-t-purple-400 rounded-full animate-spin mx-auto mb-2" />
           <p className="text-sm text-white/70">{generationProgress.message}</p>
+        </div>
+      )}
+
+      {/* Prompt to generate when forceShow but no images */}
+      {!hasImages && !isGenerating && forceShow && (
+        <div className="mb-3 p-4 bg-white/5 rounded-lg text-center">
+          <Sparkles className="w-6 h-6 text-purple-400/70 mx-auto mb-2" />
+          <p className="text-sm text-white/60">Click Generate to create an image for this scene</p>
         </div>
       )}
 

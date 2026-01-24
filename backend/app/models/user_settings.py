@@ -79,6 +79,7 @@ class UserSettings(Base):
     enable_notifications = Column(Boolean, nullable=True)
     scene_display_format = Column(String(20), nullable=True)
     show_scene_titles = Column(Boolean, nullable=True)
+    show_scene_images = Column(Boolean, nullable=True)  # Global toggle for scene images display
     scene_edit_mode = Column(String(20), nullable=True)
     auto_open_last_story = Column(Boolean, nullable=True)
     last_accessed_story_id = Column(Integer, nullable=True)
@@ -220,6 +221,7 @@ class UserSettings(Base):
                 "notifications": self.enable_notifications if self.enable_notifications is not None else ui_defaults.get("notifications", True),
                 "scene_display_format": self.scene_display_format if self.scene_display_format is not None else ui_defaults.get("scene_display_format", "default"),
                 "show_scene_titles": self.show_scene_titles if self.show_scene_titles is not None else ui_defaults.get("show_scene_titles", True),
+                "show_scene_images": self.show_scene_images if self.show_scene_images is not None else ui_defaults.get("show_scene_images", True),
                 "scene_edit_mode": self.scene_edit_mode if self.scene_edit_mode is not None else ui_defaults.get("scene_edit_mode", "textarea"),
                 "auto_open_last_story": self.auto_open_last_story if self.auto_open_last_story is not None else ui_defaults.get("auto_open_last_story", False),
                 "last_accessed_story_id": self.last_accessed_story_id

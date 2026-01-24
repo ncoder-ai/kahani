@@ -76,6 +76,7 @@ class UIPreferencesUpdate(BaseModel):
     notifications: Optional[bool] = None
     scene_display_format: str = Field(pattern="^(default|bubble|card|minimal)$", default="default")
     show_scene_titles: Optional[bool] = None
+    show_scene_images: Optional[bool] = None
     scene_edit_mode: Optional[str] = Field(default=None, pattern="^(textarea|contenteditable)$")
     auto_open_last_story: Optional[bool] = None
 
@@ -396,6 +397,8 @@ async def update_user_settings(
             user_settings.scene_display_format = ui.scene_display_format
         if ui.show_scene_titles is not None:
             user_settings.show_scene_titles = ui.show_scene_titles
+        if ui.show_scene_images is not None:
+            user_settings.show_scene_images = ui.show_scene_images
         if ui.scene_edit_mode is not None:
             user_settings.scene_edit_mode = ui.scene_edit_mode
         if ui.auto_open_last_story is not None:

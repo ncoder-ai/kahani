@@ -16,6 +16,8 @@ export interface StoryActions {
   onShowEntityStates?: () => void;
   directorModeActive?: boolean;
   deleteModeActive?: boolean;
+  showImagesActive?: boolean;
+  onToggleImages?: () => void;
   // Character suggestion banner
   showCharacterBanner?: boolean;
   onDiscoverCharacters?: () => void;

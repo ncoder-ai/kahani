@@ -5,9 +5,9 @@ import { useAuthStore } from '@/store';
 import { useGlobalTTS } from '@/contexts/GlobalTTSContext';
 import { audioContextManager } from '@/utils/audioContextManager';
 import { useState, useEffect, useCallback } from 'react';
-import { 
-  X, Settings, LogOut, User, Home, PlusCircle, BookOpen, 
-  ChevronRight, ChevronDown, Film, Trash2, Shield, Edit, Bug, GitBranch, Volume2, Users, UserCog, Package
+import {
+  X, Settings, LogOut, User, Home, PlusCircle, BookOpen,
+  ChevronRight, ChevronDown, Film, Trash2, Shield, Edit, Bug, GitBranch, Volume2, Users, UserCog, Package, Image
 } from 'lucide-react';
 import BranchSelector from './BranchSelector';
 
@@ -25,6 +25,8 @@ interface StoryActions {
   onShowEntityStates?: () => void;
   directorModeActive?: boolean;
   deleteModeActive?: boolean;
+  showImagesActive?: boolean;
+  onToggleImages?: () => void;
   // Branch-related props
   storyId?: number;
   currentBranchId?: number;
@@ -198,13 +200,28 @@ export default function UnifiedMenu({
                             storyActions.onDeleteMode?.();
                           }}
                           className={`p-1.5 rounded-md transition-colors ${
-                            storyActions.deleteModeActive 
-                              ? 'bg-red-600/30 text-red-400' 
+                            storyActions.deleteModeActive
+                              ? 'bg-red-600/30 text-red-400'
                               : 'hover:bg-white/10 text-gray-400 hover:text-white'
                           }`}
                           title={storyActions.deleteModeActive ? 'Delete Mode ON' : 'Delete Mode OFF'}
                         >
                           <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                      {storyActions.onToggleImages && (
+                        <button
+                          onClick={() => {
+                            storyActions.onToggleImages?.();
+                          }}
+                          className={`p-1.5 rounded-md transition-colors ${
+                            storyActions.showImagesActive
+                              ? 'bg-purple-600/30 text-purple-400'
+                              : 'hover:bg-white/10 text-gray-400 hover:text-white'
+                          }`}
+                          title={storyActions.showImagesActive ? 'Images ON' : 'Images OFF'}
+                        >
+                          <Image className="w-4 h-4" />
                         </button>
                       )}
                     </div>
