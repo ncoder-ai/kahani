@@ -2240,7 +2240,7 @@ Chapter Conclusion:"""
         dynamic_max_tokens = max(base_max_tokens, choices_count * 75)
         max_tokens = dynamic_max_tokens
         
-        logger.info(f"[CHOICES] Using multi-message structure for cache optimization: {len(messages)} messages, max_tokens={max_tokens}")
+        logger.info(f"[CHOICES] Using multi-message structure for cache optimization: {len(messages)} messages, max_tokens={max_tokens}, requested_choices={choices_count}")
         
         # Write debug output to prompt_choice_sent.json for debugging cache issues
         from ...config import settings
@@ -2269,15 +2269,21 @@ Chapter Conclusion:"""
             max_tokens=max_tokens
         )
         
+        # Log raw response for debugging
+        logger.info(f"[CHOICES] Raw LLM response for choice generation: {response}")
+
         # Parse choices from response using JSON format
         choices = self._parse_choices_from_json(response)
-        
+
         # If parsing failed or we don't have enough choices, return empty list
         # This signals to the API layer that choice generation failed
         if not choices or len(choices) < 2:
             logger.warning(f"[CHOICES] Failed to parse choices from JSON. Response: {response[:200]}")
             return []
-        
+
+        if len(choices) < choices_count:
+            logger.warning(f"[CHOICES] LLM generated fewer choices than requested: got {len(choices)}, wanted {choices_count}")
+
         return choices
     
     async def generate_scenario(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> str:
@@ -2363,12 +2369,15 @@ Chapter Conclusion:"""
                 
                 # Get extraction model settings
                 ext_settings = user_settings.get('extraction_model_settings', {})
+                llm_settings = user_settings.get('llm_settings', {})
+                timeout_total = llm_settings.get('timeout_total', 240)
                 extraction_service = ExtractionLLMService(
                     url=ext_settings.get('url', 'http://localhost:1234/v1'),
                     model=ext_settings.get('model_name', 'qwen2.5-3b-instruct'),
                     api_key=ext_settings.get('api_key', ''),
                     temperature=ext_settings.get('temperature', 0.3),
-                    max_tokens=ext_settings.get('max_tokens', 1000)
+                    max_tokens=ext_settings.get('max_tokens', 1000),
+                    timeout_total=timeout_total
                 )
                 
                 # Get prompts from centralized prompt manager

@@ -134,20 +134,18 @@ async def run_interaction_extraction_background(
             max_tokens = extraction_settings.get('max_tokens', ext_defaults.get('max_tokens', 2048))
 
             if url and model:
+                # Get timeout from user's LLM settings
+                llm_settings = user_settings.get('llm_settings', {})
+                timeout_total = llm_settings.get('timeout_total', 240)
                 extraction_service = ExtractionLLMService(
                     url=url,
                     model=model,
                     api_key=api_key,
                     temperature=temperature,
-                    max_tokens=max_tokens
+                    max_tokens=max_tokens,
+                    timeout_total=timeout_total
                 )
-                # Use user's timeout settings (with a minimum for batch processing)
-                from aiohttp import ClientTimeout
-                user_timeout = user_settings.get('llm_settings', {}).get('timeout_total', 60)
-                # Batch processing needs more time - use at least 2x the user's timeout
-                batch_timeout = max(user_timeout * 2, 60)
-                extraction_service.timeout = ClientTimeout(total=batch_timeout, connect=10)
-                logger.info(f"[INTERACTION_EXTRACT] Using extraction LLM: {model} at {url} (timeout={batch_timeout}s)")
+                logger.info(f"[INTERACTION_EXTRACT] Using extraction LLM: {model} at {url} (timeout={timeout_total}s)")
         except Exception as e:
             logger.warning(f"[INTERACTION_EXTRACT] Failed to init extraction service: {e}, falling back to main LLM")
 

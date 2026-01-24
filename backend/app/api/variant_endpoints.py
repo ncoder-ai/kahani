@@ -265,16 +265,20 @@ async def create_scene_variant(
                         branch_id=scene.branch_id
                     )
 
-                    # Check if scene is at extraction threshold - if so, regenerate entity states
-                    from ..services.entity_state_service import EntityStateService
+                    # Check if scene is at extraction threshold - if so, regenerate entity states in background
+                    # IMPORTANT: Run in background to avoid blocking the streaming response (~90 sec for 5 scenes)
+                    from .story_tasks.background_tasks import recalculate_entities_in_background
                     batch_threshold = user_settings.get("context_summary_threshold", 5) if user_settings else 5
                     if scene.sequence_number % batch_threshold == 0:
-                        entity_service = EntityStateService(user_id=current_user.id, user_settings=user_settings)
-                        await entity_service.recalculate_entity_states_from_batches(
-                            db, story_id, current_user.id, user_settings,
-                            scene.sequence_number, branch_id=scene.branch_id
-                        )
-                        logger.info(f"[VARIANT] Regenerated entity states at threshold for scene {scene_id}")
+                        import asyncio
+                        asyncio.create_task(recalculate_entities_in_background(
+                            story_id=story_id,
+                            user_id=current_user.id,
+                            user_settings=user_settings,
+                            up_to_sequence=scene.sequence_number,
+                            branch_id=scene.branch_id
+                        ))
+                        logger.info(f"[VARIANT] Triggered background entity recalculation at threshold for scene {scene_id}")
 
                     # Check if scene is at plot extraction threshold - if so, trigger plot event extraction
                     plot_threshold = user_settings.get('context_settings', {}).get('plot_event_extraction_threshold', 5) if user_settings else 5
@@ -821,55 +825,31 @@ async def create_scene_variant_streaming(
                 StoryFlow.is_active == True
             ).first()
             
+            # Track scene info for background tasks (scheduled after completion is sent)
+            scene_for_extraction = None
+
             if flow_entry:
                 old_variant_id = flow_entry.scene_variant_id
                 flow_entry.scene_variant_id = variant.id
                 db.commit()
                 logger.info(f"Updated StoryFlow: scene {scene_id} now points to variant {variant.id} (was {old_variant_id})")
-                
+
                 # Invalidate chapter summary batches if this scene was summarized
                 from ..api.chapters import invalidate_chapter_batches_for_scene
                 invalidate_chapter_batches_for_scene(scene_id, db)
-                
-                # Invalidate extractions for the modified scene (regeneration happens when threshold is reached)
-                scene = db.query(Scene).filter(Scene.id == scene_id).first()
-                if scene:
+
+                # Invalidate extractions for the modified scene (fast cleanup, regeneration happens later)
+                scene_for_extraction = db.query(Scene).filter(Scene.id == scene_id).first()
+                if scene_for_extraction:
                     await invalidate_extractions_for_scene(
                         scene_id=scene_id,
                         story_id=story_id,
-                        scene_sequence=scene.sequence_number,
+                        scene_sequence=scene_for_extraction.sequence_number,
                         user_id=current_user.id,
                         user_settings=user_settings,
                         db=db,
-                        branch_id=scene.branch_id
+                        branch_id=scene_for_extraction.branch_id
                     )
-
-                    # Check if scene is at extraction threshold - if so, regenerate entity states
-                    from ..services.entity_state_service import EntityStateService
-                    batch_threshold = user_settings.get("context_summary_threshold", 5) if user_settings else 5
-                    if scene.sequence_number % batch_threshold == 0:
-                        entity_service = EntityStateService(user_id=current_user.id, user_settings=user_settings)
-                        await entity_service.recalculate_entity_states_from_batches(
-                            db, story_id, current_user.id, user_settings,
-                            scene.sequence_number, branch_id=scene.branch_id
-                        )
-                        logger.info(f"[VARIANT] Regenerated entity states at threshold for scene {scene_id}")
-                    
-                    # Check if scene is at plot extraction threshold - if so, trigger plot event extraction
-                    plot_threshold = user_settings.get('context_settings', {}).get('plot_event_extraction_threshold', 5) if user_settings else 5
-                    if scene.sequence_number % plot_threshold == 0:
-                        chapter = db.query(Chapter).filter(Chapter.id == scene.chapter_id).first()
-                        if chapter and chapter.chapter_plot:
-                            import asyncio
-                            asyncio.create_task(run_plot_extraction_in_background(
-                                story_id=story_id,
-                                chapter_id=chapter.id,
-                                from_sequence=scene.sequence_number - plot_threshold + 1,
-                                to_sequence=scene.sequence_number,
-                                user_id=current_user.id,
-                                user_settings=user_settings
-                            ))
-                            logger.info(f"[VARIANT] Triggered plot extraction at threshold for scene {scene_id}")
             else:
                 logger.warning(f"No active StoryFlow entry found for scene {scene_id}")
             
@@ -982,10 +962,42 @@ async def create_scene_variant_streaming(
             completion_json = json.dumps(variant_data)
             logger.info(f"[STREAMING DEBUG] Sending completion event (length: {len(completion_json)} chars)")
             logger.info(f"[STREAMING DEBUG] Completion event includes auto_play_session_id: {'auto_play_session_id' in variant_data}")
-            
+
             yield f"data: {completion_json}\n\n"
+
+            # Schedule background extraction tasks AFTER completion is sent to frontend
+            # This ensures choices are displayed before potentially slow extractions run
+            if scene_for_extraction:
+                from .story_tasks.background_tasks import recalculate_entities_in_background
+                batch_threshold = user_settings.get("context_summary_threshold", 5) if user_settings else 5
+                if scene_for_extraction.sequence_number % batch_threshold == 0:
+                    import asyncio
+                    asyncio.create_task(recalculate_entities_in_background(
+                        story_id=story_id,
+                        user_id=current_user.id,
+                        user_settings=user_settings,
+                        up_to_sequence=scene_for_extraction.sequence_number,
+                        branch_id=scene_for_extraction.branch_id
+                    ))
+                    logger.info(f"[VARIANT] Triggered background entity recalculation at threshold for scene {scene_id}")
+
+                plot_threshold = user_settings.get('context_settings', {}).get('plot_event_extraction_threshold', 5) if user_settings else 5
+                if scene_for_extraction.sequence_number % plot_threshold == 0:
+                    chapter = db.query(Chapter).filter(Chapter.id == scene_for_extraction.chapter_id).first()
+                    if chapter and chapter.chapter_plot:
+                        import asyncio
+                        asyncio.create_task(run_plot_extraction_in_background(
+                            story_id=story_id,
+                            chapter_id=chapter.id,
+                            from_sequence=scene_for_extraction.sequence_number - plot_threshold + 1,
+                            to_sequence=scene_for_extraction.sequence_number,
+                            user_id=current_user.id,
+                            user_settings=user_settings
+                        ))
+                        logger.info(f"[VARIANT] Triggered plot extraction at threshold for scene {scene_id}")
+
             yield "data: [DONE]\n\n"
-            
+
         except Exception as e:
             logger.error(f"Error in variant stream: {e}")
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"

@@ -19,33 +19,35 @@ logger = logging.getLogger(__name__)
 
 class ExtractionLLMService:
     """OpenAI-compatible extraction service for small local models"""
-    
-    def __init__(self, url: str, model: str, api_key: str = "", 
-                 temperature: float = 0.3, max_tokens: int = 1000):
+
+    def __init__(self, url: str, model: str, api_key: str = "",
+                 temperature: float = 0.3, max_tokens: int = 1000,
+                 timeout_total: float = 240):
         """
         Initialize extraction service
-        
+
         Args:
             url: OpenAI-compatible API endpoint URL (e.g., http://localhost:1234/v1)
             model: Model name to use
             api_key: API key if required (empty string for local servers)
             temperature: Temperature for generation (default 0.3 for more deterministic)
             max_tokens: Maximum tokens for response (default 1000)
+            timeout_total: Total timeout in seconds for requests (default 240, from user settings)
         """
         self.url = url.rstrip('/')
         # Ensure URL ends with /v1 for OpenAI-compatible endpoints
         if not self.url.endswith('/v1'):
             self.url = f"{self.url}/v1"
-        
+
         self.model = model
         self.api_key = api_key or "not-needed"  # Some servers don't require key
         self.temperature = temperature
         self.max_tokens = max_tokens
-        
-        # Short timeouts optimized for small local models
-        # Base timeout for single extractions, will be increased for batch/combined calls
-        self.timeout = ClientTimeout(total=30, connect=5)  # Increased connect timeout for local LLMs
-        
+        self.timeout_total = timeout_total
+
+        # Use timeout from user settings, with reasonable connect timeout
+        self.timeout = ClientTimeout(total=timeout_total, connect=30)
+
         # Configure LiteLLM for OpenAI-compatible endpoint
         self._configure_litellm()
     
@@ -690,30 +692,19 @@ If no NPCs found, return {{"npcs": []}}. Return ONLY the JSON, no other text."""
         try:
             from litellm import acompletion
 
-            # Get prompts from centralized prompts.yml
+            # Get prompts from centralized prompts.yml (use same template as main LLM fallback)
             if system_prompt is None:
-                system_prompt = prompt_manager.get_prompt("entity_state_extraction.extraction_service", "system")
+                system_prompt = prompt_manager.get_prompt("entity_state_extraction.single", "system")
                 if not system_prompt:
                     system_prompt = "You are a precise story state tracker. Extract entity states as JSON. Focus on FACTS, not interpretation."
 
             prompt = prompt_manager.get_prompt(
-                "entity_state_extraction.extraction_service", "user",
+                "entity_state_extraction.single", "user",
                 scene_sequence=scene_sequence,
                 scene_content=scene_content,
                 character_names=', '.join(character_names),
                 chapter_location=chapter_location or "Unknown"
             )
-
-            # Fallback if template not found
-            if not prompt:
-                prompt = f"""Chapter Location: {chapter_location or "Unknown"}
-
-Scene #{scene_sequence}:
-{scene_content}
-
-Known Characters: {', '.join(character_names)}
-
-Extract entity states as JSON with characters, locations, objects arrays."""
 
             # Add interaction extraction if interaction types are configured
             if interaction_types:
@@ -886,19 +877,19 @@ Summary:"""
     def _calculate_batch_timeout(self, num_scenes: int) -> float:
         """
         Calculate timeout for batch extraction based on number of scenes.
-        Local LLMs process slower, so we use generous timeouts.
-        
+        Uses user's timeout_total as base, scales with batch size.
+
         Args:
             num_scenes: Number of scenes in batch
-            
+
         Returns:
             Timeout in seconds
         """
-        # Base timeout: 120 seconds (4x single extraction)
-        # Scale with batch size: +10 seconds per scene
-        # Max: 300 seconds (5 minutes)
-        timeout = 120 + (num_scenes * 10)
-        return min(timeout, 300)
+        # Use user's timeout as base, scale with batch size: +10 seconds per scene
+        # Max: 2x user's timeout (to prevent excessively long waits)
+        base_timeout = self.timeout_total
+        timeout = base_timeout + (num_scenes * 10)
+        return min(timeout, base_timeout * 2)
     
     def _calculate_batch_max_tokens(self, num_scenes: int) -> int:
         """

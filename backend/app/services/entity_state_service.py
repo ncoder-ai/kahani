@@ -356,14 +356,19 @@ class EntityStateService:
             api_key = extraction_settings.get('api_key', ext_defaults.get('api_key', ''))
             temperature = extraction_settings.get('temperature', ext_defaults.get('temperature'))
             max_tokens = extraction_settings.get('max_tokens', ext_defaults.get('max_tokens'))
-            
+
+            # Get timeout from user's LLM settings (shared across all LLM operations)
+            llm_settings = self.user_settings.get('llm_settings', {})
+            timeout_total = llm_settings.get('timeout_total', 240)
+
             # Create extraction service
             return ExtractionLLMService(
                 url=url,
                 model=model,
                 api_key=api_key,
                 temperature=temperature,
-                max_tokens=max_tokens
+                max_tokens=max_tokens,
+                timeout_total=timeout_total
             )
         except Exception as e:
             logger.warning(f"Failed to initialize extraction service: {e}")

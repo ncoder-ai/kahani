@@ -254,19 +254,24 @@ class NPCTrackingService:
             api_key = extraction_settings.get('api_key', ext_defaults.get('api_key', ''))
             temperature = extraction_settings.get('temperature', ext_defaults.get('temperature'))
             max_tokens = extraction_settings.get('max_tokens', service_defaults.get('npc_tracking_max_tokens', 1500))
-            
+
+            # Get timeout from user's LLM settings
+            llm_settings = user_settings.get('llm_settings', {})
+            timeout_total = llm_settings.get('timeout_total', 240)
+
             # Create extraction service
             return ExtractionLLMService(
                 url=url,
                 model=model,
                 api_key=api_key,
                 temperature=temperature,
-                max_tokens=max_tokens
+                max_tokens=max_tokens,
+                timeout_total=timeout_total
             )
         except Exception as e:
             logger.warning(f"Failed to initialize extraction service: {e}")
             return None
-    
+
     async def _extract_npcs_with_llm_batch(
         self,
         batch_content: str,
