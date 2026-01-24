@@ -18,6 +18,7 @@ export interface StoryActions {
   deleteModeActive?: boolean;
   showImagesActive?: boolean;
   onToggleImages?: () => void;
+  onOpenGallery?: () => void;
   // Character suggestion banner
   showCharacterBanner?: boolean;
   onDiscoverCharacters?: () => void;

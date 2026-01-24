@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..dependencies import get_current_user
-from ..models import User, UserSettings, GeneratedImage, Character, Scene, Story
+from ..models import User, UserSettings, GeneratedImage, Character, Scene, Story, StoryCharacter
 from ..config import settings
 from ..services.image_generation import ComfyUIProvider, GenerationRequest, GenerationStatus
 
@@ -169,7 +169,7 @@ def get_storage_path() -> str:
 
 async def save_generated_image(
     image_data: bytes,
-    story_id: int,
+    story_id: Optional[int],
     image_type: str,
     prompt: str,
     generation_params: Dict[str, Any],
@@ -181,22 +181,26 @@ async def save_generated_image(
     """Save a generated image to disk and database"""
     storage_path = get_storage_path()
 
-    # Create subdirectory for story
-    story_dir = os.path.join(storage_path, f"story_{story_id}")
-    os.makedirs(story_dir, exist_ok=True)
+    # Create subdirectory - use "portraits" for character portraits without a story
+    if story_id is None:
+        subdir = "portraits"
+    else:
+        subdir = f"story_{story_id}"
+    image_dir = os.path.join(storage_path, subdir)
+    os.makedirs(image_dir, exist_ok=True)
 
     # Generate unique filename
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     unique_id = str(uuid.uuid4())[:8]
     filename = f"{image_type}_{timestamp}_{unique_id}.png"
-    file_path = os.path.join(story_dir, filename)
+    file_path = os.path.join(image_dir, filename)
 
     # Write image to disk
     with open(file_path, "wb") as f:
         f.write(image_data)
 
     # Create relative path for database
-    relative_path = f"story_{story_id}/{filename}"
+    relative_path = f"{subdir}/{filename}"
 
     # Create database record
     generated_image = GeneratedImage(
@@ -411,22 +415,8 @@ async def generate_character_portrait(
                 error=error_msg,
             )
 
-        # We need a story_id to save the image - for now use a placeholder approach
-        # In a real implementation, character portraits might be stored differently
-        # For now, find or create a "Library" story for the user's character portraits
-
-        # For simplicity, we'll require the character to be in at least one story
-        story_char = character.story_characters[0] if character.story_characters else None
-        if not story_char:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Character must be in at least one story to generate portraits"
-            )
-
-        story_id = story_char.story_id
-        branch_id = story_char.branch_id
-
-        # Save the image
+        # Save the portrait as a default (no story_id)
+        # This makes it available across all stories the character is in
         generation_params = {
             "width": request.width,
             "height": request.height,
@@ -439,12 +429,12 @@ async def generate_character_portrait(
 
         generated_image = await save_generated_image(
             image_data=result.image_data,
-            story_id=story_id,
+            story_id=None,  # Default portrait, not tied to a specific story
             image_type="character_portrait",
             prompt=prompt,
             generation_params=generation_params,
             db=db,
-            branch_id=branch_id,
+            branch_id=None,
             character_id=character_id,
         )
 
@@ -501,37 +491,26 @@ async def upload_character_portrait(
     # Read file content
     image_data = await file.read()
 
-    # For simplicity, require the character to be in at least one story
-    story_char = character.story_characters[0] if character.story_characters else None
-    if not story_char:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Character must be in at least one story to upload portraits"
-        )
-
-    story_id = story_char.story_id
-    branch_id = story_char.branch_id
-
-    # Save the uploaded image
+    # Save the uploaded image as a default portrait (no story_id)
     storage_path = get_storage_path()
-    story_dir = os.path.join(storage_path, f"story_{story_id}")
-    os.makedirs(story_dir, exist_ok=True)
+    portrait_dir = os.path.join(storage_path, "portraits")
+    os.makedirs(portrait_dir, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     unique_id = str(uuid.uuid4())[:8]
     ext = os.path.splitext(file.filename or "image.png")[1] or ".png"
     filename = f"character_portrait_{timestamp}_{unique_id}{ext}"
-    file_path = os.path.join(story_dir, filename)
+    file_path = os.path.join(portrait_dir, filename)
 
     with open(file_path, "wb") as f:
         f.write(image_data)
 
-    relative_path = f"story_{story_id}/{filename}"
+    relative_path = f"portraits/{filename}"
 
-    # Create database record
+    # Create database record - no story_id for default portraits
     generated_image = GeneratedImage(
-        story_id=story_id,
-        branch_id=branch_id,
+        story_id=None,
+        branch_id=None,
         character_id=character_id,
         image_type="character_portrait",
         file_path=relative_path,
@@ -800,6 +779,70 @@ async def get_story_images(
     ]
 
 
+@router.get("/story/{story_id}/portraits", response_model=List[ImageResponse])
+async def get_story_character_portraits(
+    story_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Get character portraits for all characters in a story.
+    This fetches portraits regardless of which story_id they were saved under.
+    """
+    # Verify user owns the story
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found"
+        )
+
+    # Get all characters in this story
+    story_chars = db.query(StoryCharacter).filter(
+        StoryCharacter.story_id == story_id
+    ).all()
+
+    character_ids = [sc.character_id for sc in story_chars]
+
+    if not character_ids:
+        return []
+
+    # Get ALL portraits for these characters:
+    # 1. Default portraits (story_id=NULL)
+    # 2. Story-specific portraits (story_id=current story)
+    from sqlalchemy import or_
+    images = db.query(GeneratedImage).filter(
+        GeneratedImage.character_id.in_(character_ids),
+        GeneratedImage.image_type == "character_portrait",
+        or_(
+            GeneratedImage.story_id.is_(None),  # Default portraits
+            GeneratedImage.story_id == story_id  # Story-specific portraits
+        )
+    ).order_by(GeneratedImage.created_at.desc()).all()
+
+    return [
+        ImageResponse(
+            id=img.id,
+            story_id=img.story_id,
+            branch_id=img.branch_id,
+            scene_id=img.scene_id,
+            character_id=img.character_id,
+            image_type=img.image_type,
+            file_path=img.file_path,
+            thumbnail_path=img.thumbnail_path,
+            prompt=img.prompt,
+            width=img.width,
+            height=img.height,
+            created_at=img.created_at.isoformat() if img.created_at else "",
+        )
+        for img in images
+    ]
+
+
 @router.get("/images/{image_id}", response_model=ImageResponse)
 async def get_image_details(
     image_id: int,
@@ -818,13 +861,26 @@ async def get_image_details(
             detail="Image not found"
         )
 
-    # Verify user owns the story
-    story = db.query(Story).filter(
-        Story.id == image.story_id,
-        Story.owner_id == current_user.id
-    ).first()
+    # Verify access - either through story ownership or character ownership
+    has_access = False
 
-    if not story:
+    if image.story_id:
+        # Story-based image - verify user owns the story
+        story = db.query(Story).filter(
+            Story.id == image.story_id,
+            Story.owner_id == current_user.id
+        ).first()
+        has_access = story is not None
+
+    if not has_access and image.character_id:
+        # Character portrait - verify user owns the character
+        character = db.query(Character).filter(
+            Character.id == image.character_id,
+            Character.creator_id == current_user.id
+        ).first()
+        has_access = character is not None
+
+    if not has_access:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied"

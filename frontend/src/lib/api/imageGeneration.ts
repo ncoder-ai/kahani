@@ -226,6 +226,14 @@ export class ImageGenerationApi extends BaseApiClient {
   }
 
   /**
+   * Get character portraits for all characters in a story
+   * This fetches portraits regardless of which story_id they were saved under
+   */
+  async getStoryPortraits(storyId: number): Promise<GeneratedImage[]> {
+    return this.request<GeneratedImage[]>(`/api/image-generation/story/${storyId}/portraits`);
+  }
+
+  /**
    * Get the URL for an image file (metadata endpoint)
    */
   getImageUrl(imageId: number): string {

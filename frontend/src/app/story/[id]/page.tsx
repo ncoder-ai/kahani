@@ -22,6 +22,7 @@ import { GlobalTTSWidget } from '@/components/GlobalTTSWidget';
 import MicrophoneButton from '@/components/MicrophoneButton';
 import BranchSelector from '@/components/BranchSelector';
 import ThinkingBox from '@/components/ThinkingBox';
+import ImageGallery from '@/components/ImageGallery';
 
 // Lazy load heavy components - only load when needed
 const CharacterWizard = dynamic(() => import('@/components/CharacterWizard'), {
@@ -181,6 +182,7 @@ export default function StoryPage() {
   const [showChoices, setShowChoices] = useState(true);
   const [directorMode, setDirectorMode] = useState(false);
   const [showImages, setShowImages] = useState(true); // Global toggle for scene images
+  const [showGallery, setShowGallery] = useState(false); // Image gallery modal
   const [editingScene, setEditingScene] = useState<number | null>(null);
   const [editingVariantId, setEditingVariantId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState('');
@@ -441,6 +443,7 @@ export default function StoryPage() {
         deleteModeActive: isInDeleteMode,
         showImagesActive: showImages,
         onToggleImages: toggleShowImages,
+        onOpenGallery: () => setShowGallery(true),
         showCharacterBanner: showCharacterBanner,
         onDiscoverCharacters: () => setShowCharacterWizard(true),
         // Generation/extraction status
@@ -3433,6 +3436,18 @@ export default function StoryPage() {
           }}
         />
       )}
+
+      {/* Image Gallery Modal */}
+      <ImageGallery
+        storyId={storyId}
+        isOpen={showGallery}
+        onClose={() => setShowGallery(false)}
+        scenes={story?.scenes?.map(s => ({
+          id: s.id,
+          sequence_number: s.sequence_number,
+          title: s.title,
+        })) || []}
+      />
 
       {/* Chapter Wizard Modal */}
       {showChapterWizard && (() => {

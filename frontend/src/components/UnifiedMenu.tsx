@@ -7,7 +7,7 @@ import { audioContextManager } from '@/utils/audioContextManager';
 import { useState, useEffect, useCallback } from 'react';
 import {
   X, Settings, LogOut, User, Home, PlusCircle, BookOpen,
-  ChevronRight, ChevronDown, Film, Trash2, Shield, Edit, Bug, GitBranch, Volume2, Users, UserCog, Package, Image
+  ChevronRight, ChevronDown, Film, Trash2, Shield, Edit, Bug, GitBranch, Volume2, Users, UserCog, Package, Image, LayoutGrid
 } from 'lucide-react';
 import BranchSelector from './BranchSelector';
 
@@ -27,6 +27,7 @@ interface StoryActions {
   deleteModeActive?: boolean;
   showImagesActive?: boolean;
   onToggleImages?: () => void;
+  onOpenGallery?: () => void;
   // Branch-related props
   storyId?: number;
   currentBranchId?: number;
@@ -222,6 +223,18 @@ export default function UnifiedMenu({
                           title={storyActions.showImagesActive ? 'Images ON' : 'Images OFF'}
                         >
                           <Image className="w-4 h-4" />
+                        </button>
+                      )}
+                      {storyActions.onOpenGallery && (
+                        <button
+                          onClick={() => {
+                            onClose();
+                            storyActions.onOpenGallery?.();
+                          }}
+                          className="p-1.5 rounded-md transition-colors hover:bg-white/10 text-gray-400 hover:text-white"
+                          title="Image Gallery"
+                        >
+                          <LayoutGrid className="w-4 h-4" />
                         </button>
                       )}
                     </div>

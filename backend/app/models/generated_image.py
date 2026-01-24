@@ -16,8 +16,8 @@ class GeneratedImage(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    # Story association (required)
-    story_id = Column(Integer, ForeignKey("stories.id", ondelete="CASCADE"), nullable=False, index=True)
+    # Story association (optional - NULL for default character portraits)
+    story_id = Column(Integer, ForeignKey("stories.id", ondelete="CASCADE"), nullable=True, index=True)
     branch_id = Column(Integer, ForeignKey("story_branches.id", ondelete="CASCADE"), nullable=True, index=True)
 
     # Optional associations - one of these typically set
