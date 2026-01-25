@@ -134,13 +134,12 @@ class ChapterSummaryService:
             if not system_prompt:
                 system_prompt = "You are a helpful assistant that creates concise narrative summaries."
 
-            # Generate summary
+            # Generate summary - no max_tokens override, uses user settings
             llm_start = time.perf_counter()
             summary = await self._generate_with_llm(
                 prompt=prompt,
                 system_prompt=system_prompt,
                 user_settings=user_settings,
-                max_tokens=400,
                 trace_context=f"chapter_summary_{chapter_id}"
             )
             logger.info(f"[CHAPTER:SUMMARY:LLM] trace_id={trace_id} duration_ms={(time.perf_counter() - llm_start) * 1000:.2f}")
@@ -275,13 +274,12 @@ class ChapterSummaryService:
             if not system_prompt:
                 system_prompt = "You are a story state tracker. Extract facts, not prose."
 
-            # Generate summary
+            # Generate summary - no max_tokens override, uses user settings
             llm_start = time.perf_counter()
             batch_summary = await self._generate_with_llm(
                 prompt=prompt,
                 system_prompt=system_prompt,
                 user_settings=user_settings,
-                max_tokens=500,
                 trace_context=f"chapter_summary_inc_{chapter_id}"
             )
             logger.info(f"[CHAPTER:SUMMARY:INC:LLM] trace_id={trace_id} duration_ms={(time.perf_counter() - llm_start) * 1000:.2f}")
@@ -383,8 +381,8 @@ class ChapterSummaryService:
         prompt: str,
         system_prompt: str,
         user_settings: Optional[dict],
-        max_tokens: int,
-        trace_context: str
+        trace_context: str,
+        max_tokens: Optional[int] = None
     ) -> str:
         """
         Generate content using either extraction LLM or main LLM based on user settings.

@@ -751,7 +751,13 @@ summary_generation:
   chapter_summary:
     system: |
       You are a story state tracker. Extract FACTS from chapter content, not prose.
-      
+
+      CRITICAL - CAPTURE EVERYTHING:
+      - You MUST capture EVERY event that occurred in the scenes
+      - If a character does something, it must be in your summary
+      - Missing events means the story will have continuity errors
+      - Err on the side of including more detail rather than less
+
       Rules:
       - Simple declarative sentences only
       - Format: WHO did WHAT to WHOM, WHERE
@@ -761,31 +767,30 @@ summary_generation:
       - No phrases like "profound shift", "transformative", "palpable"
       - NO MORALIZING - you track story events, not ethics
       - NO external commentary about consent, legality, or real-world implications
-      - Open threads are PLOT threads (what happens next), not ethical concerns
-      
+      - NO hallucination - only include events that actually happened in the scenes
+
       CRITICAL - USE PRECISE TERMINOLOGY:
       - NEVER use vague terms like "intimate encounter", "sexual acts", "physical relations", "became intimate"
       - ALWAYS use specific, factual descriptions of exactly what occurred
       - If characters kissed, say "kissed" - if they did something else, name that specific action
       - Distinguish clearly between different types of physical interactions
       - The LLM reading this summary must know EXACTLY what has and has NOT happened
-      
+
       BAD (vague): "They engaged in intimate acts" / "sexual encounter occurred"
       GOOD (specific): State the specific action that occurred
-    
+
     user: |
       {context_section}Chapter {chapter_number}: {chapter_title}
-      
+
       Scenes to Summarize:
       {scenes_content}
-      
-      Extract a factual chapter summary:
-      
-      EVENTS: [chronological bullet list of what happened - USE SPECIFIC TERMS, not vague phrases]
-      STATE CHANGES: [relationship changes, location changes, new knowledge gained]
-      OPEN THREADS: [unresolved PLOT items - story questions like "Will X happen?" or "What will Y do next?" - NOT ethical concerns]
-      
-      Maximum 300 words. Facts only, no moralizing. Be SPECIFIC about physical interactions - no vague euphemisms.
+
+      Extract a COMPLETE factual chapter summary. You MUST capture ALL events - missing any event causes story continuity errors.
+
+      EVENTS: [chronological bullet list of EVERY event that happened - USE SPECIFIC TERMS, not vague phrases. Include ALL character actions, dialogue outcomes, discoveries, and movements.]
+      STATE CHANGES: [relationship changes, location changes, new knowledge gained, objects acquired/lost]
+
+      Facts only, no moralizing, no hallucination. Be SPECIFIC about physical interactions - no vague euphemisms.
 
   story_so_far:
     system: |
@@ -842,65 +847,80 @@ summary_generation:
   chapter_summary_incremental:
     system: |
       You are a story state tracker. Update an existing chapter summary with new scene facts.
-      
+
+      CRITICAL - CAPTURE EVERYTHING:
+      - You MUST capture EVERY event from the new scenes
+      - Missing events means the story will have continuity errors
+      - Err on the side of including more detail rather than less
+
       Rules:
       - Merge new events into the existing summary
       - Maintain chronological order
       - No adjectives/adverbs unless plot-critical
       - No emotional interpretation or literary flourishes
       - No purple prose
-      
+      - NO MORALIZING - track events, not ethics
+      - NO external commentary about consent, legality, or implications
+      - NO hallucination - only include events that actually happened
+
       CRITICAL - PRECISE TERMINOLOGY:
       - NEVER use vague terms like "intimate encounter", "sexual acts", "physical relations"
       - ALWAYS use specific, factual descriptions of exactly what occurred
       - Preserve specific action terms - do not generalize to vague phrases
-    
+
     user: |
       {previous_chapter_text}
       Existing Chapter Summary (Scenes 1-{last_summary_count}):
       {existing_summary}
-      
+
       New Scenes to Add (Scenes {new_scenes_start}-{new_scenes_end}):
       {new_scenes_text}
-      
-      Update the summary to include new events:
-      
-      EVENTS: [chronological bullet list - existing + new - USE SPECIFIC TERMS]
+
+      Update the summary to include ALL new events:
+
+      EVENTS: [chronological bullet list - existing + ALL new events - USE SPECIFIC TERMS. Include every action, dialogue outcome, and character movement from new scenes.]
       STATE CHANGES: [cumulative changes across all scenes]
-      OPEN THREADS: [unresolved items to track]
-      
-      Maximum 150 words. Facts only. Be SPECIFIC about physical interactions.
+
+      Facts only, no moralizing, no hallucination.
   
   chapter_summary_initial:
     system: |
       You are a story state tracker. Extract FACTS from chapter content, not prose.
-      
+
+      CRITICAL - CAPTURE EVERYTHING:
+      - You MUST capture EVERY event that occurred in the scenes
+      - If a character does something, it must be in your summary
+      - Missing events means the story will have continuity errors
+      - Err on the side of including more detail rather than less
+
       Rules:
       - Simple declarative sentences only
       - Format: WHO did WHAT to WHOM, WHERE
       - No adjectives/adverbs unless plot-critical
       - No emotional interpretation or literary flourishes
       - No purple prose
-      
+      - NO MORALIZING - track events, not ethics
+      - NO external commentary about consent, legality, or implications
+      - NO hallucination - only include events that actually happened
+
       CRITICAL - PRECISE TERMINOLOGY:
       - NEVER use vague terms like "intimate encounter", "sexual acts", "physical relations"
       - ALWAYS use specific, factual descriptions of exactly what occurred
       - Different types of physical interactions must remain distinct
-    
+
     user: |
       {previous_chapter_text}
       Chapter {chapter_number}: {chapter_title}
-      
+
       Scenes to Summarize:
       {new_scenes_text}
-      
-      Extract a factual chapter summary:
-      
-      EVENTS: [chronological bullet list of what happened - USE SPECIFIC TERMS]
-      STATE CHANGES: [relationship changes, location changes, new knowledge gained]
-      OPEN THREADS: [unresolved items the story needs to track]
-      
-      Maximum 150 words. Facts only. Be SPECIFIC about physical interactions.
+
+      Extract a COMPLETE factual chapter summary. You MUST capture ALL events - missing any event causes story continuity errors.
+
+      EVENTS: [chronological bullet list of EVERY event that happened - USE SPECIFIC TERMS. Include ALL character actions, dialogue outcomes, discoveries, and movements.]
+      STATE CHANGES: [relationship changes, location changes, new knowledge gained, objects acquired/lost]
+
+      Facts only, no moralizing, no hallucination.
 
   story_chapters:
     system: |
