@@ -350,29 +350,42 @@ class EntityStateService:
                 logger.warning(f"[ENTITY:EMPTY] trace_id={trace_id} scene_id={scene_id} story_id={story_id} sequence={scene_sequence}")
                 return results
 
-            # Check for contradictions before updating states
-            try:
-                from .contradiction_service import ContradictionService
-                contradiction_service = ContradictionService(db)
-                contradictions = await contradiction_service.check_extraction(
-                    story_id=story_id,
-                    branch_id=branch_id,
-                    scene_sequence=scene_sequence,
-                    new_states=state_changes
-                )
+            # Check for contradictions before updating states (if enabled)
+            context_settings = self.user_settings.get('context_settings', {})
+            contradiction_enabled = context_settings.get('enable_contradiction_detection', True)
+            severity_threshold = context_settings.get('contradiction_severity_threshold', 'info')
 
-                # Log and save contradictions (non-blocking)
-                for c in contradictions:
-                    logger.info(
-                        f"[CONTRADICTION] trace_id={trace_id} type={c.contradiction_type} "
-                        f"char={c.character_name} prev='{c.previous_value}' curr='{c.current_value}'"
+            if contradiction_enabled:
+                try:
+                    from .contradiction_service import ContradictionService
+                    contradiction_service = ContradictionService(db)
+                    contradictions = await contradiction_service.check_extraction(
+                        story_id=story_id,
+                        branch_id=branch_id,
+                        scene_sequence=scene_sequence,
+                        new_states=state_changes
                     )
-                    db.add(c)
 
-                if contradictions:
-                    results["contradictions_found"] = len(contradictions)
-            except Exception as e:
-                logger.warning(f"[CONTRADICTION:ERROR] trace_id={trace_id} error={e}")
+                    # Filter by severity threshold
+                    severity_order = {'info': 0, 'warning': 1, 'error': 2}
+                    threshold_level = severity_order.get(severity_threshold, 0)
+                    filtered_contradictions = [
+                        c for c in contradictions
+                        if severity_order.get(c.severity, 0) >= threshold_level
+                    ]
+
+                    # Log and save filtered contradictions (non-blocking)
+                    for c in filtered_contradictions:
+                        logger.info(
+                            f"[CONTRADICTION] trace_id={trace_id} type={c.contradiction_type} "
+                            f"char={c.character_name} prev='{c.previous_value}' curr='{c.current_value}'"
+                        )
+                        db.add(c)
+
+                    if filtered_contradictions:
+                        results["contradictions_found"] = len(filtered_contradictions)
+                except Exception as e:
+                    logger.warning(f"[CONTRADICTION:ERROR] trace_id={trace_id} error={e}")
 
             # Update character states
             if "characters" in state_changes:

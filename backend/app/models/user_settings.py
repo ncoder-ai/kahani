@@ -59,7 +59,12 @@ class UserSettings(Base):
     extraction_confidence_threshold = Column(Integer, nullable=True)
     plot_event_extraction_threshold = Column(Integer, nullable=True)
     fill_remaining_context = Column(Boolean, nullable=True)  # Fill remaining context with older scenes
-    
+
+    # Memory & Continuity Settings
+    enable_working_memory = Column(Boolean, nullable=True)  # Track scene-to-scene focus and pending items
+    enable_contradiction_detection = Column(Boolean, nullable=True)  # Detect continuity errors
+    contradiction_severity_threshold = Column(String(20), nullable=True)  # "info", "warning", "error"
+
     # Story Generation Preferences
     default_genre = Column(String(100), nullable=True)
     default_tone = Column(String(100), nullable=True)
@@ -200,7 +205,11 @@ class UserSettings(Base):
                 "auto_extract_plot_events": self.auto_extract_plot_events if self.auto_extract_plot_events is not None else ctx_defaults.get("auto_extract_plot_events", True),
                 "extraction_confidence_threshold": self.extraction_confidence_threshold if self.extraction_confidence_threshold is not None else ctx_defaults.get("extraction_confidence_threshold", 70),
                 "plot_event_extraction_threshold": self.plot_event_extraction_threshold if self.plot_event_extraction_threshold is not None else ctx_defaults.get("plot_event_extraction_threshold", 5),
-                "fill_remaining_context": self.fill_remaining_context if self.fill_remaining_context is not None else ctx_defaults.get("fill_remaining_context", True)
+                "fill_remaining_context": self.fill_remaining_context if self.fill_remaining_context is not None else ctx_defaults.get("fill_remaining_context", True),
+                # Memory & Continuity Settings
+                "enable_working_memory": self.enable_working_memory if self.enable_working_memory is not None else ctx_defaults.get("enable_working_memory", True),
+                "enable_contradiction_detection": self.enable_contradiction_detection if self.enable_contradiction_detection is not None else ctx_defaults.get("enable_contradiction_detection", True),
+                "contradiction_severity_threshold": self.contradiction_severity_threshold if self.contradiction_severity_threshold is not None else ctx_defaults.get("contradiction_severity_threshold", "info")
             },
             "generation_preferences": {
                 "default_genre": self.default_genre or "",
@@ -463,6 +472,14 @@ class UserSettings(Base):
             self.plot_event_extraction_threshold = ctx.get("plot_event_extraction_threshold", 5)
         if self.fill_remaining_context is None:
             self.fill_remaining_context = ctx.get("fill_remaining_context", True)
+
+        # Memory & Continuity Settings
+        if self.enable_working_memory is None:
+            self.enable_working_memory = ctx.get("enable_working_memory", True)
+        if self.enable_contradiction_detection is None:
+            self.enable_contradiction_detection = ctx.get("enable_contradiction_detection", True)
+        if self.contradiction_severity_threshold is None:
+            self.contradiction_severity_threshold = ctx.get("contradiction_severity_threshold", "info")
 
         # Generation Preferences
         gen = user_defaults.get("generation_preferences", {})

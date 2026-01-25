@@ -1297,6 +1297,12 @@ async def update_working_memory_in_background(
     - pending_items: Things mentioned but not acted on
     - character_spotlight: Who needs attention next
     """
+    # Check if working memory is enabled in user settings
+    context_settings = user_settings.get('context_settings', {})
+    if not context_settings.get('enable_working_memory', True):
+        logger.debug(f"[WORKING_MEMORY:BG] Disabled for user {user_id}, skipping")
+        return
+
     try:
         # Small delay for database consistency
         await asyncio.sleep(0.2)

@@ -264,6 +264,10 @@ user_defaults:
     extraction_confidence_threshold: 70
     plot_event_extraction_threshold: 5
     fill_remaining_context: true  # Fill remaining context window with older scenes (disable for weaker LLMs)
+    # Memory & Continuity Settings
+    enable_working_memory: true  # Track scene-to-scene focus and pending items
+    enable_contradiction_detection: true  # Detect continuity errors like location jumps
+    contradiction_severity_threshold: "info"  # Minimum severity to log: "info", "warning", "error"
   generation_preferences:
     default_genre: ""
     default_tone: ""

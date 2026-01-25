@@ -502,22 +502,24 @@ Appearance: {char.get('appearance', '')}
             if plot_events:
                 story_focus["active_threads"] = [pe.description for pe in plot_events if pe.description]
 
-            # Get working memory for micro-level tracking
-            wm_query = db.query(WorkingMemory).filter(
-                WorkingMemory.story_id == story_id
-            )
-            if branch_id:
-                wm_query = wm_query.filter(WorkingMemory.branch_id == branch_id)
+            # Get working memory for micro-level tracking (if enabled)
+            ctx_settings = self.user_settings.get('context_settings', {})
+            if ctx_settings.get('enable_working_memory', True):
+                wm_query = db.query(WorkingMemory).filter(
+                    WorkingMemory.story_id == story_id
+                )
+                if branch_id:
+                    wm_query = wm_query.filter(WorkingMemory.branch_id == branch_id)
 
-            working_memory = wm_query.first()
+                working_memory = wm_query.first()
 
-            if working_memory:
-                if working_memory.recent_focus:
-                    story_focus["recent_focus"] = working_memory.recent_focus[:3]
-                if working_memory.pending_items:
-                    story_focus["pending_items"] = working_memory.pending_items[:3]
-                if working_memory.character_spotlight:
-                    story_focus["character_spotlight"] = working_memory.character_spotlight
+                if working_memory:
+                    if working_memory.recent_focus:
+                        story_focus["recent_focus"] = working_memory.recent_focus[:3]
+                    if working_memory.pending_items:
+                        story_focus["pending_items"] = working_memory.pending_items[:3]
+                    if working_memory.character_spotlight:
+                        story_focus["character_spotlight"] = working_memory.character_spotlight
 
             # Only return if we have something useful
             if story_focus:

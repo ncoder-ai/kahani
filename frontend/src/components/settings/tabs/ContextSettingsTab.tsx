@@ -545,6 +545,69 @@ export default function ContextSettingsTab({
               </div>
             )}
           </div>
+
+          {/* Memory & Continuity Section */}
+          <div className="border-t border-gray-700 pt-6 mt-6">
+            <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
+              🧠 Memory & Continuity
+              <span className="ml-2 px-2 py-1 text-xs bg-blue-600 rounded">New</span>
+            </h3>
+
+            <div className="space-y-4">
+              {/* Enable Working Memory */}
+              <div>
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={contextSettings.enable_working_memory !== false}
+                    onChange={(e) => setContextSettings({ ...contextSettings, enable_working_memory: e.target.checked })}
+                    className="mr-2"
+                  />
+                  <span className="text-sm text-white">Enable Working Memory</span>
+                </label>
+                <div className="text-xs text-gray-400 mt-1">
+                  Track scene-to-scene focus, pending items, and character spotlight for better continuity
+                </div>
+              </div>
+
+              {/* Enable Contradiction Detection */}
+              <div>
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={contextSettings.enable_contradiction_detection !== false}
+                    onChange={(e) => setContextSettings({ ...contextSettings, enable_contradiction_detection: e.target.checked })}
+                    className="mr-2"
+                  />
+                  <span className="text-sm text-white">Enable Contradiction Detection</span>
+                </label>
+                <div className="text-xs text-gray-400 mt-1">
+                  Detect continuity errors like location jumps and state regressions
+                </div>
+              </div>
+
+              {/* Contradiction Severity Threshold */}
+              {contextSettings.enable_contradiction_detection !== false && (
+                <div className="ml-4 pl-4 border-l-2 border-blue-600">
+                  <label className="block text-sm font-medium text-white mb-2">
+                    Minimum Severity to Log
+                  </label>
+                  <select
+                    value={contextSettings.contradiction_severity_threshold || 'info'}
+                    onChange={(e) => setContextSettings({ ...contextSettings, contradiction_severity_threshold: e.target.value })}
+                    className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
+                  >
+                    <option value="info">Info (all contradictions)</option>
+                    <option value="warning">Warning (moderate+)</option>
+                    <option value="error">Error (severe only)</option>
+                  </select>
+                  <div className="text-xs text-gray-400 mt-1">
+                    Filter which contradictions are logged based on severity
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Save Button */}

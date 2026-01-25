@@ -58,6 +58,10 @@ export interface ContextSettings {
   extraction_confidence_threshold?: number;
   plot_event_extraction_threshold?: number;
   fill_remaining_context?: boolean;
+  // Memory & Continuity Settings
+  enable_working_memory?: boolean;
+  enable_contradiction_detection?: boolean;
+  contradiction_severity_threshold?: string;
 }
 
 export interface ExtractionModelSettings {
