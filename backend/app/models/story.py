@@ -107,7 +107,15 @@ class Story(Base):
     # Example: ["first meeting", "first kiss", "first conflict", "reconciliation"]
     # These are used by the entity extraction service to track character interactions
     interaction_types = Column(JSON, nullable=True, default=list)
-    
+
+    # Extraction Quality Metrics - track how well entity extraction is working
+    # success_rate: ratio of extractions with meaningful data (2+ non-empty fields per character)
+    # empty_rate: ratio of extractions that returned empty or no character data
+    extraction_success_rate = Column(Integer, nullable=True)  # 0-100 percentage
+    extraction_empty_rate = Column(Integer, nullable=True)    # 0-100 percentage
+    extraction_total_count = Column(Integer, default=0)       # total extractions performed
+    last_extraction_quality_check = Column(DateTime(timezone=True), nullable=True)
+
     def update_story_arc(self, arc_data: dict):
         """Update the story arc data."""
         if self.story_arc is None:

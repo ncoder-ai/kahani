@@ -1326,7 +1326,16 @@ entity_state_extraction:
         * BAD: "responds positively to X" (behavior, not knowledge)
         * BAD: "feels a shift in role" (feeling, not factual knowledge)
         * BAD: "likes specific activity" (preference discovered is OK, but phrase as "discovered they enjoy X")
-      
+
+      For "relationship_changes": Track SIGNIFICANT relationship changes only
+        * Include "type": friend, romantic, rival, family, professional, enemy, or neutral
+        * Include "change": what specifically changed (first kiss, argument, betrayal, alliance)
+        * Include "status": current state of relationship
+        * GOOD: {{"Mary": {{"type": "romantic", "change": "first kiss", "status": "dating"}}}}
+        * GOOD: {{"John": {{"type": "rival", "change": "discovered betrayal", "status": "enemies"}}}}
+        * BAD: {{"Mary": "talked"}} (not a relationship change, just interaction)
+        * Only include if relationship actually CHANGED this scene
+
       CRITICAL - OBJECT OWNERSHIP DECAY:
       Objects are only "held" if character is ACTIVELY using them in THIS scene.
       - If an object was used earlier but not mentioned now, set owner to null
@@ -1350,7 +1359,13 @@ entity_state_extraction:
             "possessions_gained": ["item"],
             "possessions_lost": ["item"],
             "knowledge_gained": ["factual info learned"],
-            "relationship_changes": {{"other_char": "change"}}
+            "relationship_changes": {{
+              "other_character_name": {{
+                "type": "friend|romantic|rival|family|professional|enemy|neutral",
+                "change": "what changed (e.g., 'first kiss', 'had argument', 'became allies')",
+                "status": "current relationship state (e.g., 'dating', 'enemies', 'close friends')"
+              }}
+            }}
           }}
         ],
         "locations": [
@@ -1611,7 +1626,13 @@ entity_state_extraction:
               "possessions_gained": ["item1"],
               "possessions_lost": [],
               "knowledge_gained": ["fact1"],
-              "relationship_changes": {{"other_char": "relationship description"}}
+              "relationship_changes": {{
+                "other_char": {{
+                  "type": "friend|romantic|rival|family|professional|enemy|neutral",
+                  "change": "what changed (first kiss, argument, alliance, betrayal)",
+                  "status": "current state of relationship"
+                }}
+              }}
             }}
           ],
           "locations": [

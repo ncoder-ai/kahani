@@ -10,6 +10,7 @@ import json
 import re
 import time
 import uuid
+from datetime import datetime
 from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
@@ -59,28 +60,47 @@ def clean_llm_json(json_str: str) -> str:
 def has_meaningful_character_state(char_update: Dict[str, Any]) -> bool:
     """
     Check if a character update has meaningful state data.
-    A character update is meaningful if it has at least one non-null/non-empty state field.
+    A character update is meaningful if it has at least 2 of the 3 key state fields populated.
+
+    Key fields: location, emotional_state, physical_condition
+    These are the most important for story continuity.
 
     Args:
         char_update: Character update dictionary from extraction
 
     Returns:
-        True if the character has meaningful state data
+        True if the character has meaningful state data (2+ key fields populated)
     """
-    # State fields that indicate meaningful data
-    state_fields = [
-        'location', 'emotional_state', 'physical_condition', 'current_attire',
-        'possessions_gained', 'possessions_lost', 'knowledge_gained', 'relationship_changes'
-    ]
+    # Key fields that are most important for continuity (require 2 of 3)
+    key_fields = ['location', 'emotional_state', 'physical_condition']
+    # Secondary fields that also count
+    secondary_fields = ['current_attire', 'possessions_gained', 'possessions_lost',
+                        'knowledge_gained', 'relationship_changes']
 
-    for field in state_fields:
-        value = char_update.get(field)
-        if value:
-            # Check if it's a non-empty string, non-empty list, or non-empty dict
-            if isinstance(value, str) and value.strip() and value.lower() not in ('null', 'none', 'n/a'):
-                return True
-            elif isinstance(value, (list, dict)) and len(value) > 0:
-                return True
+    key_field_count = 0
+    secondary_field_count = 0
+
+    def is_non_empty(value):
+        """Check if a value is non-empty and meaningful."""
+        if not value:
+            return False
+        if isinstance(value, str):
+            stripped = value.strip().lower()
+            return stripped and stripped not in ('null', 'none', 'n/a', 'unknown', 'unchanged', '')
+        elif isinstance(value, (list, dict)):
+            return len(value) > 0
+        return False
+
+    for field in key_fields:
+        if is_non_empty(char_update.get(field)):
+            key_field_count += 1
+
+    for field in secondary_fields:
+        if is_non_empty(char_update.get(field)):
+            secondary_field_count += 1
+
+    # Require at least 2 key fields, OR 1 key field + 2 secondary fields
+    return key_field_count >= 2 or (key_field_count >= 1 and secondary_field_count >= 2)
 
     return False
 
@@ -113,6 +133,68 @@ def has_meaningful_character_state_in_db(char_state) -> bool:
         return True
 
     return False
+
+
+def update_extraction_quality_metrics(
+    db: Session,
+    story_id: int,
+    extraction_result: Dict[str, Any],
+    characters_expected: int
+) -> None:
+    """
+    Update extraction quality metrics on the Story model.
+
+    Tracks:
+    - extraction_success_rate: % of extractions with meaningful data
+    - extraction_empty_rate: % of extractions that returned empty/no data
+    - extraction_total_count: total extractions performed
+
+    Args:
+        db: Database session
+        story_id: Story ID
+        extraction_result: Result from extract_and_update_states
+        characters_expected: Number of characters expected in extraction
+    """
+    try:
+        story = db.query(Story).filter(Story.id == story_id).first()
+        if not story:
+            return
+
+        # Determine extraction quality
+        is_successful = extraction_result.get('extraction_successful', False)
+        chars_updated = extraction_result.get('characters_updated', 0)
+        is_meaningful = chars_updated > 0 and chars_updated >= (characters_expected * 0.5)  # At least half
+
+        # Initialize counters if needed
+        total = story.extraction_total_count or 0
+        success_count = int((story.extraction_success_rate or 0) * total / 100) if total > 0 else 0
+        empty_count = int((story.extraction_empty_rate or 0) * total / 100) if total > 0 else 0
+
+        # Update counters
+        total += 1
+        if is_successful and is_meaningful:
+            success_count += 1
+        if not is_successful or chars_updated == 0:
+            empty_count += 1
+
+        # Calculate new rates (as percentages 0-100)
+        story.extraction_success_rate = int((success_count / total) * 100)
+        story.extraction_empty_rate = int((empty_count / total) * 100)
+        story.extraction_total_count = total
+        story.last_extraction_quality_check = datetime.utcnow()
+
+        db.commit()
+
+        # Log warning if quality is degrading
+        if total >= 5 and story.extraction_success_rate < 70:
+            logger.warning(
+                f"[EXTRACTION:QUALITY:LOW] story_id={story_id} success_rate={story.extraction_success_rate}% "
+                f"empty_rate={story.extraction_empty_rate}% total={total}"
+            )
+
+    except Exception as e:
+        logger.error(f"[EXTRACTION:METRICS:ERROR] story_id={story_id} error={e}")
+        # Don't fail the main extraction flow
 
 
 class EntityStateService:
@@ -306,7 +388,15 @@ class EntityStateService:
             results["extraction_successful"] = True
             status = "success"
             logger.info(f"[ENTITY:UPDATED] trace_id={trace_id} scene_id={scene_id} story_id={story_id} sequence={scene_sequence} counts={results}")
-            
+
+            # Update extraction quality metrics
+            update_extraction_quality_metrics(
+                db=db,
+                story_id=story_id,
+                extraction_result=results,
+                characters_expected=len(character_names)
+            )
+
             # Check if we should create a batch snapshot (every 5 scenes, matching chapter summary batch threshold)
             batch_threshold = self.user_settings.get("context_summary_threshold", 5)
             if scene_sequence % batch_threshold == 0:
