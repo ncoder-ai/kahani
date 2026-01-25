@@ -425,7 +425,151 @@ class EntityStateService:
                 logger.info(f"[ENTITY:DONE] trace_id={trace_id} duration_ms={duration_ms:.2f} status={status} story_id={story_id}")
         
         return results
-    
+
+    async def update_working_memory(
+        self,
+        db: Session,
+        story_id: int,
+        branch_id: int,
+        chapter_id: Optional[int],
+        scene_sequence: int,
+        scene_content: str
+    ) -> Dict[str, Any]:
+        """
+        Update working memory after scene generation.
+
+        Tracks scene-to-scene continuity:
+        - recent_focus: What was narratively important
+        - pending_items: Things mentioned but not acted on
+        - character_spotlight: Who needs attention next
+
+        Note: active_threads are derived from PlotEvent, not stored here.
+        """
+        from ..models import WorkingMemory
+
+        trace_id = f"working-memory-{uuid.uuid4()}"
+        logger.info(f"[WORKING_MEMORY:START] trace_id={trace_id} story_id={story_id} scene={scene_sequence}")
+
+        try:
+            # Get or create working memory for this story/branch
+            memory = db.query(WorkingMemory).filter(
+                WorkingMemory.story_id == story_id,
+                WorkingMemory.branch_id == branch_id
+            ).first()
+
+            if not memory:
+                memory = WorkingMemory(
+                    story_id=story_id,
+                    branch_id=branch_id,
+                    recent_focus=[],
+                    pending_items=[],
+                    character_spotlight={}
+                )
+                db.add(memory)
+
+            # Get current state for context
+            current_focus = memory.recent_focus or []
+            current_pending = memory.pending_items or []
+
+            # Extract updates using LLM
+            updates = await self._extract_working_memory_updates(
+                scene_content=scene_content,
+                current_focus=current_focus,
+                current_pending=current_pending
+            )
+
+            if updates:
+                # Apply updates
+                memory.recent_focus = updates.get('recent_focus', [])[:3]  # Limit to 3
+                memory.pending_items = updates.get('pending_items', [])[:3]  # Limit to 3
+                memory.character_spotlight = updates.get('character_spotlight', {})
+                memory.chapter_id = chapter_id
+                memory.last_scene_sequence = scene_sequence
+
+                db.commit()
+                logger.info(f"[WORKING_MEMORY:UPDATED] trace_id={trace_id} story_id={story_id} "
+                           f"focus={len(memory.recent_focus)} pending={len(memory.pending_items)} "
+                           f"spotlight={len(memory.character_spotlight)}")
+
+                return memory.to_dict()
+            else:
+                logger.warning(f"[WORKING_MEMORY:EMPTY] trace_id={trace_id} story_id={story_id} No updates extracted")
+                return memory.to_dict() if memory.id else {}
+
+        except Exception as e:
+            logger.error(f"[WORKING_MEMORY:ERROR] trace_id={trace_id} story_id={story_id} error={e}")
+            return {}
+
+    async def _extract_working_memory_updates(
+        self,
+        scene_content: str,
+        current_focus: List[str],
+        current_pending: List[str]
+    ) -> Optional[Dict[str, Any]]:
+        """Extract working memory updates from scene content."""
+
+        # Try extraction LLM first, fall back to main LLM
+        extraction_service = self._get_extraction_service()
+
+        template_vars = {
+            'scene_content': scene_content[:3000],  # Limit content length
+            'current_focus': ', '.join(current_focus[:3]) if current_focus else 'None',
+            'current_pending': ', '.join(current_pending[:3]) if current_pending else 'None'
+        }
+
+        try:
+            # Get system and user prompts from template
+            system_prompt = prompt_manager.get_prompt(
+                "working_memory_update", "system", **template_vars
+            )
+            user_prompt = prompt_manager.get_prompt(
+                "working_memory_update", "user", **template_vars
+            )
+
+            if extraction_service:
+                # Use extraction LLM with generate method
+                response = await extraction_service.generate(
+                    prompt=user_prompt,
+                    system_prompt=system_prompt,
+                    max_tokens=512
+                )
+            else:
+                # Fall back to main LLM
+                llm_service = UnifiedLLMService()
+                llm_client = llm_service._create_client(self.user_id, self.user_settings)
+
+                if not llm_client:
+                    logger.warning("[WORKING_MEMORY] No LLM client available")
+                    return None
+
+                response = await llm_client.complete_non_streaming(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    max_tokens=512
+                )
+
+            if not response:
+                return None
+
+            # Parse JSON response
+            response_text = response.strip()
+
+            # Extract JSON from response
+            json_match = re.search(r'\{[\s\S]*\}', response_text)
+            if json_match:
+                try:
+                    return json.loads(json_match.group())
+                except json.JSONDecodeError:
+                    # Try cleaning common issues
+                    cleaned = clean_llm_json(json_match.group())
+                    return json.loads(cleaned)
+
+            return None
+
+        except Exception as e:
+            logger.error(f"[WORKING_MEMORY:EXTRACT:ERROR] error={e}")
+            return None
+
     def _get_extraction_service(self) -> Optional[ExtractionLLMService]:
         """
         Get or create extraction service if enabled in user settings

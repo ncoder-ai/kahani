@@ -38,6 +38,7 @@ from .story_tasks import (
     get_scene_generation_lock,
     run_extractions_in_background,
     run_plot_extraction_in_background,
+    update_working_memory_in_background,
 )
 
 # Lazy import for semantic integration
@@ -444,6 +445,21 @@ async def generate_scene(
             "session_id": auto_play_session_id,
             "scene_id": scene.id
         }
+
+    # Update working memory in background (scene-to-scene continuity tracking)
+    try:
+        background_tasks.add_task(
+            update_working_memory_in_background,
+            story_id=story_id,
+            branch_id=active_branch_id,
+            chapter_id=active_chapter.id if active_chapter else None,
+            scene_sequence=next_sequence,
+            scene_content=scene_content,
+            user_id=current_user.id,
+            user_settings=user_settings or {}
+        )
+    except Exception as e:
+        logger.error(f"[WORKING_MEMORY] Failed to schedule update: {e}")
 
     return response_data
 
@@ -1266,6 +1282,22 @@ async def generate_scene_streaming_endpoint(
                     logger.error(f"[PLOT_EXTRACTION] Failed to check plot extraction: {e}")
                     import traceback
                     logger.error(f"[PLOT_EXTRACTION] Traceback: {traceback.format_exc()}")
+
+            # === WORKING MEMORY UPDATE (runs every scene for continuity) ===
+            try:
+                background_tasks.add_task(
+                    update_working_memory_in_background,
+                    story_id=story_id,
+                    branch_id=branch_id,
+                    chapter_id=active_chapter.id if active_chapter else None,
+                    scene_sequence=scene.sequence_number,
+                    scene_content=complete_scene,
+                    user_id=current_user.id,
+                    user_settings=user_settings or {}
+                )
+                logger.info(f"[WORKING_MEMORY] Scheduled update for scene {scene.sequence_number}")
+            except Exception as e:
+                logger.error(f"[WORKING_MEMORY] Failed to schedule update: {e}")
 
             # Send [DONE] as the LAST event after all extraction status events
             yield "data: [DONE]\n\n"

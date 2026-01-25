@@ -392,7 +392,15 @@ class ContextManager:
         
         # Build scene history with smart truncation
         scene_context = await self._build_scene_context(scenes, available_tokens, db)
-        
+
+        # Add story focus (working memory + active plot threads)
+        try:
+            story_focus = self._build_story_focus(db, story_id, branch_id)
+            if story_focus:
+                base_context["story_focus"] = story_focus
+        except Exception as e:
+            logger.warning(f"[CONTEXT BUILD] Failed to build story focus: {e}")
+
         # Merge contexts
         return {**base_context, **scene_context}
     
@@ -463,7 +471,67 @@ Appearance: {char.get('appearance', '')}
             context_text += f"\nCurrent Chapter Summary:\n{base_context['current_chapter_summary']}"
         
         return self.count_tokens(context_text)
-    
+
+    def _build_story_focus(self, db: Session, story_id: int, branch_id: Optional[int]) -> Optional[Dict[str, Any]]:
+        """
+        Build story focus context from working memory and plot events.
+
+        Returns a dict with:
+        - active_threads: From unresolved PlotEvents (major story threads)
+        - recent_focus: From WorkingMemory (what was important recently)
+        - pending_items: From WorkingMemory (things needing follow-up)
+        - character_spotlight: From WorkingMemory (who needs attention)
+        """
+        try:
+            from ..models import PlotEvent, WorkingMemory
+
+            story_focus = {}
+
+            # Get active threads from unresolved PlotEvents
+            plot_events = db.query(PlotEvent).filter(
+                PlotEvent.story_id == story_id,
+                PlotEvent.is_resolved == False
+            )
+            if branch_id:
+                plot_events = plot_events.filter(PlotEvent.branch_id == branch_id)
+
+            plot_events = plot_events.order_by(
+                PlotEvent.importance_score.desc().nullsfirst()
+            ).limit(5).all()
+
+            if plot_events:
+                story_focus["active_threads"] = [pe.description for pe in plot_events if pe.description]
+
+            # Get working memory for micro-level tracking
+            wm_query = db.query(WorkingMemory).filter(
+                WorkingMemory.story_id == story_id
+            )
+            if branch_id:
+                wm_query = wm_query.filter(WorkingMemory.branch_id == branch_id)
+
+            working_memory = wm_query.first()
+
+            if working_memory:
+                if working_memory.recent_focus:
+                    story_focus["recent_focus"] = working_memory.recent_focus[:3]
+                if working_memory.pending_items:
+                    story_focus["pending_items"] = working_memory.pending_items[:3]
+                if working_memory.character_spotlight:
+                    story_focus["character_spotlight"] = working_memory.character_spotlight
+
+            # Only return if we have something useful
+            if story_focus:
+                logger.info(f"[CONTEXT BUILD] Story focus: threads={len(story_focus.get('active_threads', []))}, "
+                           f"focus={len(story_focus.get('recent_focus', []))}, "
+                           f"pending={len(story_focus.get('pending_items', []))}")
+                return story_focus
+
+            return None
+
+        except Exception as e:
+            logger.warning(f"[CONTEXT BUILD] Error building story focus: {e}")
+            return None
+
     async def _build_scene_context(self, scenes: List[Scene], available_tokens: int, db: Session = None) -> Dict[str, Any]:
         """
         Build scene context with smart truncation and summarization

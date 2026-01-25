@@ -923,7 +923,9 @@ Chapter Conclusion:"""
             "pacing.progress_low": ("pacing", "progress_low"),
             "pacing.progress_mid": ("pacing", "progress_mid"),
             "pacing.progress_high": ("pacing", "progress_high"),
-            "pacing.progress_complete": ("pacing", "progress_complete")
+            "pacing.progress_complete": ("pacing", "progress_complete"),
+            # Working memory prompts
+            "working_memory_update": ("working_memory_update", "")
         }
         
         if template_key not in yaml_mapping:

@@ -2674,7 +2674,28 @@ Chapter Conclusion:"""
                 "role": "user",
                 "content": f"=== CURRENT PROGRESS ===\n{pacing_guidance}"
             })
-        
+
+        # Add story focus (working memory + active threads) - concise reminders
+        story_focus = context.get("story_focus")
+        if story_focus:
+            focus_parts = []
+
+            if story_focus.get("active_threads"):
+                focus_parts.append(f"Unresolved threads: {'; '.join(story_focus['active_threads'][:3])}")
+            if story_focus.get("recent_focus"):
+                focus_parts.append(f"Recent focus: {', '.join(story_focus['recent_focus'][:2])}")
+            if story_focus.get("pending_items"):
+                focus_parts.append(f"Pending: {', '.join(story_focus['pending_items'][:2])}")
+            if story_focus.get("character_spotlight"):
+                spotlight = [f"{k} ({v})" for k, v in list(story_focus['character_spotlight'].items())[:2]]
+                focus_parts.append(f"Character attention: {', '.join(spotlight)}")
+
+            if focus_parts:
+                messages.append({
+                    "role": "user",
+                    "content": "=== STORY FOCUS ===\n" + "\n".join(focus_parts)
+                })
+
         return messages
     
     def _batch_scenes_as_messages(self, scenes_text: str, batch_size: int = 10) -> List[Dict[str, str]]:

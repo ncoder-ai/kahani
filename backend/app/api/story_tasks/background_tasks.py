@@ -15,7 +15,7 @@ import json
 import logging
 import time
 import uuid
-from typing import Dict
+from typing import Dict, Optional
 
 from ...database import SessionLocal, get_background_db
 from ...models import (
@@ -1279,3 +1279,52 @@ async def restore_entity_states_in_background(
         logger.error(f"[DELETE-BG:ENTITY:ERROR] trace_id={trace_id} duration_ms={total_duration:.2f} error={e}")
         import traceback
         logger.error(f"[DELETE-BG:ENTITY:TRACEBACK] trace_id={trace_id} {traceback.format_exc()}")
+
+
+async def update_working_memory_in_background(
+    story_id: int,
+    branch_id: int,
+    chapter_id: Optional[int],
+    scene_sequence: int,
+    scene_content: str,
+    user_id: int,
+    user_settings: dict
+):
+    """Update working memory after scene generation.
+
+    Tracks scene-to-scene continuity:
+    - recent_focus: What was narratively important
+    - pending_items: Things mentioned but not acted on
+    - character_spotlight: Who needs attention next
+    """
+    try:
+        # Small delay for database consistency
+        await asyncio.sleep(0.2)
+
+        wm_db = SessionLocal()
+        try:
+            from ...services.entity_state_service import EntityStateService
+
+            entity_service = EntityStateService(user_id=user_id, user_settings=user_settings)
+
+            result = await entity_service.update_working_memory(
+                db=wm_db,
+                story_id=story_id,
+                branch_id=branch_id,
+                chapter_id=chapter_id,
+                scene_sequence=scene_sequence,
+                scene_content=scene_content
+            )
+
+            if result:
+                logger.info(f"[WORKING_MEMORY:BG] Updated for story {story_id} scene {scene_sequence}")
+            else:
+                logger.warning(f"[WORKING_MEMORY:BG] No updates for story {story_id} scene {scene_sequence}")
+
+        finally:
+            wm_db.close()
+
+    except Exception as e:
+        logger.error(f"[WORKING_MEMORY:BG:ERROR] story_id={story_id} scene={scene_sequence} error={e}")
+        import traceback
+        logger.error(f"[WORKING_MEMORY:BG:TRACEBACK] {traceback.format_exc()}")

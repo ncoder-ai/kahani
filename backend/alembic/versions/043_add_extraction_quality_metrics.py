@@ -16,7 +16,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '043_extraction_quality_metrics'
-down_revision = '042_make_generated_image_story_id_nullable'
+down_revision = '042_nullable_story_id'
 branch_labels = None
 depends_on = None
 

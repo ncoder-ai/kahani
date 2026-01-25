@@ -94,7 +94,10 @@ class Story(Base):
 
     # Generated Images
     generated_images = relationship("GeneratedImage", back_populates="story", cascade="all, delete-orphan")
-    
+
+    # Working Memory (scene-to-scene continuity tracking)
+    working_memory = relationship("WorkingMemory", back_populates="story", uselist=False, cascade="all, delete-orphan")
+
     # Story Arc - AI-generated narrative structure
     story_arc = Column(JSON, nullable=True)
     

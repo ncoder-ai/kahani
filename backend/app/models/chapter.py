@@ -110,7 +110,8 @@ class Chapter(Base):
     )
     summary_batches = relationship("ChapterSummaryBatch", back_populates="chapter", cascade="all, delete-orphan", order_by="ChapterSummaryBatch.start_scene_sequence")
     plot_progress_batches = relationship("ChapterPlotProgressBatch", back_populates="chapter", cascade="all, delete-orphan", order_by="ChapterPlotProgressBatch.start_scene_sequence")
-    
+    working_memory = relationship("WorkingMemory", back_populates="chapter", uselist=False)
+
     def __repr__(self):
         return f"<Chapter(id={self.id}, story_id={self.story_id}, number={self.chapter_number}, title='{self.title}')>"
 
