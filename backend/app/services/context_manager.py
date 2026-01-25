@@ -1085,7 +1085,9 @@ Appearance: {char.get('appearance', '')}
             "chapter_plot": full_context.get("chapter_plot"),
             "arc_phase": full_context.get("arc_phase"),
             # Pacing guidance will be added below if enabled
-            "pacing_guidance": None
+            "pacing_guidance": None,
+            # Working memory & active plot threads
+            "story_focus": full_context.get("story_focus")
         }
         
         # Add pacing guidance if chapter plot tracking is enabled
