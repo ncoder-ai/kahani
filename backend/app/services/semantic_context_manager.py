@@ -245,7 +245,15 @@ class SemanticContextManager(ContextManager):
         scene_context = await self._build_hybrid_scene_context(
             story_id, scenes, available_tokens, db, chapter_id=chapter_id, branch_id=branch_id, user_intent=user_intent
         )
-        
+
+        # Add story focus (working memory + active plot threads)
+        try:
+            story_focus = self._build_story_focus(db, story_id, branch_id)
+            if story_focus:
+                base_context["story_focus"] = story_focus
+        except Exception as e:
+            logger.warning(f"[SEMANTIC CONTEXT BUILD] Failed to build story focus: {e}")
+
         # Merge contexts
         return {**base_context, **scene_context}
     
