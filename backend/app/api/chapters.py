@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from ..database import get_db
-from ..models import Story, Chapter, Scene, User, ChapterStatus, StoryMode, StoryCharacter, Character, ChapterSummaryBatch
+from ..models import Story, Chapter, Scene, User, ChapterStatus, StoryMode, StoryCharacter, Character, ChapterSummaryBatch, StoryBranch
 from ..models.chapter import chapter_characters
 from ..dependencies import get_current_user
 from ..services.llm.service import UnifiedLLMService
@@ -403,16 +403,37 @@ async def create_chapter(
                 
                 # Handle existing story characters (story_character_ids)
                 if chapter_data.story_character_ids:
-                    # Validate that all story_character_ids belong to this story and branch
+                    # Build the branch ancestry chain (current branch + all ancestors)
+                    # This allows characters from parent branches to be used
+                    branch_ids = []
+                    if active_branch_id:
+                        current_branch = db.query(StoryBranch).filter(StoryBranch.id == active_branch_id).first()
+                        while current_branch:
+                            branch_ids.append(current_branch.id)
+                            if current_branch.forked_from_branch_id:
+                                current_branch = db.query(StoryBranch).filter(
+                                    StoryBranch.id == current_branch.forked_from_branch_id
+                                ).first()
+                            else:
+                                break
+
+                    # Validate that all story_character_ids belong to this story and branch ancestry
                     # Allow characters with NULL branch_id (pre-branching or shared characters)
-                    story_chars = db.query(StoryCharacter).filter(
-                        StoryCharacter.id.in_(chapter_data.story_character_ids),
-                        StoryCharacter.story_id == story_id,
-                        or_(
-                            StoryCharacter.branch_id == active_branch_id,
+                    if branch_ids:
+                        story_chars = db.query(StoryCharacter).filter(
+                            StoryCharacter.id.in_(chapter_data.story_character_ids),
+                            StoryCharacter.story_id == story_id,
+                            or_(
+                                StoryCharacter.branch_id.in_(branch_ids),
+                                StoryCharacter.branch_id.is_(None)
+                            )
+                        ).all()
+                    else:
+                        story_chars = db.query(StoryCharacter).filter(
+                            StoryCharacter.id.in_(chapter_data.story_character_ids),
+                            StoryCharacter.story_id == story_id,
                             StoryCharacter.branch_id.is_(None)
-                        )
-                    ).all()
+                        ).all()
                     
                     if len(story_chars) != len(chapter_data.story_character_ids):
                         # Log which characters failed validation for debugging
@@ -584,13 +605,37 @@ async def update_chapter(
             )
         )
         
-        # Validate that all story_character_ids belong to this story
+        # Validate that all story_character_ids belong to this story and branch ancestry
         if chapter_data.story_character_ids:
-            story_chars = db.query(StoryCharacter).filter(
-                StoryCharacter.id.in_(chapter_data.story_character_ids),
-                StoryCharacter.story_id == story_id
-            ).all()
-            
+            # Build the branch ancestry chain (current branch + all ancestors)
+            active_branch_id = story.current_branch_id
+            branch_ids = []
+            if active_branch_id:
+                current_branch = db.query(StoryBranch).filter(StoryBranch.id == active_branch_id).first()
+                while current_branch:
+                    branch_ids.append(current_branch.id)
+                    if current_branch.forked_from_branch_id:
+                        current_branch = db.query(StoryBranch).filter(
+                            StoryBranch.id == current_branch.forked_from_branch_id
+                        ).first()
+                    else:
+                        break
+
+            if branch_ids:
+                story_chars = db.query(StoryCharacter).filter(
+                    StoryCharacter.id.in_(chapter_data.story_character_ids),
+                    StoryCharacter.story_id == story_id,
+                    or_(
+                        StoryCharacter.branch_id.in_(branch_ids),
+                        StoryCharacter.branch_id.is_(None)
+                    )
+                ).all()
+            else:
+                story_chars = db.query(StoryCharacter).filter(
+                    StoryCharacter.id.in_(chapter_data.story_character_ids),
+                    StoryCharacter.story_id == story_id
+                ).all()
+
             if len(story_chars) != len(chapter_data.story_character_ids):
                 raise HTTPException(
                     status_code=400,
@@ -1706,34 +1751,71 @@ async def get_available_characters(
     db: Session = Depends(get_db)
 ):
     """Get all available story characters for a story (for chapter wizard selection)"""
-    
+
     # Verify story ownership
     story = db.query(Story).filter(
         Story.id == story_id,
         Story.owner_id == current_user.id
     ).first()
-    
+
     if not story:
         raise HTTPException(status_code=404, detail="Story not found")
-    
-    # Get all story characters for the active branch (or NULL branch for shared characters)
+
+    # Get the full branch ancestry chain (current branch + all ancestors)
+    # This ensures characters from parent branches are visible when on a child branch
     active_branch_id = story.current_branch_id
-    story_chars = db.query(StoryCharacter).filter(
-        StoryCharacter.story_id == story_id,
-        or_(
-            StoryCharacter.branch_id == active_branch_id,
+    branch_ids = []
+
+    if active_branch_id:
+        # Build the ancestry chain by following forked_from_branch_id
+        current_branch = db.query(StoryBranch).filter(StoryBranch.id == active_branch_id).first()
+        while current_branch:
+            branch_ids.append(current_branch.id)
+            if current_branch.forked_from_branch_id:
+                current_branch = db.query(StoryBranch).filter(
+                    StoryBranch.id == current_branch.forked_from_branch_id
+                ).first()
+            else:
+                break
+
+    # Get all story characters for branches in the ancestry chain (or NULL branch for shared characters)
+    if branch_ids:
+        story_chars = db.query(StoryCharacter).filter(
+            StoryCharacter.story_id == story_id,
+            or_(
+                StoryCharacter.branch_id.in_(branch_ids),
+                StoryCharacter.branch_id.is_(None)
+            )
+        ).all()
+    else:
+        # No active branch, just get characters with NULL branch_id
+        story_chars = db.query(StoryCharacter).filter(
+            StoryCharacter.story_id == story_id,
             StoryCharacter.branch_id.is_(None)
-        )
-    ).all()
-    
+        ).all()
+
     # Build response with character details, deduplicating by character_id
+    # Prefer characters from the current branch over ancestors (more specific version)
     seen_character_ids = set()
     characters = []
-    for sc in story_chars:
-        # Skip if we've already added this character
+
+    # Sort by branch_id so current branch characters come first (they have higher branch_id typically)
+    # or more specifically, sort by position in branch_ids list (index 0 = current branch = highest priority)
+    def sort_key(sc):
+        if sc.branch_id is None:
+            return len(branch_ids) + 1  # NULL branch has lowest priority
+        try:
+            return branch_ids.index(sc.branch_id)
+        except ValueError:
+            return len(branch_ids)  # Unknown branch has low priority
+
+    story_chars_sorted = sorted(story_chars, key=sort_key)
+
+    for sc in story_chars_sorted:
+        # Skip if we've already added this character (from a more specific branch)
         if sc.character_id in seen_character_ids:
             continue
-            
+
         char = db.query(Character).filter(Character.id == sc.character_id).first()
         if char:
             characters.append({
@@ -1744,7 +1826,8 @@ async def get_available_characters(
                 "description": char.description
             })
             seen_character_ids.add(sc.character_id)
-    
+
+    logger.info(f"[AVAILABLE_CHARACTERS] Story {story_id}: branch_ids={branch_ids}, returning {len(characters)} characters: {[c['name'] for c in characters]}")
     return {"characters": characters}
 
 

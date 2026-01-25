@@ -255,6 +255,7 @@ export default function ChapterBrainstormModal({
   // Character review state
   const [characterMappings, setCharacterMappings] = useState<CharacterMapping[]>([]);
   const [isEditingPlot, setIsEditingPlot] = useState(false);
+  const [isSavingPlotEdits, setIsSavingPlotEdits] = useState(false);
   const [showArcSidebar, setShowArcSidebar] = useState(false);
   
   // Previous sessions state
@@ -735,6 +736,38 @@ export default function ChapterBrainstormModal({
       setApplyError('Failed to apply plot. Please try again.');
     } finally {
       setIsApplying(false);
+    }
+  };
+
+  // Save plot edits to the backend when exiting edit mode
+  const handleSavePlotEdits = async () => {
+    console.log('[ChapterBrainstorm] handleSavePlotEdits called', { extractedPlot: !!extractedPlot, sessionId });
+
+    if (!extractedPlot || !sessionId) {
+      // No session to save to, just exit edit mode
+      console.log('[ChapterBrainstorm] No session to save, just exiting edit mode');
+      setIsEditingPlot(false);
+      return;
+    }
+
+    setIsSavingPlotEdits(true);
+    try {
+      console.log('[ChapterBrainstorm] Saving plot edits to backend:', {
+        storyId,
+        sessionId,
+        climax: extractedPlot.climax,
+        summary: extractedPlot.summary?.substring(0, 50)
+      });
+      const result = await apiClient.updateChapterBrainstormPlot(storyId, sessionId, extractedPlot);
+      console.log('[ChapterBrainstorm] Plot edits saved successfully:', result);
+      setIsEditingPlot(false);
+    } catch (error) {
+      console.error('[ChapterBrainstorm] Failed to save plot edits:', error);
+      alert('Failed to save edits: ' + (error instanceof Error ? error.message : 'Unknown error'));
+      // Still exit edit mode even if save fails - user can try again
+      setIsEditingPlot(false);
+    } finally {
+      setIsSavingPlotEdits(false);
     }
   };
 
@@ -1446,18 +1479,19 @@ export default function ChapterBrainstormModal({
                 {/* Edit Toggle */}
                 <div className="flex justify-between items-center">
                   <span className="text-white/60 text-sm">
-                    {isEditingPlot ? 'Editing mode - changes will be saved when you apply' : 'Tap Edit to make changes'}
+                    {isEditingPlot ? 'Editing mode - click Done to save changes' : 'Tap Edit to make changes'}
                   </span>
                   <button
                     type="button"
-                    onClick={() => setIsEditingPlot(!isEditingPlot)}
+                    onClick={() => isEditingPlot ? handleSavePlotEdits() : setIsEditingPlot(true)}
+                    disabled={isSavingPlotEdits}
                     className={`px-4 py-2 rounded-lg text-sm font-medium transition-all touch-manipulation min-h-[44px] ${
-                      isEditingPlot 
-                        ? 'bg-purple-600 text-white' 
+                      isEditingPlot
+                        ? 'bg-purple-600 text-white'
                         : 'bg-white/10 text-white/70 hover:bg-white/20 active:bg-white/30'
-                    }`}
+                    } ${isSavingPlotEdits ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
-                    {isEditingPlot ? '✓ Done' : '✏️ Edit'}
+                    {isSavingPlotEdits ? '💾 Saving...' : (isEditingPlot ? '✓ Done' : '✏️ Edit')}
                   </button>
                 </div>
 

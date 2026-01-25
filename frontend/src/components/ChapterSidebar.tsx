@@ -410,6 +410,12 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
   ) => {
     setIsSubmittingNewChapter(true);
     try {
+      console.log('[ChapterSidebar] handleChapterWizardComplete received:', {
+        chapter_plot: chapterData.chapter_plot,
+        climax: chapterData.chapter_plot?.climax,
+        brainstorm_session_id: chapterData.brainstorm_session_id
+      });
+
       if (editingChapterId) {
         // Update existing chapter
         await apiClient.updateChapter(storyId, editingChapterId, {

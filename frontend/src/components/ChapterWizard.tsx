@@ -345,6 +345,12 @@ export default function ChapterWizard({
         setStatusMessage(status.message);
       };
 
+      console.log('[ChapterWizard] Submitting chapter with plot:', {
+        chapter_plot: initialData?.chapter_plot,
+        climax: initialData?.chapter_plot?.climax,
+        brainstorm_session_id: brainstormSessionId
+      });
+
       await onComplete({
         title: title.trim() || undefined,
         description: description.trim() || undefined,

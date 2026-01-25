@@ -1974,14 +1974,31 @@ chapter_brainstorm:
       - For unconfirmed elements, extract from the conversation
       - Be specific with key events - they should be actionable story beats
       
-      CRITICAL - AVOID OVERLAP BETWEEN EVENTS, CLIMAX, AND RESOLUTION:
-      - "key_events" are the RISING ACTION events that BUILD TOWARD the climax
-      - "key_events" should NOT include the climax moment itself
-      - "key_events" should NOT include the resolution/ending
-      - "climax" is the single most intense/dramatic moment - the peak of tension
-      - "resolution" is what happens AFTER the climax - how the chapter concludes
-      - If an event IS the climax, put it in "climax" NOT in "key_events"
-      - If an event IS the resolution, put it in "resolution" NOT in "key_events"
+      CRITICAL - EVENTS vs CLIMAX vs RESOLUTION (NO OVERLAP ALLOWED):
+
+      KEY EVENTS (rising action):
+      - Events that BUILD TENSION and lead up to the climax
+      - Things that HAPPEN before the peak moment
+      - Should be 3-5 distinct story beats
+      - Example: "Ali corners Radhika in the kitchen" (this builds tension)
+
+      CLIMAX (the peak - MUST BE DIFFERENT from key_events):
+      - The single most EMOTIONALLY INTENSE moment of the chapter
+      - Where tension PEAKS or a major revelation/confrontation occurs
+      - Describe the EMOTIONAL IMPACT, not just the action
+      - WRONG: "Ali and Radhika at the sink" (too vague, sounds like an event)
+      - RIGHT: "Radhika surrenders to temptation as Ali pins her against the sink, crossing the line she swore she never would"
+      - The climax should feel like THE MOMENT everything was building toward
+
+      RESOLUTION (aftermath):
+      - What happens AFTER the climax - the immediate consequences
+      - How characters process what just happened
+      - Sets up the transition to the next chapter
+
+      VALIDATION: Before returning, verify that:
+      1. The climax is NOT just a copy of any key_event
+      2. The climax describes emotional/dramatic PEAK, not just an action
+      3. Key events lead UP TO the climax chronologically
       
       CHARACTER HANDLING:
       - "character_arcs": Characters and their development in this chapter
