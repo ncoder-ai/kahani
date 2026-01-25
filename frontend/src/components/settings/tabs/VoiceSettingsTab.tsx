@@ -85,7 +85,8 @@ export default function VoiceSettingsTab({
       });
       if (response.ok) {
         const data = await response.json();
-        setTtsProviders(data.providers || DEFAULT_TTS_PROVIDERS);
+        // Backend returns list directly, not wrapped in 'providers'
+        setTtsProviders(Array.isArray(data) ? data : (data.providers || DEFAULT_TTS_PROVIDERS));
       } else {
         setTtsProviders(DEFAULT_TTS_PROVIDERS);
       }
@@ -106,23 +107,25 @@ export default function VoiceSettingsTab({
       });
       if (response.ok) {
         const data = await response.json();
-        if (data.settings) {
-          const providerType = data.settings.provider_type || 'openai-compatible';
+        // Backend returns TTSSettingsResponse directly, not wrapped in 'settings'
+        const settings = data.settings || data;
+        if (settings) {
+          const providerType = settings.provider_type || 'openai-compatible';
           const defaultUrl = (providerUrls as Record<string, string>)[providerType] || '';
           setTtsSettings({
-            ...data.settings,
-            api_url: data.settings.api_url || defaultUrl,
+            ...settings,
+            api_url: settings.api_url || defaultUrl,
           });
 
-          if (data.settings.extra_params) {
-            if (data.settings.extra_params.exaggeration !== undefined) {
-              setChatterboxExaggeration(data.settings.extra_params.exaggeration);
+          if (settings.extra_params) {
+            if (settings.extra_params.exaggeration !== undefined) {
+              setChatterboxExaggeration(settings.extra_params.exaggeration);
             }
-            if (data.settings.extra_params.cfg_weight !== undefined) {
-              setChatterboxCfgWeight(data.settings.extra_params.cfg_weight);
+            if (settings.extra_params.cfg_weight !== undefined) {
+              setChatterboxCfgWeight(settings.extra_params.cfg_weight);
             }
-            if (data.settings.extra_params.temperature !== undefined) {
-              setChatterboxTemperature(data.settings.extra_params.temperature);
+            if (settings.extra_params.temperature !== undefined) {
+              setChatterboxTemperature(settings.extra_params.temperature);
             }
           }
         }
@@ -227,7 +230,8 @@ export default function VoiceSettingsTab({
         extraParams.temperature = chatterboxTemperature;
       }
 
-      const response = await fetch(`${await getApiBaseUrl()}/api/tts/test`, {
+      // Use test-voice endpoint which accepts provider settings directly (for testing before saving)
+      const response = await fetch(`${await getApiBaseUrl()}/api/tts/test-voice`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -239,6 +243,7 @@ export default function VoiceSettingsTab({
           api_key: ttsSettings.api_key,
           voice_id: ttsSettings.voice_id,
           speed: ttsSettings.speed,
+          timeout: ttsSettings.timeout,
           extra_params: Object.keys(extraParams).length > 0 ? extraParams : undefined,
         }),
       });
@@ -278,22 +283,41 @@ export default function VoiceSettingsTab({
         extraParams.temperature = chatterboxTemperature;
       }
 
-      const response = await fetch(`${await getApiBaseUrl()}/api/tts/settings`, {
-        method: 'POST',
+      const fullSettings = {
+        ...ttsSettings,
+        extra_params: Object.keys(extraParams).length > 0 ? extraParams : (ttsSettings.extra_params || {}),
+      };
+
+      // Save provider-specific config first
+      const providerConfigResponse = await fetch(`${await getApiBaseUrl()}/api/tts/provider-configs/${ttsSettings.provider_type}`, {
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          ...ttsSettings,
-          extra_params: Object.keys(extraParams).length > 0 ? extraParams : undefined,
-        }),
+        body: JSON.stringify(fullSettings),
       });
 
-      if (response.ok) {
+      if (!providerConfigResponse.ok) {
+        const error = await providerConfigResponse.json();
+        showMessage(error.detail || 'Failed to save provider config', 'error');
+        return;
+      }
+
+      // Save global TTS settings
+      const globalResponse = await fetch(`${await getApiBaseUrl()}/api/tts/settings`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(fullSettings),
+      });
+
+      if (globalResponse.ok) {
         showMessage('TTS settings saved', 'success');
       } else {
-        const error = await response.json();
+        const error = await globalResponse.json();
         showMessage(error.detail || 'Failed to save settings', 'error');
       }
     } catch (error) {
