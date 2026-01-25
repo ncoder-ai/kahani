@@ -330,8 +330,11 @@ class ChapterSummaryService:
 
     async def generate_story_so_far(self, chapter_id: int) -> Optional[str]:
         """
-        Generate "Story So Far" for a chapter by combining summaries of ALL PREVIOUS chapters.
+        Generate "Story So Far" for a chapter by concatenating summaries of ALL PREVIOUS chapters.
         Does NOT include the current chapter's summary.
+
+        This directly concatenates chapter summaries rather than re-summarizing them,
+        which preserves all details and avoids information loss.
 
         Returns None if there are no previous chapters with summaries.
         Note: Filters by branch_id to ensure only chapters from the same branch are included.
@@ -351,11 +354,11 @@ class ChapterSummaryService:
             previous_chapters_query = previous_chapters_query.filter(Chapter.branch_id == chapter.branch_id)
         previous_chapters = previous_chapters_query.order_by(Chapter.chapter_number).all()
 
-        # Build the story so far from previous chapter summaries
+        # Build the story so far by concatenating previous chapter summaries
         previous_summaries = []
         for prev_ch in previous_chapters:
             if prev_ch.auto_summary:
-                previous_summaries.append(f"Chapter {prev_ch.chapter_number} ({prev_ch.title or 'Untitled'}): {prev_ch.auto_summary}")
+                previous_summaries.append(f"=== Chapter {prev_ch.chapter_number}: {prev_ch.title or 'Untitled'} ===\n{prev_ch.auto_summary}")
 
         if not previous_summaries:
             logger.info(f"[CHAPTER] No previous chapter summaries available for chapter {chapter_id}")
@@ -363,46 +366,15 @@ class ChapterSummaryService:
             self.db.commit()
             return None
 
-        combined_story = "=== Previous Chapters ===\n" + "\n\n".join(previous_summaries)
-
-        # Get story details
-        story = self.db.query(Story).filter(Story.id == story_id).first()
-        genre = story.genre if story else "fiction"
-        content_rating = story.content_rating if story and hasattr(story, 'content_rating') else "general"
-        tone = story.tone if story else "neutral"
-
-        # Get prompt
-        prompt = prompt_manager.get_prompt(
-            "story_so_far", "user",
-            user_id=self.user_id, db=self.db,
-            combined_chapters=combined_story,
-            genre=genre or "fiction",
-            content_rating=content_rating or "general",
-            tone=tone or "neutral"
-        )
-        if not prompt:
-            prompt = f"{combined_story}\n\nConsolidate into a factual story summary for this {genre} story."
-
-        user_settings = self._get_user_settings()
-
-        system_prompt = prompt_manager.get_prompt("story_so_far", "system", user_id=self.user_id, db=self.db)
-        if not system_prompt:
-            system_prompt = "You are a story state tracker. Consolidate chapter facts into a single state document."
-
-        # Generate story so far
-        story_so_far = await self._generate_with_llm(
-            prompt=prompt,
-            system_prompt=system_prompt,
-            user_settings=user_settings,
-            max_tokens=600,
-            trace_context=f"story_so_far_{chapter_id}"
-        )
+        # Directly concatenate summaries - no LLM re-summarization to preserve all details
+        story_so_far = "\n\n".join(previous_summaries)
 
         # Update chapter
         chapter.story_so_far = story_so_far
         self.db.commit()
 
-        logger.info(f"[CHAPTER] Generated story_so_far for chapter {chapter_id} using {len(previous_chapters)} previous chapters: {len(story_so_far)} chars")
+        total_chars = len(story_so_far)
+        logger.info(f"[CHAPTER] Concatenated story_so_far for chapter {chapter_id} from {len(previous_chapters)} previous chapters: {total_chars} chars")
 
         return story_so_far
 

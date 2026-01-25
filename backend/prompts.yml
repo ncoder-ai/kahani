@@ -822,16 +822,22 @@ summary_generation:
       {combined_chapters}
       
       Consolidate into a single factual summary that serves as context for continuing this {genre} story:
-      
-      STORY PROGRESSION: [key events in order, merged across chapters - USE SPECIFIC TERMS from source, never generalize physical interactions to vague phrases]
+
+      STORY PROGRESSION: [key events in chronological order - MERGE DUPLICATES, each event should appear only ONCE even if mentioned in multiple chapters]
       CURRENT STATE: [where things stand now - locations, relationships, situation - in-story facts only]
       ACTIVE THREADS: [unresolved PLOT points and character arcs that the story needs to continue - NOT ethical concerns or real-world implications]
-      
+
+      CRITICAL - DEDUPLICATION:
+      - Each distinct event should appear EXACTLY ONCE in the summary
+      - If the same event is described in multiple chapters, include it only at the chronologically correct position
+      - Merge overlapping descriptions into a single concise statement
+      - The summary should flow chronologically without repetition
+
       IMPORTANT: This is a {content_rating} {genre} story. Track the story as written without external commentary.
       Active threads should be things like "Will X discover Y's secret?" or "How will the relationship develop?" - NOT "ethical implications" or "legal ramifications".
       PRESERVE SPECIFIC TERMINOLOGY - do not generalize specific actions into vague phrases like "intimate acts".
-      
-      Maximum 500 words. Facts only, no prose, no moralizing.
+
+      Aim for 600-800 words for comprehensive coverage. Facts only, no prose, no moralizing.
 
   chapter_summary_incremental:
     system: |
