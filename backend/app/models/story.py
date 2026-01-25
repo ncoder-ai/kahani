@@ -98,6 +98,9 @@ class Story(Base):
     # Working Memory (scene-to-scene continuity tracking)
     working_memory = relationship("WorkingMemory", back_populates="story", uselist=False, cascade="all, delete-orphan")
 
+    # Contradictions (continuity error tracking)
+    contradictions = relationship("Contradiction", back_populates="story", cascade="all, delete-orphan")
+
     # Story Arc - AI-generated narrative structure
     story_arc = Column(JSON, nullable=True)
     

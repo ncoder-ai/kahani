@@ -75,6 +75,9 @@ class StoryBranch(Base):
     # Working memory (scene-to-scene continuity)
     working_memory = relationship("WorkingMemory", back_populates="branch", uselist=False, cascade="all, delete-orphan")
 
+    # Contradictions (continuity error tracking)
+    contradictions = relationship("Contradiction", back_populates="branch", cascade="all, delete-orphan")
+
     def __repr__(self):
         return f"<StoryBranch(id={self.id}, story_id={self.story_id}, name='{self.name}', is_main={self.is_main}, is_active={self.is_active})>"
 

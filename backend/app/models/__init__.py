@@ -31,6 +31,7 @@ from .chapter_brainstorm_session import ChapterBrainstormSession
 from .character_interaction import CharacterInteraction
 from .generated_image import GeneratedImage
 from .working_memory import WorkingMemory
+from .contradiction import Contradiction
 
 __all__ = [
     "Base",
@@ -53,5 +54,6 @@ __all__ = [
     "ChapterBrainstormSession",
     "CharacterInteraction",
     "GeneratedImage",
-    "WorkingMemory"
+    "WorkingMemory",
+    "Contradiction"
 ]

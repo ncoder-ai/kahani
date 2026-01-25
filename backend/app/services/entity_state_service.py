@@ -349,7 +349,31 @@ class EntityStateService:
             if not state_changes:
                 logger.warning(f"[ENTITY:EMPTY] trace_id={trace_id} scene_id={scene_id} story_id={story_id} sequence={scene_sequence}")
                 return results
-            
+
+            # Check for contradictions before updating states
+            try:
+                from .contradiction_service import ContradictionService
+                contradiction_service = ContradictionService(db)
+                contradictions = await contradiction_service.check_extraction(
+                    story_id=story_id,
+                    branch_id=branch_id,
+                    scene_sequence=scene_sequence,
+                    new_states=state_changes
+                )
+
+                # Log and save contradictions (non-blocking)
+                for c in contradictions:
+                    logger.info(
+                        f"[CONTRADICTION] trace_id={trace_id} type={c.contradiction_type} "
+                        f"char={c.character_name} prev='{c.previous_value}' curr='{c.current_value}'"
+                    )
+                    db.add(c)
+
+                if contradictions:
+                    results["contradictions_found"] = len(contradictions)
+            except Exception as e:
+                logger.warning(f"[CONTRADICTION:ERROR] trace_id={trace_id} error={e}")
+
             # Update character states
             if "characters" in state_changes:
                 for char_update in state_changes["characters"]:
