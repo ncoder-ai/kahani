@@ -1291,7 +1291,7 @@ async def generate_scene_streaming_endpoint(
                     branch_id=active_branch_id,
                     chapter_id=active_chapter.id if active_chapter else None,
                     scene_sequence=scene.sequence_number,
-                    scene_content=complete_scene,
+                    scene_content=cleaned_full_content,
                     user_id=current_user.id,
                     user_settings=user_settings or {}
                 )
