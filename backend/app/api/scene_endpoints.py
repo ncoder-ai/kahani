@@ -1288,7 +1288,7 @@ async def generate_scene_streaming_endpoint(
                 background_tasks.add_task(
                     update_working_memory_in_background,
                     story_id=story_id,
-                    branch_id=branch_id,
+                    branch_id=active_branch_id,
                     chapter_id=active_chapter.id if active_chapter else None,
                     scene_sequence=scene.sequence_number,
                     scene_content=complete_scene,
