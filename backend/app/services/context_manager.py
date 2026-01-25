@@ -516,8 +516,6 @@ Appearance: {char.get('appearance', '')}
                 if working_memory:
                     if working_memory.recent_focus:
                         story_focus["recent_focus"] = working_memory.recent_focus[:3]
-                    if working_memory.pending_items:
-                        story_focus["pending_items"] = working_memory.pending_items[:3]
                     if working_memory.character_spotlight:
                         story_focus["character_spotlight"] = working_memory.character_spotlight
 
@@ -525,7 +523,7 @@ Appearance: {char.get('appearance', '')}
             if story_focus:
                 logger.info(f"[CONTEXT BUILD] Story focus: threads={len(story_focus.get('active_threads', []))}, "
                            f"focus={len(story_focus.get('recent_focus', []))}, "
-                           f"pending={len(story_focus.get('pending_items', []))}")
+                           f"spotlight={len(story_focus.get('character_spotlight', {}))}")
                 return story_focus
 
             return None

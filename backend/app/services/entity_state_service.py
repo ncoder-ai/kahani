@@ -475,12 +475,11 @@ class EntityStateService:
         """
         Update working memory after scene generation.
 
-        Tracks scene-to-scene continuity:
-        - recent_focus: What was narratively important
-        - pending_items: Things mentioned but not acted on
+        Tracks scene-to-scene narrative continuity:
+        - recent_focus: What was narratively emphasized
         - character_spotlight: Who needs attention next
 
-        Note: active_threads are derived from PlotEvent, not stored here.
+        Note: Unresolved plot threads are tracked separately via PlotEvents.
         """
         from ..models import WorkingMemory
 
@@ -499,34 +498,29 @@ class EntityStateService:
                     story_id=story_id,
                     branch_id=branch_id,
                     recent_focus=[],
-                    pending_items=[],
                     character_spotlight={}
                 )
                 db.add(memory)
 
             # Get current state for context
             current_focus = memory.recent_focus or []
-            current_pending = memory.pending_items or []
 
             # Extract updates using LLM
             updates = await self._extract_working_memory_updates(
                 scene_content=scene_content,
-                current_focus=current_focus,
-                current_pending=current_pending
+                current_focus=current_focus
             )
 
             if updates:
                 # Apply updates
                 memory.recent_focus = updates.get('recent_focus', [])[:3]  # Limit to 3
-                memory.pending_items = updates.get('pending_items', [])[:3]  # Limit to 3
                 memory.character_spotlight = updates.get('character_spotlight', {})
                 memory.chapter_id = chapter_id
                 memory.last_scene_sequence = scene_sequence
 
                 db.commit()
                 logger.info(f"[WORKING_MEMORY:UPDATED] trace_id={trace_id} story_id={story_id} "
-                           f"focus={len(memory.recent_focus)} pending={len(memory.pending_items)} "
-                           f"spotlight={len(memory.character_spotlight)}")
+                           f"focus={len(memory.recent_focus)} spotlight={len(memory.character_spotlight)}")
 
                 return memory.to_dict()
             else:
@@ -540,8 +534,7 @@ class EntityStateService:
     async def _extract_working_memory_updates(
         self,
         scene_content: str,
-        current_focus: List[str],
-        current_pending: List[str]
+        current_focus: List[str]
     ) -> Optional[Dict[str, Any]]:
         """Extract working memory updates from scene content."""
 
@@ -550,8 +543,7 @@ class EntityStateService:
 
         template_vars = {
             'scene_content': scene_content[:3000],  # Limit content length
-            'current_focus': ', '.join(current_focus[:3]) if current_focus else 'None',
-            'current_pending': ', '.join(current_pending[:3]) if current_pending else 'None'
+            'current_focus': ', '.join(current_focus[:3]) if current_focus else 'None'
         }
 
         try:

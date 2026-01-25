@@ -2676,6 +2676,9 @@ Chapter Conclusion:"""
             })
 
         # Add story focus (working memory + active threads) - concise reminders
+        # - Unresolved threads: From PlotEvents (structured story beats)
+        # - Recent focus: From WorkingMemory (narrative emphasis)
+        # - Character attention: From WorkingMemory (who needs attention)
         story_focus = context.get("story_focus")
         if story_focus:
             focus_parts = []
@@ -2684,8 +2687,6 @@ Chapter Conclusion:"""
                 focus_parts.append(f"Unresolved threads: {'; '.join(story_focus['active_threads'][:3])}")
             if story_focus.get("recent_focus"):
                 focus_parts.append(f"Recent focus: {', '.join(story_focus['recent_focus'][:2])}")
-            if story_focus.get("pending_items"):
-                focus_parts.append(f"Pending: {', '.join(story_focus['pending_items'][:2])}")
             if story_focus.get("character_spotlight"):
                 spotlight = [f"{k} ({v})" for k, v in list(story_focus['character_spotlight'].items())[:2]]
                 focus_parts.append(f"Character attention: {', '.join(spotlight)}")

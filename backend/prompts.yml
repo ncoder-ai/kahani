@@ -1662,43 +1662,34 @@ entity_state_extraction:
 # =============================================================================
 working_memory_update:
   system: |
-    You track scene-to-scene story continuity.
-    Extract micro-level items that need follow-up in the NEXT scene.
+    You track scene-to-scene narrative focus and character attention.
+    Extract what was emphasized and who needs attention next.
     Be concise - this is metadata, not prose.
-    DO NOT track major plot threads (those are tracked separately as PlotEvents).
-    Focus on CONCRETE items that were mentioned but not resolved.
+    DO NOT track plot events or unresolved threads (those are tracked separately as PlotEvents).
+    Focus on NARRATIVE EMPHASIS and CHARACTER DYNAMICS.
 
   user: |
     Scene just written:
     {scene_content}
 
     Current focus: {current_focus}
-    Current pending items: {current_pending}
 
-    Extract micro-continuity items that need attention in the next scene:
+    Extract narrative continuity items:
 
-    1. RECENT_FOCUS: What was emotionally/narratively important in THIS scene? (max 3 items)
-       - Character moments, revelations, confrontations
-       - NOT plot threads (tracked separately)
+    1. RECENT_FOCUS: What was emotionally/narratively emphasized in THIS scene? (max 3 items)
+       - Character dynamics, tensions, emotional beats
+       - Thematic emphasis, mood shifts
+       - NOT plot events (tracked separately as PlotEvents)
 
-    2. PENDING_ITEMS: Specific things MENTIONED but NOT ACTED ON (max 3 items)
-       - Objects picked up but not examined
-       - Questions asked but not answered
-       - Interrupted actions
-       - Phone calls/messages not responded to
-       - ONLY include if it needs follow-up NEXT scene
-
-    3. CHARACTER_SPOTLIGHT: Characters needing narrative attention next
-       - Who hasn't spoken in a while?
-       - Who just had a revelation that needs follow-up?
-       - Who was interrupted or cut off?
-
-    Remove any PENDING_ITEMS from previous list that were resolved in this scene.
+    2. CHARACTER_SPOTLIGHT: Characters needing narrative attention next
+       - Who hasn't spoken in a while but is present?
+       - Who just had a moment that needs follow-up?
+       - Who was interrupted or sidelined?
+       - Include brief reason why they need attention
 
     Return as JSON only:
     {{
       "recent_focus": ["item1", "item2"],
-      "pending_items": ["item1", "item2"],
       "character_spotlight": {{"CharName": "reason for spotlight"}}
     }}
 
