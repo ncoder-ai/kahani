@@ -181,7 +181,8 @@ async def backfill_relationships(
         return 0
 
     if not dry_run:
-        clear_relationships(db, story_id, branch_id)
+        # Clear ALL branches for this story (don't filter by branch_id)
+        clear_relationships(db, story_id)
 
     entity_service = EntityStateService(user_id=1, user_settings=user_settings)
     total = 0
@@ -241,9 +242,16 @@ async def backfill_chapter_summaries(
     chapters: list,
     scenes: list,
     user_settings: dict,
-    dry_run: bool = False
+    user_id: int = 2,
+    dry_run: bool = False,
+    batch_size: int = 10
 ) -> int:
-    """Regenerate chapter summaries."""
+    """Regenerate chapter summaries using batched incremental processing.
+
+    Processes each chapter's scenes in batches of `batch_size` to avoid
+    exceeding the LLM context window. Uses the incremental summary service
+    which builds upon the previous batch's summary.
+    """
     logger.info("=== BACKFILL CHAPTER SUMMARIES ===")
 
     if not chapters:
@@ -253,7 +261,7 @@ async def backfill_chapter_summaries(
     if not dry_run:
         clear_chapter_summaries(db, story_id)
 
-    summary_service = ChapterSummaryService()
+    summary_service = ChapterSummaryService(db=db, user_id=user_id)
     total = 0
 
     for chapter in chapters:
@@ -264,36 +272,51 @@ async def backfill_chapter_summaries(
             logger.info(f"  Chapter {chapter.chapter_number}: no scenes, skipping")
             continue
 
+        num_batches = (len(chapter_scenes) + batch_size - 1) // batch_size
+
         if dry_run:
-            logger.info(f"  [DRY RUN] Would regenerate summary for chapter {chapter.chapter_number} ({len(chapter_scenes)} scenes)")
+            logger.info(f"  [DRY RUN] Would regenerate summary for chapter {chapter.chapter_number} "
+                        f"({len(chapter_scenes)} scenes, {num_batches} batches)")
             continue
 
         try:
-            # Combine scene content
-            scene_text = "\n\n---\n\n".join([s[2] for s in chapter_scenes])
+            # Reset watermark so incremental starts from the beginning
+            chapter.last_summary_scene_count = 0
+            chapter.auto_summary = None
+            db.flush()
 
-            # Generate full summary
-            result = await summary_service.generate_chapter_summary(
-                db=db,
-                chapter_id=chapter.id,
-                story_id=story_id,
-                branch_id=branch_id,
-                scene_content=scene_text,
-                is_incremental=False
-            )
+            # Process scenes in batches using the incremental method
+            # The service fetches scenes with sequence_number > last_summary_scene_count
+            # and max_new_scenes limits how many it picks up per call
+            for batch_idx in range(num_batches):
+                result = await summary_service.generate_chapter_summary_incremental(
+                    chapter_id=chapter.id,
+                    max_new_scenes=batch_size
+                )
 
-            if result:
-                logger.info(f"  Chapter {chapter.chapter_number}: summary generated ({len(chapter_scenes)} scenes)")
-                total += 1
-            else:
-                logger.warning(f"  Chapter {chapter.chapter_number}: summary generation failed")
+                # The service updates chapter.last_summary_scene_count after each batch
+                # so the next call picks up where this one left off
+
+                if result:
+                    logger.info(f"  Chapter {chapter.chapter_number} batch {batch_idx + 1}/{num_batches}: "
+                                f"summarized (watermark now at {chapter.last_summary_scene_count})")
+                else:
+                    logger.warning(f"  Chapter {chapter.chapter_number} batch {batch_idx + 1}/{num_batches}: "
+                                   f"summary generation failed")
+                    break  # Stop if a batch fails
+
+                await asyncio.sleep(0.5)
+
+            # Also generate story_so_far for this chapter
+            await summary_service.generate_story_so_far(chapter_id=chapter.id)
+
+            total += 1
+            logger.info(f"  Chapter {chapter.chapter_number}: complete ({len(chapter_scenes)} scenes, {num_batches} batches)")
 
         except Exception as e:
             logger.error(f"  Chapter {chapter.chapter_number}: error - {e}")
 
-        await asyncio.sleep(0.5)
-
-    logger.info(f"  Total: {total} chapter summaries generated")
+    logger.info(f"  Total: {total} chapters summarized")
     return total
 
 
@@ -391,7 +414,8 @@ async def backfill_working_memory(
         return 0
 
     if not dry_run:
-        clear_working_memory(db, story_id, branch_id)
+        # Clear ALL branches for this story
+        clear_working_memory(db, story_id)
 
     entity_service = EntityStateService(user_id=1, user_settings=user_settings)
 
@@ -487,7 +511,8 @@ async def backfill_story(
 
         if do_summaries:
             await backfill_chapter_summaries(
-                db, story_id, branch_id, chapters, scenes, user_settings, dry_run
+                db, story_id, branch_id, chapters, scenes, user_settings,
+                user_id=user_id, dry_run=dry_run
             )
             print()
 

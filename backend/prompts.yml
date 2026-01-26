@@ -1713,10 +1713,18 @@ relationship_extraction:
     - Include the specific moment that shows/changes the relationship
     - Be precise about what changed vs what was just shown
     - Order characters alphabetically in each pair for consistency
+    - ONLY extract relationships for characters who are PHYSICALLY PRESENT and INTERACTING in the scene
+    - Do NOT extract relationships from fantasies, dreams, memories, or flashbacks unless the fantasy itself changes how a present character feels
+    - If a character is merely MENTIONED or REMEMBERED but not present, do NOT create a relationship entry for them
+    - Return exactly ONE entry per character pair per scene (the most significant interaction)
+    - You MUST use the EXACT canonical character names provided. Do not use nicknames, shortened forms, or full names if the canonical name differs.
 
   user: |
     Scene content:
     {scene_content}
+
+    CANONICAL CHARACTER NAMES (use EXACTLY these names):
+    {character_names}
 
     Characters in scene: {characters}
 
@@ -1724,6 +1732,7 @@ relationship_extraction:
     {previous_relationships}
 
     Extract relationship updates for character pairs that interacted meaningfully in this scene.
+    Use ONLY the canonical character names listed above. ONE entry per character pair.
 
     Return JSON:
     {{

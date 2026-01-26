@@ -603,6 +603,67 @@ class EntityStateService:
     # RELATIONSHIP GRAPH TRACKING
     # =========================================================================
 
+    def _get_canonical_character_names(self, db: Session, story_id: int) -> List[str]:
+        """Fetch canonical character names from the story's character list."""
+        from ..models.character import Character, StoryCharacter
+
+        results = db.query(Character.name).join(
+            StoryCharacter, StoryCharacter.character_id == Character.id
+        ).filter(StoryCharacter.story_id == story_id).all()
+
+        return [r[0] for r in results]
+
+    def _normalize_character_name(self, name: str, canonical_names: List[str]) -> str:
+        """Normalize an extracted character name to match a canonical name.
+
+        Uses exact match first, then case-insensitive, then substring matching.
+        """
+        if not name or not canonical_names:
+            return name
+
+        name_stripped = name.strip()
+
+        # Exact match
+        for cn in canonical_names:
+            if cn == name_stripped:
+                return cn
+
+        # Case-insensitive match
+        name_lower = name_stripped.lower()
+        for cn in canonical_names:
+            if cn.lower() == name_lower:
+                return cn
+
+        # Substring match: extracted name is part of canonical name (e.g. "Ali" -> "Ali Malik")
+        # or canonical name is part of extracted name (e.g. "Ali Malik" -> "Ali")
+        for cn in canonical_names:
+            cn_lower = cn.lower()
+            if name_lower in cn_lower or cn_lower in name_lower:
+                return cn
+
+        # First-name match: compare first word
+        name_first = name_lower.split()[0] if name_lower.split() else name_lower
+        for cn in canonical_names:
+            cn_first = cn.lower().split()[0] if cn.lower().split() else cn.lower()
+            if name_first == cn_first:
+                return cn
+
+        return name_stripped  # Return as-is if no match
+
+    def _deduplicate_extractions(self, updates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Deduplicate extractions: keep one entry per character pair (highest strength)."""
+        seen = {}
+        for rel in updates:
+            char_a = rel.get('character_a', '')
+            char_b = rel.get('character_b', '')
+            if not char_a or not char_b:
+                continue
+            pair = tuple(sorted([char_a, char_b]))
+            strength = abs(float(rel.get('strength', 0)))
+            if pair not in seen or strength > abs(float(seen[pair].get('strength', 0))):
+                seen[pair] = rel
+        return list(seen.values())
+
     async def update_relationship_graph(
         self,
         db: Session,
@@ -630,6 +691,9 @@ class EntityStateService:
         logger.info(f"[RELATIONSHIP:START] trace_id={trace_id} story_id={story_id} scene={scene_sequence} characters={characters}")
 
         try:
+            # Fetch canonical character names for normalization
+            canonical_names = self._get_canonical_character_names(db, story_id)
+
             # Get previous relationship states for context
             previous_rels = self._get_previous_relationships(db, story_id, branch_id, characters)
 
@@ -637,8 +701,20 @@ class EntityStateService:
             updates = await self._extract_relationship_updates(
                 scene_content=scene_content,
                 characters=characters,
-                previous_relationships=previous_rels
+                previous_relationships=previous_rels,
+                canonical_names=canonical_names
             )
+
+            # Post-process: normalize names and deduplicate
+            if updates and canonical_names:
+                for rel in updates:
+                    rel['character_a'] = self._normalize_character_name(
+                        rel.get('character_a', ''), canonical_names
+                    )
+                    rel['character_b'] = self._normalize_character_name(
+                        rel.get('character_b', ''), canonical_names
+                    )
+                updates = self._deduplicate_extractions(updates)
 
             if not updates:
                 logger.info(f"[RELATIONSHIP:NONE] trace_id={trace_id} story_id={story_id} - no relationship changes")
@@ -709,15 +785,21 @@ class EntityStateService:
         self,
         scene_content: str,
         characters: List[str],
-        previous_relationships: str
+        previous_relationships: str,
+        canonical_names: List[str] = None
     ) -> List[Dict[str, Any]]:
         """Extract relationship updates from scene content using LLM."""
 
         extraction_service = self._get_extraction_service()
 
+        # Build canonical name list for the prompt
+        name_list = canonical_names if canonical_names else characters
+        character_names_str = '\n'.join(f'- {name}' for name in name_list)
+
         template_vars = {
             'scene_content': scene_content[:4000],  # Limit content length
             'characters': ', '.join(characters),
+            'character_names': character_names_str,
             'previous_relationships': previous_relationships
         }
 

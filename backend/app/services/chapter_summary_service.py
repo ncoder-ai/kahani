@@ -170,7 +170,7 @@ class ChapterSummaryService:
             else:
                 logger.info(f"[CHAPTER:SUMMARY:DONE] trace_id={trace_id} chapter_id={chapter_id} status={status} duration_ms={duration_ms:.2f} summary_len={len(summary_text)}")
 
-    async def generate_chapter_summary_incremental(self, chapter_id: int) -> str:
+    async def generate_chapter_summary_incremental(self, chapter_id: int, max_new_scenes: int = None) -> str:
         """
         Generate or extend chapter summary incrementally.
 
@@ -178,6 +178,11 @@ class ChapterSummaryService:
         1. Takes existing summary (if exists)
         2. Gets only NEW scenes since last summary
         3. Asks LLM to create cohesive summary combining existing + new
+
+        Args:
+            chapter_id: The chapter to summarize.
+            max_new_scenes: If set, limit the number of new scenes processed per call.
+                            Useful for backfills to avoid exceeding context window.
         """
         op_start = time.perf_counter()
         trace_id = f"chap-sum-inc-{uuid.uuid4()}"
@@ -200,7 +205,10 @@ class ChapterSummaryService:
             )
             if chapter.branch_id:
                 new_scene_query = new_scene_query.filter(Scene.branch_id == chapter.branch_id)
-            new_scenes = new_scene_query.order_by(Scene.sequence_number).all()
+            new_scene_query = new_scene_query.order_by(Scene.sequence_number)
+            if max_new_scenes:
+                new_scene_query = new_scene_query.limit(max_new_scenes)
+            new_scenes = new_scene_query.all()
 
             if not new_scenes:
                 logger.info(f"[CHAPTER:SUMMARY:INC:EMPTY] trace_id={trace_id} chapter_id={chapter_id} reason=no_new_scenes")
