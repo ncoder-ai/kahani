@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from app.database import SessionLocal
-from app.models import Story, Scene, StoryFlow, StoryCharacter, Character, SceneVariant
+from app.models import Story, Scene, StoryCharacter, Character, SceneVariant
 from app.models.relationship import CharacterRelationship, RelationshipSummary
 from app.services.entity_state_service import EntityStateService
 
@@ -67,40 +67,39 @@ def get_scenes_for_story(db: Session, story_id: int, branch_id: int = None) -> l
 
     Returns list of (scene_id, sequence_number, content, branch_id)
     """
-    # Get active flow
-    flow_query = db.query(StoryFlow).filter(
-        StoryFlow.story_id == story_id,
-        StoryFlow.is_active == True
+    # Get scenes directly - Scene has story_id and branch_id
+    query = db.query(Scene).filter(
+        Scene.story_id == story_id,
+        Scene.is_deleted == False
     )
 
     if branch_id:
-        flow_query = flow_query.filter(StoryFlow.branch_id == branch_id)
+        query = query.filter(
+            or_(
+                Scene.branch_id == branch_id,
+                Scene.branch_id.is_(None)
+            )
+        )
 
-    flow = flow_query.first()
+    scenes = query.order_by(Scene.sequence_number).all()
 
-    if not flow:
-        logger.warning(f"No active flow found for story {story_id}")
+    if not scenes:
+        logger.warning(f"No scenes found for story {story_id}")
         return []
-
-    # Get scenes
-    scenes = db.query(Scene).filter(
-        Scene.flow_id == flow.id
-    ).order_by(Scene.sequence_number).all()
 
     result = []
     for scene in scenes:
-        # Get the active variant's content
+        # Get the first variant (original) or any variant with content
         variant = db.query(SceneVariant).filter(
-            SceneVariant.scene_id == scene.id,
-            SceneVariant.is_active == True
-        ).first()
+            SceneVariant.scene_id == scene.id
+        ).order_by(SceneVariant.variant_number).first()
 
         if variant and variant.content:
             result.append((
                 scene.id,
                 scene.sequence_number,
                 variant.content,
-                flow.branch_id
+                scene.branch_id
             ))
 
     return result
