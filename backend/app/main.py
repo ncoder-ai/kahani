@@ -154,12 +154,16 @@ async def startup_event():
         from .models import BranchCloneRegistry
         unregistered = BranchCloneRegistry.validate()
         if unregistered:
-            logger.warning(
-                f"BRANCH REGISTRY WARNING: The following tables have branch_id but are not registered "
+            error_msg = (
+                f"BRANCH REGISTRY ERROR: The following tables have branch_id but are not registered "
                 f"for branch cloning: {unregistered}. See models/BRANCH_AWARE_GUIDE.md for how to fix this."
             )
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
         else:
             logger.info("Branch clone registry validated: all branch-aware tables registered")
+    except RuntimeError:
+        raise  # Re-raise validation errors
     except Exception as e:
         logger.error(f"Failed to validate branch clone registry: {e}")
 

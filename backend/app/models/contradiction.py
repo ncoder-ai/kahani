@@ -13,8 +13,18 @@ from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Foreign
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
+from .branch_aware import branch_clone_config
 
 
+def _contradiction_filter(query, fork_seq, story_id, branch_id):
+    """Filter contradictions up to and including the fork point."""
+    return query.filter(Contradiction.scene_sequence <= fork_seq)
+
+
+@branch_clone_config(
+    priority=58,  # After relationship summaries (57)
+    filter_func=_contradiction_filter,
+)
 class Contradiction(Base):
     """
     Records detected continuity errors for review.

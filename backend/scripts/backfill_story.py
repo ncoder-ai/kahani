@@ -33,12 +33,20 @@ from sqlalchemy import or_
 from app.database import SessionLocal
 from app.models import (
     Story, Scene, StoryCharacter, Character, SceneVariant,
-    Chapter, ChapterSummaryBatch
+    Chapter, ChapterSummaryBatch, UserSettings
 )
 from app.models.relationship import CharacterRelationship, RelationshipSummary
 from app.models.working_memory import WorkingMemory
 from app.services.entity_state_service import EntityStateService
 from app.services.chapter_summary_service import ChapterSummaryService
+
+
+def get_user_settings(db: Session, user_id: int = 1) -> dict:
+    """Get user settings from database."""
+    settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+    if settings:
+        return settings.to_dict()
+    return {}
 
 logging.basicConfig(
     level=logging.INFO,
@@ -422,6 +430,7 @@ async def backfill_working_memory(
 async def backfill_story(
     story_id: int,
     branch_id: int = None,
+    user_id: int = 1,
     dry_run: bool = False,
     do_relationships: bool = True,
     do_summaries: bool = True,
@@ -458,13 +467,14 @@ async def backfill_story(
         if branch_id is None and scenes:
             branch_id = scenes[0][3]
 
-        # User settings
-        user_settings = {
-            'context_settings': {
-                'enable_relationship_graph': True,
-                'enable_working_memory': True
-            }
-        }
+        # Get user settings from database
+        user_settings = get_user_settings(db, user_id=user_id)
+        # Ensure required settings are enabled
+        if 'context_settings' not in user_settings:
+            user_settings['context_settings'] = {}
+        user_settings['context_settings']['enable_relationship_graph'] = True
+        user_settings['context_settings']['enable_working_memory'] = True
+        logger.info(f"Using extraction model: {user_settings.get('extraction_model_settings', {}).get('url', 'default')}")
 
         print()
 
@@ -553,6 +563,12 @@ def main():
         action='store_true',
         help='Only backfill working memory'
     )
+    parser.add_argument(
+        '--user-id', '-U',
+        type=int,
+        default=2,
+        help='User ID for LLM settings (default: 2)'
+    )
 
     args = parser.parse_args()
 
@@ -562,6 +578,7 @@ def main():
     asyncio.run(backfill_story(
         story_id=args.story_id,
         branch_id=args.branch_id,
+        user_id=args.user_id,
         dry_run=args.dry_run,
         do_relationships=args.relationships or do_all,
         do_summaries=args.summaries or do_all,
