@@ -737,19 +737,25 @@ class EntityStateService:
                     max_tokens=1024
                 )
             else:
-                # Fall back to main LLM
-                llm_service = UnifiedLLMService()
-                llm_client = llm_service._create_client(self.user_id, self.user_settings)
-
-                if not llm_client:
-                    logger.warning("[RELATIONSHIP] No LLM client available")
+                # Fall back to extraction service with defaults from config
+                from ..config import settings as app_settings
+                ext_defaults = app_settings._yaml_config.get('extraction_model', {})
+                if ext_defaults.get('url'):
+                    fallback_service = ExtractionLLMService(
+                        url=ext_defaults.get('url'),
+                        model=ext_defaults.get('model_name', 'default'),
+                        api_key=ext_defaults.get('api_key', ''),
+                        temperature=ext_defaults.get('temperature', 0.3),
+                        max_tokens=ext_defaults.get('max_tokens', 1024)
+                    )
+                    response = await fallback_service.generate(
+                        prompt=user_prompt,
+                        system_prompt=system_prompt,
+                        max_tokens=1024
+                    )
+                else:
+                    logger.warning("[RELATIONSHIP] No extraction service or fallback available")
                     return []
-
-                response = await llm_client.complete_non_streaming(
-                    system_prompt=system_prompt,
-                    user_prompt=user_prompt,
-                    max_tokens=1024
-                )
 
             if not response:
                 return []
