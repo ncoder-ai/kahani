@@ -1334,3 +1334,85 @@ async def update_working_memory_in_background(
         logger.error(f"[WORKING_MEMORY:BG:ERROR] story_id={story_id} scene={scene_sequence} error={e}")
         import traceback
         logger.error(f"[WORKING_MEMORY:BG:TRACEBACK] {traceback.format_exc()}")
+
+
+async def update_relationship_graph_in_background(
+    story_id: int,
+    branch_id: int,
+    scene_id: int,
+    scene_sequence: int,
+    scene_content: str,
+    user_id: int,
+    user_settings: dict
+):
+    """Update relationship graph after scene generation.
+
+    Extracts character relationship changes and updates:
+    - CharacterRelationship events (every change logged)
+    - RelationshipSummary (current state for fast context)
+
+    Fetches characters from database internally.
+    """
+    logger.info(f"[RELATIONSHIP:BG:START] story_id={story_id} scene={scene_sequence} user_id={user_id}")
+
+    # Check if relationship graph is enabled in user settings
+    context_settings = user_settings.get('context_settings', {})
+    if not context_settings.get('enable_relationship_graph', True):
+        logger.info(f"[RELATIONSHIP:BG] Disabled for user {user_id}, skipping")
+        return
+
+    try:
+        # Small delay for database consistency
+        await asyncio.sleep(0.2)
+
+        rel_db = SessionLocal()
+        try:
+            from ...services.entity_state_service import EntityStateService
+            from sqlalchemy import or_
+
+            # Get story characters for this story/branch
+            story_characters = rel_db.query(StoryCharacter).filter(
+                StoryCharacter.story_id == story_id
+            ).filter(
+                or_(
+                    StoryCharacter.branch_id == branch_id,
+                    StoryCharacter.branch_id.is_(None)
+                )
+            ).all()
+
+            # Get character names
+            characters = []
+            for sc in story_characters:
+                char = rel_db.query(Character).filter(Character.id == sc.character_id).first()
+                if char and char.name:
+                    characters.append(char.name)
+
+            # Need at least 2 characters for relationship extraction
+            if len(characters) < 2:
+                logger.debug(f"[RELATIONSHIP:BG] Less than 2 characters ({len(characters)}), skipping")
+                return
+
+            entity_service = EntityStateService(user_id=user_id, user_settings=user_settings)
+
+            result = await entity_service.update_relationship_graph(
+                db=rel_db,
+                story_id=story_id,
+                branch_id=branch_id,
+                scene_id=scene_id,
+                scene_sequence=scene_sequence,
+                scene_content=scene_content,
+                characters=characters
+            )
+
+            if result:
+                logger.info(f"[RELATIONSHIP:BG] Updated {len(result)} relationships for story {story_id} scene {scene_sequence}")
+            else:
+                logger.debug(f"[RELATIONSHIP:BG] No relationship changes for story {story_id} scene {scene_sequence}")
+
+        finally:
+            rel_db.close()
+
+    except Exception as e:
+        logger.error(f"[RELATIONSHIP:BG:ERROR] story_id={story_id} scene={scene_sequence} error={e}")
+        import traceback
+        logger.error(f"[RELATIONSHIP:BG:TRACEBACK] {traceback.format_exc()}")

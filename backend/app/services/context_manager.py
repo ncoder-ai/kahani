@@ -401,6 +401,19 @@ class ContextManager:
         except Exception as e:
             logger.warning(f"[CONTEXT BUILD] Failed to build story focus: {e}")
 
+        # Add relationship context (character relationship arcs)
+        try:
+            # Get current scene sequence for neglect detection
+            current_seq = None
+            if scenes:
+                current_seq = max(s.sequence_number for s in scenes if s.sequence_number) if scenes else None
+
+            relationship_context = self._build_relationship_context(db, story_id, branch_id, current_seq)
+            if relationship_context:
+                base_context["relationship_context"] = relationship_context
+        except Exception as e:
+            logger.warning(f"[CONTEXT BUILD] Failed to build relationship context: {e}")
+
         # Merge contexts
         return {**base_context, **scene_context}
     
@@ -530,6 +543,90 @@ Appearance: {char.get('appearance', '')}
 
         except Exception as e:
             logger.warning(f"[CONTEXT BUILD] Error building story focus: {e}")
+            return None
+
+    def _build_relationship_context(
+        self,
+        db: Session,
+        story_id: int,
+        branch_id: Optional[int],
+        current_scene_sequence: Optional[int] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Build relationship context from relationship summaries.
+
+        Returns a dict with:
+        - relationships: List of relationship info for context
+        - neglected: Relationships that haven't had recent interaction
+        """
+        try:
+            from ..models import RelationshipSummary
+
+            # Check if relationship graph is enabled
+            ctx_settings = self.user_settings.get('context_settings', {})
+            if not ctx_settings.get('enable_relationship_graph', True):
+                return None
+
+            # Get relationship summaries
+            query = db.query(RelationshipSummary).filter(
+                RelationshipSummary.story_id == story_id
+            )
+            if branch_id:
+                query = query.filter(RelationshipSummary.branch_id == branch_id)
+
+            summaries = query.all()
+
+            if not summaries:
+                return None
+
+            # Build relationship list
+            relationships = []
+            neglected = []
+
+            for s in summaries:
+                # Skip weak/undeveloped relationships
+                if abs(s.current_strength or 0) < 0.2 and (s.total_interactions or 0) < 2:
+                    continue
+
+                relationships.append({
+                    "characters": [s.character_a, s.character_b],
+                    "type": s.current_type,
+                    "strength": s.current_strength,
+                    "trajectory": s.trajectory,
+                    "arc": s.arc_summary,
+                    "last_change": s.last_change,
+                    "interactions": s.total_interactions,
+                    "last_scene": s.last_scene_sequence
+                })
+
+                # Check for neglected relationships
+                if current_scene_sequence and s.last_scene_sequence:
+                    scenes_since = current_scene_sequence - s.last_scene_sequence
+                    if scenes_since > 3 and (s.current_strength or 0) > 0.3:
+                        neglected.append({
+                            "characters": [s.character_a, s.character_b],
+                            "last_seen": s.last_scene_sequence,
+                            "scenes_ago": scenes_since
+                        })
+
+            if not relationships:
+                return None
+
+            # Sort by strength (strongest first)
+            relationships.sort(key=lambda r: abs(r['strength'] or 0), reverse=True)
+
+            result = {
+                "relationships": relationships[:8],  # Limit for context efficiency
+            }
+
+            if neglected:
+                result["neglected"] = neglected[:3]
+
+            logger.info(f"[CONTEXT BUILD] Relationships: {len(relationships)} total, {len(neglected)} neglected")
+            return result
+
+        except Exception as e:
+            logger.warning(f"[CONTEXT BUILD] Error building relationship context: {e}")
             return None
 
     async def _build_scene_context(self, scenes: List[Scene], available_tokens: int, db: Session = None) -> Dict[str, Any]:
@@ -1085,7 +1182,9 @@ Appearance: {char.get('appearance', '')}
             # Pacing guidance will be added below if enabled
             "pacing_guidance": None,
             # Working memory & active plot threads
-            "story_focus": full_context.get("story_focus")
+            "story_focus": full_context.get("story_focus"),
+            # Character relationship context
+            "relationship_context": full_context.get("relationship_context")
         }
         
         # Add pacing guidance if chapter plot tracking is enabled

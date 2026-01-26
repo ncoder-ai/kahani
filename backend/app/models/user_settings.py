@@ -64,6 +64,7 @@ class UserSettings(Base):
     enable_working_memory = Column(Boolean, nullable=True)  # Track scene-to-scene focus and pending items
     enable_contradiction_detection = Column(Boolean, nullable=True)  # Detect continuity errors
     contradiction_severity_threshold = Column(String(20), nullable=True)  # "info", "warning", "error"
+    enable_relationship_graph = Column(Boolean, nullable=True)  # Track character relationship arcs
 
     # Story Generation Preferences
     default_genre = Column(String(100), nullable=True)
@@ -209,7 +210,8 @@ class UserSettings(Base):
                 # Memory & Continuity Settings
                 "enable_working_memory": self.enable_working_memory if self.enable_working_memory is not None else ctx_defaults.get("enable_working_memory", True),
                 "enable_contradiction_detection": self.enable_contradiction_detection if self.enable_contradiction_detection is not None else ctx_defaults.get("enable_contradiction_detection", True),
-                "contradiction_severity_threshold": self.contradiction_severity_threshold if self.contradiction_severity_threshold is not None else ctx_defaults.get("contradiction_severity_threshold", "info")
+                "contradiction_severity_threshold": self.contradiction_severity_threshold if self.contradiction_severity_threshold is not None else ctx_defaults.get("contradiction_severity_threshold", "info"),
+                "enable_relationship_graph": self.enable_relationship_graph if self.enable_relationship_graph is not None else ctx_defaults.get("enable_relationship_graph", True)
             },
             "generation_preferences": {
                 "default_genre": self.default_genre or "",
@@ -480,6 +482,8 @@ class UserSettings(Base):
             self.enable_contradiction_detection = ctx.get("enable_contradiction_detection", True)
         if self.contradiction_severity_threshold is None:
             self.contradiction_severity_threshold = ctx.get("contradiction_severity_threshold", "info")
+        if self.enable_relationship_graph is None:
+            self.enable_relationship_graph = ctx.get("enable_relationship_graph", True)
 
         # Generation Preferences
         gen = user_defaults.get("generation_preferences", {})

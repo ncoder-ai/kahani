@@ -78,6 +78,10 @@ class StoryBranch(Base):
     # Contradictions (continuity error tracking)
     contradictions = relationship("Contradiction", back_populates="branch", cascade="all, delete-orphan")
 
+    # Relationship Graph (character relationship tracking)
+    character_relationships = relationship("CharacterRelationship", back_populates="branch", cascade="all, delete-orphan")
+    relationship_summaries = relationship("RelationshipSummary", back_populates="branch", cascade="all, delete-orphan")
+
     def __repr__(self):
         return f"<StoryBranch(id={self.id}, story_id={self.story_id}, name='{self.name}', is_main={self.is_main}, is_active={self.is_active})>"
 

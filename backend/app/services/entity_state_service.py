@@ -599,6 +599,294 @@ class EntityStateService:
             logger.error(f"[WORKING_MEMORY:EXTRACT:ERROR] error={e}")
             return None
 
+    # =========================================================================
+    # RELATIONSHIP GRAPH TRACKING
+    # =========================================================================
+
+    async def update_relationship_graph(
+        self,
+        db: Session,
+        story_id: int,
+        branch_id: int,
+        scene_id: int,
+        scene_sequence: int,
+        scene_content: str,
+        characters: List[str]
+    ) -> List[Dict[str, Any]]:
+        """
+        Extract and update character relationships from a scene.
+
+        Tracks:
+        - Relationship events (every change logged)
+        - Relationship summaries (current state for context)
+        """
+        from ..models import CharacterRelationship, RelationshipSummary
+
+        if not characters or len(characters) < 2:
+            logger.info(f"[RELATIONSHIP:SKIP] story_id={story_id} scene={scene_sequence} - less than 2 characters")
+            return []
+
+        trace_id = f"relationship-{uuid.uuid4()}"
+        logger.info(f"[RELATIONSHIP:START] trace_id={trace_id} story_id={story_id} scene={scene_sequence} characters={characters}")
+
+        try:
+            # Get previous relationship states for context
+            previous_rels = self._get_previous_relationships(db, story_id, branch_id, characters)
+
+            # Extract relationship updates using LLM
+            updates = await self._extract_relationship_updates(
+                scene_content=scene_content,
+                characters=characters,
+                previous_relationships=previous_rels
+            )
+
+            if not updates:
+                logger.info(f"[RELATIONSHIP:NONE] trace_id={trace_id} story_id={story_id} - no relationship changes")
+                return []
+
+            # Store relationship events and update summaries
+            stored_events = []
+            for rel in updates:
+                event = self._store_relationship_event(
+                    db=db,
+                    story_id=story_id,
+                    branch_id=branch_id,
+                    scene_id=scene_id,
+                    scene_sequence=scene_sequence,
+                    relationship=rel
+                )
+                if event:
+                    stored_events.append(event.to_dict())
+
+                self._update_relationship_summary(
+                    db=db,
+                    story_id=story_id,
+                    branch_id=branch_id,
+                    scene_sequence=scene_sequence,
+                    relationship=rel
+                )
+
+            db.commit()
+            logger.info(f"[RELATIONSHIP:DONE] trace_id={trace_id} story_id={story_id} events={len(stored_events)}")
+            return stored_events
+
+        except Exception as e:
+            logger.error(f"[RELATIONSHIP:ERROR] trace_id={trace_id} story_id={story_id} error={e}")
+            db.rollback()
+            return []
+
+    def _get_previous_relationships(
+        self,
+        db: Session,
+        story_id: int,
+        branch_id: int,
+        characters: List[str]
+    ) -> str:
+        """Get previous relationship states for context."""
+        from ..models import RelationshipSummary
+
+        summaries = db.query(RelationshipSummary).filter(
+            RelationshipSummary.story_id == story_id,
+            RelationshipSummary.branch_id == branch_id
+        ).all()
+
+        if not summaries:
+            return "No previous relationships established."
+
+        # Filter to summaries involving the characters in this scene
+        relevant = []
+        char_set = set(characters)
+        for s in summaries:
+            if s.character_a in char_set or s.character_b in char_set:
+                relevant.append(f"{s.character_a} <-> {s.character_b}: {s.current_type} (strength: {s.current_strength:.1f})")
+
+        if not relevant:
+            return "No previous relationships between these characters."
+
+        return "\n".join(relevant)
+
+    async def _extract_relationship_updates(
+        self,
+        scene_content: str,
+        characters: List[str],
+        previous_relationships: str
+    ) -> List[Dict[str, Any]]:
+        """Extract relationship updates from scene content using LLM."""
+
+        extraction_service = self._get_extraction_service()
+
+        template_vars = {
+            'scene_content': scene_content[:4000],  # Limit content length
+            'characters': ', '.join(characters),
+            'previous_relationships': previous_relationships
+        }
+
+        try:
+            # Get prompts from template
+            system_prompt = prompt_manager.get_prompt(
+                "relationship_extraction", "system", **template_vars
+            )
+            user_prompt = prompt_manager.get_prompt(
+                "relationship_extraction", "user", **template_vars
+            )
+
+            if extraction_service:
+                response = await extraction_service.generate(
+                    prompt=user_prompt,
+                    system_prompt=system_prompt,
+                    max_tokens=1024
+                )
+            else:
+                # Fall back to main LLM
+                llm_service = UnifiedLLMService()
+                llm_client = llm_service._create_client(self.user_id, self.user_settings)
+
+                if not llm_client:
+                    logger.warning("[RELATIONSHIP] No LLM client available")
+                    return []
+
+                response = await llm_client.complete_non_streaming(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    max_tokens=1024
+                )
+
+            if not response:
+                return []
+
+            # Parse JSON response
+            response_text = response.strip()
+            json_match = re.search(r'\{[\s\S]*\}', response_text)
+            if json_match:
+                try:
+                    data = json.loads(json_match.group())
+                    return data.get('relationships', [])
+                except json.JSONDecodeError:
+                    cleaned = clean_llm_json(json_match.group())
+                    data = json.loads(cleaned)
+                    return data.get('relationships', [])
+
+            return []
+
+        except Exception as e:
+            logger.error(f"[RELATIONSHIP:EXTRACT:ERROR] error={e}")
+            return []
+
+    def _store_relationship_event(
+        self,
+        db: Session,
+        story_id: int,
+        branch_id: int,
+        scene_id: int,
+        scene_sequence: int,
+        relationship: Dict[str, Any]
+    ):
+        """Store a single relationship change event."""
+        from ..models import CharacterRelationship
+
+        # Normalize character order (alphabetical) for consistent querying
+        char_a = relationship.get('character_a', '')
+        char_b = relationship.get('character_b', '')
+        if not char_a or not char_b:
+            return None
+
+        char_a, char_b = sorted([char_a, char_b])
+
+        event = CharacterRelationship(
+            story_id=story_id,
+            branch_id=branch_id,
+            character_a=char_a,
+            character_b=char_b,
+            relationship_type=relationship.get('type', 'acquaintance'),
+            strength=float(relationship.get('strength', 0.0)),
+            scene_id=scene_id,
+            scene_sequence=scene_sequence,
+            change_description=relationship.get('change', ''),
+            change_sentiment=relationship.get('sentiment', 'neutral')
+        )
+        db.add(event)
+        db.flush()
+
+        logger.debug(f"[RELATIONSHIP:EVENT] {char_a} <-> {char_b}: {event.relationship_type} ({event.strength})")
+        return event
+
+    def _update_relationship_summary(
+        self,
+        db: Session,
+        story_id: int,
+        branch_id: int,
+        scene_sequence: int,
+        relationship: Dict[str, Any]
+    ):
+        """Update or create relationship summary."""
+        from ..models import RelationshipSummary
+
+        char_a = relationship.get('character_a', '')
+        char_b = relationship.get('character_b', '')
+        if not char_a or not char_b:
+            return
+
+        # Normalize order
+        char_a, char_b = sorted([char_a, char_b])
+
+        # Find or create summary
+        summary = db.query(RelationshipSummary).filter(
+            RelationshipSummary.story_id == story_id,
+            RelationshipSummary.branch_id == branch_id,
+            RelationshipSummary.character_a == char_a,
+            RelationshipSummary.character_b == char_b
+        ).first()
+
+        rel_type = relationship.get('type', 'acquaintance')
+        strength = float(relationship.get('strength', 0.0))
+
+        if not summary:
+            summary = RelationshipSummary(
+                story_id=story_id,
+                branch_id=branch_id,
+                character_a=char_a,
+                character_b=char_b,
+                initial_type=rel_type,
+                initial_strength=strength,
+                current_type=rel_type,
+                current_strength=strength,
+                total_interactions=1,
+                last_scene_sequence=scene_sequence,
+                last_change=relationship.get('change', ''),
+                trajectory='developing'
+            )
+            summary.arc_summary = f"{rel_type} (first interaction)"
+            db.add(summary)
+        else:
+            # Update existing summary
+            old_strength = summary.current_strength or 0.0
+
+            summary.current_type = rel_type
+            summary.current_strength = strength
+            summary.total_interactions = (summary.total_interactions or 0) + 1
+            summary.last_scene_sequence = scene_sequence
+            summary.last_change = relationship.get('change', '')
+
+            # Calculate trajectory
+            initial_strength = summary.initial_strength or 0.0
+            strength_delta = strength - initial_strength
+            if abs(strength_delta) < 0.15:
+                summary.trajectory = 'stable'
+            elif strength_delta > 0.3:
+                summary.trajectory = 'warming'
+            elif strength_delta < -0.3:
+                summary.trajectory = 'cooling'
+            else:
+                summary.trajectory = 'developing'
+
+            # Generate arc summary
+            if summary.initial_type == summary.current_type:
+                summary.arc_summary = f"{summary.current_type} ({summary.trajectory}, {summary.total_interactions} interactions)"
+            else:
+                summary.arc_summary = f"{summary.initial_type} -> {summary.current_type} ({summary.trajectory} over {summary.total_interactions} scenes)"
+
+        db.flush()
+
     def _get_extraction_service(self) -> Optional[ExtractionLLMService]:
         """
         Get or create extraction service if enabled in user settings

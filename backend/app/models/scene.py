@@ -65,7 +65,10 @@ class Scene(Base):
 
     # Generated images for this scene
     generated_images = relationship("GeneratedImage", back_populates="scene")
-    
+
+    # Relationship events extracted from this scene
+    character_relationships = relationship("CharacterRelationship", back_populates="scene")
+
     @property
     def active_variant(self):
         """Get the currently active variant for this scene"""

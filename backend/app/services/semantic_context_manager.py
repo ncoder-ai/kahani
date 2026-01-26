@@ -254,6 +254,18 @@ class SemanticContextManager(ContextManager):
         except Exception as e:
             logger.warning(f"[SEMANTIC CONTEXT BUILD] Failed to build story focus: {e}")
 
+        # Add relationship context (character relationship arcs)
+        try:
+            current_seq = None
+            if scenes:
+                current_seq = max(s.sequence_number for s in scenes if s.sequence_number) if scenes else None
+
+            relationship_context = self._build_relationship_context(db, story_id, branch_id, current_seq)
+            if relationship_context:
+                base_context["relationship_context"] = relationship_context
+        except Exception as e:
+            logger.warning(f"[SEMANTIC CONTEXT BUILD] Failed to build relationship context: {e}")
+
         # Merge contexts
         return {**base_context, **scene_context}
     

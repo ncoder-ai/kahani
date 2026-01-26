@@ -101,6 +101,10 @@ class Story(Base):
     # Contradictions (continuity error tracking)
     contradictions = relationship("Contradiction", back_populates="story", cascade="all, delete-orphan")
 
+    # Relationship Graph (character relationship tracking)
+    character_relationships = relationship("CharacterRelationship", back_populates="story", cascade="all, delete-orphan")
+    relationship_summaries = relationship("RelationshipSummary", back_populates="story", cascade="all, delete-orphan")
+
     # Story Arc - AI-generated narrative structure
     story_arc = Column(JSON, nullable=True)
     

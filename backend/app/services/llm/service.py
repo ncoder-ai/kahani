@@ -2675,6 +2675,40 @@ Chapter Conclusion:"""
                 "content": f"=== CURRENT PROGRESS ===\n{pacing_guidance}"
             })
 
+        # Add relationship context (character relationship arcs)
+        # Placed in suffix to preserve prompt cache
+        relationship_context = context.get("relationship_context")
+        if relationship_context and relationship_context.get("relationships"):
+            rel_parts = []
+
+            for rel in relationship_context["relationships"][:6]:  # Limit for token efficiency
+                chars = " <-> ".join(rel["characters"])
+                strength = rel.get("strength", 0)
+                # Visual indicator: + for positive, - for negative
+                if strength > 0:
+                    indicator = "+" * min(int(strength * 3) + 1, 3)
+                elif strength < 0:
+                    indicator = "-" * min(int(abs(strength) * 3) + 1, 3)
+                else:
+                    indicator = "~"
+
+                rel_parts.append(
+                    f"{chars}: {rel.get('type', 'unknown')} [{indicator}]\n"
+                    f"  Arc: {rel.get('arc', 'developing')}"
+                )
+
+            rel_text = "\n".join(rel_parts)
+
+            # Add neglected relationships as narrative opportunity
+            if relationship_context.get("neglected"):
+                neglected_chars = [" & ".join(n["characters"]) for n in relationship_context["neglected"]]
+                rel_text += f"\n\nNeglected (consider reconnecting): {', '.join(neglected_chars)}"
+
+            messages.append({
+                "role": "user",
+                "content": f"=== CHARACTER RELATIONSHIPS ===\n{rel_text}"
+            })
+
         # Add story focus (working memory + active threads) - concise reminders
         # - Unresolved threads: From PlotEvents (structured story beats)
         # - Recent focus: From WorkingMemory (narrative emphasis)

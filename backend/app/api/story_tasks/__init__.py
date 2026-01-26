@@ -24,6 +24,7 @@ from .background_tasks import (
     cleanup_semantic_data_in_background,
     restore_entity_states_in_background,
     update_working_memory_in_background,
+    update_relationship_graph_in_background,
 )
 
 __all__ = [
@@ -47,4 +48,5 @@ __all__ = [
     'cleanup_semantic_data_in_background',
     'restore_entity_states_in_background',
     'update_working_memory_in_background',
+    'update_relationship_graph_in_background',
 ]

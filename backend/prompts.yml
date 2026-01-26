@@ -750,34 +750,25 @@ summary_generation:
 
   chapter_summary:
     system: |
-      You are a story state tracker. Extract FACTS from chapter content, not prose.
+      You are a story state tracker. Extract ONLY PLOT-CRITICAL FACTS.
 
-      CRITICAL - CAPTURE EVERYTHING:
-      - You MUST capture EVERY event that occurred in the scenes
-      - If a character does something, it must be in your summary
-      - Missing events means the story will have continuity errors
-      - Err on the side of including more detail rather than less
+      HARD LIMIT: Maximum 3 bullets per scene. If a scene has no plot-critical events, use 1 bullet.
 
-      Rules:
-      - Simple declarative sentences only
-      - Format: WHO did WHAT to WHOM, WHERE
-      - No adjectives/adverbs unless plot-critical
-      - No emotional interpretation (not "she felt torn" but "she hesitated")
-      - No literary flourishes or purple prose
-      - No phrases like "profound shift", "transformative", "palpable"
-      - NO MORALIZING - you track story events, not ethics
-      - NO external commentary about consent, legality, or real-world implications
-      - NO hallucination - only include events that actually happened in the scenes
+      ONLY CAPTURE:
+      - Major decisions or turning points
+      - Relationship changes (alliances, conflicts, trust shifts)
+      - Key revelations or discoveries
+      - Arrivals, departures, or location changes that matter to plot
 
-      CRITICAL - USE PRECISE TERMINOLOGY:
-      - NEVER use vague terms like "intimate encounter", "sexual acts", "physical relations", "became intimate"
-      - ALWAYS use specific, factual descriptions of exactly what occurred
-      - If characters kissed, say "kissed" - if they did something else, name that specific action
-      - Distinguish clearly between different types of physical interactions
-      - The LLM reading this summary must know EXACTLY what has and has NOT happened
+      NEVER INCLUDE:
+      - Character movements (walking, sitting, entering rooms)
+      - Dialogue unless it reveals critical information
+      - Routine actions (eating, drinking, checking phones)
+      - Emotional reactions or observations
+      - Descriptive details
 
-      BAD (vague): "They engaged in intimate acts" / "sexual encounter occurred"
-      GOOD (specific): State the specific action that occurred
+      Format: Simple declarative sentences. WHO did WHAT (to WHOM).
+      No adjectives. No adverbs. No literary language.
 
     user: |
       {context_section}Chapter {chapter_number}: {chapter_title}
@@ -785,12 +776,11 @@ summary_generation:
       Scenes to Summarize:
       {scenes_content}
 
-      Extract a COMPLETE factual chapter summary. You MUST capture ALL events - missing any event causes story continuity errors.
+      IMPORTANT: Maximum 3 bullets per scene. Most scenes need only 1-2 bullets.
+      Only include events that would matter if someone asked "what happened in this chapter?"
 
-      EVENTS: [chronological bullet list of EVERY event that happened - USE SPECIFIC TERMS, not vague phrases. Include ALL character actions, dialogue outcomes, discoveries, and movements.]
-      STATE CHANGES: [relationship changes, location changes, new knowledge gained, objects acquired/lost]
-
-      Facts only, no moralizing, no hallucination. Be SPECIFIC about physical interactions - no vague euphemisms.
+      EVENTS: [bullet list - MAXIMUM 3 per scene]
+      STATE CHANGES: [relationship/location/knowledge changes only]
 
   story_so_far:
     system: |
@@ -1692,6 +1682,65 @@ working_memory_update:
       "recent_focus": ["item1", "item2"],
       "character_spotlight": {{"CharName": "reason for spotlight"}}
     }}
+
+# =============================================================================
+# RELATIONSHIP EXTRACTION - Character relationship tracking
+# =============================================================================
+relationship_extraction:
+  system: |
+    You extract relationship changes between characters from story scenes.
+
+    RELATIONSHIP TYPES:
+    - stranger: No prior connection
+    - acquaintance: Know each other casually
+    - friend: Positive bond, trust
+    - close_friend: Deep trust, share secrets
+    - romantic: Romantic feelings or relationship
+    - family: Blood or chosen family
+    - professional: Work/business relationship
+    - rival: Competition, but not hostile
+    - enemy: Active hostility or conflict
+
+    STRENGTH SCALE (-1.0 to 1.0):
+    - -1.0: Intense hatred, would harm
+    - -0.5: Dislike, distrust
+    -  0.0: Neutral, indifferent
+    -  0.5: Positive, friendly
+    -  1.0: Deep love/loyalty
+
+    RULES:
+    - Only extract relationships that CHANGED or were DEMONSTRATED in this scene
+    - Include the specific moment that shows/changes the relationship
+    - Be precise about what changed vs what was just shown
+    - Order characters alphabetically in each pair for consistency
+
+  user: |
+    Scene content:
+    {scene_content}
+
+    Characters in scene: {characters}
+
+    Previous relationship states:
+    {previous_relationships}
+
+    Extract relationship updates for character pairs that interacted meaningfully in this scene.
+
+    Return JSON:
+    {{
+      "relationships": [
+        {{
+          "character_a": "Name1",
+          "character_b": "Name2",
+          "type": "friend",
+          "strength": 0.6,
+          "change": "what specifically changed or was demonstrated",
+          "sentiment": "positive"
+        }}
+      ]
+    }}
+
+    Only include pairs with meaningful interaction. Return empty array if no relationship moments:
+    {{"relationships": []}}
 
 # =============================================================================
 # BRAINSTORM - Story Idea Exploration

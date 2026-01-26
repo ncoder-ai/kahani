@@ -32,6 +32,7 @@ from .character_interaction import CharacterInteraction
 from .generated_image import GeneratedImage
 from .working_memory import WorkingMemory
 from .contradiction import Contradiction
+from .relationship import CharacterRelationship, RelationshipSummary
 
 __all__ = [
     "Base",
@@ -55,5 +56,7 @@ __all__ = [
     "CharacterInteraction",
     "GeneratedImage",
     "WorkingMemory",
-    "Contradiction"
+    "Contradiction",
+    "CharacterRelationship",
+    "RelationshipSummary",
 ]
