@@ -463,19 +463,19 @@ class SemanticContextManager(ContextManager):
         if interaction_history_content:
             context_parts.append(f"\n{interaction_history_content}")
         
-        # Build combined "Relevant Context" section (semantic events + entity states)
-        # This section is placed immediately before Recent Scenes for maximum recency emphasis
+        # Build "Relevant Context" section (semantic events only)
+        # Entity states are passed separately via "entity_states_text" key for independent message positioning
         relevant_context_parts = []
-        
+
         if semantic_content:
             relevant_context_parts.append(f"Relevant Past Events:\n{semantic_content}")
-        
+
         if character_content:
             relevant_context_parts.append(f"Character Context:\n{character_content}")
-        
-        if entity_states_content:
-            relevant_context_parts.append(entity_states_content)
-        
+
+        # entity_states_content is NOT included here — passed as separate return key
+        # so _format_context_as_messages() can position it independently
+
         if relevant_context_parts:
             context_parts.append(f"\nRelevant Context:\n" + "\n\n".join(relevant_context_parts))
         
@@ -485,6 +485,7 @@ class SemanticContextManager(ContextManager):
         
         return {
             "previous_scenes": full_context,
+            "entity_states_text": entity_states_content,  # Passed separately for independent message positioning
             "recent_scenes": combined_recent_content,  # Include both initial and additional recent scenes
             "scene_summary": "",  # Don't include metadata in prompt - it's debug info only
             "total_scenes": total_scenes,

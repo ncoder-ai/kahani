@@ -2446,27 +2446,33 @@ Chapter Conclusion:"""
     def _format_context_as_messages(self, context: Dict[str, Any], scene_batch_size: int = 10) -> List[Dict[str, str]]:
         """
         Format context as multiple user messages for better LLM cache utilization.
-        
+
         By splitting context into multiple user messages, we improve cache hit rates:
         - Earlier messages (story foundation, chapter summaries) remain stable
         - Only later messages (semantic events, recent scenes) change frequently
         - Scenes are batched into groups aligned with extraction intervals for optimal caching
-        - Semantic events placed between completed batches and recent scenes to avoid invalidating batch caches
-        
+        - Character info grouped together for coherence and cache optimization
+
         Message order (most stable → most dynamic):
-        1. Story Foundation: genre, tone, setting, scenario, characters
-        2. Chapter Context: story_so_far, previous/current chapter summaries
-        3. Entity States: character states, locations, objects
-        4. Scene Batches: completed scene batches (stable per batch)
-        5. Semantic Events: relevant past events from semantic search (changes each generation)
-        6. Recent Scenes: active batch of most recent scenes (changes each scene) ← Most relevant, closest to instruction
-        
-        Order ensures: Past scenes → Past events → Most recent scenes
-        
+        1. Story Foundation: genre, tone, setting, scenario, characters (per story)
+        2. Character Dialogue Styles: voice/speech patterns (per story)
+        3. Chapter Context: story_so_far, previous/current chapter summaries (per chapter)
+        4. Chapter Plot Guidance: story beats from brainstorming (per chapter)
+        5. Completed Scene Batches: stable scene history (per batch)
+        6. Character Interaction History: firsts between characters (rarely changes)
+        7. Character Relationships: relationship arcs and strength (occasionally changes)
+        8. Character States: entity states, locations, objects (periodically changes)
+        ──── cache break point ────
+        9. Relevant Context: semantic search results (changes every scene)
+        10. Recent Scenes: active scene batch (changes every scene)
+        11. Story Focus: working memory, threads, character attention (changes every scene)
+        12. Current Progress: pacing guidance (changes every scene)
+        13. Continuity Warnings: unresolved contradictions (if any)
+
         Args:
             context: Context dictionary from context_manager
             scene_batch_size: Number of scenes per batch for caching optimization (default: 10)
-            
+
         Returns:
             List of message dicts with 'role' and 'content' keys
         """
@@ -2575,108 +2581,73 @@ Chapter Conclusion:"""
                     "content": header.strip() + "\n" + "\n".join(plot_parts) + footer
                 })
         
-        # === MESSAGES 3+: Scene Batches (batch-aligned for optimal caching) ===
-        # Note: Entity states and relevant events are now combined in "Relevant Context" section
-        # which is placed immediately before Recent Scenes
+        # === MESSAGES 3+: Scene Batches + Suffix Sections ===
+        #
+        # Message order after scene batches (most stable → most dynamic):
+        #   A. Completed scene batches (stable per batch, cached)
+        #   B. CHARACTER INTERACTION HISTORY (rarely changes, often cached)
+        #   C. CHARACTER RELATIONSHIPS (changes occasionally, sometimes cached)
+        #   D. CHARACTER STATES (entity states/locations/objects, changes periodically)
+        #   ──── cache break point (below changes every scene) ────
+        #   E. RELEVANT CONTEXT (semantic search results, changes every scene)
+        #   F. RECENT SCENES (active scene batch, changes every scene)
+        #   G. STORY FOCUS (working memory/threads, changes every scene)
+        #   H. CURRENT PROGRESS (pacing guidance, changes every scene)
+        #   I. CONTINUITY WARNINGS (if any)
+        #
+        # Character info grouped together (B-C-D) for coherence.
+        # Most volatile sections (E-I) at the end, closest to generation instruction.
+
         previous_scenes_text = context.get("previous_scenes", "")
-        
-        # Extract the combined "Relevant Context" section (contains semantic events + entity states)
-        # This is the new format from SemanticContextManager
+
+        # --- Extract structured sections from previous_scenes_text via regex ---
         relevant_context_match = None
         interaction_history_match = None
+        recent_match = None
+
         if previous_scenes_text:
-            relevant_context_match = re.search(
-                r'Relevant Context:\n(.*?)(?=\n\nRecent Scenes:|$)',
-                previous_scenes_text, re.DOTALL
-            )
-            # Extract CHARACTER INTERACTION HISTORY (placed before Relevant Context)
             interaction_history_match = re.search(
                 r'CHARACTER INTERACTION HISTORY:\n(.*?)(?=\n\nRelevant Context:|\n\nRecent Scenes:|$)',
                 previous_scenes_text, re.DOTALL
             )
-        
-        if previous_scenes_text:
-            # Extract recent scenes section
+            relevant_context_match = re.search(
+                r'Relevant Context:\n(.*?)(?=\n\nRecent Scenes:|$)',
+                previous_scenes_text, re.DOTALL
+            )
             recent_match = re.search(r'Recent Scenes:(.*?)$', previous_scenes_text, re.DOTALL)
-            if recent_match:
-                scenes_text = recent_match.group(1).strip()
-                scene_messages = self._batch_scenes_as_messages(scenes_text, scene_batch_size)
-                
-                # Separate completed batches from the active "Recent Scenes" batch
-                # The last message in scene_messages is always the "Recent Scenes" batch
-                if len(scene_messages) > 1:
-                    # We have both completed batches and recent scenes
-                    completed_batches = scene_messages[:-1]  # All except the last
-                    recent_scenes_batch = scene_messages[-1]  # The last one (Recent Scenes)
-                    
-                    # Add completed batches first
-                    messages.extend(completed_batches)
-                    
-                    # Add Character Interaction History (stable, placed before Relevant Context for cache optimization)
-                    if interaction_history_match:
-                        messages.append({
-                            "role": "user",
-                            "content": "=== CHARACTER INTERACTION HISTORY ===\n(Factual record of what has occurred between characters)\n\n" + interaction_history_match.group(1).strip()
-                        })
-                    
-                    # Add Relevant Context (combined semantic + entity states) before recent scenes
-                    if relevant_context_match:
-                        messages.append({
-                            "role": "user",
-                            "content": "=== RELEVANT CONTEXT ===\n" + relevant_context_match.group(1).strip()
-                        })
-                    
-                    # Add recent scenes last (most relevant, closest to instruction)
-                    messages.append(recent_scenes_batch)
-                elif len(scene_messages) == 1:
-                    # Only one batch (the recent scenes batch)
-                    # Add Character Interaction History before Relevant Context if it exists
-                    if interaction_history_match:
-                        messages.append({
-                            "role": "user",
-                            "content": "=== CHARACTER INTERACTION HISTORY ===\n(Factual record of what has occurred between characters)\n\n" + interaction_history_match.group(1).strip()
-                        })
-                    # Add Relevant Context before it if it exists
-                    if relevant_context_match:
-                        messages.append({
-                            "role": "user",
-                            "content": "=== RELEVANT CONTEXT ===\n" + relevant_context_match.group(1).strip()
-                        })
-                    messages.extend(scene_messages)
-                else:
-                    # No scene messages (shouldn't happen, but handle gracefully)
-                    messages.extend(scene_messages)
-            elif not relevant_context_match and not interaction_history_match:
-                # No structured sections found, use the whole previous_scenes as-is
-                # This handles the case where context_manager returns simple scene list
-                messages.append({
-                    "role": "user",
-                    "content": "=== STORY PROGRESS ===\n" + previous_scenes_text
-                })
-            else:
-                # We have relevant_context_match or interaction_history_match but no recent scenes
-                if interaction_history_match:
-                    messages.append({
-                        "role": "user",
-                        "content": "=== CHARACTER INTERACTION HISTORY ===\n(Factual record of what has occurred between characters)\n\n" + interaction_history_match.group(1).strip()
-                    })
-                if relevant_context_match:
-                    messages.append({
-                        "role": "user",
-                        "content": "=== RELEVANT CONTEXT ===\n" + relevant_context_match.group(1).strip()
-                    })
-        
-        # Add pacing guidance at the end (dynamic, changes each scene)
-        # This is placed AFTER all cached messages to preserve cache hits
-        pacing_guidance = context.get("pacing_guidance")
-        if pacing_guidance:
+
+        # --- A. Scene batches (completed + recent) ---
+        completed_batch_messages = []
+        recent_scenes_message = None
+
+        if recent_match:
+            scenes_text = recent_match.group(1).strip()
+            scene_messages = self._batch_scenes_as_messages(scenes_text, scene_batch_size)
+
+            if len(scene_messages) > 1:
+                completed_batch_messages = scene_messages[:-1]
+                recent_scenes_message = scene_messages[-1]
+            elif len(scene_messages) == 1:
+                recent_scenes_message = scene_messages[0]
+        elif previous_scenes_text and not interaction_history_match and not relevant_context_match:
+            # No structured sections found — base context_manager returns simple scene list
+            completed_batch_messages = [{
+                "role": "user",
+                "content": "=== STORY PROGRESS ===\n" + previous_scenes_text
+            }]
+
+        # Add completed scene batches (stable, cached)
+        if completed_batch_messages:
+            messages.extend(completed_batch_messages)
+
+        # --- B. CHARACTER INTERACTION HISTORY (rarely changes) ---
+        if interaction_history_match:
             messages.append({
                 "role": "user",
-                "content": f"=== CURRENT PROGRESS ===\n{pacing_guidance}"
+                "content": "=== CHARACTER INTERACTION HISTORY ===\n(Factual record of what has occurred between characters)\n\n" + interaction_history_match.group(1).strip()
             })
 
-        # Add relationship context (character relationship arcs)
-        # Placed in suffix to preserve prompt cache
+        # --- C. CHARACTER RELATIONSHIPS (changes occasionally) ---
         relationship_context = context.get("relationship_context")
         if relationship_context and relationship_context.get("relationships"):
             rel_parts = []
@@ -2684,7 +2655,6 @@ Chapter Conclusion:"""
             for rel in relationship_context["relationships"][:6]:  # Limit for token efficiency
                 chars = " <-> ".join(rel["characters"])
                 strength = rel.get("strength", 0)
-                # Visual indicator: + for positive, - for negative
                 if strength > 0:
                     indicator = "+" * min(int(strength * 3) + 1, 3)
                 elif strength < 0:
@@ -2699,7 +2669,6 @@ Chapter Conclusion:"""
 
             rel_text = "\n".join(rel_parts)
 
-            # Add neglected relationships as narrative opportunity
             if relationship_context.get("neglected"):
                 neglected_chars = [" & ".join(n["characters"]) for n in relationship_context["neglected"]]
                 rel_text += f"\n\nNeglected (consider reconnecting): {', '.join(neglected_chars)}"
@@ -2709,10 +2678,27 @@ Chapter Conclusion:"""
                 "content": f"=== CHARACTER RELATIONSHIPS ===\n{rel_text}"
             })
 
-        # Add story focus (working memory + active threads) - concise reminders
-        # - Unresolved threads: From PlotEvents (structured story beats)
-        # - Recent focus: From WorkingMemory (narrative emphasis)
-        # - Character attention: From WorkingMemory (who needs attention)
+        # --- D. CHARACTER STATES (entity states, locations, objects) ---
+        # Prefer entity_states_text from context dict (passed separately by SemanticContextManager)
+        entity_states_text = context.get("entity_states_text")
+        if entity_states_text:
+            messages.append({
+                "role": "user",
+                "content": f"=== CHARACTER STATES ===\n{entity_states_text}"
+            })
+
+        # --- E. RELEVANT CONTEXT (semantic search results only, changes every scene) ---
+        if relevant_context_match:
+            messages.append({
+                "role": "user",
+                "content": "=== RELEVANT CONTEXT ===\n" + relevant_context_match.group(1).strip()
+            })
+
+        # --- F. RECENT SCENES (active scene batch, changes every scene) ---
+        if recent_scenes_message:
+            messages.append(recent_scenes_message)
+
+        # --- G. STORY FOCUS (working memory + active threads) ---
         story_focus = context.get("story_focus")
         if story_focus:
             focus_parts = []
@@ -2731,7 +2717,15 @@ Chapter Conclusion:"""
                     "content": "=== STORY FOCUS ===\n" + "\n".join(focus_parts)
                 })
 
-        # Add continuity warnings from unresolved contradictions
+        # --- H. CURRENT PROGRESS (pacing guidance, changes every scene) ---
+        pacing_guidance = context.get("pacing_guidance")
+        if pacing_guidance:
+            messages.append({
+                "role": "user",
+                "content": f"=== CURRENT PROGRESS ===\n{pacing_guidance}"
+            })
+
+        # --- I. CONTINUITY WARNINGS (if any) ---
         contradiction_context = context.get("contradiction_context")
         if contradiction_context:
             messages.append({
