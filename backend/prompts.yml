@@ -767,6 +767,9 @@ summary_generation:
       - Emotional reactions or observations
       - Descriptive details
 
+      CONSOLIDATION: If consecutive scenes continue the same event or emotional beat,
+      merge them into ONE bullet. Do not repeat the same development across multiple bullets.
+
       Format: Simple declarative sentences. WHO did WHAT (to WHOM).
       No adjectives. No adverbs. No literary language.
 
@@ -855,6 +858,7 @@ summary_generation:
 
       Rules:
       - Merge new events into the existing summary
+      - Consolidate bullets that describe the same ongoing event across scenes into a single bullet
       - Maintain chronological order
       - No adjectives/adverbs unless plot-critical
       - No emotional interpretation or literary flourishes
@@ -901,6 +905,9 @@ summary_generation:
       - Routine actions (eating, drinking, checking phones)
       - Emotional reactions or observations
       - Descriptive details
+
+      CONSOLIDATION: If consecutive scenes continue the same event or emotional beat,
+      merge them into ONE bullet. Do not repeat the same development across multiple bullets.
 
       Rules:
       - Simple declarative sentences only
