@@ -62,6 +62,10 @@ export interface ContextSettings {
   enable_working_memory?: boolean;
   enable_contradiction_detection?: boolean;
   contradiction_severity_threshold?: string;
+  enable_relationship_graph?: boolean;
+  enable_contradiction_injection?: boolean;
+  enable_inline_contradiction_check?: boolean;
+  auto_regenerate_on_contradiction?: boolean;
 }
 
 export interface ExtractionModelSettings {

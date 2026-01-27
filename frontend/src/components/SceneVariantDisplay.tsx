@@ -107,6 +107,14 @@ interface SceneVariantDisplayProps {
   variantReloadTrigger?: number;
   // Image display toggle
   showImages?: boolean;
+  // Contradiction check props
+  contradictions?: Array<{
+    id: number; type: string; character_name: string | null;
+    previous_value: string | null; current_value: string | null;
+    severity: string; scene_sequence: number;
+  }>;
+  checkingContradictions?: boolean;
+  onContradictionResolved?: (sequenceNumber: number) => void;
 }
 
 export default function SceneVariantDisplay({
@@ -155,7 +163,10 @@ export default function SceneVariantDisplay({
   onCreateBranch,
   isGeneratingChoices = false,
   variantReloadTrigger,
-  showImages = true
+  showImages = true,
+  contradictions,
+  checkingContradictions = false,
+  onContradictionResolved
 }: SceneVariantDisplayProps) {
   const [variants, setVariants] = useState<SceneVariant[]>([]);
   const [currentVariantId, setCurrentVariantId] = useState<number | null>(null);
@@ -175,11 +186,33 @@ export default function SceneVariantDisplay({
   const [isClient, setIsClient] = useState(false);
   const [showImageGenerator, setShowImageGenerator] = useState(false);
   const [isMenuVisible, setIsMenuVisible] = useState(true);
+  // Contradiction resolution state
+  const [resolvingContradictionId, setResolvingContradictionId] = useState<number | null>(null);
+  const [resolutionNote, setResolutionNote] = useState('');
+  const [isResolvingContradiction, setIsResolvingContradiction] = useState(false);
   const menuTimerRef = useRef<NodeJS.Timeout | null>(null);
   const choiceInputRef = useRef<HTMLInputElement>(null);
   const customPromptInputRef = useRef<HTMLInputElement>(null);
   const customPromptFocusHandledRef = useRef(false);
   
+  // Handle resolving a contradiction
+  const handleResolveContradiction = async (contradictionId: number) => {
+    setIsResolvingContradiction(true);
+    try {
+      await apiClient.resolveContradiction(contradictionId, resolutionNote);
+      setResolvingContradictionId(null);
+      setResolutionNote('');
+      // Notify parent to remove this contradiction from state
+      if (onContradictionResolved) {
+        onContradictionResolved(scene.sequence_number);
+      }
+    } catch (err) {
+      console.error('Failed to resolve contradiction:', err);
+    } finally {
+      setIsResolvingContradiction(false);
+    }
+  };
+
   // Global TTS context for play/stop functionality
   const { playScene, stop, currentSceneId, isPlaying: isTTSPlaying } = useGlobalTTS();
   
@@ -829,6 +862,105 @@ export default function SceneVariantDisplay({
         isStreamingVariant={isStreamingVariant}
         userSettings={userSettings}
       />
+
+      {/* Inline Contradiction Check Display */}
+      {checkingContradictions && (
+        <div className="mt-3 px-4 py-2 rounded-lg border border-amber-700/50 bg-amber-900/20 flex items-center gap-2">
+          <div className="animate-spin h-4 w-4 border-2 border-amber-400 border-t-transparent rounded-full" />
+          <span className="text-amber-300 text-sm">Checking continuity...</span>
+        </div>
+      )}
+
+      {contradictions && contradictions.length > 0 && (
+        <div className="mt-3 rounded-lg border border-amber-600/60 bg-amber-950/40 overflow-hidden">
+          <div className="px-4 py-2 border-b border-amber-700/40 flex items-center gap-2">
+            <span className="text-amber-400 text-sm font-medium">Continuity Issue Detected</span>
+          </div>
+          <div className="px-4 py-3 space-y-2">
+            {contradictions.map((c) => (
+              <div key={c.id} className="text-sm">
+                <div className="flex items-start gap-2">
+                  <span className={`inline-block mt-0.5 w-2 h-2 rounded-full flex-shrink-0 ${
+                    c.severity === 'error' ? 'bg-red-400' : c.severity === 'warning' ? 'bg-amber-400' : 'bg-blue-400'
+                  }`} />
+                  <div className="flex-1">
+                    <span className="text-gray-300 font-medium">
+                      [{c.type.replace(/_/g, ' ')}]
+                    </span>
+                    {c.character_name && (
+                      <span className="text-white ml-1">{c.character_name}:</span>
+                    )}
+                    <div className="text-gray-400 mt-0.5">
+                      {c.previous_value && c.current_value ? (
+                        <>was &quot;{c.previous_value}&quot; → now &quot;{c.current_value}&quot;</>
+                      ) : (
+                        c.current_value || c.previous_value || 'Unknown issue'
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Resolution form for this contradiction */}
+                {resolvingContradictionId === c.id ? (
+                  <div className="mt-2 ml-4 space-y-2">
+                    <input
+                      type="text"
+                      value={resolutionNote}
+                      onChange={(e) => setResolutionNote(e.target.value)}
+                      placeholder="Resolution note (optional)"
+                      className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-1.5 text-sm text-white placeholder-gray-500"
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          handleResolveContradiction(c.id);
+                        } else if (e.key === 'Escape') {
+                          setResolvingContradictionId(null);
+                          setResolutionNote('');
+                        }
+                      }}
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleResolveContradiction(c.id)}
+                        disabled={isResolvingContradiction}
+                        className="px-3 py-1 text-xs bg-green-700 hover:bg-green-600 text-white rounded disabled:opacity-50"
+                      >
+                        {isResolvingContradiction ? 'Resolving...' : 'Confirm'}
+                      </button>
+                      <button
+                        onClick={() => { setResolvingContradictionId(null); setResolutionNote(''); }}
+                        className="px-3 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-white rounded"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+          <div className="px-4 py-2 border-t border-amber-700/40 flex gap-2">
+            <button
+              onClick={() => {
+                const firstUnresolved = contradictions.find(c => resolvingContradictionId !== c.id);
+                if (firstUnresolved) {
+                  setResolvingContradictionId(firstUnresolved.id);
+                  setResolutionNote('');
+                }
+              }}
+              className="px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-white rounded transition-colors"
+            >
+              Resolve
+            </button>
+            <button
+              onClick={() => onCreateVariant(scene.id)}
+              className="px-3 py-1.5 text-xs bg-amber-700 hover:bg-amber-600 text-white rounded transition-colors"
+            >
+              Regenerate Scene
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Inline Scene Image Generator - show if global toggle is on OR user clicked to open */}
       {(showImages || showImageGenerator) && (

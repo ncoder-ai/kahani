@@ -1181,10 +1181,15 @@ async def generate_scene_streaming_endpoint(
             if active_chapter:
                 try:
                     # Get extraction threshold from user settings
-                    extraction_threshold = user_settings.get('context_settings', {}).get(
+                    ctx_settings = user_settings.get('context_settings', {}) if user_settings else {}
+                    extraction_threshold = ctx_settings.get(
                         'character_extraction_threshold',
                         5  # Default threshold
-                    ) if user_settings else 5
+                    )
+                    enable_inline_check = ctx_settings.get('enable_inline_contradiction_check', False)
+
+                    # Override threshold to 1 when inline check is enabled
+                    effective_threshold = 1 if enable_inline_check else extraction_threshold
 
                     # Calculate scenes since last extraction using actual sequence numbers
                     # Get scenes in this chapter to find actual sequence numbers
@@ -1203,30 +1208,82 @@ async def generate_scene_streaming_endpoint(
                         # Count scenes with sequence > last_extraction_sequence
                         scenes_since_extraction = len([s for s in scene_sequence_numbers if s > last_extraction_sequence])
 
-                        logger.warning(f"[EXTRACTION] Scenes since last extraction: {scenes_since_extraction}/{extraction_threshold} for chapter {active_chapter.id}")
+                        logger.warning(f"[EXTRACTION] Scenes since last extraction: {scenes_since_extraction}/{effective_threshold} for chapter {active_chapter.id} (inline_check={enable_inline_check})")
                         logger.warning(f"[EXTRACTION] Chapter {active_chapter.id} has {len(scenes_in_chapter)} scenes (sequences {min(scene_sequence_numbers)} to {max_sequence_in_chapter}), last extracted: {last_extraction_sequence}")
 
-                        if scenes_since_extraction >= extraction_threshold:
-                            logger.warning(f"[EXTRACTION] ✓ SCHEDULED: Threshold reached ({scenes_since_extraction}/{extraction_threshold})")
+                        if scenes_since_extraction >= effective_threshold:
+                            if enable_inline_check:
+                                # === INLINE EXTRACTION + CONTRADICTION CHECK ===
+                                logger.warning(f"[EXTRACTION] ✓ INLINE: Running extraction inline for contradiction check ({scenes_since_extraction}/{effective_threshold})")
 
-                            # Schedule extraction to run after response completes
-                            # Use actual sequence numbers, not scenes_count
-                            background_tasks.add_task(
-                                run_extractions_in_background,
-                                story_id=story_id,
-                                chapter_id=active_chapter.id,
-                                from_sequence=last_extraction_sequence,
-                                to_sequence=max_sequence_in_chapter,
-                                user_id=current_user.id,
-                                user_settings=user_settings or {}
-                            )
+                                yield f"data: {json.dumps({'type': 'contradiction_check', 'status': 'checking'})}\n\n"
 
-                            # Send status event with clear message
-                            extraction_msg = f"Extracting ({scenes_since_extraction}/{extraction_threshold})"
-                            yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'scheduled', 'message': extraction_msg})}\n\n"
+                                try:
+                                    await run_extractions_in_background(
+                                        story_id=story_id,
+                                        chapter_id=active_chapter.id,
+                                        from_sequence=last_extraction_sequence,
+                                        to_sequence=max_sequence_in_chapter,
+                                        user_id=current_user.id,
+                                        user_settings=user_settings or {}
+                                    )
+
+                                    extraction_msg = f"Inline extraction complete ({scenes_since_extraction}/{effective_threshold})"
+                                    yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'scheduled', 'message': extraction_msg})}\n\n"
+
+                                    # Query for contradictions on the just-generated scene
+                                    from ..models import Contradiction
+                                    recent_contradictions = db.query(Contradiction).filter(
+                                        Contradiction.story_id == story_id,
+                                        Contradiction.branch_id == active_branch_id,
+                                        Contradiction.scene_sequence == scene.sequence_number,
+                                        Contradiction.resolved == False
+                                    ).all()
+
+                                    if recent_contradictions:
+                                        contradiction_data = [{
+                                            "id": c.id,
+                                            "type": c.contradiction_type,
+                                            "character_name": c.character_name,
+                                            "previous_value": c.previous_value,
+                                            "current_value": c.current_value,
+                                            "severity": c.severity,
+                                            "scene_sequence": c.scene_sequence,
+                                        } for c in recent_contradictions]
+
+                                        auto_regen = ctx_settings.get('auto_regenerate_on_contradiction', False)
+                                        yield f"data: {json.dumps({'type': 'contradiction_check', 'status': 'found', 'contradictions': contradiction_data, 'auto_regenerating': auto_regen})}\n\n"
+                                        logger.warning(f"[CONTRADICTION CHECK] Found {len(recent_contradictions)} contradictions for scene {scene.sequence_number}")
+                                    else:
+                                        yield f"data: {json.dumps({'type': 'contradiction_check', 'status': 'clear'})}\n\n"
+                                        logger.info(f"[CONTRADICTION CHECK] No contradictions found for scene {scene.sequence_number}")
+                                except Exception as inline_err:
+                                    logger.error(f"[EXTRACTION] Inline extraction failed: {inline_err}")
+                                    import traceback
+                                    logger.error(f"[EXTRACTION] Traceback: {traceback.format_exc()}")
+                                    yield f"data: {json.dumps({'type': 'contradiction_check', 'status': 'error', 'message': str(inline_err)})}\n\n"
+                            else:
+                                # === ORIGINAL BEHAVIOR: Schedule as background task ===
+                                logger.warning(f"[EXTRACTION] ✓ SCHEDULED: Threshold reached ({scenes_since_extraction}/{effective_threshold})")
+
+                                # Schedule extraction to run after response completes
+                                # Use actual sequence numbers, not scenes_count
+                                background_tasks.add_task(
+                                    run_extractions_in_background,
+                                    story_id=story_id,
+                                    chapter_id=active_chapter.id,
+                                    from_sequence=last_extraction_sequence,
+                                    to_sequence=max_sequence_in_chapter,
+                                    user_id=current_user.id,
+                                    user_settings=user_settings or {}
+                                )
+
+                                # Send status event with clear message
+                                extraction_msg = f"Extracting ({scenes_since_extraction}/{effective_threshold})"
+                                yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'scheduled', 'message': extraction_msg})}\n\n"
                         else:
                             # Threshold not reached - skip extraction with clear reason
-                            skip_msg = f"Skipped ({scenes_since_extraction}/{extraction_threshold})"
+                            skip_msg = f"Skipped ({scenes_since_extraction}/{effective_threshold})"
                             logger.warning(f"[EXTRACTION] ✗ SKIPPED: {skip_msg}")
                             yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'skipped', 'message': skip_msg})}\n\n"
                     else:

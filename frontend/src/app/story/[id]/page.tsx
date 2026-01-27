@@ -70,6 +70,11 @@ const EntityStatesModal = dynamic(() => import('@/components/EntityStatesModal')
   ssr: false
 });
 
+const ContradictionsModal = dynamic(() => import('@/components/ContradictionsModal'), {
+  loading: () => null,
+  ssr: false
+});
+
 const CharacterRoleEditor = dynamic(() => import('@/components/CharacterRoleEditor'), {
   loading: () => null,
   ssr: false
@@ -281,6 +286,9 @@ export default function StoryPage() {
   
   // Entity States modal state
   const [showEntityStatesModal, setShowEntityStatesModal] = useState(false);
+
+  // Contradictions modal state
+  const [showContradictionsModal, setShowContradictionsModal] = useState(false);
   
   // Chapter wizard state
   const [showChapterWizard, setShowChapterWizard] = useState(false);
@@ -301,6 +309,13 @@ export default function StoryPage() {
   const [lastGenerationTime, setLastGenerationTime] = useState<number | null>(null);
   const [generationStartTime, setGenerationStartTime] = useState<number | null>(null);
   const [extractionStatus, setExtractionStatus] = useState<{ status: 'extracting' | 'complete' | 'error'; message: string } | null>(null);
+  // Contradiction check state (inline post-generation check)
+  const [sceneContradictions, setSceneContradictions] = useState<Record<number, Array<{
+    id: number; type: string; character_name: string | null;
+    previous_value: string | null; current_value: string | null;
+    severity: string; scene_sequence: number;
+  }>>>({});
+  const [checkingContradictions, setCheckingContradictions] = useState(false);
   const [showContextWarning, setShowContextWarning] = useState(false);
   const [hasShownContextWarning, setHasShownContextWarning] = useState(false);
   const [isGeneratingChoices, setIsGeneratingChoices] = useState(false);
@@ -439,6 +454,7 @@ export default function StoryPage() {
         onEditStorySettings: () => setShowEditStoryModal(true),
         onShowInteractions: () => setShowInteractionsModal(true),
         onShowEntityStates: () => setShowEntityStatesModal(true),
+        onShowContradictions: () => setShowContradictionsModal(true),
         directorModeActive: directorMode,
         deleteModeActive: isInDeleteMode,
         showImagesActive: showImages,
@@ -1549,6 +1565,28 @@ export default function StoryPage() {
         (totalChars: number) => {
           setIsThinking(false);
           // Keep thinking content for display (will be cleared on next generation)
+        },
+        // onContradictionCheck - Handle inline contradiction check results
+        (data: { status: string; contradictions?: Array<{
+          id: number; type: string; character_name: string | null;
+          previous_value: string | null; current_value: string | null;
+          severity: string; scene_sequence: number;
+        }>; auto_regenerating?: boolean }) => {
+          if (data.status === 'checking') {
+            setCheckingContradictions(true);
+          } else if (data.status === 'found' && data.contradictions) {
+            setCheckingContradictions(false);
+            // Key contradictions by scene sequence
+            const seqNum = data.contradictions[0]?.scene_sequence;
+            if (seqNum) {
+              setSceneContradictions(prev => ({
+                ...prev,
+                [seqNum]: data.contradictions!
+              }));
+            }
+          } else if (data.status === 'clear' || data.status === 'error') {
+            setCheckingContradictions(false);
+          }
         }
       );
 
@@ -3028,6 +3066,15 @@ export default function StoryPage() {
                           }}
                           isGeneratingChoices={isGeneratingChoices && waitingForChoicesSceneId === scene.id}
                           showImages={showImages}
+                          contradictions={sceneContradictions[scene.sequence_number]}
+                          checkingContradictions={checkingContradictions && isLastSceneInStory}
+                          onContradictionResolved={(seqNum: number) => {
+                            setSceneContradictions(prev => {
+                              const next = { ...prev };
+                              delete next[seqNum];
+                              return next;
+                            });
+                          }}
                         />
                       </div>
                     );
@@ -3530,6 +3577,14 @@ export default function StoryPage() {
       <EntityStatesModal
         isOpen={showEntityStatesModal}
         onClose={() => setShowEntityStatesModal(false)}
+        storyId={storyId}
+        storyTitle={story?.title || ''}
+      />
+
+      {/* Contradictions Modal */}
+      <ContradictionsModal
+        isOpen={showContradictionsModal}
+        onClose={() => setShowContradictionsModal(false)}
         storyId={storyId}
         storyTitle={story?.title || ''}
       />

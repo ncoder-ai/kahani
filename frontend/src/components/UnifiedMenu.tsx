@@ -23,6 +23,7 @@ interface StoryActions {
   onEditStorySettings?: () => void;
   onShowInteractions?: () => void;
   onShowEntityStates?: () => void;
+  onShowContradictions?: () => void;
   directorModeActive?: boolean;
   deleteModeActive?: boolean;
   showImagesActive?: boolean;
@@ -405,6 +406,25 @@ export default function UnifiedMenu({
                         <div className="flex-1">
                           <div className="text-sm font-medium text-white">Entity States</div>
                           <div className="text-xs text-gray-400">View character, location & object states</div>
+                        </div>
+                      </button>
+                    )}
+
+                    {/* Contradictions */}
+                    {storyActions.onShowContradictions && (
+                      <button
+                        onClick={() => {
+                          onClose();
+                          storyActions.onShowContradictions?.();
+                        }}
+                        className="w-full flex items-center gap-3 p-2.5 hover:bg-white/10 rounded-lg transition-colors text-left group"
+                      >
+                        <div className="p-1.5 bg-red-600/20 rounded-lg group-hover:bg-red-600/30 transition-colors">
+                          <Bug className="w-4 h-4 text-red-400" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="text-sm font-medium text-white">Contradictions</div>
+                          <div className="text-xs text-gray-400">View continuity errors & resolve them</div>
                         </div>
                       </button>
                     )}

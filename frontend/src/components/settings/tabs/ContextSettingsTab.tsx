@@ -586,24 +586,76 @@ export default function ContextSettingsTab({
                 </div>
               </div>
 
-              {/* Contradiction Severity Threshold */}
+              {/* Contradiction Severity Threshold & Injection Settings */}
               {contextSettings.enable_contradiction_detection !== false && (
-                <div className="ml-4 pl-4 border-l-2 border-blue-600">
-                  <label className="block text-sm font-medium text-white mb-2">
-                    Minimum Severity to Log
-                  </label>
-                  <select
-                    value={contextSettings.contradiction_severity_threshold || 'info'}
-                    onChange={(e) => setContextSettings({ ...contextSettings, contradiction_severity_threshold: e.target.value })}
-                    className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
-                  >
-                    <option value="info">Info (all contradictions)</option>
-                    <option value="warning">Warning (moderate+)</option>
-                    <option value="error">Error (severe only)</option>
-                  </select>
-                  <div className="text-xs text-gray-400 mt-1">
-                    Filter which contradictions are logged based on severity
+                <div className="ml-4 pl-4 border-l-2 border-blue-600 space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-white mb-2">
+                      Minimum Severity to Log
+                    </label>
+                    <select
+                      value={contextSettings.contradiction_severity_threshold || 'info'}
+                      onChange={(e) => setContextSettings({ ...contextSettings, contradiction_severity_threshold: e.target.value })}
+                      className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
+                    >
+                      <option value="info">Info (all contradictions)</option>
+                      <option value="warning">Warning (moderate+)</option>
+                      <option value="error">Error (severe only)</option>
+                    </select>
+                    <div className="text-xs text-gray-400 mt-1">
+                      Filter which contradictions are logged based on severity
+                    </div>
                   </div>
+
+                  {/* Inject warnings into prompt */}
+                  <div>
+                    <label className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={contextSettings.enable_contradiction_injection !== false}
+                        onChange={(e) => setContextSettings({ ...contextSettings, enable_contradiction_injection: e.target.checked })}
+                        className="mr-2"
+                      />
+                      <span className="text-sm text-white">Inject continuity warnings into prompt</span>
+                    </label>
+                    <div className="text-xs text-gray-400 mt-1">
+                      Informs the LLM about existing contradictions so it avoids repeating them
+                    </div>
+                  </div>
+
+                  {/* Inline contradiction check */}
+                  <div>
+                    <label className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={contextSettings.enable_inline_contradiction_check === true}
+                        onChange={(e) => setContextSettings({ ...contextSettings, enable_inline_contradiction_check: e.target.checked })}
+                        className="mr-2"
+                      />
+                      <span className="text-sm text-white">Check for contradictions after each scene</span>
+                    </label>
+                    <div className="text-xs text-gray-400 mt-1">
+                      Runs entity extraction every scene — uses extraction LLM, adds a few seconds after scene completes
+                    </div>
+                  </div>
+
+                  {/* Auto-regenerate on contradiction (nested under inline check) */}
+                  {contextSettings.enable_inline_contradiction_check === true && (
+                    <div className="ml-4 pl-4 border-l-2 border-amber-600">
+                      <label className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={contextSettings.auto_regenerate_on_contradiction === true}
+                          onChange={(e) => setContextSettings({ ...contextSettings, auto_regenerate_on_contradiction: e.target.checked })}
+                          className="mr-2"
+                        />
+                        <span className="text-sm text-white">Auto-regenerate scene if contradictions found</span>
+                      </label>
+                      <div className="text-xs text-gray-400 mt-1">
+                        Regenerates the scene once to fix the issue — requires inline check enabled
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

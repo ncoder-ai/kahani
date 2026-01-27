@@ -838,10 +838,20 @@ summary_generation:
     system: |
       You are a story state tracker. Update an existing chapter summary with new scene facts.
 
-      CRITICAL - CAPTURE EVERYTHING:
-      - You MUST capture EVERY event from the new scenes
-      - Missing events means the story will have continuity errors
-      - Err on the side of including more detail rather than less
+      HARD LIMIT: Maximum 3 bullets per scene. Most scenes need only 1-2.
+
+      ONLY CAPTURE:
+      - Major decisions or turning points
+      - Relationship changes (alliances, conflicts, trust shifts)
+      - Key revelations or discoveries
+      - Arrivals, departures, or location changes that matter to plot
+
+      NEVER INCLUDE:
+      - Character movements (walking, sitting, entering rooms)
+      - Dialogue unless it reveals critical information
+      - Routine actions (eating, drinking, checking phones)
+      - Emotional reactions or observations
+      - Descriptive details
 
       Rules:
       - Merge new events into the existing summary
@@ -866,26 +876,35 @@ summary_generation:
       New Scenes to Add (Scenes {new_scenes_start}-{new_scenes_end}):
       {new_scenes_text}
 
-      Update the summary to include ALL new events:
+      Update the summary to include plot-critical new events:
 
-      EVENTS: [chronological bullet list - existing + ALL new events - USE SPECIFIC TERMS. Include every action, dialogue outcome, and character movement from new scenes.]
+      EVENTS: [chronological bullet list - existing + new plot-critical events - USE SPECIFIC TERMS. Maximum 3 bullets per scene. Include only plot-critical events, not routine actions.]
       STATE CHANGES: [cumulative changes across all scenes]
 
-      Facts only, no moralizing, no hallucination.
+      Aim for 500-600 words total. Facts only, no moralizing, no hallucination.
   
   chapter_summary_initial:
     system: |
-      You are a story state tracker. Extract FACTS from chapter content, not prose.
+      You are a story state tracker. Extract ONLY PLOT-CRITICAL FACTS from chapter content, not prose.
 
-      CRITICAL - CAPTURE EVERYTHING:
-      - You MUST capture EVERY event that occurred in the scenes
-      - If a character does something, it must be in your summary
-      - Missing events means the story will have continuity errors
-      - Err on the side of including more detail rather than less
+      HARD LIMIT: Maximum 3 bullets per scene. If a scene has no plot-critical events, use 1 bullet.
+
+      ONLY CAPTURE:
+      - Major decisions or turning points
+      - Relationship changes (alliances, conflicts, trust shifts)
+      - Key revelations or discoveries
+      - Arrivals, departures, or location changes that matter to plot
+
+      NEVER INCLUDE:
+      - Character movements (walking, sitting, entering rooms)
+      - Dialogue unless it reveals critical information
+      - Routine actions (eating, drinking, checking phones)
+      - Emotional reactions or observations
+      - Descriptive details
 
       Rules:
       - Simple declarative sentences only
-      - Format: WHO did WHAT to WHOM, WHERE
+      - Format: WHO did WHAT (to WHOM)
       - No adjectives/adverbs unless plot-critical
       - No emotional interpretation or literary flourishes
       - No purple prose
@@ -905,12 +924,12 @@ summary_generation:
       Scenes to Summarize:
       {new_scenes_text}
 
-      Extract a COMPLETE factual chapter summary. You MUST capture ALL events - missing any event causes story continuity errors.
+      Extract a factual chapter summary covering only plot-critical events.
 
-      EVENTS: [chronological bullet list of EVERY event that happened - USE SPECIFIC TERMS. Include ALL character actions, dialogue outcomes, discoveries, and movements.]
+      EVENTS: [chronological bullet list - MAXIMUM 3 per scene - USE SPECIFIC TERMS. Include only plot-critical events, not routine actions.]
       STATE CHANGES: [relationship changes, location changes, new knowledge gained, objects acquired/lost]
 
-      Facts only, no moralizing, no hallucination.
+      Aim for 500-600 words total. Facts only, no moralizing, no hallucination.
 
   story_chapters:
     system: |

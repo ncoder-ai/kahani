@@ -18,13 +18,16 @@ depends_on = None
 
 def upgrade():
     # Make story_id nullable to support character portraits without a story
-    op.alter_column('generated_images', 'story_id',
-                    existing_type=sa.Integer(),
-                    nullable=True)
+    # Use batch mode for SQLite compatibility
+    with op.batch_alter_table('generated_images') as batch_op:
+        batch_op.alter_column('story_id',
+                              existing_type=sa.Integer(),
+                              nullable=True)
 
 
 def downgrade():
     # Revert to non-nullable (will fail if there are NULL values)
-    op.alter_column('generated_images', 'story_id',
-                    existing_type=sa.Integer(),
-                    nullable=False)
+    with op.batch_alter_table('generated_images') as batch_op:
+        batch_op.alter_column('story_id',
+                              existing_type=sa.Integer(),
+                              nullable=False)

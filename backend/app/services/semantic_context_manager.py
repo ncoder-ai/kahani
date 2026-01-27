@@ -266,9 +266,17 @@ class SemanticContextManager(ContextManager):
         except Exception as e:
             logger.warning(f"[SEMANTIC CONTEXT BUILD] Failed to build relationship context: {e}")
 
+        # Add contradiction context (unresolved continuity warnings)
+        try:
+            contradiction_context = self._build_contradiction_context(db, story_id, branch_id)
+            if contradiction_context:
+                base_context["contradiction_context"] = contradiction_context
+        except Exception as e:
+            logger.warning(f"[SEMANTIC CONTEXT BUILD] Failed to build contradiction context: {e}")
+
         # Merge contexts
         return {**base_context, **scene_context}
-    
+
     async def _build_hybrid_scene_context(
         self,
         story_id: int,

@@ -27,11 +27,11 @@ logger = logging.getLogger(__name__)
 class ChapterSummaryService:
     """Service for managing chapter summaries."""
 
-    def __init__(self, db: Session, user_id: int):
+    def __init__(self, db: Session, user_id: int, user_settings: Optional[dict] = None):
         self.db = db
         self.user_id = user_id
         self.llm_service = UnifiedLLMService()
-        self._user_settings = None
+        self._user_settings = user_settings
 
     def _get_user_settings(self) -> Optional[dict]:
         """Get user settings with caching."""
@@ -336,11 +336,13 @@ class ChapterSummaryService:
 
     async def generate_story_so_far(self, chapter_id: int) -> Optional[str]:
         """
-        Generate "Story So Far" for a chapter by concatenating summaries of ALL PREVIOUS chapters.
+        Generate "Story So Far" for a chapter using LLM rolling consolidation.
         Does NOT include the current chapter's summary.
 
-        This directly concatenates chapter summaries rather than re-summarizing them,
-        which preserves all details and avoids information loss.
+        Rolling consolidation approach:
+        - For chapter N, combine chapter (N-1)'s story_so_far + chapter (N-1)'s auto_summary
+        - Call LLM with the story_so_far prompt to produce a consolidated ~600-800 word summary
+        - This keeps input bounded regardless of how many chapters exist
 
         Returns None if there are no previous chapters with summaries.
         Note: Filters by branch_id to ensure only chapters from the same branch are included.
@@ -351,7 +353,7 @@ class ChapterSummaryService:
 
         story_id = chapter.story_id
 
-        # Get all previous chapters
+        # Get all previous chapters ordered by chapter_number
         previous_chapters_query = self.db.query(Chapter).filter(
             Chapter.story_id == story_id,
             Chapter.chapter_number < chapter.chapter_number
@@ -360,27 +362,83 @@ class ChapterSummaryService:
             previous_chapters_query = previous_chapters_query.filter(Chapter.branch_id == chapter.branch_id)
         previous_chapters = previous_chapters_query.order_by(Chapter.chapter_number).all()
 
-        # Build the story so far by concatenating previous chapter summaries
-        previous_summaries = []
-        for prev_ch in previous_chapters:
-            if prev_ch.auto_summary:
-                previous_summaries.append(f"=== Chapter {prev_ch.chapter_number}: {prev_ch.title or 'Untitled'} ===\n{prev_ch.auto_summary}")
+        # Filter to chapters that have summaries
+        chapters_with_summaries = [ch for ch in previous_chapters if ch.auto_summary]
 
-        if not previous_summaries:
+        if not chapters_with_summaries:
             logger.info(f"[CHAPTER] No previous chapter summaries available for chapter {chapter_id}")
             chapter.story_so_far = None
             self.db.commit()
             return None
 
-        # Directly concatenate summaries - no LLM re-summarization to preserve all details
-        story_so_far = "\n\n".join(previous_summaries)
+        # For only one previous chapter, use its auto_summary directly (no consolidation needed)
+        if len(chapters_with_summaries) == 1:
+            only_ch = chapters_with_summaries[0]
+            story_so_far = f"=== Chapter {only_ch.chapter_number}: {only_ch.title or 'Untitled'} ===\n{only_ch.auto_summary}"
+            chapter.story_so_far = story_so_far
+            self.db.commit()
+            logger.info(f"[CHAPTER] story_so_far for chapter {chapter_id}: single previous chapter, {len(story_so_far)} chars (no consolidation needed)")
+            return story_so_far
+
+        # Rolling consolidation: combine previous story_so_far + latest chapter's summary
+        # Use the most recent previous chapter's story_so_far if available
+        latest_prev = chapters_with_summaries[-1]
+        earlier_chapters = chapters_with_summaries[:-1]
+
+        # Build the combined_chapters input for the LLM prompt
+        # If the second-to-last chapter has a story_so_far, use that + latest chapter summary
+        # Otherwise, fall back to concatenating all summaries (first-time consolidation)
+        if latest_prev.story_so_far:
+            combined_chapters = f"CONSOLIDATED STORY SO FAR (Chapters 1-{latest_prev.chapter_number - 1}):\n{latest_prev.story_so_far}\n\n"
+            combined_chapters += f"=== Chapter {latest_prev.chapter_number}: {latest_prev.title or 'Untitled'} ===\n{latest_prev.auto_summary}"
+        else:
+            # No prior consolidation exists — combine all chapter summaries
+            parts = []
+            for ch in chapters_with_summaries:
+                parts.append(f"=== Chapter {ch.chapter_number}: {ch.title or 'Untitled'} ===\n{ch.auto_summary}")
+            combined_chapters = "\n\n".join(parts)
+
+        # Fetch story metadata for the prompt template
+        story = self.db.query(Story).filter(Story.id == story_id).first()
+        genre = story.genre if story and story.genre else "fiction"
+        content_rating = story.content_rating if story and story.content_rating else "sfw"
+        tone = story.tone if story and story.tone else "neutral"
+
+        # Get prompts from prompts.yml
+        system_prompt = prompt_manager.get_prompt(
+            "story_so_far", "system",
+            user_id=self.user_id, db=self.db
+        )
+        if not system_prompt:
+            system_prompt = "You are a story state tracker. Consolidate chapter facts into a single state document."
+
+        user_prompt = prompt_manager.get_prompt(
+            "story_so_far", "user",
+            user_id=self.user_id, db=self.db,
+            genre=genre,
+            content_rating=content_rating,
+            tone=tone,
+            combined_chapters=combined_chapters
+        )
+        if not user_prompt:
+            user_prompt = f"Consolidate these chapter summaries into a single factual summary:\n\n{combined_chapters}\n\nAim for 600-800 words. Facts only."
+
+        user_settings = self._get_user_settings()
+
+        # Generate consolidated story_so_far via LLM
+        story_so_far = await self._generate_with_llm(
+            prompt=user_prompt,
+            system_prompt=system_prompt,
+            user_settings=user_settings,
+            trace_context=f"story_so_far_{chapter_id}"
+        )
 
         # Update chapter
         chapter.story_so_far = story_so_far
         self.db.commit()
 
         total_chars = len(story_so_far)
-        logger.info(f"[CHAPTER] Concatenated story_so_far for chapter {chapter_id} from {len(previous_chapters)} previous chapters: {total_chars} chars")
+        logger.info(f"[CHAPTER] Consolidated story_so_far for chapter {chapter_id} from {len(chapters_with_summaries)} previous chapters: {total_chars} chars")
 
         return story_so_far
 

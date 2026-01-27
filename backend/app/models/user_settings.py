@@ -65,6 +65,9 @@ class UserSettings(Base):
     enable_contradiction_detection = Column(Boolean, nullable=True)  # Detect continuity errors
     contradiction_severity_threshold = Column(String(20), nullable=True)  # "info", "warning", "error"
     enable_relationship_graph = Column(Boolean, nullable=True)  # Track character relationship arcs
+    enable_contradiction_injection = Column(Boolean, nullable=True)  # Inject warnings into prompt
+    enable_inline_contradiction_check = Column(Boolean, nullable=True)  # Run extraction + check every scene
+    auto_regenerate_on_contradiction = Column(Boolean, nullable=True)  # Auto-regen once if contradiction found
 
     # Story Generation Preferences
     default_genre = Column(String(100), nullable=True)
@@ -211,7 +214,10 @@ class UserSettings(Base):
                 "enable_working_memory": self.enable_working_memory if self.enable_working_memory is not None else ctx_defaults.get("enable_working_memory", True),
                 "enable_contradiction_detection": self.enable_contradiction_detection if self.enable_contradiction_detection is not None else ctx_defaults.get("enable_contradiction_detection", True),
                 "contradiction_severity_threshold": self.contradiction_severity_threshold if self.contradiction_severity_threshold is not None else ctx_defaults.get("contradiction_severity_threshold", "info"),
-                "enable_relationship_graph": self.enable_relationship_graph if self.enable_relationship_graph is not None else ctx_defaults.get("enable_relationship_graph", True)
+                "enable_relationship_graph": self.enable_relationship_graph if self.enable_relationship_graph is not None else ctx_defaults.get("enable_relationship_graph", True),
+                "enable_contradiction_injection": self.enable_contradiction_injection if self.enable_contradiction_injection is not None else ctx_defaults.get("enable_contradiction_injection", True),
+                "enable_inline_contradiction_check": self.enable_inline_contradiction_check if self.enable_inline_contradiction_check is not None else ctx_defaults.get("enable_inline_contradiction_check", False),
+                "auto_regenerate_on_contradiction": self.auto_regenerate_on_contradiction if self.auto_regenerate_on_contradiction is not None else ctx_defaults.get("auto_regenerate_on_contradiction", False)
             },
             "generation_preferences": {
                 "default_genre": self.default_genre or "",
@@ -484,6 +490,12 @@ class UserSettings(Base):
             self.contradiction_severity_threshold = ctx.get("contradiction_severity_threshold", "info")
         if self.enable_relationship_graph is None:
             self.enable_relationship_graph = ctx.get("enable_relationship_graph", True)
+        if self.enable_contradiction_injection is None:
+            self.enable_contradiction_injection = ctx.get("enable_contradiction_injection", True)
+        if self.enable_inline_contradiction_check is None:
+            self.enable_inline_contradiction_check = ctx.get("enable_inline_contradiction_check", False)
+        if self.auto_regenerate_on_contradiction is None:
+            self.auto_regenerate_on_contradiction = ctx.get("auto_regenerate_on_contradiction", False)
 
         # Generation Preferences
         gen = user_defaults.get("generation_preferences", {})

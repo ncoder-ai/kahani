@@ -414,9 +414,17 @@ class ContextManager:
         except Exception as e:
             logger.warning(f"[CONTEXT BUILD] Failed to build relationship context: {e}")
 
+        # Add contradiction context (unresolved continuity warnings)
+        try:
+            contradiction_context = self._build_contradiction_context(db, story_id, branch_id)
+            if contradiction_context:
+                base_context["contradiction_context"] = contradiction_context
+        except Exception as e:
+            logger.warning(f"[CONTEXT BUILD] Failed to build contradiction context: {e}")
+
         # Merge contexts
         return {**base_context, **scene_context}
-    
+
     def _calculate_base_context_tokens(self, base_context: Dict[str, Any]) -> int:
         """Calculate tokens used by base story context"""
         
@@ -543,6 +551,55 @@ Appearance: {char.get('appearance', '')}
 
         except Exception as e:
             logger.warning(f"[CONTEXT BUILD] Error building story focus: {e}")
+            return None
+
+    def _build_contradiction_context(self, db: Session, story_id: int, branch_id: Optional[int]) -> Optional[List[str]]:
+        """
+        Build contradiction context from unresolved contradictions.
+
+        Returns a list of concise warning strings for the LLM to naturally address.
+        """
+        try:
+            from ..models import Contradiction
+
+            ctx_settings = self.user_settings.get('context_settings', {})
+            if not ctx_settings.get('enable_contradiction_injection', True):
+                return None
+
+            severity_threshold = ctx_settings.get('contradiction_severity_threshold', 'info')
+            severity_order = {'info': 0, 'warning': 1, 'error': 2}
+            threshold_level = severity_order.get(severity_threshold, 0)
+
+            query = db.query(Contradiction).filter(
+                Contradiction.story_id == story_id,
+                Contradiction.resolved == False
+            )
+            if branch_id:
+                query = query.filter(Contradiction.branch_id == branch_id)
+
+            contradictions = query.order_by(Contradiction.detected_at.desc()).limit(10).all()
+
+            # Filter by severity, take up to 5
+            filtered = [c for c in contradictions if severity_order.get(c.severity, 0) >= threshold_level][:5]
+            if not filtered:
+                return None
+
+            # Format as concise warning strings
+            warnings = []
+            for c in filtered:
+                type_label = c.contradiction_type.replace('_', ' ').title()
+                char_part = f" {c.character_name}:" if c.character_name else ""
+                if c.previous_value and c.current_value:
+                    issue = f'was "{c.previous_value}" but now "{c.current_value}"'
+                else:
+                    issue = c.current_value or c.previous_value or "unknown"
+                warnings.append(f"- [{type_label}]{char_part} {issue} (scene {c.scene_sequence})")
+
+            logger.info(f"[CONTEXT BUILD] Contradiction context: {len(warnings)} warnings for story {story_id}")
+            return warnings
+
+        except Exception as e:
+            logger.warning(f"[CONTEXT BUILD] Error building contradiction context: {e}")
             return None
 
     def _build_relationship_context(
@@ -1184,7 +1241,9 @@ Appearance: {char.get('appearance', '')}
             # Working memory & active plot threads
             "story_focus": full_context.get("story_focus"),
             # Character relationship context
-            "relationship_context": full_context.get("relationship_context")
+            "relationship_context": full_context.get("relationship_context"),
+            # Contradiction context (unresolved continuity warnings)
+            "contradiction_context": full_context.get("contradiction_context")
         }
         
         # Add pacing guidance if chapter plot tracking is enabled

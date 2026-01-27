@@ -2731,6 +2731,18 @@ Chapter Conclusion:"""
                     "content": "=== STORY FOCUS ===\n" + "\n".join(focus_parts)
                 })
 
+        # Add continuity warnings from unresolved contradictions
+        contradiction_context = context.get("contradiction_context")
+        if contradiction_context:
+            messages.append({
+                "role": "user",
+                "content": "=== CONTINUITY WARNINGS ===\n"
+                    "The following continuity issues were detected. "
+                    "Naturally address or acknowledge them in your writing "
+                    "(e.g., mention travel between locations, explain emotional shifts):\n\n"
+                    + "\n".join(contradiction_context)
+            })
+
         return messages
     
     def _batch_scenes_as_messages(self, scenes_text: str, batch_size: int = 10) -> List[Dict[str, str]]:

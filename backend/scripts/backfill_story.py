@@ -220,10 +220,11 @@ async def backfill_relationships(
 # =============================================================================
 
 def clear_chapter_summaries(db: Session, story_id: int):
-    """Clear existing chapter summaries."""
+    """Clear existing chapter summaries and story_so_far."""
     chapters = db.query(Chapter).filter(Chapter.story_id == story_id).all()
     for chapter in chapters:
         chapter.auto_summary = None
+        chapter.story_so_far = None
         chapter.last_summary_scene_count = 0
 
     # Also clear summary batches
@@ -261,7 +262,7 @@ async def backfill_chapter_summaries(
     if not dry_run:
         clear_chapter_summaries(db, story_id)
 
-    summary_service = ChapterSummaryService(db=db, user_id=user_id)
+    summary_service = ChapterSummaryService(db=db, user_id=user_id, user_settings=user_settings)
     total = 0
 
     for chapter in chapters:
@@ -359,14 +360,13 @@ async def backfill_entity_states(
             batch_content = "\n\n---\n\n".join([s[2] for s in batch])
             last_scene = batch[-1]
 
-            result = await entity_service.extract_and_update_entity_states(
+            result = await entity_service.extract_and_update_states(
                 db=db,
                 story_id=story_id,
-                branch_id=last_scene[3] or branch_id,
-                chapter_id=last_scene[4],
+                scene_id=last_scene[0],
                 scene_sequence=last_scene[1],
                 scene_content=batch_content,
-                characters=characters
+                branch_id=last_scene[3] or branch_id,
             )
 
             if result:
@@ -498,6 +498,10 @@ async def backfill_story(
             user_settings['context_settings'] = {}
         user_settings['context_settings']['enable_relationship_graph'] = True
         user_settings['context_settings']['enable_working_memory'] = True
+        # Use extraction LLM for summaries during backfill
+        if 'generation_preferences' not in user_settings:
+            user_settings['generation_preferences'] = {}
+        user_settings['generation_preferences']['use_extraction_llm_for_summary'] = True
         logger.info(f"Using extraction model: {user_settings.get('extraction_model_settings', {}).get('url', 'default')}")
 
         print()

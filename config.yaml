@@ -268,6 +268,9 @@ user_defaults:
     enable_working_memory: true  # Track scene-to-scene focus and pending items
     enable_contradiction_detection: true  # Detect continuity errors like location jumps
     contradiction_severity_threshold: "info"  # Minimum severity to log: "info", "warning", "error"
+    enable_contradiction_injection: true  # Inject unresolved contradictions into generation prompt
+    enable_inline_contradiction_check: false  # Run entity extraction + contradiction check every scene (adds extraction LLM call per scene)
+    auto_regenerate_on_contradiction: false  # Auto-regenerate scene once if contradictions detected (requires inline check)
     enable_relationship_graph: true  # Track character relationship arcs and trajectory
   generation_preferences:
     default_genre: ""

@@ -1007,7 +1007,12 @@ class ApiClient {
     // Thinking/reasoning callbacks
     onThinkingStart?: () => void,
     onThinkingChunk?: (chunk: string) => void,
-    onThinkingEnd?: (totalChars: number) => void
+    onThinkingEnd?: (totalChars: number) => void,
+    onContradictionCheck?: (data: { status: string; contradictions?: Array<{
+      id: number; type: string; character_name: string | null;
+      previous_value: string | null; current_value: string | null;
+      severity: string; scene_sequence: number;
+    }>; auto_regenerating?: boolean }) => void
   ) {
     let fullStreamedContent = '';  // Track all streamed content for verification
     let receivedComplete = false;  // Track if we received the complete event
@@ -1135,7 +1140,7 @@ class ApiClient {
                   receivedComplete = true;
                   clearTimeout(timeoutId);
                   onComplete(parsed.scene_id, parsed.variant_id, parsed.choices || [], parsed.auto_play);
-                  return;  // Exit after complete event
+                  // Don't return — keep stream open for post-completion events (contradiction_check)
                 }
                 else if (parsed.type === 'multi_complete') {
                   // Multi-generation complete - handle multiple variants
@@ -1158,7 +1163,7 @@ class ApiClient {
                       }
                     );
                   }
-                  return;  // Exit after multi_complete event
+                  // Don't return — keep stream open for post-completion events (contradiction_check)
                 }
                 else if (parsed.type === 'error' && onError) {
                   clearTimeout(timeoutId);
@@ -1167,6 +1172,9 @@ class ApiClient {
                 }
                 else if (parsed.type === 'extraction_status' && onExtractionStatus) {
                   onExtractionStatus(parsed.status, parsed.message);
+                }
+                else if (parsed.type === 'contradiction_check' && onContradictionCheck) {
+                  onContradictionCheck(parsed);
                 }
                 else if (parsed.type === 'start') {
                 }
@@ -2910,6 +2918,60 @@ class ApiClient {
 
   async delete<T>(endpoint: string): Promise<T> {
     return this.request<T>(endpoint, { method: 'DELETE' });
+  }
+
+  // Contradictions API
+  async getContradictions(storyId: number, options?: { resolved?: boolean; branchId?: number }) {
+    const params = new URLSearchParams();
+    if (options?.resolved) params.set('resolved', 'true');
+    if (options?.branchId) params.set('branch_id', String(options.branchId));
+    const qs = params.toString();
+    return this.request<Array<{
+      id: number;
+      story_id: number;
+      branch_id: number | null;
+      scene_sequence: number;
+      contradiction_type: string;
+      character_name: string | null;
+      previous_value: string | null;
+      current_value: string | null;
+      severity: string;
+      resolved: boolean;
+      resolution_note: string | null;
+      detected_at: string | null;
+      resolved_at: string | null;
+    }>>(`/api/stories/${storyId}/contradictions${qs ? `?${qs}` : ''}`);
+  }
+
+  async resolveContradiction(contradictionId: number, note: string) {
+    return this.request<{
+      id: number;
+      story_id: number;
+      branch_id: number | null;
+      scene_sequence: number;
+      contradiction_type: string;
+      character_name: string | null;
+      previous_value: string | null;
+      current_value: string | null;
+      severity: string;
+      resolved: boolean;
+      resolution_note: string | null;
+      detected_at: string | null;
+      resolved_at: string | null;
+    }>(`/api/contradictions/${contradictionId}/resolve`, {
+      method: 'PATCH',
+      body: JSON.stringify({ note }),
+    });
+  }
+
+  async getContradictionsSummary(storyId: number) {
+    return this.request<{
+      total: number;
+      unresolved: number;
+      resolved: number;
+      by_type: Record<string, number>;
+      by_severity: Record<string, number>;
+    }>(`/api/stories/${storyId}/contradictions/summary`);
   }
 
   // Utility methods

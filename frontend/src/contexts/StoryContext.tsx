@@ -14,6 +14,7 @@ export interface StoryActions {
   onEditStorySettings?: () => void;
   onShowInteractions?: () => void;
   onShowEntityStates?: () => void;
+  onShowContradictions?: () => void;
   directorModeActive?: boolean;
   deleteModeActive?: boolean;
   showImagesActive?: boolean;
