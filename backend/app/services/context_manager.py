@@ -1243,7 +1243,9 @@ Appearance: {char.get('appearance', '')}
             # Character relationship context
             "relationship_context": full_context.get("relationship_context"),
             # Contradiction context (unresolved continuity warnings)
-            "contradiction_context": full_context.get("contradiction_context")
+            "contradiction_context": full_context.get("contradiction_context"),
+            # Entity states (character states, locations, objects) - passed separately for independent message positioning
+            "entity_states_text": full_context.get("entity_states_text")
         }
         
         # Add pacing guidance if chapter plot tracking is enabled

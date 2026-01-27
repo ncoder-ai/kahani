@@ -1307,16 +1307,20 @@ class EntityStateService:
             char_state.last_updated_scene = scene_sequence
             
             if char_update.get("location"):
-                char_state.current_location = char_update["location"]
-            
+                val = char_update["location"]
+                char_state.current_location = None if isinstance(val, str) and val.lower() == "null" else val
+
             if char_update.get("emotional_state"):
-                char_state.emotional_state = char_update["emotional_state"]
-            
+                val = char_update["emotional_state"]
+                char_state.emotional_state = None if isinstance(val, str) and val.lower() == "null" else val
+
             if char_update.get("physical_condition"):
-                char_state.physical_condition = char_update["physical_condition"]
-            
+                val = char_update["physical_condition"]
+                char_state.physical_condition = None if isinstance(val, str) and val.lower() == "null" else val
+
             if char_update.get("current_attire"):
-                char_state.appearance = char_update["current_attire"]
+                val = char_update["current_attire"]
+                char_state.appearance = None if isinstance(val, str) and val.lower() == "null" else val
             
             # Update possessions
             if char_update.get("possessions_gained"):
@@ -1500,10 +1504,12 @@ class EntityStateService:
             loc_state.last_updated_scene = scene_sequence
             
             if loc_update.get("condition"):
-                loc_state.condition = loc_update["condition"]
-            
+                val = loc_update["condition"]
+                loc_state.condition = None if isinstance(val, str) and val.lower() == "null" else val
+
             if loc_update.get("atmosphere"):
-                loc_state.atmosphere = loc_update["atmosphere"]
+                val = loc_update["atmosphere"]
+                loc_state.atmosphere = None if isinstance(val, str) and val.lower() == "null" else val
             
             if loc_update.get("occupants"):
                 # Validate occupants are actual characters in the story
@@ -1610,13 +1616,16 @@ class EntityStateService:
             obj_state.last_updated_scene = scene_sequence
             
             if obj_update.get("location"):
-                obj_state.current_location = obj_update["location"]
-            
+                val = obj_update["location"]
+                obj_state.current_location = None if isinstance(val, str) and val.lower() == "null" else val
+
             if obj_update.get("condition"):
-                obj_state.condition = obj_update["condition"]
-            
+                val = obj_update["condition"]
+                obj_state.condition = None if isinstance(val, str) and val.lower() == "null" else val
+
             if obj_update.get("significance"):
-                obj_state.significance = obj_update["significance"]
+                val = obj_update["significance"]
+                obj_state.significance = None if isinstance(val, str) and val.lower() == "null" else val
             
             # Update owner if specified
             if obj_update.get("owner"):

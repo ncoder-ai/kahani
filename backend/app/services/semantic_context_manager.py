@@ -1084,11 +1084,39 @@ class SemanticContextManager(ContextManager):
             
             if not character_states and not location_states and not object_states:
                 return None
-            
+
+            # Deduplicate: keep only most recent state per entity (ordered by updated_at DESC)
+            if character_states:
+                seen_chars = set()
+                deduped = []
+                for cs in character_states:
+                    if cs.character_id not in seen_chars:
+                        seen_chars.add(cs.character_id)
+                        deduped.append(cs)
+                character_states = deduped
+
+            if location_states:
+                seen_locs = set()
+                deduped = []
+                for ls in location_states:
+                    if ls.location_name not in seen_locs:
+                        seen_locs.add(ls.location_name)
+                        deduped.append(ls)
+                location_states = deduped
+
+            if object_states:
+                seen_objs = set()
+                deduped = []
+                for os_item in object_states:
+                    if os_item.object_name not in seen_objs:
+                        seen_objs.add(os_item.object_name)
+                        deduped.append(os_item)
+                object_states = deduped
+
             # Format entity states
             entity_parts = []
             used_tokens = 0
-            
+
             # Character States
             # Filter to only show characters with recent state updates
             if character_states:
@@ -1135,19 +1163,23 @@ class SemanticContextManager(ContextManager):
                             if scene_age > self.location_recency_window:
                                 show_location = False  # Location is outdated
                         
-                        if char_state.current_location and show_location:
-                            char_text += f"\n  Location: {char_state.current_location}"
-                        elif char_state.current_location:
-                            # Location exists but is outdated - don't show it to avoid confusion
+                        # Helper: treat literal "null" strings as None
+                        def _val(v):
+                            return v if v and not (isinstance(v, str) and v.lower() == "null") else None
+
+                        loc = _val(char_state.current_location)
+                        if loc and show_location:
+                            char_text += f"\n  Location: {loc}"
+                        elif loc:
                             logger.debug(f"[ENTITY STATES] Skipping outdated location for {character.name} (last updated scene {char_state.last_updated_scene}, current {current_scene_sequence})")
-                        
-                        if char_state.emotional_state:
+
+                        if _val(char_state.emotional_state):
                             char_text += f"\n  Emotional State: {char_state.emotional_state}"
-                        
-                        if char_state.physical_condition:
+
+                        if _val(char_state.physical_condition):
                             char_text += f"\n  Physical Condition: {char_state.physical_condition}"
-                        
-                        if char_state.appearance:
+
+                        if _val(char_state.appearance):
                             char_text += f"\n  Current Attire: {char_state.appearance}"
                         
                         if char_state.current_goal:
