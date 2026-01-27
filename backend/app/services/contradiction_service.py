@@ -8,12 +8,22 @@ Detects continuity errors between scene extractions:
 """
 
 import logging
-from typing import List, Dict, Any, Optional
+import re
+from typing import List, Dict, Any, Optional, Set
 from sqlalchemy.orm import Session
 
 from ..models import CharacterState, Contradiction, Character
 
 logger = logging.getLogger(__name__)
+
+# Common words to strip when comparing locations
+_LOCATION_STOPWORDS = frozenset({
+    'the', 'a', 'an', 'of', 'in', 'at', 'on', 'to', 'and', 'or',
+    'with', 'for', 'by', 'from', 'is', 'are', 'was', 'were',
+    'specifically', 'focusing', 'particularly', 'mainly', 'especially',
+    'currently', 'now', 'still', 'also', 'just', 'area', 'areas',
+    'section', 'part', 'region', 'side', 'end',
+})
 
 
 class ContradictionService:
@@ -59,6 +69,17 @@ class ContradictionService:
         # Build lookup by character_id
         prev_by_char_id = {s.character_id: s for s in prev_states}
 
+        # Load existing unresolved contradictions for deduplication
+        existing = self.db.query(Contradiction).filter(
+            Contradiction.story_id == story_id,
+            Contradiction.branch_id == branch_id,
+            Contradiction.resolved == False
+        ).all()
+        existing_keys = {
+            (c.contradiction_type, (c.character_name or '').lower(), c.scene_sequence)
+            for c in existing
+        }
+
         # Check each character in new extraction
         for char_state in new_states.get('characters', []):
             char_name = char_state.get('name')
@@ -75,14 +96,24 @@ class ContradictionService:
                 char_name, char_state, prev, scene_sequence, story_id, branch_id
             )
             if location_contradiction:
-                contradictions.append(location_contradiction)
+                key = ('location_jump', char_name.lower(), scene_sequence)
+                if key not in existing_keys:
+                    contradictions.append(location_contradiction)
+                    existing_keys.add(key)
+                else:
+                    logger.debug(f"[CONTRADICTION] Skipping duplicate location_jump for {char_name} at scene {scene_sequence}")
 
             # Check for state regression (emotional state going backward)
             regression_contradiction = self._check_state_regression(
                 char_name, char_state, prev, scene_sequence, story_id, branch_id
             )
             if regression_contradiction:
-                contradictions.append(regression_contradiction)
+                key = ('state_regression', char_name.lower(), scene_sequence)
+                if key not in existing_keys:
+                    contradictions.append(regression_contradiction)
+                    existing_keys.add(key)
+                else:
+                    logger.debug(f"[CONTRADICTION] Skipping duplicate state_regression for {char_name} at scene {scene_sequence}")
 
         return contradictions
 
@@ -99,6 +130,74 @@ class ContradictionService:
                 return state
         return None
 
+    @staticmethod
+    def _location_keywords(text: str) -> Set[str]:
+        """Extract significant keywords from a location string."""
+        words = re.findall(r'[a-z]+', text.lower())
+        return {w for w in words if w not in _LOCATION_STOPWORDS and len(w) > 2}
+
+    # Nouns that identify a physical place — if two locations share one of these
+    # plus at least one other keyword, they're likely describing the same place.
+    _PLACE_NOUNS = frozenset({
+        'home', 'house', 'apartment', 'flat', 'condo', 'mansion', 'cottage', 'cabin',
+        'room', 'bedroom', 'bathroom', 'kitchen', 'living', 'dining', 'hallway',
+        'office', 'building', 'shop', 'store', 'restaurant', 'cafe', 'bar', 'club',
+        'school', 'hospital', 'church', 'temple', 'mosque', 'park', 'garden',
+        'street', 'road', 'alley', 'bridge', 'station', 'airport', 'port',
+        'hotel', 'motel', 'inn', 'lodge', 'resort', 'palace', 'castle', 'tower',
+        'basement', 'attic', 'garage', 'porch', 'balcony', 'terrace', 'rooftop',
+        'library', 'gym', 'pool', 'lab', 'studio', 'workshop', 'warehouse',
+        'market', 'mall', 'plaza', 'square', 'courtyard', 'lobby', 'foyer',
+    })
+
+    @staticmethod
+    def _locations_are_similar(loc_a: str, loc_b: str) -> bool:
+        """
+        Check if two location strings describe the same place.
+
+        Uses three keyword-based checks (any passing = same location):
+        1. Containment: one normalized string contains the other
+        2. Shared place noun + context: both share a place noun and >= 2 overlapping keywords
+        3. Keyword overlap: Jaccard similarity of significant words >= 0.4
+        """
+        a = loc_a.strip().lower()
+        b = loc_b.strip().lower()
+
+        # Exact match
+        if a == b:
+            return True
+
+        # Containment check (one is a substring of the other)
+        if a in b or b in a:
+            return True
+
+        # Keyword analysis
+        kw_a = ContradictionService._location_keywords(a)
+        kw_b = ContradictionService._location_keywords(b)
+
+        if kw_a and kw_b:
+            overlap = kw_a & kw_b
+            union = kw_a | kw_b
+
+            # Shared place noun + context: if they share a core place noun
+            # and at least 2 total overlapping words, they describe the same place
+            # e.g. "renovated suburban home undergoing renovation" and
+            #      "Saran family home...kitchen...undergoing renovation"
+            #   → overlap = {home, renovation, undergoing}, includes "home" (place noun)
+            if len(overlap) >= 2 and overlap & ContradictionService._PLACE_NOUNS:
+                return True
+
+            # High keyword overlap (>= 3 words shared regardless of place nouns)
+            if len(overlap) >= 3:
+                return True
+
+            # Jaccard similarity
+            jaccard = len(overlap) / len(union) if union else 0
+            if jaccard >= 0.4:
+                return True
+
+        return False
+
     def _check_location_jump(
         self,
         char_name: str,
@@ -109,34 +208,32 @@ class ContradictionService:
         branch_id: int
     ) -> Optional[Contradiction]:
         """Check if character moved locations without travel."""
-        new_location = new_state.get('location', '').strip().lower()
-        prev_location = (prev_state.current_location or '').strip().lower()
+        new_location = new_state.get('location', '').strip()
+        prev_location = (prev_state.current_location or '').strip()
 
         # Skip if either location is empty or unknown
         if not new_location or not prev_location:
             return None
-        if new_location in ('unknown', 'null', 'none', ''):
+        if new_location.lower() in ('unknown', 'null', 'none', ''):
             return None
-        if prev_location in ('unknown', 'null', 'none', ''):
+        if prev_location.lower() in ('unknown', 'null', 'none', ''):
             return None
 
-        # Check if locations are different
-        if new_location != prev_location:
-            # This is a potential location jump
-            # In a more sophisticated version, we could check if the scene
-            # content mentions travel/movement
-            return Contradiction(
-                story_id=story_id,
-                branch_id=branch_id,
-                scene_sequence=scene_sequence,
-                contradiction_type='location_jump',
-                character_name=char_name,
-                previous_value=prev_state.current_location,
-                current_value=new_state.get('location'),
-                severity='info'  # Info level since travel might be implied
-            )
+        # Use fuzzy matching to avoid false positives from rewording
+        if self._locations_are_similar(new_location, prev_location):
+            return None
 
-        return None
+        # Genuinely different locations — flag as potential jump
+        return Contradiction(
+            story_id=story_id,
+            branch_id=branch_id,
+            scene_sequence=scene_sequence,
+            contradiction_type='location_jump',
+            character_name=char_name,
+            previous_value=prev_state.current_location,
+            current_value=new_state.get('location'),
+            severity='info'  # Info level since travel might be implied
+        )
 
     def _check_state_regression(
         self,
