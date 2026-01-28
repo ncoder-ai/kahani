@@ -418,21 +418,16 @@ async def create_chapter(
                                 break
 
                     # Validate that all story_character_ids belong to this story and branch ancestry
-                    # Allow characters with NULL branch_id (pre-branching or shared characters)
                     if branch_ids:
                         story_chars = db.query(StoryCharacter).filter(
                             StoryCharacter.id.in_(chapter_data.story_character_ids),
                             StoryCharacter.story_id == story_id,
-                            or_(
-                                StoryCharacter.branch_id.in_(branch_ids),
-                                StoryCharacter.branch_id.is_(None)
-                            )
+                            StoryCharacter.branch_id.in_(branch_ids)
                         ).all()
                     else:
                         story_chars = db.query(StoryCharacter).filter(
                             StoryCharacter.id.in_(chapter_data.story_character_ids),
-                            StoryCharacter.story_id == story_id,
-                            StoryCharacter.branch_id.is_(None)
+                            StoryCharacter.story_id == story_id
                         ).all()
                     
                     if len(story_chars) != len(chapter_data.story_character_ids):
@@ -625,10 +620,7 @@ async def update_chapter(
                 story_chars = db.query(StoryCharacter).filter(
                     StoryCharacter.id.in_(chapter_data.story_character_ids),
                     StoryCharacter.story_id == story_id,
-                    or_(
-                        StoryCharacter.branch_id.in_(branch_ids),
-                        StoryCharacter.branch_id.is_(None)
-                    )
+                    StoryCharacter.branch_id.in_(branch_ids)
                 ).all()
             else:
                 story_chars = db.query(StoryCharacter).filter(
@@ -1778,20 +1770,16 @@ async def get_available_characters(
             else:
                 break
 
-    # Get all story characters for branches in the ancestry chain (or NULL branch for shared characters)
+    # Get all story characters for branches in the ancestry chain
     if branch_ids:
         story_chars = db.query(StoryCharacter).filter(
             StoryCharacter.story_id == story_id,
-            or_(
-                StoryCharacter.branch_id.in_(branch_ids),
-                StoryCharacter.branch_id.is_(None)
-            )
+            StoryCharacter.branch_id.in_(branch_ids)
         ).all()
     else:
-        # No active branch, just get characters with NULL branch_id
+        # No active branch, get all characters for this story
         story_chars = db.query(StoryCharacter).filter(
-            StoryCharacter.story_id == story_id,
-            StoryCharacter.branch_id.is_(None)
+            StoryCharacter.story_id == story_id
         ).all()
 
     # Build response with character details, deduplicating by character_id

@@ -100,14 +100,11 @@ class NPCTrackingService:
             }
         
         try:
-            # Get list of explicit characters in the story (filtered by branch, including NULL branch_id for shared characters)
+            # Get list of explicit characters in the story (filtered by branch)
             from ..models import StoryCharacter, Character
             char_query = db.query(StoryCharacter).filter(StoryCharacter.story_id == story_id)
             if branch_id:
-                char_query = char_query.filter(or_(
-                    StoryCharacter.branch_id == branch_id,
-                    StoryCharacter.branch_id.is_(None)
-                ))
+                char_query = char_query.filter(StoryCharacter.branch_id == branch_id)
             story_characters = char_query.all()
             logger.info(f"[NPC-EXTRACT-BATCH] Found {len(story_characters)} explicit characters to exclude")
             
@@ -430,13 +427,10 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
             branch_id = active_branch.id if active_branch else None
         
         try:
-            # Get list of explicit characters in the story (filtered by branch, including NULL branch_id for shared characters)
+            # Get list of explicit characters in the story (filtered by branch)
             char_query = db.query(StoryCharacter).filter(StoryCharacter.story_id == story_id)
             if branch_id:
-                char_query = char_query.filter(or_(
-                    StoryCharacter.branch_id == branch_id,
-                    StoryCharacter.branch_id.is_(None)
-                ))
+                char_query = char_query.filter(StoryCharacter.branch_id == branch_id)
             story_characters = char_query.all()
             
             explicit_character_names = set()
@@ -772,13 +766,10 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
         """
         from difflib import SequenceMatcher
         
-        # Get all existing NPCs for this story (filtered by branch, including NULL branch_id for shared NPCs)
+        # Get all existing NPCs for this story (filtered by branch)
         npc_query = db.query(NPCTracking).filter(NPCTracking.story_id == story_id)
         if branch_id:
-            npc_query = npc_query.filter(or_(
-                NPCTracking.branch_id == branch_id,
-                NPCTracking.branch_id.is_(None)
-            ))
+            npc_query = npc_query.filter(NPCTracking.branch_id == branch_id)
         existing_npcs = npc_query.all()
         
         name_lower = character_name.lower().strip()
@@ -841,10 +832,7 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
                 NPCTracking.character_name == character_name
             )
             if branch_id:
-                track_query = track_query.filter(or_(
-                    NPCTracking.branch_id == branch_id,
-                    NPCTracking.branch_id.is_(None)
-                ))
+                track_query = track_query.filter(NPCTracking.branch_id == branch_id)
             tracking = track_query.first()
             
             if not tracking:
@@ -944,13 +932,10 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
             branch_id: Optional branch ID for filtering
         """
         try:
-            # Get all current NPC tracking records for this story (filtered by branch, including NULL branch_id for shared NPCs)
+            # Get all current NPC tracking records for this story (filtered by branch)
             npc_query = db.query(NPCTracking).filter(NPCTracking.story_id == story_id)
             if branch_id:
-                npc_query = npc_query.filter(or_(
-                    NPCTracking.branch_id == branch_id,
-                    NPCTracking.branch_id.is_(None)
-                ))
+                npc_query = npc_query.filter(NPCTracking.branch_id == branch_id)
             all_npcs = npc_query.all()
             
             # Build snapshot data
@@ -1399,14 +1384,11 @@ Return ONLY the JSON, no other text."""
             count_before_branch = query.count()
             logger.info(f"[NPC-SUGGESTIONS] NPCs before branch filter: {count_before_branch}")
             
-            # Filter by branch if specified (including NULL branch_id for shared NPCs)
+            # Filter by branch if specified
             if branch_id:
-                query = query.filter(or_(
-                    NPCTracking.branch_id == branch_id,
-                    NPCTracking.branch_id.is_(None)
-                ))
+                query = query.filter(NPCTracking.branch_id == branch_id)
                 count_after_branch = query.count()
-                logger.info(f"[NPC-SUGGESTIONS] NPCs after branch filter (branch_id={branch_id} OR NULL): {count_after_branch}")
+                logger.info(f"[NPC-SUGGESTIONS] NPCs after branch filter (branch_id={branch_id}): {count_after_branch}")
             
             # Add entity_type filter if column exists in database
             # Check if column exists by inspecting the table
@@ -1705,10 +1687,7 @@ Return ONLY the JSON, no other text."""
                 NPCTracking.converted_to_character == False
             )
             if branch_id:
-                npcs_query = npcs_query.filter(or_(
-                    NPCTracking.branch_id == branch_id,
-                    NPCTracking.branch_id.is_(None)
-                ))
+                npcs_query = npcs_query.filter(NPCTracking.branch_id == branch_id)
             all_npcs = npcs_query.order_by(desc(NPCTracking.importance_score)).all()
             
             logger.info(f"[NPC TIERED] Total NPCs that crossed threshold: {len(all_npcs)}")

@@ -622,10 +622,7 @@ class CharacterAssistantService:
             StoryFlow.is_active == True
         )
         if branch_id:
-            flow_query = flow_query.filter(or_(
-                StoryFlow.branch_id == branch_id,
-                StoryFlow.branch_id.is_(None)
-            ))
+            flow_query = flow_query.filter(StoryFlow.branch_id == branch_id)
         flow = flow_query.first()
         
         if flow and flow.scene_variant_id:
@@ -804,10 +801,7 @@ class CharacterAssistantService:
             )
         )
         if branch_id:
-            scene_query = scene_query.filter(or_(
-                Scene.branch_id == branch_id,
-                Scene.branch_id.is_(None)
-            ))
+            scene_query = scene_query.filter(Scene.branch_id == branch_id)
         story_scenes = scene_query.order_by(Scene.sequence_number).all()
         
         for scene in story_scenes:

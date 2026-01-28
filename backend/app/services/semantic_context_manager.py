@@ -509,13 +509,10 @@ class SemanticContextManager(ContextManager):
         if branch_id is None:
             branch_id = self._get_active_branch_id(db, story_id)
         
-        # Get story characters (filtered by branch, including NULL branch_id for shared characters)
+        # Get story characters (filtered by branch)
         char_query = db.query(StoryCharacter).filter(StoryCharacter.story_id == story_id)
         if branch_id:
-            char_query = char_query.filter(or_(
-                StoryCharacter.branch_id == branch_id,
-                StoryCharacter.branch_id.is_(None)
-            ))
+            char_query = char_query.filter(StoryCharacter.branch_id == branch_id)
         story_characters = char_query.all()
         
         # Separate into active (chapter) and inactive (story only) characters
@@ -1047,40 +1044,16 @@ class SemanticContextManager(ContextManager):
             if branch_id:
                 char_state_query = char_state_query.filter(CharacterState.branch_id == branch_id)
             character_states = char_state_query.order_by(CharacterState.updated_at.desc()).all()
-            
-            # If no branch-specific states found, fall back to NULL branch_id states (legacy data)
-            if branch_id and not character_states:
-                logger.info(f"[ENTITY STATES] No character states for branch {branch_id}, falling back to NULL branch_id states")
-                character_states = db.query(CharacterState).filter(
-                    CharacterState.story_id == story_id,
-                    CharacterState.branch_id.is_(None)
-                ).order_by(CharacterState.updated_at.desc()).all()
-            
+
             loc_state_query = db.query(LocationState).filter(LocationState.story_id == story_id)
             if branch_id:
                 loc_state_query = loc_state_query.filter(LocationState.branch_id == branch_id)
             location_states = loc_state_query.order_by(LocationState.updated_at.desc()).all()
-            
-            # If no branch-specific states found, fall back to NULL branch_id states (legacy data)
-            if branch_id and not location_states:
-                logger.info(f"[ENTITY STATES] No location states for branch {branch_id}, falling back to NULL branch_id states")
-                location_states = db.query(LocationState).filter(
-                    LocationState.story_id == story_id,
-                    LocationState.branch_id.is_(None)
-                ).order_by(LocationState.updated_at.desc()).all()
-            
+
             obj_state_query = db.query(ObjectState).filter(ObjectState.story_id == story_id)
             if branch_id:
                 obj_state_query = obj_state_query.filter(ObjectState.branch_id == branch_id)
             object_states = obj_state_query.order_by(ObjectState.updated_at.desc()).all()
-            
-            # If no branch-specific states found, fall back to NULL branch_id states (legacy data)
-            if branch_id and not object_states:
-                logger.info(f"[ENTITY STATES] No object states for branch {branch_id}, falling back to NULL branch_id states")
-                object_states = db.query(ObjectState).filter(
-                    ObjectState.story_id == story_id,
-                    ObjectState.branch_id.is_(None)
-                ).order_by(ObjectState.updated_at.desc()).all()
             
             if not character_states and not location_states and not object_states:
                 return None

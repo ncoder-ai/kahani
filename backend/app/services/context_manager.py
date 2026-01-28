@@ -201,13 +201,10 @@ class ContextManager:
                 scene_query = scene_query.filter(Scene.branch_id == branch_id)
             scenes = scene_query.order_by(Scene.sequence_number).all()
         
-        # Get story characters (filtered by branch, including NULL branch_id for shared characters)
+        # Get story characters (filtered by branch)
         char_query = db.query(StoryCharacter).filter(StoryCharacter.story_id == story_id)
         if branch_id:
-            char_query = char_query.filter(or_(
-                StoryCharacter.branch_id == branch_id,
-                StoryCharacter.branch_id.is_(None)
-            ))
+            char_query = char_query.filter(StoryCharacter.branch_id == branch_id)
         story_characters = char_query.all()
         
         # Separate into active (chapter) and inactive (story only) characters
