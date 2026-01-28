@@ -83,6 +83,7 @@ class CharacterState(Base):
             "id": self.id,
             "character_id": self.character_id,
             "story_id": self.story_id,
+            "branch_id": self.branch_id,  # Include branch_id for proper snapshot/restore
             "last_updated_scene": self.last_updated_scene,
             "current_location": self.current_location,
             "physical_condition": self.physical_condition,
@@ -162,6 +163,7 @@ class LocationState(Base):
         return {
             "id": self.id,
             "story_id": self.story_id,
+            "branch_id": self.branch_id,  # Include branch_id for proper snapshot/restore
             "location_name": self.location_name,
             "last_updated_scene": self.last_updated_scene,
             "condition": self.condition,
@@ -239,6 +241,7 @@ class ObjectState(Base):
         return {
             "id": self.id,
             "story_id": self.story_id,
+            "branch_id": self.branch_id,  # Include branch_id for proper snapshot/restore
             "object_name": self.object_name,
             "last_updated_scene": self.last_updated_scene,
             "condition": self.condition,

@@ -326,48 +326,52 @@ class LLMClient:
         
         # Add provider-specific parameters
         # Note: OpenAI-compatible APIs (like LM Studio) may support these via extra_body
+        is_openrouter = "openrouter" in self.api_url.lower()
+
         if self.api_type == "koboldcpp":
             if self.top_k is not None:
                 params["top_k"] = self.top_k
             if self.repetition_penalty is not None:
                 params["repetition_penalty"] = self.repetition_penalty
         elif self.api_type in ["openai-compatible", "tabbyapi", "lm_studio"]:
-            # For OpenAI-compatible APIs, use extra_body for non-standard params
             extra_body = {}
-            if self.top_k is not None:
-                extra_body["top_k"] = self.top_k
-            if self.repetition_penalty is not None:
-                extra_body["repetition_penalty"] = self.repetition_penalty
-            
-            # Add enabled advanced samplers from sampler_settings
-            extra_body = self._add_enabled_samplers(extra_body)
-            
+            if is_openrouter:
+                # OpenRouter only supports standard OpenAI params (top_k, repetition_penalty)
+                # Skip KoboldCpp-specific samplers (dry_*, penalty_range, mirostat, etc.)
+                if self.top_k is not None:
+                    extra_body["top_k"] = self.top_k
+                if self.repetition_penalty is not None:
+                    extra_body["repetition_penalty"] = self.repetition_penalty
+                logger.info("OpenRouter detected - skipping local-only sampler params")
+            else:
+                # Local servers (LM Studio, KoboldCpp via openai-compat, TabbyAPI)
+                if self.top_k is not None:
+                    extra_body["top_k"] = self.top_k
+                if self.repetition_penalty is not None:
+                    extra_body["repetition_penalty"] = self.repetition_penalty
+                extra_body = self._add_enabled_samplers(extra_body)
+
             if extra_body:
                 params["extra_body"] = extra_body
-        
+
         # Add reasoning/thinking parameters
-        is_openrouter = "openrouter" in self.api_url.lower()
-        
         if self.reasoning_effort and self.reasoning_effort != "disabled":
-            if is_openrouter:
-                # OpenRouter: pass reasoning_effort via extra_body for thinking models
-                # LiteLLM/OpenRouter handles this in the request body
-                if "extra_body" not in params:
-                    params["extra_body"] = {}
-                params["extra_body"]["reasoning"] = {"effort": self.reasoning_effort}
-                logger.info(f"Reasoning effort set to: {self.reasoning_effort} (OpenRouter via extra_body)")
-            else:
-                # Other providers: use extra_body approach
-                if "extra_body" not in params:
-                    params["extra_body"] = {}
-                params["extra_body"]["reasoning"] = {"effort": self.reasoning_effort}
-                logger.info(f"Reasoning effort set to: {self.reasoning_effort} via extra_body")
-        elif self.reasoning_effort == "disabled":
-            # Disable reasoning entirely
             if "extra_body" not in params:
                 params["extra_body"] = {}
-            params["extra_body"]["include_reasoning"] = False
-            logger.info("Reasoning disabled via include_reasoning=False")
+            params["extra_body"]["reasoning"] = {"effort": self.reasoning_effort}
+            logger.info(f"Reasoning effort set to: {self.reasoning_effort} via extra_body")
+        elif self.reasoning_effort == "disabled":
+            if is_openrouter:
+                # For OpenRouter thinking models (Kimi, DeepSeek, etc.):
+                # Do NOT send include_reasoning=False — it causes empty responses.
+                # Thinking detection is handled via timing in the streaming handler.
+                logger.info("Reasoning disabled for OpenRouter - omitting param (time-based thinking detection)")
+            else:
+                # For local servers, include_reasoning=False is safe
+                if "extra_body" not in params:
+                    params["extra_body"] = {}
+                params["extra_body"]["include_reasoning"] = False
+                logger.info("Reasoning disabled via include_reasoning=False")
         
         logger.info(f"Final generation params: {params}")
         return params

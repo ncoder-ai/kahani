@@ -3272,19 +3272,19 @@ export default function StoryPage() {
                       <div className="flex-1 h-px bg-gray-600"></div>
                     </div>
                   )}
-                  
+
                   <div className="relative">
                     <div className="prose prose-invert prose-lg max-w-none">
                       <div className="streaming-content-wrapper">
-                        <FormattedText 
-                          content={streamingContent} 
+                        <FormattedText
+                          content={streamingContent}
                           className="streaming-content inline"
                         />
                         <span className="inline-block w-2 h-5 bg-pink-500 animate-pulse ml-1 align-middle">|</span>
                       </div>
                     </div>
-                    
-                    {/* Streaming indicator */}
+
+                    {/* Streaming indicator: Thinking only when reasoning tokens are detected */}
                     <div className={`absolute top-0 right-0 ${isThinking ? 'bg-purple-600' : 'bg-pink-600'} text-white text-xs px-2 py-1 rounded-full animate-pulse`}>
                       {isThinking ? 'Thinking...' : 'Generating...'}
                     </div>

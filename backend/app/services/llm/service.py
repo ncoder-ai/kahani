@@ -3373,51 +3373,85 @@ Chapter Conclusion:"""
             except Exception as e:
                 logger.warning(f"Failed to write prompt debug file: {e}")
         
+        # Check if reasoning should be suppressed (disabled but model may still think)
+        suppress_reasoning = client.reasoning_effort == "disabled"
+        is_openrouter = "openrouter" in (client.api_url or "").lower()
+
         try:
+            import time
+            stream_start = time.monotonic()
             response = await acompletion(**gen_params)
-            
+
             # Track reasoning content for logging
             has_reasoning = False
             reasoning_chars = 0
             content_chars = 0
             chunk_count = 0
-            
+            thinking_signaled = False
+
             async for chunk in response:
                 chunk_count += 1
                 if hasattr(chunk, 'choices') and len(chunk.choices) > 0:
                     delta = chunk.choices[0].delta
-                    
-                    # Debug: Log first few chunks to see what fields are available
-                    if chunk_count <= 3:
-                        logger.debug(f"[STREAM DEBUG] Chunk {chunk_count} reasoning_content: {getattr(delta, 'reasoning_content', None)}, reasoning: {getattr(delta, 'reasoning', None)}")
 
-                    # Check for reasoning content - different providers use different field names:
+                    # Log first few chunks at INFO level to diagnose empty responses
+                    if chunk_count <= 3:
+                        delta_fields = {k: v for k, v in vars(delta).items() if v is not None} if hasattr(delta, '__dict__') else str(delta)
+                        logger.info(f"[STREAM CHUNK {chunk_count}] fields={delta_fields}")
+
+                    # Check for reasoning content - providers use different field names:
                     # - reasoning_content: LiteLLM's standardized field (Anthropic, DeepSeek)
-                    # - reasoning: OpenRouter's field for models like GLM-4.7
+                    # - reasoning: OpenRouter's field for models like GLM-4.7, Kimi
+                    # - thinking: Some models use this field
                     reasoning_text = None
                     if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
                         reasoning_text = delta.reasoning_content
                     elif hasattr(delta, 'reasoning') and delta.reasoning:
                         reasoning_text = delta.reasoning
+                    elif hasattr(delta, 'thinking') and delta.thinking:
+                        reasoning_text = delta.thinking
 
                     if reasoning_text:
                         has_reasoning = True
                         reasoning_chars += len(reasoning_text)
-                        # Yield reasoning with special prefix for frontend to detect
-                        yield f"__THINKING__:{reasoning_text}"
+                        if suppress_reasoning:
+                            # Yield a single empty thinking marker on first reasoning chunk
+                            # so the SSE layer sends thinking_start to the frontend
+                            if not thinking_signaled:
+                                thinking_signaled = True
+                                yield "__THINKING__:"
+                        else:
+                            # Yield reasoning with special prefix for frontend to detect
+                            if not thinking_signaled:
+                                thinking_signaled = True
+                            yield f"__THINKING__:{reasoning_text}"
+
+                    # Time-based thinking detection for models that think server-side
+                    # (e.g. Kimi K2.5 on OpenRouter — no reasoning tokens, just a long
+                    # delay before content). If >5s elapsed with no content or reasoning
+                    # tokens, signal thinking phase so the UI shows "Thinking..."
+                    if (not thinking_signaled and content_chars == 0
+                            and reasoning_chars == 0 and is_openrouter
+                            and (time.monotonic() - stream_start) > 5.0):
+                        thinking_signaled = True
+                        logger.info(f"[THINKING DETECT] No content after {time.monotonic() - stream_start:.1f}s — signaling thinking phase")
+                        yield "__THINKING__:"
 
                     # Regular content
                     if hasattr(delta, 'content') and delta.content:
                         content_chars += len(delta.content)
                         yield delta.content
-            
+
             # Log summary
-            logger.info(f"[MULTI-MSG STREAMING] chunks={chunk_count}, content_chars={content_chars}, reasoning_chars={reasoning_chars}")
+            logger.info(f"[MULTI-MSG STREAMING] chunks={chunk_count}, content_chars={content_chars}, reasoning_chars={reasoning_chars}, thinking_detected={thinking_signaled}")
             if chunk_count > 0 and content_chars == 0:
-                logger.warning(f"[MULTI-MSG STREAMING] Received {chunk_count} chunks but no content! Model may need higher max_tokens or reasoning disabled.")
+                if reasoning_chars > 0:
+                    logger.warning(f"[MULTI-MSG STREAMING] Got {reasoning_chars} reasoning chars but 0 content chars! Thinking model may have exhausted max_tokens on reasoning.")
+                else:
+                    logger.warning(f"[MULTI-MSG STREAMING] Received {chunk_count} chunks but no content or reasoning! Check model response format.")
             if has_reasoning:
-                logger.info(f"[MULTI-MSG REASONING] Streamed {reasoning_chars} chars of reasoning content")
-                        
+                logger.info(f"[MULTI-MSG REASONING] Streamed {reasoning_chars} chars of reasoning content (suppressed={suppress_reasoning})")
+
         except Exception as e:
             error_msg = str(e)
             logger.error(f"Multi-message streaming failed for user {user_id}: {error_msg}")
