@@ -229,13 +229,15 @@ from .routers import prompt_templates, writing_presets, tts
 
 app.include_router(auth.router, prefix="/api/auth", tags=["authentication"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
+# IMPORTANT: interactions.router must be before stories.router to ensure
+# /api/stories/interaction-presets matches before /{story_id} route
+app.include_router(interactions.router, prefix="/api", tags=["interactions"])
 app.include_router(stories.router, prefix="/api/stories", tags=["stories"])
 app.include_router(scene_endpoints.router, prefix="/api/stories", tags=["scene-endpoints"])
 app.include_router(variant_endpoints.router, prefix="/api/stories", tags=["variant-endpoints"])
 app.include_router(entity_states.router, prefix="/api", tags=["entity-states"])
 app.include_router(drafts.router, prefix="/api", tags=["drafts"])
 app.include_router(story_arc.router, prefix="/api", tags=["story-arc"])
-app.include_router(interactions.router, prefix="/api", tags=["interactions"])
 app.include_router(contradictions.router, prefix="/api", tags=["contradictions"])
 app.include_router(relationships.router)  # Prefix already defined in router
 app.include_router(story_generation.router, prefix="/api", tags=["story-generation"])

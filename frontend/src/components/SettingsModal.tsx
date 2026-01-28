@@ -86,6 +86,14 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     extraction_confidence_threshold: 0.8,
     plot_event_extraction_threshold: 5,
     fill_remaining_context: true,
+    // Contradiction settings
+    enable_working_memory: true,
+    enable_contradiction_detection: true,
+    contradiction_severity_threshold: 'medium',
+    enable_relationship_graph: true,
+    enable_contradiction_injection: true,
+    enable_inline_contradiction_check: false,
+    auto_regenerate_on_contradiction: false,
   });
 
   // Extraction Model Settings
@@ -237,6 +245,14 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             extraction_confidence_threshold: settings.context_settings.extraction_confidence_threshold ?? 0.8,
             plot_event_extraction_threshold: settings.context_settings.plot_event_extraction_threshold ?? 5,
             fill_remaining_context: settings.context_settings.fill_remaining_context !== false,
+            // Contradiction settings
+            enable_working_memory: settings.context_settings.enable_working_memory !== false,
+            enable_contradiction_detection: settings.context_settings.enable_contradiction_detection !== false,
+            contradiction_severity_threshold: settings.context_settings.contradiction_severity_threshold || 'medium',
+            enable_relationship_graph: settings.context_settings.enable_relationship_graph !== false,
+            enable_contradiction_injection: settings.context_settings.enable_contradiction_injection !== false,
+            enable_inline_contradiction_check: settings.context_settings.enable_inline_contradiction_check || false,
+            auto_regenerate_on_contradiction: settings.context_settings.auto_regenerate_on_contradiction || false,
           });
         }
 

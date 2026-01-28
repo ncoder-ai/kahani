@@ -54,6 +54,10 @@ class ContextSettingsUpdate(BaseModel):
     extraction_confidence_threshold: Optional[int] = Field(default=None, ge=0, le=100)
     plot_event_extraction_threshold: Optional[int] = Field(default=None, ge=1, le=50)
     fill_remaining_context: Optional[bool] = None  # Fill remaining context with older scenes
+    # Contradiction Settings
+    enable_contradiction_detection: Optional[bool] = None  # Detect continuity errors
+    enable_contradiction_injection: Optional[bool] = None  # Inject warnings into prompt
+    enable_inline_contradiction_check: Optional[bool] = None  # Run extraction + check every scene
 
 class GenerationPreferencesUpdate(BaseModel):
     default_genre: Optional[str] = None
@@ -252,7 +256,15 @@ async def update_user_settings(
     db: Session = Depends(get_db)
 ):
     """Update user settings"""
-    
+
+    # Debug: Log received context_settings for contradiction fields
+    if settings_update.context_settings:
+        ctx = settings_update.context_settings
+        logger.info(f"[SETTINGS UPDATE] Received contradiction settings: "
+                   f"detection={ctx.enable_contradiction_detection}, "
+                   f"injection={ctx.enable_contradiction_injection}, "
+                   f"inline={ctx.enable_inline_contradiction_check}")
+
     # Get or create user settings
     user_settings = db.query(UserSettings).filter(
         UserSettings.user_id == current_user.id
@@ -359,6 +371,13 @@ async def update_user_settings(
             user_settings.plot_event_extraction_threshold = ctx.plot_event_extraction_threshold
         if ctx.fill_remaining_context is not None:
             user_settings.fill_remaining_context = ctx.fill_remaining_context
+        # Contradiction settings
+        if ctx.enable_contradiction_detection is not None:
+            user_settings.enable_contradiction_detection = ctx.enable_contradiction_detection
+        if ctx.enable_contradiction_injection is not None:
+            user_settings.enable_contradiction_injection = ctx.enable_contradiction_injection
+        if ctx.enable_inline_contradiction_check is not None:
+            user_settings.enable_inline_contradiction_check = ctx.enable_inline_contradiction_check
 
     # Update generation preferences
     if settings_update.generation_preferences:

@@ -1381,25 +1381,26 @@ async def update_scene_variant(
             await cleanup_scene_embeddings(scene_id, db)
             logger.info(f"[MODIFY] Cleaned up extractions for scene {scene_id} (regeneration will happen when threshold is reached)")
 
-            # Invalidate entity state batches containing this scene (filtered by branch)
+            # Rollback entity states to prior valid batch and trigger re-extraction
+            # This ensures any changes to character attributes/possessions/locations get re-extracted
             entity_service = EntityStateService(user_id=current_user.id, user_settings=user_settings)
-            entity_service.invalidate_entity_batches_for_scenes(
-                db, story_id, scene.sequence_number, scene.sequence_number, branch_id=scene.branch_id
+            rollback_result = entity_service.rollback_entity_states_for_edit(
+                db, story_id, scene.sequence_number, branch_id=scene.branch_id
             )
+            logger.info(f"[MODIFY] Entity state rollback for scene {scene_id}: {rollback_result}")
 
-            # Check if scene is at extraction threshold - if so, regenerate entity states
-            batch_threshold = user_settings.get("context_summary_threshold", 5) if user_settings else 5
-            if scene.sequence_number % batch_threshold == 0:
-                # Run entity recalculation in background to avoid blocking the HTTP request
-                import asyncio
-                asyncio.create_task(recalculate_entities_in_background(
-                    story_id=story_id,
-                    user_id=current_user.id,
-                    user_settings=user_settings,
-                    up_to_sequence=scene.sequence_number,
-                    branch_id=scene.branch_id
-                ))
-                logger.info(f"[MODIFY] Scheduled entity state regeneration for scene {scene_id}")
+            # Always trigger entity state re-extraction after an edit
+            # (edits can change character attributes, possessions, locations, etc.)
+            import asyncio
+            asyncio.create_task(recalculate_entities_in_background(
+                story_id=story_id,
+                user_id=current_user.id,
+                user_settings=user_settings,
+                up_to_sequence=scene.sequence_number,
+                branch_id=scene.branch_id,
+                force_extraction=True  # Force extraction regardless of batch threshold
+            ))
+            logger.info(f"[MODIFY] Scheduled entity state regeneration for scene {scene_id}")
 
             # Check if scene is at plot extraction threshold - if so, trigger plot event extraction
             plot_threshold = user_settings.get('context_settings', {}).get('plot_event_extraction_threshold', 5) if user_settings else 5

@@ -176,10 +176,7 @@ async def run_interaction_extraction_background(
         # This handles cases where LLM returns partial names (e.g., "john" instead of "John Smith")
         char_query = extraction_db.query(StoryCharacter).filter(StoryCharacter.story_id == story_id)
         if branch_id:
-            char_query = char_query.filter(or_(
-                StoryCharacter.branch_id == branch_id,
-                StoryCharacter.branch_id.is_(None)
-            ))
+            char_query = char_query.filter(StoryCharacter.branch_id == branch_id)
         story_characters = char_query.all()
 
         character_name_to_id = {}
@@ -211,10 +208,7 @@ async def run_interaction_extraction_background(
             NPCTracking.entity_type == "CHARACTER"  # Only character NPCs, not entities
         )
         if branch_id:
-            npc_query = npc_query.filter(or_(
-                NPCTracking.branch_id == branch_id,
-                NPCTracking.branch_id.is_(None)
-            ))
+            npc_query = npc_query.filter(NPCTracking.branch_id == branch_id)
         # Get NPCs with at least 3 mentions or importance > 0.3
         significant_npcs = npc_query.filter(
             or_(
@@ -700,7 +694,8 @@ async def recalculate_entities_in_background(
     user_id: int,
     user_settings: dict,
     up_to_sequence: int,
-    branch_id: int = None
+    branch_id: int = None,
+    force_extraction: bool = False
 ):
     """Recalculate entity states in background after scene edit.
 
@@ -713,6 +708,7 @@ async def recalculate_entities_in_background(
         user_settings: User settings dictionary
         up_to_sequence: Sequence number to recalculate up to
         branch_id: Optional branch ID
+        force_extraction: If True, extract regardless of batch threshold (for edits)
     """
     try:
         # Acquire lock for this story to prevent concurrent entity extractions
@@ -736,7 +732,7 @@ async def recalculate_entities_in_background(
                 entity_service = EntityStateService(user_id=user_id, user_settings=user_settings)
                 result = await entity_service.recalculate_entity_states_from_batches(
                     extraction_db, story_id, user_id, user_settings,
-                    up_to_sequence, branch_id=branch_id
+                    up_to_sequence, branch_id=branch_id, force_extraction=force_extraction
                 )
 
                 extraction_db.commit()
@@ -1372,12 +1368,8 @@ async def update_relationship_graph_in_background(
 
             # Get story characters for this story/branch
             story_characters = rel_db.query(StoryCharacter).filter(
-                StoryCharacter.story_id == story_id
-            ).filter(
-                or_(
-                    StoryCharacter.branch_id == branch_id,
-                    StoryCharacter.branch_id.is_(None)
-                )
+                StoryCharacter.story_id == story_id,
+                StoryCharacter.branch_id == branch_id
             ).all()
 
             # Get character names
@@ -1416,3 +1408,141 @@ async def update_relationship_graph_in_background(
         logger.error(f"[RELATIONSHIP:BG:ERROR] story_id={story_id} scene={scene_sequence} error={e}")
         import traceback
         logger.error(f"[RELATIONSHIP:BG:TRACEBACK] {traceback.format_exc()}")
+
+
+async def initialize_branch_entity_states_in_background(
+    story_id: int,
+    branch_id: int,
+    fork_scene_sequence: int,
+    user_id: int,
+    user_settings: dict
+):
+    """Initialize entity states for a newly created branch.
+
+    When a branch is created, entity state batches are cloned but the actual
+    entity state rows may not be (due to filter functions checking scene sequence).
+    This background task:
+    1. Restores entity states from the most recent valid cloned batch
+    2. Extracts any remaining scenes up to the fork point
+
+    Args:
+        story_id: Story ID
+        branch_id: The newly created branch ID
+        fork_scene_sequence: The scene sequence where the branch was forked
+        user_id: User ID for settings
+        user_settings: User settings dictionary
+    """
+    trace_id = f"branch-entity-init-{uuid.uuid4()}"
+    logger.info(f"[BRANCH:ENTITY:START] trace_id={trace_id} story_id={story_id} branch_id={branch_id} fork_seq={fork_scene_sequence}")
+
+    try:
+        # Delay to ensure branch creation transaction is committed
+        await asyncio.sleep(0.5)
+
+        from ...services.entity_state_service import EntityStateService
+
+        init_db = SessionLocal()
+        try:
+            entity_service = EntityStateService(user_id=user_id, user_settings=user_settings)
+
+            # Step 1: Find the most recent valid batch for this branch
+            # (batches are cloned during branch creation)
+            last_batch = entity_service.get_last_valid_batch(
+                init_db, story_id, fork_scene_sequence + 1, branch_id=branch_id
+            )
+
+            if last_batch:
+                # Step 2: Restore entity states from the batch
+                restore_result = entity_service.restore_entity_states_from_batch(init_db, last_batch)
+                # Commit restore immediately so it's not lost if extraction fails
+                init_db.commit()
+                logger.info(f"[BRANCH:ENTITY:RESTORE] trace_id={trace_id} batch_id={last_batch.id} "
+                           f"chars={restore_result.get('characters_restored', 0)} "
+                           f"locs={restore_result.get('locations_restored', 0)} "
+                           f"objs={restore_result.get('objects_restored', 0)}")
+
+                # Step 3: Check if there are scenes between batch end and fork point that need extraction
+                batch_end_seq = last_batch.end_scene_sequence
+                if batch_end_seq < fork_scene_sequence:
+                    # Get scenes from batch_end + 1 to fork_scene_sequence
+                    from ...models import Scene, StoryFlow
+                    remaining_scenes = init_db.query(Scene).filter(
+                        Scene.story_id == story_id,
+                        Scene.branch_id == branch_id,
+                        Scene.sequence_number > batch_end_seq,
+                        Scene.sequence_number <= fork_scene_sequence
+                    ).order_by(Scene.sequence_number).all()
+
+                    if remaining_scenes:
+                        logger.info(f"[BRANCH:ENTITY:EXTRACT] trace_id={trace_id} "
+                                   f"extracting {len(remaining_scenes)} scenes ({batch_end_seq + 1}-{fork_scene_sequence})")
+
+                        try:
+                            for scene in remaining_scenes:
+                                # Get active variant content
+                                flow = init_db.query(StoryFlow).filter(
+                                    StoryFlow.scene_id == scene.id,
+                                    StoryFlow.is_active == True
+                                ).first()
+
+                                if flow and flow.scene_variant:
+                                    await entity_service.extract_and_update_states(
+                                        db=init_db,
+                                        story_id=story_id,
+                                        scene_id=scene.id,
+                                        scene_content=flow.scene_variant.content,
+                                        scene_sequence=scene.sequence_number,
+                                        branch_id=branch_id
+                                    )
+
+                            init_db.commit()
+                            logger.info(f"[BRANCH:ENTITY:DONE] trace_id={trace_id} extracted {len(remaining_scenes)} scenes")
+                        except Exception as extract_err:
+                            logger.warning(f"[BRANCH:ENTITY:EXTRACT_WARN] trace_id={trace_id} extraction failed (restore already committed): {extract_err}")
+                    else:
+                        logger.info(f"[BRANCH:ENTITY:DONE] trace_id={trace_id} no remaining scenes to extract")
+                else:
+                    logger.info(f"[BRANCH:ENTITY:DONE] trace_id={trace_id} no remaining scenes to extract")
+            else:
+                logger.info(f"[BRANCH:ENTITY:SKIP] trace_id={trace_id} no batch found for branch {branch_id}")
+
+            # Step 4: Initialize working memory for the new branch
+            # Working memory tracks character focus/spotlight and needs to be computed for the fork point
+            try:
+                from ...models import Scene, StoryFlow, Chapter
+                fork_scene = init_db.query(Scene).filter(
+                    Scene.story_id == story_id,
+                    Scene.branch_id == branch_id,
+                    Scene.sequence_number == fork_scene_sequence
+                ).first()
+
+                if fork_scene:
+                    flow = init_db.query(StoryFlow).filter(
+                        StoryFlow.scene_id == fork_scene.id,
+                        StoryFlow.is_active == True
+                    ).first()
+
+                    if flow and flow.scene_variant:
+                        chapter = init_db.query(Chapter).filter(Chapter.id == fork_scene.chapter_id).first()
+                        chapter_id = chapter.id if chapter else None
+
+                        wm_result = await entity_service.update_working_memory(
+                            db=init_db,
+                            story_id=story_id,
+                            branch_id=branch_id,
+                            chapter_id=chapter_id,
+                            scene_sequence=fork_scene_sequence,
+                            scene_content=flow.scene_variant.content
+                        )
+                        init_db.commit()
+                        logger.info(f"[BRANCH:WORKING_MEMORY] trace_id={trace_id} initialized working memory for branch {branch_id}")
+            except Exception as wm_err:
+                logger.warning(f"[BRANCH:WORKING_MEMORY:WARN] trace_id={trace_id} failed to initialize working memory: {wm_err}")
+
+        finally:
+            init_db.close()
+
+    except Exception as e:
+        logger.error(f"[BRANCH:ENTITY:ERROR] trace_id={trace_id} error={e}")
+        import traceback
+        logger.error(f"[BRANCH:ENTITY:TRACEBACK] {traceback.format_exc()}")

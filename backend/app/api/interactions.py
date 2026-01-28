@@ -33,7 +33,7 @@ router = APIRouter(prefix="/stories", tags=["interactions"])
 async def get_interaction_presets(
     current_user: User = Depends(get_current_user)
 ):
-    """Get available interaction type presets for story configuration"""
+    """Get available interaction type presets for story configuration."""
     import yaml
 
     # Try multiple paths for the presets file

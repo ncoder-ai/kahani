@@ -4,6 +4,7 @@ Branch API Endpoints
 Manages story branches including creation (forking), switching, listing, and deletion.
 """
 
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -14,6 +15,8 @@ from ..database import get_db
 from ..dependencies import get_current_user
 from ..models import Story, StoryBranch, Scene, Chapter, StoryCharacter
 from ..services.branch_service import get_branch_service
+from .story_helpers import get_or_create_user_settings
+from .story_tasks import initialize_branch_entity_states_in_background
 import logging
 
 logger = logging.getLogger(__name__)
@@ -140,14 +143,14 @@ async def create_branch(
 ):
     """
     Create a new branch by forking from a specific scene.
-    
+
     This performs a deep clone of all story data up to and including
     the specified scene sequence number. The new branch is independent
     and isolated from the source branch.
     """
     story = _get_story_or_404(db, story_id, current_user.id)
     branch_service = get_branch_service()
-    
+
     try:
         branch, stats = branch_service.create_branch(
             db=db,
@@ -157,7 +160,21 @@ async def create_branch(
             description=branch_data.description,
             activate=branch_data.activate
         )
-        
+
+        # Get user settings for entity state extraction
+        user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
+
+        # Initialize entity states for the new branch in background
+        # (restores from cloned batch and extracts remaining scenes up to fork point)
+        asyncio.create_task(initialize_branch_entity_states_in_background(
+            story_id=story_id,
+            branch_id=branch.id,
+            fork_scene_sequence=branch_data.fork_from_scene_sequence,
+            user_id=current_user.id,
+            user_settings=user_settings
+        ))
+        logger.info(f"[BRANCH] Created branch {branch.id} for story {story_id}, scheduled entity state initialization")
+
         return BranchCreateResponse(
             branch=_branch_to_response(branch, db),
             stats=stats

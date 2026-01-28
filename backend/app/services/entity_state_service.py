@@ -276,13 +276,10 @@ class EntityStateService:
             story = db.query(Story).filter(Story.id == story_id).first()
             interaction_types = story.interaction_types if story else []
             
-            # Get story characters for context (filtered by branch, including NULL branch_id for shared characters)
+            # Get story characters for context (filtered by branch)
             char_query = db.query(StoryCharacter).filter(StoryCharacter.story_id == story_id)
             if branch_id:
-                char_query = char_query.filter(or_(
-                    StoryCharacter.branch_id == branch_id,
-                    StoryCharacter.branch_id.is_(None)
-                ))
+                char_query = char_query.filter(StoryCharacter.branch_id == branch_id)
             story_characters = char_query.all()
             
             # Build character name to ID mapping
@@ -1242,16 +1239,13 @@ class EntityStateService:
             if not char_name:
                 return
             
-            # Find character by name in this story (filtered by branch, including NULL branch_id for shared characters)
+            # Find character by name in this story (filtered by branch)
             char_query = db.query(StoryCharacter).join(Character).filter(
                 StoryCharacter.story_id == story_id,
                 Character.name == char_name
             )
             if branch_id:
-                char_query = char_query.filter(or_(
-                    StoryCharacter.branch_id == branch_id,
-                    StoryCharacter.branch_id.is_(None)
-                ))
+                char_query = char_query.filter(StoryCharacter.branch_id == branch_id)
             story_char = char_query.first()
             
             if not story_char:
@@ -1264,10 +1258,7 @@ class EntityStateService:
                 CharacterState.story_id == story_id
             )
             if branch_id:
-                # Match this branch OR legacy states with no branch (to avoid creating duplicates)
-                state_query = state_query.filter(
-                    or_(CharacterState.branch_id == branch_id, CharacterState.branch_id.is_(None))
-                )
+                state_query = state_query.filter(CharacterState.branch_id == branch_id)
             char_state = state_query.first()
             
             if not char_state:
@@ -1305,11 +1296,6 @@ class EntityStateService:
                     else:
                         # Re-raise if it's a different integrity error
                         raise
-
-            # Migrate legacy states: if we found a state with branch_id=None, update it to current branch
-            if branch_id and char_state.branch_id is None:
-                char_state.branch_id = branch_id
-                logger.debug(f"Migrated character state for {char_name} from branch_id=None to branch_id={branch_id}{trace_suffix}")
 
             # Update fields
             char_state.last_updated_scene = scene_sequence
@@ -1638,16 +1624,13 @@ class EntityStateService:
             # Update owner if specified
             if obj_update.get("owner"):
                 owner_name = obj_update["owner"]
-                # Find character ID by name (filter by branch, including NULL branch_id for shared characters)
+                # Find character ID by name (filtered by branch)
                 story_char_query = db.query(StoryCharacter).join(Character).filter(
                     StoryCharacter.story_id == story_id,
                     Character.name == owner_name
                 )
                 if branch_id:
-                    story_char_query = story_char_query.filter(or_(
-                        StoryCharacter.branch_id == branch_id,
-                        StoryCharacter.branch_id.is_(None)
-                    ))
+                    story_char_query = story_char_query.filter(StoryCharacter.branch_id == branch_id)
                 story_char = story_char_query.first()
                 if story_char:
                     obj_state.current_owner_id = story_char.character_id
@@ -1790,26 +1773,20 @@ class EntityStateService:
             Created EntityStateBatch or None if no states exist
         """
         try:
-            # Get all current entity states (include branch_id=None for legacy/shared states)
+            # Get all current entity states for this branch
             char_query = db.query(CharacterState).filter(CharacterState.story_id == story_id)
             if branch_id:
-                char_query = char_query.filter(
-                    or_(CharacterState.branch_id == branch_id, CharacterState.branch_id.is_(None))
-                )
+                char_query = char_query.filter(CharacterState.branch_id == branch_id)
             character_states = char_query.all()
 
             loc_query = db.query(LocationState).filter(LocationState.story_id == story_id)
             if branch_id:
-                loc_query = loc_query.filter(
-                    or_(LocationState.branch_id == branch_id, LocationState.branch_id.is_(None))
-                )
+                loc_query = loc_query.filter(LocationState.branch_id == branch_id)
             location_states = loc_query.all()
 
             obj_query = db.query(ObjectState).filter(ObjectState.story_id == story_id)
             if branch_id:
-                obj_query = obj_query.filter(
-                    or_(ObjectState.branch_id == branch_id, ObjectState.branch_id.is_(None))
-                )
+                obj_query = obj_query.filter(ObjectState.branch_id == branch_id)
             object_states = obj_query.all()
             
             # Convert to JSON snapshots
@@ -1962,9 +1939,7 @@ class EntityStateService:
             Dictionary with counts of restored states
         """
         try:
-            # Delete existing entity states for this story
-            # Include both branch-specific AND branch_id=None states to avoid duplicates
-            # (historical states may have branch_id=None even if batch has a branch_id)
+            # Delete existing entity states for this story and branch
             char_del_query = db.query(CharacterState).filter(
                 CharacterState.story_id == batch.story_id
             )
@@ -1975,47 +1950,39 @@ class EntityStateService:
                 ObjectState.story_id == batch.story_id
             )
             if batch.branch_id is not None:
-                # Delete states for this branch OR states with no branch (legacy/shared)
-                char_del_query = char_del_query.filter(
-                    or_(CharacterState.branch_id == batch.branch_id, CharacterState.branch_id.is_(None))
-                )
-                loc_del_query = loc_del_query.filter(
-                    or_(LocationState.branch_id == batch.branch_id, LocationState.branch_id.is_(None))
-                )
-                obj_del_query = obj_del_query.filter(
-                    or_(ObjectState.branch_id == batch.branch_id, ObjectState.branch_id.is_(None))
-                )
+                char_del_query = char_del_query.filter(CharacterState.branch_id == batch.branch_id)
+                loc_del_query = loc_del_query.filter(LocationState.branch_id == batch.branch_id)
+                obj_del_query = obj_del_query.filter(ObjectState.branch_id == batch.branch_id)
             char_del_query.delete(synchronize_session='fetch')
             loc_del_query.delete(synchronize_session='fetch')
             obj_del_query.delete(synchronize_session='fetch')
 
-            # Restore character states (set branch_id from batch if snapshot doesn't have it)
+            # Restore character states (always use batch's branch_id for proper branch isolation)
             char_count = 0
             for char_dict in batch.character_states_snapshot:
                 state_data = {k: v for k, v in char_dict.items() if k != 'id' and k != 'updated_at'}
-                # Ensure branch_id is set from batch if not in snapshot
-                if 'branch_id' not in state_data or state_data.get('branch_id') is None:
-                    state_data['branch_id'] = batch.branch_id
+                # Always use batch's branch_id (snapshot may have parent branch's ID after cloning)
+                state_data['branch_id'] = batch.branch_id
                 char_state = CharacterState(**state_data)
                 db.add(char_state)
                 char_count += 1
 
-            # Restore location states (set branch_id from batch if snapshot doesn't have it)
+            # Restore location states (always use batch's branch_id for proper branch isolation)
             loc_count = 0
             for loc_dict in batch.location_states_snapshot:
                 state_data = {k: v for k, v in loc_dict.items() if k != 'id' and k != 'updated_at'}
-                if 'branch_id' not in state_data or state_data.get('branch_id') is None:
-                    state_data['branch_id'] = batch.branch_id
+                # Always use batch's branch_id (snapshot may have parent branch's ID after cloning)
+                state_data['branch_id'] = batch.branch_id
                 loc_state = LocationState(**state_data)
                 db.add(loc_state)
                 loc_count += 1
 
-            # Restore object states (set branch_id from batch if snapshot doesn't have it)
+            # Restore object states (always use batch's branch_id for proper branch isolation)
             obj_count = 0
             for obj_dict in batch.object_states_snapshot:
                 state_data = {k: v for k, v in obj_dict.items() if k != 'id' and k != 'updated_at'}
-                if 'branch_id' not in state_data or state_data.get('branch_id') is None:
-                    state_data['branch_id'] = batch.branch_id
+                # Always use batch's branch_id (snapshot may have parent branch's ID after cloning)
+                state_data['branch_id'] = batch.branch_id
                 obj_state = ObjectState(**state_data)
                 db.add(obj_state)
                 obj_count += 1
@@ -2088,7 +2055,115 @@ class EntityStateService:
             logger.info(f"Invalidated {interaction_count} character interaction(s) for story {story_id} (scenes {min_seq}-{max_seq})")
         
         return batch_count
-    
+
+    def rollback_entity_states_for_edit(
+        self,
+        db: Session,
+        story_id: int,
+        edited_scene_sequence: int,
+        branch_id: int = None
+    ) -> Dict[str, Any]:
+        """
+        Rollback entity states when a scene is edited.
+
+        This method:
+        1. Deletes entity states where last_updated_scene >= edited_scene_sequence
+        2. Deletes batches where end_scene_sequence >= edited_scene_sequence
+        3. Finds prior valid batch (end_scene_sequence < edited_scene_sequence)
+        4. Restores from that batch if it exists
+
+        Args:
+            db: Database session
+            story_id: Story ID
+            edited_scene_sequence: The sequence number of the edited scene
+            branch_id: Optional branch ID to filter by
+
+        Returns:
+            Dictionary with rollback results including whether re-extraction is needed
+        """
+        try:
+            # Step 1: Delete entity states updated at or after the edited scene
+            char_delete_query = db.query(CharacterState).filter(
+                CharacterState.story_id == story_id,
+                CharacterState.last_updated_scene >= edited_scene_sequence
+            )
+            loc_delete_query = db.query(LocationState).filter(
+                LocationState.story_id == story_id,
+                LocationState.last_updated_scene >= edited_scene_sequence
+            )
+            obj_delete_query = db.query(ObjectState).filter(
+                ObjectState.story_id == story_id,
+                ObjectState.last_updated_scene >= edited_scene_sequence
+            )
+
+            if branch_id is not None:
+                char_delete_query = char_delete_query.filter(CharacterState.branch_id == branch_id)
+                loc_delete_query = loc_delete_query.filter(LocationState.branch_id == branch_id)
+                obj_delete_query = obj_delete_query.filter(ObjectState.branch_id == branch_id)
+
+            chars_deleted = char_delete_query.delete(synchronize_session='fetch')
+            locs_deleted = loc_delete_query.delete(synchronize_session='fetch')
+            objs_deleted = obj_delete_query.delete(synchronize_session='fetch')
+
+            logger.info(f"[EDIT ROLLBACK] Deleted stale entity states for story {story_id} scene>={edited_scene_sequence}: "
+                       f"chars={chars_deleted}, locs={locs_deleted}, objs={objs_deleted}")
+
+            # Step 2: Delete batches that include or are after the edited scene
+            batch_delete_query = db.query(EntityStateBatch).filter(
+                EntityStateBatch.story_id == story_id,
+                EntityStateBatch.end_scene_sequence >= edited_scene_sequence
+            )
+            if branch_id is not None:
+                batch_delete_query = batch_delete_query.filter(EntityStateBatch.branch_id == branch_id)
+
+            batches_deleted = batch_delete_query.delete(synchronize_session='fetch')
+            logger.info(f"[EDIT ROLLBACK] Deleted {batches_deleted} batch(es) for story {story_id} ending at scene>={edited_scene_sequence}")
+
+            # Step 3: Find prior valid batch (end_scene_sequence < edited_scene_sequence)
+            prior_batch = self.get_last_valid_batch(
+                db, story_id, edited_scene_sequence, branch_id=branch_id, require_meaningful_data=False
+            )
+
+            # Step 4: Restore from prior batch if exists
+            restore_results = {"characters_restored": 0, "locations_restored": 0, "objects_restored": 0}
+            if prior_batch:
+                restore_results = self.restore_entity_states_from_batch(db, prior_batch)
+                logger.info(f"[EDIT ROLLBACK] Restored from batch {prior_batch.id} (scenes {prior_batch.start_scene_sequence}-{prior_batch.end_scene_sequence})")
+            else:
+                logger.info(f"[EDIT ROLLBACK] No prior batch found for story {story_id} before scene {edited_scene_sequence}")
+
+            db.commit()
+
+            return {
+                "chars_deleted": chars_deleted,
+                "locs_deleted": locs_deleted,
+                "objs_deleted": objs_deleted,
+                "batches_deleted": batches_deleted,
+                "prior_batch_id": prior_batch.id if prior_batch else None,
+                "prior_batch_end_scene": prior_batch.end_scene_sequence if prior_batch else None,
+                **restore_results,
+                "needs_reextraction": True,
+                "reextraction_start_scene": prior_batch.end_scene_sequence + 1 if prior_batch else 1
+            }
+
+        except Exception as e:
+            logger.error(f"[EDIT ROLLBACK] Failed for story {story_id} scene {edited_scene_sequence}: {e}")
+            db.rollback()
+            return {
+                "chars_deleted": 0,
+                "locs_deleted": 0,
+                "objs_deleted": 0,
+                "batches_deleted": 0,
+                "prior_batch_id": None,
+                "prior_batch_end_scene": None,
+                "characters_restored": 0,
+                "locations_restored": 0,
+                "objects_restored": 0,
+                "needs_reextraction": False,
+                "reextraction_start_scene": None,
+                "error": str(e)
+            }
+
     def restore_from_last_complete_batch(
         self,
         db: Session,
@@ -2113,21 +2188,14 @@ class EntityStateService:
             # Find last valid batch before deleted scenes
             last_valid_batch = self.get_last_valid_batch(db, story_id, max_deleted_sequence, branch_id=branch_id)
             
-            # Delete all existing entity states (include branch_id=None for legacy states)
+            # Delete all existing entity states for this branch
             char_delete_query = db.query(CharacterState).filter(CharacterState.story_id == story_id)
             loc_delete_query = db.query(LocationState).filter(LocationState.story_id == story_id)
             obj_delete_query = db.query(ObjectState).filter(ObjectState.story_id == story_id)
             if branch_id is not None:
-                # Delete states for this branch OR legacy states with no branch
-                char_delete_query = char_delete_query.filter(
-                    or_(CharacterState.branch_id == branch_id, CharacterState.branch_id.is_(None))
-                )
-                loc_delete_query = loc_delete_query.filter(
-                    or_(LocationState.branch_id == branch_id, LocationState.branch_id.is_(None))
-                )
-                obj_delete_query = obj_delete_query.filter(
-                    or_(ObjectState.branch_id == branch_id, ObjectState.branch_id.is_(None))
-                )
+                char_delete_query = char_delete_query.filter(CharacterState.branch_id == branch_id)
+                loc_delete_query = loc_delete_query.filter(LocationState.branch_id == branch_id)
+                obj_delete_query = obj_delete_query.filter(ObjectState.branch_id == branch_id)
             char_deleted = char_delete_query.delete(synchronize_session='fetch')
             loc_deleted = loc_delete_query.delete(synchronize_session='fetch')
             obj_deleted = obj_delete_query.delete(synchronize_session='fetch')
@@ -2170,20 +2238,22 @@ class EntityStateService:
         user_id: int,
         user_settings: Dict[str, Any],
         max_deleted_sequence: int,
-        branch_id: int = None
+        branch_id: int = None,
+        force_extraction: bool = False
     ) -> Dict[str, Any]:
         """
-        Recalculate entity states using batch system after scene deletion.
-        Only re-extracts if remaining scenes form a complete batch.
-        
+        Recalculate entity states using batch system after scene deletion/edit.
+        Only re-extracts if remaining scenes form a complete batch, unless force_extraction=True.
+
         Args:
             db: Database session
             story_id: Story ID
             user_id: User ID
             user_settings: User settings
-            max_deleted_sequence: Maximum scene sequence that was deleted
+            max_deleted_sequence: Maximum scene sequence that was deleted/edited
             branch_id: Optional branch ID to filter by
-            
+            force_extraction: If True, extract regardless of batch threshold (for edits)
+
         Returns:
             Dictionary with recalculation results
         """
@@ -2191,21 +2261,14 @@ class EntityStateService:
             # Find last valid batch before deleted scenes
             last_valid_batch = self.get_last_valid_batch(db, story_id, max_deleted_sequence, branch_id=branch_id)
 
-            # Delete all existing entity states (include branch_id=None for legacy states)
+            # Delete all existing entity states for this branch
             char_delete_query = db.query(CharacterState).filter(CharacterState.story_id == story_id)
             loc_delete_query = db.query(LocationState).filter(LocationState.story_id == story_id)
             obj_delete_query = db.query(ObjectState).filter(ObjectState.story_id == story_id)
             if branch_id is not None:
-                # Delete states for this branch OR legacy states with no branch
-                char_delete_query = char_delete_query.filter(
-                    or_(CharacterState.branch_id == branch_id, CharacterState.branch_id.is_(None))
-                )
-                loc_delete_query = loc_delete_query.filter(
-                    or_(LocationState.branch_id == branch_id, LocationState.branch_id.is_(None))
-                )
-                obj_delete_query = obj_delete_query.filter(
-                    or_(ObjectState.branch_id == branch_id, ObjectState.branch_id.is_(None))
-                )
+                char_delete_query = char_delete_query.filter(CharacterState.branch_id == branch_id)
+                loc_delete_query = loc_delete_query.filter(LocationState.branch_id == branch_id)
+                obj_delete_query = obj_delete_query.filter(ObjectState.branch_id == branch_id)
             char_delete_query.delete(synchronize_session='fetch')
             loc_delete_query.delete(synchronize_session='fetch')
             obj_delete_query.delete(synchronize_session='fetch')
@@ -2242,12 +2305,12 @@ class EntityStateService:
             # Check if remaining scenes form a complete batch
             batch_threshold = self.user_settings.get("context_summary_threshold", 5)
             last_remaining_sequence = remaining_scenes[-1].sequence_number
-            
+
             # Check if we have a complete batch (last scene sequence is a multiple of threshold)
             is_complete_batch = (last_remaining_sequence % batch_threshold) == 0
-            
-            if not is_complete_batch:
-                # Incomplete batch - only restore, don't re-extract
+
+            if not is_complete_batch and not force_extraction:
+                # Incomplete batch - only restore, don't re-extract (unless forced for edits)
                 logger.info(f"[DELETE] Incomplete batch remaining (last scene: {last_remaining_sequence}, threshold: {batch_threshold}). Restored from batch, waiting for threshold.")
                 db.commit()
                 return {
@@ -2256,6 +2319,9 @@ class EntityStateService:
                     "recalculation_successful": True,
                     "incomplete_batch": True
                 }
+
+            if force_extraction and not is_complete_batch:
+                logger.info(f"[EDIT] Force extraction enabled - processing {len(remaining_scenes)} scenes despite incomplete batch")
             
             # Complete batch - re-extract entity states for remaining scenes
             from ..models import Chapter
