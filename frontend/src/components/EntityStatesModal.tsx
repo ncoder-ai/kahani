@@ -166,15 +166,38 @@ export default function EntityStatesModal({
     setSaveError(null);
 
     try {
+      // Clean up editData before sending:
+      // - Convert empty strings to null for optional string fields
+      // - Convert relationship values to plain strings
+      const cleanedData: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(editData)) {
+        if (key === 'relationships' && typeof value === 'object' && value !== null) {
+          // Convert all relationship values to strings
+          const rels = value as Record<string, RelationshipValue>;
+          const cleanedRels: Record<string, string> = {};
+          for (const [name, rel] of Object.entries(rels)) {
+            if (name.trim()) { // Skip empty keys
+              cleanedRels[name] = relToString(rel);
+            }
+          }
+          cleanedData[key] = cleanedRels;
+        } else if (typeof value === 'string') {
+          // Convert empty strings to null for API
+          cleanedData[key] = value.trim() === '' ? null : value;
+        } else {
+          cleanedData[key] = value;
+        }
+      }
+
       if (activeTab === 'characters') {
-        await apiClient.updateCharacterState(storyId, editingId, editData as Parameters<typeof apiClient.updateCharacterState>[2]);
-        setCharacterStates(prev => prev.map(s => s.id === editingId ? { ...s, ...editData } as CharacterState : s));
+        await apiClient.updateCharacterState(storyId, editingId, cleanedData as Parameters<typeof apiClient.updateCharacterState>[2]);
+        setCharacterStates(prev => prev.map(s => s.id === editingId ? { ...s, ...cleanedData } as CharacterState : s));
       } else if (activeTab === 'locations') {
-        await apiClient.updateLocationState(storyId, editingId, editData as Parameters<typeof apiClient.updateLocationState>[2]);
-        setLocationStates(prev => prev.map(s => s.id === editingId ? { ...s, ...editData } as LocationState : s));
+        await apiClient.updateLocationState(storyId, editingId, cleanedData as Parameters<typeof apiClient.updateLocationState>[2]);
+        setLocationStates(prev => prev.map(s => s.id === editingId ? { ...s, ...cleanedData } as LocationState : s));
       } else {
-        await apiClient.updateObjectState(storyId, editingId, editData as Parameters<typeof apiClient.updateObjectState>[2]);
-        setObjectStates(prev => prev.map(s => s.id === editingId ? { ...s, ...editData } as ObjectState : s));
+        await apiClient.updateObjectState(storyId, editingId, cleanedData as Parameters<typeof apiClient.updateObjectState>[2]);
+        setObjectStates(prev => prev.map(s => s.id === editingId ? { ...s, ...cleanedData } as ObjectState : s));
       }
       setEditingId(null);
       setEditData({});
@@ -187,15 +210,17 @@ export default function EntityStatesModal({
   };
 
   const renderStringField = (label: string, field: string, value: string | null, isEditing: boolean) => {
-    // Always stack vertically - label above value/input
+    // Get the current edit value - use empty string if field exists in editData (even if empty)
+    const editValue = field in editData ? (editData[field] as string ?? '') : (value ?? '');
+
     return (
       <div className="py-1.5">
         <label className="block text-gray-400 text-xs font-medium mb-0.5">{label}</label>
         {isEditing ? (
           <input
             type="text"
-            value={(editData[field] as string) ?? value ?? ''}
-            onChange={(e) => setEditData(prev => ({ ...prev, [field]: e.target.value || null }))}
+            value={editValue}
+            onChange={(e) => setEditData(prev => ({ ...prev, [field]: e.target.value }))}
             className="w-full bg-slate-700 border border-slate-500 rounded px-2 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none"
           />
         ) : (

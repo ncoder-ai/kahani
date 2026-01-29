@@ -254,7 +254,7 @@ export default function SystemSettings() {
             <label className="block text-white font-medium mb-2">Maximum Stories</label>
             <input
               type="number"
-              value={settings.default_max_stories || ''}
+              value={settings.default_max_stories ?? ''}
               onChange={(e) => updateSetting('default_max_stories', e.target.value ? parseInt(e.target.value) : null)}
               placeholder="Unlimited"
               className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white"
@@ -266,7 +266,7 @@ export default function SystemSettings() {
             <label className="block text-white font-medium mb-2">Maximum Images per Story (Future)</label>
             <input
               type="number"
-              value={settings.default_max_images_per_story || ''}
+              value={settings.default_max_images_per_story ?? ''}
               onChange={(e) => updateSetting('default_max_images_per_story', e.target.value ? parseInt(e.target.value) : null)}
               placeholder="Unlimited"
               className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white"
@@ -278,7 +278,7 @@ export default function SystemSettings() {
             <label className="block text-white font-medium mb-2">STT Minutes per Month (Future)</label>
             <input
               type="number"
-              value={settings.default_max_stt_minutes_per_month || ''}
+              value={settings.default_max_stt_minutes_per_month ?? ''}
               onChange={(e) => updateSetting('default_max_stt_minutes_per_month', e.target.value ? parseInt(e.target.value) : null)}
               placeholder="Unlimited"
               className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white"
@@ -297,7 +297,7 @@ export default function SystemSettings() {
             <label className="block text-white font-medium mb-2">Default API URL</label>
             <input
               type="url"
-              value={settings.default_llm_api_url || ''}
+              value={settings.default_llm_api_url ?? ''}
               onChange={(e) => updateSetting('default_llm_api_url', e.target.value || null)}
               placeholder="http://localhost:11434"
               className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white"
@@ -309,7 +309,7 @@ export default function SystemSettings() {
             <label className="block text-white font-medium mb-2">Default API Key</label>
             <input
               type="password"
-              value={settings.default_llm_api_key || ''}
+              value={settings.default_llm_api_key ?? ''}
               onChange={(e) => updateSetting('default_llm_api_key', e.target.value || null)}
               placeholder="Leave empty if not required"
               className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white"
@@ -321,7 +321,7 @@ export default function SystemSettings() {
             <label className="block text-white font-medium mb-2">Default Model Name</label>
             <input
               type="text"
-              value={settings.default_llm_model_name || ''}
+              value={settings.default_llm_model_name ?? ''}
               onChange={(e) => updateSetting('default_llm_model_name', e.target.value || null)}
               placeholder="e.g., llama3.2:latest"
               className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white"
@@ -336,7 +336,7 @@ export default function SystemSettings() {
               step="0.1"
               min="0"
               max="2"
-              value={settings.default_llm_temperature || ''}
+              value={settings.default_llm_temperature ?? ''}
               onChange={(e) => updateSetting('default_llm_temperature', e.target.value ? parseFloat(e.target.value) : null)}
               placeholder="0.7"
               className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white"

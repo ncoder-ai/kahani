@@ -826,7 +826,7 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
                       Voice Style Preset
                     </label>
                     <select
-                      value={formData.voice_style?.preset || ''}
+                      value={formData.voice_style?.preset ?? ''}
                       onChange={(e) => {
                         const presetId = e.target.value;
                         if (!presetId) {
@@ -957,7 +957,7 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
                         <label className="block text-sm font-medium text-white/80 mb-1">Speech Quirks (optional)</label>
                         <input
                           type="text"
-                          value={formData.voice_style?.speech_quirks || ''}
+                          value={formData.voice_style?.speech_quirks ?? ''}
                           onChange={(e) => handleInputChange('voice_style', { ...formData.voice_style, speech_quirks: e.target.value })}
                           placeholder="e.g., Says 'actually' often, ends questions with 'no?'"
                           className="w-full p-2 bg-gray-800 border border-white/20 rounded-lg text-white placeholder-white/40 text-sm"
@@ -998,7 +998,7 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
                           <div>
                             <label className="block text-sm font-medium text-white/80 mb-1">Mix In Language</label>
                             <select
-                              value={formData.voice_style?.secondary_language || ''}
+                              value={formData.voice_style?.secondary_language ?? ''}
                               onChange={(e) => handleInputChange('voice_style', { 
                                 ...formData.voice_style, 
                                 secondary_language: e.target.value || undefined,

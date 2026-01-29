@@ -703,7 +703,7 @@ export default function TTSSettingsModal({ isOpen, onClose, onSaved }: TTSSettin
             </label>
             <input
               type="password"
-              value={settings.api_key || ''}
+              value={settings.api_key ?? ''}
               onChange={(e) => {
                 setSettings(prev => ({ ...prev, api_key: e.target.value }));
                 setConnectionStatus('idle');

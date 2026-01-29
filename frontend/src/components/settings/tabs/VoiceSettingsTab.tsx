@@ -519,7 +519,7 @@ export default function VoiceSettingsTab({
             <label className="block text-sm font-medium text-white mb-2">API Key (Optional)</label>
             <input
               type="password"
-              value={ttsSettings.api_key || ''}
+              value={ttsSettings.api_key ?? ''}
               onChange={(e) => setTtsSettings(prev => ({ ...prev, api_key: e.target.value }))}
               disabled={isLoadingTTSSettings}
               placeholder="Enter API key if required"

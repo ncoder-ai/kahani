@@ -271,7 +271,7 @@ export default function CharacterSetup({ storyData, onUpdate, onNext, onBack }: 
             <label className="block text-white/80 mb-2">Character Name</label>
             <input
               type="text"
-              value={currentCharacter.name || ''}
+              value={currentCharacter.name ?? ''}
               onChange={(e) => setCurrentCharacter({ ...currentCharacter, name: e.target.value })}
               placeholder="Enter character name..."
                     className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
@@ -279,7 +279,7 @@ export default function CharacterSetup({ storyData, onUpdate, onNext, onBack }: 
           </div>
 
           <RoleSelector
-            value={currentCharacter.role || ''}
+            value={currentCharacter.role ?? ''}
             onChange={(role) => setCurrentCharacter({ ...currentCharacter, role })}
             label="Character Role"
           />
@@ -287,7 +287,7 @@ export default function CharacterSetup({ storyData, onUpdate, onNext, onBack }: 
           <div>
             <label className="block text-white/80 mb-2">Description (Optional)</label>
             <textarea
-              value={currentCharacter.description || ''}
+              value={currentCharacter.description ?? ''}
               onChange={(e) => setCurrentCharacter({ ...currentCharacter, description: e.target.value })}
               placeholder="Describe this character..."
               rows={3}

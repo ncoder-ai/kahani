@@ -380,7 +380,7 @@ export default function LLMSettingsTab({
                   <div>
                     <label className="block text-sm font-medium text-white mb-2">Select Model</label>
                     <select
-                      value={llmSettings.model_name || ''}
+                      value={llmSettings.model_name ?? ''}
                       onChange={(e) => setLlmSettings({ ...llmSettings, model_name: e.target.value })}
                       className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
                     >

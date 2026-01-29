@@ -249,7 +249,7 @@ export default function CharacterRoleEditor({ isOpen, onClose, storyId, onSaved 
                           </label>
                           <input
                             type="text"
-                            value={customRoles[character.id] || ''}
+                            value={customRoles[character.id] ?? ''}
                             onChange={(e) => handleCustomRoleChange(character.id, e.target.value)}
                             placeholder="e.g., Sidekick, Rival, Guardian, Trickster..."
                             className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"

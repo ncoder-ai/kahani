@@ -210,7 +210,7 @@ export default function StoryCharacterVoiceEditor({
                       Voice Style Preset
                     </label>
                     <select
-                      value={editingVoiceStyle?.preset || ''}
+                      value={editingVoiceStyle?.preset ?? ''}
                       onChange={(e) => {
                         const presetId = e.target.value;
                         if (!presetId) {
@@ -341,7 +341,7 @@ export default function StoryCharacterVoiceEditor({
                         <label className="block text-sm font-medium text-white/80 mb-1">Speech Quirks (optional)</label>
                         <input
                           type="text"
-                          value={editingVoiceStyle?.speech_quirks || ''}
+                          value={editingVoiceStyle?.speech_quirks ?? ''}
                           onChange={(e) => setEditingVoiceStyle({ ...editingVoiceStyle, speech_quirks: e.target.value } as VoiceStyle)}
                           placeholder="e.g., Says 'actually' often, ends questions with 'no?'"
                           className="w-full p-2 bg-gray-800 border border-white/20 rounded-lg text-white placeholder-white/40 text-sm"
@@ -379,7 +379,7 @@ export default function StoryCharacterVoiceEditor({
                           <div>
                             <label className="block text-sm font-medium text-white/80 mb-1">Mix In Language</label>
                             <select
-                              value={editingVoiceStyle?.secondary_language || ''}
+                              value={editingVoiceStyle?.secondary_language ?? ''}
                               onChange={(e) => setEditingVoiceStyle({ 
                                 ...editingVoiceStyle, 
                                 secondary_language: e.target.value || undefined,

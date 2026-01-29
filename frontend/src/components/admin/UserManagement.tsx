@@ -589,7 +589,7 @@ export default function UserManagement() {
                     <label className="block text-white font-medium mb-2">Maximum Stories</label>
                     <input
                       type="number"
-                      value={editingUser.max_stories || ''}
+                      value={editingUser.max_stories ?? ''}
                       onChange={(e) => setEditingUser({ ...editingUser, max_stories: e.target.value ? parseInt(e.target.value) : null })}
                       placeholder="Unlimited"
                       min="0"
@@ -603,7 +603,7 @@ export default function UserManagement() {
                     <label className="block text-white font-medium mb-2">Maximum Images per Story</label>
                     <input
                       type="number"
-                      value={editingUser.max_images_per_story || ''}
+                      value={editingUser.max_images_per_story ?? ''}
                       onChange={(e) => setEditingUser({ ...editingUser, max_images_per_story: e.target.value ? parseInt(e.target.value) : null })}
                       placeholder="Unlimited"
                       min="0"
@@ -617,7 +617,7 @@ export default function UserManagement() {
                     <label className="block text-white font-medium mb-2">Maximum STT Minutes per Month</label>
                     <input
                       type="number"
-                      value={editingUser.max_stt_minutes_per_month || ''}
+                      value={editingUser.max_stt_minutes_per_month ?? ''}
                       onChange={(e) => setEditingUser({ ...editingUser, max_stt_minutes_per_month: e.target.value ? parseInt(e.target.value) : null })}
                       placeholder="Unlimited"
                       min="0"

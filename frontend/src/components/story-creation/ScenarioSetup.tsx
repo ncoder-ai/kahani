@@ -163,7 +163,7 @@ export default function ScenarioSetup({ storyData, onUpdate, onNext, onBack }: S
             <div className="mt-3">
               <input
                 type="text"
-                value={customInputs[prompt.id] || ''}
+                value={customInputs[prompt.id] ?? ''}
                 onChange={(e) => handleCustomInput(prompt.id, e.target.value)}
                 placeholder={`Or write your own ${prompt.title.toLowerCase().replace('?', '')}...`}
                 className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"

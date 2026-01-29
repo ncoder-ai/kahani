@@ -42,28 +42,28 @@ export default function ElementEditor({
         return (
           <input
             type="text"
-            value={editedValue || ''}
+            value={editedValue ?? ''}
             onChange={(e) => setEditedValue(e.target.value)}
             className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500"
             autoFocus
           />
         );
-      
+
       case 'textarea':
         return (
           <textarea
-            value={editedValue || ''}
+            value={editedValue ?? ''}
             onChange={(e) => setEditedValue(e.target.value)}
             rows={4}
             className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500"
             autoFocus
           />
         );
-      
+
       case 'select':
         return (
           <select
-            value={editedValue || ''}
+            value={editedValue ?? ''}
             onChange={(e) => setEditedValue(e.target.value)}
             className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
             autoFocus

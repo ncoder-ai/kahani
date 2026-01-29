@@ -202,14 +202,14 @@ export default function StoryArcEditor({
                       <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4 border border-purple-500">
                         <input
                           type="text"
-                          value={editedPhase?.name || ''}
+                          value={editedPhase?.name ?? ''}
                           onChange={(e) => setEditedPhase(prev => prev ? { ...prev, name: e.target.value } : null)}
                           className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white mb-3"
                           placeholder="Phase name"
                         />
-                        
+
                         <textarea
-                          value={editedPhase?.description || ''}
+                          value={editedPhase?.description ?? ''}
                           onChange={(e) => setEditedPhase(prev => prev ? { ...prev, description: e.target.value } : null)}
                           className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white mb-3 min-h-[80px]"
                           placeholder="Phase description"

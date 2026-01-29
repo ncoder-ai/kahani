@@ -234,7 +234,7 @@ export default function PlotDevelopment({ storyData, onUpdate, onNext, onBack }:
             
             <div className="space-y-3">
               <textarea
-                value={plotPoints[index] || ''}
+                value={plotPoints[index] ?? ''}
                 onChange={(e) => handlePlotPointChange(index, e.target.value)}
                 placeholder={element.placeholder}
                 rows={3}
