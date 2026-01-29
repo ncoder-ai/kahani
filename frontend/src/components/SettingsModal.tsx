@@ -368,19 +368,19 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
-      <div className="theme-card rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden border border-gray-700">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-2 sm:p-4">
+      <div className="theme-card rounded-lg shadow-xl max-w-4xl w-full max-h-[95vh] sm:max-h-[90vh] overflow-hidden border border-gray-700">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-700 theme-banner">
-          <div className="flex items-center gap-3">
-            <SettingsIcon className="w-6 h-6 text-white" />
-            <h2 className="text-xl font-bold text-white">Settings</h2>
+        <div className="flex items-center justify-between p-3 sm:p-6 border-b border-gray-700 theme-banner">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <SettingsIcon className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+            <h2 className="text-lg sm:text-xl font-bold text-white">Settings</h2>
           </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-white transition-colors"
+            className="text-gray-300 hover:text-white active:text-gray-100 transition-colors p-1"
           >
-            <X className="w-6 h-6" />
+            <X className="w-5 h-5 sm:w-6 sm:h-6" />
           </button>
         </div>
 
@@ -388,19 +388,19 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         <div className="flex border-b border-gray-700 bg-gray-800/50 overflow-x-auto">
           {[
             { id: 'interface', name: 'Interface' },
-            { id: 'writing', name: 'Writing Styles' },
-            { id: 'llm', name: 'LLM Settings' },
-            { id: 'context', name: 'Generation & Context' },
-            { id: 'voice', name: 'Voice Settings' },
-            { id: 'image', name: 'Image Generation' },
+            { id: 'writing', name: 'Writing' },
+            { id: 'llm', name: 'LLM' },
+            { id: 'context', name: 'Context' },
+            { id: 'voice', name: 'Voice' },
+            { id: 'image', name: 'Images' },
           ].map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`flex-shrink-0 py-3 px-4 text-sm font-medium transition-colors whitespace-nowrap ${
+              className={`flex-shrink-0 py-2.5 sm:py-3 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${
                 activeTab === tab.id
                   ? 'theme-btn-primary border-b-2 theme-border-accent'
-                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+                  : 'text-gray-300 hover:text-white active:bg-white/10 hover:bg-white/5'
               }`}
             >
               {tab.name}
@@ -409,20 +409,20 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         </div>
 
         {/* Content */}
-        <div className="p-6 overflow-y-auto max-h-[calc(90vh-180px)]">
+        <div className="p-3 sm:p-6 overflow-y-auto max-h-[calc(95vh-140px)] sm:max-h-[calc(90vh-180px)]">
           {/* Messages */}
           {message && (
-            <div className={`mb-4 p-4 rounded-lg flex items-start gap-3 ${
+            <div className={`mb-3 sm:mb-4 p-3 sm:p-4 rounded-lg flex items-start gap-2 sm:gap-3 ${
               messageType === 'success'
                 ? 'bg-green-500/10 border border-green-500/50'
                 : 'bg-red-500/10 border border-red-500/50'
             }`}>
               {messageType === 'success' ? (
-                <Check className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
+                <Check className="w-4 h-4 sm:w-5 sm:h-5 text-green-400 flex-shrink-0 mt-0.5" />
               ) : (
-                <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                <AlertCircle className="w-4 h-4 sm:w-5 sm:h-5 text-red-400 flex-shrink-0 mt-0.5" />
               )}
-              <p className={`text-sm ${messageType === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+              <p className={`text-xs sm:text-sm ${messageType === 'success' ? 'text-green-400' : 'text-red-400'}`}>
                 {message}
               </p>
             </div>

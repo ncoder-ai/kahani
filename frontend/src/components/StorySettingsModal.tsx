@@ -224,36 +224,36 @@ export default function StorySettingsModal({ isOpen, onClose, storyId, onSaved }
       />
       
       {/* Modal */}
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div className="bg-slate-800 border border-slate-700 rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4">
+        <div className="bg-slate-800 border border-slate-700 rounded-lg shadow-2xl w-full max-w-2xl max-h-[95vh] sm:max-h-[90vh] overflow-hidden flex flex-col">
           {/* Header */}
-          <div className="flex items-center justify-between p-6 border-b border-slate-700 bg-gradient-to-r from-purple-900/50 to-pink-900/50">
-            <h2 className="text-2xl font-bold text-white">Edit Story Settings</h2>
+          <div className="flex items-center justify-between p-3 sm:p-6 border-b border-slate-700 bg-gradient-to-r from-purple-900/50 to-pink-900/50">
+            <h2 className="text-lg sm:text-2xl font-bold text-white">Edit Story Settings</h2>
             <button
               onClick={onClose}
-              className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+              className="p-2 hover:bg-slate-700 active:bg-slate-600 rounded-lg transition-colors"
             >
-              <X className="w-5 h-5 text-gray-400" />
+              <X className="w-5 h-5 text-gray-300" />
             </button>
           </div>
 
           {/* Content */}
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="flex-1 overflow-y-auto p-3 sm:p-6">
             {isLoading ? (
               <div className="text-center py-12">
-                <div className="text-gray-400">Loading story data...</div>
+                <div className="text-gray-300">Loading story data...</div>
               </div>
             ) : (
-              <form onSubmit={handleSubmit} className="space-y-6">
+              <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
                 {error && (
-                  <div className="bg-red-900/50 border border-red-700 rounded-lg p-4 text-red-200">
+                  <div className="bg-red-900/50 border border-red-700 rounded-lg p-3 sm:p-4 text-red-200 text-sm">
                     {error}
                   </div>
                 )}
 
                 {/* Title */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                  <label className="block text-xs sm:text-sm font-medium text-gray-200 mb-1.5 sm:mb-2">
                     Title *
                   </label>
                   <input
@@ -261,120 +261,119 @@ export default function StorySettingsModal({ isOpen, onClose, storyId, onSaved }
                     value={formData.title}
                     onChange={(e) => handleChange('title', e.target.value)}
                     required
-                    className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-full px-3 sm:px-4 py-2 bg-slate-700 border border-slate-500 rounded-lg text-white text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                     placeholder="Story title"
                   />
                 </div>
 
                 {/* Description */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                  <label className="block text-xs sm:text-sm font-medium text-gray-200 mb-1.5 sm:mb-2">
                     Description
                   </label>
                   <textarea
                     value={formData.description}
                     onChange={(e) => handleChange('description', e.target.value)}
-                    rows={3}
-                    className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    rows={2}
+                    className="w-full px-3 sm:px-4 py-2 bg-slate-700 border border-slate-500 rounded-lg text-white text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none"
                     placeholder="Brief description of the story"
                   />
                 </div>
 
-                {/* Genre */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Genre
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.genre}
-                    onChange={(e) => handleChange('genre', e.target.value)}
-                    className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    placeholder="e.g., Fantasy, Sci-Fi, Romance"
-                  />
-                </div>
-
-                {/* Tone */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Tone
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.tone}
-                    onChange={(e) => handleChange('tone', e.target.value)}
-                    className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    placeholder="e.g., Dark, Lighthearted, Mysterious"
-                  />
+                {/* Genre and Tone - side by side on larger screens */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                  <div>
+                    <label className="block text-xs sm:text-sm font-medium text-gray-200 mb-1.5 sm:mb-2">
+                      Genre
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.genre}
+                      onChange={(e) => handleChange('genre', e.target.value)}
+                      className="w-full px-3 sm:px-4 py-2 bg-slate-700 border border-slate-500 rounded-lg text-white text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                      placeholder="e.g., Fantasy, Sci-Fi"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs sm:text-sm font-medium text-gray-200 mb-1.5 sm:mb-2">
+                      Tone
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.tone}
+                      onChange={(e) => handleChange('tone', e.target.value)}
+                      className="w-full px-3 sm:px-4 py-2 bg-slate-700 border border-slate-500 rounded-lg text-white text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                      placeholder="e.g., Dark, Lighthearted"
+                    />
+                  </div>
                 </div>
 
                 {/* World Setting */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                  <label className="block text-xs sm:text-sm font-medium text-gray-200 mb-1.5 sm:mb-2">
                     World Setting
                   </label>
                   <textarea
                     value={formData.world_setting}
                     onChange={(e) => handleChange('world_setting', e.target.value)}
-                    rows={3}
-                    className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    placeholder="Describe the world or setting of your story"
+                    rows={2}
+                    className="w-full px-3 sm:px-4 py-2 bg-slate-700 border border-slate-500 rounded-lg text-white text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none"
+                    placeholder="Describe the world or setting"
                   />
                 </div>
 
                 {/* Initial Premise */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                  <label className="block text-xs sm:text-sm font-medium text-gray-200 mb-1.5 sm:mb-2">
                     Initial Premise
                   </label>
                   <textarea
                     value={formData.initial_premise}
                     onChange={(e) => handleChange('initial_premise', e.target.value)}
-                    rows={3}
-                    className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    placeholder="The initial premise or concept of your story"
+                    rows={2}
+                    className="w-full px-3 sm:px-4 py-2 bg-slate-700 border border-slate-500 rounded-lg text-white text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none"
+                    placeholder="The initial premise or concept"
                   />
                 </div>
 
                 {/* Scenario */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                  <label className="block text-xs sm:text-sm font-medium text-gray-200 mb-1.5 sm:mb-2">
                     Scenario
                   </label>
                   <textarea
                     value={formData.scenario}
                     onChange={(e) => handleChange('scenario', e.target.value)}
-                    rows={4}
-                    className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    rows={3}
+                    className="w-full px-3 sm:px-4 py-2 bg-slate-700 border border-slate-500 rounded-lg text-white text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none"
                     placeholder="The scenario that sets up your story"
                   />
                 </div>
 
                 {/* Interaction Tracking */}
-                <div className="border-t border-slate-700 pt-6">
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                <div className="border-t border-slate-700 pt-4 sm:pt-6">
+                  <label className="block text-xs sm:text-sm font-medium text-gray-200 mb-1.5 sm:mb-2">
                     Interaction Tracking
                   </label>
-                  <p className="text-xs text-gray-500 mb-3">
-                    Track specific interactions between characters to maintain story consistency.
-                    The system will record when these events first occur.
+                  <p className="text-[10px] sm:text-xs text-gray-400 mb-3">
+                    Track specific interactions between characters for story consistency.
                   </p>
-                  
+
                   {/* Current interaction types */}
-                  <div className="flex flex-wrap gap-2 mb-3 min-h-[32px]">
+                  <div className="flex flex-wrap gap-1.5 sm:gap-2 mb-3 min-h-[28px]">
                     {interactionTypes.length === 0 ? (
-                      <span className="text-gray-500 text-sm italic">No interaction types configured</span>
+                      <span className="text-gray-400 text-xs sm:text-sm italic">No interaction types configured</span>
                     ) : (
                       interactionTypes.map((type) => (
                         <span
                           key={type}
-                          className="inline-flex items-center gap-1 px-3 py-1 bg-purple-900/50 border border-purple-700 rounded-full text-sm text-purple-200"
+                          className="inline-flex items-center gap-1 px-2 sm:px-3 py-0.5 sm:py-1 bg-purple-900/50 border border-purple-700 rounded-full text-xs sm:text-sm text-purple-200"
                         >
                           {type}
                           <button
                             type="button"
                             onClick={() => removeInteractionType(type)}
-                            className="hover:text-red-400 transition-colors"
+                            className="hover:text-red-400 active:text-red-300 transition-colors p-0.5"
                           >
                             <X className="w-3 h-3" />
                           </button>
@@ -382,7 +381,7 @@ export default function StorySettingsModal({ isOpen, onClose, storyId, onSaved }
                       ))
                     )}
                   </div>
-                  
+
                   {/* Add new interaction type */}
                   <div className="flex gap-2 mb-3">
                     <input
@@ -396,78 +395,78 @@ export default function StorySettingsModal({ isOpen, onClose, storyId, onSaved }
                         }
                       }}
                       placeholder="Add interaction type..."
-                      className="flex-1 px-3 py-1.5 bg-slate-700 border border-slate-600 rounded-lg text-white text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      className="flex-1 min-w-0 px-3 py-1.5 bg-slate-700 border border-slate-500 rounded-lg text-white text-xs sm:text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
                     />
                     <button
                       type="button"
                       onClick={addInteractionType}
-                      className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors"
+                      className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white rounded-lg transition-colors flex-shrink-0"
                     >
                       <Plus className="w-4 h-4" />
                     </button>
                   </div>
-                  
+
                   {/* Preset selector and scan button */}
-                  <div className="flex gap-2 flex-wrap">
+                  <div className="flex flex-col sm:flex-row gap-2">
                     <div className="relative">
                       <button
                         type="button"
                         onClick={() => setShowPresetDropdown(!showPresetDropdown)}
-                        className="flex items-center gap-2 px-3 py-1.5 bg-slate-700 border border-slate-600 rounded-lg text-sm text-gray-300 hover:border-slate-500 transition-colors"
+                        className="w-full sm:w-auto flex items-center justify-between sm:justify-start gap-2 px-3 py-1.5 bg-slate-700 border border-slate-500 rounded-lg text-xs sm:text-sm text-gray-200 hover:border-slate-400 active:bg-slate-600 transition-colors"
                       >
                         Load from preset
                         <ChevronDown className={`w-4 h-4 transition-transform ${showPresetDropdown ? 'rotate-180' : ''}`} />
                       </button>
-                      
+
                       {showPresetDropdown && (
-                        <div className="absolute top-full left-0 mt-1 w-64 bg-slate-700 border border-slate-600 rounded-lg shadow-xl z-10 max-h-64 overflow-y-auto">
+                        <div className="absolute top-full left-0 right-0 sm:right-auto mt-1 w-full sm:w-64 bg-slate-700 border border-slate-600 rounded-lg shadow-xl z-10 max-h-48 sm:max-h-64 overflow-y-auto">
                           {Object.entries(interactionPresets).map(([key, preset]) => (
                             <button
                               key={key}
                               type="button"
                               onClick={() => loadPreset(key)}
-                              className="w-full px-3 py-2 text-left hover:bg-slate-600 transition-colors first:rounded-t-lg last:rounded-b-lg"
+                              className="w-full px-3 py-2 text-left hover:bg-slate-600 active:bg-slate-500 transition-colors first:rounded-t-lg last:rounded-b-lg"
                             >
-                              <div className="text-sm font-medium text-white">{preset.name}</div>
-                              <div className="text-xs text-gray-400">{preset.description}</div>
+                              <div className="text-xs sm:text-sm font-medium text-white">{preset.name}</div>
+                              <div className="text-[10px] sm:text-xs text-gray-400">{preset.description}</div>
                             </button>
                           ))}
                           {Object.keys(interactionPresets).length === 0 && (
-                            <div className="px-3 py-2 text-sm text-gray-400">No presets available</div>
+                            <div className="px-3 py-2 text-xs sm:text-sm text-gray-400">No presets available</div>
                           )}
                         </div>
                       )}
                     </div>
-                    
+
                     <button
                       type="button"
                       onClick={runRetroactiveExtraction}
                       disabled={isExtracting || interactionTypes.length === 0}
-                      className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 disabled:text-gray-500 text-white rounded-lg text-sm transition-colors"
+                      className="flex items-center justify-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:bg-slate-700 disabled:text-gray-500 text-white rounded-lg text-xs sm:text-sm transition-colors"
                       title="Scan existing scenes for these interaction types"
                     >
-                      <RefreshCw className={`w-4 h-4 ${isExtracting ? 'animate-spin' : ''}`} />
-                      {isExtracting ? 'Scanning...' : 'Scan Existing Scenes'}
+                      <RefreshCw className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${isExtracting ? 'animate-spin' : ''}`} />
+                      {isExtracting ? 'Scanning...' : 'Scan Scenes'}
                     </button>
                   </div>
-                  
+
                   {extractionMessage && (
-                    <p className="text-xs text-blue-400 mt-2">{extractionMessage}</p>
+                    <p className="text-[10px] sm:text-xs text-blue-400 mt-2">{extractionMessage}</p>
                   )}
-                  
+
                   {extractionProgress && (
-                    <div className="mt-3 space-y-2">
-                      <div className="flex justify-between text-xs text-gray-400">
+                    <div className="mt-3 space-y-1.5 sm:space-y-2">
+                      <div className="flex justify-between text-[10px] sm:text-xs text-gray-300">
                         <span>Processing batches...</span>
-                        <span>{extractionProgress.current} of {extractionProgress.total} batches</span>
+                        <span>{extractionProgress.current} of {extractionProgress.total}</span>
                       </div>
-                      <div className="w-full bg-slate-700 rounded-full h-2 overflow-hidden">
-                        <div 
+                      <div className="w-full bg-slate-700 rounded-full h-1.5 sm:h-2 overflow-hidden">
+                        <div
                           className="bg-gradient-to-r from-purple-500 to-pink-500 h-full transition-all duration-500 ease-out"
                           style={{ width: `${extractionProgress.percentage}%` }}
                         />
                       </div>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-[10px] sm:text-xs text-gray-400">
                         {extractionProgress.percentage}% complete
                       </p>
                     </div>
@@ -475,18 +474,18 @@ export default function StorySettingsModal({ isOpen, onClose, storyId, onSaved }
                 </div>
 
                 {/* Content Rating */}
-                <div className="border-t border-slate-700 pt-6">
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                <div className="border-t border-slate-700 pt-4 sm:pt-6">
+                  <label className="block text-xs sm:text-sm font-medium text-gray-200 mb-1.5 sm:mb-2">
                     Content Rating
                   </label>
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-3 sm:gap-4">
                     <button
                       type="button"
                       onClick={() => handleChange('content_rating', 'sfw')}
-                      className={`px-4 py-2 rounded-lg border transition-colors ${
+                      className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg border text-sm transition-colors ${
                         formData.content_rating === 'sfw'
                           ? 'bg-green-600 border-green-500 text-white'
-                          : 'bg-slate-700 border-slate-600 text-gray-400 hover:border-slate-500'
+                          : 'bg-slate-700 border-slate-500 text-gray-300 hover:border-slate-400 active:bg-slate-600'
                       }`}
                     >
                       SFW
@@ -495,19 +494,19 @@ export default function StorySettingsModal({ isOpen, onClose, storyId, onSaved }
                       type="button"
                       onClick={() => userAllowsNsfw && handleChange('content_rating', 'nsfw')}
                       disabled={!userAllowsNsfw}
-                      className={`px-4 py-2 rounded-lg border transition-colors ${
+                      className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg border text-sm transition-colors ${
                         formData.content_rating === 'nsfw'
                           ? 'bg-red-600 border-red-500 text-white'
                           : userAllowsNsfw
-                            ? 'bg-slate-700 border-slate-600 text-gray-400 hover:border-slate-500'
+                            ? 'bg-slate-700 border-slate-500 text-gray-300 hover:border-slate-400 active:bg-slate-600'
                             : 'bg-slate-800 border-slate-700 text-gray-500 cursor-not-allowed'
                       }`}
                     >
                       NSFW
                     </button>
                   </div>
-                  <p className="text-xs text-gray-500 mt-2">
-                    {formData.content_rating === 'sfw' 
+                  <p className="text-[10px] sm:text-xs text-gray-400 mt-2">
+                    {formData.content_rating === 'sfw'
                       ? 'Content filters are enabled. Story will be family-friendly.'
                       : 'Content filters are disabled. Mature content is allowed.'}
                     {!userAllowsNsfw && (
@@ -519,18 +518,18 @@ export default function StorySettingsModal({ isOpen, onClose, storyId, onSaved }
                 </div>
 
                 {/* Actions */}
-                <div className="flex justify-end gap-3 pt-4 border-t border-slate-700">
+                <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3 pt-4 border-t border-slate-700">
                   <button
                     type="button"
                     onClick={onClose}
-                    className="px-6 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors"
+                    className="px-4 sm:px-6 py-2 bg-slate-700 hover:bg-slate-600 active:bg-slate-500 text-white rounded-lg transition-colors text-sm"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={isSaving}
-                    className="px-6 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+                    className="px-4 sm:px-6 py-2 bg-purple-600 hover:bg-purple-700 active:bg-purple-800 disabled:bg-purple-800 disabled:cursor-not-allowed text-white rounded-lg transition-colors text-sm"
                   >
                     {isSaving ? 'Saving...' : 'Save Changes'}
                   </button>

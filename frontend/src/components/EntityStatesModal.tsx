@@ -181,17 +181,17 @@ export default function EntityStatesModal({
   const renderStringField = (label: string, field: string, value: string | null) => {
     const isEditing = editingId !== null;
     return (
-      <div className="flex items-start gap-2 py-1">
-        <span className="text-gray-400 text-sm w-32 shrink-0">{label}:</span>
+      <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-2 py-1">
+        <span className="text-gray-300 text-xs sm:text-sm sm:w-32 shrink-0 font-medium">{label}:</span>
         {isEditing ? (
           <input
             type="text"
             value={(editData[field] as string) ?? value ?? ''}
             onChange={(e) => setEditData(prev => ({ ...prev, [field]: e.target.value || null }))}
-            className="flex-1 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-sm text-white"
+            className="w-full sm:flex-1 bg-slate-700 border border-slate-500 rounded px-2 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none"
           />
         ) : (
-          <span className="text-white text-sm">{value || <span className="text-gray-500 italic">Not set</span>}</span>
+          <span className="text-white text-sm">{value || <span className="text-gray-400 italic">Not set</span>}</span>
         )}
       </div>
     );
@@ -200,14 +200,14 @@ export default function EntityStatesModal({
   const renderArrayField = (label: string, field: string, values: string[]) => {
     const isEditing = editingId !== null;
     const currentValues = (editData[field] as string[]) ?? values;
-    
+
     return (
       <div className="py-1">
-        <span className="text-gray-400 text-sm">{label}:</span>
+        <span className="text-gray-300 text-xs sm:text-sm font-medium">{label}:</span>
         {isEditing ? (
-          <div className="mt-1 space-y-1">
+          <div className="mt-1.5 space-y-1.5">
             {currentValues.map((v, i) => (
-              <div key={i} className="flex items-center gap-2">
+              <div key={i} className="flex items-center gap-1.5">
                 <input
                   type="text"
                   value={v}
@@ -216,14 +216,14 @@ export default function EntityStatesModal({
                     newValues[i] = e.target.value;
                     setEditData(prev => ({ ...prev, [field]: newValues }));
                   }}
-                  className="flex-1 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-sm text-white"
+                  className="flex-1 min-w-0 bg-slate-700 border border-slate-500 rounded px-2 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none"
                 />
                 <button
                   onClick={() => {
                     const newValues = currentValues.filter((_, idx) => idx !== i);
                     setEditData(prev => ({ ...prev, [field]: newValues }));
                   }}
-                  className="text-red-400 hover:text-red-300 p-1"
+                  className="text-red-400 active:text-red-300 p-1.5 rounded hover:bg-red-900/30"
                 >
                   <XCircle className="w-4 h-4" />
                 </button>
@@ -231,7 +231,7 @@ export default function EntityStatesModal({
             ))}
             <button
               onClick={() => setEditData(prev => ({ ...prev, [field]: [...currentValues, ''] }))}
-              className="text-blue-400 hover:text-blue-300 text-sm"
+              className="text-blue-400 active:text-blue-300 text-sm py-1"
             >
               + Add item
             </button>
@@ -243,7 +243,7 @@ export default function EntityStatesModal({
             ))}
           </ul>
         ) : (
-          <p className="mt-1 text-gray-500 text-sm italic">None</p>
+          <p className="mt-1 text-gray-400 text-sm italic">None</p>
         )}
       </div>
     );
@@ -265,11 +265,11 @@ export default function EntityStatesModal({
 
     return (
       <div className="py-1">
-        <span className="text-gray-400 text-sm">Relationships:</span>
+        <span className="text-gray-300 text-xs sm:text-sm font-medium">Relationships:</span>
         {isEditing ? (
-          <div className="mt-1 space-y-1">
+          <div className="mt-1.5 space-y-2">
             {entries.map(([name, rel], i) => (
-              <div key={i} className="flex items-center gap-2">
+              <div key={i} className="flex flex-col sm:flex-row gap-1.5 sm:items-center p-2 bg-slate-800/50 rounded-lg">
                 <input
                   type="text"
                   value={name}
@@ -280,9 +280,9 @@ export default function EntityStatesModal({
                     newRels[e.target.value] = rel;
                     setEditData(prev => ({ ...prev, relationships: newRels }));
                   }}
-                  className="w-32 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-sm text-white"
+                  className="w-full sm:w-28 bg-slate-700 border border-slate-500 rounded px-2 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none"
                 />
-                <span className="text-gray-400">→</span>
+                <span className="text-gray-400 text-center hidden sm:block">→</span>
                 <input
                   type="text"
                   value={relToString(rel)}
@@ -291,7 +291,7 @@ export default function EntityStatesModal({
                     const newRels = { ...currentRelationships, [name]: e.target.value };
                     setEditData(prev => ({ ...prev, relationships: newRels }));
                   }}
-                  className="flex-1 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-sm text-white"
+                  className="flex-1 min-w-0 bg-slate-700 border border-slate-500 rounded px-2 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none"
                 />
                 <button
                   onClick={() => {
@@ -299,7 +299,7 @@ export default function EntityStatesModal({
                     delete newRels[name];
                     setEditData(prev => ({ ...prev, relationships: newRels }));
                   }}
-                  className="text-red-400 hover:text-red-300 p-1"
+                  className="text-red-400 active:text-red-300 p-1.5 rounded hover:bg-red-900/30 self-end sm:self-auto"
                 >
                   <XCircle className="w-4 h-4" />
                 </button>
@@ -307,7 +307,7 @@ export default function EntityStatesModal({
             ))}
             <button
               onClick={() => setEditData(prev => ({ ...prev, relationships: { ...currentRelationships, '': '' } }))}
-              className="text-blue-400 hover:text-blue-300 text-sm"
+              className="text-blue-400 active:text-blue-300 text-sm py-1"
             >
               + Add relationship
             </button>
@@ -319,7 +319,7 @@ export default function EntityStatesModal({
             ))}
           </ul>
         ) : (
-          <p className="mt-1 text-gray-500 text-sm italic">None</p>
+          <p className="mt-1 text-gray-400 text-sm italic">None</p>
         )}
       </div>
     );
@@ -332,15 +332,15 @@ export default function EntityStatesModal({
     return (
       <div key={state.id} className="bg-slate-900/50 rounded-lg border border-slate-700/50 overflow-hidden">
         {/* Header */}
-        <div 
-          className="flex items-center justify-between p-4 cursor-pointer hover:bg-slate-800/50"
+        <div
+          className="flex items-center justify-between p-3 sm:p-4 cursor-pointer hover:bg-slate-800/50 active:bg-slate-800/70"
           onClick={() => toggleExpanded(state.id)}
         >
-          <div className="flex items-center gap-3">
-            {isExpanded ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
-            <div>
-              <h3 className="text-lg font-medium text-white">{state.character_name}</h3>
-              <p className="text-sm text-gray-400">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+            {isExpanded ? <ChevronDown className="w-4 h-4 text-gray-300 flex-shrink-0" /> : <ChevronRight className="w-4 h-4 text-gray-300 flex-shrink-0" />}
+            <div className="min-w-0">
+              <h3 className="text-base sm:text-lg font-medium text-white truncate">{state.character_name}</h3>
+              <p className="text-xs sm:text-sm text-gray-300 truncate">
                 {state.current_location && <span className="text-blue-400">{state.current_location}</span>}
                 {state.current_location && state.emotional_state && ' • '}
                 {state.emotional_state && <span className="text-purple-400">{state.emotional_state}</span>}
@@ -349,21 +349,21 @@ export default function EntityStatesModal({
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
             {isEditing ? (
               <>
-                <button onClick={saveEdit} className="p-1.5 hover:bg-green-900/50 rounded text-green-400" title="Save">
+                <button onClick={saveEdit} className="p-2 sm:p-1.5 hover:bg-green-900/50 active:bg-green-900/70 rounded text-green-400" title="Save">
                   <Check className="w-4 h-4" />
                 </button>
-                <button onClick={cancelEdit} className="p-1.5 hover:bg-slate-700 rounded text-gray-400" title="Cancel">
+                <button onClick={cancelEdit} className="p-2 sm:p-1.5 hover:bg-slate-700 active:bg-slate-600 rounded text-gray-300" title="Cancel">
                   <XCircle className="w-4 h-4" />
                 </button>
               </>
             ) : (
               <>
-                <button 
-                  onClick={() => startEdit(state.id, state)} 
-                  className="p-1.5 hover:bg-slate-700 rounded text-gray-400 hover:text-blue-400"
+                <button
+                  onClick={() => startEdit(state.id, state)}
+                  className="p-2 sm:p-1.5 hover:bg-slate-700 active:bg-slate-600 rounded text-gray-300 hover:text-blue-400"
                   title="Edit"
                 >
                   <Edit2 className="w-4 h-4" />
@@ -371,7 +371,7 @@ export default function EntityStatesModal({
                 <button
                   onClick={() => handleDelete('characters', state.id)}
                   disabled={deletingId === state.id}
-                  className="p-1.5 hover:bg-red-900/50 rounded text-gray-500 hover:text-red-400 disabled:opacity-50"
+                  className="p-2 sm:p-1.5 hover:bg-red-900/50 active:bg-red-900/70 rounded text-gray-400 hover:text-red-400 disabled:opacity-50"
                   title="Delete"
                 >
                   <Trash2 className={`w-4 h-4 ${deletingId === state.id ? 'animate-pulse' : ''}`} />
@@ -383,9 +383,9 @@ export default function EntityStatesModal({
 
         {/* Expanded Content */}
         {isExpanded && (
-          <div className="px-4 pb-4 border-t border-slate-700/50 pt-3 space-y-2">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
+          <div className="px-3 sm:px-4 pb-3 sm:pb-4 border-t border-slate-700/50 pt-3 space-y-3">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
+              <div className="space-y-1">
                 {renderStringField('Location', 'current_location', state.current_location)}
                 {renderStringField('Emotional State', 'emotional_state', state.emotional_state)}
                 {renderStringField('Physical Condition', 'physical_condition', state.physical_condition)}
@@ -393,7 +393,7 @@ export default function EntityStatesModal({
                 {renderStringField('Current Goal', 'current_goal', state.current_goal)}
                 {renderStringField('Arc Stage', 'arc_stage', state.arc_stage)}
               </div>
-              <div>
+              <div className="space-y-1">
                 {renderArrayField('Possessions', 'possessions', state.possessions)}
                 {renderArrayField('Knowledge', 'knowledge', state.knowledge)}
                 {renderArrayField('Secrets', 'secrets', state.secrets)}
@@ -402,12 +402,12 @@ export default function EntityStatesModal({
             <div className="border-t border-slate-700/30 pt-2 mt-2">
               {renderRelationshipsField(state.relationships)}
             </div>
-            <div className="grid grid-cols-2 gap-4 border-t border-slate-700/30 pt-2">
-              <div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 border-t border-slate-700/30 pt-2">
+              <div className="space-y-1">
                 {renderArrayField('Active Conflicts', 'active_conflicts', state.active_conflicts)}
                 {renderArrayField('Recent Decisions', 'recent_decisions', state.recent_decisions)}
               </div>
-              <div>
+              <div className="space-y-1">
                 {renderArrayField('Recent Actions', 'recent_actions', state.recent_actions)}
               </div>
             </div>
@@ -423,15 +423,15 @@ export default function EntityStatesModal({
 
     return (
       <div key={state.id} className="bg-slate-900/50 rounded-lg border border-slate-700/50 overflow-hidden">
-        <div 
-          className="flex items-center justify-between p-4 cursor-pointer hover:bg-slate-800/50"
+        <div
+          className="flex items-center justify-between p-3 sm:p-4 cursor-pointer hover:bg-slate-800/50 active:bg-slate-800/70"
           onClick={() => toggleExpanded(state.id + 10000)}
         >
-          <div className="flex items-center gap-3">
-            {isExpanded ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
-            <div>
-              <h3 className="text-lg font-medium text-white">{state.location_name}</h3>
-              <p className="text-sm text-gray-400">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+            {isExpanded ? <ChevronDown className="w-4 h-4 text-gray-300 flex-shrink-0" /> : <ChevronRight className="w-4 h-4 text-gray-300 flex-shrink-0" />}
+            <div className="min-w-0">
+              <h3 className="text-base sm:text-lg font-medium text-white truncate">{state.location_name}</h3>
+              <p className="text-xs sm:text-sm text-gray-300 truncate">
                 {state.atmosphere && <span className="text-green-400">{state.atmosphere}</span>}
                 {state.atmosphere && state.condition && ' • '}
                 {state.condition && <span className="text-yellow-400">{state.condition}</span>}
@@ -440,21 +440,21 @@ export default function EntityStatesModal({
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
             {isEditing ? (
               <>
-                <button onClick={saveEdit} className="p-1.5 hover:bg-green-900/50 rounded text-green-400" title="Save">
+                <button onClick={saveEdit} className="p-2 sm:p-1.5 hover:bg-green-900/50 active:bg-green-900/70 rounded text-green-400" title="Save">
                   <Check className="w-4 h-4" />
                 </button>
-                <button onClick={cancelEdit} className="p-1.5 hover:bg-slate-700 rounded text-gray-400" title="Cancel">
+                <button onClick={cancelEdit} className="p-2 sm:p-1.5 hover:bg-slate-700 active:bg-slate-600 rounded text-gray-300" title="Cancel">
                   <XCircle className="w-4 h-4" />
                 </button>
               </>
             ) : (
               <>
-                <button 
-                  onClick={() => startEdit(state.id, state)} 
-                  className="p-1.5 hover:bg-slate-700 rounded text-gray-400 hover:text-blue-400"
+                <button
+                  onClick={() => startEdit(state.id, state)}
+                  className="p-2 sm:p-1.5 hover:bg-slate-700 active:bg-slate-600 rounded text-gray-300 hover:text-blue-400"
                   title="Edit"
                 >
                   <Edit2 className="w-4 h-4" />
@@ -462,7 +462,7 @@ export default function EntityStatesModal({
                 <button
                   onClick={() => handleDelete('locations', state.id)}
                   disabled={deletingId === state.id}
-                  className="p-1.5 hover:bg-red-900/50 rounded text-gray-500 hover:text-red-400 disabled:opacity-50"
+                  className="p-2 sm:p-1.5 hover:bg-red-900/50 active:bg-red-900/70 rounded text-gray-400 hover:text-red-400 disabled:opacity-50"
                   title="Delete"
                 >
                   <Trash2 className={`w-4 h-4 ${deletingId === state.id ? 'animate-pulse' : ''}`} />
@@ -473,15 +473,15 @@ export default function EntityStatesModal({
         </div>
 
         {isExpanded && (
-          <div className="px-4 pb-4 border-t border-slate-700/50 pt-3 space-y-2">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
+          <div className="px-3 sm:px-4 pb-3 sm:pb-4 border-t border-slate-700/50 pt-3 space-y-3">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
+              <div className="space-y-1">
                 {renderStringField('Condition', 'condition', state.condition)}
                 {renderStringField('Atmosphere', 'atmosphere', state.atmosphere)}
                 {renderStringField('Time of Day', 'time_of_day', state.time_of_day)}
                 {renderStringField('Weather', 'weather', state.weather)}
               </div>
-              <div>
+              <div className="space-y-1">
                 {renderArrayField('Current Occupants', 'current_occupants', state.current_occupants)}
                 {renderArrayField('Notable Features', 'notable_features', state.notable_features)}
                 {renderArrayField('Significant Events', 'significant_events', state.significant_events)}
@@ -499,15 +499,15 @@ export default function EntityStatesModal({
 
     return (
       <div key={state.id} className="bg-slate-900/50 rounded-lg border border-slate-700/50 overflow-hidden">
-        <div 
-          className="flex items-center justify-between p-4 cursor-pointer hover:bg-slate-800/50"
+        <div
+          className="flex items-center justify-between p-3 sm:p-4 cursor-pointer hover:bg-slate-800/50 active:bg-slate-800/70"
           onClick={() => toggleExpanded(state.id + 20000)}
         >
-          <div className="flex items-center gap-3">
-            {isExpanded ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
-            <div>
-              <h3 className="text-lg font-medium text-white">{state.object_name}</h3>
-              <p className="text-sm text-gray-400">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+            {isExpanded ? <ChevronDown className="w-4 h-4 text-gray-300 flex-shrink-0" /> : <ChevronRight className="w-4 h-4 text-gray-300 flex-shrink-0" />}
+            <div className="min-w-0">
+              <h3 className="text-base sm:text-lg font-medium text-white truncate">{state.object_name}</h3>
+              <p className="text-xs sm:text-sm text-gray-300 truncate">
                 {state.object_type && <span className="text-orange-400">{state.object_type}</span>}
                 {state.object_type && state.current_owner_name && ' • '}
                 {state.current_owner_name && <span>Owned by <span className="text-purple-400">{state.current_owner_name}</span></span>}
@@ -516,21 +516,21 @@ export default function EntityStatesModal({
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
             {isEditing ? (
               <>
-                <button onClick={saveEdit} className="p-1.5 hover:bg-green-900/50 rounded text-green-400" title="Save">
+                <button onClick={saveEdit} className="p-2 sm:p-1.5 hover:bg-green-900/50 active:bg-green-900/70 rounded text-green-400" title="Save">
                   <Check className="w-4 h-4" />
                 </button>
-                <button onClick={cancelEdit} className="p-1.5 hover:bg-slate-700 rounded text-gray-400" title="Cancel">
+                <button onClick={cancelEdit} className="p-2 sm:p-1.5 hover:bg-slate-700 active:bg-slate-600 rounded text-gray-300" title="Cancel">
                   <XCircle className="w-4 h-4" />
                 </button>
               </>
             ) : (
               <>
-                <button 
-                  onClick={() => startEdit(state.id, state)} 
-                  className="p-1.5 hover:bg-slate-700 rounded text-gray-400 hover:text-blue-400"
+                <button
+                  onClick={() => startEdit(state.id, state)}
+                  className="p-2 sm:p-1.5 hover:bg-slate-700 active:bg-slate-600 rounded text-gray-300 hover:text-blue-400"
                   title="Edit"
                 >
                   <Edit2 className="w-4 h-4" />
@@ -538,7 +538,7 @@ export default function EntityStatesModal({
                 <button
                   onClick={() => handleDelete('objects', state.id)}
                   disabled={deletingId === state.id}
-                  className="p-1.5 hover:bg-red-900/50 rounded text-gray-500 hover:text-red-400 disabled:opacity-50"
+                  className="p-2 sm:p-1.5 hover:bg-red-900/50 active:bg-red-900/70 rounded text-gray-400 hover:text-red-400 disabled:opacity-50"
                   title="Delete"
                 >
                   <Trash2 className={`w-4 h-4 ${deletingId === state.id ? 'animate-pulse' : ''}`} />
@@ -549,16 +549,16 @@ export default function EntityStatesModal({
         </div>
 
         {isExpanded && (
-          <div className="px-4 pb-4 border-t border-slate-700/50 pt-3 space-y-2">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
+          <div className="px-3 sm:px-4 pb-3 sm:pb-4 border-t border-slate-700/50 pt-3 space-y-3">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
+              <div className="space-y-1">
                 {renderStringField('Object Type', 'object_type', state.object_type)}
                 {renderStringField('Condition', 'condition', state.condition)}
                 {renderStringField('Current Location', 'current_location', state.current_location)}
                 {renderStringField('Significance', 'significance', state.significance)}
                 {renderStringField('Origin', 'origin', state.origin)}
               </div>
-              <div>
+              <div className="space-y-1">
                 {renderArrayField('Powers', 'powers', state.powers)}
                 {renderArrayField('Limitations', 'limitations', state.limitations)}
                 {renderArrayField('Previous Owners', 'previous_owners', state.previous_owners)}
@@ -582,64 +582,64 @@ export default function EntityStatesModal({
       />
 
       {/* Modal */}
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div className="bg-slate-800 border border-slate-700 rounded-lg shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4">
+        <div className="bg-slate-800 border border-slate-700 rounded-lg shadow-2xl w-full max-w-5xl max-h-[95vh] sm:max-h-[90vh] overflow-hidden flex flex-col">
           {/* Header */}
-          <div className="flex items-center justify-between p-6 border-b border-slate-700 bg-gradient-to-r from-emerald-900/50 to-teal-900/50">
-            <div className="flex items-center gap-3">
-              <Package className="w-6 h-6 text-emerald-400" />
-              <div>
-                <h2 className="text-2xl font-bold text-white">Entity States</h2>
-                <p className="text-sm text-gray-400">{storyTitle}</p>
+          <div className="flex items-center justify-between p-3 sm:p-6 border-b border-slate-700 bg-gradient-to-r from-emerald-900/50 to-teal-900/50">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+              <Package className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-400 flex-shrink-0" />
+              <div className="min-w-0">
+                <h2 className="text-lg sm:text-2xl font-bold text-white">Entity States</h2>
+                <p className="text-xs sm:text-sm text-gray-300 truncate">{storyTitle}</p>
               </div>
             </div>
             <button
               onClick={onClose}
-              className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+              className="p-2 hover:bg-slate-700 rounded-lg transition-colors flex-shrink-0"
             >
-              <X className="w-5 h-5 text-gray-400" />
+              <X className="w-5 h-5 text-gray-300" />
             </button>
           </div>
 
           {/* Tabs */}
-          <div className="flex border-b border-slate-700">
+          <div className="flex border-b border-slate-700 overflow-x-auto">
             <button
               onClick={() => setActiveTab('characters')}
-              className={`flex items-center gap-2 px-6 py-3 text-sm font-medium transition-colors ${
+              className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${
                 activeTab === 'characters'
                   ? 'text-white border-b-2 border-purple-500 bg-slate-700/30'
-                  : 'text-gray-400 hover:text-white hover:bg-slate-700/20'
+                  : 'text-gray-300 hover:text-white hover:bg-slate-700/20'
               }`}
             >
               <Users className="w-4 h-4" />
-              Characters ({counts.characters})
+              <span className="hidden xs:inline">Characters</span> ({counts.characters})
             </button>
             <button
               onClick={() => setActiveTab('locations')}
-              className={`flex items-center gap-2 px-6 py-3 text-sm font-medium transition-colors ${
+              className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${
                 activeTab === 'locations'
                   ? 'text-white border-b-2 border-green-500 bg-slate-700/30'
-                  : 'text-gray-400 hover:text-white hover:bg-slate-700/20'
+                  : 'text-gray-300 hover:text-white hover:bg-slate-700/20'
               }`}
             >
               <MapPin className="w-4 h-4" />
-              Locations ({counts.locations})
+              <span className="hidden xs:inline">Locations</span> ({counts.locations})
             </button>
             <button
               onClick={() => setActiveTab('objects')}
-              className={`flex items-center gap-2 px-6 py-3 text-sm font-medium transition-colors ${
+              className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${
                 activeTab === 'objects'
                   ? 'text-white border-b-2 border-orange-500 bg-slate-700/30'
-                  : 'text-gray-400 hover:text-white hover:bg-slate-700/20'
+                  : 'text-gray-300 hover:text-white hover:bg-slate-700/20'
               }`}
             >
               <Package className="w-4 h-4" />
-              Objects ({counts.objects})
+              <span className="hidden xs:inline">Objects</span> ({counts.objects})
             </button>
           </div>
 
           {/* Content */}
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="flex-1 overflow-y-auto p-3 sm:p-6">
             {loading ? (
               <div className="text-center py-12 text-gray-400">Loading entity states...</div>
             ) : (
