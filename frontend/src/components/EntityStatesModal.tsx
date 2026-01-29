@@ -187,19 +187,25 @@ export default function EntityStatesModal({
   };
 
   const renderStringField = (label: string, field: string, value: string | null, isEditing: boolean) => {
-    return (
-      <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-2 py-1">
-        <span className="text-gray-300 text-xs sm:text-sm sm:w-32 shrink-0 font-medium">{label}:</span>
-        {isEditing ? (
+    if (isEditing) {
+      // When editing: always stack vertically for better mobile experience
+      return (
+        <div className="py-1.5">
+          <label className="block text-gray-300 text-xs font-medium mb-1">{label}</label>
           <input
             type="text"
             value={(editData[field] as string) ?? value ?? ''}
             onChange={(e) => setEditData(prev => ({ ...prev, [field]: e.target.value || null }))}
-            className="w-full sm:flex-1 bg-slate-700 border border-slate-500 rounded px-2 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none"
+            className="w-full bg-slate-700 border border-slate-500 rounded px-2 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none"
           />
-        ) : (
-          <span className="text-white text-sm">{value || <span className="text-gray-400 italic">Not set</span>}</span>
-        )}
+        </div>
+      );
+    }
+    // When viewing: inline layout
+    return (
+      <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-2 py-1">
+        <span className="text-gray-300 text-xs sm:text-sm sm:w-32 shrink-0 font-medium">{label}:</span>
+        <span className="text-white text-sm">{value || <span className="text-gray-400 italic">Not set</span>}</span>
       </div>
     );
   };
@@ -207,11 +213,11 @@ export default function EntityStatesModal({
   const renderArrayField = (label: string, field: string, values: string[], isEditing: boolean) => {
     const currentValues = isEditing ? ((editData[field] as string[]) ?? values) : values;
 
-    return (
-      <div className="py-1">
-        <span className="text-gray-300 text-xs sm:text-sm font-medium">{label}:</span>
-        {isEditing ? (
-          <div className="mt-1.5 space-y-1.5">
+    if (isEditing) {
+      return (
+        <div className="py-1.5">
+          <label className="block text-gray-300 text-xs font-medium mb-1">{label}</label>
+          <div className="space-y-2">
             {currentValues.map((v, i) => (
               <div key={i} className="flex items-center gap-1.5">
                 <input
@@ -229,7 +235,7 @@ export default function EntityStatesModal({
                     const newValues = currentValues.filter((_, idx) => idx !== i);
                     setEditData(prev => ({ ...prev, [field]: newValues }));
                   }}
-                  className="text-red-400 active:text-red-300 p-1.5 rounded hover:bg-red-900/30"
+                  className="text-red-400 active:text-red-300 p-1.5 rounded hover:bg-red-900/30 flex-shrink-0"
                 >
                   <XCircle className="w-4 h-4" />
                 </button>
@@ -242,7 +248,14 @@ export default function EntityStatesModal({
               + Add item
             </button>
           </div>
-        ) : values.length > 0 ? (
+        </div>
+      );
+    }
+
+    return (
+      <div className="py-1">
+        <span className="text-gray-300 text-xs font-medium">{label}:</span>
+        {values.length > 0 ? (
           <ul className="mt-1 ml-4 list-disc text-white text-sm space-y-0.5">
             {values.map((v, i) => (
               <li key={i}>{v}</li>
@@ -270,43 +283,49 @@ export default function EntityStatesModal({
 
     return (
       <div className="py-1">
-        <span className="text-gray-300 text-xs sm:text-sm font-medium">Relationships:</span>
+        <span className="text-gray-300 text-xs font-medium">Relationships:</span>
         {isEditing ? (
-          <div className="mt-1.5 space-y-2">
+          <div className="mt-1.5 space-y-3">
             {entries.map(([name, rel], i) => (
-              <div key={i} className="flex flex-col sm:flex-row gap-1.5 sm:items-center p-2 bg-slate-800/50 rounded-lg">
-                <input
-                  type="text"
-                  value={name}
-                  placeholder="Character"
-                  onChange={(e) => {
-                    const newRels = { ...currentRelationships };
-                    delete newRels[name];
-                    newRels[e.target.value] = rel;
-                    setEditData(prev => ({ ...prev, relationships: newRels }));
-                  }}
-                  className="w-full sm:w-28 bg-slate-700 border border-slate-500 rounded px-2 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none"
-                />
-                <span className="text-gray-400 text-center hidden sm:block">→</span>
-                <input
-                  type="text"
-                  value={relToString(rel)}
-                  placeholder="Relationship"
-                  onChange={(e) => {
-                    const newRels = { ...currentRelationships, [name]: e.target.value };
-                    setEditData(prev => ({ ...prev, relationships: newRels }));
-                  }}
-                  className="flex-1 min-w-0 bg-slate-700 border border-slate-500 rounded px-2 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none"
-                />
+              <div key={i} className="p-2 bg-slate-800/50 rounded-lg space-y-2">
+                <div>
+                  <label className="block text-gray-400 text-[10px] mb-0.5">Character</label>
+                  <input
+                    type="text"
+                    value={name}
+                    placeholder="Character name"
+                    onChange={(e) => {
+                      const newRels = { ...currentRelationships };
+                      delete newRels[name];
+                      newRels[e.target.value] = rel;
+                      setEditData(prev => ({ ...prev, relationships: newRels }));
+                    }}
+                    className="w-full bg-slate-700 border border-slate-500 rounded px-2 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-400 text-[10px] mb-0.5">Relationship</label>
+                  <input
+                    type="text"
+                    value={relToString(rel)}
+                    placeholder="e.g., friend, rival, spouse"
+                    onChange={(e) => {
+                      const newRels = { ...currentRelationships, [name]: e.target.value };
+                      setEditData(prev => ({ ...prev, relationships: newRels }));
+                    }}
+                    className="w-full bg-slate-700 border border-slate-500 rounded px-2 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
                 <button
                   onClick={() => {
                     const newRels = { ...currentRelationships };
                     delete newRels[name];
                     setEditData(prev => ({ ...prev, relationships: newRels }));
                   }}
-                  className="text-red-400 active:text-red-300 p-1.5 rounded hover:bg-red-900/30 self-end sm:self-auto"
+                  className="w-full text-red-400 active:text-red-300 py-1.5 rounded hover:bg-red-900/30 text-xs flex items-center justify-center gap-1"
                 >
-                  <XCircle className="w-4 h-4" />
+                  <XCircle className="w-3 h-3" />
+                  Remove
                 </button>
               </div>
             ))}
