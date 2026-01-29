@@ -79,8 +79,8 @@ class SceneVariantServiceAdapter:
     def get_scene_variants(self, scene_id: int):
         return llm_service.get_scene_variants(self.db, scene_id)
 
-    def create_scene_with_variant(self, story_id: int, sequence_number: int, content: str, title: str = None, custom_prompt: str = None, choices: List[Dict[str, Any]] = None, generation_method: str = "auto", branch_id: int = None):
-        return llm_service.create_scene_with_variant(self.db, story_id, sequence_number, content, title, custom_prompt, choices, generation_method, branch_id)
+    def create_scene_with_variant(self, story_id: int, sequence_number: int, content: str, title: str = None, custom_prompt: str = None, choices: List[Dict[str, Any]] = None, generation_method: str = "auto", branch_id: int = None, chapter_id: int = None):
+        return llm_service.create_scene_with_variant(self.db, story_id, sequence_number, content, title, custom_prompt, choices, generation_method, branch_id, chapter_id)
 
     async def regenerate_scene_variant(self, scene_id: int, custom_prompt: str = None, user_settings: dict = None, user_id: int = None, branch_id: int = None):
         # Use provided user_id or fall back to default

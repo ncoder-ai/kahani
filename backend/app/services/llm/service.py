@@ -3086,38 +3086,42 @@ Chapter Conclusion:"""
         )
 
     async def regenerate_scene_variant(
-        self, 
+        self,
         db: Session,
-        scene_id: int, 
+        scene_id: int,
         custom_prompt: str = None,
         user_id: int = None,
-        user_settings: dict = None
+        user_settings: dict = None,
+        branch_id: int = None
     ) -> Any:
         """Create a new variant for an existing scene"""
         from ...models import Scene, SceneVariant, Story
         from ..context_manager import ContextManager
-        
+
         scene = db.query(Scene).filter(Scene.id == scene_id).first()
         if not scene:
             raise ValueError(f"Scene {scene_id} not found")
-        
+
         # Get the next variant number
         max_variant = db.query(SceneVariant.variant_number)\
             .filter(SceneVariant.scene_id == scene_id)\
             .order_by(desc(SceneVariant.variant_number))\
             .first()
-        
+
         next_variant_number = (max_variant[0] if max_variant else 0) + 1
-        
+
         # Get story for context
         story = db.query(Story).filter(Story.id == scene.story_id).first()
         if not story:
             raise ValueError(f"Story {scene.story_id} not found")
-        
+
+        # Use provided branch_id or fall back to story's current branch
+        effective_branch_id = branch_id or story.current_branch_id
+
         # Build context using ContextManager
         context_manager = ContextManager(user_settings=user_settings or {})
         context = await context_manager.build_scene_generation_context(
-            story.id, db, custom_prompt=custom_prompt, exclude_scene_id=scene_id
+            story.id, db, custom_prompt=custom_prompt, exclude_scene_id=scene_id, branch_id=effective_branch_id
         )
         
         # Generate new content using the original scene as base
