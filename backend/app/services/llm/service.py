@@ -3312,12 +3312,15 @@ Chapter Conclusion:"""
         """
         return self._scene_db_ops.get_active_scene_count(db, story_id, chapter_id, branch_id)
     
-    def get_active_story_flow(self, db: Session, story_id: int, branch_id: int = None) -> List[Dict[str, Any]]:
+    def get_active_story_flow(self, db: Session, story_id: int, branch_id: int = None, chapter_id: int = None) -> List[Dict[str, Any]]:
         """Get the active story flow with scene variants.
 
         Wrapper for SceneDatabaseOperations.get_active_story_flow.
+
+        Args:
+            chapter_id: If provided, only return scenes for this chapter
         """
-        return self._scene_db_ops.get_active_story_flow(db, story_id, branch_id)
+        return self._scene_db_ops.get_active_story_flow(db, story_id, branch_id, chapter_id)
 
     def _update_story_flow(self, db: Session, story_id: int, sequence_number: int, scene_id: int, variant_id: int, branch_id: int = None):
         """Update or create story flow entry.

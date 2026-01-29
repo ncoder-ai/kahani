@@ -73,8 +73,8 @@ class SceneVariantServiceAdapter:
 
         return variant
 
-    def get_active_story_flow(self, story_id: int, branch_id: int = None):
-        return llm_service.get_active_story_flow(self.db, story_id, branch_id=branch_id)
+    def get_active_story_flow(self, story_id: int, branch_id: int = None, chapter_id: int = None):
+        return llm_service.get_active_story_flow(self.db, story_id, branch_id=branch_id, chapter_id=chapter_id)
 
     def get_scene_variants(self, scene_id: int):
         return llm_service.get_scene_variants(self.db, scene_id)

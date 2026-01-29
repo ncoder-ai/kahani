@@ -218,6 +218,7 @@ async def create_story(
 async def get_story(
     story_id: int,
     branch_id: int = None,
+    chapter_id: int = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -225,6 +226,7 @@ async def get_story(
 
     Args:
         branch_id: Optional. If provided, use this branch. Otherwise uses story's current_branch_id.
+        chapter_id: Optional. If provided, only return scenes for this chapter (performance optimization).
     """
 
     story = db.query(Story).filter(
@@ -250,7 +252,7 @@ async def get_story(
 
     # Get the active story flow instead of direct scenes
     service = SceneVariantService(db)
-    flow = service.get_active_story_flow(story_id, branch_id=active_branch_id)
+    flow = service.get_active_story_flow(story_id, branch_id=active_branch_id, chapter_id=chapter_id)
 
     # Transform flow data to match expected format for backward compatibility
     scenes = []

@@ -489,25 +489,18 @@ export default function SceneVariantDisplay({
     return '';
   }, [variants, currentVariantId]);
 
-    // Load variants on mount if scene has multiple variants
+    // Load variants on mount ONLY for last scene
+    // For other scenes, variants are loaded on-demand when user clicks navigation arrows
+    // This prevents N+1 API calls for all scenes with has_multiple_variants=True
   useEffect(() => {
-    // Load variants if scene has multiple variants and we haven't loaded yet
-    // OR if has_multiple_variants is true but variants array is empty/outdated
-    if ((scene.has_multiple_variants || isLastScene) && !isLoadingVariants) {
-      // If has_multiple_variants is true but we have 1 or fewer variants, force reload
-      if (scene.has_multiple_variants && variants.length <= 1) {
-        hasLoadedVariantsRef.current.delete(scene.id);
-      }
-      
-      const shouldLoad = variants.length === 0 || 
-                        (scene.has_multiple_variants && !hasLoadedVariantsRef.current.has(scene.id));
-      
-      if (shouldLoad) {
+    // Only auto-load variants for the last scene (where user is actively working)
+    if (isLastScene && !isLoadingVariants && variants.length === 0) {
+      if (!hasLoadedVariantsRef.current.has(scene.id)) {
         hasLoadedVariantsRef.current.add(scene.id);
         loadVariants();
       }
     }
-  }, [scene.id, scene.has_multiple_variants, isLastScene, isLoadingVariants, variants.length]);
+  }, [scene.id, isLastScene, isLoadingVariants, variants.length]);
 
   // Set initial variant ID from scene and reload variants when variant_id changes
   useEffect(() => {
@@ -606,7 +599,8 @@ export default function SceneVariantDisplay({
     const currentChoicesCount = scene.choices?.length || 0;
     
     // For NEW scenes (no variants loaded yet), trigger initial load when choices appear
-    if (variants.length === 0 && currentChoicesCount > 0 && !isLoadingVariants) {
+    // Only for last scene to prevent N+1 API calls
+    if (isLastScene && variants.length === 0 && currentChoicesCount > 0 && !isLoadingVariants) {
       hasLoadedVariantsRef.current.delete(scene.id);
       loadVariants();
       previousChoicesCountRef.current = currentChoicesCount;
@@ -633,7 +627,7 @@ export default function SceneVariantDisplay({
     // Update refs for next comparison
     previousChoicesCountRef.current = currentChoicesCount;
     sceneChoicesKeyRef.current = currentChoicesKey;
-  }, [scene.choices, scene.id, currentVariantId, isLoadingVariants]);
+  }, [scene.choices, scene.id, currentVariantId, isLoadingVariants, isLastScene]);
 
   // Keyboard navigation for variants (only for last scene)
   useEffect(() => {

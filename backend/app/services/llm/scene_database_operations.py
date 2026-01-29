@@ -188,12 +188,15 @@ class SceneDatabaseOperations:
 
         return query.count()
 
-    def get_active_story_flow(self, db: Session, story_id: int, branch_id: int = None) -> List[Dict[str, Any]]:
+    def get_active_story_flow(self, db: Session, story_id: int, branch_id: int = None, chapter_id: int = None) -> List[Dict[str, Any]]:
         """Get the active story flow with scene variants.
 
         Optimized to use batch loading instead of N+1 queries.
         Previous: 4 queries per scene (scene, variant, choices, variant_count)
         Now: 5 queries total regardless of scene count
+
+        Args:
+            chapter_id: If provided, only return scenes for this chapter
         """
         from ...models import StoryFlow, Scene, SceneVariant, SceneChoice
 
@@ -205,6 +208,9 @@ class SceneDatabaseOperations:
         flow_query = db.query(StoryFlow).filter(StoryFlow.story_id == story_id)
         if branch_id:
             flow_query = flow_query.filter(StoryFlow.branch_id == branch_id)
+        if chapter_id:
+            # Join with Scene to filter by chapter
+            flow_query = flow_query.join(Scene, StoryFlow.scene_id == Scene.id).filter(Scene.chapter_id == chapter_id)
         flow_entries = flow_query.order_by(StoryFlow.sequence_number).all()
 
         if not flow_entries:
