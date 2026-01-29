@@ -45,7 +45,8 @@ class SceneDatabaseOperations:
         custom_prompt: str = None,
         choices: List[Dict[str, Any]] = None,
         generation_method: str = "auto",
-        branch_id: int = None
+        branch_id: int = None,
+        chapter_id: int = None
     ) -> Tuple[Any, Any]:
         """Create a new scene with its first variant"""
         from ...models import Scene, SceneVariant, SceneChoice, StoryFlow
@@ -74,6 +75,7 @@ class SceneDatabaseOperations:
         scene = Scene(
             story_id=story_id,
             branch_id=branch_id,
+            chapter_id=chapter_id,
             sequence_number=sequence_number,
             title=title or f"Scene {sequence_number}",
         )

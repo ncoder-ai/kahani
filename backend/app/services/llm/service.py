@@ -3073,7 +3073,8 @@ Chapter Conclusion:"""
         custom_prompt: str = None,
         choices: List[Dict[str, Any]] = None,
         generation_method: str = "auto",
-        branch_id: int = None
+        branch_id: int = None,
+        chapter_id: int = None
     ) -> Tuple[Any, Any]:
         """Create a new scene with its first variant.
 
@@ -3081,7 +3082,7 @@ Chapter Conclusion:"""
         """
         return self._scene_db_ops.create_scene_with_variant(
             db, story_id, sequence_number, content, title,
-            custom_prompt, choices, generation_method, branch_id
+            custom_prompt, choices, generation_method, branch_id, chapter_id
         )
 
     async def regenerate_scene_variant(

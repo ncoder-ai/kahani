@@ -145,7 +145,8 @@ def create_scene_with_multi_variants(
     branch_id: int,
     generation_method: str = "auto",
     title: Optional[str] = None,
-    custom_prompt: Optional[str] = None
+    custom_prompt: Optional[str] = None,
+    chapter_id: Optional[int] = None
 ) -> Tuple[Scene, List[SceneVariant]]:
     """
     Create a Scene with multiple SceneVariants and their choices.
@@ -159,6 +160,7 @@ def create_scene_with_multi_variants(
         generation_method: Method used for generation
         title: Optional scene title
         custom_prompt: Optional custom prompt used
+        chapter_id: Optional chapter ID to link scene to
 
     Returns:
         Tuple of (Scene, List[SceneVariant])
@@ -168,6 +170,7 @@ def create_scene_with_multi_variants(
         story_id=story_id,
         sequence_number=sequence_number,
         branch_id=branch_id,
+        chapter_id=chapter_id,
         title=title or f"Scene {sequence_number}",
         is_deleted=False
     )

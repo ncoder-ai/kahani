@@ -232,6 +232,37 @@ async def generate_scene(
         logger.warning(f"Failed to format choices: {e}")
         choices_data = []
 
+    # Get or create active chapter BEFORE scene creation to ensure chapter_id is set atomically
+    active_chapter = None
+    chapter_id = None
+    try:
+        active_chapter = db.query(Chapter).filter(
+            Chapter.story_id == story_id,
+            Chapter.branch_id == active_branch_id,
+            Chapter.status == ChapterStatus.ACTIVE
+        ).order_by(Chapter.chapter_number.desc()).first()
+
+        if not active_chapter:
+            # Create first chapter if none exists for this branch
+            active_chapter = Chapter(
+                story_id=story_id,
+                branch_id=active_branch_id,
+                chapter_number=1,
+                title="Chapter 1",
+                status=ChapterStatus.ACTIVE,
+                context_tokens_used=0,
+                scenes_count=0,
+                last_summary_scene_count=0
+            )
+            db.add(active_chapter)
+            db.flush()
+            logger.info(f"[CHAPTER] Created first chapter {active_chapter.id} for story {story_id} on branch {active_branch_id}")
+
+        chapter_id = active_chapter.id
+    except Exception as e:
+        logger.error(f"[CHAPTER] Failed to get/create chapter: {e}")
+        # Continue without chapter - scene will still be created
+
     # Use the new variant service to create scene with variant
     try:
         service = SceneVariantService(db)
@@ -243,62 +274,36 @@ async def generate_scene(
             custom_prompt=effective_custom_prompt if effective_custom_prompt else None,
             choices=choices_data,
             generation_method=generation_method,
-            branch_id=active_branch_id
+            branch_id=active_branch_id,
+            chapter_id=chapter_id
         )
 
         # Format choices for response (already in correct format)
         formatted_choices = choices_data
 
-        # Chapter integration - link scene to active chapter
-        active_chapter = None
-        try:
-            # Get or create active chapter for this story (filtered by branch)
-            active_chapter = db.query(Chapter).filter(
-                Chapter.story_id == story_id,
-                Chapter.branch_id == active_branch_id,
-                Chapter.status == ChapterStatus.ACTIVE
-            ).order_by(Chapter.chapter_number.desc()).first()
-
-            if not active_chapter:
-                # Create first chapter if none exists for this branch
-                active_chapter = Chapter(
-                    story_id=story_id,
-                    branch_id=active_branch_id,
-                    chapter_number=1,
-                    title="Chapter 1",
-                    status=ChapterStatus.ACTIVE,
-                    context_tokens_used=0,
-                    scenes_count=0,
-                    last_summary_scene_count=0
-                )
-                db.add(active_chapter)
-                db.flush()
-                logger.info(f"[CHAPTER] Created first chapter {active_chapter.id} for story {story_id} on branch {active_branch_id}")
-
-            # Link scene to active chapter
-            scene.chapter_id = active_chapter.id
-            db.flush()  # Flush to ensure chapter_id is set before counting scenes
-
-            # Update chapter token tracking - calculate actual context size that would be sent to LLM
-            # This includes base context, chapter summaries, entity states, and only recent scenes from current chapter
+        # Chapter integration - update chapter stats (chapter already linked during scene creation)
+        if active_chapter:
             try:
-                actual_context_size = await context_manager.calculate_actual_context_size(
-                    story_id, active_chapter.id, db
-                )
-                active_chapter.context_tokens_used = actual_context_size
-                logger.info(f"[CHAPTER] Calculated actual context size for chapter {active_chapter.id}: {actual_context_size} tokens")
-            except Exception as e:
-                logger.error(f"[CHAPTER] Failed to calculate actual context size for chapter {active_chapter.id}: {e}")
-                # Fallback: use scene tokens as before (but log the issue)
-                scene_tokens = context_manager.count_tokens(scene_content.strip())
-                active_chapter.context_tokens_used += scene_tokens
-                logger.warning(f"[CHAPTER] Using fallback token accumulation: {scene_tokens} tokens added")
+                # Update chapter token tracking - calculate actual context size that would be sent to LLM
+                # This includes base context, chapter summaries, entity states, and only recent scenes from current chapter
+                try:
+                    actual_context_size = await context_manager.calculate_actual_context_size(
+                        story_id, active_chapter.id, db
+                    )
+                    active_chapter.context_tokens_used = actual_context_size
+                    logger.info(f"[CHAPTER] Calculated actual context size for chapter {active_chapter.id}: {actual_context_size} tokens")
+                except Exception as e:
+                    logger.error(f"[CHAPTER] Failed to calculate actual context size for chapter {active_chapter.id}: {e}")
+                    # Fallback: use scene tokens as before (but log the issue)
+                    scene_tokens = context_manager.count_tokens(scene_content.strip())
+                    active_chapter.context_tokens_used += scene_tokens
+                    logger.warning(f"[CHAPTER] Using fallback token accumulation: {scene_tokens} tokens added")
 
-            # Recalculate scenes_count from active StoryFlow instead of incrementing
-            active_chapter.scenes_count = llm_service.get_active_scene_count(db, story_id, branch_id=active_branch_id, chapter_id=active_chapter.id)
+                # Recalculate scenes_count from active StoryFlow instead of incrementing
+                active_chapter.scenes_count = llm_service.get_active_scene_count(db, story_id, branch_id=active_branch_id, chapter_id=active_chapter.id)
 
-            db.commit()
-            logger.info(f"[CHAPTER] Linked scene {scene.id} to chapter {active_chapter.id} ({active_chapter.scenes_count} scenes, {active_chapter.context_tokens_used} tokens)")
+                db.commit()
+                logger.info(f"[CHAPTER] Updated chapter {active_chapter.id} stats ({active_chapter.scenes_count} scenes, {active_chapter.context_tokens_used} tokens)")
 
             # AUTO-GENERATE SUMMARIES if enabled and threshold reached
             if active_chapter and user_settings:
@@ -586,13 +591,30 @@ async def generate_scene_streaming_endpoint(
     # Create context manager with user settings (semantic or linear)
     context_manager = get_context_manager_for_user(user_settings, current_user.id)
 
-    # Get active chapter for character separation (filtered by branch)
+    # Get or create active chapter for character separation (filtered by branch)
     active_chapter = db.query(Chapter).filter(
         Chapter.story_id == story_id,
         Chapter.branch_id == active_branch_id,
         Chapter.status == ChapterStatus.ACTIVE
-    ).first()
-    chapter_id = active_chapter.id if active_chapter else None
+    ).order_by(Chapter.chapter_number.desc()).first()
+
+    if not active_chapter:
+        # Create first chapter if none exists for this branch
+        active_chapter = Chapter(
+            story_id=story_id,
+            branch_id=active_branch_id,
+            chapter_number=1,
+            title="Chapter 1",
+            status=ChapterStatus.ACTIVE,
+            context_tokens_used=0,
+            scenes_count=0,
+            last_summary_scene_count=0
+        )
+        db.add(active_chapter)
+        db.flush()
+        logger.info(f"[CHAPTER] Created first chapter {active_chapter.id} for story {story_id} on branch {active_branch_id}")
+
+    chapter_id = active_chapter.id
 
     # Use context manager to build optimized context
     try:
@@ -703,7 +725,7 @@ async def generate_scene_streaming_endpoint(
                         else:
                             variants_data = vdata
 
-                # Create Scene with multiple variants
+                # Create Scene with multiple variants (chapter_id already set atomically)
                 if variants_data:
                     scene, created_variants = create_scene_with_multi_variants(
                         db=db,
@@ -713,7 +735,8 @@ async def generate_scene_streaming_endpoint(
                         branch_id=active_branch_id,
                         generation_method=generation_method,
                         title=f"Scene {next_sequence}",
-                        custom_prompt=effective_custom_prompt if effective_custom_prompt else None
+                        custom_prompt=effective_custom_prompt if effective_custom_prompt else None,
+                        chapter_id=chapter_id
                     )
 
                     # Format response
@@ -735,13 +758,12 @@ async def generate_scene_streaming_endpoint(
                     # Send multi_complete event
                     yield f"data: {json.dumps({'type': 'multi_complete', 'scene_id': scene.id, 'sequence': next_sequence, 'total_variants': len(created_variants), 'variants': variants_response})}\n\n"
 
-                    # Link scene to chapter
+                    # Update chapter stats (chapter_id already set during scene creation)
                     if active_chapter:
-                        scene.chapter_id = active_chapter.id
                         active_chapter.scenes_count = llm_service.get_active_scene_count(db, story_id, branch_id=active_branch_id, chapter_id=active_chapter.id)
                         db.commit()
 
-                    logger.info(f"[MULTI-GEN] Created scene {scene.id} with {len(created_variants)} variants")
+                    logger.info(f"[MULTI-GEN] Created scene {scene.id} with {len(created_variants)} variants in chapter {chapter_id}")
 
                     yield f"data: {json.dumps({'type': 'done'})}\n\n"
                     return  # Exit early - don't continue to single-generation path
@@ -841,6 +863,32 @@ async def generate_scene_streaming_endpoint(
             # Clean the final assembled content comprehensively (chunk cleaning may miss patterns)
             cleaned_full_content = llm_service._clean_scene_content(full_content.rstrip())
 
+            # Get or create active chapter BEFORE scene creation to ensure chapter_id is set atomically
+            chapter_id = None
+            active_chapter = db.query(Chapter).filter(
+                Chapter.story_id == story_id,
+                Chapter.branch_id == active_branch_id,
+                Chapter.status == ChapterStatus.ACTIVE
+            ).order_by(Chapter.chapter_number.desc()).first()
+
+            if not active_chapter:
+                # Create first chapter if none exists for this branch
+                active_chapter = Chapter(
+                    story_id=story_id,
+                    branch_id=active_branch_id,
+                    chapter_number=1,
+                    title="Chapter 1",
+                    status=ChapterStatus.ACTIVE,
+                    context_tokens_used=0,
+                    scenes_count=0,
+                    last_summary_scene_count=0
+                )
+                db.add(active_chapter)
+                db.flush()
+                logger.info(f"[CHAPTER] Created first chapter {active_chapter.id} for story {story_id} on branch {active_branch_id}")
+
+            chapter_id = active_chapter.id
+
             variant_service = SceneVariantService(db)
             try:
                 scene, variant = variant_service.create_scene_with_variant(
@@ -851,22 +899,17 @@ async def generate_scene_streaming_endpoint(
                     custom_prompt=effective_custom_prompt if effective_custom_prompt else None,
                     choices=[],  # We'll add choices later
                     generation_method=generation_method,
-                    branch_id=active_branch_id
+                    branch_id=active_branch_id,
+                    chapter_id=chapter_id
                 )
-                logger.info(f"Created scene {scene.id} with variant {variant.id} for story {story_id} on branch {active_branch_id} trace_id={trace_id}")
+                logger.info(f"Created scene {scene.id} with variant {variant.id} for story {story_id} on branch {active_branch_id} chapter {chapter_id} trace_id={trace_id}")
             except Exception as e:
                 logger.error(f"Failed to create scene variant: {e} trace_id={trace_id}")
                 raise
 
             # Process semantic embeddings (async, non-blocking)
             try:
-                # Get chapter ID if available (filtered by branch)
-                chapter_id = None
-                active_chapter = db.query(Chapter).filter(
-                    Chapter.story_id == story_id,
-                    Chapter.branch_id == active_branch_id,
-                    Chapter.status == ChapterStatus.ACTIVE
-                ).first()
+                # chapter_id already set above
                 if active_chapter:
                     chapter_id = active_chapter.id
 
@@ -937,36 +980,9 @@ async def generate_scene_streaming_endpoint(
                 choices_data = []
                 db.rollback()
 
-            # Chapter integration (optional - won't break if it fails)
-            active_chapter = None  # Initialize outside try block for use in background tasks
+            # Chapter integration - update chapter stats (chapter already created/linked during scene creation)
+            # active_chapter was set earlier before scene creation
             try:
-                # Get or create active chapter for this story (filtered by branch)
-                active_chapter = db.query(Chapter).filter(
-                    Chapter.story_id == story_id,
-                    Chapter.branch_id == active_branch_id,
-                    Chapter.status == ChapterStatus.ACTIVE
-                ).order_by(Chapter.chapter_number.desc()).first()
-
-                if not active_chapter:
-                    # Create first chapter if none exists for this branch
-                    active_chapter = Chapter(
-                        story_id=story_id,
-                        branch_id=active_branch_id,
-                        chapter_number=1,
-                        title="Chapter 1",
-                        status=ChapterStatus.ACTIVE,
-                        context_tokens_used=0,
-                        scenes_count=0,
-                        last_summary_scene_count=0
-                    )
-                    db.add(active_chapter)
-                    db.flush()
-                    logger.info(f"[CHAPTER] Created first chapter {active_chapter.id} for story {story_id} on branch {active_branch_id}")
-
-                # Link scene to active chapter
-                scene.chapter_id = active_chapter.id
-                db.flush()  # Flush to ensure chapter_id is set before counting scenes
-
                 # Update chapter token tracking - calculate actual context size that would be sent to LLM
                 # This includes base context, chapter summaries, entity states, and only recent scenes from current chapter
                 try:
