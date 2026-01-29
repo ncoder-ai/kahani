@@ -64,9 +64,13 @@ class CharacterState(Base):
     
     # Recent Activity
     recent_actions = Column(JSON, nullable=True)  # Last N actions
-    
+
     # Full State Snapshot (for flexibility)
     full_state = Column(JSON, nullable=True)
+
+    # Track manually edited fields (JSON array of field names)
+    # These fields will not be overwritten by automatic extraction
+    manually_edited_fields = Column(JSON, nullable=True)
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -100,6 +104,7 @@ class CharacterState(Base):
             "recent_decisions": self.recent_decisions or [],
             "recent_actions": self.recent_actions or [],
             "full_state": self.full_state or {},
+            "manually_edited_fields": self.manually_edited_fields or [],
             "updated_at": self.updated_at.isoformat() if self.updated_at else None
         }
 
