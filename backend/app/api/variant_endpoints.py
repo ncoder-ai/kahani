@@ -85,6 +85,7 @@ from .story_tasks import (
     get_variant_edit_lock,
     run_plot_extraction_in_background,
     recalculate_entities_in_background,
+    cleanup_semantic_data_in_background,
 )
 
 # Lazy import for semantic integration
@@ -1376,10 +1377,14 @@ async def update_scene_variant(
 
             # Only invalidate extractions (clean up old ones), don't regenerate
             # Regeneration will happen automatically when extraction threshold is reached
-            from ..services.semantic_integration import cleanup_scene_embeddings
+            # NOTE: Cleanup is now done in background to avoid blocking the UI response
             from ..services.entity_state_service import EntityStateService
-            await cleanup_scene_embeddings(scene_id, db)
-            logger.info(f"[MODIFY] Cleaned up extractions for scene {scene_id} (regeneration will happen when threshold is reached)")
+
+            # Schedule semantic cleanup in background (was blocking before)
+            # Reuse existing background function with single-element list
+            import asyncio
+            asyncio.create_task(cleanup_semantic_data_in_background([scene_id], story_id))
+            logger.info(f"[MODIFY] Scheduled cleanup of extractions for scene {scene_id} (non-blocking)")
 
             # Rollback entity states to prior valid batch and trigger re-extraction
             # This ensures any changes to character attributes/possessions/locations get re-extracted

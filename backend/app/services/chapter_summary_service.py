@@ -296,15 +296,28 @@ class ChapterSummaryService:
             batch_start = last_summary_count + 1
             batch_end = max(s.sequence_number for s in new_scenes)
 
-            # Store this batch
-            batch = ChapterSummaryBatch(
-                chapter_id=chapter_id,
-                start_scene_sequence=batch_start,
-                end_scene_sequence=batch_end,
-                summary=batch_summary
-            )
-            self.db.add(batch)
-            self.db.flush()
+            # Check if batch already exists for this scene range (upsert logic)
+            existing_batch = self.db.query(ChapterSummaryBatch).filter(
+                ChapterSummaryBatch.chapter_id == chapter_id,
+                ChapterSummaryBatch.start_scene_sequence == batch_start,
+                ChapterSummaryBatch.end_scene_sequence == batch_end
+            ).first()
+
+            if existing_batch:
+                # Update existing batch
+                existing_batch.summary = batch_summary
+                self.db.flush()
+                logger.info(f"[CHAPTER:SUMMARY:BATCH] Updated existing batch for chapter {chapter_id}: scenes {batch_start}-{batch_end}")
+            else:
+                # Create new batch
+                batch = ChapterSummaryBatch(
+                    chapter_id=chapter_id,
+                    start_scene_sequence=batch_start,
+                    end_scene_sequence=batch_end,
+                    summary=batch_summary
+                )
+                self.db.add(batch)
+                self.db.flush()
 
             # Update chapter's auto_summary from all batches
             update_chapter_summary_from_batches(chapter_id, self.db)

@@ -2241,62 +2241,52 @@ chapter_plot_guidance:
 chapter_progress:
   event_extraction:
     system: |
-      You analyze story scenes to identify which planned plot events are ACTIVELY DEPICTED in THIS scene.
+      You analyze story scenes to identify which planned plot events have occurred.
       Return ONLY a JSON array containing the EXACT event descriptions from the provided list.
-      
-      BE EXTREMELY STRICT - Default to returning an empty array []. Only include events you are 100% certain about.
-      
-      AN EVENT IS COMPLETE ONLY IF:
-      - The event is ACTIVELY SHOWN HAPPENING in this scene (not referenced as past or future)
-      - The ENTIRE event occurs from start to finish within this scene
-      - The specific action described in the event is explicitly depicted
-      - A reader would unambiguously say "I just read that event happen"
-      
+
+      MATCHING GUIDELINES:
+      - Check if the MEANING of each planned event is depicted in the scene
+      - The scene doesn't need to use the exact same words - look for semantic equivalence
+      - An event is "completed" if the core action clearly happened, even with different details
+      - Focus on WHAT happens, not the exact HOW
+
+      AN EVENT IS COMPLETE IF:
+      - The core action described in the event is shown happening in this scene
+      - The key characters involved are present and doing roughly what's described
+      - A reader would recognize "this is that planned event happening"
+
       AN EVENT IS NOT COMPLETE IF:
-      - The event happened BEFORE this scene (past tense references don't count)
-      - The event is remembered, recalled, or thought about (flashbacks don't count)
-      - Characters discuss or mention the event but it's not shown
-      - The event is foreshadowed or planned for the future
-      - Only part of the event occurred or it was interrupted
-      - Similar themes are present but the SPECIFIC event wasn't shown
-      - The event is implied, inferred, or could be assumed
-      - It's a vague/subjective event like "bond deepens" without clear observable action
-      - It's a meta-statement about the chapter rather than a concrete scene event
-      
-      CRITICAL DISTINCTIONS:
-      - "He watched through cameras" vs "He had watched" → Only the first counts (present action)
-      - "She discovered the letter" vs "She remembered discovering it" → Only the first counts
-      - Event happening NOW in scene vs event being REFERENCED → Only NOW counts
-      
+      - The event is only remembered, discussed, or referenced as past/future
+      - Only a small part of the event occurred
+      - Similar themes exist but the actual event didn't happen
+
       EXAMPLES:
-      - Event: "[Character A] watches [Character B] through the window" 
-        Scene says: "[A] remembered watching [B] yesterday" → NOT complete (past reference)
-        Scene says: "[A] pressed his face to the glass, watching [B]" → COMPLETE (active)
-      
-      - Event: "[Character A] and [Character B] share an emotional moment"
-        Scene shows: casual conversation at dinner → NOT complete (too vague)
-        Scene shows: [A] crying, [B] holding them, explicit emotional dialogue → COMPLETE
-      
-      When in doubt, return []. False negatives are acceptable; false positives are not.
-    
+      - Event: "John comes downstairs and finds Mary with another man"
+        Scene shows: John walking down stairs, seeing Mary close to Tom → COMPLETE (core action matches)
+        Scene shows: John remembers yesterday when he found them → NOT complete (past reference)
+
+      - Event: "Sarah confronts her fears"
+        Scene shows: Sarah avoiding a difficult conversation → NOT complete (opposite happened)
+        Scene shows: Sarah standing up to someone intimidating → COMPLETE
+
+      IMPORTANT: Copy the event text EXACTLY as written in the provided list.
+      If no events occurred, return an empty array: []
+
     user: |
       Scene content:
       {scene_content}
-      
+
       Planned events to check for:
       {key_events}
-      
-      Which events are ACTIVELY DEPICTED (not just referenced) in THIS scene?
-      
-      STRICT RULES:
-      - Only events SHOWN HAPPENING NOW, not referenced as past/future
-      - The complete event must occur, not just part of it
-      - Vague events need clear, observable evidence
-      - When uncertain, do NOT include the event
-      
-      Return a JSON array with EXACT event text from the list, or [] if none qualify.
-      
+
+      Which of these planned events OCCURRED in this scene?
+      Look for semantic equivalence - the exact words don't need to match, but the core action should.
+
+      Return ONLY the events that clearly happened as a JSON array.
+      COPY the event text exactly from the list above.
+
       Example: ["Character finds and touches a dark crystalline pyramid artifact, which begins glowing and triggers overwhelming visions"]
+      If none occurred: []
       If none: []
 
 # =============================================================================

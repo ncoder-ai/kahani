@@ -325,42 +325,56 @@ class ChapterProgressService:
         completed_events: List[str]
     ) -> None:
         """
-        Create a new plot progress batch with cumulative events.
+        Create or update a plot progress batch with cumulative events.
+        Uses upsert logic to avoid duplicate batches for the same scene range.
         Preserves manually toggled events from the current chapter.plot_progress.
         """
         from ..models import ChapterPlotProgressBatch
         from sqlalchemy.orm.attributes import flag_modified
-        
+
         # Get previous batch's events to make this cumulative
         previous_batch = self.db.query(ChapterPlotProgressBatch).filter(
             ChapterPlotProgressBatch.chapter_id == chapter.id,
             ChapterPlotProgressBatch.end_scene_sequence < start_sequence
         ).order_by(ChapterPlotProgressBatch.end_scene_sequence.desc()).first()
-        
+
         # Merge with previous events (cumulative)
         all_events = set(previous_batch.completed_events or []) if previous_batch else set()
         all_events.update(completed_events)
-        
+
         # IMPORTANT: Also preserve any manually toggled events from current progress
         # This ensures user's manual toggles aren't lost when new batches are created
         current_progress = chapter.plot_progress or {}
         current_completed = set(current_progress.get("completed_events", []))
         all_events.update(current_completed)
-        
-        # Create new batch
-        batch = ChapterPlotProgressBatch(
-            chapter_id=chapter.id,
-            start_scene_sequence=start_sequence,
-            end_scene_sequence=end_sequence,
-            completed_events=list(all_events)
-        )
-        self.db.add(batch)
-        self.db.flush()
-        
+
+        # Check if batch already exists for this scene range (upsert logic)
+        existing_batch = self.db.query(ChapterPlotProgressBatch).filter(
+            ChapterPlotProgressBatch.chapter_id == chapter.id,
+            ChapterPlotProgressBatch.start_scene_sequence == start_sequence,
+            ChapterPlotProgressBatch.end_scene_sequence == end_sequence
+        ).first()
+
+        if existing_batch:
+            # Update existing batch
+            existing_batch.completed_events = list(all_events)
+            flag_modified(existing_batch, "completed_events")
+            self.db.flush()
+            logger.info(f"[PLOT_PROGRESS:BATCH] Updated existing batch for chapter {chapter.id} scenes {start_sequence}-{end_sequence} with {len(all_events)} cumulative events")
+        else:
+            # Create new batch
+            batch = ChapterPlotProgressBatch(
+                chapter_id=chapter.id,
+                start_scene_sequence=start_sequence,
+                end_scene_sequence=end_sequence,
+                completed_events=list(all_events)
+            )
+            self.db.add(batch)
+            self.db.flush()
+            logger.info(f"[PLOT_PROGRESS:BATCH] Created batch for chapter {chapter.id} scenes {start_sequence}-{end_sequence} with {len(all_events)} cumulative events")
+
         # Update chapter's plot_progress from batches
         self.update_plot_progress_from_batches(chapter.id)
-        
-        logger.info(f"[PLOT_PROGRESS:BATCH] Created batch for chapter {chapter.id} scenes {start_sequence}-{end_sequence} with {len(all_events)} cumulative events")
     
     def toggle_event_completion_with_batch(
         self,

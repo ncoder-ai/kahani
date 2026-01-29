@@ -1825,7 +1825,24 @@ class EntityStateService:
                 )
                 # Still create the batch for now, but the warning should be investigated
 
-            # Create batch snapshot
+            # Check if batch already exists for this scene range (upsert logic)
+            existing_batch = db.query(EntityStateBatch).filter(
+                EntityStateBatch.story_id == story_id,
+                EntityStateBatch.branch_id == branch_id if branch_id else EntityStateBatch.branch_id.is_(None),
+                EntityStateBatch.start_scene_sequence == start_scene_sequence,
+                EntityStateBatch.end_scene_sequence == end_scene_sequence
+            ).first()
+
+            if existing_batch:
+                # Update existing batch
+                existing_batch.character_states_snapshot = character_snapshot
+                existing_batch.location_states_snapshot = location_snapshot
+                existing_batch.object_states_snapshot = object_snapshot
+                db.flush()
+                logger.info(f"[ENTITY:BATCH] Updated existing batch for story {story_id} (branch {branch_id}): scenes {start_scene_sequence}-{end_scene_sequence}")
+                return existing_batch
+
+            # Create new batch snapshot
             batch = EntityStateBatch(
                 story_id=story_id,
                 branch_id=branch_id,
@@ -1835,11 +1852,11 @@ class EntityStateService:
                 location_states_snapshot=location_snapshot,
                 object_states_snapshot=object_snapshot
             )
-            
+
             db.add(batch)
             db.flush()
-            
-            logger.info(f"Created entity state batch snapshot for story {story_id} (branch {branch_id}): scenes {start_scene_sequence}-{end_scene_sequence} ({len(character_snapshot)} characters, {len(location_snapshot)} locations, {len(object_snapshot)} objects)")
+
+            logger.info(f"[ENTITY:BATCH] Created new batch for story {story_id} (branch {branch_id}): scenes {start_scene_sequence}-{end_scene_sequence} ({len(character_snapshot)} characters, {len(location_snapshot)} locations, {len(object_snapshot)} objects)")
             
             return batch
             
