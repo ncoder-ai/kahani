@@ -187,25 +187,20 @@ export default function EntityStatesModal({
   };
 
   const renderStringField = (label: string, field: string, value: string | null, isEditing: boolean) => {
-    if (isEditing) {
-      // When editing: always stack vertically for better mobile experience
-      return (
-        <div className="py-1.5">
-          <label className="block text-gray-300 text-xs font-medium mb-1">{label}</label>
+    // Always stack vertically - label above value/input
+    return (
+      <div className="py-1.5">
+        <label className="block text-gray-400 text-xs font-medium mb-0.5">{label}</label>
+        {isEditing ? (
           <input
             type="text"
             value={(editData[field] as string) ?? value ?? ''}
             onChange={(e) => setEditData(prev => ({ ...prev, [field]: e.target.value || null }))}
             className="w-full bg-slate-700 border border-slate-500 rounded px-2 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none"
           />
-        </div>
-      );
-    }
-    // When viewing: inline layout
-    return (
-      <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-2 py-1">
-        <span className="text-gray-300 text-xs sm:text-sm sm:w-32 shrink-0 font-medium">{label}:</span>
-        <span className="text-white text-sm">{value || <span className="text-gray-400 italic">Not set</span>}</span>
+        ) : (
+          <span className="text-white text-sm">{value || <span className="text-gray-500 italic">Not set</span>}</span>
+        )}
       </div>
     );
   };
@@ -213,11 +208,11 @@ export default function EntityStatesModal({
   const renderArrayField = (label: string, field: string, values: string[], isEditing: boolean) => {
     const currentValues = isEditing ? ((editData[field] as string[]) ?? values) : values;
 
-    if (isEditing) {
-      return (
-        <div className="py-1.5">
-          <label className="block text-gray-300 text-xs font-medium mb-1">{label}</label>
-          <div className="space-y-2">
+    return (
+      <div className="py-1.5">
+        <label className="block text-gray-400 text-xs font-medium mb-0.5">{label}</label>
+        {isEditing ? (
+          <div className="space-y-2 mt-1">
             {currentValues.map((v, i) => (
               <div key={i} className="flex items-center gap-1.5">
                 <input
@@ -248,21 +243,14 @@ export default function EntityStatesModal({
               + Add item
             </button>
           </div>
-        </div>
-      );
-    }
-
-    return (
-      <div className="py-1">
-        <span className="text-gray-300 text-xs font-medium">{label}:</span>
-        {values.length > 0 ? (
-          <ul className="mt-1 ml-4 list-disc text-white text-sm space-y-0.5">
+        ) : values.length > 0 ? (
+          <ul className="ml-4 list-disc text-white text-sm space-y-0.5">
             {values.map((v, i) => (
               <li key={i}>{v}</li>
             ))}
           </ul>
         ) : (
-          <p className="mt-1 text-gray-400 text-sm italic">None</p>
+          <span className="text-gray-500 text-sm italic">None</span>
         )}
       </div>
     );
@@ -282,10 +270,10 @@ export default function EntityStatesModal({
     const entries = Object.entries(currentRelationships);
 
     return (
-      <div className="py-1">
-        <span className="text-gray-300 text-xs font-medium">Relationships:</span>
+      <div className="py-1.5">
+        <label className="block text-gray-400 text-xs font-medium mb-0.5">Relationships</label>
         {isEditing ? (
-          <div className="mt-1.5 space-y-3">
+          <div className="space-y-3 mt-1">
             {entries.map(([name, rel], i) => (
               <div key={i} className="p-2 bg-slate-800/50 rounded-lg space-y-2">
                 <div>
@@ -337,13 +325,13 @@ export default function EntityStatesModal({
             </button>
           </div>
         ) : entries.length > 0 ? (
-          <ul className="mt-1 ml-4 list-disc text-white text-sm space-y-0.5">
+          <ul className="ml-4 list-disc text-white text-sm space-y-0.5">
             {entries.map(([name, rel]) => (
               <li key={name}><span className="text-purple-400">{name}</span>: {relToString(rel)}</li>
             ))}
           </ul>
         ) : (
-          <p className="mt-1 text-gray-400 text-sm italic">None</p>
+          <span className="text-gray-500 text-sm italic">None</span>
         )}
       </div>
     );
