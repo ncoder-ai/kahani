@@ -89,6 +89,8 @@ export default function EntityStatesModal({
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editData, setEditData] = useState<Record<string, unknown>>({});
   const [counts, setCounts] = useState({ characters: 0, locations: 0, objects: 0 });
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -160,6 +162,9 @@ export default function EntityStatesModal({
   const saveEdit = async () => {
     if (!editingId) return;
 
+    setSaving(true);
+    setSaveError(null);
+
     try {
       if (activeTab === 'characters') {
         await apiClient.updateCharacterState(storyId, editingId, editData as Parameters<typeof apiClient.updateCharacterState>[2]);
@@ -175,11 +180,13 @@ export default function EntityStatesModal({
       setEditData({});
     } catch (err) {
       console.error('Failed to save state:', err);
+      setSaveError(err instanceof Error ? err.message : 'Failed to save changes');
+    } finally {
+      setSaving(false);
     }
   };
 
-  const renderStringField = (label: string, field: string, value: string | null) => {
-    const isEditing = editingId !== null;
+  const renderStringField = (label: string, field: string, value: string | null, isEditing: boolean) => {
     return (
       <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-2 py-1">
         <span className="text-gray-300 text-xs sm:text-sm sm:w-32 shrink-0 font-medium">{label}:</span>
@@ -197,9 +204,8 @@ export default function EntityStatesModal({
     );
   };
 
-  const renderArrayField = (label: string, field: string, values: string[]) => {
-    const isEditing = editingId !== null;
-    const currentValues = (editData[field] as string[]) ?? values;
+  const renderArrayField = (label: string, field: string, values: string[], isEditing: boolean) => {
+    const currentValues = isEditing ? ((editData[field] as string[]) ?? values) : values;
 
     return (
       <div className="py-1">
@@ -258,9 +264,8 @@ export default function EntityStatesModal({
     return String(rel);
   };
 
-  const renderRelationshipsField = (relationships: Record<string, RelationshipValue>) => {
-    const isEditing = editingId !== null;
-    const currentRelationships = (editData.relationships as Record<string, RelationshipValue>) ?? relationships ?? {};
+  const renderRelationshipsField = (relationships: Record<string, RelationshipValue>, isEditing: boolean) => {
+    const currentRelationships = isEditing ? ((editData.relationships as Record<string, RelationshipValue>) ?? relationships ?? {}) : (relationships ?? {});
     const entries = Object.entries(currentRelationships);
 
     return (
@@ -384,31 +389,57 @@ export default function EntityStatesModal({
         {/* Expanded Content */}
         {isExpanded && (
           <div className="px-3 sm:px-4 pb-3 sm:pb-4 border-t border-slate-700/50 pt-3 space-y-3">
+            {/* Edit mode indicator */}
+            {isEditing && (
+              <div className="bg-blue-900/30 border border-blue-700/50 rounded-lg p-2 text-xs sm:text-sm text-blue-300 flex items-center justify-between">
+                <span>Editing mode - make changes below</span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={saveEdit}
+                    disabled={saving}
+                    className="px-3 py-1 bg-green-600 hover:bg-green-700 disabled:bg-green-800 text-white rounded text-xs font-medium"
+                  >
+                    {saving ? 'Saving...' : 'Save'}
+                  </button>
+                  <button
+                    onClick={cancelEdit}
+                    className="px-3 py-1 bg-slate-600 hover:bg-slate-500 text-white rounded text-xs font-medium"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+            {saveError && isEditing && (
+              <div className="bg-red-900/30 border border-red-700/50 rounded-lg p-2 text-xs sm:text-sm text-red-300">
+                Error: {saveError}
+              </div>
+            )}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
               <div className="space-y-1">
-                {renderStringField('Location', 'current_location', state.current_location)}
-                {renderStringField('Emotional State', 'emotional_state', state.emotional_state)}
-                {renderStringField('Physical Condition', 'physical_condition', state.physical_condition)}
-                {renderStringField('Appearance', 'appearance', state.appearance)}
-                {renderStringField('Current Goal', 'current_goal', state.current_goal)}
-                {renderStringField('Arc Stage', 'arc_stage', state.arc_stage)}
+                {renderStringField('Location', 'current_location', state.current_location, isEditing)}
+                {renderStringField('Emotional State', 'emotional_state', state.emotional_state, isEditing)}
+                {renderStringField('Physical Condition', 'physical_condition', state.physical_condition, isEditing)}
+                {renderStringField('Appearance', 'appearance', state.appearance, isEditing)}
+                {renderStringField('Current Goal', 'current_goal', state.current_goal, isEditing)}
+                {renderStringField('Arc Stage', 'arc_stage', state.arc_stage, isEditing)}
               </div>
               <div className="space-y-1">
-                {renderArrayField('Possessions', 'possessions', state.possessions)}
-                {renderArrayField('Knowledge', 'knowledge', state.knowledge)}
-                {renderArrayField('Secrets', 'secrets', state.secrets)}
+                {renderArrayField('Possessions', 'possessions', state.possessions, isEditing)}
+                {renderArrayField('Knowledge', 'knowledge', state.knowledge, isEditing)}
+                {renderArrayField('Secrets', 'secrets', state.secrets, isEditing)}
               </div>
             </div>
             <div className="border-t border-slate-700/30 pt-2 mt-2">
-              {renderRelationshipsField(state.relationships)}
+              {renderRelationshipsField(state.relationships, isEditing)}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 border-t border-slate-700/30 pt-2">
               <div className="space-y-1">
-                {renderArrayField('Active Conflicts', 'active_conflicts', state.active_conflicts)}
-                {renderArrayField('Recent Decisions', 'recent_decisions', state.recent_decisions)}
+                {renderArrayField('Active Conflicts', 'active_conflicts', state.active_conflicts, isEditing)}
+                {renderArrayField('Recent Decisions', 'recent_decisions', state.recent_decisions, isEditing)}
               </div>
               <div className="space-y-1">
-                {renderArrayField('Recent Actions', 'recent_actions', state.recent_actions)}
+                {renderArrayField('Recent Actions', 'recent_actions', state.recent_actions, isEditing)}
               </div>
             </div>
           </div>
@@ -474,17 +505,32 @@ export default function EntityStatesModal({
 
         {isExpanded && (
           <div className="px-3 sm:px-4 pb-3 sm:pb-4 border-t border-slate-700/50 pt-3 space-y-3">
+            {/* Edit mode indicator */}
+            {isEditing && (
+              <div className="bg-blue-900/30 border border-blue-700/50 rounded-lg p-2 text-xs sm:text-sm text-blue-300 flex items-center justify-between">
+                <span>Editing mode</span>
+                <div className="flex gap-2">
+                  <button onClick={saveEdit} disabled={saving} className="px-3 py-1 bg-green-600 hover:bg-green-700 disabled:bg-green-800 text-white rounded text-xs font-medium">
+                    {saving ? 'Saving...' : 'Save'}
+                  </button>
+                  <button onClick={cancelEdit} className="px-3 py-1 bg-slate-600 hover:bg-slate-500 text-white rounded text-xs font-medium">Cancel</button>
+                </div>
+              </div>
+            )}
+            {saveError && isEditing && (
+              <div className="bg-red-900/30 border border-red-700/50 rounded-lg p-2 text-xs sm:text-sm text-red-300">Error: {saveError}</div>
+            )}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
               <div className="space-y-1">
-                {renderStringField('Condition', 'condition', state.condition)}
-                {renderStringField('Atmosphere', 'atmosphere', state.atmosphere)}
-                {renderStringField('Time of Day', 'time_of_day', state.time_of_day)}
-                {renderStringField('Weather', 'weather', state.weather)}
+                {renderStringField('Condition', 'condition', state.condition, isEditing)}
+                {renderStringField('Atmosphere', 'atmosphere', state.atmosphere, isEditing)}
+                {renderStringField('Time of Day', 'time_of_day', state.time_of_day, isEditing)}
+                {renderStringField('Weather', 'weather', state.weather, isEditing)}
               </div>
               <div className="space-y-1">
-                {renderArrayField('Current Occupants', 'current_occupants', state.current_occupants)}
-                {renderArrayField('Notable Features', 'notable_features', state.notable_features)}
-                {renderArrayField('Significant Events', 'significant_events', state.significant_events)}
+                {renderArrayField('Current Occupants', 'current_occupants', state.current_occupants, isEditing)}
+                {renderArrayField('Notable Features', 'notable_features', state.notable_features, isEditing)}
+                {renderArrayField('Significant Events', 'significant_events', state.significant_events, isEditing)}
               </div>
             </div>
           </div>
@@ -550,19 +596,34 @@ export default function EntityStatesModal({
 
         {isExpanded && (
           <div className="px-3 sm:px-4 pb-3 sm:pb-4 border-t border-slate-700/50 pt-3 space-y-3">
+            {/* Edit mode indicator */}
+            {isEditing && (
+              <div className="bg-blue-900/30 border border-blue-700/50 rounded-lg p-2 text-xs sm:text-sm text-blue-300 flex items-center justify-between">
+                <span>Editing mode</span>
+                <div className="flex gap-2">
+                  <button onClick={saveEdit} disabled={saving} className="px-3 py-1 bg-green-600 hover:bg-green-700 disabled:bg-green-800 text-white rounded text-xs font-medium">
+                    {saving ? 'Saving...' : 'Save'}
+                  </button>
+                  <button onClick={cancelEdit} className="px-3 py-1 bg-slate-600 hover:bg-slate-500 text-white rounded text-xs font-medium">Cancel</button>
+                </div>
+              </div>
+            )}
+            {saveError && isEditing && (
+              <div className="bg-red-900/30 border border-red-700/50 rounded-lg p-2 text-xs sm:text-sm text-red-300">Error: {saveError}</div>
+            )}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
               <div className="space-y-1">
-                {renderStringField('Object Type', 'object_type', state.object_type)}
-                {renderStringField('Condition', 'condition', state.condition)}
-                {renderStringField('Current Location', 'current_location', state.current_location)}
-                {renderStringField('Significance', 'significance', state.significance)}
-                {renderStringField('Origin', 'origin', state.origin)}
+                {renderStringField('Object Type', 'object_type', state.object_type, isEditing)}
+                {renderStringField('Condition', 'condition', state.condition, isEditing)}
+                {renderStringField('Current Location', 'current_location', state.current_location, isEditing)}
+                {renderStringField('Significance', 'significance', state.significance, isEditing)}
+                {renderStringField('Origin', 'origin', state.origin, isEditing)}
               </div>
               <div className="space-y-1">
-                {renderArrayField('Powers', 'powers', state.powers)}
-                {renderArrayField('Limitations', 'limitations', state.limitations)}
-                {renderArrayField('Previous Owners', 'previous_owners', state.previous_owners)}
-                {renderArrayField('Recent Events', 'recent_events', state.recent_events)}
+                {renderArrayField('Powers', 'powers', state.powers, isEditing)}
+                {renderArrayField('Limitations', 'limitations', state.limitations, isEditing)}
+                {renderArrayField('Previous Owners', 'previous_owners', state.previous_owners, isEditing)}
+                {renderArrayField('Recent Events', 'recent_events', state.recent_events, isEditing)}
               </div>
             </div>
           </div>
