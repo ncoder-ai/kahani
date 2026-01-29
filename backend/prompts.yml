@@ -1327,13 +1327,18 @@ entity_state_extraction:
         * BAD: "compliant" (behavior, not physical condition)
         * BAD: "exerted" (vague - use specific like "sweating" or "breathing hard")
       
-      For "current_attire": ONLY physical clothing items currently worn
+      For "current_attire": ONLY physical clothing items currently WORN ON BODY
         * GOOD: "nude", "wearing lingerie", "shirtless", "in a dress"
-        * GOOD: "wearing shirt and pants", "in underwear only"
+        * GOOD: "wearing shirt and pants", "in underwear only", "wrapped in towel"
         * BAD: "wearing perfume and sweat" (not clothing items)
         * BAD: "dressed provocatively" (interpretation, not description)
         * BAD: "wearing formal attire" (too vague - specify actual items)
-        * Use "nude" if character is naked, null if attire not mentioned
+        * CRITICAL: Objects being USED/HELD are NOT attire. Read carefully:
+          - "dries hands on towel" = using towel, NOT wearing → use null
+          - "wrapped in towel after shower" = wearing towel → "wrapped in towel"
+          - "holds robe" = NOT wearing → use null
+          - "puts on robe" = wearing → "wearing robe"
+        * Use "nude" if explicitly naked, null if attire not mentioned or unchanged
       
       For "knowledge_gained": ONLY new factual information character learned
         * GOOD: "learned Robert is a photographer", "discovered room has cameras"
@@ -1493,10 +1498,11 @@ entity_state_extraction:
         * GOOD: "wounded", "exhausted", "healthy"
         * BAD: "appears to be in good health based on actions"
       
-      For "current_attire": Extract ONLY what is explicitly mentioned
-        * GOOD: "wearing torn red jacket", "shirtless", "in uniform"
+      For "current_attire": Extract ONLY what is explicitly WORN on body
+        * GOOD: "wearing torn red jacket", "shirtless", "in uniform", "wrapped in towel"
         * BAD: "dressed in standard field gear" (if not stated)
-        * Use null if no clothing is mentioned
+        * CRITICAL: USING an object != WEARING it ("dries hands on towel" is NOT attire)
+        * Use null if no clothing is mentioned or attire unchanged
       
       CRITICAL INSTRUCTIONS FOR LOCATION EXTRACTION:
       ONLY extract locations that are:

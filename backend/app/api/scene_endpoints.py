@@ -305,35 +305,35 @@ async def generate_scene(
                 db.commit()
                 logger.info(f"[CHAPTER] Updated chapter {active_chapter.id} stats ({active_chapter.scenes_count} scenes, {active_chapter.context_tokens_used} tokens)")
 
-            # AUTO-GENERATE SUMMARIES if enabled and threshold reached
-            if active_chapter and user_settings:
-                # Check if we should auto-generate summaries
-                auto_generate = user_settings.get("auto_generate_summaries", True)
-                threshold = user_settings.get("context_summary_threshold", 5)
+                # AUTO-GENERATE SUMMARIES if enabled and threshold reached
+                if user_settings:
+                    # Check if we should auto-generate summaries
+                    auto_generate = user_settings.get("auto_generate_summaries", True)
+                    threshold = user_settings.get("context_summary_threshold", 5)
 
-                if auto_generate:
-                    # Calculate scenes since last summary
-                    scenes_since_summary = active_chapter.scenes_count - (active_chapter.last_summary_scene_count or 0)
+                    if auto_generate:
+                        # Calculate scenes since last summary
+                        scenes_since_summary = active_chapter.scenes_count - (active_chapter.last_summary_scene_count or 0)
 
-                    if scenes_since_summary >= threshold:
-                        logger.info(f"[AUTO-SUMMARY] Threshold reached ({scenes_since_summary}/{threshold}) for chapter {active_chapter.id}")
+                        if scenes_since_summary >= threshold:
+                            logger.info(f"[AUTO-SUMMARY] Threshold reached ({scenes_since_summary}/{threshold}) for chapter {active_chapter.id}")
 
-                        # Generate chapter summary with context from previous chapters
-                        from ..api.chapters import generate_chapter_summary_incremental
-                        try:
-                            await generate_chapter_summary_incremental(active_chapter.id, db, current_user.id)
-                            # Note: story_so_far is NOT regenerated here because it only includes previous chapters,
-                            # not the current chapter, so updating current chapter's summary doesn't affect it
-                            logger.info(f"[AUTO-SUMMARY] Generated chapter summary for chapter {active_chapter.id}")
-                        except Exception as e:
-                            logger.error(f"[AUTO-SUMMARY] Failed to auto-generate summaries: {e}")
-                            # Don't fail the scene creation if summary fails
-        except Exception as e:
-            logger.error(f"[CHAPTER] Failed to link scene to chapter: {e}")
-            # Don't fail scene creation if chapter linking fails, but log the error
-            db.rollback()
-            # Try to commit just the scene without chapter linking
-            db.commit()
+                            # Generate chapter summary with context from previous chapters
+                            from ..api.chapters import generate_chapter_summary_incremental
+                            try:
+                                await generate_chapter_summary_incremental(active_chapter.id, db, current_user.id)
+                                # Note: story_so_far is NOT regenerated here because it only includes previous chapters,
+                                # not the current chapter, so updating current chapter's summary doesn't affect it
+                                logger.info(f"[AUTO-SUMMARY] Generated chapter summary for chapter {active_chapter.id}")
+                            except Exception as e:
+                                logger.error(f"[AUTO-SUMMARY] Failed to auto-generate summaries: {e}")
+                                # Don't fail the scene creation if summary fails
+            except Exception as e:
+                logger.error(f"[CHAPTER] Failed to link scene to chapter: {e}")
+                # Don't fail scene creation if chapter linking fails, but log the error
+                db.rollback()
+                # Try to commit just the scene without chapter linking
+                db.commit()
 
     except Exception as e:
         logger.error(f"Failed to create scene with variant: {e}")

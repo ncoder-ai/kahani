@@ -4,6 +4,9 @@ import { useState, useEffect } from 'react';
 import { X, Trash2, Edit2, Check, XCircle, ChevronDown, ChevronRight, Users, MapPin, Package } from 'lucide-react';
 import apiClient from '@/lib/api';
 
+// Relationship can be a string or a nested object with type/status/change
+type RelationshipValue = string | { type?: string; status?: string; change?: string; [key: string]: string | undefined };
+
 interface CharacterState {
   id: number;
   character_id: number;
@@ -19,7 +22,7 @@ interface CharacterState {
   active_conflicts: string[];
   knowledge: string[];
   secrets: string[];
-  relationships: Record<string, string>;
+  relationships: Record<string, RelationshipValue>;
   arc_stage: string | null;
   arc_progress: number | null;
   recent_decisions: string[];
@@ -246,9 +249,18 @@ export default function EntityStatesModal({
     );
   };
 
-  const renderRelationshipsField = (relationships: Record<string, string>) => {
+  // Helper to convert relationship value to string for display/editing
+  const relToString = (rel: RelationshipValue): string => {
+    if (typeof rel === 'string') return rel;
+    if (typeof rel === 'object' && rel !== null) {
+      return rel.type || rel.status || JSON.stringify(rel);
+    }
+    return String(rel);
+  };
+
+  const renderRelationshipsField = (relationships: Record<string, RelationshipValue>) => {
     const isEditing = editingId !== null;
-    const currentRelationships = (editData.relationships as Record<string, string>) ?? relationships;
+    const currentRelationships = (editData.relationships as Record<string, RelationshipValue>) ?? relationships ?? {};
     const entries = Object.entries(currentRelationships);
 
     return (
@@ -273,7 +285,7 @@ export default function EntityStatesModal({
                 <span className="text-gray-400">→</span>
                 <input
                   type="text"
-                  value={rel}
+                  value={relToString(rel)}
                   placeholder="Relationship"
                   onChange={(e) => {
                     const newRels = { ...currentRelationships, [name]: e.target.value };
@@ -303,7 +315,7 @@ export default function EntityStatesModal({
         ) : entries.length > 0 ? (
           <ul className="mt-1 ml-4 list-disc text-white text-sm space-y-0.5">
             {entries.map(([name, rel]) => (
-              <li key={name}><span className="text-purple-400">{name}</span>: {rel}</li>
+              <li key={name}><span className="text-purple-400">{name}</span>: {relToString(rel)}</li>
             ))}
           </ul>
         ) : (
