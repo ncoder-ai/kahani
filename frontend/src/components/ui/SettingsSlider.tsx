@@ -50,8 +50,8 @@ export default function SettingsSlider({
 
   return (
     <div className={className}>
-      <label htmlFor={id} className="block text-sm font-medium text-white mb-2">
-        {label}: {displayValue}
+      <label htmlFor={id} className="block text-xs sm:text-sm font-medium text-white mb-1 sm:mb-2">
+        {label}: <span className="text-blue-400">{displayValue}</span>
       </label>
       <input
         id={id}
@@ -65,7 +65,7 @@ export default function SettingsSlider({
         className={`w-full ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
       />
       {description && (
-        <p className="text-xs text-gray-400 mt-1">{description}</p>
+        <p className="text-[10px] sm:text-xs text-gray-400 mt-1">{description}</p>
       )}
     </div>
   );

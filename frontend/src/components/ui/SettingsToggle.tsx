@@ -36,13 +36,13 @@ export default function SettingsToggle({
 
   if (switchStyle) {
     return (
-      <div className={`flex items-center justify-between ${className}`}>
-        <div>
-          <label htmlFor={id} className="text-sm font-medium text-white cursor-pointer">
+      <div className={`flex items-center justify-between gap-3 ${className}`}>
+        <div className="flex-1 min-w-0">
+          <label htmlFor={id} className="text-xs sm:text-sm font-medium text-white cursor-pointer">
             {label}
           </label>
           {description && (
-            <p className="text-xs text-gray-400 mt-1">{description}</p>
+            <p className="text-[10px] sm:text-xs text-gray-400 mt-0.5">{description}</p>
           )}
         </div>
         <button
@@ -52,7 +52,7 @@ export default function SettingsToggle({
           onClick={() => !disabled && onChange(!checked)}
           disabled={disabled}
           className={`
-            relative inline-flex h-6 w-11 items-center rounded-full transition-colors
+            relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors
             ${checked ? 'bg-blue-600' : 'bg-gray-600'}
             ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
           `}
@@ -70,7 +70,7 @@ export default function SettingsToggle({
 
   // Standard checkbox style
   return (
-    <div className={`flex items-start gap-3 ${className}`}>
+    <div className={`flex items-start gap-2 sm:gap-3 ${className}`}>
       <input
         id={id}
         type="checkbox"
@@ -78,17 +78,17 @@ export default function SettingsToggle({
         onChange={handleChange}
         disabled={disabled}
         className={`
-          mt-1 h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-600
+          mt-0.5 h-4 w-4 flex-shrink-0 rounded border-gray-600 bg-gray-700 text-blue-600
           focus:ring-2 focus:ring-blue-500 focus:ring-offset-gray-800
           ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
         `}
       />
-      <div>
-        <label htmlFor={id} className={`text-sm font-medium text-white ${disabled ? '' : 'cursor-pointer'}`}>
+      <div className="min-w-0">
+        <label htmlFor={id} className={`text-xs sm:text-sm font-medium text-white ${disabled ? '' : 'cursor-pointer'}`}>
           {label}
         </label>
         {description && (
-          <p className="text-xs text-gray-400 mt-1">{description}</p>
+          <p className="text-[10px] sm:text-xs text-gray-400 mt-0.5">{description}</p>
         )}
       </div>
     </div>

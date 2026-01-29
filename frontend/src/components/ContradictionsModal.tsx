@@ -429,14 +429,17 @@ export default function ContradictionsModal({
                             {/* Resolution form */}
                             {isResolving && (
                               <div className="space-y-2">
-                                <textarea
-                                  value={resolveNote}
-                                  onChange={(e) => setResolveNote(e.target.value)}
-                                  placeholder="Add a note explaining why this is resolved..."
-                                  className="w-full p-2.5 sm:p-3 bg-slate-900 border border-slate-500 rounded-lg text-xs sm:text-sm text-white placeholder-gray-500 focus:outline-none focus:border-green-600 resize-none"
-                                  rows={2}
-                                  autoFocus
-                                />
+                                <div>
+                                  <label className="block text-xs font-medium text-gray-300 mb-1">Resolution Note</label>
+                                  <textarea
+                                    value={resolveNote}
+                                    onChange={(e) => setResolveNote(e.target.value)}
+                                    placeholder="Why is this resolved? (e.g., intentional plot decision, fixed in later scene)"
+                                    className="w-full p-2.5 bg-slate-900 border border-slate-500 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-green-600 resize-none"
+                                    rows={2}
+                                    autoFocus
+                                  />
+                                </div>
                                 <div className="flex items-center gap-2">
                                   <button
                                     onClick={() => handleResolve(c.id)}

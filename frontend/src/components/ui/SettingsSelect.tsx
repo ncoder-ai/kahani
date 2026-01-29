@@ -47,12 +47,12 @@ export default function SettingsSelect({
     onChange(e.target.value);
   };
 
-  const baseSelectClass = 'w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500';
+  const baseSelectClass = 'w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500';
   const disabledClass = disabled ? 'opacity-50 cursor-not-allowed' : '';
 
   return (
     <div className={className}>
-      <label htmlFor={id} className="block text-sm font-medium text-white mb-2">
+      <label htmlFor={id} className="block text-xs sm:text-sm font-medium text-white mb-1 sm:mb-2">
         {label}
         {required && <span className="text-red-400 ml-1">*</span>}
       </label>
@@ -80,7 +80,7 @@ export default function SettingsSelect({
         ))}
       </select>
       {description && (
-        <p className="text-xs text-gray-400 mt-1">{description}</p>
+        <p className="text-[10px] sm:text-xs text-gray-400 mt-1">{description}</p>
       )}
     </div>
   );
