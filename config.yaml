@@ -24,7 +24,7 @@ server:
     port: 6789
 
 cors:
-  origins: "*"  # Comma-separated list or "*" for all
+  origins: "https://k.nrdd.us"  # Only allow requests from reverse proxy domain
 
 # ----------------------------------------------------------------------------
 # DATABASE
@@ -113,7 +113,8 @@ sso:
   # If true, create Kahani user if they don't exist (requires approval if enabled)
   create_users: false
   # Trust proxy headers only from these IPs (empty = trust all - use with caution)
-  trusted_proxies: []
+  trusted_proxies:
+    - "172.168.1.201"
 
 # ----------------------------------------------------------------------------
 # CONTEXT MANAGEMENT
