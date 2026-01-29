@@ -262,8 +262,13 @@ class ChapterProgressService:
         
         if batches:
             latest_batch = max(batches, key=lambda b: b.end_scene_sequence)
+            # Union all events from all batches - handles out-of-order batch updates
+            # (e.g., when user marks event incomplete and earlier batch gets re-extracted)
+            all_events = set()
+            for batch in batches:
+                all_events.update(batch.completed_events or [])
             chapter.plot_progress = {
-                "completed_events": latest_batch.completed_events or [],
+                "completed_events": list(all_events),
                 "scene_count": latest_batch.end_scene_sequence,
                 "last_updated": datetime.utcnow().isoformat()
             }
@@ -605,26 +610,53 @@ class ChapterProgressService:
         key_events: List[str],
         llm_service,
         user_id: int,
-        user_settings: Dict[str, Any]
+        user_settings: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None,
+        db: Optional[Session] = None
     ) -> List[str]:
         """
         Use LLM to identify which key events occurred in the scene.
-        Uses extraction LLM if configured, otherwise falls back to main LLM.
-        
+
+        Supports three extraction modes (in priority order):
+        1. Context-aware extraction (use_context_aware_extraction=true + context provided):
+           Uses the main LLM with the full scene generation context for best accuracy.
+           Leverages prompt caching since message prefix matches scene generation.
+        2. Extraction LLM (extraction_model_settings.enabled=true):
+           Uses a separate smaller model for extraction.
+        3. Main LLM fallback: Uses main LLM with simple extraction prompt.
+
         Args:
             scene_content: The generated scene text
             key_events: List of planned key events to check for
-            llm_service: The LLM service to use for extraction (fallback)
+            llm_service: The LLM service to use
             user_id: User ID for LLM call
             user_settings: User settings for LLM call
-            
+            context: Optional context dict from scene generation (enables context-aware extraction)
+            db: Optional database session for preset lookups
+
         Returns:
             List of event descriptions that occurred in the scene
         """
         if not key_events:
             return []
-        
+
         try:
+            # Check if context-aware extraction is enabled
+            use_context_aware = user_settings.get('extraction_model_settings', {}).get('use_context_aware_extraction', False)
+
+            # Mode 1: Context-aware extraction (best quality, leverages cache)
+            if use_context_aware and context is not None:
+                logger.info(f"[PLOT_PROGRESS] Using context-aware extraction with main LLM (user_id={user_id})")
+                return await llm_service.extract_plot_events_with_context(
+                    scene_content=scene_content,
+                    key_events=key_events,
+                    context=context,
+                    user_id=user_id,
+                    user_settings=user_settings,
+                    db=db
+                )
+
+            # Mode 2 & 3: Traditional extraction (extraction LLM or main LLM fallback)
             # Get prompts for event extraction
             system_prompt, user_prompt = prompt_manager.get_prompt_pair(
                 "chapter_progress.event_extraction",
@@ -632,18 +664,18 @@ class ChapterProgressService:
                 scene_content=scene_content,
                 key_events=json.dumps(key_events, indent=2)
             )
-            
+
             # Check if extraction LLM is enabled
             extraction_enabled = user_settings.get('extraction_model_settings', {}).get('enabled', False)
-            
+
             response = None
-            
+
             if extraction_enabled:
                 try:
                     from .llm.extraction_service import ExtractionLLMService
-                    
+
                     logger.info(f"[PLOT_PROGRESS] Using extraction LLM for event extraction (user_id={user_id})")
-                    
+
                     # Get extraction model settings
                     ext_settings = user_settings.get('extraction_model_settings', {})
                     llm_settings = user_settings.get('llm_settings', {})
@@ -656,7 +688,7 @@ class ChapterProgressService:
                         max_tokens=ext_settings.get('max_tokens', 500),
                         timeout_total=timeout_total
                     )
-                    
+
                     # Generate with extraction model - use user's max_tokens setting
                     user_max_tokens = user_settings.get('llm_settings', {}).get('max_tokens', 2048)
                     response = await extraction_service.generate(
@@ -664,13 +696,13 @@ class ChapterProgressService:
                         system_prompt=system_prompt,
                         max_tokens=user_max_tokens
                     )
-                    
+
                     logger.info(f"[PLOT_PROGRESS] Successfully extracted events with extraction LLM")
-                    
+
                 except Exception as e:
                     logger.warning(f"[PLOT_PROGRESS] Extraction LLM failed, falling back to main LLM: {e}")
                     response = None  # Fall through to main LLM
-            
+
             # Use main LLM if extraction LLM not enabled or failed
             if response is None:
                 user_max_tokens = user_settings.get('llm_settings', {}).get('max_tokens', 2048)
@@ -682,23 +714,23 @@ class ChapterProgressService:
                     max_tokens=user_max_tokens,
                     temperature=0.3  # Low temperature for consistent extraction
                 )
-            
+
             # Parse response as JSON array
             logger.info(f"[PLOT_PROGRESS] Raw LLM response: {response[:500] if response else 'None'}...")
             cleaned = clean_llm_json(response)
             logger.info(f"[PLOT_PROGRESS] Cleaned JSON: {cleaned[:300] if cleaned else 'None'}...")
             completed = json.loads(cleaned)
-            
+
             if not isinstance(completed, list):
                 logger.warning(f"Event extraction returned non-list: {type(completed)}")
                 return []
-            
+
             # Validate that returned events are in the original list
             valid_events = [e for e in completed if e in key_events]
-            
+
             logger.info(f"Extracted {len(valid_events)} completed events from scene")
             return valid_events
-            
+
         except json.JSONDecodeError as e:
             logger.warning(f"Failed to parse event extraction response: {e}")
             return []

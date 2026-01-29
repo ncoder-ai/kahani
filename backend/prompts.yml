@@ -2268,6 +2268,28 @@ chapter_progress:
       Example: ["Event text copied exactly from the list above"]
       If none occurred: []
 
+  # Context-aware extraction: uses the full scene generation context
+  # This prompt is appended as the final message when reusing the scene generation context
+  context_aware_extraction:
+    user: |
+      The scene above was just generated. Now identify which of the chapter's planned plot events occurred.
+
+      CHAPTER PLOT EVENTS TO CHECK:
+      {key_events}
+
+      INSTRUCTIONS:
+      - Review the scene you just wrote
+      - Check which events from the list above CLEARLY occurred
+      - An event is "completed" only if its core action definitively happened
+      - Hints, foreshadowing, or partial progress do NOT count
+      - Most scenes contain 0-2 events - be selective
+      - Return the EXACT event text from the list - do not paraphrase
+
+      Return ONLY a JSON array with the exact event descriptions:
+      ["Event text copied exactly from above", "Another event if applicable"]
+
+      If no events occurred: []
+
 # =============================================================================
 # PACING - Chapter Plot Guidance and Progress-Based Pacing
 # =============================================================================

@@ -2285,7 +2285,125 @@ Chapter Conclusion:"""
             logger.warning(f"[CHOICES] LLM generated fewer choices than requested: got {len(choices)}, wanted {choices_count}")
 
         return choices
-    
+
+    async def extract_plot_events_with_context(
+        self,
+        scene_content: str,
+        key_events: List[str],
+        context: Dict[str, Any],
+        user_id: int,
+        user_settings: Dict[str, Any],
+        db: Optional[Session] = None
+    ) -> List[str]:
+        """
+        Extract completed plot events using the SAME multi-message structure as scene generation.
+
+        This leverages LLM prompt caching - messages 1-N are identical to scene generation,
+        only the final message differs (the generated scene + extraction request).
+
+        Since the main LLM just wrote the scene, it has full context and understanding
+        of what happened. This typically produces better extraction than a separate model.
+
+        Args:
+            scene_content: The generated scene text to analyze
+            key_events: List of chapter plot events to check for
+            context: The same context dict used for scene generation
+            user_id: User ID for LLM call
+            user_settings: User settings for LLM call
+            db: Database session for preset lookups
+
+        Returns:
+            List of event descriptions that occurred in the scene (exact matches from key_events)
+        """
+        if not key_events:
+            return []
+
+        # Get scene length and choices count from user settings (for system prompt consistency)
+        generation_prefs = user_settings.get("generation_preferences", {})
+        scene_length = generation_prefs.get("scene_length", "medium")
+        choices_count = generation_prefs.get("choices_count", 4)
+        separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
+        scene_length_description = self._get_scene_length_description(scene_length)
+
+        # === USE SAME SYSTEM PROMPT AS SCENE GENERATION FOR CACHE HITS ===
+        system_prompt = prompt_manager.get_prompt(
+            "scene_with_immediate", "system",
+            user_id=user_id,
+            db=db,
+            scene_length_description=scene_length_description,
+            choices_count=choices_count,
+            skip_choices=separate_choice_generation
+        )
+
+        # === BUILD SAME MULTI-MESSAGE STRUCTURE AS SCENE GENERATION ===
+        messages = [{"role": "system", "content": system_prompt.strip()}]
+
+        # Get scene batch size from user settings for cache optimization
+        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
+
+        # Add context as multiple user messages (SAME as scene generation - all CACHED)
+        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
+        messages.extend(context_messages)
+
+        # === ADD THE GENERATED SCENE AS ASSISTANT MESSAGE ===
+        # This simulates that the LLM just generated this scene
+        cleaned_scene = self._clean_scene_numbers(scene_content)
+        messages.append({"role": "assistant", "content": cleaned_scene})
+
+        # === FINAL USER MESSAGE: EXTRACTION REQUEST ===
+        # Format key events as a list for the prompt
+        key_events_formatted = json.dumps(key_events, indent=2, ensure_ascii=False)
+
+        extraction_prompt = prompt_manager.get_prompt(
+            "chapter_progress.context_aware_extraction", "user",
+            key_events=key_events_formatted
+        )
+        messages.append({"role": "user", "content": extraction_prompt})
+
+        logger.info(f"[PLOT_EXTRACTION_CONTEXT] Using multi-message structure: {len(messages)} messages, checking {len(key_events)} events")
+
+        # Use low temperature for consistent extraction
+        import copy
+        extraction_settings = copy.deepcopy(user_settings)
+        if 'llm_settings' not in extraction_settings:
+            extraction_settings['llm_settings'] = {}
+        extraction_settings['llm_settings']['temperature'] = 0.3
+        # Disable reasoning for extraction - we want direct JSON output
+        extraction_settings['llm_settings']['reasoning_effort'] = 'disabled'
+
+        # Generate response
+        try:
+            response = await self._generate_with_messages(
+                messages=messages,
+                user_id=user_id,
+                user_settings=extraction_settings,
+                max_tokens=500  # JSON array of events doesn't need many tokens
+            )
+
+            logger.info(f"[PLOT_EXTRACTION_CONTEXT] Raw response: {response[:300] if response else 'None'}...")
+
+            # Parse response as JSON array
+            from ..chapter_progress_service import clean_llm_json
+            cleaned = clean_llm_json(response)
+            completed = json.loads(cleaned)
+
+            if not isinstance(completed, list):
+                logger.warning(f"[PLOT_EXTRACTION_CONTEXT] Response is not a list: {type(completed)}")
+                return []
+
+            # Validate that returned events are in the original list
+            valid_events = [e for e in completed if e in key_events]
+
+            logger.info(f"[PLOT_EXTRACTION_CONTEXT] Extracted {len(valid_events)} valid events from scene")
+            return valid_events
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"[PLOT_EXTRACTION_CONTEXT] Failed to parse JSON response: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"[PLOT_EXTRACTION_CONTEXT] Extraction failed: {e}")
+            return []
+
     async def generate_scenario(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> str:
         """Generate a creative scenario based on user selections and characters"""
         

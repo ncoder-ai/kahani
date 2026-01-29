@@ -115,6 +115,7 @@ class ExtractionModelSettingsUpdate(BaseModel):
     max_tokens: Optional[int] = Field(default=None, ge=100, le=5000)
     fallback_to_main: Optional[bool] = None
     enable_combined_extraction: Optional[bool] = None  # Enable combined extraction (default: True)
+    use_context_aware_extraction: Optional[bool] = None  # Use main LLM with full scene context for better extraction
 
 
 class SamplerSettingValue(BaseModel):
@@ -486,7 +487,9 @@ async def update_user_settings(
             user_settings.extraction_model_max_tokens = ext.max_tokens
         if ext.fallback_to_main is not None:
             user_settings.extraction_fallback_to_main = ext.fallback_to_main
-    
+        if ext.use_context_aware_extraction is not None:
+            user_settings.use_context_aware_extraction = ext.use_context_aware_extraction
+
     # Update sampler settings
     if settings_update.sampler_settings:
         sampler = settings_update.sampler_settings

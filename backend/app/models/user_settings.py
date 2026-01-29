@@ -115,7 +115,8 @@ class UserSettings(Base):
     extraction_model_temperature = Column(Float, nullable=True)
     extraction_model_max_tokens = Column(Integer, nullable=True)
     extraction_fallback_to_main = Column(Boolean, nullable=True)
-    
+    use_context_aware_extraction = Column(Boolean, nullable=True)  # Use main LLM with full context for extraction
+
     # Advanced Settings
     custom_system_prompt = Column(Text, nullable=True)
     enable_experimental_features = Column(Boolean, nullable=True)
@@ -265,6 +266,7 @@ class UserSettings(Base):
                 "temperature": self.extraction_model_temperature if self.extraction_model_temperature is not None else ext_model_defaults.get("temperature", 0.3),
                 "max_tokens": self.extraction_model_max_tokens if self.extraction_model_max_tokens is not None else ext_model_defaults.get("max_tokens", 1000),
                 "fallback_to_main": self.extraction_fallback_to_main if self.extraction_fallback_to_main is not None else ext_model_defaults.get("fallback_to_main", True),
+                "use_context_aware_extraction": self.use_context_aware_extraction if self.use_context_aware_extraction is not None else ext_model_defaults.get("use_context_aware_extraction", False),
                 "enable_combined_extraction": True  # Default: enabled, combines all extractions in one LLM call
             },
             "advanced": {
@@ -580,7 +582,9 @@ class UserSettings(Base):
             self.extraction_model_max_tokens = ext_model.get("max_tokens", 1000)
         if self.extraction_fallback_to_main is None:
             self.extraction_fallback_to_main = ext_model.get("fallback_to_main", True)
-        
+        if self.use_context_aware_extraction is None:
+            self.use_context_aware_extraction = ext_model.get("use_context_aware_extraction", False)
+
         # Advanced Settings
         adv = user_defaults.get("advanced", {})
         if self.custom_system_prompt is None:

@@ -836,9 +836,17 @@ async def run_plot_extraction_in_background(
                 # Collect all extracted events first, then create a single batch
                 from ...services.chapter_progress_service import ChapterProgressService
                 from ...services.llm.service import UnifiedLLMService
+                from ...services.semantic_integration import get_context_manager_for_user
 
                 progress_service = ChapterProgressService(extraction_db)
                 local_llm_service = UnifiedLLMService()
+
+                # Check if context-aware extraction is enabled
+                use_context_aware = user_settings.get('extraction_model_settings', {}).get('use_context_aware_extraction', False)
+                context_manager = None
+                if use_context_aware:
+                    context_manager = get_context_manager_for_user(user_settings, user_id)
+                    logger.info(f"[PLOT_EXTRACTION] Context-aware extraction enabled, will build context for each scene")
 
                 key_events = extraction_chapter.chapter_plot.get("key_events", [])
                 all_extracted_events = []
@@ -869,13 +877,29 @@ async def run_plot_extraction_in_background(
                                 remaining_events = [e for e in key_events if e not in already_completed]
 
                                 if remaining_events:
+                                    # Build context if context-aware extraction is enabled
+                                    scene_context = None
+                                    if use_context_aware and context_manager:
+                                        try:
+                                            scene_context = await context_manager.build_scene_generation_context(
+                                                story_id=story_id,
+                                                db=extraction_db,
+                                                chapter_id=chapter_id,
+                                                branch_id=extraction_chapter.branch_id
+                                            )
+                                        except Exception as ctx_err:
+                                            logger.warning(f"[PLOT_EXTRACTION] Failed to build context, falling back to basic extraction: {ctx_err}")
+                                            scene_context = None
+
                                     # Extract events from this scene
                                     extracted = await progress_service.extract_completed_events(
                                         scene_content=variant.content,
                                         key_events=remaining_events,
                                         llm_service=local_llm_service,
                                         user_id=user_id,
-                                        user_settings=user_settings
+                                        user_settings=user_settings,
+                                        context=scene_context,
+                                        db=extraction_db
                                     )
                                     all_extracted_events.extend(extracted)
 

@@ -311,6 +311,7 @@ user_defaults:
     temperature: 0.3
     max_tokens: 1000
     fallback_to_main: true
+    use_context_aware_extraction: false  # Use main LLM with full scene context for extraction (better accuracy, leverages cache)
   advanced:
     custom_system_prompt: ""
     experimental_features: false

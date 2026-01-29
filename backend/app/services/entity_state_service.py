@@ -816,24 +816,27 @@ class EntityStateService:
                     max_tokens=1024
                 )
             else:
-                # Fall back to extraction service with defaults from config
-                from ..config import settings as app_settings
-                ext_defaults = app_settings._yaml_config.get('extraction_model', {})
-                if ext_defaults.get('url'):
-                    fallback_service = ExtractionLLMService(
-                        url=ext_defaults.get('url'),
-                        model=ext_defaults.get('model_name', 'default'),
-                        api_key=ext_defaults.get('api_key', ''),
-                        temperature=ext_defaults.get('temperature', 0.3),
-                        max_tokens=ext_defaults.get('max_tokens', 1024)
-                    )
-                    response = await fallback_service.generate(
-                        prompt=user_prompt,
-                        system_prompt=system_prompt,
+                # Check if fallback to main LLM is enabled
+                extraction_settings = self.user_settings.get('extraction_model_settings', {})
+                fallback_to_main = extraction_settings.get('fallback_to_main', True)
+
+                if fallback_to_main:
+                    # Use main LLM for extraction
+                    from .llm.service import UnifiedLLMService
+                    main_llm = UnifiedLLMService()
+                    messages = [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ]
+                    response = await main_llm.generate_non_streaming(
+                        messages=messages,
+                        user_id=self.user_id,
+                        user_settings=self.user_settings,
+                        temperature=0.3,
                         max_tokens=1024
                     )
                 else:
-                    logger.warning("[RELATIONSHIP] No extraction service or fallback available")
+                    logger.info("[RELATIONSHIP] Extraction model disabled and fallback_to_main=false, skipping")
                     return []
 
             if not response:

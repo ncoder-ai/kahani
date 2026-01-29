@@ -915,6 +915,7 @@ Chapter Conclusion:"""
             "chapter_brainstorm.chat": ("chapter_brainstorm", "chat"),
             "chapter_brainstorm.extract": ("chapter_brainstorm", "extract"),
             "chapter_progress.event_extraction": ("chapter_progress", "event_extraction"),
+            "chapter_progress.context_aware_extraction": ("chapter_progress", "context_aware_extraction"),
             # Pacing prompts
             "pacing.chapter_plot_header": ("pacing", "chapter_plot_header"),
             "pacing.chapter_plot_footer": ("pacing", "chapter_plot_footer"),
