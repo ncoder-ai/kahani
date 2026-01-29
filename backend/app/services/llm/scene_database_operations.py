@@ -10,7 +10,8 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import and_, desc
+from collections import defaultdict
+from sqlalchemy import and_, desc, func
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -188,50 +189,79 @@ class SceneDatabaseOperations:
         return query.count()
 
     def get_active_story_flow(self, db: Session, story_id: int, branch_id: int = None) -> List[Dict[str, Any]]:
-        """Get the active story flow with scene variants"""
+        """Get the active story flow with scene variants.
+
+        Optimized to use batch loading instead of N+1 queries.
+        Previous: 4 queries per scene (scene, variant, choices, variant_count)
+        Now: 5 queries total regardless of scene count
+        """
         from ...models import StoryFlow, Scene, SceneVariant, SceneChoice
 
         # Get active branch if not specified
         if branch_id is None:
             branch_id = self.get_active_branch_id(db, story_id)
 
-        # Get the story flow ordered by sequence (filtered by branch)
+        # 1. Get the story flow ordered by sequence (1 query)
         flow_query = db.query(StoryFlow).filter(StoryFlow.story_id == story_id)
         if branch_id:
             flow_query = flow_query.filter(StoryFlow.branch_id == branch_id)
         flow_entries = flow_query.order_by(StoryFlow.sequence_number).all()
 
+        if not flow_entries:
+            return []
+
+        # Extract IDs for batch loading
+        scene_ids = [fe.scene_id for fe in flow_entries]
+        variant_ids = [fe.scene_variant_id for fe in flow_entries]
+
+        # 2. Batch load all scenes (1 query)
+        scenes = db.query(Scene).filter(Scene.id.in_(scene_ids)).all()
+        scene_map = {s.id: s for s in scenes}
+
+        # 3. Batch load all active variants (1 query)
+        variants = db.query(SceneVariant).filter(SceneVariant.id.in_(variant_ids)).all()
+        variant_map = {v.id: v for v in variants}
+
+        # 4. Batch load all choices for these variants (1 query)
+        choices = db.query(SceneChoice)\
+            .filter(SceneChoice.scene_variant_id.in_(variant_ids))\
+            .order_by(SceneChoice.scene_variant_id, SceneChoice.choice_order)\
+            .all()
+        choices_by_variant = defaultdict(list)
+        for choice in choices:
+            choices_by_variant[choice.scene_variant_id].append(choice)
+
+        # 5. Batch get variant counts per scene (1 query)
+        variant_counts = db.query(
+            SceneVariant.scene_id,
+            func.count(SceneVariant.id)
+        ).filter(
+            SceneVariant.scene_id.in_(scene_ids)
+        ).group_by(SceneVariant.scene_id).all()
+        count_map = {scene_id: count for scene_id, count in variant_counts}
+
+        # Build result with O(1) lookups - no queries in loop
         result = []
         for flow_entry in flow_entries:
-            # Get the scene
-            scene = db.query(Scene).filter(Scene.id == flow_entry.scene_id).first()
+            scene = scene_map.get(flow_entry.scene_id)
             if not scene:
                 continue
 
-            # Get the active variant
-            variant = db.query(SceneVariant).filter(SceneVariant.id == flow_entry.scene_variant_id).first()
+            variant = variant_map.get(flow_entry.scene_variant_id)
             if not variant:
                 continue
 
-            # Get choices for this variant
-            choices = db.query(SceneChoice)\
-                .filter(SceneChoice.scene_variant_id == variant.id)\
-                .order_by(SceneChoice.choice_order)\
-                .all()
-
-            # Check if there are multiple variants for this scene
-            variant_count = db.query(SceneVariant)\
-                .filter(SceneVariant.scene_id == scene.id)\
-                .count()
+            scene_choices = choices_by_variant.get(variant.id, [])
+            variant_count = count_map.get(scene.id, 1)
 
             result.append({
                 'scene_id': scene.id,
-                'chapter_id': scene.chapter_id,  # Add chapter_id for frontend filtering
+                'chapter_id': scene.chapter_id,
                 'sequence_number': flow_entry.sequence_number,
                 'title': variant.title or scene.title,
                 'content': variant.content,
                 'location': variant.location or '',
-                'characters_present': [],  # Could be enhanced to get actual characters
+                'characters_present': [],
                 'variant': {
                     'id': variant.id,
                     'variant_number': variant.variant_number,
@@ -250,7 +280,7 @@ class SceneDatabaseOperations:
                         'text': choice.choice_text,
                         'description': choice.choice_description,
                         'order': choice.choice_order
-                    } for choice in choices
+                    } for choice in scene_choices
                 ]
             })
 
