@@ -467,7 +467,8 @@ class EntityStateService:
         branch_id: int,
         chapter_id: Optional[int],
         scene_sequence: int,
-        scene_content: str
+        scene_content: str,
+        scene_generation_context: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Update working memory after scene generation.
@@ -505,7 +506,9 @@ class EntityStateService:
             # Extract updates using LLM
             updates = await self._extract_working_memory_updates(
                 scene_content=scene_content,
-                current_focus=current_focus
+                current_focus=current_focus,
+                scene_generation_context=scene_generation_context,
+                db=db
             )
 
             if updates:
@@ -531,16 +534,37 @@ class EntityStateService:
     async def _extract_working_memory_updates(
         self,
         scene_content: str,
-        current_focus: List[str]
+        current_focus: List[str],
+        scene_generation_context: Optional[Dict[str, Any]] = None,
+        db: Optional[Session] = None
     ) -> Optional[Dict[str, Any]]:
-        """Extract working memory updates from scene content."""
+        """Extract working memory updates from scene content.
 
-        # Try extraction LLM first, fall back to main LLM
+        If scene_generation_context is provided, uses cache-friendly unified extraction
+        that matches the scene generation message structure for cache hits.
+        """
+        current_focus_str = ', '.join(current_focus[:3]) if current_focus else 'None'
+
+        # === CACHE-FRIENDLY PATH: Use unified service method ===
+        if scene_generation_context is not None:
+            logger.info("[WORKING_MEMORY] Using cache-friendly extraction with scene generation context")
+            llm_service = UnifiedLLMService()
+            return await llm_service.extract_working_memory_cache_friendly(
+                scene_content=scene_content,
+                current_focus=current_focus_str,
+                context=scene_generation_context,
+                user_id=self.user_id,
+                user_settings=self.user_settings,
+                db=db
+            )
+
+        # === FALLBACK PATH: Original 2-message structure ===
+        logger.info("[WORKING_MEMORY] Using fallback extraction (no scene context - cache may miss)")
         extraction_service = self._get_extraction_service()
 
         template_vars = {
             'scene_content': scene_content[:3000],  # Limit content length
-            'current_focus': ', '.join(current_focus[:3]) if current_focus else 'None'
+            'current_focus': current_focus_str
         }
 
         try:
@@ -669,7 +693,8 @@ class EntityStateService:
         scene_id: int,
         scene_sequence: int,
         scene_content: str,
-        characters: List[str]
+        characters: List[str],
+        scene_generation_context: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """
         Extract and update character relationships from a scene.
@@ -699,7 +724,9 @@ class EntityStateService:
                 scene_content=scene_content,
                 characters=characters,
                 previous_relationships=previous_rels,
-                canonical_names=canonical_names
+                canonical_names=canonical_names,
+                scene_generation_context=scene_generation_context,
+                db=db
             )
 
             # Post-process: normalize names and deduplicate
@@ -783,16 +810,39 @@ class EntityStateService:
         scene_content: str,
         characters: List[str],
         previous_relationships: str,
-        canonical_names: List[str] = None
+        canonical_names: List[str] = None,
+        scene_generation_context: Optional[Dict[str, Any]] = None,
+        db: Optional[Session] = None
     ) -> List[Dict[str, Any]]:
-        """Extract relationship updates from scene content using LLM."""
+        """Extract relationship updates from scene content using LLM.
 
-        extraction_service = self._get_extraction_service()
-
+        If scene_generation_context is provided, uses cache-friendly unified extraction
+        that matches the scene generation message structure for cache hits.
+        """
         # Build canonical name list for the prompt
         name_list = canonical_names if canonical_names else characters
-        character_names_str = '\n'.join(f'- {name}' for name in name_list)
+        character_names_list = [name for name in name_list]
 
+        # === CACHE-FRIENDLY PATH: Use unified service method ===
+        if scene_generation_context is not None:
+            logger.info("[RELATIONSHIP] Using cache-friendly extraction with scene generation context")
+            llm_service = UnifiedLLMService()
+            return await llm_service.extract_relationship_cache_friendly(
+                scene_content=scene_content,
+                character_names=character_names_list,
+                characters_in_scene=characters,
+                previous_relationships=previous_relationships,
+                context=scene_generation_context,
+                user_id=self.user_id,
+                user_settings=self.user_settings,
+                db=db
+            )
+
+        # === FALLBACK PATH: Original 2-message structure ===
+        logger.info("[RELATIONSHIP] Using fallback extraction (no scene context - cache may miss)")
+        extraction_service = self._get_extraction_service()
+
+        character_names_str = '\n'.join(f'- {name}' for name in name_list)
         template_vars = {
             'scene_content': scene_content[:4000],  # Limit content length
             'characters': ', '.join(characters),

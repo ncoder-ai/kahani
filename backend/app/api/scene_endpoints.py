@@ -462,7 +462,8 @@ async def generate_scene(
             scene_sequence=next_sequence,
             scene_content=scene_content,
             user_id=current_user.id,
-            user_settings=user_settings or {}
+            user_settings=user_settings or {},
+            scene_generation_context=context  # Pass context for cache-friendly extraction
         )
     except Exception as e:
         logger.error(f"[WORKING_MEMORY] Failed to schedule update: {e}")
@@ -477,7 +478,8 @@ async def generate_scene(
             scene_sequence=next_sequence,
             scene_content=scene_content,
             user_id=current_user.id,
-            user_settings=user_settings or {}
+            user_settings=user_settings or {},
+            scene_generation_context=context  # Pass context for cache-friendly extraction
         )
     except Exception as e:
         logger.error(f"[RELATIONSHIP] Failed to schedule update: {e}")
@@ -1384,7 +1386,8 @@ async def generate_scene_streaming_endpoint(
                     scene_sequence=scene.sequence_number,
                     scene_content=cleaned_full_content,
                     user_id=current_user.id,
-                    user_settings=user_settings or {}
+                    user_settings=user_settings or {},
+                    scene_generation_context=context  # Pass context for cache-friendly extraction
                 )
                 logger.info(f"[WORKING_MEMORY] Scheduled update for scene {scene.sequence_number}")
             except Exception as e:
@@ -1400,7 +1403,8 @@ async def generate_scene_streaming_endpoint(
                     scene_sequence=scene.sequence_number,
                     scene_content=cleaned_full_content,
                     user_id=current_user.id,
-                    user_settings=user_settings or {}
+                    user_settings=user_settings or {},
+                    scene_generation_context=context  # Pass context for cache-friendly extraction
                 )
                 logger.info(f"[RELATIONSHIP] Scheduled update for scene {scene.sequence_number}")
             except Exception as e:

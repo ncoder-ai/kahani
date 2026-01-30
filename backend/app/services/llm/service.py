@@ -2524,6 +2524,527 @@ Chapter Conclusion:"""
             logger.error(f"[COMBINED_EXTRACTION] Extraction failed: {e}")
             raise
 
+    async def extract_working_memory_cache_friendly(
+        self,
+        scene_content: str,
+        current_focus: str,
+        context: Dict[str, Any],
+        user_id: int,
+        user_settings: Dict[str, Any],
+        db: Optional[Session] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Extract working memory updates using cache-friendly multi-message structure.
+
+        Uses SAME message structure as scene generation for maximum cache hits:
+        - Messages 1-N identical to scene generation (CACHED)
+        - Final USER message contains scene + extraction instruction
+
+        Routes to extraction LLM or main LLM - same structure for both.
+
+        Args:
+            scene_content: The generated scene text to analyze
+            current_focus: Current narrative focus for context
+            context: The same context dict used for scene generation
+            user_id: User ID for LLM call
+            user_settings: User settings for LLM call
+            db: Database session for preset lookups
+
+        Returns:
+            Dict with recent_focus and character_spotlight, or None on failure
+        """
+        # Get scene generation parameters (IDENTICAL to scene generation)
+        generation_prefs = user_settings.get("generation_preferences", {})
+        scene_length = generation_prefs.get("scene_length", "medium")
+        choices_count = generation_prefs.get("choices_count", 4)
+        separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
+        scene_length_description = self._get_scene_length_description(scene_length)
+
+        # === SAME SYSTEM PROMPT AS SCENE GENERATION ===
+        system_prompt = prompt_manager.get_prompt(
+            "scene_with_immediate", "system",
+            user_id=user_id,
+            db=db,
+            scene_length_description=scene_length_description,
+            choices_count=choices_count,
+            skip_choices=separate_choice_generation
+        )
+
+        # === BUILD SAME MULTI-MESSAGE STRUCTURE ===
+        messages = [{"role": "system", "content": system_prompt.strip()}]
+
+        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
+        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
+        messages.extend(context_messages)
+
+        # === FINAL USER MESSAGE: SCENE + WORKING MEMORY INSTRUCTION ===
+        cleaned_scene = self._clean_scene_numbers(scene_content)
+
+        final_message = prompt_manager.get_prompt(
+            "working_memory_cache_friendly", "user",
+            scene_content=cleaned_scene,
+            current_focus=current_focus or "None set"
+        )
+        messages.append({"role": "user", "content": final_message})
+
+        logger.info(f"[WORKING_MEMORY] Cache-friendly structure: {len(messages)} messages")
+
+        # === ROUTE TO APPROPRIATE LLM (SAME MESSAGES FOR BOTH) ===
+        ext_settings = user_settings.get('extraction_model_settings', {})
+        use_extraction_model = ext_settings.get('enabled', False)
+
+        try:
+            if use_extraction_model:
+                extraction_service = self._get_extraction_service(user_settings)
+                if extraction_service:
+                    logger.info("[WORKING_MEMORY] Using extraction LLM with cache-friendly structure")
+                    response = await extraction_service.generate_with_messages(
+                        messages=messages,
+                        max_tokens=512
+                    )
+                else:
+                    use_extraction_model = False
+
+            if not use_extraction_model:
+                logger.info("[WORKING_MEMORY] Using main LLM with cache-friendly structure")
+                import copy
+                extraction_settings = copy.deepcopy(user_settings)
+                extraction_settings.setdefault('llm_settings', {})['temperature'] = 0.3
+                extraction_settings['llm_settings']['reasoning_effort'] = 'disabled'
+
+                response = await self._generate_with_messages(
+                    messages=messages,
+                    user_id=user_id,
+                    user_settings=extraction_settings,
+                    max_tokens=512
+                )
+
+            if not response:
+                return None
+
+            # Parse JSON response
+            import re
+            from ..chapter_progress_service import clean_llm_json
+            response_text = response.strip()
+            json_match = re.search(r'\{[\s\S]*\}', response_text)
+            if json_match:
+                try:
+                    return json.loads(json_match.group())
+                except json.JSONDecodeError:
+                    cleaned = clean_llm_json(json_match.group())
+                    return json.loads(cleaned)
+
+            return None
+
+        except Exception as e:
+            logger.error(f"[WORKING_MEMORY] Cache-friendly extraction failed: {e}")
+            return None
+
+    async def extract_relationship_cache_friendly(
+        self,
+        scene_content: str,
+        character_names: List[str],
+        characters_in_scene: List[str],
+        previous_relationships: str,
+        context: Dict[str, Any],
+        user_id: int,
+        user_settings: Dict[str, Any],
+        db: Optional[Session] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Extract relationship updates using cache-friendly multi-message structure.
+
+        Uses SAME message structure as scene generation for maximum cache hits:
+        - Messages 1-N identical to scene generation (CACHED)
+        - Final USER message contains scene + extraction instruction
+
+        Routes to extraction LLM or main LLM - same structure for both.
+
+        Args:
+            scene_content: The generated scene text to analyze
+            character_names: Canonical character names
+            characters_in_scene: Characters present in the scene
+            previous_relationships: Summary of previous relationship states
+            context: The same context dict used for scene generation
+            user_id: User ID for LLM call
+            user_settings: User settings for LLM call
+            db: Database session for preset lookups
+
+        Returns:
+            List of relationship dicts, or empty list on failure
+        """
+        # Get scene generation parameters (IDENTICAL to scene generation)
+        generation_prefs = user_settings.get("generation_preferences", {})
+        scene_length = generation_prefs.get("scene_length", "medium")
+        choices_count = generation_prefs.get("choices_count", 4)
+        separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
+        scene_length_description = self._get_scene_length_description(scene_length)
+
+        # === SAME SYSTEM PROMPT AS SCENE GENERATION ===
+        system_prompt = prompt_manager.get_prompt(
+            "scene_with_immediate", "system",
+            user_id=user_id,
+            db=db,
+            scene_length_description=scene_length_description,
+            choices_count=choices_count,
+            skip_choices=separate_choice_generation
+        )
+
+        # === BUILD SAME MULTI-MESSAGE STRUCTURE ===
+        messages = [{"role": "system", "content": system_prompt.strip()}]
+
+        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
+        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
+        messages.extend(context_messages)
+
+        # === FINAL USER MESSAGE: SCENE + RELATIONSHIP INSTRUCTION ===
+        cleaned_scene = self._clean_scene_numbers(scene_content)
+
+        character_names_str = ", ".join(character_names) if character_names else "None"
+        characters_str = ", ".join(characters_in_scene) if characters_in_scene else "None"
+
+        final_message = prompt_manager.get_prompt(
+            "relationship_cache_friendly", "user",
+            scene_content=cleaned_scene,
+            character_names=character_names_str,
+            characters=characters_str,
+            previous_relationships=previous_relationships or "None"
+        )
+        messages.append({"role": "user", "content": final_message})
+
+        logger.info(f"[RELATIONSHIP] Cache-friendly structure: {len(messages)} messages")
+
+        # === ROUTE TO APPROPRIATE LLM (SAME MESSAGES FOR BOTH) ===
+        ext_settings = user_settings.get('extraction_model_settings', {})
+        use_extraction_model = ext_settings.get('enabled', False)
+
+        try:
+            if use_extraction_model:
+                extraction_service = self._get_extraction_service(user_settings)
+                if extraction_service:
+                    logger.info("[RELATIONSHIP] Using extraction LLM with cache-friendly structure")
+                    response = await extraction_service.generate_with_messages(
+                        messages=messages,
+                        max_tokens=1024
+                    )
+                else:
+                    use_extraction_model = False
+
+            if not use_extraction_model:
+                logger.info("[RELATIONSHIP] Using main LLM with cache-friendly structure")
+                import copy
+                extraction_settings = copy.deepcopy(user_settings)
+                extraction_settings.setdefault('llm_settings', {})['temperature'] = 0.3
+                extraction_settings['llm_settings']['reasoning_effort'] = 'disabled'
+
+                response = await self._generate_with_messages(
+                    messages=messages,
+                    user_id=user_id,
+                    user_settings=extraction_settings,
+                    max_tokens=1024
+                )
+
+            if not response:
+                return []
+
+            # Parse JSON response
+            import re
+            from ..chapter_progress_service import clean_llm_json
+            response_text = response.strip()
+            json_match = re.search(r'\{[\s\S]*\}', response_text)
+            if json_match:
+                try:
+                    data = json.loads(json_match.group())
+                    return data.get('relationships', [])
+                except json.JSONDecodeError:
+                    cleaned = clean_llm_json(json_match.group())
+                    data = json.loads(cleaned)
+                    return data.get('relationships', [])
+
+            return []
+
+        except Exception as e:
+            logger.error(f"[RELATIONSHIP] Cache-friendly extraction failed: {e}")
+            return []
+
+    async def extract_npcs_cache_friendly(
+        self,
+        scene_content: str,
+        explicit_names: List[str],
+        context: Dict[str, Any],
+        user_id: int,
+        user_settings: Dict[str, Any],
+        db: Optional[Session] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Extract NPCs using cache-friendly multi-message structure.
+
+        Uses SAME message structure as scene generation for maximum cache hits.
+        Routes to extraction LLM or main LLM - same structure for both.
+
+        Returns:
+            List of NPC dicts, or empty list on failure
+        """
+        generation_prefs = user_settings.get("generation_preferences", {})
+        scene_length = generation_prefs.get("scene_length", "medium")
+        choices_count = generation_prefs.get("choices_count", 4)
+        separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
+        scene_length_description = self._get_scene_length_description(scene_length)
+
+        system_prompt = prompt_manager.get_prompt(
+            "scene_with_immediate", "system",
+            user_id=user_id,
+            db=db,
+            scene_length_description=scene_length_description,
+            choices_count=choices_count,
+            skip_choices=separate_choice_generation
+        )
+
+        messages = [{"role": "system", "content": system_prompt.strip()}]
+        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
+        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
+        messages.extend(context_messages)
+
+        cleaned_scene = self._clean_scene_numbers(scene_content)
+        explicit_names_str = ", ".join(explicit_names) if explicit_names else "None"
+
+        final_message = prompt_manager.get_prompt(
+            "npc_extraction_cache_friendly", "user",
+            scene_content=cleaned_scene,
+            explicit_names=explicit_names_str
+        )
+        messages.append({"role": "user", "content": final_message})
+
+        logger.info(f"[NPC_EXTRACTION] Cache-friendly structure: {len(messages)} messages")
+
+        ext_settings = user_settings.get('extraction_model_settings', {})
+        use_extraction_model = ext_settings.get('enabled', False)
+
+        try:
+            if use_extraction_model:
+                extraction_service = self._get_extraction_service(user_settings)
+                if extraction_service:
+                    logger.info("[NPC_EXTRACTION] Using extraction LLM with cache-friendly structure")
+                    response = await extraction_service.generate_with_messages(messages=messages, max_tokens=1500)
+                else:
+                    use_extraction_model = False
+
+            if not use_extraction_model:
+                logger.info("[NPC_EXTRACTION] Using main LLM with cache-friendly structure")
+                import copy
+                extraction_settings = copy.deepcopy(user_settings)
+                extraction_settings.setdefault('llm_settings', {})['temperature'] = 0.3
+                extraction_settings['llm_settings']['reasoning_effort'] = 'disabled'
+                response = await self._generate_with_messages(messages=messages, user_id=user_id, user_settings=extraction_settings, max_tokens=1500)
+
+            if not response:
+                return []
+
+            import re
+            from ..chapter_progress_service import clean_llm_json
+            response_text = response.strip()
+            json_match = re.search(r'\{[\s\S]*\}', response_text)
+            if json_match:
+                try:
+                    data = json.loads(json_match.group())
+                    return data.get('npcs', [])
+                except json.JSONDecodeError:
+                    cleaned = clean_llm_json(json_match.group())
+                    data = json.loads(cleaned)
+                    return data.get('npcs', [])
+
+            return []
+
+        except Exception as e:
+            logger.error(f"[NPC_EXTRACTION] Cache-friendly extraction failed: {e}")
+            return []
+
+    async def extract_character_moments_cache_friendly(
+        self,
+        scene_content: str,
+        character_names: List[str],
+        context: Dict[str, Any],
+        user_id: int,
+        user_settings: Dict[str, Any],
+        db: Optional[Session] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Extract character moments using cache-friendly multi-message structure.
+
+        Uses SAME message structure as scene generation for maximum cache hits.
+        Routes to extraction LLM or main LLM - same structure for both.
+
+        Returns:
+            List of character moment dicts, or empty list on failure
+        """
+        generation_prefs = user_settings.get("generation_preferences", {})
+        scene_length = generation_prefs.get("scene_length", "medium")
+        choices_count = generation_prefs.get("choices_count", 4)
+        separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
+        scene_length_description = self._get_scene_length_description(scene_length)
+
+        system_prompt = prompt_manager.get_prompt(
+            "scene_with_immediate", "system",
+            user_id=user_id,
+            db=db,
+            scene_length_description=scene_length_description,
+            choices_count=choices_count,
+            skip_choices=separate_choice_generation
+        )
+
+        messages = [{"role": "system", "content": system_prompt.strip()}]
+        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
+        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
+        messages.extend(context_messages)
+
+        cleaned_scene = self._clean_scene_numbers(scene_content)
+        character_names_str = ", ".join(character_names) if character_names else "None"
+
+        final_message = prompt_manager.get_prompt(
+            "character_moments_cache_friendly", "user",
+            scene_content=cleaned_scene,
+            character_names=character_names_str
+        )
+        messages.append({"role": "user", "content": final_message})
+
+        logger.info(f"[CHARACTER_MOMENTS] Cache-friendly structure: {len(messages)} messages")
+
+        ext_settings = user_settings.get('extraction_model_settings', {})
+        use_extraction_model = ext_settings.get('enabled', False)
+
+        try:
+            if use_extraction_model:
+                extraction_service = self._get_extraction_service(user_settings)
+                if extraction_service:
+                    logger.info("[CHARACTER_MOMENTS] Using extraction LLM with cache-friendly structure")
+                    response = await extraction_service.generate_with_messages(messages=messages, max_tokens=1500)
+                else:
+                    use_extraction_model = False
+
+            if not use_extraction_model:
+                logger.info("[CHARACTER_MOMENTS] Using main LLM with cache-friendly structure")
+                import copy
+                extraction_settings = copy.deepcopy(user_settings)
+                extraction_settings.setdefault('llm_settings', {})['temperature'] = 0.3
+                extraction_settings['llm_settings']['reasoning_effort'] = 'disabled'
+                response = await self._generate_with_messages(messages=messages, user_id=user_id, user_settings=extraction_settings, max_tokens=1500)
+
+            if not response:
+                return []
+
+            import re
+            from ..chapter_progress_service import clean_llm_json
+            response_text = response.strip()
+            json_match = re.search(r'\{[\s\S]*\}', response_text)
+            if json_match:
+                try:
+                    data = json.loads(json_match.group())
+                    return data.get('character_moments', [])
+                except json.JSONDecodeError:
+                    cleaned = clean_llm_json(json_match.group())
+                    data = json.loads(cleaned)
+                    return data.get('character_moments', [])
+
+            return []
+
+        except Exception as e:
+            logger.error(f"[CHARACTER_MOMENTS] Cache-friendly extraction failed: {e}")
+            return []
+
+    async def extract_plot_events_fallback_cache_friendly(
+        self,
+        scene_content: str,
+        thread_context: str,
+        context: Dict[str, Any],
+        user_id: int,
+        user_settings: Dict[str, Any],
+        db: Optional[Session] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Extract plot events (fallback path) using cache-friendly multi-message structure.
+
+        This is different from extract_plot_events_with_context which checks against
+        specific key events. This extracts any significant plot events from the scene.
+
+        Uses SAME message structure as scene generation for maximum cache hits.
+        Routes to extraction LLM or main LLM - same structure for both.
+
+        Returns:
+            List of plot event dicts, or empty list on failure
+        """
+        generation_prefs = user_settings.get("generation_preferences", {})
+        scene_length = generation_prefs.get("scene_length", "medium")
+        choices_count = generation_prefs.get("choices_count", 4)
+        separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
+        scene_length_description = self._get_scene_length_description(scene_length)
+
+        system_prompt = prompt_manager.get_prompt(
+            "scene_with_immediate", "system",
+            user_id=user_id,
+            db=db,
+            scene_length_description=scene_length_description,
+            choices_count=choices_count,
+            skip_choices=separate_choice_generation
+        )
+
+        messages = [{"role": "system", "content": system_prompt.strip()}]
+        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
+        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
+        messages.extend(context_messages)
+
+        cleaned_scene = self._clean_scene_numbers(scene_content)
+
+        final_message = prompt_manager.get_prompt(
+            "plot_events_cache_friendly", "user",
+            scene_content=cleaned_scene,
+            thread_context=thread_context or "\n(No active threads)"
+        )
+        messages.append({"role": "user", "content": final_message})
+
+        logger.info(f"[PLOT_EVENTS_FALLBACK] Cache-friendly structure: {len(messages)} messages")
+
+        ext_settings = user_settings.get('extraction_model_settings', {})
+        use_extraction_model = ext_settings.get('enabled', False)
+
+        try:
+            if use_extraction_model:
+                extraction_service = self._get_extraction_service(user_settings)
+                if extraction_service:
+                    logger.info("[PLOT_EVENTS_FALLBACK] Using extraction LLM with cache-friendly structure")
+                    response = await extraction_service.generate_with_messages(messages=messages, max_tokens=1000)
+                else:
+                    use_extraction_model = False
+
+            if not use_extraction_model:
+                logger.info("[PLOT_EVENTS_FALLBACK] Using main LLM with cache-friendly structure")
+                import copy
+                extraction_settings = copy.deepcopy(user_settings)
+                extraction_settings.setdefault('llm_settings', {})['temperature'] = 0.3
+                extraction_settings['llm_settings']['reasoning_effort'] = 'disabled'
+                response = await self._generate_with_messages(messages=messages, user_id=user_id, user_settings=extraction_settings, max_tokens=1000)
+
+            if not response:
+                return []
+
+            import re
+            from ..chapter_progress_service import clean_llm_json
+            response_text = response.strip()
+            json_match = re.search(r'\{[\s\S]*\}', response_text)
+            if json_match:
+                try:
+                    data = json.loads(json_match.group())
+                    return data.get('plot_events', [])
+                except json.JSONDecodeError:
+                    cleaned = clean_llm_json(json_match.group())
+                    data = json.loads(cleaned)
+                    return data.get('plot_events', [])
+
+            return []
+
+        except Exception as e:
+            logger.error(f"[PLOT_EVENTS_FALLBACK] Cache-friendly extraction failed: {e}")
+            return []
+
     async def generate_scenario(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> str:
         """Generate a creative scenario based on user selections and characters"""
         

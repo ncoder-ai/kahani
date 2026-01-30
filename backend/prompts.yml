@@ -729,6 +729,166 @@ combined_extraction:
       }}
     }}
 
+# Working Memory Extraction (cache-friendly)
+# Uses same context structure as scene generation for cache hits
+working_memory_cache_friendly:
+  user: |
+    === SCENE JUST GENERATED ===
+    {scene_content}
+
+    === EXTRACT NARRATIVE CONTINUITY ===
+    Current focus: {current_focus}
+
+    Extract narrative continuity items from the scene above:
+
+    1. RECENT_FOCUS: What was emotionally/narratively emphasized? (max 3 items)
+       - Character dynamics, tensions, emotional beats
+       - Thematic emphasis, mood shifts
+       - NOT plot events (tracked separately as PlotEvents)
+
+    2. CHARACTER_SPOTLIGHT: Characters needing narrative attention next
+       - Who hasn't spoken in a while but is present?
+       - Who just had a moment that needs follow-up?
+       - Who was interrupted or sidelined?
+       - Include brief reason why they need attention
+
+    Return as JSON only:
+    {{
+      "recent_focus": ["item1", "item2"],
+      "character_spotlight": {{"CharName": "reason for spotlight"}}
+    }}
+
+# Relationship Extraction (cache-friendly)
+# Uses same context structure as scene generation for cache hits
+relationship_cache_friendly:
+  user: |
+    === SCENE JUST GENERATED ===
+    {scene_content}
+
+    === EXTRACT RELATIONSHIP UPDATES ===
+    CANONICAL CHARACTER NAMES (use EXACTLY these names): {character_names}
+    Characters in scene: {characters}
+    Previous relationships: {previous_relationships}
+
+    RELATIONSHIP TYPES: stranger, acquaintance, friend, close_friend, romantic, family, professional, rival, enemy
+    STRENGTH SCALE: -1.0 (hatred) to 1.0 (deep love)
+
+    RULES:
+    - Only extract relationships that CHANGED or were DEMONSTRATED in this scene
+    - ONLY characters who are PHYSICALLY PRESENT and INTERACTING (not fantasies/memories)
+    - Use EXACT canonical character names. ONE entry per pair.
+
+    Return JSON:
+    {{
+      "relationships": [
+        {{
+          "character_a": "Name1",
+          "character_b": "Name2",
+          "type": "friend",
+          "strength": 0.6,
+          "change": "what specifically changed",
+          "sentiment": "positive"
+        }}
+      ]
+    }}
+
+    Empty if no relationship moments: {{"relationships": []}}
+
+# NPC Extraction (cache-friendly)
+# Uses same context structure as scene generation for cache hits
+npc_extraction_cache_friendly:
+  user: |
+    === SCENE JUST GENERATED ===
+    {scene_content}
+
+    === EXTRACT NPCs ===
+    Explicit Characters (already tracked): {explicit_names}
+
+    Extract ALL named entities that are NOT in the explicit character list.
+
+    For each entity, classify as:
+    - CHARACTER: Sentient beings with agency (humans, aliens, robots, sentient animals)
+    - ENTITY: Non-character entities (locations, objects, organizations)
+
+    Return JSON:
+    {{
+      "npcs": [
+        {{
+          "name": "Entity name",
+          "entity_type": "CHARACTER",
+          "mention_count": 1,
+          "has_dialogue": true,
+          "has_actions": true,
+          "has_relationships": false,
+          "context_snippets": ["snippet showing the entity"],
+          "properties": {{
+            "role": "role description",
+            "description": "One-sentence description"
+          }}
+        }}
+      ]
+    }}
+
+    If no entities found: {{"npcs": []}}
+
+# Character Moments Extraction (cache-friendly)
+# Uses same context structure as scene generation for cache hits
+character_moments_cache_friendly:
+  user: |
+    === SCENE JUST GENERATED ===
+    {scene_content}
+
+    === EXTRACT CHARACTER MOMENTS ===
+    Focus on these explicit characters: {character_names}
+
+    Extract significant character moments (confidence >= 70):
+    - Moment types: "action", "dialogue", "development", "relationship"
+    - Maximum 3 moments per character
+    - Only extract SIGNIFICANT moments, not every mention
+
+    Return JSON:
+    {{
+      "character_moments": [
+        {{
+          "character": "Character Name",
+          "moment_type": "dialogue",
+          "description": "What happened in this moment",
+          "confidence": 85
+        }}
+      ]
+    }}
+
+    If no significant moments: {{"character_moments": []}}
+
+# Plot Events Extraction (cache-friendly fallback)
+# Uses same context structure as scene generation for cache hits
+plot_events_cache_friendly:
+  user: |
+    === SCENE JUST GENERATED ===
+    {scene_content}
+
+    === EXTRACT PLOT EVENTS ===
+    Active plot threads to consider:{thread_context}
+
+    Extract significant plot events from this scene:
+    - Event types: "introduction", "complication", "revelation", "resolution", "development"
+    - Maximum 2 events per scene
+    - Only extract SIGNIFICANT plot developments
+
+    Return JSON:
+    {{
+      "plot_events": [
+        {{
+          "event_type": "complication",
+          "description": "What happened",
+          "importance": 80,
+          "confidence": 90
+        }}
+      ]
+    }}
+
+    If no significant events: {{"plot_events": []}}
+
 # Plot Structure Prompts
 plot_generation:
   complete_plot:

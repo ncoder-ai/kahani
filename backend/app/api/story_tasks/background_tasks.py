@@ -669,7 +669,8 @@ async def run_extractions_in_background(
                 to_sequence=actual_to_sequence,
                 user_id=user_id,
                 user_settings=user_settings,
-                db=extraction_db
+                db=extraction_db,
+                scene_generation_context=scene_generation_context  # Pass context for cache-friendly extraction
             )
 
             # Only update last_extraction_scene_count if scenes were actually processed
@@ -1329,7 +1330,8 @@ async def update_working_memory_in_background(
     scene_sequence: int,
     scene_content: str,
     user_id: int,
-    user_settings: dict
+    user_settings: dict,
+    scene_generation_context: Optional[Dict[str, Any]] = None
 ):
     """Update working memory after scene generation.
 
@@ -1360,7 +1362,8 @@ async def update_working_memory_in_background(
                 branch_id=branch_id,
                 chapter_id=chapter_id,
                 scene_sequence=scene_sequence,
-                scene_content=scene_content
+                scene_content=scene_content,
+                scene_generation_context=scene_generation_context
             )
 
             if result:
@@ -1384,7 +1387,8 @@ async def update_relationship_graph_in_background(
     scene_sequence: int,
     scene_content: str,
     user_id: int,
-    user_settings: dict
+    user_settings: dict,
+    scene_generation_context: Optional[Dict[str, Any]] = None
 ):
     """Update relationship graph after scene generation.
 
@@ -1438,7 +1442,8 @@ async def update_relationship_graph_in_background(
                 scene_id=scene_id,
                 scene_sequence=scene_sequence,
                 scene_content=scene_content,
-                characters=characters
+                characters=characters,
+                scene_generation_context=scene_generation_context
             )
 
             if result:
