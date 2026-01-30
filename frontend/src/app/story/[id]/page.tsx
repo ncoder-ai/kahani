@@ -1444,14 +1444,6 @@ export default function StoryPage() {
           setGenerationStartTime(null);
           // Clear extraction status if still showing
           setExtractionStatus(null);
-          
-          setStreamingContent('');
-          setStreamingSceneNumber(null);
-          setIsStreaming(false);
-
-          // Reset choice selection state
-          setSelectedChoice(null);
-          setShowChoicesDuringGeneration(true);
 
           // AUTO-PLAY TTS if enabled and session provided
           // This is a fallback in case onAutoPlayReady wasn't called
@@ -1460,8 +1452,8 @@ export default function StoryPage() {
             globalTTS.connectToSession(autoPlay.session_id, autoPlay.scene_id);
           }
 
-          // ADD the new scene to the story
-          // Handle multi-generation differently
+          // ADD the new scene to the story FIRST, before clearing streaming
+          // This ensures seamless visual transition - scene appears in list before streaming view hides
           const isMultiGen = multiGen?.isMultiGeneration && multiGen.totalVariants > 1;
 
           if (story && accumulatedContent) {
@@ -1485,7 +1477,18 @@ export default function StoryPage() {
               ...story,
               scenes: [...story.scenes, newScene]
             };
-            setStory(updatedStory);
+
+            // Use flushSync to ensure scene is rendered before clearing streaming state
+            flushSync(() => {
+              setStory(updatedStory);
+            });
+
+            // NOW clear streaming state - scene is already visible in the regular list
+            setStreamingContent('');
+            setStreamingSceneNumber(null);
+            setIsStreaming(false);
+            setSelectedChoice(null);
+            setShowChoicesDuringGeneration(true);
             
             // Show toast for multi-generation
             if (isMultiGen) {
@@ -1556,15 +1559,23 @@ export default function StoryPage() {
             }
           } else {
             console.error('[SCENE COMPLETE] Failed to add scene - story:', !!story, 'content length:', accumulatedContent?.length || 0);
+            // Still need to clear streaming state even if scene wasn't added
+            setStreamingContent('');
+            setStreamingSceneNumber(null);
+            setIsStreaming(false);
+            setSelectedChoice(null);
+            setShowChoicesDuringGeneration(true);
           }
-          
+
           setCustomPrompt('');
           setUserSceneContent(''); // Clear user content after successful generation
           setFirstSceneMode('ai'); // Reset to AI mode after first scene
 
-          // Refresh story content to ensure scene has correct chapter_id from backend
-          // This is needed because the local scene may have stale chapter_id
-          await refreshStoryContent();
+          // Refresh story content in background to sync with backend
+          // Use setTimeout to avoid blocking the UI and causing flicker
+          setTimeout(() => {
+            refreshStoryContent();
+          }, 500);
 
           // Refresh chapter sidebar to update context counter
           setChapterSidebarRefreshKey(prev => prev + 1);
