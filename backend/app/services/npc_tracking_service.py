@@ -907,11 +907,103 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
             
             tracking.last_calculated = datetime.now()
             db.commit()
-            
+
         except Exception as e:
             logger.error(f"Failed to update NPC tracking: {e}")
             db.rollback()
-    
+
+    async def track_npc(
+        self,
+        db: Session,
+        story_id: int,
+        scene_id: int,
+        scene_sequence: int,
+        npc_data: Dict[str, Any],
+        branch_id: int = None
+    ) -> bool:
+        """
+        Track a single NPC from extraction results.
+        Creates NPCMention and updates tracking record.
+
+        Args:
+            db: Database session
+            story_id: Story ID
+            scene_id: Scene ID
+            scene_sequence: Scene sequence number
+            npc_data: NPC data dict with name, mention_count, has_dialogue, has_actions, etc.
+            branch_id: Branch ID for branch isolation
+
+        Returns:
+            True if NPC was tracked successfully, False otherwise
+        """
+        try:
+            npc_name = npc_data.get('name', '').strip()
+            if not npc_name:
+                return False
+
+            # Convert string booleans to actual booleans
+            def to_bool(value):
+                if isinstance(value, bool):
+                    return value
+                if isinstance(value, str):
+                    return value.lower() in ('true', '1', 'yes')
+                return bool(value)
+
+            mention_count = npc_data.get('mention_count', 1)
+            has_dialogue = to_bool(npc_data.get('has_dialogue', False))
+            has_actions = to_bool(npc_data.get('has_actions', False))
+            has_relationships = to_bool(npc_data.get('has_relationships', False))
+
+            # Only track if significant enough
+            if mention_count < 2 and not has_dialogue and not has_actions:
+                return False
+
+            # Verify scene exists
+            scene_exists = db.query(Scene).filter(Scene.id == scene_id).first()
+            if not scene_exists:
+                logger.warning(f"Scene {scene_id} doesn't exist, skipping NPC mention for {npc_name}")
+                return False
+
+            # Create NPCMention with IntegrityError handling
+            try:
+                mention = NPCMention(
+                    story_id=story_id,
+                    branch_id=branch_id,
+                    scene_id=scene_id,
+                    character_name=npc_name,
+                    sequence_number=scene_sequence,
+                    mention_count=mention_count,
+                    has_dialogue=has_dialogue,
+                    has_actions=has_actions,
+                    has_relationships=has_relationships,
+                    context_snippets=npc_data.get('context_snippets', []),
+                    extracted_properties=npc_data.get('properties', {})
+                )
+                db.add(mention)
+                db.flush()
+
+                # Update tracking record
+                await self._update_npc_tracking(
+                    db, story_id, npc_name, scene_sequence, npc_data,
+                    branch_id=branch_id
+                )
+                return True
+
+            except IntegrityError as ie:
+                db.rollback()
+                error_msg = str(ie).lower()
+                if "foreign key" in error_msg and "scene_id" in error_msg:
+                    logger.warning(f"Scene {scene_id} was deleted during extraction, skipping NPC mention for {npc_name}")
+                elif "duplicate key" in error_msg or "unique constraint" in error_msg:
+                    logger.debug(f"NPC mention already exists (race condition), skipping: {npc_name} in scene {scene_id}")
+                else:
+                    raise
+                return False
+
+        except Exception as e:
+            logger.error(f"Failed to track NPC {npc_data.get('name', 'unknown')}: {e}")
+            return False
+
     def _create_npc_tracking_snapshot(
         self,
         db: Session,

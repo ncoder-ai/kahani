@@ -702,31 +702,49 @@ async def _try_combined_extraction(
             )
         else:
             # Use main LLM
-            logger.info("[EXTRACTION] Using main LLM for combined extraction")
             llm_service = UnifiedLLMService()
-            
+
             # Use user's max_tokens setting
             user_max_tokens = user_settings.get('llm_settings', {}).get('max_tokens', 2048)
             max_tokens = user_max_tokens
-            
+
             # Get timeout from user settings or fallback to system default
             llm_settings = user_settings.get('llm_settings', {})
             timeout_seconds = llm_settings.get('timeout_total', settings.llm_timeout_total)
-            
-            # Log extraction parameters
-            logger.warning(f"[EXTRACTION] Starting combined extraction: timeout={timeout_seconds}s, max_tokens={max_tokens}, num_scenes={num_scenes}, prompt_length={len(prompt)}")
-            
+
             # Call main LLM with combined extraction prompt
             import time
             start_time = time.time()
             try:
-                response = await llm_service.generate(
-                    prompt=prompt,
-                    user_id=user_id,
-                    user_settings=user_settings,
-                    system_prompt=system_prompt,
-                    max_tokens=max_tokens
-                )
+                # Use cache-friendly batch extraction when context is available
+                if scene_generation_context is not None:
+                    logger.info("[EXTRACTION] Using main LLM with CACHE-FRIENDLY batch extraction")
+                    logger.warning(f"[EXTRACTION] Starting cache-friendly batch extraction: timeout={timeout_seconds}s, max_tokens={max_tokens}, num_scenes={num_scenes}")
+
+                    response = await llm_service.extract_combined_cache_friendly_batch(
+                        batch_content=batch_content,
+                        character_names=character_names,
+                        explicit_character_names=explicit_character_names,
+                        thread_context=thread_context,
+                        context=scene_generation_context,
+                        user_id=user_id,
+                        user_settings=user_settings,
+                        db=db,
+                        max_tokens=max_tokens,
+                        num_scenes=num_scenes
+                    )
+                else:
+                    # Fallback to non-cache-friendly when no context available
+                    logger.info("[EXTRACTION] Using main LLM for combined extraction (no context, non-cache-friendly)")
+                    logger.warning(f"[EXTRACTION] Starting combined extraction: timeout={timeout_seconds}s, max_tokens={max_tokens}, num_scenes={num_scenes}, prompt_length={len(prompt)}")
+
+                    response = await llm_service.generate(
+                        prompt=prompt,
+                        user_id=user_id,
+                        user_settings=user_settings,
+                        system_prompt=system_prompt,
+                        max_tokens=max_tokens
+                    )
                 elapsed_time = time.time() - start_time
                 
             except Exception as e:

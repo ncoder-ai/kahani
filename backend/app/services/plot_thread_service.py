@@ -914,16 +914,16 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
     def _generate_thread_id(self, description: str, event_type: str) -> str:
         """
         Generate a thread ID based on event description
-        
+
         Uses simple keyword matching to group related events
         """
         # Normalize description
         desc_lower = description.lower()
-        
+
         # Extract key nouns/concepts (simple heuristic)
         # In production, could use NER or more sophisticated methods
         words = re.findall(r'\b[a-z]{4,}\b', desc_lower)
-        
+
         # Use most significant words for thread ID
         if words:
             key_words = '_'.join(sorted(words[:3]))
@@ -933,7 +933,117 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
             # Fallback to hash of full description
             thread_hash = hashlib.md5(description.encode()).hexdigest()[:8]
             return f"{event_type}_{thread_hash}"
-    
+
+    async def store_plot_event(
+        self,
+        story_id: int,
+        scene_id: int,
+        event_type: str,
+        description: str,
+        importance: int,
+        confidence: int,
+        db: Session,
+        branch_id: int = None,
+        involved_characters: List[str] = None,
+        chapter_id: int = None,
+        sequence_order: int = None
+    ) -> Optional[int]:
+        """
+        Store a single plot event from extraction results.
+
+        Args:
+            story_id: Story ID
+            scene_id: Scene ID
+            event_type: Type of event (introduction, complication, revelation, resolution)
+            description: Event description
+            importance: Importance score (0-100)
+            confidence: Confidence score (0-100)
+            db: Database session
+            branch_id: Branch ID for branch isolation
+            involved_characters: List of character names involved
+            chapter_id: Chapter ID
+            sequence_order: Scene sequence number
+
+        Returns:
+            PlotEvent ID if created, None otherwise
+        """
+        try:
+            if not description:
+                return None
+
+            if confidence < settings.extraction_confidence_threshold or importance < 30:
+                return None
+
+            involved_chars = involved_characters or []
+
+            # Generate thread ID
+            thread_id = self._generate_thread_id(description, event_type)
+
+            # Generate unique event ID
+            event_id = f"{story_id}_{scene_id}_{thread_id}"
+
+            # Check if embedding_id already exists
+            potential_embedding_id = f"plot_{event_id}"
+            existing_embedding = db.query(PlotEvent).filter(
+                PlotEvent.embedding_id == potential_embedding_id
+            ).first()
+
+            if existing_embedding:
+                logger.debug(f"Plot event with embedding_id {potential_embedding_id} already exists, skipping")
+                return None
+
+            # Create embedding
+            semantic_memory = get_semantic_memory_service()
+            embedding_id = await semantic_memory.add_plot_event(
+                event_id=event_id,
+                story_id=story_id,
+                scene_id=scene_id,
+                event_type=event_type,
+                description=description,
+                metadata={
+                    'sequence': sequence_order or 0,
+                    'is_resolved': False,
+                    'involved_characters': involved_chars,
+                    'timestamp': datetime.utcnow().isoformat()
+                }
+            )
+
+            # Double-check embedding_id doesn't exist (race condition protection)
+            final_check = db.query(PlotEvent).filter(
+                PlotEvent.embedding_id == embedding_id
+            ).first()
+
+            if final_check:
+                logger.debug(f"Plot event with embedding_id {embedding_id} was created concurrently, skipping")
+                return None
+
+            # Create PlotEvent
+            plot_event = PlotEvent(
+                story_id=story_id,
+                scene_id=scene_id,
+                branch_id=branch_id,
+                event_type=EventType(event_type),
+                description=description,
+                embedding_id=embedding_id,
+                thread_id=thread_id,
+                is_resolved=False,
+                sequence_order=sequence_order or 0,
+                chapter_id=chapter_id,
+                involved_characters=involved_chars,
+                extracted_automatically=True,
+                confidence_score=confidence,
+                importance_score=importance
+            )
+            db.add(plot_event)
+            db.flush()
+
+            return plot_event.id
+
+        except Exception as e:
+            logger.error(f"Failed to store plot event: {e}")
+            db.rollback()
+            return None
+
     async def get_unresolved_threads(
         self,
         story_id: int,

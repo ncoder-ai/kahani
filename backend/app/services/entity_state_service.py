@@ -1698,7 +1698,88 @@ class EntityStateService:
         except Exception as e:
             logger.error(f"Failed to update object state: {e}{trace_suffix}")
             db.rollback()
-    
+
+    async def process_entity_states(
+        self,
+        db: Session,
+        story_id: int,
+        branch_id: int,
+        scene_id: int,
+        scene_sequence: int,
+        entity_states: Dict[str, Any],
+        scene_content: str = ""
+    ) -> int:
+        """
+        Process entity states from extraction results.
+        Updates character, location, and object states.
+
+        Args:
+            db: Database session
+            story_id: Story ID
+            branch_id: Branch ID for branch isolation
+            scene_id: Scene ID
+            scene_sequence: Scene sequence number
+            entity_states: Dict with 'characters', 'locations', 'objects' keys
+            scene_content: Optional scene content for validation
+
+        Returns:
+            Number of states processed
+        """
+        total_processed = 0
+
+        try:
+            # Process character states
+            if entity_states.get('characters'):
+                for char_update in entity_states['characters']:
+                    try:
+                        # Track if this character has meaningful state data
+                        if has_meaningful_character_state(char_update):
+                            logger.debug(f"Processing meaningful character state: {char_update.get('name')}")
+                        else:
+                            logger.debug(f"Character state has no meaningful data: {char_update.get('name')}")
+
+                        await self._update_character_state(
+                            db, story_id, scene_sequence, char_update, branch_id=branch_id
+                        )
+                        total_processed += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to update character state for {char_update.get('name', 'unknown')}: {e}")
+                        continue
+
+            # Process location states
+            if entity_states.get('locations'):
+                for loc_update in entity_states['locations']:
+                    try:
+                        await self._update_location_state(
+                            db, story_id, scene_sequence, loc_update, branch_id=branch_id
+                        )
+                        total_processed += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to update location state for {loc_update.get('name', 'unknown')}: {e}")
+                        continue
+
+            # Process object states
+            if entity_states.get('objects'):
+                for obj_update in entity_states['objects']:
+                    try:
+                        await self._update_object_state(
+                            db, story_id, scene_sequence, obj_update, branch_id=branch_id,
+                            scene_content=scene_content
+                        )
+                        total_processed += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to update object state for {obj_update.get('name', 'unknown')}: {e}")
+                        continue
+
+            db.commit()
+            logger.info(f"[ENTITY:PROCESS] Processed {total_processed} entity states for scene {scene_sequence}")
+
+        except Exception as e:
+            logger.error(f"Failed to process entity states: {e}")
+            db.rollback()
+
+        return total_processed
+
     def get_character_state(
         self,
         db: Session,

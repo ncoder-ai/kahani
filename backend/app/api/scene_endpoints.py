@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
 from typing import List, Dict, Any, Optional
+import asyncio
 import logging
 import json
 import time
@@ -1238,7 +1239,9 @@ async def generate_scene_streaming_endpoint(
                                 yield f"data: {json.dumps({'type': 'contradiction_check', 'status': 'checking'})}\n\n"
 
                                 try:
-                                    await run_extractions_in_background(
+                                    # Use asyncio.shield to prevent cancellation when SSE connection closes
+                                    # This ensures extraction completes even if user navigates away
+                                    await asyncio.shield(run_extractions_in_background(
                                         story_id=story_id,
                                         chapter_id=active_chapter.id,
                                         from_sequence=last_extraction_sequence,
@@ -1246,7 +1249,7 @@ async def generate_scene_streaming_endpoint(
                                         user_id=current_user.id,
                                         user_settings=user_settings or {},
                                         scene_generation_context=context  # Pass context for cache-friendly extraction
-                                    )
+                                    ))
 
                                     extraction_msg = f"Inline extraction complete ({scenes_since_extraction}/{effective_threshold})"
                                     yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'scheduled', 'message': extraction_msg})}\n\n"
