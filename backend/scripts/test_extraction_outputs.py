@@ -124,7 +124,13 @@ async def test_extractions():
             print("Please configure LLM settings in the UI first.")
             return
 
-        print(f"LLM Configuration:")
+        # FORCE using main LLM (not extraction LLM) to test caching
+        user_settings['extraction_model_settings'] = {
+            'enabled': False,
+            'fallback_to_main': True
+        }
+
+        print(f"LLM Configuration (MAIN LLM - extraction disabled for test):")
         print(f"  API URL: {llm_settings.get('api_url', 'NOT SET')[:50]}...")
         print(f"  Model: {llm_settings.get('model_name', 'NOT SET')}")
         print(f"  Temperature: {llm_settings.get('temperature', 'NOT SET')}")
