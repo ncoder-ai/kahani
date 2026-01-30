@@ -776,11 +776,8 @@ class ApiClient {
     return this.request<any[]>(`/api/stories/?skip=${skip}&limit=${limit}`);
   }
 
-  async getStory(id: number, branchId?: number, chapterId?: number) {
-    const queryParams: string[] = [];
-    if (branchId) queryParams.push(`branch_id=${branchId}`);
-    if (chapterId) queryParams.push(`chapter_id=${chapterId}`);
-    const params = queryParams.length > 0 ? `?${queryParams.join('&')}` : '';
+  async getStory(id: number, branchId?: number) {
+    const params = branchId ? `?branch_id=${branchId}` : '';
     return this.request<any>(`/api/stories/${id}${params}`);
   }
 

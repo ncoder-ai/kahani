@@ -727,8 +727,7 @@ export default function StoryPage() {
   // Targeted story refresh that doesn't cause scrolling
   const refreshStoryContent = async () => {
     try {
-      // Pass activeChapterId to only fetch scenes for current chapter (performance optimization)
-      const storyData = await apiClient.getStory(storyId, undefined, activeChapterId || undefined);
+      const storyData = await apiClient.getStory(storyId);
       setStory(storyData);
       if (storyData.current_branch_id) {
         setCurrentBranchId(storyData.current_branch_id);
@@ -741,8 +740,8 @@ export default function StoryPage() {
   // Refresh choices for a specific scene without reloading the entire story
   const refreshSceneChoices = async (sceneId: number) => {
     try {
-      // Get story with only current chapter's scenes for updated choices
-      const storyData = await apiClient.getStory(storyId, undefined, activeChapterId || undefined);
+      // Get the full story to get updated choices for the scene
+      const storyData = await apiClient.getStory(storyId);
       
       // Find the scene in the new data and update only its choices in state
       if (story && storyData.scenes) {
@@ -985,45 +984,51 @@ export default function StoryPage() {
 
       // Use overrideBranchId if provided (for immediate branch switches), otherwise use currentBranchId
       const branchIdToUse = overrideBranchId ?? currentBranchId;
-
-      // Get active chapter first so we can filter story scenes by chapter (performance optimization)
-      let chapterIdToUse = activeChapterId;
-      try {
-        const activeChapterData = await apiClient.getActiveChapter(storyId);
-        setActiveChapter(activeChapterData);
-        setActiveChapterId(activeChapterData.id);
-        chapterIdToUse = activeChapterData.id;
-      } catch {
-        // No active chapter yet - that's ok for new stories
-      }
-
-      // Load story with chapter filter for performance (only loads current chapter's scenes)
-      const storyData = await apiClient.getStory(storyId, branchIdToUse || undefined, chapterIdToUse || undefined);
+      const storyData = await apiClient.getStory(storyId, branchIdToUse || undefined);
       setStory(storyData);
+      
+      // Set current branch ID from story data (only if not already set by user selection or override)
+      if (storyData.current_branch_id && !branchIdToUse) {
+        setCurrentBranchId(storyData.current_branch_id);
+      }
 
       // Check if chapter setup is needed
       const setupChapter = searchParams?.get('setup_chapter') === 'true';
-
-      // Handle chapter wizard display based on active chapter status
-      if (chapterIdToUse) {
-        // We have an active chapter - check if setup is needed
+      
+      // Load active chapter - may not exist for new stories
+      try {
+        const activeChapterData = await apiClient.getActiveChapter(storyId);
+        setActiveChapter(activeChapterData);
+        // Set active chapter ID for scene filtering
+        setActiveChapterId(activeChapterData.id);
+        
         // Always show wizard when coming from story creation
         if (setupChapter) {
           setShowChapterWizard(true);
         } else if (!storyData.scenes || storyData.scenes.length === 0) {
           // For existing stories without scenes, check if setup is needed
-          const activeChapterData = activeChapter;
-          const needsSetup = !activeChapterData?.characters ||
-                            activeChapterData.characters.length === 0 ||
-                            !activeChapterData?.location_name;
-
+          const needsSetup = !activeChapterData.characters || 
+                            activeChapterData.characters.length === 0 || 
+                            !activeChapterData.location_name;
+          
           if (needsSetup) {
             setShowChapterWizard(true);
           }
         }
-      } else {
-        // No active chapter found - show wizard for new stories
-        setShowChapterWizard(true);
+      } catch (err: any) {
+        // No active chapter found - this is expected for new stories
+        const is404Error = err?.status === 404 || 
+                          (err instanceof Error && (err.message.includes('404') || err.message.includes('No active chapter')));
+        
+        if (is404Error) {
+          setActiveChapter(null);
+          // Show chapter wizard for new stories or when no active chapter exists
+          setShowChapterWizard(true);
+          // Don't log this as an error - it's expected behavior for new stories
+        } else {
+          // Only log unexpected errors
+          console.error('Failed to load active chapter:', err);
+        }
       }
 
       
@@ -1444,7 +1449,7 @@ export default function StoryPage() {
               // Retry fetching scene data after 2 seconds
               setTimeout(async () => {
                 try {
-                  const storyData = await apiClient.getStory(storyId, undefined, activeChapterId || undefined);
+                  const storyData = await apiClient.getStory(storyId);
                   const updatedScene = storyData.scenes.find((s: Scene) => s.id === sceneId);
                   if (updatedScene && updatedScene.choices && updatedScene.choices.length > 0) {
                     // Update the scene in state with choices
@@ -1463,7 +1468,7 @@ export default function StoryPage() {
                     // Still no choices, retry again after 3 more seconds
                     setTimeout(async () => {
                       try {
-                        const storyData2 = await apiClient.getStory(storyId, undefined, activeChapterId || undefined);
+                        const storyData2 = await apiClient.getStory(storyId);
                         const updatedScene2 = storyData2.scenes.find((s: Scene) => s.id === sceneId);
                         if (updatedScene2 && updatedScene2.choices && updatedScene2.choices.length > 0) {
                           setStory((prevStory) => {
