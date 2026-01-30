@@ -120,7 +120,8 @@ class SemanticContextManager(ContextManager):
 
         # Use keep_recent_scenes as the number of complete batches to include
         # (frontend now shows this as "Recent Scene Batches")
-        num_complete_batches = max(1, self.keep_recent_scenes)
+        # Cap at 5 batches max to prevent old settings (which meant "scenes") from exploding context
+        num_complete_batches = min(5, max(1, self.keep_recent_scenes))
 
         # Calculate the range of batches to include
         # Start from (active_batch - num_complete_batches) up to active_batch
