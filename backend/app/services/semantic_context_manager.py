@@ -1043,17 +1043,18 @@ class SemanticContextManager(ContextManager):
             char_state_query = db.query(CharacterState).filter(CharacterState.story_id == story_id)
             if branch_id:
                 char_state_query = char_state_query.filter(CharacterState.branch_id == branch_id)
-            character_states = char_state_query.order_by(CharacterState.updated_at.desc()).all()
+            # Add secondary sort by id for deterministic ordering (cache stability)
+            character_states = char_state_query.order_by(CharacterState.updated_at.desc(), CharacterState.id.asc()).all()
 
             loc_state_query = db.query(LocationState).filter(LocationState.story_id == story_id)
             if branch_id:
                 loc_state_query = loc_state_query.filter(LocationState.branch_id == branch_id)
-            location_states = loc_state_query.order_by(LocationState.updated_at.desc()).all()
+            location_states = loc_state_query.order_by(LocationState.updated_at.desc(), LocationState.id.asc()).all()
 
             obj_state_query = db.query(ObjectState).filter(ObjectState.story_id == story_id)
             if branch_id:
                 obj_state_query = obj_state_query.filter(ObjectState.branch_id == branch_id)
-            object_states = obj_state_query.order_by(ObjectState.updated_at.desc()).all()
+            object_states = obj_state_query.order_by(ObjectState.updated_at.desc(), ObjectState.id.asc()).all()
             
             if not character_states and not location_states and not object_states:
                 return None
@@ -1404,8 +1405,10 @@ class SemanticContextManager(ContextManager):
             if branch_id:
                 query = query.filter(CharacterInteraction.branch_id == branch_id)
             
+            # Add secondary sort by id for deterministic ordering (cache stability)
             interactions = query.order_by(
-                CharacterInteraction.first_occurrence_scene
+                CharacterInteraction.first_occurrence_scene,
+                CharacterInteraction.id.asc()
             ).all()
             
             logger.info(f"[INTERACTION HISTORY] Found {len(interactions)} interactions for story {story_id} (branch_id={branch_id})")

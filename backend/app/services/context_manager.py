@@ -513,8 +513,10 @@ Appearance: {char.get('appearance', '')}
             if branch_id:
                 plot_events = plot_events.filter(PlotEvent.branch_id == branch_id)
 
+            # Add secondary sort by id for deterministic ordering (cache stability)
             plot_events = plot_events.order_by(
-                PlotEvent.importance_score.desc().nullsfirst()
+                PlotEvent.importance_score.desc().nullsfirst(),
+                PlotEvent.id.asc()
             ).limit(5).all()
 
             if plot_events:
@@ -666,8 +668,8 @@ Appearance: {char.get('appearance', '')}
             if not relationships:
                 return None
 
-            # Sort by strength (strongest first)
-            relationships.sort(key=lambda r: abs(r['strength'] or 0), reverse=True)
+            # Sort by strength (strongest first), with character names as tiebreaker for cache stability
+            relationships.sort(key=lambda r: (-abs(r['strength'] or 0), r.get('characters', [''])[0]))
 
             result = {
                 "relationships": relationships[:8],  # Limit for context efficiency

@@ -3510,7 +3510,9 @@ Chapter Conclusion:"""
             if story_focus.get("recent_focus"):
                 focus_parts.append(f"Recent focus: {', '.join(story_focus['recent_focus'][:2])}")
             if story_focus.get("character_spotlight"):
-                spotlight = [f"{k} ({v})" for k, v in list(story_focus['character_spotlight'].items())[:2]]
+                # Sort by key for deterministic ordering (cache stability)
+                sorted_spotlight = sorted(story_focus['character_spotlight'].items(), key=lambda x: x[0])
+                spotlight = [f"{k} ({v})" for k, v in sorted_spotlight[:2]]
                 focus_parts.append(f"Character attention: {', '.join(spotlight)}")
 
             if focus_parts:
