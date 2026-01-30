@@ -247,6 +247,9 @@ export default function StoryPage() {
   // Scene pagination for performance
   const [displayMode, setDisplayMode] = useState<'recent' | 'all'>('recent'); // Start with recent scenes only
   
+  // Debug state for mobile
+  const [debugStep, setDebugStep] = useState('init');
+
   // Summary modal states
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [storySummary, setStorySummary] = useState<any>(null);
@@ -501,7 +504,7 @@ export default function StoryPage() {
         if (storyContentRef.current) {
           storyContentRef.current.scrollTo({
             top: storyContentRef.current.scrollHeight,
-            behavior: 'smooth'
+            behavior: 'instant'
           });
         }
       }, 100);
@@ -727,7 +730,11 @@ export default function StoryPage() {
   // Targeted story refresh that doesn't cause scrolling
   const refreshStoryContent = async () => {
     try {
-      const storyData = await apiClient.getStory(storyId);
+      const storyData = await apiClient.getStory(
+        storyId,
+        currentBranchId || undefined,
+        activeChapterId || undefined
+      );
       setStory(storyData);
       if (storyData.current_branch_id) {
         setCurrentBranchId(storyData.current_branch_id);
@@ -737,11 +744,31 @@ export default function StoryPage() {
     }
   };
 
+  // Targeted variant update - updates a specific scene's variant without full refresh
+  const handleVariantChanged = (sceneId: number, newVariant?: { id: number; content: string }) => {
+    if (!story || !newVariant) return;
+
+    // Update only the specific scene's content and variant_id locally
+    const updatedStory = {
+      ...story,
+      scenes: story.scenes.map((scene: Scene) =>
+        scene.id === sceneId
+          ? { ...scene, content: newVariant.content, variant_id: newVariant.id }
+          : scene
+      )
+    };
+    setStory(updatedStory);
+  };
+
   // Refresh choices for a specific scene without reloading the entire story
   const refreshSceneChoices = async (sceneId: number) => {
     try {
-      // Get the full story to get updated choices for the scene
-      const storyData = await apiClient.getStory(storyId);
+      // Get the story for the current chapter to get updated choices for the scene
+      const storyData = await apiClient.getStory(
+        storyId,
+        currentBranchId || undefined,
+        activeChapterId || undefined
+      );
       
       // Find the scene in the new data and update only its choices in state
       if (story && storyData.scenes) {
@@ -978,60 +1005,86 @@ export default function StoryPage() {
     };
   }, [displayMode, loadMoreScenesAutomatically, isAutoLoadingScenes, story?.scenes, scenesToShow, activeChapterId]);
 
-  const loadStory = async (scrollToLastScene = true, scrollToNewScene = false, overrideBranchId?: number) => {
+  const loadStory = async (scrollToLastScene = true, scrollToNewScene = false, overrideBranchId?: number, overrideChapterId?: number) => {
     try {
+      console.log('[DEBUG] loadStory: Starting');
+      setDebugStep('1-start');
       setIsLoading(true);
 
       // Use overrideBranchId if provided (for immediate branch switches), otherwise use currentBranchId
       const branchIdToUse = overrideBranchId ?? currentBranchId;
-      const storyData = await apiClient.getStory(storyId, branchIdToUse || undefined);
+
+      // Determine chapter ID to use for filtering
+      let chapterIdToUse: number | undefined = overrideChapterId;
+      let activeChapterData: any = null;
+
+      // Check if chapter setup is needed
+      const setupChapter = searchParams?.get('setup_chapter') === 'true';
+
+      // If no override chapter ID, fetch the active chapter first
+      if (!chapterIdToUse) {
+        try {
+          setDebugStep('2-fetchChapter');
+          console.log('[DEBUG] loadStory: Fetching active chapter');
+          activeChapterData = await apiClient.getActiveChapter(storyId);
+          setDebugStep('3-gotChapter:' + activeChapterData?.id);
+          console.log('[DEBUG] loadStory: Got active chapter', activeChapterData?.id);
+          setActiveChapter(activeChapterData);
+          setActiveChapterId(activeChapterData.id);
+          chapterIdToUse = activeChapterData.id;
+        } catch (err: any) {
+          // No active chapter found - this is expected for new stories
+          const is404Error = err?.status === 404 ||
+                            (err instanceof Error && (err.message.includes('404') || err.message.includes('No active chapter')));
+
+          if (is404Error) {
+            setActiveChapter(null);
+            setActiveChapterId(null);
+            // Show chapter wizard for new stories or when no active chapter exists
+            setShowChapterWizard(true);
+            // Don't log this as an error - it's expected behavior for new stories
+          } else {
+            // Only log unexpected errors
+            console.error('Failed to load active chapter:', err);
+          }
+        }
+      } else {
+        // Explicit chapter switch - update the active chapter ID state
+        setActiveChapterId(chapterIdToUse);
+      }
+
+      // Fetch story with chapter filtering for optimized loading
+      setDebugStep('4-fetch');
+      console.log('[DEBUG] loadStory: Fetching story', storyId, branchIdToUse, chapterIdToUse);
+      const storyData = await apiClient.getStory(storyId, branchIdToUse || undefined, chapterIdToUse);
+      setDebugStep('5-got:' + (storyData?.scenes?.length || 0));
+      console.log('[DEBUG] loadStory: Got story data, scenes:', storyData?.scenes?.length);
       setStory(storyData);
-      
+      setDebugStep('6-setState');
+      console.log('[DEBUG] loadStory: Set story state');
+
       // Set current branch ID from story data (only if not already set by user selection or override)
       if (storyData.current_branch_id && !branchIdToUse) {
         setCurrentBranchId(storyData.current_branch_id);
       }
 
-      // Check if chapter setup is needed
-      const setupChapter = searchParams?.get('setup_chapter') === 'true';
-      
-      // Load active chapter - may not exist for new stories
-      try {
-        const activeChapterData = await apiClient.getActiveChapter(storyId);
-        setActiveChapter(activeChapterData);
-        // Set active chapter ID for scene filtering
-        setActiveChapterId(activeChapterData.id);
-        
+      // Handle chapter wizard display if we fetched the active chapter
+      if (activeChapterData) {
         // Always show wizard when coming from story creation
         if (setupChapter) {
           setShowChapterWizard(true);
         } else if (!storyData.scenes || storyData.scenes.length === 0) {
           // For existing stories without scenes, check if setup is needed
-          const needsSetup = !activeChapterData.characters || 
-                            activeChapterData.characters.length === 0 || 
+          const needsSetup = !activeChapterData.characters ||
+                            activeChapterData.characters.length === 0 ||
                             !activeChapterData.location_name;
-          
+
           if (needsSetup) {
             setShowChapterWizard(true);
           }
         }
-      } catch (err: any) {
-        // No active chapter found - this is expected for new stories
-        const is404Error = err?.status === 404 || 
-                          (err instanceof Error && (err.message.includes('404') || err.message.includes('No active chapter')));
-        
-        if (is404Error) {
-          setActiveChapter(null);
-          // Show chapter wizard for new stories or when no active chapter exists
-          setShowChapterWizard(true);
-          // Don't log this as an error - it's expected behavior for new stories
-        } else {
-          // Only log unexpected errors
-          console.error('Failed to load active chapter:', err);
-        }
       }
 
-      
       // Load context status for progress bar
       await loadContextStatus();
 
@@ -1042,8 +1095,8 @@ export default function StoryPage() {
         const elementRect = element.getBoundingClientRect();
         const relativeTop = elementRect.top - containerRect.top;
         const scrollTop = container.scrollTop + relativeTop;
-        
-        container.scrollTo({ top: scrollTop, behavior: 'smooth' });
+
+        container.scrollTo({ top: scrollTop, behavior: 'instant' });
       };
 
       // Scroll to bottom only on initial page load OR when explicitly requested for new scenes
@@ -1074,7 +1127,7 @@ export default function StoryPage() {
               
               // Guard: if no scenes, just scroll to bottom
               if (!targetScene) {
-                container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+                container.scrollTo({ top: container.scrollHeight, behavior: 'instant' });
                 return;
               }
               
@@ -1089,7 +1142,7 @@ export default function StoryPage() {
                     scrollToScene(container, targetSceneElement);
                   } else {
                     // Final fallback: scroll container to bottom
-                    container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+                    container.scrollTo({ top: container.scrollHeight, behavior: 'instant' });
                   }
                 }, 200);
               } else {
@@ -1101,8 +1154,10 @@ export default function StoryPage() {
       }
 
     } catch (err) {
+      console.error('[DEBUG] loadStory: ERROR', err);
       setError(err instanceof Error ? err.message : 'Failed to load story');
     } finally {
+      console.log('[DEBUG] loadStory: Finally block - setting isLoading false');
       setIsLoading(false);
     }
   };
@@ -1627,7 +1682,7 @@ export default function StoryPage() {
   const updateScene = async (sceneId: number, content: string, variantId?: number) => {
     try {
       const variantIdToUse = variantId || editingVariantId;
-      
+
       if (!variantIdToUse) {
         setError('Cannot update scene: variant ID not found');
         return;
@@ -1635,23 +1690,25 @@ export default function StoryPage() {
 
       // Call the API to update the scene variant
       const response = await apiClient.updateSceneVariant(storyId, sceneId, variantIdToUse, content);
-      
-      // Update local state immediately for better UX
+
+      // Update local state with response data (no full refresh needed)
       if (story) {
         const updatedStory = {
           ...story,
-          scenes: story.scenes.map(scene => 
+          scenes: story.scenes.map(scene =>
             scene.id === sceneId && scene.variant_id === variantIdToUse
-              ? { ...scene, content: response.variant.content }
+              ? {
+                  ...scene,
+                  content: response.variant.content,
+                  user_edited: response.variant.user_edited,
+                  updated_at: response.variant.updated_at
+                }
               : scene
           )
         };
         setStory(updatedStory);
       }
-      
-      // Refresh story content to get updated data (including user_edited flag)
-      await refreshStoryContent();
-      
+
       setEditingScene(null);
       setEditingVariantId(null);
     } catch (err) {
@@ -1803,17 +1860,17 @@ export default function StoryPage() {
       // Generate choices
       const response = await apiClient.generateMoreChoices(storyId, variantId);
       
-      // Immediately update local state with new choices
+      // Update local state with new choices (no full refresh needed)
       const sceneWithVariant = story.scenes.find(s => s.variant_id === variantId);
       if (sceneWithVariant && response.choices) {
         setStory(prev => {
           if (!prev) return prev;
           return {
             ...prev,
-            scenes: prev.scenes.map(s => 
-              s.id === sceneWithVariant.id 
-                ? { 
-                    ...s, 
+            scenes: prev.scenes.map(s =>
+              s.id === sceneWithVariant.id
+                ? {
+                    ...s,
                     choices: [...(s.choices || []), ...response.choices]
                   }
                 : s
@@ -1821,11 +1878,8 @@ export default function StoryPage() {
           };
         });
       }
-      
-      // Also refresh from backend to ensure consistency
-      await refreshStoryContent();
-      
-      // Trigger variant reload by incrementing counter
+
+      // Trigger variant reload to show new choices in component
       variantReloadTriggerRef.current += 1;
       
     } catch (error) {
@@ -2186,7 +2240,7 @@ export default function StoryPage() {
             setTimeout(() => {
               const sceneElement = document.querySelector(`[data-scene-id="${completedSceneId}"]`);
               if (sceneElement) {
-                sceneElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                sceneElement.scrollIntoView({ behavior: 'instant', block: 'start' });
               }
             }, 50);
             
@@ -2869,12 +2923,11 @@ export default function StoryPage() {
         storyId={storyId}
         isOpen={isChapterSidebarOpen}
         onToggle={() => setIsChapterSidebarOpen(!isChapterSidebarOpen)}
-        onChapterChange={() => {
-          // Reload story to switch to new active chapter
-          loadStory(false, false);
+        onChapterChange={(newChapterId?: number) => {
+          // Reload story with the new chapter (optimized - only fetches that chapter's scenes)
+          loadStory(false, false, undefined, newChapterId);
           // Update context status
           loadContextStatus();
-          // Active chapter will be reloaded from backend
         }}
         onChapterSelect={(chapterId) => {
           // This will trigger the switch active chapter flow with confirmation
@@ -3028,7 +3081,7 @@ export default function StoryPage() {
                           isGenerating={isGenerating}
                           isStreaming={isStreaming}
                           onCreateVariant={createNewVariant}
-                          onVariantChanged={refreshStoryContent}
+                          onVariantChanged={handleVariantChanged}
                           onContinueScene={continueScene}
                           onStopGeneration={stopGeneration}
                           showChoices={showChoices}
@@ -3383,7 +3436,7 @@ export default function StoryPage() {
           if (storyContentRef.current) {
             storyContentRef.current.scrollTo({
               top: storyContentRef.current.scrollHeight,
-              behavior: 'smooth'
+              behavior: 'instant'
             });
           }
         }}

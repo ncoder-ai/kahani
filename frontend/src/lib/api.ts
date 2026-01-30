@@ -776,9 +776,12 @@ class ApiClient {
     return this.request<any[]>(`/api/stories/?skip=${skip}&limit=${limit}`);
   }
 
-  async getStory(id: number, branchId?: number) {
-    const params = branchId ? `?branch_id=${branchId}` : '';
-    return this.request<any>(`/api/stories/${id}${params}`);
+  async getStory(id: number, branchId?: number, chapterId?: number) {
+    const params = new URLSearchParams();
+    if (branchId) params.append('branch_id', branchId.toString());
+    if (chapterId) params.append('chapter_id', chapterId.toString());
+    const queryString = params.toString();
+    return this.request<any>(`/api/stories/${id}${queryString ? '?' + queryString : ''}`);
   }
 
   async createStory(data: { title: string; description?: string; genre?: string; tone?: string; world_setting?: string; initial_premise?: string; content_rating?: string; }) {

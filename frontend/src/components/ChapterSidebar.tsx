@@ -60,7 +60,7 @@ interface ChapterSidebarProps {
   storyId: number;
   isOpen: boolean;
   onToggle: () => void;
-  onChapterChange?: () => void; // Callback when a new chapter is created
+  onChapterChange?: (newChapterId?: number) => void; // Callback when a new chapter is activated
   onChapterSelect?: (chapterId: number) => void; // Callback when user selects a chapter to view
   currentChapterId?: number; // Currently selected chapter for viewing
   storyArc?: StoryArc | null; // Story arc for display
@@ -369,12 +369,12 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
       
       // Reload chapters to get updated statuses
       await loadChapters();
-      
-      // Notify parent component to reload story
+
+      // Notify parent component to reload story with the new chapter
       if (onChapterChange) {
-        onChapterChange();
+        onChapterChange(chapterToActivate.id);
       }
-      
+
       // Clear the dialog
       setChapterToActivate(null);
       
@@ -475,18 +475,18 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
         
         // Reload chapters to get updated list
         await loadChapters();
-        
-        // Notify parent component to reload story (this will switch to the new active chapter)
+
+        // Notify parent component to reload story with the new chapter
         if (onChapterChange) {
-          onChapterChange();
+          onChapterChange(newChapter.id);
         }
-        
+
         // Close wizard
         setShowChapterWizard(false);
         setIsCreatingChapter(false);
         setNewChapterTitle('');
         setNewChapterDescription('');
-        
+
         // Show success message
         alert(`Chapter ${newChapter.chapter_number} created successfully! You're now in the new chapter.`);
       }

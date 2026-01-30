@@ -66,7 +66,7 @@ interface SceneVariantDisplayProps {
   isGenerating: boolean;
   isStreaming: boolean;
   onCreateVariant: (sceneId: number, prompt?: string, variantId?: number) => void;
-  onVariantChanged?: () => void; // Callback when variant is switched
+  onVariantChanged?: (sceneId: number, newVariant?: { id: number; content: string }) => void; // Callback when variant is switched
   onContinueScene?: (sceneId: number, prompt?: string) => void;
   onStopGeneration?: () => void;
   showChoices?: boolean;
@@ -315,12 +315,9 @@ export default function SceneVariantDisplay({
 
       // Find the new variant content and update the scene in place
       const newVariant = variants.find(v => v.id === variantId);
-      if (newVariant) {
-        // Update scene content directly without full page reload
-        // The parent will handle updating the scene content
-        if (onVariantChanged) {
-          onVariantChanged();
-        }
+      if (newVariant && onVariantChanged) {
+        // Update parent's local state with the new variant content (no full refresh)
+        onVariantChanged(scene.id, { id: variantId, content: newVariant.content });
       }
 
       // For modern layout, slide transition
@@ -777,10 +774,10 @@ export default function SceneVariantDisplay({
       // Force reload variants to get updated choices
       hasLoadedVariantsRef.current.delete(scene.id);
       await loadVariants();
-      
-      // Notify parent to refresh story content
+
+      // Notify parent (choices are loaded locally, no full refresh needed)
       if (onVariantChanged) {
-        await onVariantChanged();
+        onVariantChanged(scene.id);
       }
     } catch (error) {
       console.error('[RegenerateChoices] Failed to regenerate choices:', error);
