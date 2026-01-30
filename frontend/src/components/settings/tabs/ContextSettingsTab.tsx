@@ -222,10 +222,10 @@ export default function ContextSettingsTab({
             </div>
           </div>
 
-          {/* Recent Scene Batches */}
+          {/* Number of Recent Batches */}
           <div>
             <label className="block text-sm font-medium text-white mb-2">
-              Recent Scene Batches: {contextSettings.keep_recent_scenes || 2}
+              Number of Recent Batches: {contextSettings.keep_recent_scenes || 2}
             </label>
             <input
               type="range"
