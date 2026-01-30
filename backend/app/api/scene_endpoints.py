@@ -1241,7 +1241,8 @@ async def generate_scene_streaming_endpoint(
                                         from_sequence=last_extraction_sequence,
                                         to_sequence=max_sequence_in_chapter,
                                         user_id=current_user.id,
-                                        user_settings=user_settings or {}
+                                        user_settings=user_settings or {},
+                                        scene_generation_context=context  # Pass context for cache-friendly extraction
                                     )
 
                                     extraction_msg = f"Inline extraction complete ({scenes_since_extraction}/{effective_threshold})"
@@ -1291,7 +1292,8 @@ async def generate_scene_streaming_endpoint(
                                     from_sequence=last_extraction_sequence,
                                     to_sequence=max_sequence_in_chapter,
                                     user_id=current_user.id,
-                                    user_settings=user_settings or {}
+                                    user_settings=user_settings or {},
+                                    scene_generation_context=context  # Pass context for cache-friendly extraction
                                 )
 
                                 # Send status event with clear message

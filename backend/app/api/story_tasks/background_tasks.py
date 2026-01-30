@@ -15,7 +15,7 @@ import json
 import logging
 import time
 import uuid
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from ...database import SessionLocal, get_background_db
 from ...models import (
@@ -588,9 +588,23 @@ async def run_extractions_in_background(
     from_sequence: int,
     to_sequence: int,
     user_id: int,
-    user_settings: dict
+    user_settings: dict,
+    scene_generation_context: Optional[Dict[str, Any]] = None
 ):
-    """Run extractions in background, independent of streaming response"""
+    """
+    Run extractions in background, independent of streaming response.
+
+    Args:
+        story_id: Story ID
+        chapter_id: Chapter ID
+        from_sequence: Start sequence (exclusive)
+        to_sequence: End sequence (inclusive)
+        user_id: User ID
+        user_settings: User settings dict
+        scene_generation_context: Optional context from scene generation for cache-friendly extraction.
+                                  If provided, this exact context is used for plot extraction.
+                                  If None, context will be rebuilt (breaking cache).
+    """
     try:
         # Delay to ensure database commits from main session are visible
         # This helps with transaction isolation between sessions
@@ -877,19 +891,26 @@ async def run_plot_extraction_in_background(
                                 remaining_events = [e for e in key_events if e not in already_completed]
 
                                 if remaining_events:
-                                    # Build context if context-aware extraction is enabled
+                                    # Use passed context if available (cache-friendly), otherwise rebuild
                                     scene_context = None
-                                    if use_context_aware and context_manager:
-                                        try:
-                                            scene_context = await context_manager.build_scene_generation_context(
-                                                story_id=story_id,
-                                                db=extraction_db,
-                                                chapter_id=chapter_id,
-                                                branch_id=extraction_chapter.branch_id
-                                            )
-                                        except Exception as ctx_err:
-                                            logger.warning(f"[PLOT_EXTRACTION] Failed to build context, falling back to basic extraction: {ctx_err}")
-                                            scene_context = None
+                                    if use_context_aware:
+                                        if scene_generation_context is not None:
+                                            # Use passed context for cache hits
+                                            scene_context = scene_generation_context
+                                            logger.info("[PLOT_EXTRACTION] Using passed scene_generation_context for cache-friendly extraction")
+                                        elif context_manager:
+                                            # Fallback: rebuild context (breaks cache)
+                                            try:
+                                                scene_context = await context_manager.build_scene_generation_context(
+                                                    story_id=story_id,
+                                                    db=extraction_db,
+                                                    chapter_id=chapter_id,
+                                                    branch_id=extraction_chapter.branch_id
+                                                )
+                                                logger.warning("[PLOT_EXTRACTION] Rebuilt context (no scene_generation_context passed, cache may break)")
+                                            except Exception as ctx_err:
+                                                logger.warning(f"[PLOT_EXTRACTION] Failed to build context, falling back to basic extraction: {ctx_err}")
+                                                scene_context = None
 
                                     # Extract events from this scene
                                     extracted = await progress_service.extract_completed_events(
