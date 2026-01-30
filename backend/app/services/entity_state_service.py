@@ -871,8 +871,7 @@ class EntityStateService:
                 fallback_to_main = extraction_settings.get('fallback_to_main', True)
 
                 if fallback_to_main:
-                    # Use main LLM for extraction
-                    from .llm.service import UnifiedLLMService
+                    # Use main LLM for extraction (uses module-level import)
                     main_llm = UnifiedLLMService()
                     messages = [
                         {"role": "system", "content": system_prompt},

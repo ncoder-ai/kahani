@@ -375,7 +375,115 @@ class CharacterMemoryService:
             logger.error(f"Failed to extract character moments: {e}", exc_info=True)
             db.rollback()
             return []
-    
+
+    async def store_character_moments_batch(
+        self,
+        story_id: int,
+        moments: List[Dict[str, Any]],
+        character_map: Dict[str, Any],
+        db: Session,
+        branch_id: Optional[int] = None
+    ) -> int:
+        """
+        Store pre-extracted character moments (from combined extraction).
+
+        This method stores moments that were already extracted by the combined
+        extraction LLM call, without re-extracting them.
+
+        Args:
+            story_id: Story ID
+            moments: List of moment dicts with keys: character, moment_type, description, confidence, scene_id
+            character_map: Dict mapping lowercase character names to Character objects
+            db: Database session
+            branch_id: Optional branch ID
+
+        Returns:
+            Number of moments stored
+        """
+        if not self.semantic_memory:
+            logger.warning("Semantic memory not available, skipping moment storage")
+            return 0
+
+        stored_count = 0
+
+        try:
+            for moment_data in moments:
+                char_name = moment_data.get('character', '').strip()
+                char_name_lower = char_name.lower()
+
+                if char_name_lower not in character_map:
+                    logger.debug(f"Character '{char_name}' not found in character_map, skipping")
+                    continue
+
+                character = character_map[char_name_lower]
+                scene_id = moment_data.get('scene_id')
+                moment_type = moment_data.get('moment_type', 'action')
+                content = moment_data.get('description', '')
+                confidence = moment_data.get('confidence', 70)
+
+                if not scene_id or not content:
+                    continue
+
+                # Skip low-confidence extractions
+                if confidence < settings.extraction_confidence_threshold:
+                    logger.debug(f"Skipping low-confidence moment (confidence: {confidence})")
+                    continue
+
+                # Get scene sequence number
+                scene = db.query(Scene).filter(Scene.id == scene_id).first()
+                sequence_number = scene.sequence_number if scene else 0
+                chapter_id = scene.chapter_id if scene else None
+
+                # Create embedding
+                embedding_id = await self.semantic_memory.add_character_moment(
+                    character_id=character.id,
+                    character_name=character.name,
+                    scene_id=scene_id,
+                    story_id=story_id,
+                    moment_type=moment_type,
+                    content=content,
+                    metadata={
+                        'sequence': sequence_number,
+                        'timestamp': datetime.utcnow().isoformat()
+                    }
+                )
+
+                # Check if memory with this embedding_id already exists
+                existing_memory = db.query(CharacterMemory).filter(
+                    CharacterMemory.embedding_id == embedding_id
+                ).first()
+
+                if existing_memory:
+                    logger.debug(f"Memory with embedding_id {embedding_id} already exists, skipping")
+                    continue
+
+                # Create database record
+                char_memory = CharacterMemory(
+                    character_id=character.id,
+                    scene_id=scene_id,
+                    story_id=story_id,
+                    moment_type=MomentType(moment_type),
+                    content=content,
+                    embedding_id=embedding_id,
+                    sequence_order=sequence_number,
+                    chapter_id=chapter_id,
+                    extracted_automatically=True,
+                    confidence_score=confidence
+                )
+
+                db.add(char_memory)
+                stored_count += 1
+
+            db.commit()
+            logger.info(f"Stored {stored_count} character moments from combined extraction")
+
+            return stored_count
+
+        except Exception as e:
+            logger.error(f"Failed to store character moments batch: {e}", exc_info=True)
+            db.rollback()
+            return 0
+
     def _get_extraction_service(self, user_settings: Dict[str, Any]) -> Optional[ExtractionLLMService]:
         """
         Get or create extraction service if enabled in user settings
