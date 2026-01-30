@@ -2416,6 +2416,114 @@ Chapter Conclusion:"""
             logger.error(f"[PLOT_EXTRACTION] Extraction failed: {e}")
             return []
 
+    async def extract_combined_cache_friendly(
+        self,
+        scene_content: str,
+        character_names: List[str],
+        explicit_character_names: List[str],
+        thread_context: str,
+        context: Dict[str, Any],
+        user_id: int,
+        user_settings: Dict[str, Any],
+        db: Optional[Session] = None,
+        max_tokens: int = 4000
+    ) -> str:
+        """
+        Combined extraction (characters, NPCs, plot events, entity states)
+        using cache-friendly multi-message structure.
+
+        Routes to extraction LLM or main LLM - same structure for both.
+
+        Args:
+            scene_content: The generated scene text to analyze
+            character_names: List of explicit character names
+            explicit_character_names: List of explicit character names (for NPC exclusion)
+            thread_context: Context about active plot threads
+            context: The same context dict used for scene generation
+            user_id: User ID for LLM call
+            user_settings: User settings for LLM call
+            db: Database session for preset lookups
+            max_tokens: Maximum tokens for response
+
+        Returns:
+            Raw JSON string response from LLM
+        """
+        # Get scene generation parameters (IDENTICAL to scene generation)
+        generation_prefs = user_settings.get("generation_preferences", {})
+        scene_length = generation_prefs.get("scene_length", "medium")
+        choices_count = generation_prefs.get("choices_count", 4)
+        separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
+        scene_length_description = self._get_scene_length_description(scene_length)
+
+        # === SAME SYSTEM PROMPT AS SCENE GENERATION ===
+        system_prompt = prompt_manager.get_prompt(
+            "scene_with_immediate", "system",
+            user_id=user_id,
+            db=db,
+            scene_length_description=scene_length_description,
+            choices_count=choices_count,
+            skip_choices=separate_choice_generation
+        )
+
+        # === BUILD SAME MULTI-MESSAGE STRUCTURE ===
+        messages = [{"role": "system", "content": system_prompt.strip()}]
+
+        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
+        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
+        messages.extend(context_messages)
+
+        # === FINAL USER MESSAGE: SCENE + COMBINED EXTRACTION INSTRUCTION ===
+        cleaned_scene = self._clean_scene_numbers(scene_content)
+
+        character_names_str = ", ".join(character_names) if character_names else "None"
+        explicit_names_str = ", ".join(explicit_character_names) if explicit_character_names else "None"
+        thread_section = f"\n\nActive plot threads to consider:{thread_context}" if thread_context else ""
+
+        final_message = prompt_manager.get_prompt(
+            "combined_extraction", "user",
+            scene_content=cleaned_scene,
+            character_names=character_names_str,
+            explicit_names=explicit_names_str,
+            thread_section=thread_section
+        )
+        messages.append({"role": "user", "content": final_message})
+
+        logger.info(f"[COMBINED_EXTRACTION] Cache-friendly structure: {len(messages)} messages")
+
+        # === ROUTE TO APPROPRIATE LLM (SAME MESSAGES FOR BOTH) ===
+        ext_settings = user_settings.get('extraction_model_settings', {})
+        use_extraction_model = ext_settings.get('enabled', False)
+
+        try:
+            if use_extraction_model:
+                extraction_service = self._get_extraction_service(user_settings)
+                if extraction_service:
+                    logger.info("[COMBINED_EXTRACTION] Using extraction LLM with cache-friendly structure")
+                    return await extraction_service.generate_with_messages(
+                        messages=messages,
+                        max_tokens=max_tokens
+                    )
+                else:
+                    use_extraction_model = False
+
+            if not use_extraction_model:
+                logger.info("[COMBINED_EXTRACTION] Using main LLM with cache-friendly structure")
+                import copy
+                extraction_settings = copy.deepcopy(user_settings)
+                extraction_settings.setdefault('llm_settings', {})['temperature'] = 0.3
+                extraction_settings['llm_settings']['reasoning_effort'] = 'disabled'
+
+                return await self._generate_with_messages(
+                    messages=messages,
+                    user_id=user_id,
+                    user_settings=extraction_settings,
+                    max_tokens=max_tokens
+                )
+
+        except Exception as e:
+            logger.error(f"[COMBINED_EXTRACTION] Extraction failed: {e}")
+            raise
+
     async def generate_scenario(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> str:
         """Generate a creative scenario based on user selections and characters"""
         

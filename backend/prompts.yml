@@ -672,6 +672,63 @@ plot_extraction:
 
     If no events occurred, return: []
 
+# Combined Entity Extraction (cache-friendly)
+# Uses same context structure as scene generation for cache hits
+combined_extraction:
+  user: |
+    === SCENE JUST GENERATED ===
+    {scene_content}
+
+    === EXTRACT ALL STORY ELEMENTS ===
+    Analyze the scene above and extract FOUR types of information:
+
+    1. CHARACTER MOMENTS (for explicit characters only: {character_names})
+    2. NPCs and ENTITIES (NOT in the explicit character list: {explicit_names})
+    3. PLOT EVENTS (significant story events){thread_section}
+    4. ENTITY STATE CHANGES (characters, locations, objects)
+
+    IMPORTANT: Extract only the MOST IMPORTANT/SIGNIFICANT items. Quality over quantity.
+
+    For CHARACTER MOMENTS:
+    - Focus on explicit characters: {character_names}
+    - Extract only significant moments (confidence >= 70)
+    - Maximum 3 moments per character
+    - Moment types: "action", "dialogue", "development", "relationship"
+
+    For NPCs:
+    - Extract NAMED PEOPLE NOT in explicit character list
+    - Maximum 3 total NPCs
+    - Include: name, entity_type, has_dialogue, has_actions
+
+    For PLOT EVENTS:
+    - Extract significant plot events only
+    - Maximum 2 events
+    - Event types: "introduction", "complication", "revelation", "resolution"
+
+    For ENTITY STATE CHANGES:
+    - Extract state changes for characters, locations, objects
+    - Maximum 5 total state changes
+    - Location = room/building names only, NOT furniture
+    - Emotional state = 1-2 words only
+
+    Return as JSON:
+    {{
+      "character_moments": [
+        {{"character": "Name", "moment_type": "dialogue", "description": "...", "scene_id": 1, "confidence": 85}}
+      ],
+      "npcs": [
+        {{"name": "NPC Name", "entity_type": "CHARACTER", "has_dialogue": true, "has_actions": true}}
+      ],
+      "plot_events": [
+        {{"event_type": "complication", "description": "...", "importance": 80, "confidence": 90}}
+      ],
+      "entity_states": {{
+        "characters": [{{"name": "...", "location": "...", "emotional_state": "..."}}],
+        "locations": [],
+        "objects": []
+      }}
+    }}
+
 # Plot Structure Prompts
 plot_generation:
   complete_plot:
