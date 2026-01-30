@@ -45,7 +45,7 @@ class ContextManager:
                                                            getattr(settings, "context_summary_threshold_tokens", 10000))
             self.enable_summarization = ctx_settings.get("enable_summarization", True)
             # Scene batch size for LLM cache optimization
-            self.scene_batch_size = ctx_settings.get("scene_batch_size", 10)
+            self.scene_batch_size = ctx_settings.get("scene_batch_size", 5)
             # Fill remaining context with older scenes (default True for backwards compatibility)
             self.fill_remaining_context = ctx_settings.get("fill_remaining_context", True)
         else:
@@ -54,7 +54,7 @@ class ContextManager:
             self.summary_threshold = settings.context_summary_threshold
             self.summary_threshold_tokens = getattr(settings, "context_summary_threshold_tokens", 10000)
             self.enable_summarization = True
-            self.scene_batch_size = 10  # Default batch size for scene caching
+            self.scene_batch_size = 5  # Default batch size for scene caching
             self.fill_remaining_context = True  # Default to filling remaining context
         
         # Ensure max_tokens has a valid default (4000 from config.yaml)

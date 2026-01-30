@@ -69,12 +69,12 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   // Context Settings
   const [contextSettings, setContextSettings] = useState<ContextSettings>({
     max_tokens: 8000,
-    keep_recent_scenes: 5,
+    keep_recent_scenes: 2,  // Number of complete batches (now batch-aligned for cache stability)
     summary_threshold: 10,
     summary_threshold_tokens: 4000,
     enable_summarization: true,
     character_extraction_threshold: 5,
-    scene_batch_size: 10,
+    scene_batch_size: 5,  // Scenes per batch (smaller = more stable cache)
     enable_semantic_memory: false,
     context_strategy: 'linear',
     semantic_search_top_k: 5,
@@ -228,12 +228,12 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         if (settings?.context_settings) {
           setContextSettings({
             max_tokens: settings.context_settings.max_tokens ?? 8000,
-            keep_recent_scenes: settings.context_settings.keep_recent_scenes ?? 5,
+            keep_recent_scenes: settings.context_settings.keep_recent_scenes ?? 2,  // Now = number of batches
             summary_threshold: settings.context_settings.summary_threshold ?? 10,
             summary_threshold_tokens: settings.context_settings.summary_threshold_tokens ?? 4000,
             enable_summarization: settings.context_settings.enable_summarization !== false,
             character_extraction_threshold: settings.context_settings.character_extraction_threshold ?? 5,
-            scene_batch_size: settings.context_settings.scene_batch_size ?? 10,
+            scene_batch_size: settings.context_settings.scene_batch_size ?? 5,
             enable_semantic_memory: settings.context_settings.enable_semantic_memory || false,
             context_strategy: settings.context_settings.context_strategy || 'linear',
             semantic_search_top_k: settings.context_settings.semantic_search_top_k ?? 5,

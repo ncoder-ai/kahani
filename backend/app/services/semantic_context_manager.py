@@ -73,7 +73,7 @@ class SemanticContextManager(ContextManager):
             self.location_recency_window = getattr(settings, "location_recency_window", 10)
             # Fill remaining context setting (default True for backwards compatibility)
             self.fill_remaining_context = True
-        
+
         # Get semantic memory service
         try:
             self.semantic_memory = get_semantic_memory_service()
@@ -82,7 +82,65 @@ class SemanticContextManager(ContextManager):
             logger.warning("Semantic memory service not initialized, falling back to linear context")
             self.enable_semantic = False
             self.context_strategy = "linear"
-    
+
+    def _get_batch_aligned_recent_scenes(self, scenes: List) -> List:
+        """
+        Select scenes aligned to batch boundaries for optimal LLM cache hits.
+
+        Instead of a rolling window (last N scenes), this selects:
+        1. N complete batches (stable across consecutive scene generations)
+        2. All scenes in the active/incomplete batch (changes each scene)
+
+        For example, with batch_size=5 and current scene 237:
+        - Active batch = 47 (scenes 236-240), currently has 236-237
+        - If keep_recent_scenes=10 (2 batches worth):
+          - Include batch 46 (scenes 231-235) - COMPLETE, stable
+          - Include batch 45 (scenes 226-230) - COMPLETE, stable
+          - Include active batch scenes 236-237
+
+        This ensures cache hits on complete batches between consecutive generations.
+
+        Args:
+            scenes: List of Scene objects, ordered by sequence number
+
+        Returns:
+            List of Scene objects to include in context
+        """
+        if not scenes:
+            return []
+
+        batch_size = self.scene_batch_size
+
+        # Get the highest sequence number (current scene position)
+        max_seq = max(s.sequence_number for s in scenes if s.sequence_number)
+
+        # Calculate active batch number (0-indexed)
+        # Scene 1-5 = batch 0, 6-10 = batch 1, etc.
+        active_batch_num = (max_seq - 1) // batch_size
+
+        # Use keep_recent_scenes as the number of complete batches to include
+        # (frontend now shows this as "Recent Scene Batches")
+        num_complete_batches = max(1, self.keep_recent_scenes)
+
+        # Calculate the range of batches to include
+        # Start from (active_batch - num_complete_batches) up to active_batch
+        start_batch = max(0, active_batch_num - num_complete_batches)
+
+        # Calculate scene sequence range
+        # start_batch's first scene: start_batch * batch_size + 1
+        min_seq = start_batch * batch_size + 1
+
+        # Include all scenes from min_seq to max_seq
+        selected_scenes = [s for s in scenes if s.sequence_number and min_seq <= s.sequence_number <= max_seq]
+
+        # Sort by sequence number
+        selected_scenes.sort(key=lambda s: s.sequence_number)
+
+        logger.debug(f"[BATCH ALIGN] max_seq={max_seq}, active_batch={active_batch_num}, "
+                    f"start_batch={start_batch}, min_seq={min_seq}, selected={len(selected_scenes)}")
+
+        return selected_scenes
+
     async def build_story_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None, exclude_scene_id: Optional[int] = None, branch_id: Optional[int] = None, user_intent: Optional[str] = None) -> Dict[str, Any]:
         """
         Build optimized context using hybrid strategy if enabled
@@ -298,9 +356,15 @@ class SemanticContextManager(ContextManager):
         - Chapter summaries: 10% of available tokens
         """
         total_scenes = len(scenes)
-        
-        # Get recent scenes (last N scenes)
-        recent_scenes = scenes[-self.keep_recent_scenes:]
+
+        # Get recent scenes using BATCH-ALIGNED selection for cache stability
+        # Instead of rolling window (last N scenes), select:
+        # 1. Complete batches (stable, maximizes cache hits)
+        # 2. Active batch (all scenes in the current incomplete batch)
+        recent_scenes = self._get_batch_aligned_recent_scenes(scenes)
+        logger.info(f"[SEMANTIC CONTEXT] Batch-aligned selection: {len(recent_scenes)} scenes "
+                   f"(batch_size={self.scene_batch_size}, requested={self.keep_recent_scenes})")
+
         recent_content = await self._get_scene_content(recent_scenes, db, branch_id=branch_id)
         recent_tokens = self.count_tokens(recent_content)
         

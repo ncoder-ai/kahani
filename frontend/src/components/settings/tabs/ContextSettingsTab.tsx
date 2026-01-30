@@ -222,22 +222,22 @@ export default function ContextSettingsTab({
             </div>
           </div>
 
-          {/* Keep Recent Scenes */}
+          {/* Recent Scene Batches */}
           <div>
             <label className="block text-sm font-medium text-white mb-2">
-              Keep Recent Scenes: {contextSettings.keep_recent_scenes || 3}
+              Recent Scene Batches: {contextSettings.keep_recent_scenes || 2}
             </label>
             <input
               type="range"
               min="1"
               max="10"
               step="1"
-              value={contextSettings.keep_recent_scenes || 3}
+              value={contextSettings.keep_recent_scenes || 2}
               onChange={(e) => setContextSettings({ ...contextSettings, keep_recent_scenes: parseInt(e.target.value) })}
               className="w-full"
             />
             <div className="text-xs text-gray-400 mt-1">
-              Always preserve this many recent scenes
+              Complete scene batches to include (improves LLM cache hits)
             </div>
           </div>
 

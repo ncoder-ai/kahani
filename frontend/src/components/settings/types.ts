@@ -41,7 +41,7 @@ export interface LLMSettings {
 
 export interface ContextSettings {
   max_tokens: number;
-  keep_recent_scenes: number;
+  keep_recent_scenes: number;  // Number of complete scene batches to include
   summary_threshold: number;
   summary_threshold_tokens: number;
   enable_summarization: boolean;
