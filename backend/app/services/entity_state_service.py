@@ -2109,48 +2109,73 @@ class EntityStateService:
 
             # Restore character states (always use batch's branch_id for proper branch isolation)
             char_count = 0
-            for char_dict in batch.character_states_snapshot:
-                state_data = {k: v for k, v in char_dict.items() if k != 'id' and k != 'updated_at'}
-                # Always use batch's branch_id (snapshot may have parent branch's ID after cloning)
-                state_data['branch_id'] = batch.branch_id
-                char_state = CharacterState(**state_data)
-                db.add(char_state)
-                char_count += 1
+            char_errors = 0
+            for idx, char_dict in enumerate(batch.character_states_snapshot or []):
+                try:
+                    state_data = {k: v for k, v in char_dict.items() if k != 'id' and k != 'updated_at'}
+                    # Always use batch's branch_id (snapshot may have parent branch's ID after cloning)
+                    state_data['branch_id'] = batch.branch_id
+                    char_state = CharacterState(**state_data)
+                    db.add(char_state)
+                    char_count += 1
+                except Exception as char_err:
+                    char_errors += 1
+                    char_name = char_dict.get('name', 'unknown')
+                    logger.error(f"[ENTITY:RESTORE:CHAR_ERROR] batch={batch.id} idx={idx} name={char_name} error={char_err} keys={list(char_dict.keys())}")
 
             # Restore location states (always use batch's branch_id for proper branch isolation)
             loc_count = 0
-            for loc_dict in batch.location_states_snapshot:
-                state_data = {k: v for k, v in loc_dict.items() if k != 'id' and k != 'updated_at'}
-                # Always use batch's branch_id (snapshot may have parent branch's ID after cloning)
-                state_data['branch_id'] = batch.branch_id
-                loc_state = LocationState(**state_data)
-                db.add(loc_state)
-                loc_count += 1
+            loc_errors = 0
+            for idx, loc_dict in enumerate(batch.location_states_snapshot or []):
+                try:
+                    state_data = {k: v for k, v in loc_dict.items() if k != 'id' and k != 'updated_at'}
+                    # Always use batch's branch_id (snapshot may have parent branch's ID after cloning)
+                    state_data['branch_id'] = batch.branch_id
+                    loc_state = LocationState(**state_data)
+                    db.add(loc_state)
+                    loc_count += 1
+                except Exception as loc_err:
+                    loc_errors += 1
+                    loc_name = loc_dict.get('name', 'unknown')
+                    logger.error(f"[ENTITY:RESTORE:LOC_ERROR] batch={batch.id} idx={idx} name={loc_name} error={loc_err} keys={list(loc_dict.keys())}")
 
             # Restore object states (always use batch's branch_id for proper branch isolation)
             obj_count = 0
-            for obj_dict in batch.object_states_snapshot:
-                state_data = {k: v for k, v in obj_dict.items() if k != 'id' and k != 'updated_at'}
-                # Always use batch's branch_id (snapshot may have parent branch's ID after cloning)
-                state_data['branch_id'] = batch.branch_id
-                obj_state = ObjectState(**state_data)
-                db.add(obj_state)
-                obj_count += 1
+            obj_errors = 0
+            for idx, obj_dict in enumerate(batch.object_states_snapshot or []):
+                try:
+                    state_data = {k: v for k, v in obj_dict.items() if k != 'id' and k != 'updated_at'}
+                    # Always use batch's branch_id (snapshot may have parent branch's ID after cloning)
+                    state_data['branch_id'] = batch.branch_id
+                    obj_state = ObjectState(**state_data)
+                    db.add(obj_state)
+                    obj_count += 1
+                except Exception as obj_err:
+                    obj_errors += 1
+                    obj_name = obj_dict.get('name', 'unknown')
+                    logger.error(f"[ENTITY:RESTORE:OBJ_ERROR] batch={batch.id} idx={idx} name={obj_name} error={obj_err} keys={list(obj_dict.keys())}")
             
             db.flush()
-            
-            logger.info(f"Restored entity states from batch {batch.id}: {char_count} characters, {loc_count} locations, {obj_count} objects")
-            
+
+            total_errors = char_errors + loc_errors + obj_errors
+            if total_errors > 0:
+                logger.warning(f"[ENTITY:RESTORE:PARTIAL] batch={batch.id} restored chars={char_count} locs={loc_count} objs={obj_count} errors={total_errors}")
+            else:
+                logger.info(f"Restored entity states from batch {batch.id}: {char_count} characters, {loc_count} locations, {obj_count} objects")
+
             return {
                 "characters_restored": char_count,
                 "locations_restored": loc_count,
-                "objects_restored": obj_count
+                "objects_restored": obj_count,
+                "errors": total_errors
             }
-            
+
         except Exception as e:
-            logger.error(f"Failed to restore entity states from batch: {e}")
+            import traceback
+            logger.error(f"[ENTITY:RESTORE:FATAL] Failed to restore entity states from batch {batch.id}: {e}")
+            logger.error(f"[ENTITY:RESTORE:TRACEBACK] {traceback.format_exc()}")
             db.rollback()
-            return {"characters_restored": 0, "locations_restored": 0, "objects_restored": 0}
+            raise  # Re-raise so caller knows restoration failed
     
     def invalidate_entity_batches_for_scenes(
         self,
@@ -2372,15 +2397,12 @@ class EntityStateService:
                 }
             
         except Exception as e:
-            logger.error(f"Failed to restore entity states from last complete batch: {e}")
+            import traceback
+            logger.error(f"[DELETE:RESTORE:FATAL] Failed to restore entity states from last complete batch: {e}")
+            logger.error(f"[DELETE:RESTORE:TRACEBACK] {traceback.format_exc()}")
             db.rollback()
-            return {
-                "characters_restored": 0,
-                "locations_restored": 0,
-                "objects_restored": 0,
-                "restoration_successful": False
-            }
-    
+            raise  # Re-raise so caller can log and handle appropriately
+
     async def recalculate_entity_states_from_batches(
         self,
         db: Session,

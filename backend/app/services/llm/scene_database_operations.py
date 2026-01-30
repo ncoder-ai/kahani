@@ -558,7 +558,7 @@ class SceneDatabaseOperations:
                 chapter.scenes_count = self.get_active_scene_count(db, story_id, chapter_id, branch_id=chapter.branch_id)
                 logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} new_scenes_count={chapter.scenes_count}")
 
-                # Invalidate batches that overlap with deleted scenes
+                # Invalidate summary batches that overlap with deleted scenes
                 affected_batches = db.query(ChapterSummaryBatch).filter(
                     ChapterSummaryBatch.chapter_id == chapter_id,
                     ChapterSummaryBatch.start_scene_sequence <= max_deleted_seq,
@@ -568,12 +568,25 @@ class SceneDatabaseOperations:
                 if affected_batches:
                     for batch in affected_batches:
                         db.delete(batch)
-                    logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} batches_invalidated={len(affected_batches)}")
+                    logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} summary_batches_invalidated={len(affected_batches)}")
 
                     # Recalculate summary from remaining batches
                     summary_start = time.perf_counter()
                     update_chapter_summary_from_batches(chapter_id, db)
                     logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} summary_recalc_ms={(time.perf_counter()-summary_start)*1000:.2f}")
+
+                # Invalidate plot progress batches that overlap with deleted scenes
+                from ...models import ChapterPlotProgressBatch
+                affected_plot_batches = db.query(ChapterPlotProgressBatch).filter(
+                    ChapterPlotProgressBatch.chapter_id == chapter_id,
+                    ChapterPlotProgressBatch.start_scene_sequence <= max_deleted_seq,
+                    ChapterPlotProgressBatch.end_scene_sequence >= min_deleted_seq
+                ).all()
+
+                if affected_plot_batches:
+                    for batch in affected_plot_batches:
+                        db.delete(batch)
+                    logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} plot_batches_invalidated={len(affected_plot_batches)}")
 
                 # Update last_extraction_scene_count and last_summary_scene_count to max remaining sequence
                 # This prevents extraction/summary from being skipped due to negative scene counts

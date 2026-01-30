@@ -262,8 +262,8 @@ class ChapterProgressService:
         
         if batches:
             latest_batch = max(batches, key=lambda b: b.end_scene_sequence)
-            # Union all events from all batches - handles out-of-order batch updates
-            # (e.g., when user marks event incomplete and earlier batch gets re-extracted)
+            # Union all events from all batches - handles overlapping batch ranges
+            # Toggle function is responsible for removing events from ALL batches when toggled off
             all_events = set()
             for batch in batches:
                 all_events.update(batch.completed_events or [])
@@ -418,20 +418,27 @@ class ChapterProgressService:
         chapter.plot_progress = progress_data
         flag_modified(chapter, "plot_progress")
 
-        # ALSO update the latest batch to keep it in sync
-        # This ensures the manual toggle persists even if new batches are created
-        latest_batch = self.db.query(ChapterPlotProgressBatch).filter(
+        # Update batches to keep them in sync with manual toggles
+        all_batches = self.db.query(ChapterPlotProgressBatch).filter(
             ChapterPlotProgressBatch.chapter_id == chapter.id
-        ).order_by(ChapterPlotProgressBatch.end_scene_sequence.desc()).first()
+        ).all()
 
-        if latest_batch:
-            batch_events = set(latest_batch.completed_events or [])
-            if completed:
+        if completed:
+            # When toggling ON: add to the latest batch only (will be inherited by future batches)
+            latest_batch = max(all_batches, key=lambda b: b.end_scene_sequence) if all_batches else None
+            if latest_batch:
+                batch_events = set(latest_batch.completed_events or [])
                 batch_events.add(event)
-            else:
-                batch_events.discard(event)
-            latest_batch.completed_events = list(batch_events)
-            flag_modified(latest_batch, "completed_events")
+                latest_batch.completed_events = list(batch_events)
+                flag_modified(latest_batch, "completed_events")
+        else:
+            # When toggling OFF: remove from ALL batches (since union is used for display)
+            for batch in all_batches:
+                batch_events = set(batch.completed_events or [])
+                if event in batch_events:
+                    batch_events.discard(event)
+                    batch.completed_events = list(batch_events)
+                    flag_modified(batch, "completed_events")
 
         self.db.commit()
         self.db.refresh(chapter)
