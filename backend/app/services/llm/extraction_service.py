@@ -160,11 +160,47 @@ class ExtractionLLMService:
             
             content = response.choices[0].message.content
             return content.strip() if content else ""
-            
+
         except Exception as e:
             logger.error(f"Extraction model generation failed: {e}")
             raise
-    
+
+    async def generate_with_messages(
+        self,
+        messages: List[Dict[str, str]],
+        max_tokens: Optional[int] = None
+    ) -> str:
+        """
+        Generate using a full message array (for cache-friendly unified extraction).
+
+        This method accepts the same message structure as the main LLM,
+        enabling unified code paths for both extraction LLM and main LLM.
+
+        Args:
+            messages: Full message array with role/content dicts
+            max_tokens: Maximum tokens for response
+
+        Returns:
+            Generated text response
+        """
+        try:
+            from litellm import acompletion
+
+            params = self._get_generation_params(max_tokens=max_tokens)
+
+            response = await acompletion(
+                **params,
+                messages=messages,
+                timeout=self.timeout.total
+            )
+
+            content = response.choices[0].message.content
+            return content.strip() if content else ""
+
+        except Exception as e:
+            logger.error(f"Extraction model generation_with_messages failed: {e}")
+            raise
+
     async def extract_plot_events(
         self, 
         scene_content: str, 

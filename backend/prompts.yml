@@ -649,6 +649,29 @@ choice_generation:
     Output ONLY a valid JSON object in this format:
     {{"choices": ["Choice 1", "Choice 2", "Choice 3", "Choice 4"]}}
 
+# Plot Event Extraction (cache-friendly)
+# Uses same context structure as scene generation for cache hits
+plot_extraction:
+  user: |
+    === SCENE JUST GENERATED ===
+    {scene_content}
+
+    === EXTRACT PLOT EVENTS ===
+    Analyze the scene above and determine which of these planned story events occurred:
+
+    {key_events}
+
+    INSTRUCTIONS:
+    - Only mark events that CLEARLY and DEFINITIVELY happened in this scene
+    - Hints, foreshadowing, or partial progress do NOT count
+    - Most scenes contain 0-2 events - be selective
+    - Return the EXACT event text from the list - do not paraphrase
+
+    Return ONLY a valid JSON array with the exact event descriptions:
+    ["Event text copied exactly", "Another event if applicable"]
+
+    If no events occurred, return: []
+
 # Plot Structure Prompts
 plot_generation:
   complete_plot:

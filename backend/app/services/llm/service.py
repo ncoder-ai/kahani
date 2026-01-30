@@ -2296,13 +2296,13 @@ Chapter Conclusion:"""
         db: Optional[Session] = None
     ) -> List[str]:
         """
-        Extract completed plot events using the SAME multi-message structure as scene generation.
+        Extract completed plot events using cache-friendly multi-message structure.
 
-        This leverages LLM prompt caching - messages 1-N are identical to scene generation,
-        only the final message differs (the generated scene + extraction request).
+        Uses SAME message structure as choice_generation for maximum cache hits:
+        - Messages 1-N identical to scene generation (CACHED)
+        - Final USER message contains scene + extraction instruction
 
-        Since the main LLM just wrote the scene, it has full context and understanding
-        of what happened. This typically produces better extraction than a separate model.
+        Routes to extraction LLM or main LLM - same structure for both.
 
         Args:
             scene_content: The generated scene text to analyze
@@ -2318,14 +2318,14 @@ Chapter Conclusion:"""
         if not key_events:
             return []
 
-        # Get scene length and choices count from user settings (for system prompt consistency)
+        # Get scene generation parameters (IDENTICAL to scene generation)
         generation_prefs = user_settings.get("generation_preferences", {})
         scene_length = generation_prefs.get("scene_length", "medium")
         choices_count = generation_prefs.get("choices_count", 4)
         separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
         scene_length_description = self._get_scene_length_description(scene_length)
 
-        # === USE SAME SYSTEM PROMPT AS SCENE GENERATION FOR CACHE HITS ===
+        # === SAME SYSTEM PROMPT AS SCENE GENERATION ===
         system_prompt = prompt_manager.get_prompt(
             "scene_with_immediate", "system",
             user_id=user_id,
@@ -2335,7 +2335,7 @@ Chapter Conclusion:"""
             skip_choices=separate_choice_generation
         )
 
-        # === BUILD SAME MULTI-MESSAGE STRUCTURE AS SCENE GENERATION ===
+        # === BUILD SAME MULTI-MESSAGE STRUCTURE ===
         messages = [{"role": "system", "content": system_prompt.strip()}]
 
         # Get scene batch size from user settings for cache optimization
@@ -2345,42 +2345,54 @@ Chapter Conclusion:"""
         context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
         messages.extend(context_messages)
 
-        # === ADD THE GENERATED SCENE AS ASSISTANT MESSAGE ===
-        # This simulates that the LLM just generated this scene
+        # === FINAL USER MESSAGE: SCENE + EXTRACTION INSTRUCTION ===
+        # (Same pattern as choice_generation - scene in user message, NOT assistant message)
         cleaned_scene = self._clean_scene_numbers(scene_content)
-        messages.append({"role": "assistant", "content": cleaned_scene})
-
-        # === FINAL USER MESSAGE: EXTRACTION REQUEST ===
-        # Format key events as a list for the prompt
         key_events_formatted = json.dumps(key_events, indent=2, ensure_ascii=False)
 
-        extraction_prompt = prompt_manager.get_prompt(
-            "chapter_progress.context_aware_extraction", "user",
+        final_message = prompt_manager.get_prompt(
+            "plot_extraction", "user",
+            scene_content=cleaned_scene,
             key_events=key_events_formatted
         )
-        messages.append({"role": "user", "content": extraction_prompt})
+        messages.append({"role": "user", "content": final_message})
 
-        logger.info(f"[PLOT_EXTRACTION_CONTEXT] Using multi-message structure: {len(messages)} messages, checking {len(key_events)} events")
+        logger.info(f"[PLOT_EXTRACTION] Cache-friendly structure: {len(messages)} messages, checking {len(key_events)} events")
 
-        # Use low temperature for consistent extraction
-        import copy
-        extraction_settings = copy.deepcopy(user_settings)
-        if 'llm_settings' not in extraction_settings:
-            extraction_settings['llm_settings'] = {}
-        extraction_settings['llm_settings']['temperature'] = 0.3
-        # Disable reasoning for extraction - we want direct JSON output
-        extraction_settings['llm_settings']['reasoning_effort'] = 'disabled'
+        # === ROUTE TO APPROPRIATE LLM (SAME MESSAGES FOR BOTH) ===
+        ext_settings = user_settings.get('extraction_model_settings', {})
+        use_extraction_model = ext_settings.get('enabled', False)
 
-        # Generate response
         try:
-            response = await self._generate_with_messages(
-                messages=messages,
-                user_id=user_id,
-                user_settings=extraction_settings,
-                max_tokens=500  # JSON array of events doesn't need many tokens
-            )
+            if use_extraction_model:
+                # Use extraction LLM with SAME message structure
+                extraction_service = self._get_extraction_service(user_settings)
+                if extraction_service:
+                    logger.info("[PLOT_EXTRACTION] Using extraction LLM with cache-friendly structure")
+                    response = await extraction_service.generate_with_messages(
+                        messages=messages,
+                        max_tokens=500
+                    )
+                else:
+                    # Fall through to main LLM if extraction service unavailable
+                    use_extraction_model = False
 
-            logger.info(f"[PLOT_EXTRACTION_CONTEXT] Raw response: {response[:300] if response else 'None'}...")
+            if not use_extraction_model:
+                # Use main LLM with SAME message structure
+                logger.info("[PLOT_EXTRACTION] Using main LLM with cache-friendly structure")
+                import copy
+                extraction_settings = copy.deepcopy(user_settings)
+                extraction_settings.setdefault('llm_settings', {})['temperature'] = 0.3
+                extraction_settings['llm_settings']['reasoning_effort'] = 'disabled'
+
+                response = await self._generate_with_messages(
+                    messages=messages,
+                    user_id=user_id,
+                    user_settings=extraction_settings,
+                    max_tokens=500
+                )
+
+            logger.info(f"[PLOT_EXTRACTION] Raw response: {response[:300] if response else 'None'}...")
 
             # Parse response as JSON array
             from ..chapter_progress_service import clean_llm_json
@@ -2388,20 +2400,20 @@ Chapter Conclusion:"""
             completed = json.loads(cleaned)
 
             if not isinstance(completed, list):
-                logger.warning(f"[PLOT_EXTRACTION_CONTEXT] Response is not a list: {type(completed)}")
+                logger.warning(f"[PLOT_EXTRACTION] Response is not a list: {type(completed)}")
                 return []
 
             # Validate that returned events are in the original list
             valid_events = [e for e in completed if e in key_events]
 
-            logger.info(f"[PLOT_EXTRACTION_CONTEXT] Extracted {len(valid_events)} valid events from scene")
+            logger.info(f"[PLOT_EXTRACTION] Extracted {len(valid_events)} valid events from scene")
             return valid_events
 
         except json.JSONDecodeError as e:
-            logger.warning(f"[PLOT_EXTRACTION_CONTEXT] Failed to parse JSON response: {e}")
+            logger.warning(f"[PLOT_EXTRACTION] Failed to parse JSON response: {e}")
             return []
         except Exception as e:
-            logger.error(f"[PLOT_EXTRACTION_CONTEXT] Extraction failed: {e}")
+            logger.error(f"[PLOT_EXTRACTION] Extraction failed: {e}")
             return []
 
     async def generate_scenario(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> str:
@@ -2560,7 +2572,50 @@ Chapter Conclusion:"""
     def _format_character_voice_styles(self, characters: Any) -> str:
         """Format character voice styles. Delegates to context_formatter module."""
         return format_character_voice_styles(characters)
-    
+
+    def _get_extraction_service(self, user_settings: Dict[str, Any]):
+        """
+        Get extraction LLM service if enabled and configured.
+
+        Returns:
+            ExtractionLLMService instance or None if not available
+        """
+        from ...config import settings
+        ext_settings = user_settings.get('extraction_model_settings', {})
+
+        if not ext_settings.get('enabled', False):
+            return None
+
+        try:
+            from .extraction_service import ExtractionLLMService
+
+            ext_defaults = settings._yaml_config.get('extraction_model', {})
+            url = ext_settings.get('url', ext_defaults.get('url'))
+            model = ext_settings.get('model_name', ext_defaults.get('model_name'))
+            api_key = ext_settings.get('api_key', ext_defaults.get('api_key', ''))
+            temperature = ext_settings.get('temperature', ext_defaults.get('temperature', 0.3))
+            max_tokens = ext_settings.get('max_tokens', ext_defaults.get('max_tokens', 2000))
+
+            # Get timeout from user's LLM settings
+            llm_settings = user_settings.get('llm_settings', {})
+            timeout_total = llm_settings.get('timeout_total', 240)
+
+            if not url or not model:
+                logger.warning("[EXTRACTION_SERVICE] URL or model not configured")
+                return None
+
+            return ExtractionLLMService(
+                url=url,
+                model=model,
+                api_key=api_key,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout_total=timeout_total
+            )
+        except Exception as e:
+            logger.error(f"[EXTRACTION_SERVICE] Failed to create extraction service: {e}")
+            return None
+
     def _format_context_as_messages(self, context: Dict[str, Any], scene_batch_size: int = 10) -> List[Dict[str, str]]:
         """
         Format context as multiple user messages for better LLM cache utilization.
