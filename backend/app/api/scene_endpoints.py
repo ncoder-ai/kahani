@@ -758,7 +758,7 @@ async def generate_scene_streaming_endpoint(
                         })
 
                     # Send multi_complete event
-                    yield f"data: {json.dumps({'type': 'multi_complete', 'scene_id': scene.id, 'sequence': next_sequence, 'total_variants': len(created_variants), 'variants': variants_response})}\n\n"
+                    yield f"data: {json.dumps({'type': 'multi_complete', 'scene_id': scene.id, 'sequence': next_sequence, 'total_variants': len(created_variants), 'variants': variants_response, 'chapter_id': chapter_id})}\n\n"
 
                     # Update chapter stats (chapter_id already set during scene creation)
                     if active_chapter:
@@ -1141,7 +1141,8 @@ async def generate_scene_streaming_endpoint(
                 'type': 'complete',
                 'scene_id': scene.id,
                 'variant_id': variant.id,
-                'choices': choices_data
+                'choices': choices_data,
+                'chapter_id': chapter_id
             }
 
             # Add auto-play info to complete event if it was set up

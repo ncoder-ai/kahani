@@ -614,7 +614,7 @@ export default function StoryPage() {
   // Get scenes to display based on current mode and active chapter
   const getScenesToDisplay = (): Scene[] => {
     if (!story?.scenes || story.scenes.length === 0) return [];
-    
+
     // Filter by active chapter - always show only active chapter's scenes
     let filteredScenes = story.scenes;
     if (activeChapterId !== null) {
@@ -1430,7 +1430,7 @@ export default function StoryPage() {
           }
         },
         // onComplete
-        async (sceneId: number, variantId: number, choices: any[], autoPlay?: { enabled: boolean; session_id: string; scene_id: number }, multiGen?: { isMultiGeneration: boolean; totalVariants: number; variants: any[] }) => {
+        async (sceneId: number, variantId: number, choices: any[], autoPlay?: { enabled: boolean; session_id: string; scene_id: number }, multiGen?: { isMultiGeneration: boolean; totalVariants: number; variants: any[] }, chapterId?: number | null) => {
           
           // Flush any remaining buffered chunks on iOS
           if (isIOS) {
@@ -1463,7 +1463,7 @@ export default function StoryPage() {
           // ADD the new scene to the story
           // Handle multi-generation differently
           const isMultiGen = multiGen?.isMultiGeneration && multiGen.totalVariants > 1;
-          
+
           if (story && accumulatedContent) {
             const newScene = {
               id: sceneId,
@@ -1472,15 +1472,15 @@ export default function StoryPage() {
               content: isMultiGen && multiGen.variants[0] ? multiGen.variants[0].content : accumulatedContent,
               location: '',
               characters_present: [],
-              choices: isMultiGen && multiGen.variants[0]?.choices 
-                ? multiGen.variants[0].choices.map((c: any) => c.text || c.choice_text || c) 
+              choices: isMultiGen && multiGen.variants[0]?.choices
+                ? multiGen.variants[0].choices.map((c: any) => c.text || c.choice_text || c)
                 : (choices || []),
               variant_id: variantId,
               has_multiple_variants: isMultiGen || false,
               total_variants: isMultiGen ? multiGen.totalVariants : 1,
-              chapter_id: activeChapterId || undefined
+              chapter_id: chapterId ?? activeChapterId ?? undefined
             };
-            
+
             const updatedStory = {
               ...story,
               scenes: [...story.scenes, newScene]
@@ -1561,7 +1561,11 @@ export default function StoryPage() {
           setCustomPrompt('');
           setUserSceneContent(''); // Clear user content after successful generation
           setFirstSceneMode('ai'); // Reset to AI mode after first scene
-          
+
+          // Refresh story content to ensure scene has correct chapter_id from backend
+          // This is needed because the local scene may have stale chapter_id
+          await refreshStoryContent();
+
           // Refresh chapter sidebar to update context counter
           setChapterSidebarRefreshKey(prev => prev + 1);
           

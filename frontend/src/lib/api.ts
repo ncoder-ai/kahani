@@ -1001,7 +1001,7 @@ class ApiClient {
     userContent?: string,
     contentMode: 'ai_generate' | 'user_scene' | 'user_prompt' = 'ai_generate',
     onChunk?: (chunk: string) => void,
-    onComplete?: (sceneId: number, variantId: number, choices: any[], autoPlay?: { enabled: boolean; session_id: string; scene_id: number }, multiGen?: { isMultiGeneration: boolean; totalVariants: number; variants: any[] }) => void,
+    onComplete?: (sceneId: number, variantId: number, choices: any[], autoPlay?: { enabled: boolean; session_id: string; scene_id: number }, multiGen?: { isMultiGeneration: boolean; totalVariants: number; variants: any[] }, chapterId?: number | null) => void,
     onError?: (error: string) => void,
     onAutoPlayReady?: (sessionId: string, sceneId: number) => void,
     onExtractionStatus?: (status: 'extracting' | 'complete' | 'error', message: string) => void,
@@ -1142,7 +1142,7 @@ class ApiClient {
                 else if (parsed.type === 'complete' && onComplete) {
                   receivedComplete = true;
                   clearTimeout(timeoutId);
-                  onComplete(parsed.scene_id, parsed.variant_id, parsed.choices || [], parsed.auto_play);
+                  onComplete(parsed.scene_id, parsed.variant_id, parsed.choices || [], parsed.auto_play, undefined, parsed.chapter_id);
                   // Don't return — keep stream open for post-completion events (contradiction_check)
                 }
                 else if (parsed.type === 'multi_complete') {
@@ -1154,16 +1154,17 @@ class ApiClient {
                     const firstVariant = parsed.variants[0];
                     // Extend the callback with multi-generation info via extra parameter
                     onComplete(
-                      parsed.scene_id, 
-                      firstVariant.id, 
-                      firstVariant.choices || [], 
+                      parsed.scene_id,
+                      firstVariant.id,
+                      firstVariant.choices || [],
                       undefined,
                       // Pass multi-generation info as 5th parameter
                       {
                         isMultiGeneration: true,
                         totalVariants: parsed.total_variants,
                         variants: parsed.variants
-                      }
+                      },
+                      parsed.chapter_id
                     );
                   }
                   // Don't return — keep stream open for post-completion events (contradiction_check)
