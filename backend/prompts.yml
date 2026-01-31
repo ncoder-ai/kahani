@@ -729,6 +729,51 @@ combined_extraction:
       }}
     }}
 
+# Entity-Only Extraction (cache-friendly, for inline contradiction check)
+# Uses same context structure as scene generation for maximum cache hits
+# FAST: Only extracts entity states (characters, locations, objects)
+entity_only_extraction:
+  user: |
+    === SCENE JUST GENERATED ===
+    {scene_content}
+
+    === EXTRACT ENTITY STATE CHANGES ONLY ===
+    Known characters: {character_names}
+    Chapter location: {chapter_location}
+
+    Extract ONLY entity state changes from the scene above. Be concise and factual.
+
+    For CHARACTERS:
+    - Location: Use "{chapter_location}" unless they explicitly moved elsewhere
+    - emotional_state: 1-2 words ONLY (e.g., "nervous", "aroused", "angry")
+    - physical_condition: 1-3 words (e.g., "tired", "sweating", "nude")
+    - current_attire: Specific items or "nude" (NOT "dressed provocatively")
+
+    For LOCATIONS:
+    - Only include if atmosphere/condition changed in this scene
+    - Name should be room/building, NOT furniture
+
+    For OBJECTS:
+    - Only plot-critical items (NOT furniture, body parts, everyday items)
+    - Only if ownership/state changed in this scene
+
+    Return ONLY valid JSON:
+    {{
+      "characters": [
+        {{
+          "name": "character name",
+          "location": "room or {chapter_location}",
+          "emotional_state": "1-2 words or null",
+          "physical_condition": "1-3 words or null",
+          "current_attire": "specific items or null",
+          "knowledge_gained": ["factual info learned"],
+          "relationship_changes": {{}}
+        }}
+      ],
+      "locations": [],
+      "objects": []
+    }}
+
 # Working Memory Extraction (cache-friendly)
 # Uses same context structure as scene generation for cache hits
 working_memory_cache_friendly:
@@ -1918,6 +1963,53 @@ entity_state_extraction:
       }}
       
       If no items found for a category, return empty array [] or empty object {{}}. Return ONLY the JSON, no other text or markdown.
+
+  # Lean extraction for character moments + NPCs only (entity states and plot events handled separately)
+  # Uses cache-friendly multi-message structure
+  moments_and_npcs:
+    user: |
+      === SCENE JUST GENERATED ===
+      {scene_content}
+
+      === EXTRACT CHARACTER MOMENTS AND NPCs ONLY ===
+      Explicit characters: {character_names}
+
+      Extract TWO types of information:
+
+      1. CHARACTER MOMENTS (for explicit characters only: {character_names})
+         - Significant moments (confidence >= 70)
+         - Maximum 5 moments per scene
+         - Moment types: "action", "dialogue", "development", "relationship"
+
+      2. NPCs/ENTITIES (NOT in explicit character list)
+         - NAMED PEOPLE or entities NOT in: {explicit_names}
+         - Classify as "CHARACTER" (people) or "ENTITY" (locations, objects, organizations)
+         - Maximum 5 total NPCs
+         - Prioritize: has_dialogue OR has_actions OR mention_count >= 3
+
+      Return ONLY valid JSON:
+      {{
+        "character_moments": [
+          {{
+            "character_name": "Character Name",
+            "moment_type": "action",
+            "content": "Description of the moment",
+            "confidence": 85
+          }}
+        ],
+        "npcs": [
+          {{
+            "name": "NPC name",
+            "entity_type": "CHARACTER",
+            "mention_count": 3,
+            "has_dialogue": true,
+            "has_actions": true,
+            "has_relationships": false,
+            "context_snippets": ["snippet"],
+            "properties": {{"role": "role", "description": "brief description"}}
+          }}
+        ]
+      }}
 
 # =============================================================================
 # WORKING MEMORY - Scene-to-scene continuity tracking

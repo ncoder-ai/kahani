@@ -41,6 +41,8 @@ from .story_tasks import (
     run_plot_extraction_in_background,
     update_working_memory_in_background,
     update_relationship_graph_in_background,
+    run_inline_entity_extraction_background,
+    run_chapter_summary_background,
 )
 
 # Lazy import for semantic integration
@@ -1167,32 +1169,15 @@ async def generate_scene_streaming_endpoint(
                     logger.info(f"[CHAPTER] Auto-summary check: {scenes_since_summary} scenes since last summary (threshold: {summary_threshold})")
                     if scenes_since_summary >= summary_threshold:
                         logger.info(f"[CHAPTER] Chapter {active_chapter.id} reached {summary_threshold} scenes since last summary, triggering auto-summary in background")
-                        from ..api.chapters import generate_chapter_summary_incremental
 
-                        async def generate_summaries_background():
-                            try:
-                                # Create a new DB session for background task
-                                from ..database import SessionLocal
-                                bg_db = SessionLocal()
-                                try:
-                                    # Reload chapter to get latest state
-                                    bg_chapter = bg_db.query(Chapter).filter(Chapter.id == active_chapter.id).first()
-                                    if bg_chapter:
-                                        await generate_chapter_summary_incremental(bg_chapter.id, bg_db, current_user.id)
-                                        # Note: story_so_far is NOT regenerated here because it only includes previous chapters,
-                                        # not the current chapter, so updating current chapter's summary doesn't affect it
-                                        # Note: last_summary_scene_count is already updated by generate_chapter_summary_incremental
-                                        # via update_chapter_summary_from_batches(), so we don't need to set it here
-                                        bg_db.commit()
-                                        logger.info(f"[CHAPTER] Auto-summary generated for chapter {bg_chapter.id}")
-                                finally:
-                                    bg_db.close()
-                            except Exception as e:
-                                logger.error(f"[AUTO-SUMMARY] Background task failed: {e}")
-
-                        # Run summary generation in background (fire and forget)
-                        asyncio.create_task(generate_summaries_background())
-                        logger.info(f"[CHAPTER] Started background summary generation for chapter {active_chapter.id}")
+                        # Schedule summary generation via background_tasks for sequential execution
+                        # This runs LAST after all extractions complete
+                        background_tasks.add_task(
+                            run_chapter_summary_background,
+                            chapter_id=active_chapter.id,
+                            user_id=current_user.id
+                        )
+                        logger.info(f"[CHAPTER] Scheduled background summary generation for chapter {active_chapter.id}")
                 except Exception as e:
                     logger.error(f"[AUTO-SUMMARY] Failed to start background summary generation: {e}")
                     # Don't fail scene generation if summary fails
@@ -1231,80 +1216,51 @@ async def generate_scene_streaming_endpoint(
                         logger.warning(f"[EXTRACTION] Scenes since last extraction: {scenes_since_extraction}/{effective_threshold} for chapter {active_chapter.id} (inline_check={enable_inline_check})")
                         logger.warning(f"[EXTRACTION] Chapter {active_chapter.id} has {len(scenes_in_chapter)} scenes (sequences {min(scene_sequence_numbers)} to {max_sequence_in_chapter}), last extracted: {last_extraction_sequence}")
 
-                        if scenes_since_extraction >= effective_threshold:
-                            if enable_inline_check:
-                                # === INLINE EXTRACTION + CONTRADICTION CHECK ===
-                                logger.warning(f"[EXTRACTION] ✓ INLINE: Running extraction inline for contradiction check ({scenes_since_extraction}/{effective_threshold})")
+                        # === INLINE CONTRADICTION CHECK (if enabled) ===
+                        # Uses FastAPI background_tasks for sequential execution with other LLM tasks
+                        if enable_inline_check:
+                            logger.warning(f"[INLINE_CHECK] Scheduling background entity extraction for contradiction check")
+                            yield f"data: {json.dumps({'type': 'contradiction_check', 'status': 'scheduled'})}\n\n"
 
-                                yield f"data: {json.dumps({'type': 'contradiction_check', 'status': 'checking'})}\n\n"
+                            # Schedule inline check FIRST so it runs before other extractions
+                            background_tasks.add_task(
+                                run_inline_entity_extraction_background,
+                                story_id=story_id,
+                                chapter_id=active_chapter.id,
+                                scene_id=scene.id,
+                                scene_sequence=scene.sequence_number,
+                                scene_content=cleaned_full_content,
+                                user_id=current_user.id,
+                                user_settings=user_settings or {},
+                                branch_id=active_branch_id,
+                                scene_generation_context=context.copy() if context else {}
+                            )
+                            logger.info(f"[INLINE_CHECK] Background task scheduled for scene {scene.sequence_number}")
 
-                                try:
-                                    # Use asyncio.shield to prevent cancellation when SSE connection closes
-                                    # This ensures extraction completes even if user navigates away
-                                    await asyncio.shield(run_extractions_in_background(
-                                        story_id=story_id,
-                                        chapter_id=active_chapter.id,
-                                        from_sequence=last_extraction_sequence,
-                                        to_sequence=max_sequence_in_chapter,
-                                        user_id=current_user.id,
-                                        user_settings=user_settings or {},
-                                        scene_generation_context=context  # Pass context for cache-friendly extraction
-                                    ))
+                        # === FULL EXTRACTION AT NORMAL THRESHOLD ===
+                        # Character moments, plot events, NPCs, scene embeddings
+                        # (Entity states already done by inline check if enabled)
+                        if scenes_since_extraction >= extraction_threshold:
+                            logger.warning(f"[EXTRACTION] ✓ SCHEDULED: Threshold reached ({scenes_since_extraction}/{extraction_threshold})")
 
-                                    extraction_msg = f"Inline extraction complete ({scenes_since_extraction}/{effective_threshold})"
-                                    yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'scheduled', 'message': extraction_msg})}\n\n"
+                            # Schedule extraction to run after response completes
+                            # Use actual sequence numbers, not scenes_count
+                            # If inline_check ran, entity states are already done for this scene
+                            background_tasks.add_task(
+                                run_extractions_in_background,
+                                story_id=story_id,
+                                chapter_id=active_chapter.id,
+                                from_sequence=last_extraction_sequence,
+                                to_sequence=max_sequence_in_chapter,
+                                user_id=current_user.id,
+                                user_settings=user_settings or {},
+                                scene_generation_context=context,  # Pass context for cache-friendly extraction
+                                skip_entity_states=enable_inline_check  # Skip if already done by inline check
+                            )
 
-                                    # Query for contradictions on the just-generated scene
-                                    from ..models import Contradiction
-                                    recent_contradictions = db.query(Contradiction).filter(
-                                        Contradiction.story_id == story_id,
-                                        Contradiction.branch_id == active_branch_id,
-                                        Contradiction.scene_sequence == scene.sequence_number,
-                                        Contradiction.resolved == False
-                                    ).all()
-
-                                    if recent_contradictions:
-                                        contradiction_data = [{
-                                            "id": c.id,
-                                            "type": c.contradiction_type,
-                                            "character_name": c.character_name,
-                                            "previous_value": c.previous_value,
-                                            "current_value": c.current_value,
-                                            "severity": c.severity,
-                                            "scene_sequence": c.scene_sequence,
-                                        } for c in recent_contradictions]
-
-                                        auto_regen = ctx_settings.get('auto_regenerate_on_contradiction', False)
-                                        yield f"data: {json.dumps({'type': 'contradiction_check', 'status': 'found', 'contradictions': contradiction_data, 'auto_regenerating': auto_regen})}\n\n"
-                                        logger.warning(f"[CONTRADICTION CHECK] Found {len(recent_contradictions)} contradictions for scene {scene.sequence_number}")
-                                    else:
-                                        yield f"data: {json.dumps({'type': 'contradiction_check', 'status': 'clear'})}\n\n"
-                                        logger.info(f"[CONTRADICTION CHECK] No contradictions found for scene {scene.sequence_number}")
-                                except Exception as inline_err:
-                                    logger.error(f"[EXTRACTION] Inline extraction failed: {inline_err}")
-                                    import traceback
-                                    logger.error(f"[EXTRACTION] Traceback: {traceback.format_exc()}")
-                                    yield f"data: {json.dumps({'type': 'contradiction_check', 'status': 'error', 'message': str(inline_err)})}\n\n"
-                            else:
-                                # === ORIGINAL BEHAVIOR: Schedule as background task ===
-                                logger.warning(f"[EXTRACTION] ✓ SCHEDULED: Threshold reached ({scenes_since_extraction}/{effective_threshold})")
-
-                                # Schedule extraction to run after response completes
-                                # Use actual sequence numbers, not scenes_count
-                                background_tasks.add_task(
-                                    run_extractions_in_background,
-                                    story_id=story_id,
-                                    chapter_id=active_chapter.id,
-                                    from_sequence=last_extraction_sequence,
-                                    to_sequence=max_sequence_in_chapter,
-                                    user_id=current_user.id,
-                                    user_settings=user_settings or {},
-                                    scene_generation_context=context  # Pass context for cache-friendly extraction
-                                )
-
-                                # Send status event with clear message
-                                extraction_msg = f"Extracting ({scenes_since_extraction}/{effective_threshold})"
-                                yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'scheduled', 'message': extraction_msg})}\n\n"
+                            # Send status event with clear message
+                            extraction_msg = f"Extracting ({scenes_since_extraction}/{extraction_threshold})"
+                            yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'scheduled', 'message': extraction_msg})}\n\n"
                         else:
                             # Threshold not reached - skip extraction with clear reason
                             skip_msg = f"Skipped ({scenes_since_extraction}/{effective_threshold})"
@@ -1364,7 +1320,8 @@ async def generate_scene_streaming_endpoint(
                                     from_sequence=last_plot_extraction_sequence,
                                     to_sequence=max_sequence_in_chapter,
                                     user_id=current_user.id,
-                                    user_settings=user_settings or {}
+                                    user_settings=user_settings or {},
+                                    scene_generation_context=context
                                 )
 
                                 # Send status event

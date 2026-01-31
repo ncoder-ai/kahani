@@ -232,11 +232,13 @@ class EntityStateService:
         scene_sequence: int,
         scene_content: str,
         branch_id: int = None,
-        chapter_location: str = None
+        chapter_location: str = None,
+        context: Dict[str, Any] = None
     ) -> Dict[str, Any]:
         """
         Extract state changes from a scene and update all entity states.
-        
+        Uses cache-friendly multi-message structure matching scene generation.
+
         Args:
             db: Database session
             story_id: Story ID
@@ -245,7 +247,8 @@ class EntityStateService:
             scene_content: Scene content text
             branch_id: Optional branch ID (if not provided, uses active branch)
             chapter_location: Optional chapter location for hierarchical context
-            
+            context: Optional scene generation context for cache-friendly extraction
+
         Returns:
             Dictionary with extraction results
         """
@@ -259,29 +262,29 @@ class EntityStateService:
             "extraction_successful": False
         }
         status = "error"
-        
+
         # Verify scene exists before processing (prevents foreign key violations)
         scene_exists = db.query(Scene).filter(Scene.id == scene_id).first()
         if not scene_exists:
             logger.warning(f"[ENTITY:SKIP] trace_id={trace_id} scene_id={scene_id} story_id={story_id} reason=scene_missing")
             return results
-        
+
         # Get active branch if not specified
         if branch_id is None:
             branch_id = self._get_active_branch_id(db, story_id)
         logger.info(f"[ENTITY:START] trace_id={trace_id} story_id={story_id} scene_id={scene_id} sequence={scene_sequence} branch_id={branch_id}")
-        
+
         try:
             # Get story for interaction types
             story = db.query(Story).filter(Story.id == story_id).first()
             interaction_types = story.interaction_types if story else []
-            
+
             # Get story characters for context (filtered by branch)
             char_query = db.query(StoryCharacter).filter(StoryCharacter.story_id == story_id)
             if branch_id:
                 char_query = char_query.filter(StoryCharacter.branch_id == branch_id)
             story_characters = char_query.all()
-            
+
             # Build character name to ID mapping
             character_name_to_id = {}
             character_names = []
@@ -290,16 +293,68 @@ class EntityStateService:
                 if char:
                     character_names.append(char.name)
                     character_name_to_id[char.name.lower()] = char.id
-            
-            # Extract state changes using LLM (with retry if empty)
-            state_changes = await self._extract_state_changes(
-                scene_content,
-                scene_sequence,
-                character_names,
-                chapter_location=chapter_location,
-                trace_id=trace_id,
-                interaction_types=interaction_types
-            )
+
+            # Build context if not provided (for cache-friendly extraction)
+            if context is None:
+                try:
+                    from .context_manager import ContextManager
+                    context_manager = ContextManager(self.user_id, self.user_settings)
+                    # Get chapter_id from scene
+                    chapter_id = scene_exists.chapter_id
+                    context = await context_manager.build_scene_generation_context(
+                        story_id=story_id,
+                        db=db,
+                        chapter_id=chapter_id,
+                        branch_id=branch_id
+                    )
+                    logger.info(f"[ENTITY:CONTEXT] trace_id={trace_id} Built context for cache-friendly extraction")
+                except Exception as ctx_err:
+                    logger.warning(f"[ENTITY:CONTEXT:FAIL] trace_id={trace_id} Failed to build context: {ctx_err}, using fallback")
+                    context = None
+
+            # Use cache-friendly extraction if we have context
+            if context is not None:
+                try:
+                    raw_response = await self.llm_service.extract_entity_states_cache_friendly(
+                        scene_content=scene_content,
+                        character_names=character_names,
+                        chapter_location=chapter_location or "unspecified location",
+                        context=context,
+                        user_id=self.user_id,
+                        user_settings=self.user_settings,
+                        db=db
+                    )
+                    logger.info(f"[ENTITY:CACHE_FRIENDLY] trace_id={trace_id} Used cache-friendly extraction")
+
+                    # Parse the response
+                    response_clean = raw_response.strip()
+                    if response_clean.startswith("```json"):
+                        response_clean = response_clean[7:]
+                    if response_clean.startswith("```"):
+                        response_clean = response_clean[3:]
+                    if response_clean.endswith("```"):
+                        response_clean = response_clean[:-3]
+                    response_clean = response_clean.strip()
+                    response_clean = clean_llm_json(response_clean)
+
+                    state_changes = json.loads(response_clean)
+                    state_changes = self._validate_state_changes(state_changes)
+                except Exception as cache_err:
+                    logger.warning(f"[ENTITY:CACHE_FRIENDLY:FAIL] trace_id={trace_id} Cache-friendly extraction failed: {cache_err}, using fallback")
+                    state_changes = None
+            else:
+                state_changes = None
+
+            # Fallback to old extraction if cache-friendly failed or no context
+            if state_changes is None:
+                state_changes = await self._extract_state_changes(
+                    scene_content,
+                    scene_sequence,
+                    character_names,
+                    chapter_location=chapter_location,
+                    trace_id=trace_id,
+                    interaction_types=interaction_types
+                )
 
             # Check if extraction returned meaningful data
             has_meaningful_chars = False

@@ -93,6 +93,84 @@ async def get_scene_generation_lock(story_id: int) -> asyncio.Lock:
         return _scene_generation_locks[story_id]
 
 
+async def run_chapter_summary_background(
+    chapter_id: int,
+    user_id: int
+):
+    """
+    Run chapter summary generation in background.
+
+    Uses FastAPI's background_tasks for sequential execution with other LLM tasks.
+    Should run LAST after all extractions complete for best cache efficiency.
+    """
+    try:
+        # Delay to ensure extractions complete first
+        await asyncio.sleep(0.2)
+
+        from ..chapters import generate_chapter_summary_incremental
+
+        bg_db = SessionLocal()
+        try:
+            bg_chapter = bg_db.query(Chapter).filter(Chapter.id == chapter_id).first()
+            if bg_chapter:
+                await generate_chapter_summary_incremental(bg_chapter.id, bg_db, user_id)
+                bg_db.commit()
+                logger.info(f"[CHAPTER] Auto-summary generated for chapter {bg_chapter.id}")
+        finally:
+            bg_db.close()
+    except Exception as e:
+        logger.error(f"[AUTO-SUMMARY] Background task failed: {e}")
+        import traceback
+        logger.error(f"[AUTO-SUMMARY] Traceback: {traceback.format_exc()}")
+
+
+async def run_inline_entity_extraction_background(
+    story_id: int,
+    chapter_id: int,
+    scene_id: int,
+    scene_sequence: int,
+    scene_content: str,
+    user_id: int,
+    user_settings: dict,
+    branch_id: int,
+    scene_generation_context: Optional[Dict[str, Any]] = None
+):
+    """
+    Run inline entity extraction in background for contradiction checking.
+
+    Uses FastAPI's background_tasks for sequential execution with other LLM tasks.
+    This ensures LLM requests run one at a time, maximizing cache efficiency.
+    """
+    try:
+        # Small delay to ensure main response completes
+        await asyncio.sleep(0.1)
+
+        from ...services.semantic_integration import run_inline_entity_extraction
+
+        bg_db = SessionLocal()
+        try:
+            inline_result = await run_inline_entity_extraction(
+                story_id=story_id,
+                chapter_id=chapter_id,
+                scene_id=scene_id,
+                scene_sequence=scene_sequence,
+                scene_content=scene_content,
+                user_id=user_id,
+                user_settings=user_settings,
+                db=bg_db,
+                branch_id=branch_id,
+                scene_generation_context=scene_generation_context
+            )
+            bg_db.commit()
+            logger.info(f"[INLINE_CHECK] Background entity extraction complete: {inline_result}")
+        finally:
+            bg_db.close()
+    except Exception as e:
+        logger.error(f"[INLINE_CHECK] Background task failed: {e}")
+        import traceback
+        logger.error(f"[INLINE_CHECK] Traceback: {traceback.format_exc()}")
+
+
 async def run_interaction_extraction_background(
     story_id: int,
     branch_id: int,
@@ -589,7 +667,8 @@ async def run_extractions_in_background(
     to_sequence: int,
     user_id: int,
     user_settings: dict,
-    scene_generation_context: Optional[Dict[str, Any]] = None
+    scene_generation_context: Optional[Dict[str, Any]] = None,
+    skip_entity_states: bool = False
 ):
     """
     Run extractions in background, independent of streaming response.
@@ -604,6 +683,7 @@ async def run_extractions_in_background(
         scene_generation_context: Optional context from scene generation for cache-friendly extraction.
                                   If provided, this exact context is used for plot extraction.
                                   If None, context will be rebuilt (breaking cache).
+        skip_entity_states: If True, skip processing entity states (already done by inline check)
     """
     try:
         # Delay to ensure database commits from main session are visible
@@ -670,7 +750,8 @@ async def run_extractions_in_background(
                 user_id=user_id,
                 user_settings=user_settings,
                 db=extraction_db,
-                scene_generation_context=scene_generation_context  # Pass context for cache-friendly extraction
+                scene_generation_context=scene_generation_context,  # Pass context for cache-friendly extraction
+                skip_entity_states=skip_entity_states  # Skip if already done by inline check
             )
 
             # Only update last_extraction_scene_count if scenes were actually processed
@@ -777,10 +858,12 @@ async def run_plot_extraction_in_background(
     from_sequence: int,
     to_sequence: int,
     user_id: int,
-    user_settings: dict
+    user_settings: dict,
+    scene_generation_context: Optional[Dict[str, Any]] = None
 ):
     """Run plot event extraction in background, independent of entity extraction.
-    Uses per-chapter locking to prevent concurrent extractions and creates batches for rollback support."""
+    Uses per-chapter locking to prevent concurrent extractions and creates batches for rollback support.
+    Always uses cache-friendly extraction with multi-message structure."""
     try:
         # Acquire lock for this chapter to prevent concurrent extractions
         lock = await get_chapter_extraction_lock(chapter_id)
@@ -855,13 +938,7 @@ async def run_plot_extraction_in_background(
 
                 progress_service = ChapterProgressService(extraction_db)
                 local_llm_service = UnifiedLLMService()
-
-                # Check if context-aware extraction is enabled
-                use_context_aware = user_settings.get('extraction_model_settings', {}).get('use_context_aware_extraction', False)
-                context_manager = None
-                if use_context_aware:
-                    context_manager = get_context_manager_for_user(user_settings, user_id)
-                    logger.info(f"[PLOT_EXTRACTION] Context-aware extraction enabled, will build context for each scene")
+                context_manager = get_context_manager_for_user(user_settings, user_id)
 
                 key_events = extraction_chapter.chapter_plot.get("key_events", [])
                 all_extracted_events = []
@@ -892,28 +969,21 @@ async def run_plot_extraction_in_background(
                                 remaining_events = [e for e in key_events if e not in already_completed]
 
                                 if remaining_events:
-                                    # Use passed context if available (cache-friendly), otherwise rebuild
-                                    scene_context = None
-                                    if use_context_aware:
-                                        if scene_generation_context is not None:
-                                            # Use passed context for cache hits
-                                            scene_context = scene_generation_context
-                                            logger.info("[PLOT_EXTRACTION] Using passed scene_generation_context for cache-friendly extraction")
-                                        elif context_manager:
-                                            # Fallback: rebuild context (breaks cache)
-                                            try:
-                                                scene_context = await context_manager.build_scene_generation_context(
-                                                    story_id=story_id,
-                                                    db=extraction_db,
-                                                    chapter_id=chapter_id,
-                                                    branch_id=extraction_chapter.branch_id
-                                                )
-                                                logger.warning("[PLOT_EXTRACTION] Rebuilt context (no scene_generation_context passed, cache may break)")
-                                            except Exception as ctx_err:
-                                                logger.warning(f"[PLOT_EXTRACTION] Failed to build context, falling back to basic extraction: {ctx_err}")
-                                                scene_context = None
+                                    # Build context for cache-friendly extraction
+                                    scene_context = scene_generation_context
+                                    if scene_context is None and context_manager:
+                                        try:
+                                            scene_context = await context_manager.build_scene_generation_context(
+                                                story_id=story_id,
+                                                db=extraction_db,
+                                                chapter_id=chapter_id,
+                                                branch_id=extraction_chapter.branch_id
+                                            )
+                                        except Exception as ctx_err:
+                                            logger.warning(f"[PLOT_EXTRACTION] Failed to build context: {ctx_err}")
+                                            scene_context = {}
 
-                                    # Extract events from this scene
+                                    # Extract events from this scene (always cache-friendly)
                                     extracted = await progress_service.extract_completed_events(
                                         scene_content=variant.content,
                                         key_events=remaining_events,

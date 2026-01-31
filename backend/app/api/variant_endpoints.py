@@ -293,7 +293,8 @@ async def create_scene_variant(
                                 from_sequence=scene.sequence_number - plot_threshold + 1,
                                 to_sequence=scene.sequence_number,
                                 user_id=current_user.id,
-                                user_settings=user_settings
+                                user_settings=user_settings,
+                                scene_generation_context=None  # Will build context internally
                             ))
                             logger.info(f"[VARIANT] Triggered plot extraction at threshold for scene {scene_id}")
             else:
@@ -993,7 +994,8 @@ async def create_scene_variant_streaming(
                             from_sequence=scene_for_extraction.sequence_number - plot_threshold + 1,
                             to_sequence=scene_for_extraction.sequence_number,
                             user_id=current_user.id,
-                            user_settings=user_settings
+                            user_settings=user_settings,
+                            scene_generation_context=None  # Will build context internally
                         ))
                         logger.info(f"[VARIANT] Triggered plot extraction at threshold for scene {scene_id}")
 
@@ -1419,7 +1421,8 @@ async def update_scene_variant(
                         from_sequence=scene.sequence_number - plot_threshold + 1,
                         to_sequence=scene.sequence_number,
                         user_id=current_user.id,
-                        user_settings=user_settings
+                        user_settings=user_settings,
+                        scene_generation_context=None  # Will build context internally
                     ))
                     logger.info(f"[MODIFY] Triggered plot extraction at threshold for scene {scene_id}")
 

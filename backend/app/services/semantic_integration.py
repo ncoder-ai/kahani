@@ -342,12 +342,16 @@ async def _try_combined_extraction(
     db: Session,
     results: Dict[str, Any],
     branch_id: Optional[int] = None,
-    scene_generation_context: Optional[Dict[str, Any]] = None
+    scene_generation_context: Optional[Dict[str, Any]] = None,
+    skip_entity_states: bool = False
 ) -> bool:
     """
-    Try to extract character moments, NPCs, and plot events in a single combined LLM call.
-    Always attempts combined extraction, using extraction model if enabled, otherwise main LLM.
-    
+    Extract character moments and NPCs using cache-friendly multi-message structure.
+
+    NOTE: This function ONLY extracts character moments and NPCs.
+    Entity states are handled by inline entity extraction.
+    Plot events are handled by separate plot extraction.
+
     Args:
         scenes_data: List of (scene_id, sequence_number, chapter_id, scene_content) tuples
         story_id: Story ID
@@ -356,25 +360,25 @@ async def _try_combined_extraction(
         db: Database session
         results: Results dictionary to update
         branch_id: Optional branch ID for filtering (if not provided, uses active branch)
-        
+        scene_generation_context: Context from scene generation for cache-friendly extraction
+        skip_entity_states: Ignored (entity states now handled separately)
+
     Returns:
-        True if combined extraction succeeded, False otherwise
+        True if extraction succeeded, False otherwise
     """
     try:
-        from .llm.extraction_service import ExtractionLLMService
         from .llm.service import UnifiedLLMService
         from .npc_tracking_service import NPCTrackingService
         from .character_memory_service import get_character_memory_service
-        from .plot_thread_service import get_plot_thread_service
-        from ..models import StoryCharacter, Character, PlotEvent
+        from ..models import StoryCharacter, Character
         import json
         import re
-        
+
         # Get character names for character moments
         story_characters = db.query(StoryCharacter).filter(
             StoryCharacter.story_id == story_id
         ).all()
-        
+
         character_names = []
         explicit_character_names = []
         character_map = {}
@@ -385,821 +389,243 @@ async def _try_combined_extraction(
                 explicit_character_names.append(char.name)
                 character_map[char.name.lower()] = char
 
-        # === CACHE-FRIENDLY PATH: Single scene with context ===
-        # When processing exactly ONE scene AND we have the scene generation context,
-        # use cache-friendly extraction that matches the scene generation message structure
-        if len(scenes_data) == 1 and scene_generation_context is not None:
-            logger.info("[EXTRACTION] Using cache-friendly combined extraction for single scene")
-            scene_id, sequence_number, chapter_id_local, scene_content = scenes_data[0]
+        # === CACHE-FRIENDLY EXTRACTION ===
+        # Use lean extraction that only gets character moments + NPCs
+        # Entity states and plot events are handled by separate background tasks
+        if scene_generation_context is not None:
+            logger.info("[EXTRACTION] Using cache-friendly moments+NPCs extraction")
 
-            # Get thread context for plot events
-            plot_service = get_plot_thread_service()
-            existing_threads = await plot_service.get_unresolved_threads(story_id, db)
-            thread_context = ""
-            if existing_threads:
-                thread_list = [f"- {t['description']}" for t in existing_threads[:5]]
-                thread_context = f"\n{chr(10).join(thread_list)}"
+            # For single scene, use direct extraction
+            if len(scenes_data) == 1:
+                scene_id, sequence_number, chapter_id_local, scene_content = scenes_data[0]
 
-            try:
-                llm_service = UnifiedLLMService()
-                response = await llm_service.extract_combined_cache_friendly(
-                    scene_content=scene_content,
-                    character_names=character_names,
-                    explicit_character_names=explicit_character_names,
-                    thread_context=thread_context,
-                    context=scene_generation_context,
-                    user_id=user_id,
-                    user_settings=user_settings,
-                    db=db,
-                    max_tokens=4000
-                )
-
-                if response:
-                    # Parse the response using the helper function (defined later in this function)
-                    # We need to define it earlier or extract it
-                    import json
-                    import re
-
-                    # Clean response
-                    response_clean = response.strip()
-                    if response_clean.startswith("```json"):
-                        response_clean = response_clean[7:]
-                    elif response_clean.startswith("```"):
-                        response_clean = response_clean[3:]
-                    if response_clean.endswith("```"):
-                        response_clean = response_clean[:-3]
-                    response_clean = response_clean.strip()
-
-                    try:
-                        combined_results = json.loads(response_clean)
-                    except json.JSONDecodeError:
-                        # Try to extract JSON object
-                        json_match = re.search(r'\{[\s\S]*\}', response_clean)
-                        if json_match:
-                            combined_results = json.loads(json_match.group())
-                        else:
-                            raise
-
-                    # Process the results (same as batch processing but for single scene)
-                    # Store character moments
-                    char_service = get_character_memory_service()
-                    moments = combined_results.get('character_moments', [])
-                    for moment in moments:
-                        moment['scene_id'] = scene_id
-                    if moments:
-                        stored_moments = await char_service.store_character_moments_batch(
-                            story_id=story_id,
-                            moments=moments,
-                            character_map=character_map,
-                            db=db,
-                            branch_id=branch_id
-                        )
-                        results['character_moments'] += stored_moments
-
-                    # Store NPCs
-                    npcs = combined_results.get('npcs', [])
-                    if npcs:
-                        npc_service = NPCTrackingService(user_id=user_id, user_settings=user_settings)
-                        for npc_data in npcs:
-                            try:
-                                await npc_service.track_npc(
-                                    db=db,
-                                    story_id=story_id,
-                                    scene_id=scene_id,
-                                    scene_sequence=sequence_number,
-                                    npc_data=npc_data,
-                                    branch_id=branch_id
-                                )
-                                results['npc_tracking'] += 1
-                            except Exception as e:
-                                logger.warning(f"Failed to track NPC: {e}")
-
-                    # Store plot events
-                    plot_events = combined_results.get('plot_events', [])
-                    if plot_events:
-                        for event in plot_events:
-                            try:
-                                await plot_service.store_plot_event(
-                                    story_id=story_id,
-                                    scene_id=scene_id,
-                                    event_type=event.get('event_type', 'development'),
-                                    description=event.get('description', ''),
-                                    importance=event.get('importance', 50),
-                                    confidence=event.get('confidence', 70),
-                                    db=db,
-                                    branch_id=branch_id
-                                )
-                                results['plot_events'] += 1
-                            except Exception as e:
-                                logger.warning(f"Failed to store plot event: {e}")
-
-                    # Store entity states
-                    entity_states = combined_results.get('entity_states', {})
-                    if entity_states:
-                        from .entity_state_service import EntityStateService
-                        entity_service = EntityStateService(user_id=user_id, user_settings=user_settings)
-                        stored = await entity_service.process_entity_states(
-                            db=db,
-                            story_id=story_id,
-                            branch_id=branch_id,
-                            scene_id=scene_id,
-                            scene_sequence=sequence_number,
-                            entity_states=entity_states
-                        )
-                        results['entity_states'] += stored
-
-                    logger.info(f"[EXTRACTION] Cache-friendly combined extraction successful: {results}")
-                    return True
-
-            except Exception as e:
-                logger.warning(f"[EXTRACTION] Cache-friendly combined extraction failed: {e}, falling back to batch")
-                # Fall through to batch extraction
-
-        # === BATCH PATH: Multiple scenes or no context ===
-        # Build batch content with scene markers
-        scenes_text = []
-        for scene_id, sequence_number, chapter_id, scene_content in scenes_data:
-            scenes_text.append(f"=== SCENE {sequence_number} (ID: {scene_id}) ===\n{scene_content}\n")
-        batch_content = "\n".join(scenes_text)
-        
-        # Get thread context for plot events
-        plot_service = get_plot_thread_service()
-        existing_threads = await plot_service.get_unresolved_threads(story_id, db)
-        thread_context = ""
-        if existing_threads:
-            thread_list = [f"- {t['description']}" for t in existing_threads[:5]]
-            thread_context = f"\n{chr(10).join(thread_list)}"
-        
-        num_scenes = len(scenes_data)
-        
-        # Build the combined extraction prompt using centralized prompts.yml
-        explicit_names_str = ", ".join(explicit_character_names) if explicit_character_names else "None"
-        character_names_str = ", ".join(character_names) if character_names else "None"
-        thread_section = f"\n\nActive plot threads to consider:{thread_context}" if thread_context else ""
-        max_npcs_total = 10
-        max_events_total = 8
-        
-        # Get prompts from centralized prompts.yml
-        system_prompt = prompt_manager.get_prompt("entity_state_extraction.batch", "system")
-        prompt = prompt_manager.get_prompt(
-            "entity_state_extraction.batch", "user",
-            character_names=character_names_str,
-            explicit_names=explicit_names_str,
-            thread_section=thread_section,
-            batch_content=batch_content,
-            max_npcs_total=max_npcs_total,
-            max_events_total=max_events_total
-        )
-        
-        # Helper function to parse combined JSON response (same logic as ExtractionLLMService)
-        def _parse_combined_json_response(content: str) -> Dict[str, Any]:
-            result = {
-                'character_moments': [],
-                'npcs': [],
-                'plot_events': [],
-                'entity_states': {
-                    'characters': [],
-                    'locations': [],
-                    'objects': []
-                }
-            }
-            
-            try:
-                # Clean response (remove markdown code blocks if present)
-                response_clean = content.strip()
-                if response_clean.startswith("```json"):
-                    response_clean = response_clean[7:]
-                elif response_clean.startswith("```"):
-                    response_clean = response_clean[3:]
-                if response_clean.endswith("```"):
-                    response_clean = response_clean[:-3]
-                response_clean = response_clean.strip()
-                
-                # Try to parse full JSON
                 try:
-                    data = json.loads(response_clean)
-                    
-                    # Extract each section independently
-                    if 'character_moments' in data and isinstance(data['character_moments'], list):
-                        result['character_moments'] = data['character_moments']
-                    elif 'moments' in data and isinstance(data['moments'], list):
-                        result['character_moments'] = data['moments']
-                    
-                    if 'npcs' in data:
-                        if isinstance(data['npcs'], list):
-                            result['npcs'] = data['npcs']
-                        elif isinstance(data['npcs'], dict) and 'npcs' in data['npcs']:
-                            result['npcs'] = data['npcs']['npcs'] if isinstance(data['npcs']['npcs'], list) else []
-                    
-                    if 'plot_events' in data and isinstance(data['plot_events'], list):
-                        result['plot_events'] = data['plot_events']
-                    elif 'events' in data and isinstance(data['events'], list):
-                        result['plot_events'] = data['events']
-                    
-                    # Parse entity_states
-                    if 'entity_states' in data and isinstance(data['entity_states'], dict):
-                        entity_states = data['entity_states']
-                        if 'characters' in entity_states and isinstance(entity_states['characters'], list):
-                            result['entity_states']['characters'] = entity_states['characters']
-                        if 'locations' in entity_states and isinstance(entity_states['locations'], list):
-                            result['entity_states']['locations'] = entity_states['locations']
-                        if 'objects' in entity_states and isinstance(entity_states['objects'], list):
-                            result['entity_states']['objects'] = entity_states['objects']
-                    
-                    return result
-                    
-                except json.JSONDecodeError:
-                    # Try to extract partial JSON using regex
-                    moments_match = re.search(r'"character_moments"\s*:\s*\[(.*?)\]', response_clean, re.DOTALL)
-                    if not moments_match:
-                        moments_match = re.search(r'"moments"\s*:\s*\[(.*?)\]', response_clean, re.DOTALL)
-                    if moments_match:
-                        try:
-                            moments_json = json.loads(f'[{moments_match.group(1)}]')
-                            result['character_moments'] = moments_json if isinstance(moments_json, list) else []
-                        except:
-                            pass
-                    
-                    npcs_match = re.search(r'"npcs"\s*:\s*\[(.*?)\]', response_clean, re.DOTALL)
-                    if npcs_match:
-                        try:
-                            npcs_json = json.loads(f'[{npcs_match.group(1)}]')
-                            result['npcs'] = npcs_json if isinstance(npcs_json, list) else []
-                        except:
-                            pass
-                    
-                    events_match = re.search(r'"plot_events"\s*:\s*\[(.*?)\]', response_clean, re.DOTALL)
-                    if not events_match:
-                        events_match = re.search(r'"events"\s*:\s*\[(.*?)\]', response_clean, re.DOTALL)
-                    if events_match:
-                        try:
-                            events_json = json.loads(f'[{events_match.group(1)}]')
-                            result['plot_events'] = events_json if isinstance(events_json, list) else []
-                        except:
-                            pass
-                    
-                    # Try to parse entity_states with regex
-                    entity_states_match = re.search(r'"entity_states"\s*:\s*\{(.*?)\}', response_clean, re.DOTALL)
-                    if entity_states_match:
-                        try:
-                            entity_states_json = json.loads(f'{{{entity_states_match.group(1)}}}')
-                            if isinstance(entity_states_json, dict):
-                                if 'characters' in entity_states_json and isinstance(entity_states_json['characters'], list):
-                                    result['entity_states']['characters'] = entity_states_json['characters']
-                                if 'locations' in entity_states_json and isinstance(entity_states_json['locations'], list):
-                                    result['entity_states']['locations'] = entity_states_json['locations']
-                                if 'objects' in entity_states_json and isinstance(entity_states_json['objects'], list):
-                                    result['entity_states']['objects'] = entity_states_json['objects']
-                        except:
-                            pass
-                    
-                    if any(result.values()) or any(result['entity_states'].values()):
-                        return result
-                    else:
-                        raise
-                        
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse combined JSON response: {e}\nContent preview: {content[:500]}")
-                return result
-            except Exception as e:
-                logger.error(f"Unexpected error parsing combined response: {e}\nContent preview: {content[:500]}")
-                return result
-        
-        # Determine which LLM to use: extraction model if enabled, otherwise main LLM
-        extraction_settings = user_settings.get('extraction_model_settings', {})
-        use_extraction_model = extraction_settings.get('enabled', False)
-        
-        if use_extraction_model:
-            # Use extraction model
-            logger.info("[EXTRACTION] Using extraction model for combined extraction")
-            ext_defaults = settings._yaml_config.get('extraction_model', {})
-            url = extraction_settings.get('url', ext_defaults.get('url'))
-            model = extraction_settings.get('model_name', ext_defaults.get('model_name'))
-            api_key = extraction_settings.get('api_key', ext_defaults.get('api_key', ''))
-            temperature = extraction_settings.get('temperature', ext_defaults.get('temperature'))
-            max_tokens = extraction_settings.get('max_tokens', ext_defaults.get('max_tokens'))
-
-            # Get timeout from user's LLM settings
-            llm_settings = user_settings.get('llm_settings', {})
-            timeout_total = llm_settings.get('timeout_total', 240)
-
-            extraction_service = ExtractionLLMService(
-                url=url,
-                model=model,
-                api_key=api_key,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                timeout_total=timeout_total
-            )
-            
-            # Call combined extraction using extraction model
-            combined_results = await extraction_service.extract_all_batch(
-                batch_content=batch_content,
-                character_names=character_names,
-                explicit_character_names=explicit_character_names,
-                thread_context=thread_context,
-                num_scenes=num_scenes
-            )
-        else:
-            # Use main LLM
-            llm_service = UnifiedLLMService()
-
-            # Use user's max_tokens setting
-            user_max_tokens = user_settings.get('llm_settings', {}).get('max_tokens', 2048)
-            max_tokens = user_max_tokens
-
-            # Get timeout from user settings or fallback to system default
-            llm_settings = user_settings.get('llm_settings', {})
-            timeout_seconds = llm_settings.get('timeout_total', settings.llm_timeout_total)
-
-            # Call main LLM with combined extraction prompt
-            import time
-            start_time = time.time()
-            try:
-                # Use cache-friendly batch extraction when context is available
-                if scene_generation_context is not None:
-                    logger.info("[EXTRACTION] Using main LLM with CACHE-FRIENDLY batch extraction")
-                    logger.warning(f"[EXTRACTION] Starting cache-friendly batch extraction: timeout={timeout_seconds}s, max_tokens={max_tokens}, num_scenes={num_scenes}")
-
-                    response = await llm_service.extract_combined_cache_friendly_batch(
-                        batch_content=batch_content,
+                    llm_service = UnifiedLLMService()
+                    response = await llm_service.extract_moments_and_npcs_cache_friendly(
+                        scene_content=scene_content,
                         character_names=character_names,
                         explicit_character_names=explicit_character_names,
-                        thread_context=thread_context,
                         context=scene_generation_context,
                         user_id=user_id,
                         user_settings=user_settings,
                         db=db,
-                        max_tokens=max_tokens,
-                        num_scenes=num_scenes
+                        max_tokens=2000
                     )
-                else:
-                    # Fallback to non-cache-friendly when no context available
-                    logger.info("[EXTRACTION] Using main LLM for combined extraction (no context, non-cache-friendly)")
-                    logger.warning(f"[EXTRACTION] Starting combined extraction: timeout={timeout_seconds}s, max_tokens={max_tokens}, num_scenes={num_scenes}, prompt_length={len(prompt)}")
 
-                    response = await llm_service.generate(
-                        prompt=prompt,
-                        user_id=user_id,
-                        user_settings=user_settings,
-                        system_prompt=system_prompt,
-                        max_tokens=max_tokens
-                    )
-                elapsed_time = time.time() - start_time
-                
-            except Exception as e:
-                elapsed_time = time.time() - start_time
-                logger.error(f"[EXTRACTION] LLM call failed after {elapsed_time:.2f}s: {e}")
-                # Try to capture partial response if available
-                if hasattr(e, 'response') and hasattr(e.response, 'text'):
-                    partial_response = e.response.text
-                    logger.error(f"[EXTRACTION] PARTIAL RESPONSE RECEIVED (length: {len(partial_response)} chars):\n{partial_response}")
-                elif hasattr(e, 'args') and len(e.args) > 0:
-                    error_str = str(e.args[0])
-                    if len(error_str) > 100:  # Might contain partial response
-                        logger.error(f"[EXTRACTION] Error details (may contain partial response): {error_str[:1000]}")
-                raise
-            
-            # Parse the response
-            try:
-                logger.warning(f"[EXTRACTION] Attempting to parse JSON response...")
-                combined_results = _parse_combined_json_response(response)
-                logger.warning(f"[EXTRACTION] JSON parsing successful")
-            except Exception as parse_error:
-                logger.error(f"[EXTRACTION] JSON parsing failed: {parse_error}")
-                logger.error(f"[EXTRACTION] Full response that failed to parse:\n{response}")
-                raise
-        
-        # Validate results - need at least one non-empty section
-        entity_states = combined_results.get('entity_states', {})
-        has_entity_states = (
-            (entity_states.get('characters') and len(entity_states['characters']) > 0) or
-            (entity_states.get('locations') and len(entity_states['locations']) > 0) or
-            (entity_states.get('objects') and len(entity_states['objects']) > 0)
-        )
-        has_results = (
-            (combined_results.get('character_moments') and len(combined_results['character_moments']) > 0) or
-            (combined_results.get('npcs') and len(combined_results['npcs']) > 0) or
-            (combined_results.get('plot_events') and len(combined_results['plot_events']) > 0) or
-            has_entity_states
-        )
-        
-        if not has_results:
-            logger.warning("[EXTRACTION] Combined extraction returned empty results")
-            return False
-        
-        # Process character moments using existing service logic
-        if combined_results.get('character_moments'):
-            try:
-                from .character_memory_service import get_character_memory_service
-                from ..utils.scene_verification import map_moments_to_scenes
-                from ..models.semantic_memory import CharacterMemory, MomentType
-                from datetime import datetime
-                
-                char_service = get_character_memory_service()
-                moments_data = combined_results['character_moments']
-                
-                # Map moments to scenes
-                scenes_for_verification = [(scene_id, content) for scene_id, _, _, content in scenes_data]
-                
-                # Group by character and map to scenes
-                all_created_moments = {}
-                for char_name in character_names:
-                    char_moments = [m for m in moments_data if m.get('character_name', '').strip().lower() == char_name.lower()]
-                    if not char_moments:
-                        continue
-                    
-                    scene_moment_map = map_moments_to_scenes(char_moments, scenes_for_verification, char_name)
-                    
-                    # Create CharacterMemory entries
-                    for scene_id, sequence_number, chapter_id, scene_content in scenes_data:
-                        moments_for_scene = scene_moment_map.get(scene_id, [])
-                        if scene_id not in all_created_moments:
-                            all_created_moments[scene_id] = []
-                        
-                        for moment_data in moments_for_scene:
-                            if moment_data.get('confidence', 0) < settings.extraction_confidence_threshold:
-                                continue
-                            
-                            char_name_moment = moment_data.get('character_name', '').strip()
-                            if char_name_moment.lower() not in character_map:
-                                continue
-                            
-                            character = character_map[char_name_moment.lower()]
-                            moment_type = moment_data.get('moment_type', 'action')
-                            content = moment_data.get('content', '')
-                            confidence = moment_data.get('confidence', 70)
-                            
-                            # Check if already exists BEFORE creating embedding (prevents duplicates)
-                            existing_query = db.query(CharacterMemory).filter(
-                                CharacterMemory.character_id == character.id,
-                                CharacterMemory.scene_id == scene_id,
-                                CharacterMemory.moment_type == MomentType(moment_type),
-                                CharacterMemory.content == content
-                            )
-                            if branch_id is not None:
-                                existing_query = existing_query.filter(CharacterMemory.branch_id == branch_id)
-                            existing_memory = existing_query.first()
-                            
-                            if existing_memory:
-                                logger.debug(f"Character moment already exists for {character.name} in scene {scene_id}, skipping")
-                                continue
-                            
-                            # Create embedding only if not exists
-                            embedding_id = await char_service.semantic_memory.add_character_moment(
-                                character_id=character.id,
-                                character_name=character.name,
-                                scene_id=scene_id,
-                                story_id=story_id,
-                                moment_type=moment_type,
-                                content=content,
-                                metadata={
-                                    'sequence': sequence_number,
-                                    'timestamp': datetime.utcnow().isoformat()
-                                }
-                            )
-                            
-                            # Create database record with IntegrityError handling
-                            try:
-                                memory = CharacterMemory(
-                                    character_id=character.id,
-                                    scene_id=scene_id,
-                                    story_id=story_id,
-                                    branch_id=branch_id,  # Set branch_id for branch isolation
-                                    moment_type=MomentType(moment_type),
-                                    content=content,
-                                    embedding_id=embedding_id,
-                                    sequence_order=sequence_number,
-                                    chapter_id=chapter_id,
-                                    extracted_automatically=True,
-                                    confidence_score=confidence
-                                )
-                                db.add(memory)
-                                db.flush()  # Flush to catch constraint violations immediately
-                                all_created_moments[scene_id].append(memory)
-                            except IntegrityError as ie:
-                                db.rollback()
-                                error_msg = str(ie).lower()
-                                if "duplicate key" in error_msg or "unique constraint" in error_msg:
-                                    logger.debug(f"Character moment already exists (race condition), skipping: {embedding_id}")
-                                    continue
-                                else:
-                                    # Re-raise if it's a different integrity error
-                                    raise
-                
-                db.commit()
-                total_moments = sum(len(moments) for moments in all_created_moments.values())
-                results['character_moments'] += total_moments
-                logger.warning(f"[EXTRACTION] Combined: extracted {total_moments} character moments")
-            except Exception as e:
-                logger.error(f"Failed to process combined character moments: {e}")
-                db.rollback()
-        
-        # Process NPCs using existing service logic
-        npcs_data = combined_results.get('npcs', [])
-        
-        if npcs_data:
-            try:
-                from .npc_tracking_service import NPCTrackingService
-                from ..utils.scene_verification import map_npcs_to_scenes
-                from ..models.npc_tracking import NPCMention
-                
-                npc_service = NPCTrackingService(user_id=user_id, user_settings=user_settings)
-                
-                # Validate NPCs
-                validated_npcs = npc_service._validate_npcs(npcs_data)
-                
-                # Map to scenes
-                npc_scenes_data = [(scene_id, seq_num, content) for scene_id, seq_num, _, content in scenes_data]
-                scenes_for_verification = [(scene_id, content) for scene_id, _, _, content in scenes_data]
-                scene_npc_map = map_npcs_to_scenes(validated_npcs, scenes_for_verification)
-                
-                # Store NPCs using existing logic
-                explicit_names_set = set(name.lower() for name in explicit_character_names)
-                total_npcs = 0
-                
-                def to_bool(value):
-                    if isinstance(value, bool):
-                        return value
-                    if isinstance(value, str):
-                        return value.lower() in ('true', '1', 'yes')
-                    return bool(value)
-                
-                for scene_id, sequence_number, chapter_id, scene_content in scenes_data:
-                    # Verify scene exists before creating mentions (prevents foreign key violations)
-                    scene_exists = db.query(Scene).filter(Scene.id == scene_id).first()
-                    if not scene_exists:
-                        logger.warning(f"Scene {scene_id} doesn't exist yet, skipping NPC mentions for this scene")
-                        continue
-                    
-                    npcs_for_scene = scene_npc_map.get(scene_id, [])
-                    for npc_data_scene in npcs_for_scene:
-                        npc_name = npc_data_scene.get('name', '').strip()
-                        if not npc_name or npc_name.lower() in explicit_names_set:
-                            continue
-                        
-                        # Check importance filters
-                        mention_count = npc_data_scene.get('mention_count', 0)
-                        has_dialogue = to_bool(npc_data_scene.get('has_dialogue', False))
-                        has_actions = to_bool(npc_data_scene.get('has_actions', False))
-                        
-                        if mention_count >= 2 or has_dialogue or has_actions:
-                            # Store mention with IntegrityError handling
-                            try:
-                                mention = NPCMention(
-                                    story_id=story_id,
-                                    branch_id=branch_id,
-                                    scene_id=scene_id,
-                                    character_name=npc_name,
-                                    sequence_number=sequence_number,
-                                    mention_count=mention_count,
-                                    has_dialogue=has_dialogue,
-                                    has_actions=has_actions,
-                                    has_relationships=to_bool(npc_data_scene.get('has_relationships', False)),
-                                    context_snippets=npc_data_scene.get('context_snippets', []),
-                                    extracted_properties=npc_data_scene.get('properties', {})
-                                )
-                                db.add(mention)
-                                db.flush()  # Flush to catch constraint violations immediately
-                                
-                                # Update tracking
-                                await npc_service._update_npc_tracking(
-                                    db, story_id, npc_name, sequence_number, npc_data_scene,
-                                    branch_id=branch_id
-                                )
-                                total_npcs += 1
-                            except IntegrityError as ie:
-                                db.rollback()
-                                error_msg = str(ie).lower()
-                                if "foreign key" in error_msg and "scene_id" in error_msg:
-                                    logger.warning(f"Scene {scene_id} was deleted during extraction, skipping NPC mention for {npc_name}")
-                                    continue
-                                elif "duplicate key" in error_msg or "unique constraint" in error_msg:
-                                    logger.debug(f"NPC mention already exists (race condition), skipping: {npc_name} in scene {scene_id}")
-                                    continue
-                                else:
-                                    # Re-raise if it's a different integrity error
-                                    raise
-                
-                db.commit()
-                results['npc_tracking'] += total_npcs
-                logger.warning(f"[EXTRACTION] Combined: extracted {total_npcs} NPCs")
-            except Exception as e:
-                logger.error(f"Failed to process combined NPCs: {e}")
-                db.rollback()
-        
-        # Process plot events using existing service logic
-        if combined_results.get('plot_events'):
-            try:
-                from ..utils.scene_verification import map_events_to_scenes
-                from ..models.semantic_memory import PlotEvent, EventType
-                
-                events_data = combined_results['plot_events']
-                
-                # Filter by importance and confidence
-                filtered_events = [
-                    e for e in events_data
-                    if e.get('importance', 0) >= 60 and e.get('confidence', 0) >= 70
-                ]
-                
-                # Map to scenes
-                scenes_for_verification = [(scene_id, content) for scene_id, _, _, content in scenes_data]
-                scene_event_map = map_events_to_scenes(filtered_events, scenes_for_verification)
-                
-                # Create PlotEvent entries
-                plot_service = get_plot_thread_service()
-                semantic_memory = get_semantic_memory_service()
-                total_events = 0
-                
-                for scene_id, sequence_number, chapter_id, scene_content in scenes_data:
-                    events_for_scene = scene_event_map.get(scene_id, [])
-                    
-                    for event_data in events_for_scene:
-                        event_type = event_data.get('event_type', 'complication')
-                        description = event_data.get('description', '')
-                        importance = event_data.get('importance', 50)
-                        confidence = event_data.get('confidence', 70)
-                        involved_chars = event_data.get('involved_characters', [])
-                        
-                        if confidence < settings.extraction_confidence_threshold or importance < 30:
-                            continue
-                        
-                        # Generate thread ID
-                        thread_id = plot_service._generate_thread_id(description, event_type)
-                        
-                        # Generate unique event ID
-                        event_id = f"{story_id}_{scene_id}_{thread_id}_{total_events}"
-                        
-                        # Check if embedding_id already exists
-                        potential_embedding_id = f"plot_{event_id}"
-                        existing_embedding = db.query(PlotEvent).filter(
-                            PlotEvent.embedding_id == potential_embedding_id
-                        ).first()
-                        
-                        if existing_embedding:
-                            logger.debug(f"Plot event with embedding_id {potential_embedding_id} already exists, skipping")
-                            continue
-                        
-                        # Create embedding
-                        embedding_id = await semantic_memory.add_plot_event(
-                            event_id=event_id,
-                            story_id=story_id,
-                            scene_id=scene_id,
-                            event_type=event_type,
-                            description=description,
-                            metadata={
-                                'sequence': sequence_number,
-                                'is_resolved': False,
-                                'involved_characters': involved_chars,
-                                'timestamp': datetime.utcnow().isoformat()
-                            }
-                        )
-                        
-                        # Double-check embedding_id doesn't exist (race condition protection)
-                        final_check = db.query(PlotEvent).filter(
-                            PlotEvent.embedding_id == embedding_id
-                        ).first()
-                        
-                        if final_check:
-                            logger.debug(f"Plot event with embedding_id {embedding_id} was created concurrently, skipping")
-                            continue
-                        
-                        # Create PlotEvent
-                        plot_event = PlotEvent(
-                            story_id=story_id,
-                            scene_id=scene_id,
-                            event_type=EventType(event_type),
-                            description=description,
-                            embedding_id=embedding_id,
-                            thread_id=thread_id,
-                            is_resolved=False,
-                            sequence_order=sequence_number,
-                            chapter_id=chapter_id,
-                            involved_characters=involved_chars,
-                            extracted_automatically=True,
-                            confidence_score=confidence,
-                            importance_score=importance
-                        )
-                        db.add(plot_event)
-                        total_events += 1
-                
-                db.commit()
-                results['plot_events'] += total_events
-                logger.warning(f"[EXTRACTION] Combined: extracted {total_events} plot events")
-            except Exception as e:
-                logger.error(f"Failed to process combined plot events: {e}")
-                db.rollback()
-        
-        # Process entity states using existing service logic
-        if combined_results.get('entity_states'):
-            try:
-                from .entity_state_service import EntityStateService, has_meaningful_character_state
-                from ..models import StoryCharacter, Character
+                    if response:
+                        # Clean and parse response
+                        response_clean = response.strip()
+                        if response_clean.startswith("```json"):
+                            response_clean = response_clean[7:]
+                        elif response_clean.startswith("```"):
+                            response_clean = response_clean[3:]
+                        if response_clean.endswith("```"):
+                            response_clean = response_clean[:-3]
+                        response_clean = response_clean.strip()
 
-                entity_service = EntityStateService(user_id=user_id, user_settings=user_settings)
-                entity_states_data = combined_results['entity_states']
-
-                # Get the last scene sequence number (most recent scene in batch)
-                last_sequence = max([seq for _, seq, _, _ in scenes_data]) if scenes_data else 0
-
-                total_entity_states = 0
-                meaningful_chars = 0
-                empty_chars = 0
-
-                # Process character states (apply once per character, using last scene sequence)
-                if entity_states_data.get('characters'):
-                    for char_update in entity_states_data['characters']:
                         try:
-                            # Track if this character has meaningful state data
-                            if has_meaningful_character_state(char_update):
-                                meaningful_chars += 1
+                            extraction_results = json.loads(response_clean)
+                        except json.JSONDecodeError:
+                            json_match = re.search(r'\{[\s\S]*\}', response_clean)
+                            if json_match:
+                                extraction_results = json.loads(json_match.group())
                             else:
-                                empty_chars += 1
+                                raise
 
-                            await entity_service._update_character_state(
-                                db, story_id, last_sequence, char_update, branch_id=branch_id
+                        # Store character moments
+                        char_service = get_character_memory_service()
+                        moments = extraction_results.get('character_moments', [])
+                        for moment in moments:
+                            moment['scene_id'] = scene_id
+                        if moments:
+                            stored_moments = await char_service.store_character_moments_batch(
+                                story_id=story_id,
+                                moments=moments,
+                                character_map=character_map,
+                                db=db,
+                                branch_id=branch_id
                             )
-                            total_entity_states += 1
-                        except Exception as e:
-                            logger.warning(f"Failed to update character state for {char_update.get('name', 'unknown')}: {e}")
-                            continue
+                            results['character_moments'] += stored_moments
 
-                    # Log warning if extraction returned characters but with empty states
-                    if empty_chars > 0:
-                        logger.warning(
-                            f"[EXTRACTION:COMBINED:EMPTY_STATES] {empty_chars}/{empty_chars + meaningful_chars} characters "
-                            f"have no meaningful state data in combined extraction for story {story_id} scenes "
-                            f"{min([seq for _, seq, _, _ in scenes_data])}-{last_sequence}."
-                        )
-                    if entity_states_data.get('characters') and meaningful_chars == 0:
-                        logger.error(
-                            f"[EXTRACTION:COMBINED:ALL_EMPTY] ALL {len(entity_states_data['characters'])} characters "
-                            f"have empty state data in combined extraction for story {story_id}! "
-                            "This indicates a critical issue with entity extraction."
-                        )
-                
-                # Process location states
-                if entity_states_data.get('locations'):
-                    for loc_update in entity_states_data['locations']:
-                        try:
-                            await entity_service._update_location_state(
-                                db, story_id, last_sequence, loc_update, branch_id=branch_id
-                            )
-                            total_entity_states += 1
-                        except Exception as e:
-                            logger.warning(f"Failed to update location state for {loc_update.get('name', 'unknown')}: {e}")
-                            continue
-                
-                # Process object states
-                if entity_states_data.get('objects'):
-                    # Combine all scene content for validation
-                    combined_scene_content = ' '.join([content for _, _, _, content in scenes_data])
-                    for obj_update in entity_states_data['objects']:
-                        try:
-                            await entity_service._update_object_state(
-                                db, story_id, last_sequence, obj_update, branch_id=branch_id,
-                                scene_content=combined_scene_content
-                            )
-                            total_entity_states += 1
-                        except Exception as e:
-                            logger.warning(f"Failed to update object state for {obj_update.get('name', 'unknown')}: {e}")
-                            continue
-                
-                db.commit()
-                results['entity_states'] += total_entity_states
-                logger.warning(f"[EXTRACTION] Combined: extracted {total_entity_states} entity states")
-                
-                # Create batch snapshots for all batch boundaries crossed during this extraction
-                # This enables rollback when scenes are deleted
-                batch_threshold = user_settings.get("context_summary_threshold", 5)
-                if last_sequence > 0:
-                    # Find the first scene in this extraction batch
-                    first_sequence = min([seq for _, seq, _, _ in scenes_data]) if scenes_data else 0
-                    
-                    # Find all batch boundaries between first_sequence and last_sequence
-                    # A batch boundary is at scene numbers 5, 10, 15, 20, etc.
-                    first_batch_boundary = ((first_sequence - 1) // batch_threshold + 1) * batch_threshold
-                    
-                    for batch_end in range(first_batch_boundary, last_sequence + 1, batch_threshold):
-                        if batch_end <= last_sequence:
-                            batch_start = batch_end - batch_threshold + 1
-                            try:
-                                entity_service.create_entity_state_batch_snapshot(
-                                    db, story_id, batch_start, batch_end, branch_id=branch_id
-                                )
-                                db.commit()
-                                logger.info(f"[EXTRACTION] Created entity state batch snapshot for scenes {batch_start}-{batch_end}")
-                            except Exception as e:
-                                logger.warning(f"[EXTRACTION] Failed to create batch snapshot for {batch_start}-{batch_end}: {e}")
-            except Exception as e:
-                logger.error(f"Failed to process combined entity states: {e}")
-                db.rollback()
-        
-        return True
-        
-    except Exception as e:
-        logger.error(f"Combined extraction failed: {e}", exc_info=True)
+                        # Store NPCs
+                        npcs = extraction_results.get('npcs', [])
+                        if npcs:
+                            npc_service = NPCTrackingService(user_id=user_id, user_settings=user_settings)
+                            for npc_data in npcs:
+                                try:
+                                    await npc_service.track_npc(
+                                        db=db,
+                                        story_id=story_id,
+                                        scene_id=scene_id,
+                                        scene_sequence=sequence_number,
+                                        npc_data=npc_data,
+                                        branch_id=branch_id
+                                    )
+                                    results['npc_tracking'] += 1
+                                except Exception as e:
+                                    logger.warning(f"Failed to track NPC: {e}")
+
+                        logger.info(f"[EXTRACTION] Moments+NPCs extraction successful: moments={results['character_moments']}, npcs={results['npc_tracking']}")
+                        return True
+
+                except Exception as e:
+                    logger.warning(f"[EXTRACTION] Cache-friendly moments+NPCs extraction failed: {e}")
+                    return False
+            else:
+                # For multiple scenes, skip combined extraction - let separate NPC batch handle it
+                logger.info(f"[EXTRACTION] Skipping combined extraction for {len(scenes_data)} scenes - using separate NPC batch")
+                return False
+
+        # No context available - can't use cache-friendly extraction
+        logger.warning("[EXTRACTION] No scene_generation_context available, skipping combined extraction")
         return False
+
+    except Exception as e:
+        logger.error(f"Moments+NPCs extraction failed: {e}", exc_info=True)
+        return False
+
+
+async def run_inline_entity_extraction(
+    story_id: int,
+    chapter_id: int,
+    scene_id: int,
+    scene_sequence: int,
+    scene_content: str,
+    user_id: int,
+    user_settings: Dict[str, Any],
+    db: Session,
+    branch_id: int = None,
+    scene_generation_context: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    Fast inline entity extraction for contradiction checking.
+
+    ONLY extracts entity states (characters, locations, objects) and checks for contradictions.
+    Does NOT extract: character moments, NPCs, plot events, scene embeddings.
+
+    Uses cache-friendly multi-message structure (same prefix as scene generation).
+
+    Args:
+        story_id: Story ID
+        chapter_id: Chapter ID
+        scene_id: Scene ID
+        scene_sequence: Scene sequence number
+        scene_content: The generated scene content
+        user_id: User ID
+        user_settings: User settings
+        db: Database session
+        branch_id: Branch ID
+        scene_generation_context: Context from scene generation (for cache hits)
+
+    Returns:
+        Dictionary with entity states updated and contradictions found
+    """
+    import json
+    import time
+
+    start_time = time.perf_counter()
+    logger.info(f"[INLINE_ENTITY] Starting inline entity extraction for scene {scene_sequence}")
+
+    results = {
+        'entity_states_updated': 0,
+        'contradictions_found': 0,
+        'extraction_time_ms': 0,
+        'success': False
+    }
+
+    try:
+        # Get story and chapter info
+        story = db.query(Story).filter(Story.id == story_id).first()
+        chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+
+        if not story or not chapter:
+            logger.error(f"[INLINE_ENTITY] Story or chapter not found")
+            return results
+
+        # Get character names
+        story_characters = db.query(StoryCharacter).filter(
+            StoryCharacter.story_id == story_id
+        ).all()
+        character_names = [sc.character.name for sc in story_characters if sc.character]
+
+        # Get chapter location
+        chapter_location = chapter.location_name or story.setting or "unspecified location"
+
+        # Get or create LLM service
+        llm_service = UnifiedLLMService()
+
+        # Check if we have scene generation context for cache-friendly extraction
+        if scene_generation_context is None:
+            logger.warning("[INLINE_ENTITY] No scene_generation_context provided, cache may not be optimal")
+            # Still proceed, just won't have cache benefits
+            scene_generation_context = {}
+
+        # Call the fast entity-only extraction
+        logger.info(f"[INLINE_ENTITY] Calling extract_entity_states_cache_friendly")
+        raw_response = await llm_service.extract_entity_states_cache_friendly(
+            scene_content=scene_content,
+            character_names=character_names,
+            chapter_location=chapter_location,
+            context=scene_generation_context,
+            user_id=user_id,
+            user_settings=user_settings,
+            db=db
+        )
+
+        extraction_time = (time.perf_counter() - start_time) * 1000
+        logger.info(f"[INLINE_ENTITY] LLM response received in {extraction_time:.0f}ms")
+
+        # Parse JSON response
+        try:
+            # Clean response (remove markdown code blocks if present)
+            cleaned_response = raw_response.strip()
+            if cleaned_response.startswith("```"):
+                lines = cleaned_response.split("\n")
+                cleaned_response = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+
+            entity_states = json.loads(cleaned_response)
+        except json.JSONDecodeError as e:
+            logger.error(f"[INLINE_ENTITY] Failed to parse JSON response: {e}")
+            logger.debug(f"[INLINE_ENTITY] Raw response: {raw_response[:500]}...")
+            results['extraction_time_ms'] = extraction_time
+            return results
+
+        # Process entity states and check for contradictions
+        from .entity_state_service import EntityStateService
+
+        entity_service = EntityStateService(
+            user_id=user_id,
+            user_settings=user_settings
+        )
+
+        # Process state updates (this includes contradiction checking)
+        process_result = await entity_service.process_entity_states(
+            db=db,
+            story_id=story_id,
+            branch_id=branch_id,
+            scene_id=scene_id,
+            scene_sequence=scene_sequence,
+            entity_states=entity_states,
+            scene_content=scene_content
+        )
+
+        # Note: db.commit() is already called inside process_entity_states, no need to call again
+
+        # process_entity_states returns an int (total processed), not a dict
+        results['entity_states_updated'] = process_result
+        results['contradictions_found'] = 0  # Contradiction checking not yet implemented in process_entity_states
+        results['extraction_time_ms'] = (time.perf_counter() - start_time) * 1000
+        results['success'] = True
+
+        logger.info(f"[INLINE_ENTITY] Complete: entities={results['entity_states_updated']}, "
+                   f"contradictions={results['contradictions_found']}, time={results['extraction_time_ms']:.0f}ms")
+
+        return results
+
+    except Exception as e:
+        logger.error(f"[INLINE_ENTITY] Extraction failed: {e}", exc_info=True)
+        results['extraction_time_ms'] = (time.perf_counter() - start_time) * 1000
+        return results
 
 
 async def batch_process_scene_extractions(
@@ -1211,25 +637,27 @@ async def batch_process_scene_extractions(
     user_settings: Dict[str, Any],
     db: Session,
     branch_id: int = None,
-    scene_generation_context: Optional[Dict[str, Any]] = None
+    scene_generation_context: Optional[Dict[str, Any]] = None,
+    skip_entity_states: bool = False
 ) -> Dict[str, Any]:
     """
     Batch process character/NPC extraction for multiple scenes in a chapter.
-    
+
     This function processes all scenes in a chapter that have been created since
     the last extraction, performing:
     - Character moments extraction
     - NPC tracking
-    - Entity states extraction
+    - Entity states extraction (unless skip_entity_states=True)
     - Plot events extraction
     - Scene embeddings (still created per-scene)
-    
+
     Args:
         story_id: Story ID
         chapter_id: Chapter ID
         from_sequence: Starting scene sequence number (exclusive, scenes after this)
         to_sequence: Ending scene sequence number (inclusive)
         user_id: User ID
+        skip_entity_states: If True, skip entity state processing (already done by inline check)
         user_settings: User settings
         db: Database session
         branch_id: Optional branch ID (if not provided, uses active branch)
@@ -1415,7 +843,8 @@ async def batch_process_scene_extractions(
                     db=db,
                     results=results,
                     branch_id=branch_id,
-                    scene_generation_context=scene_generation_context
+                    scene_generation_context=scene_generation_context,
+                    skip_entity_states=skip_entity_states
                 )
                 if combined_success:
                     logger.warning(f"[EXTRACTION] Combined extraction successful!")

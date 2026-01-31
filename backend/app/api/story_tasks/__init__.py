@@ -26,6 +26,8 @@ from .background_tasks import (
     update_working_memory_in_background,
     update_relationship_graph_in_background,
     initialize_branch_entity_states_in_background,
+    run_inline_entity_extraction_background,
+    run_chapter_summary_background,
 )
 
 __all__ = [
@@ -51,4 +53,6 @@ __all__ = [
     'update_working_memory_in_background',
     'update_relationship_graph_in_background',
     'initialize_branch_entity_states_in_background',
+    'run_inline_entity_extraction_background',
+    'run_chapter_summary_background',
 ]

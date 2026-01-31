@@ -141,7 +141,75 @@ class UnifiedLLMService:
             logs_dir = os.path.join(project_root, "logs")
             os.makedirs(logs_dir, exist_ok=True)  # Ensure directory exists
             return os.path.join(logs_dir, filename)
-    
+
+    def _build_cache_friendly_message_prefix(
+        self,
+        context: Dict[str, Any],
+        user_id: int,
+        user_settings: Dict[str, Any],
+        db: Optional[Session] = None
+    ) -> List[Dict[str, str]]:
+        """
+        Build the common message prefix for all LLM operations.
+
+        Returns: [system_message, ...context_messages]
+
+        All callers should:
+        1. Call this method to get the prefix
+        2. Append their specific final message
+        3. Send to LLM
+
+        This ensures 100% cache hit rate on the prefix across:
+        - Scene generation
+        - Variant generation
+        - Continuation generation
+        - Choice generation
+        - All extraction operations
+        - Memory operations
+        """
+        # 1. Get user settings
+        generation_prefs = user_settings.get("generation_preferences", {})
+        scene_length = generation_prefs.get("scene_length", "medium")
+        choices_count = generation_prefs.get("choices_count", 4)
+        separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
+        scene_length_description = self._get_scene_length_description(scene_length)
+
+        # 2. Get POV from writing preset
+        pov = 'third'
+        if db and user_id:
+            from ...models.writing_style_preset import WritingStylePreset
+            active_preset = db.query(WritingStylePreset).filter(
+                WritingStylePreset.user_id == user_id,
+                WritingStylePreset.is_active == True
+            ).first()
+            if active_preset and hasattr(active_preset, 'pov') and active_preset.pov:
+                pov = active_preset.pov
+
+        # 3. Build system prompt with CONSISTENT skip_choices setting
+        system_prompt = prompt_manager.get_prompt(
+            "scene_with_immediate", "system",
+            user_id=user_id,
+            db=db,
+            scene_length_description=scene_length_description,
+            choices_count=choices_count,
+            skip_choices=separate_choice_generation  # ALWAYS use user setting!
+        )
+
+        # 4. ALWAYS add POV reminder for cache consistency
+        pov_reminder = prompt_manager.get_pov_reminder(pov)
+        if pov_reminder:
+            system_prompt += "\n\n" + pov_reminder
+
+        # 5. Build messages array
+        messages = [{"role": "system", "content": system_prompt.strip()}]
+
+        # 6. Add context messages
+        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
+        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
+        messages.extend(context_messages)
+
+        return messages
+
     async def generate(
         self,
         prompt: str,
@@ -1095,14 +1163,15 @@ class UnifiedLLMService:
         - parsed_choices: List of choices if successfully parsed, None otherwise
         """
         CHOICES_MARKER = "###CHOICES###"
-        
+
         # Get scene length, choices count, and separate choice generation setting from user settings
         generation_prefs = user_settings.get("generation_preferences", {})
         scene_length = generation_prefs.get("scene_length", "medium")
         choices_count = generation_prefs.get("choices_count", 4)
         separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
+        logger.info(f"[SCENE GEN STREAMING] separate_choice_generation={separate_choice_generation}, generation_prefs={generation_prefs}")
         scene_length_description = self._get_scene_length_description(scene_length)
-        
+
         # Extract immediate_situation from context for template variable
         immediate_situation = context.get("current_situation") or ""
         immediate_situation = str(immediate_situation) if immediate_situation else ""
@@ -1248,15 +1317,14 @@ class UnifiedLLMService:
             return
         
         # === MULTI-MESSAGE STRUCTURE FOR BETTER CACHING ===
-        messages = [{"role": "system", "content": system_prompt.strip()}]
-        
-        # Get scene batch size from user settings for cache optimization
-        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-        
-        # Add context as multiple user messages (most stable → most dynamic)
-        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-        messages.extend(context_messages)
-        
+        # Use helper to build cache-friendly prefix (system + context messages)
+        messages = self._build_cache_friendly_message_prefix(
+            context=context,
+            user_id=user_id,
+            user_settings=user_settings,
+            db=db
+        )
+
         # Get task instruction and choices reminder from prompts.yml
         has_immediate = bool(immediate_situation and immediate_situation.strip())
         tone = context.get('tone', '')
@@ -1278,8 +1346,27 @@ class UnifiedLLMService:
             logger.info(f"[SCENE WITH CHOICES STREAMING] Separate choice generation enabled - skipping choices reminder in task")
         
         messages.append({"role": "user", "content": task_content})
-        
-        logger.info(f"[SCENE WITH CHOICES STREAMING] Using multi-message structure: {len(messages)} messages (1 system + {len(context_messages)} context + 1 task)")
+
+        logger.info(f"[SCENE WITH CHOICES STREAMING] Using multi-message structure: {len(messages)} messages")
+
+        # Write debug output for debugging cache issues
+        from ...config import settings
+        if settings.prompt_debug:
+            try:
+                import json
+                prompt_file_path = self._get_prompt_debug_path("prompt_sent_scene.json")
+                client = self.get_user_client(user_id, user_settings)
+                debug_data = {
+                    "messages": messages,
+                    "generation_parameters": {
+                        "max_tokens": max_tokens,
+                        "model": client.model_string
+                    }
+                }
+                with open(prompt_file_path, "w", encoding="utf-8") as f:
+                    json.dump(debug_data, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                logger.warning(f"Failed to write prompt debug file: {e}")
         
         scene_buffer = []
         choices_buffer = []
@@ -1472,32 +1559,14 @@ class UnifiedLLMService:
         else:
             pov_instruction = "in third person (he/she/they/character names)"
         
-        # === USE SAME SYSTEM PROMPT AS SCENE GENERATION (for cache hits) ===
-        # Always use scene_with_immediate for system prompt consistency
-        system_prompt = prompt_manager.get_prompt(
-            "scene_with_immediate", "system",
+        # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
+        messages = self._build_cache_friendly_message_prefix(
+            context=context,
             user_id=user_id,
-            db=db,
-            scene_length_description=scene_length_description,
-            choices_count=choices_count,
-            skip_choices=separate_choice_generation
+            user_settings=user_settings,
+            db=db
         )
-        
-        # Enhance system prompt with POV instruction for choices (from template)
-        pov_reminder = prompt_manager.get_pov_reminder(pov)
-        if pov_reminder:
-            system_prompt += "\n\n" + pov_reminder
-        
-        # === BUILD SAME MULTI-MESSAGE STRUCTURE AS SCENE GENERATION (for cache hits) ===
-        messages = [{"role": "system", "content": system_prompt.strip()}]
-        
-        # Get scene batch size from user settings for cache optimization
-        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-        
-        # Add context as multiple user messages (SAME as scene generation - all CACHED)
-        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-        messages.extend(context_messages)
-        
+
         # === ONLY THIS FINAL MESSAGE IS DIFFERENT ===
         tone = context.get('tone', '')
         if enhancement_guidance:
@@ -1540,7 +1609,26 @@ class UnifiedLLMService:
         max_tokens = base_max_tokens + choices_buffer_tokens
         
         logger.info(f"[VARIANT WITH CHOICES STREAMING] Using multi-message structure: {len(messages)} messages, max_tokens={max_tokens}")
-        
+
+        # Write debug output for debugging cache issues
+        from ...config import settings
+        if settings.prompt_debug:
+            try:
+                import json
+                prompt_file_path = self._get_prompt_debug_path("prompt_sent_variant.json")
+                client = self.get_user_client(user_id, user_settings)
+                debug_data = {
+                    "messages": messages,
+                    "generation_parameters": {
+                        "max_tokens": max_tokens,
+                        "model": client.model_string
+                    }
+                }
+                with open(prompt_file_path, "w", encoding="utf-8") as f:
+                    json.dump(debug_data, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                logger.warning(f"Failed to write variant prompt debug file: {e}")
+
         scene_buffer = []
         choices_buffer = []
         found_marker = False
@@ -1662,32 +1750,14 @@ class UnifiedLLMService:
         scene_length_map = {"short": "short (50-100 words)", "medium": "medium (100-150 words)", "long": "long (150-250 words)"}
         scene_length_description = scene_length_map.get(scene_length, "medium (100-150 words)")
         
-        # === USE SAME SYSTEM PROMPT AS SCENE GENERATION (for cache hits) ===
-        system_prompt = prompt_manager.get_prompt(
-            "scene_with_immediate", "system",
+        # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
+        messages = self._build_cache_friendly_message_prefix(
+            context=context,
             user_id=user_id,
-            db=db,
-            scene_length_description=scene_length_description,
-            choices_count=choices_count,
-            skip_choices=separate_choice_generation
+            user_settings=user_settings,
+            db=db
         )
-        
-        # Add POV consistency requirement to system prompt (from template)
-        pov_reminder = prompt_manager.get_pov_reminder(pov)
-        if pov_reminder:
-            system_prompt += "\n\n" + pov_reminder
-        
-        # === BUILD SAME MULTI-MESSAGE STRUCTURE AS SCENE GENERATION (for cache hits) ===
-        messages = [{"role": "system", "content": system_prompt.strip()}]
-        
-        # Get scene batch size from user settings for cache optimization
-        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-        
-        # Add context as multiple user messages (SAME as scene generation - all CACHED)
-        # The context already has current scene excluded (via exclude_scene_id in context_manager)
-        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-        messages.extend(context_messages)
-        
+
         # === ONLY THIS FINAL MESSAGE IS DIFFERENT ===
         # Instead of new scene + choice request, we send current scene + continuation instruction
         # Get current scene content and continuation prompt from context
@@ -1739,7 +1809,7 @@ Write approximately {scene_length_description} in length.
         if settings.prompt_debug:
             try:
                 import json
-                prompt_file_path = self._get_prompt_debug_path("prompt_sent.json")
+                prompt_file_path = self._get_prompt_debug_path("prompt_sent_continuation.json")
                 client = self.get_user_client(user_id, user_settings)
                 debug_data = {
                     "messages": messages,
@@ -1879,38 +1949,15 @@ Write approximately {scene_length_description} in length.
         choices_count = generation_prefs.get("choices_count", 4)
         scene_length_description = self._get_scene_length_description(scene_length)
         
-        # === USE SAME SYSTEM PROMPT AS SCENE GENERATION FOR CACHE ALIGNMENT ===
-        # This ensures messages 1-N are identical between chapter conclusion and choice generation,
-        # enabling cache hits when generating choices after a chapter conclusion.
-        # Chapter-specific instructions are in the final user message instead.
-        system_prompt = prompt_manager.get_prompt(
-            "scene_with_immediate", "system",
+        # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
+        # This ensures cache hits with scene generation and choice generation
+        messages = self._build_cache_friendly_message_prefix(
+            context=context,
             user_id=user_id,
-            db=db,
-            scene_length_description=scene_length_description,
-            choices_count=choices_count,
-            skip_choices=True  # Chapter conclusions don't include choices in the scene
+            user_settings=user_settings,
+            db=db
         )
-        
-        if not system_prompt or not system_prompt.strip():
-            logger.error("[CONCLUDING SCENE] System prompt is empty for scene_with_immediate")
-            raise ValueError("Failed to load system prompt for chapter conclusion")
-        
-        # Add POV consistency requirement
-        pov_reminder = prompt_manager.get_pov_reminder(pov)
-        if pov_reminder:
-            system_prompt += "\n\n" + pov_reminder
-        
-        # === BUILD MULTI-MESSAGE STRUCTURE (for cache hits on context) ===
-        messages = [{"role": "system", "content": system_prompt.strip()}]
-        
-        # Get scene batch size from user settings for cache optimization
-        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-        
-        # Add context as multiple user messages (SAME as scene generation - all CACHED)
-        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-        messages.extend(context_messages)
-        
+
         # === FINAL MESSAGE: Simple chapter conclusion instruction (inline like continuation) ===
         # Chapter context is already in the multi-message structure, so we just need the task
         chapter_number = chapter_info.get("chapter_number", 1)
@@ -1946,7 +1993,7 @@ Chapter Conclusion:"""
         if settings.prompt_debug:
             try:
                 import json
-                prompt_file_path = self._get_prompt_debug_path("prompt_sent.json")
+                prompt_file_path = self._get_prompt_debug_path("prompt_sent_conclusion.json")
                 client = self.get_user_client(user_id, user_settings)
                 debug_data = {
                     "messages": messages,
@@ -2182,34 +2229,14 @@ Chapter Conclusion:"""
         scene_length_map = {"short": "short (50-100 words)", "medium": "medium (100-150 words)", "long": "long (150-250 words)"}
         scene_length_description = scene_length_map.get(scene_length, "medium (100-150 words)")
         
-        # === USE SAME SYSTEM PROMPT AS SCENE GENERATION ===
-        # This ensures the system message is identical and cacheable
-        # Use get_prompt instead of get_prompt_pair to avoid user prompt template errors
-        system_prompt = prompt_manager.get_prompt(
-            "scene_with_immediate", "system",
+        # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
+        messages = self._build_cache_friendly_message_prefix(
+            context=context,
             user_id=user_id,
-            db=db,
-            scene_length_description=scene_length_description,
-            choices_count=choices_count,
-            skip_choices=separate_choice_generation
+            user_settings=user_settings,
+            db=db
         )
-        
-        # Add POV consistency requirement to system prompt (from template)
-        pov_reminder = prompt_manager.get_pov_reminder(pov)
-        if pov_reminder:
-            system_prompt += "\n\n" + pov_reminder
-        
-        # === BUILD SAME MULTI-MESSAGE STRUCTURE AS SCENE GENERATION ===
-        messages = [{"role": "system", "content": system_prompt.strip()}]
-        
-        # Get scene batch size from user settings for cache optimization
-        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-        
-        # Add context as multiple user messages (SAME as scene generation - all CACHED)
-        # DO NOT modify context before this call - must be identical to scene generation
-        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-        messages.extend(context_messages)
-        
+
         # === ONLY THIS FINAL MESSAGE IS DIFFERENT ===
         # Instead of task instruction, we send the new scene + choice generation request
         # Clean scene content to remove any instruction tags or formatting artifacts
@@ -2242,12 +2269,12 @@ Chapter Conclusion:"""
         
         logger.info(f"[CHOICES] Using multi-message structure for cache optimization: {len(messages)} messages, max_tokens={max_tokens}, requested_choices={choices_count}")
         
-        # Write debug output to prompt_choice_sent.json for debugging cache issues
+        # Write debug output for debugging cache issues
         from ...config import settings
         if settings.prompt_debug:
             try:
                 import json
-                prompt_file_path = self._get_prompt_debug_path("prompt_choice_sent.json")
+                prompt_file_path = self._get_prompt_debug_path("prompt_sent_choices.json")
                 client = self.get_user_client(user_id, user_settings)
                 debug_data = {
                     "messages": messages,
@@ -2318,32 +2345,13 @@ Chapter Conclusion:"""
         if not key_events:
             return []
 
-        # Get scene generation parameters (IDENTICAL to scene generation)
-        generation_prefs = user_settings.get("generation_preferences", {})
-        scene_length = generation_prefs.get("scene_length", "medium")
-        choices_count = generation_prefs.get("choices_count", 4)
-        separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
-        scene_length_description = self._get_scene_length_description(scene_length)
-
-        # === SAME SYSTEM PROMPT AS SCENE GENERATION ===
-        system_prompt = prompt_manager.get_prompt(
-            "scene_with_immediate", "system",
+        # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
+        messages = self._build_cache_friendly_message_prefix(
+            context=context,
             user_id=user_id,
-            db=db,
-            scene_length_description=scene_length_description,
-            choices_count=choices_count,
-            skip_choices=separate_choice_generation
+            user_settings=user_settings,
+            db=db
         )
-
-        # === BUILD SAME MULTI-MESSAGE STRUCTURE ===
-        messages = [{"role": "system", "content": system_prompt.strip()}]
-
-        # Get scene batch size from user settings for cache optimization
-        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-
-        # Add context as multiple user messages (SAME as scene generation - all CACHED)
-        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-        messages.extend(context_messages)
 
         # === FINAL USER MESSAGE: SCENE + EXTRACTION INSTRUCTION ===
         # (Same pattern as choice_generation - scene in user message, NOT assistant message)
@@ -2358,6 +2366,25 @@ Chapter Conclusion:"""
         messages.append({"role": "user", "content": final_message})
 
         logger.info(f"[PLOT_EXTRACTION] Cache-friendly structure: {len(messages)} messages, checking {len(key_events)} events")
+
+        # Write debug output for debugging cache issues
+        from ...config import settings
+        if settings.prompt_debug:
+            try:
+                prompt_file_path = self._get_prompt_debug_path("prompt_plot_extraction.json")
+                debug_data = {
+                    "extraction_type": "plot_events",
+                    "num_key_events": len(key_events),
+                    "messages": messages,
+                    "generation_parameters": {
+                        "max_tokens": 500,
+                        "temperature": 0.3
+                    }
+                }
+                with open(prompt_file_path, "w", encoding="utf-8") as f:
+                    json.dump(debug_data, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                logger.warning(f"Failed to write plot extraction prompt debug file: {e}")
 
         # === ROUTE TO APPROPRIATE LLM (SAME MESSAGES FOR BOTH) ===
         ext_settings = user_settings.get('extraction_model_settings', {})
@@ -2448,29 +2475,13 @@ Chapter Conclusion:"""
         Returns:
             Raw JSON string response from LLM
         """
-        # Get scene generation parameters (IDENTICAL to scene generation)
-        generation_prefs = user_settings.get("generation_preferences", {})
-        scene_length = generation_prefs.get("scene_length", "medium")
-        choices_count = generation_prefs.get("choices_count", 4)
-        separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
-        scene_length_description = self._get_scene_length_description(scene_length)
-
-        # === SAME SYSTEM PROMPT AS SCENE GENERATION ===
-        system_prompt = prompt_manager.get_prompt(
-            "scene_with_immediate", "system",
+        # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
+        messages = self._build_cache_friendly_message_prefix(
+            context=context,
             user_id=user_id,
-            db=db,
-            scene_length_description=scene_length_description,
-            choices_count=choices_count,
-            skip_choices=separate_choice_generation
+            user_settings=user_settings,
+            db=db
         )
-
-        # === BUILD SAME MULTI-MESSAGE STRUCTURE ===
-        messages = [{"role": "system", "content": system_prompt.strip()}]
-
-        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-        messages.extend(context_messages)
 
         # === FINAL USER MESSAGE: SCENE + COMBINED EXTRACTION INSTRUCTION ===
         cleaned_scene = self._clean_scene_numbers(scene_content)
@@ -2489,6 +2500,24 @@ Chapter Conclusion:"""
         messages.append({"role": "user", "content": final_message})
 
         logger.info(f"[COMBINED_EXTRACTION] Cache-friendly structure: {len(messages)} messages")
+
+        # Write debug output for debugging cache issues
+        from ...config import settings
+        if settings.prompt_debug:
+            try:
+                prompt_file_path = self._get_prompt_debug_path("prompt_combined_extraction.json")
+                debug_data = {
+                    "extraction_type": "combined",
+                    "messages": messages,
+                    "generation_parameters": {
+                        "max_tokens": max_tokens,
+                        "temperature": 0.3
+                    }
+                }
+                with open(prompt_file_path, "w", encoding="utf-8") as f:
+                    json.dump(debug_data, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                logger.warning(f"Failed to write combined extraction prompt debug file: {e}")
 
         # === ROUTE TO APPROPRIATE LLM (SAME MESSAGES FOR BOTH) ===
         ext_settings = user_settings.get('extraction_model_settings', {})
@@ -2560,29 +2589,13 @@ Chapter Conclusion:"""
         Returns:
             Raw JSON string response from LLM
         """
-        # Get scene generation parameters (IDENTICAL to scene generation)
-        generation_prefs = user_settings.get("generation_preferences", {})
-        scene_length = generation_prefs.get("scene_length", "medium")
-        choices_count = generation_prefs.get("choices_count", 4)
-        separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
-        scene_length_description = self._get_scene_length_description(scene_length)
-
-        # === SAME SYSTEM PROMPT AS SCENE GENERATION ===
-        system_prompt = prompt_manager.get_prompt(
-            "scene_with_immediate", "system",
+        # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
+        messages = self._build_cache_friendly_message_prefix(
+            context=context,
             user_id=user_id,
-            db=db,
-            scene_length_description=scene_length_description,
-            choices_count=choices_count,
-            skip_choices=separate_choice_generation
+            user_settings=user_settings,
+            db=db
         )
-
-        # === BUILD SAME MULTI-MESSAGE STRUCTURE ===
-        messages = [{"role": "system", "content": system_prompt.strip()}]
-
-        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-        messages.extend(context_messages)
 
         # === FINAL USER MESSAGE: BATCH EXTRACTION INSTRUCTION ===
         character_names_str = ", ".join(character_names) if character_names else "None"
@@ -2603,6 +2616,25 @@ Chapter Conclusion:"""
         messages.append({"role": "user", "content": final_message})
 
         logger.info(f"[BATCH_EXTRACTION] Cache-friendly structure: {len(messages)} messages, {num_scenes} scenes")
+
+        # Write debug output for debugging cache issues
+        from ...config import settings
+        if settings.prompt_debug:
+            try:
+                prompt_file_path = self._get_prompt_debug_path("prompt_batch_extraction.json")
+                debug_data = {
+                    "extraction_type": "batch",
+                    "num_scenes": num_scenes,
+                    "messages": messages,
+                    "generation_parameters": {
+                        "max_tokens": max_tokens,
+                        "temperature": 0.3
+                    }
+                }
+                with open(prompt_file_path, "w", encoding="utf-8") as f:
+                    json.dump(debug_data, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                logger.warning(f"Failed to write batch extraction prompt debug file: {e}")
 
         # === ROUTE TO APPROPRIATE LLM (SAME MESSAGES FOR BOTH) ===
         ext_settings = user_settings.get('extraction_model_settings', {})
@@ -2638,6 +2670,200 @@ Chapter Conclusion:"""
             logger.error(f"[BATCH_EXTRACTION] Extraction failed: {e}")
             raise
 
+    async def extract_moments_and_npcs_cache_friendly(
+        self,
+        scene_content: str,
+        character_names: List[str],
+        explicit_character_names: List[str],
+        context: Dict[str, Any],
+        user_id: int,
+        user_settings: Dict[str, Any],
+        db: Optional[Session] = None,
+        max_tokens: int = 2000
+    ) -> str:
+        """
+        Lean extraction for character moments and NPCs only.
+        Uses cache-friendly multi-message structure.
+
+        This is used when:
+        - Entity states are handled by inline entity extraction
+        - Plot events are handled by separate plot extraction
+
+        Args:
+            scene_content: The generated scene text to analyze
+            character_names: List of explicit character names
+            explicit_character_names: List of explicit character names (for NPC exclusion)
+            context: The same context dict used for scene generation
+            user_id: User ID for LLM call
+            user_settings: User settings for LLM call
+            db: Database session for preset lookups
+            max_tokens: Maximum tokens for response
+
+        Returns:
+            Raw JSON string response from LLM with character_moments and npcs
+        """
+        # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
+        messages = self._build_cache_friendly_message_prefix(
+            context=context,
+            user_id=user_id,
+            user_settings=user_settings,
+            db=db
+        )
+
+        # === FINAL USER MESSAGE: LEAN EXTRACTION INSTRUCTION ===
+        cleaned_scene = self._clean_scene_numbers(scene_content)
+        character_names_str = ", ".join(character_names) if character_names else "None"
+        explicit_names_str = ", ".join(explicit_character_names) if explicit_character_names else "None"
+
+        final_message = prompt_manager.get_prompt(
+            "moments_and_npcs", "user",
+            scene_content=cleaned_scene,
+            character_names=character_names_str,
+            explicit_names=explicit_names_str
+        )
+        messages.append({"role": "user", "content": final_message})
+
+        logger.info(f"[MOMENTS_NPCS] Cache-friendly structure: {len(messages)} messages")
+
+        # === ROUTE TO APPROPRIATE LLM ===
+        ext_settings = user_settings.get('extraction_model_settings', {})
+        use_extraction_model = ext_settings.get('enabled', False)
+
+        try:
+            if use_extraction_model:
+                extraction_service = self._get_extraction_service(user_settings)
+                if extraction_service:
+                    logger.info("[MOMENTS_NPCS] Using extraction LLM with cache-friendly structure")
+                    return await extraction_service.generate_with_messages(
+                        messages=messages,
+                        max_tokens=max_tokens
+                    )
+                else:
+                    use_extraction_model = False
+
+            if not use_extraction_model:
+                logger.info("[MOMENTS_NPCS] Using main LLM with cache-friendly structure")
+                import copy
+                extraction_settings = copy.deepcopy(user_settings)
+                extraction_settings.setdefault('llm_settings', {})['temperature'] = 0.3
+                extraction_settings['llm_settings']['reasoning_effort'] = 'disabled'
+
+                return await self._generate_with_messages(
+                    messages=messages,
+                    user_id=user_id,
+                    user_settings=extraction_settings,
+                    max_tokens=max_tokens
+                )
+
+        except Exception as e:
+            logger.error(f"[MOMENTS_NPCS] Extraction failed: {e}")
+            raise
+
+    async def extract_entity_states_cache_friendly(
+        self,
+        scene_content: str,
+        character_names: List[str],
+        chapter_location: str,
+        context: Dict[str, Any],
+        user_id: int,
+        user_settings: Dict[str, Any],
+        db: Optional[Session] = None,
+        max_tokens: int = 2000
+    ) -> str:
+        """
+        Fast entity-only extraction for inline contradiction checking.
+        Uses cache-friendly multi-message structure (same prefix as scene generation).
+
+        ONLY extracts entity states (characters, locations, objects).
+        Does NOT extract: character moments, NPCs, plot events.
+
+        Args:
+            scene_content: The generated scene text to analyze
+            character_names: List of character names to track
+            chapter_location: Primary location context for the chapter
+            context: The same context dict used for scene generation
+            user_id: User ID for LLM call
+            user_settings: User settings for LLM call
+            db: Database session for preset lookups
+            max_tokens: Maximum tokens for response (smaller than full extraction)
+
+        Returns:
+            Raw JSON string with entity states only
+        """
+        # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
+        messages = self._build_cache_friendly_message_prefix(
+            context=context,
+            user_id=user_id,
+            user_settings=user_settings,
+            db=db
+        )
+
+        # === FINAL USER MESSAGE: SCENE + ENTITY-ONLY EXTRACTION ===
+        cleaned_scene = self._clean_scene_numbers(scene_content)
+        character_names_str = ", ".join(character_names) if character_names else "None"
+
+        final_message = prompt_manager.get_prompt(
+            "entity_only_extraction", "user",
+            scene_content=cleaned_scene,
+            character_names=character_names_str,
+            chapter_location=chapter_location or "unspecified location"
+        )
+        messages.append({"role": "user", "content": final_message})
+
+        logger.info(f"[ENTITY_ONLY_EXTRACTION] Cache-friendly structure: {len(messages)} messages")
+
+        # Write debug output for debugging cache issues
+        from ...config import settings
+        if settings.prompt_debug:
+            try:
+                prompt_file_path = self._get_prompt_debug_path("prompt_entity_extraction.json")
+                debug_data = {
+                    "extraction_type": "entity_only",
+                    "messages": messages,
+                    "generation_parameters": {
+                        "max_tokens": max_tokens,
+                        "temperature": 0.3
+                    }
+                }
+                with open(prompt_file_path, "w", encoding="utf-8") as f:
+                    json.dump(debug_data, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                logger.warning(f"Failed to write entity extraction prompt debug file: {e}")
+
+        # === ROUTE TO APPROPRIATE LLM ===
+        ext_settings = user_settings.get('extraction_model_settings', {})
+        use_extraction_model = ext_settings.get('enabled', False)
+
+        try:
+            if use_extraction_model:
+                extraction_service = self._get_extraction_service(user_settings)
+                if extraction_service:
+                    logger.info("[ENTITY_ONLY_EXTRACTION] Using extraction LLM with cache-friendly structure")
+                    return await extraction_service.generate_with_messages(
+                        messages=messages,
+                        max_tokens=max_tokens
+                    )
+                else:
+                    use_extraction_model = False
+
+            if not use_extraction_model:
+                logger.info("[ENTITY_ONLY_EXTRACTION] Using main LLM with cache-friendly structure")
+                import copy
+                extraction_settings = copy.deepcopy(user_settings)
+                extraction_settings.setdefault('llm_settings', {})['temperature'] = 0.3
+                extraction_settings['llm_settings']['reasoning_effort'] = 'disabled'
+
+                return await self._generate_with_messages(
+                    messages=messages,
+                    user_id=user_id,
+                    user_settings=extraction_settings,
+                    max_tokens=max_tokens
+                )
+
+        except Exception as e:
+            logger.error(f"[ENTITY_ONLY_EXTRACTION] Extraction failed: {e}")
+            raise
+
     async def extract_working_memory_cache_friendly(
         self,
         scene_content: str,
@@ -2667,29 +2893,13 @@ Chapter Conclusion:"""
         Returns:
             Dict with recent_focus and character_spotlight, or None on failure
         """
-        # Get scene generation parameters (IDENTICAL to scene generation)
-        generation_prefs = user_settings.get("generation_preferences", {})
-        scene_length = generation_prefs.get("scene_length", "medium")
-        choices_count = generation_prefs.get("choices_count", 4)
-        separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
-        scene_length_description = self._get_scene_length_description(scene_length)
-
-        # === SAME SYSTEM PROMPT AS SCENE GENERATION ===
-        system_prompt = prompt_manager.get_prompt(
-            "scene_with_immediate", "system",
+        # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
+        messages = self._build_cache_friendly_message_prefix(
+            context=context,
             user_id=user_id,
-            db=db,
-            scene_length_description=scene_length_description,
-            choices_count=choices_count,
-            skip_choices=separate_choice_generation
+            user_settings=user_settings,
+            db=db
         )
-
-        # === BUILD SAME MULTI-MESSAGE STRUCTURE ===
-        messages = [{"role": "system", "content": system_prompt.strip()}]
-
-        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-        messages.extend(context_messages)
 
         # === FINAL USER MESSAGE: SCENE + WORKING MEMORY INSTRUCTION ===
         cleaned_scene = self._clean_scene_numbers(scene_content)
@@ -2702,6 +2912,24 @@ Chapter Conclusion:"""
         messages.append({"role": "user", "content": final_message})
 
         logger.info(f"[WORKING_MEMORY] Cache-friendly structure: {len(messages)} messages")
+
+        # Write debug output for debugging cache issues
+        from ...config import settings
+        if settings.prompt_debug:
+            try:
+                prompt_file_path = self._get_prompt_debug_path("prompt_working_memory.json")
+                debug_data = {
+                    "extraction_type": "working_memory",
+                    "messages": messages,
+                    "generation_parameters": {
+                        "max_tokens": 512,
+                        "temperature": 0.3
+                    }
+                }
+                with open(prompt_file_path, "w", encoding="utf-8") as f:
+                    json.dump(debug_data, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                logger.warning(f"Failed to write working memory prompt debug file: {e}")
 
         # === ROUTE TO APPROPRIATE LLM (SAME MESSAGES FOR BOTH) ===
         ext_settings = user_settings.get('extraction_model_settings', {})
@@ -2787,29 +3015,13 @@ Chapter Conclusion:"""
         Returns:
             List of relationship dicts, or empty list on failure
         """
-        # Get scene generation parameters (IDENTICAL to scene generation)
-        generation_prefs = user_settings.get("generation_preferences", {})
-        scene_length = generation_prefs.get("scene_length", "medium")
-        choices_count = generation_prefs.get("choices_count", 4)
-        separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
-        scene_length_description = self._get_scene_length_description(scene_length)
-
-        # === SAME SYSTEM PROMPT AS SCENE GENERATION ===
-        system_prompt = prompt_manager.get_prompt(
-            "scene_with_immediate", "system",
+        # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
+        messages = self._build_cache_friendly_message_prefix(
+            context=context,
             user_id=user_id,
-            db=db,
-            scene_length_description=scene_length_description,
-            choices_count=choices_count,
-            skip_choices=separate_choice_generation
+            user_settings=user_settings,
+            db=db
         )
-
-        # === BUILD SAME MULTI-MESSAGE STRUCTURE ===
-        messages = [{"role": "system", "content": system_prompt.strip()}]
-
-        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-        messages.extend(context_messages)
 
         # === FINAL USER MESSAGE: SCENE + RELATIONSHIP INSTRUCTION ===
         cleaned_scene = self._clean_scene_numbers(scene_content)
@@ -2827,6 +3039,24 @@ Chapter Conclusion:"""
         messages.append({"role": "user", "content": final_message})
 
         logger.info(f"[RELATIONSHIP] Cache-friendly structure: {len(messages)} messages")
+
+        # Write debug output for debugging cache issues
+        from ...config import settings
+        if settings.prompt_debug:
+            try:
+                prompt_file_path = self._get_prompt_debug_path("prompt_relationship_extraction.json")
+                debug_data = {
+                    "extraction_type": "relationship",
+                    "messages": messages,
+                    "generation_parameters": {
+                        "max_tokens": 1024,
+                        "temperature": 0.3
+                    }
+                }
+                with open(prompt_file_path, "w", encoding="utf-8") as f:
+                    json.dump(debug_data, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                logger.warning(f"Failed to write relationship extraction prompt debug file: {e}")
 
         # === ROUTE TO APPROPRIATE LLM (SAME MESSAGES FOR BOTH) ===
         ext_settings = user_settings.get('extraction_model_settings', {})
@@ -2899,25 +3129,13 @@ Chapter Conclusion:"""
         Returns:
             List of NPC dicts, or empty list on failure
         """
-        generation_prefs = user_settings.get("generation_preferences", {})
-        scene_length = generation_prefs.get("scene_length", "medium")
-        choices_count = generation_prefs.get("choices_count", 4)
-        separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
-        scene_length_description = self._get_scene_length_description(scene_length)
-
-        system_prompt = prompt_manager.get_prompt(
-            "scene_with_immediate", "system",
+        # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
+        messages = self._build_cache_friendly_message_prefix(
+            context=context,
             user_id=user_id,
-            db=db,
-            scene_length_description=scene_length_description,
-            choices_count=choices_count,
-            skip_choices=separate_choice_generation
+            user_settings=user_settings,
+            db=db
         )
-
-        messages = [{"role": "system", "content": system_prompt.strip()}]
-        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-        messages.extend(context_messages)
 
         cleaned_scene = self._clean_scene_numbers(scene_content)
         explicit_names_str = ", ".join(explicit_names) if explicit_names else "None"
@@ -2930,6 +3148,24 @@ Chapter Conclusion:"""
         messages.append({"role": "user", "content": final_message})
 
         logger.info(f"[NPC_EXTRACTION] Cache-friendly structure: {len(messages)} messages")
+
+        # Write debug output for debugging cache issues
+        from ...config import settings
+        if settings.prompt_debug:
+            try:
+                prompt_file_path = self._get_prompt_debug_path("prompt_npc_extraction.json")
+                debug_data = {
+                    "extraction_type": "npc",
+                    "messages": messages,
+                    "generation_parameters": {
+                        "max_tokens": 1000,
+                        "temperature": 0.3
+                    }
+                }
+                with open(prompt_file_path, "w", encoding="utf-8") as f:
+                    json.dump(debug_data, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                logger.warning(f"Failed to write NPC extraction prompt debug file: {e}")
 
         ext_settings = user_settings.get('extraction_model_settings', {})
         use_extraction_model = ext_settings.get('enabled', False)
@@ -2991,25 +3227,13 @@ Chapter Conclusion:"""
         Returns:
             List of character moment dicts, or empty list on failure
         """
-        generation_prefs = user_settings.get("generation_preferences", {})
-        scene_length = generation_prefs.get("scene_length", "medium")
-        choices_count = generation_prefs.get("choices_count", 4)
-        separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
-        scene_length_description = self._get_scene_length_description(scene_length)
-
-        system_prompt = prompt_manager.get_prompt(
-            "scene_with_immediate", "system",
+        # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
+        messages = self._build_cache_friendly_message_prefix(
+            context=context,
             user_id=user_id,
-            db=db,
-            scene_length_description=scene_length_description,
-            choices_count=choices_count,
-            skip_choices=separate_choice_generation
+            user_settings=user_settings,
+            db=db
         )
-
-        messages = [{"role": "system", "content": system_prompt.strip()}]
-        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-        messages.extend(context_messages)
 
         cleaned_scene = self._clean_scene_numbers(scene_content)
         character_names_str = ", ".join(character_names) if character_names else "None"
@@ -3022,6 +3246,24 @@ Chapter Conclusion:"""
         messages.append({"role": "user", "content": final_message})
 
         logger.info(f"[CHARACTER_MOMENTS] Cache-friendly structure: {len(messages)} messages")
+
+        # Write debug output for debugging cache issues
+        from ...config import settings
+        if settings.prompt_debug:
+            try:
+                prompt_file_path = self._get_prompt_debug_path("prompt_character_moments.json")
+                debug_data = {
+                    "extraction_type": "character_moments",
+                    "messages": messages,
+                    "generation_parameters": {
+                        "max_tokens": 1000,
+                        "temperature": 0.3
+                    }
+                }
+                with open(prompt_file_path, "w", encoding="utf-8") as f:
+                    json.dump(debug_data, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                logger.warning(f"Failed to write character moments prompt debug file: {e}")
 
         ext_settings = user_settings.get('extraction_model_settings', {})
         use_extraction_model = ext_settings.get('enabled', False)
@@ -3086,25 +3328,13 @@ Chapter Conclusion:"""
         Returns:
             List of plot event dicts, or empty list on failure
         """
-        generation_prefs = user_settings.get("generation_preferences", {})
-        scene_length = generation_prefs.get("scene_length", "medium")
-        choices_count = generation_prefs.get("choices_count", 4)
-        separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
-        scene_length_description = self._get_scene_length_description(scene_length)
-
-        system_prompt = prompt_manager.get_prompt(
-            "scene_with_immediate", "system",
+        # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
+        messages = self._build_cache_friendly_message_prefix(
+            context=context,
             user_id=user_id,
-            db=db,
-            scene_length_description=scene_length_description,
-            choices_count=choices_count,
-            skip_choices=separate_choice_generation
+            user_settings=user_settings,
+            db=db
         )
-
-        messages = [{"role": "system", "content": system_prompt.strip()}]
-        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-        messages.extend(context_messages)
 
         cleaned_scene = self._clean_scene_numbers(scene_content)
 
@@ -3116,6 +3346,24 @@ Chapter Conclusion:"""
         messages.append({"role": "user", "content": final_message})
 
         logger.info(f"[PLOT_EVENTS_FALLBACK] Cache-friendly structure: {len(messages)} messages")
+
+        # Write debug output for debugging cache issues
+        from ...config import settings
+        if settings.prompt_debug:
+            try:
+                prompt_file_path = self._get_prompt_debug_path("prompt_plot_fallback_extraction.json")
+                debug_data = {
+                    "extraction_type": "plot_events_fallback",
+                    "messages": messages,
+                    "generation_parameters": {
+                        "max_tokens": 1000,
+                        "temperature": 0.3
+                    }
+                }
+                with open(prompt_file_path, "w", encoding="utf-8") as f:
+                    json.dump(debug_data, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                logger.warning(f"Failed to write plot fallback extraction prompt debug file: {e}")
 
         ext_settings = user_settings.get('extraction_model_settings', {})
         use_extraction_model = ext_settings.get('enabled', False)

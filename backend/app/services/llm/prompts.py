@@ -936,7 +936,9 @@ Chapter Conclusion:"""
             "relationship_cache_friendly": ("relationship_cache_friendly", ""),
             "npc_extraction_cache_friendly": ("npc_extraction_cache_friendly", ""),
             "character_moments_cache_friendly": ("character_moments_cache_friendly", ""),
-            "plot_events_cache_friendly": ("plot_events_cache_friendly", "")
+            "plot_events_cache_friendly": ("plot_events_cache_friendly", ""),
+            "entity_only_extraction": ("entity_only_extraction", ""),
+            "moments_and_npcs": ("entity_state_extraction.moments_and_npcs", "")
         }
         
         if template_key not in yaml_mapping:

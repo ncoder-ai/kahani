@@ -623,14 +623,7 @@ class ChapterProgressService:
     ) -> List[str]:
         """
         Use LLM to identify which key events occurred in the scene.
-
-        Supports three extraction modes (in priority order):
-        1. Context-aware extraction (use_context_aware_extraction=true + context provided):
-           Uses the main LLM with the full scene generation context for best accuracy.
-           Leverages prompt caching since message prefix matches scene generation.
-        2. Extraction LLM (extraction_model_settings.enabled=true):
-           Uses a separate smaller model for extraction.
-        3. Main LLM fallback: Uses main LLM with simple extraction prompt.
+        Always uses cache-friendly multi-message structure matching scene generation.
 
         Args:
             scene_content: The generated scene text
@@ -638,8 +631,8 @@ class ChapterProgressService:
             llm_service: The LLM service to use
             user_id: User ID for LLM call
             user_settings: User settings for LLM call
-            context: Optional context dict from scene generation (enables context-aware extraction)
-            db: Optional database session for preset lookups
+            context: Context dict from scene generation (built if not provided)
+            db: Database session for context building and preset lookups
 
         Returns:
             List of event descriptions that occurred in the scene
@@ -648,99 +641,33 @@ class ChapterProgressService:
             return []
 
         try:
-            # Check if context-aware extraction is enabled
-            use_context_aware = user_settings.get('extraction_model_settings', {}).get('use_context_aware_extraction', False)
+            # Build context if not provided
+            if context is None and db is not None:
+                try:
+                    from .context_manager import ContextManager
+                    context_manager = ContextManager(user_id, user_settings)
+                    # Get story_id from the chapter
+                    story_id = self.db.query(Chapter).filter(Chapter.id == self.db.query(Scene).first().chapter_id).first().story_id if self.db else None
+                    if story_id:
+                        context = await context_manager.build_scene_generation_context(
+                            story_id=story_id,
+                            db=db
+                        )
+                        logger.info(f"[PLOT_PROGRESS] Built context for cache-friendly extraction")
+                except Exception as ctx_err:
+                    logger.warning(f"[PLOT_PROGRESS] Failed to build context: {ctx_err}")
+                    context = {}
 
-            # Mode 1: Context-aware extraction (best quality, leverages cache)
-            if use_context_aware and context is not None:
-                logger.info(f"[PLOT_PROGRESS] Using context-aware extraction with main LLM (user_id={user_id})")
-                return await llm_service.extract_plot_events_with_context(
-                    scene_content=scene_content,
-                    key_events=key_events,
-                    context=context,
-                    user_id=user_id,
-                    user_settings=user_settings,
-                    db=db
-                )
-
-            # Mode 2 & 3: Traditional extraction (extraction LLM or main LLM fallback)
-            # Get prompts for event extraction
-            system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-                "chapter_progress.event_extraction",
-                "chapter_progress.event_extraction",
+            # Always use cache-friendly extraction
+            return await llm_service.extract_plot_events_with_context(
                 scene_content=scene_content,
-                key_events=json.dumps(key_events, indent=2)
+                key_events=key_events,
+                context=context or {},
+                user_id=user_id,
+                user_settings=user_settings,
+                db=db
             )
 
-            # Check if extraction LLM is enabled
-            extraction_enabled = user_settings.get('extraction_model_settings', {}).get('enabled', False)
-
-            response = None
-
-            if extraction_enabled:
-                try:
-                    from .llm.extraction_service import ExtractionLLMService
-
-                    logger.info(f"[PLOT_PROGRESS] Using extraction LLM for event extraction (user_id={user_id})")
-
-                    # Get extraction model settings
-                    ext_settings = user_settings.get('extraction_model_settings', {})
-                    llm_settings = user_settings.get('llm_settings', {})
-                    timeout_total = llm_settings.get('timeout_total', 240)
-                    extraction_service = ExtractionLLMService(
-                        url=ext_settings.get('url', 'http://localhost:1234/v1'),
-                        model=ext_settings.get('model_name', 'qwen2.5-3b-instruct'),
-                        api_key=ext_settings.get('api_key', ''),
-                        temperature=ext_settings.get('temperature', 0.3),
-                        max_tokens=ext_settings.get('max_tokens', 500),
-                        timeout_total=timeout_total
-                    )
-
-                    # Generate with extraction model - use user's max_tokens setting
-                    user_max_tokens = user_settings.get('llm_settings', {}).get('max_tokens', 2048)
-                    response = await extraction_service.generate(
-                        prompt=user_prompt,
-                        system_prompt=system_prompt,
-                        max_tokens=user_max_tokens
-                    )
-
-                    logger.info(f"[PLOT_PROGRESS] Successfully extracted events with extraction LLM")
-
-                except Exception as e:
-                    logger.warning(f"[PLOT_PROGRESS] Extraction LLM failed, falling back to main LLM: {e}")
-                    response = None  # Fall through to main LLM
-
-            # Use main LLM if extraction LLM not enabled or failed
-            if response is None:
-                user_max_tokens = user_settings.get('llm_settings', {}).get('max_tokens', 2048)
-                response = await llm_service.generate(
-                    prompt=user_prompt,
-                    user_id=user_id,
-                    user_settings=user_settings,
-                    system_prompt=system_prompt,
-                    max_tokens=user_max_tokens,
-                    temperature=0.3  # Low temperature for consistent extraction
-                )
-
-            # Parse response as JSON array
-            logger.info(f"[PLOT_PROGRESS] Raw LLM response: {response[:500] if response else 'None'}...")
-            cleaned = clean_llm_json(response)
-            logger.info(f"[PLOT_PROGRESS] Cleaned JSON: {cleaned[:300] if cleaned else 'None'}...")
-            completed = json.loads(cleaned)
-
-            if not isinstance(completed, list):
-                logger.warning(f"Event extraction returned non-list: {type(completed)}")
-                return []
-
-            # Validate that returned events are in the original list
-            valid_events = [e for e in completed if e in key_events]
-
-            logger.info(f"Extracted {len(valid_events)} completed events from scene")
-            return valid_events
-
-        except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse event extraction response: {e}")
-            return []
         except Exception as e:
             logger.error(f"Error extracting completed events: {e}")
             return []
