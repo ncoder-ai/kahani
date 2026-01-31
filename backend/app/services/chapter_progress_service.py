@@ -347,7 +347,11 @@ class ChapterProgressService:
         all_events = set(previous_batch.completed_events or []) if previous_batch else set()
         all_events.update(completed_events)
 
-        # IMPORTANT: Also preserve any manually toggled events from current progress
+        # IMPORTANT: Refresh chapter to get latest committed data before reading plot_progress
+        # This prevents stale data from being preserved if a deletion happened in another session
+        self.db.refresh(chapter)
+
+        # Preserve any manually toggled events from current progress
         # This ensures user's manual toggles aren't lost when new batches are created
         current_progress = chapter.plot_progress or {}
         current_completed = set(current_progress.get("completed_events", []))
@@ -393,7 +397,10 @@ class ChapterProgressService:
         """
         from ..models import ChapterPlotProgressBatch
         from sqlalchemy.orm.attributes import flag_modified
-        
+
+        # Refresh to get latest committed data
+        self.db.refresh(chapter)
+
         # Get existing progress or initialize
         existing_progress = chapter.plot_progress or {}
         progress_data = {
