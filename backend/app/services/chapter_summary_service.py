@@ -347,6 +347,154 @@ class ChapterSummaryService:
             else:
                 logger.info(f"[CHAPTER:SUMMARY:INC:DONE] trace_id={trace_id} chapter_id={chapter_id} status={status} duration_ms={duration_ms:.2f} summary_len={len(combined_summary)}")
 
+    async def generate_chapter_summary_incremental_cache_friendly(
+        self,
+        chapter_id: int,
+        scene_generation_context: dict,
+        max_new_scenes: int = None
+    ) -> str:
+        """
+        Generate chapter summary using cache-friendly multi-message structure.
+
+        This version uses the same message prefix as scene generation to maximize
+        LLM cache hits. It should be called AFTER scene generation and extractions
+        complete, when the ~13,000 token prefix is already cached.
+
+        Args:
+            chapter_id: The chapter to summarize
+            scene_generation_context: The context dict from scene generation
+            max_new_scenes: If set, limit the number of new scenes processed per call
+
+        Returns:
+            The combined chapter summary
+        """
+        op_start = time.perf_counter()
+        trace_id = f"chap-sum-cf-{uuid.uuid4()}"
+        status = "error"
+        combined_summary = ""
+
+        try:
+            chapter = self.db.query(Chapter).filter(Chapter.id == chapter_id).first()
+            if not chapter:
+                logger.warning(f"[CHAPTER:SUMMARY:CF:SKIP] trace_id={trace_id} chapter_id={chapter_id} reason=not_found")
+                return ""
+
+            logger.info(f"[CHAPTER:SUMMARY:CF:START] trace_id={trace_id} chapter_id={chapter_id} story_id={chapter.story_id}")
+
+            # Get the last summarized scene count
+            last_summary_count = chapter.last_summary_scene_count or 0
+
+            # Get new scenes since last summary
+            new_scenes_query = self.db.query(Scene).join(StoryFlow).filter(
+                StoryFlow.story_id == chapter.story_id,
+                StoryFlow.is_active == True,
+                Scene.chapter_id == chapter_id,
+                Scene.is_deleted == False,
+                Scene.sequence_number > last_summary_count
+            ).order_by(Scene.sequence_number)
+
+            if max_new_scenes:
+                new_scenes_query = new_scenes_query.limit(max_new_scenes)
+
+            new_scenes = new_scenes_query.all()
+
+            if not new_scenes:
+                logger.info(f"[CHAPTER:SUMMARY:CF:SKIP] trace_id={trace_id} chapter_id={chapter_id} reason=no_new_scenes last_summary_count={last_summary_count}")
+                return chapter.auto_summary or ""
+
+            # Build scene content
+            scene_contents = []
+            for scene in new_scenes:
+                flow = self.db.query(StoryFlow).filter(
+                    StoryFlow.scene_id == scene.id,
+                    StoryFlow.is_active == True
+                ).first()
+                if flow and flow.scene_variant:
+                    scene_contents.append(f"Scene {scene.sequence_number}: {flow.scene_variant.content}")
+
+            if not scene_contents:
+                logger.warning(f"[CHAPTER:SUMMARY:CF:EMPTY] trace_id={trace_id} chapter_id={chapter_id}")
+                return chapter.auto_summary or ""
+
+            scenes_content = "\n\n".join(scene_contents)
+
+            # Get previous chapter summary for context
+            context_section = ""
+            if chapter.chapter_number > 1:
+                previous_chapter_query = self.db.query(Chapter).filter(
+                    Chapter.story_id == chapter.story_id,
+                    Chapter.chapter_number == chapter.chapter_number - 1,
+                    Chapter.auto_summary.isnot(None)
+                )
+                if chapter.branch_id:
+                    previous_chapter_query = previous_chapter_query.filter(Chapter.branch_id == chapter.branch_id)
+                previous_chapter = previous_chapter_query.first()
+                if previous_chapter and previous_chapter.auto_summary:
+                    context_section = f"Previous Chapter Summary:\n{previous_chapter.auto_summary}\n\n"
+
+            user_settings = self._get_user_settings()
+
+            # Use cache-friendly LLM method
+            llm_start = time.perf_counter()
+            batch_summary = await self.llm_service.generate_chapter_summary_cache_friendly(
+                chapter_number=chapter.chapter_number,
+                chapter_title=chapter.title,
+                scenes_content=scenes_content,
+                context=scene_generation_context,
+                user_id=self.user_id,
+                user_settings=user_settings,
+                db=self.db,
+                context_section=context_section
+            )
+            logger.info(f"[CHAPTER:SUMMARY:CF:LLM] trace_id={trace_id} duration_ms={(time.perf_counter() - llm_start) * 1000:.2f}")
+
+            # Determine scene range for this batch
+            batch_start = last_summary_count + 1
+            batch_end = max(s.sequence_number for s in new_scenes)
+
+            # Check if batch already exists (upsert)
+            existing_batch = self.db.query(ChapterSummaryBatch).filter(
+                ChapterSummaryBatch.chapter_id == chapter_id,
+                ChapterSummaryBatch.start_scene_sequence == batch_start,
+                ChapterSummaryBatch.end_scene_sequence == batch_end
+            ).first()
+
+            if existing_batch:
+                existing_batch.summary = batch_summary
+                self.db.flush()
+                logger.info(f"[CHAPTER:SUMMARY:CF:BATCH] Updated batch for chapter {chapter_id}: scenes {batch_start}-{batch_end}")
+            else:
+                batch = ChapterSummaryBatch(
+                    chapter_id=chapter_id,
+                    start_scene_sequence=batch_start,
+                    end_scene_sequence=batch_end,
+                    summary=batch_summary
+                )
+                self.db.add(batch)
+                self.db.flush()
+
+            # Update chapter's auto_summary from all batches
+            update_chapter_summary_from_batches(chapter_id, self.db)
+
+            combined_summary = chapter.auto_summary or ""
+            status = "success"
+            logger.info(f"[CHAPTER:SUMMARY:CF] Generated for chapter {chapter_id}: {len(batch_summary)} chars (scenes {batch_start}-{batch_end}), trace_id={trace_id}")
+            return combined_summary
+
+        except Exception as e:
+            logger.error(f"[CHAPTER:SUMMARY:CF:ERROR] trace_id={trace_id} chapter_id={chapter_id} error={e}")
+            status = "error"
+            raise
+
+        finally:
+            duration_ms = (time.perf_counter() - op_start) * 1000
+            if duration_ms > 15000:
+                logger.error(f"[CHAPTER:SUMMARY:CF:SLOW] trace_id={trace_id} duration_ms={duration_ms:.2f}")
+            elif duration_ms > 5000:
+                logger.warning(f"[CHAPTER:SUMMARY:CF:SLOW] trace_id={trace_id} duration_ms={duration_ms:.2f}")
+            else:
+                logger.info(f"[CHAPTER:SUMMARY:CF:DONE] trace_id={trace_id} status={status} duration_ms={duration_ms:.2f}")
+
     async def generate_story_so_far(self, chapter_id: int) -> Optional[str]:
         """
         Generate "Story So Far" for a chapter using LLM rolling consolidation.

@@ -95,27 +95,43 @@ async def get_scene_generation_lock(story_id: int) -> asyncio.Lock:
 
 async def run_chapter_summary_background(
     chapter_id: int,
-    user_id: int
+    user_id: int,
+    scene_generation_context: Optional[Dict[str, Any]] = None,
+    user_settings: Optional[Dict[str, Any]] = None
 ):
     """
     Run chapter summary generation in background.
 
     Uses FastAPI's background_tasks for sequential execution with other LLM tasks.
     Should run LAST after all extractions complete for best cache efficiency.
+
+    If scene_generation_context is provided, uses cache-friendly method that shares
+    the same message prefix as scene generation (~96-98% cache hit rate).
     """
     try:
         # Delay to ensure extractions complete first
         await asyncio.sleep(0.2)
 
-        from ..chapters import generate_chapter_summary_incremental
-
         bg_db = SessionLocal()
         try:
             bg_chapter = bg_db.query(Chapter).filter(Chapter.id == chapter_id).first()
             if bg_chapter:
-                await generate_chapter_summary_incremental(bg_chapter.id, bg_db, user_id)
-                bg_db.commit()
-                logger.info(f"[CHAPTER] Auto-summary generated for chapter {bg_chapter.id}")
+                if scene_generation_context:
+                    # Use cache-friendly method
+                    from ...services.chapter_summary_service import ChapterSummaryService
+                    summary_service = ChapterSummaryService(bg_db, user_id, user_settings)
+                    await summary_service.generate_chapter_summary_incremental_cache_friendly(
+                        chapter_id=bg_chapter.id,
+                        scene_generation_context=scene_generation_context
+                    )
+                    bg_db.commit()
+                    logger.info(f"[CHAPTER] Auto-summary generated (cache-friendly) for chapter {bg_chapter.id}")
+                else:
+                    # Fallback to original method
+                    from ..chapters import generate_chapter_summary_incremental
+                    await generate_chapter_summary_incremental(bg_chapter.id, bg_db, user_id)
+                    bg_db.commit()
+                    logger.info(f"[CHAPTER] Auto-summary generated for chapter {bg_chapter.id}")
         finally:
             bg_db.close()
     except Exception as e:

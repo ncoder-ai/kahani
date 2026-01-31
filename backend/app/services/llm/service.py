@@ -2759,6 +2759,92 @@ Chapter Conclusion:"""
             logger.error(f"[MOMENTS_NPCS] Extraction failed: {e}")
             raise
 
+    async def generate_chapter_summary_cache_friendly(
+        self,
+        chapter_number: int,
+        chapter_title: str,
+        scenes_content: str,
+        context: Dict[str, Any],
+        user_id: int,
+        user_settings: Dict[str, Any],
+        db: Optional[Session] = None,
+        context_section: str = "",
+        max_tokens: int = 1500
+    ) -> str:
+        """
+        Generate chapter summary using cache-friendly multi-message structure.
+
+        Uses the same message prefix as scene generation to maximize cache hits.
+        This is called AFTER scene generation and extractions complete, so the
+        ~13,000 token prefix should already be cached.
+
+        Args:
+            chapter_number: Chapter number for context
+            chapter_title: Chapter title for context
+            scenes_content: The scene content to summarize
+            context: The same context dict used for scene generation
+            user_id: User ID for LLM call
+            user_settings: User settings for LLM call
+            db: Database session for preset lookups
+            context_section: Optional previous chapter summaries for context
+            max_tokens: Maximum tokens for response
+
+        Returns:
+            Summary text
+        """
+        # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
+        messages = self._build_cache_friendly_message_prefix(
+            context=context,
+            user_id=user_id,
+            user_settings=user_settings,
+            db=db
+        )
+
+        # === FINAL USER MESSAGE: SUMMARIZATION INSTRUCTION ===
+        final_message = prompt_manager.get_prompt(
+            "chapter_summary_cache_friendly", "user",
+            context_section=context_section,
+            chapter_number=chapter_number,
+            chapter_title=chapter_title or 'Untitled',
+            scenes_content=scenes_content
+        )
+        messages.append({"role": "user", "content": final_message})
+
+        logger.info(f"[CHAPTER_SUMMARY] Cache-friendly structure: {len(messages)} messages, chapter {chapter_number}")
+
+        # === ROUTE TO APPROPRIATE LLM ===
+        use_extraction_llm = user_settings.get('generation_preferences', {}).get('use_extraction_llm_for_summary', False)
+        ext_settings = user_settings.get('extraction_model_settings', {})
+        extraction_enabled = ext_settings.get('enabled', False)
+
+        try:
+            if use_extraction_llm and extraction_enabled:
+                extraction_service = self._get_extraction_service(user_settings)
+                if extraction_service:
+                    logger.info("[CHAPTER_SUMMARY] Using extraction LLM with cache-friendly structure")
+                    return await extraction_service.generate_with_messages(
+                        messages=messages,
+                        max_tokens=max_tokens
+                    )
+
+            # Use main LLM (default or fallback)
+            logger.info("[CHAPTER_SUMMARY] Using main LLM with cache-friendly structure")
+            import copy
+            summary_settings = copy.deepcopy(user_settings)
+            summary_settings.setdefault('llm_settings', {})['temperature'] = 0.3
+            summary_settings['llm_settings']['reasoning_effort'] = 'disabled'
+
+            return await self._generate_with_messages(
+                messages=messages,
+                user_id=user_id,
+                user_settings=summary_settings,
+                max_tokens=max_tokens
+            )
+
+        except Exception as e:
+            logger.error(f"[CHAPTER_SUMMARY] Cache-friendly generation failed: {e}")
+            raise
+
     async def extract_entity_states_cache_friendly(
         self,
         scene_content: str,

@@ -1070,6 +1070,41 @@ summary_generation:
       EVENTS: [bullet list - MAXIMUM 3 per scene]
       STATE CHANGES: [relationship/location/knowledge changes only]
 
+  # Cache-friendly version that uses scene generation context prefix
+  chapter_summary_cache_friendly:
+    user: |
+      === SUMMARIZE RECENT SCENES ===
+
+      {context_section}Chapter {chapter_number}: {chapter_title}
+
+      Scenes to Summarize:
+      {scenes_content}
+
+      Create a concise chapter summary extracting ONLY PLOT-CRITICAL FACTS.
+
+      HARD LIMIT: Maximum 3 bullets per scene. If a scene has no plot-critical events, use 1 bullet.
+
+      ONLY CAPTURE:
+      - Major decisions or turning points
+      - Relationship changes (alliances, conflicts, trust shifts)
+      - Key revelations or discoveries
+      - Arrivals, departures, or location changes that matter to plot
+
+      NEVER INCLUDE:
+      - Character movements (walking, sitting, entering rooms)
+      - Dialogue unless it reveals critical information
+      - Routine actions (eating, drinking, checking phones)
+      - Emotional reactions or observations
+      - Descriptive details
+
+      CONSOLIDATION: If consecutive scenes continue the same event, merge them into ONE bullet.
+
+      Format: Simple declarative sentences. WHO did WHAT (to WHOM).
+      No adjectives. No adverbs. No literary language.
+
+      EVENTS: [bullet list - MAXIMUM 3 per scene]
+      STATE CHANGES: [relationship/location/knowledge changes only]
+
   story_so_far:
     system: |
       You are a story state tracker. Consolidate chapter facts into a single state document.

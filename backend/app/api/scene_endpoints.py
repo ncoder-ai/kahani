@@ -1172,12 +1172,15 @@ async def generate_scene_streaming_endpoint(
 
                         # Schedule summary generation via background_tasks for sequential execution
                         # This runs LAST after all extractions complete
+                        # Pass scene_generation_context for cache-friendly summary generation
                         background_tasks.add_task(
                             run_chapter_summary_background,
                             chapter_id=active_chapter.id,
-                            user_id=current_user.id
+                            user_id=current_user.id,
+                            scene_generation_context=context.copy() if context else None,
+                            user_settings=user_settings
                         )
-                        logger.info(f"[CHAPTER] Scheduled background summary generation for chapter {active_chapter.id}")
+                        logger.info(f"[CHAPTER] Scheduled background summary generation (cache-friendly) for chapter {active_chapter.id}")
                 except Exception as e:
                     logger.error(f"[AUTO-SUMMARY] Failed to start background summary generation: {e}")
                     # Don't fail scene generation if summary fails
