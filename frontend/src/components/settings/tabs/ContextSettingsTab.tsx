@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { getApiBaseUrl } from '@/lib/api';
 import { GenerationPreferences } from '@/types/settings';
 import { SettingsTabProps, ContextSettings, ExtractionModelSettings } from '../types';
@@ -22,8 +21,6 @@ export default function ContextSettingsTab({
   setGenerationPrefs,
   extractionModelSettings,
 }: ContextSettingsTabProps) {
-  const [showAdvanced, setShowAdvanced] = useState(false);
-
   const saveSettings = async () => {
     try {
       const response = await fetch(`${await getApiBaseUrl()}/api/settings/`, {
@@ -220,6 +217,25 @@ export default function ContextSettingsTab({
             </button>
           </div>
 
+          {/* Scene Batch Size */}
+          <div>
+            <label className="block text-sm font-medium text-white mb-2">
+              Scene Batch Size: {contextSettings.scene_batch_size || 10} scenes
+            </label>
+            <input
+              type="range"
+              min="3"
+              max="50"
+              step="1"
+              value={contextSettings.scene_batch_size || 10}
+              onChange={(e) => setContextSettings({ ...contextSettings, scene_batch_size: parseInt(e.target.value) })}
+              className="w-full"
+            />
+            <div className="text-xs text-gray-400 mt-1">
+              Scenes are grouped into batches for better LLM cache hit rates
+            </div>
+          </div>
+
           {/* Alert on High Context */}
           <div>
             <label className="flex items-center">
@@ -414,24 +430,26 @@ export default function ContextSettingsTab({
                 </div>
               </div>
 
-              {/* Plot Extraction Interval */}
-              <div>
-                <label className="block text-sm font-medium text-white mb-2">
-                  Plot Extraction Interval: {contextSettings.plot_event_extraction_threshold || 5} scenes
-                </label>
-                <input
-                  type="range"
-                  min="1"
-                  max="50"
-                  step="1"
-                  value={contextSettings.plot_event_extraction_threshold || 5}
-                  onChange={(e) => setContextSettings({ ...contextSettings, plot_event_extraction_threshold: parseInt(e.target.value) })}
-                  className="w-full"
-                />
-                <div className="text-xs text-gray-400 mt-1">
-                  Run plot event extraction after this many scenes
+              {/* Plot Extraction Interval - nested under auto-extract */}
+              {contextSettings.auto_extract_plot_events !== false && (
+                <div className="ml-4 pl-4 border-l-2 border-blue-500">
+                  <label className="block text-sm font-medium text-white mb-2">
+                    Plot Extraction Interval: {contextSettings.plot_event_extraction_threshold || 5} scenes
+                  </label>
+                  <input
+                    type="range"
+                    min="1"
+                    max="50"
+                    step="1"
+                    value={contextSettings.plot_event_extraction_threshold || 5}
+                    onChange={(e) => setContextSettings({ ...contextSettings, plot_event_extraction_threshold: parseInt(e.target.value) })}
+                    className="w-full"
+                  />
+                  <div className="text-xs text-gray-400 mt-1">
+                    Run plot event extraction after this many scenes
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
 
@@ -686,45 +704,6 @@ export default function ContextSettingsTab({
                     onChange={(e) => setContextSettings({ ...contextSettings, extraction_confidence_threshold: parseInt(e.target.value) })}
                     className="w-full"
                   />
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* ========================================
-            SECTION 6: ADVANCED / EXTRACTION INTERVALS
-            ======================================== */}
-        <div className="space-y-4 mb-8 pt-6 border-t border-gray-700">
-          <button
-            onClick={() => setShowAdvanced(!showAdvanced)}
-            className="flex items-center gap-2 text-md font-semibold text-white hover:text-gray-300 transition-colors"
-          >
-            <span className={`transform transition-transform ${showAdvanced ? 'rotate-90' : ''}`}>
-              ▶
-            </span>
-            Advanced Settings
-          </button>
-          <p className="text-xs text-gray-400 -mt-2 mb-4">Extraction intervals and batch sizes</p>
-
-          {showAdvanced && (
-            <div className="space-y-4 ml-4 pl-4 border-l-2 border-gray-600">
-              {/* Scene Batch Size */}
-              <div>
-                <label className="block text-sm font-medium text-white mb-2">
-                  Scene Batch Size: {contextSettings.scene_batch_size || 10} scenes
-                </label>
-                <input
-                  type="range"
-                  min="3"
-                  max="50"
-                  step="1"
-                  value={contextSettings.scene_batch_size || 10}
-                  onChange={(e) => setContextSettings({ ...contextSettings, scene_batch_size: parseInt(e.target.value) })}
-                  className="w-full"
-                />
-                <div className="text-xs text-gray-400 mt-1">
-                  Scenes are grouped into batches for better LLM cache hit rates
                 </div>
               </div>
             </div>
