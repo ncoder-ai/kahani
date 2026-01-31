@@ -54,6 +54,9 @@ class ContextSettingsUpdate(BaseModel):
     extraction_confidence_threshold: Optional[int] = Field(default=None, ge=0, le=100)
     plot_event_extraction_threshold: Optional[int] = Field(default=None, ge=1, le=50)
     fill_remaining_context: Optional[bool] = None  # Fill remaining context with older scenes
+    # Memory & Continuity Settings
+    enable_working_memory: Optional[bool] = None  # Track scene-to-scene focus and pending items
+    enable_relationship_graph: Optional[bool] = None  # Track character relationship arcs
     # Contradiction Settings
     enable_contradiction_detection: Optional[bool] = None  # Detect continuity errors
     enable_contradiction_injection: Optional[bool] = None  # Inject warnings into prompt
@@ -68,6 +71,7 @@ class GenerationPreferencesUpdate(BaseModel):
     alert_on_high_context: Optional[bool] = None
     use_extraction_llm_for_summary: Optional[bool] = None
     separate_choice_generation: Optional[bool] = None
+    enable_chapter_plot_tracking: Optional[bool] = None  # Track plot progress and guide LLM pacing
 
 class UIPreferencesUpdate(BaseModel):
     color_theme: Optional[str] = Field(
@@ -372,6 +376,11 @@ async def update_user_settings(
             user_settings.plot_event_extraction_threshold = ctx.plot_event_extraction_threshold
         if ctx.fill_remaining_context is not None:
             user_settings.fill_remaining_context = ctx.fill_remaining_context
+        # Memory & Continuity settings
+        if ctx.enable_working_memory is not None:
+            user_settings.enable_working_memory = ctx.enable_working_memory
+        if ctx.enable_relationship_graph is not None:
+            user_settings.enable_relationship_graph = ctx.enable_relationship_graph
         # Contradiction settings
         if ctx.enable_contradiction_detection is not None:
             user_settings.enable_contradiction_detection = ctx.enable_contradiction_detection
@@ -399,7 +408,9 @@ async def update_user_settings(
             user_settings.use_extraction_llm_for_summary = gen.use_extraction_llm_for_summary
         if gen.separate_choice_generation is not None:
             user_settings.separate_choice_generation = gen.separate_choice_generation
-    
+        if gen.enable_chapter_plot_tracking is not None:
+            user_settings.enable_chapter_plot_tracking = gen.enable_chapter_plot_tracking
+
     # Update UI preferences
     if settings_update.ui_preferences:
         ui = settings_update.ui_preferences

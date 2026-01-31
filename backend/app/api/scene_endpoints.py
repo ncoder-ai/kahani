@@ -1194,7 +1194,9 @@ async def generate_scene_streaming_endpoint(
                         'character_extraction_threshold',
                         5  # Default threshold
                     )
-                    enable_inline_check = ctx_settings.get('enable_inline_contradiction_check', False)
+                    # Inline check requires parent contradiction detection to be enabled
+                    enable_contradiction_detection = ctx_settings.get('enable_contradiction_detection', True)
+                    enable_inline_check = ctx_settings.get('enable_inline_contradiction_check', False) and enable_contradiction_detection
 
                     # Override threshold to 1 when inline check is enabled
                     effective_threshold = 1 if enable_inline_check else extraction_threshold
@@ -1341,38 +1343,43 @@ async def generate_scene_streaming_endpoint(
                     logger.error(f"[PLOT_EXTRACTION] Traceback: {traceback.format_exc()}")
 
             # === WORKING MEMORY UPDATE (runs every scene for continuity) ===
-            try:
-                background_tasks.add_task(
-                    update_working_memory_in_background,
-                    story_id=story_id,
-                    branch_id=active_branch_id,
-                    chapter_id=active_chapter.id if active_chapter else None,
-                    scene_sequence=scene.sequence_number,
-                    scene_content=cleaned_full_content,
-                    user_id=current_user.id,
-                    user_settings=user_settings or {},
-                    scene_generation_context=context  # Pass context for cache-friendly extraction
-                )
-                logger.info(f"[WORKING_MEMORY] Scheduled update for scene {scene.sequence_number}")
-            except Exception as e:
-                logger.error(f"[WORKING_MEMORY] Failed to schedule update: {e}")
+            # Check if enabled before scheduling
+            ctx_settings_for_tasks = user_settings.get('context_settings', {}) if user_settings else {}
+            if ctx_settings_for_tasks.get('enable_working_memory', True):
+                try:
+                    background_tasks.add_task(
+                        update_working_memory_in_background,
+                        story_id=story_id,
+                        branch_id=active_branch_id,
+                        chapter_id=active_chapter.id if active_chapter else None,
+                        scene_sequence=scene.sequence_number,
+                        scene_content=cleaned_full_content,
+                        user_id=current_user.id,
+                        user_settings=user_settings or {},
+                        scene_generation_context=context  # Pass context for cache-friendly extraction
+                    )
+                    logger.info(f"[WORKING_MEMORY] Scheduled update for scene {scene.sequence_number}")
+                except Exception as e:
+                    logger.error(f"[WORKING_MEMORY] Failed to schedule update: {e}")
 
             # === RELATIONSHIP GRAPH UPDATE (extracts character relationship changes) ===
-            try:
-                background_tasks.add_task(
-                    update_relationship_graph_in_background,
-                    story_id=story_id,
-                    branch_id=active_branch_id,
-                    scene_id=scene.id,
-                    scene_sequence=scene.sequence_number,
-                    scene_content=cleaned_full_content,
-                    user_id=current_user.id,
-                    user_settings=user_settings or {},
-                    scene_generation_context=context  # Pass context for cache-friendly extraction
-                )
-                logger.info(f"[RELATIONSHIP] Scheduled update for scene {scene.sequence_number}")
-            except Exception as e:
-                logger.error(f"[RELATIONSHIP] Failed to schedule update: {e}")
+            # Check if enabled before scheduling
+            if ctx_settings_for_tasks.get('enable_relationship_graph', True):
+                try:
+                    background_tasks.add_task(
+                        update_relationship_graph_in_background,
+                        story_id=story_id,
+                        branch_id=active_branch_id,
+                        scene_id=scene.id,
+                        scene_sequence=scene.sequence_number,
+                        scene_content=cleaned_full_content,
+                        user_id=current_user.id,
+                        user_settings=user_settings or {},
+                        scene_generation_context=context  # Pass context for cache-friendly extraction
+                    )
+                    logger.info(f"[RELATIONSHIP] Scheduled update for scene {scene.sequence_number}")
+                except Exception as e:
+                    logger.error(f"[RELATIONSHIP] Failed to schedule update: {e}")
 
             # Send [DONE] as the LAST event after all extraction status events
             yield "data: [DONE]\n\n"

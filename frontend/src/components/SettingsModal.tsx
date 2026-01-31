@@ -118,6 +118,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     alert_on_high_context: true,
     use_extraction_llm_for_summary: false,
     separate_choice_generation: false,
+    enable_chapter_plot_tracking: true,
   });
 
   // Image Generation Settings
@@ -268,6 +269,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             alert_on_high_context: settings.generation_preferences.alert_on_high_context !== false,
             use_extraction_llm_for_summary: settings.generation_preferences.use_extraction_llm_for_summary || false,
             separate_choice_generation: settings.generation_preferences.separate_choice_generation || false,
+            enable_chapter_plot_tracking: settings.generation_preferences.enable_chapter_plot_tracking !== false,
           });
         }
 
