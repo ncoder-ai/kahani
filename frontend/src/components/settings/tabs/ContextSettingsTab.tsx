@@ -395,23 +395,42 @@ export default function ContextSettingsTab({
             </div>
           </div>
 
-          {/* Plot Extraction Interval - nested under plot tracking */}
+          {/* Plot Tracking Sub-settings */}
           {(generationPrefs as any).enable_chapter_plot_tracking !== false && (
-            <div className="ml-4 pl-4 border-l-2 border-blue-600">
-              <label className="block text-sm font-medium text-white mb-2">
-                Plot Extraction Interval: {contextSettings.plot_event_extraction_threshold || 5} scenes
-              </label>
-              <input
-                type="range"
-                min="1"
-                max="50"
-                step="1"
-                value={contextSettings.plot_event_extraction_threshold || 5}
-                onChange={(e) => setContextSettings({ ...contextSettings, plot_event_extraction_threshold: parseInt(e.target.value) })}
-                className="w-full"
-              />
-              <div className="text-xs text-gray-400 mt-1">
-                Run plot event extraction after this many scenes
+            <div className="ml-4 pl-4 border-l-2 border-blue-600 space-y-4">
+              {/* Auto-extract plot events */}
+              <div>
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={contextSettings.auto_extract_plot_events !== false}
+                    onChange={(e) => setContextSettings({ ...contextSettings, auto_extract_plot_events: e.target.checked })}
+                    className="mr-2"
+                  />
+                  <span className="text-sm text-white">Auto-extract plot events</span>
+                </label>
+                <div className="text-xs text-gray-400 mt-1">
+                  Automatically extract plot events from scenes for semantic memory
+                </div>
+              </div>
+
+              {/* Plot Extraction Interval */}
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
+                  Plot Extraction Interval: {contextSettings.plot_event_extraction_threshold || 5} scenes
+                </label>
+                <input
+                  type="range"
+                  min="1"
+                  max="50"
+                  step="1"
+                  value={contextSettings.plot_event_extraction_threshold || 5}
+                  onChange={(e) => setContextSettings({ ...contextSettings, plot_event_extraction_threshold: parseInt(e.target.value) })}
+                  className="w-full"
+                />
+                <div className="text-xs text-gray-400 mt-1">
+                  Run plot event extraction after this many scenes
+                </div>
               </div>
             </div>
           )}
@@ -616,6 +635,7 @@ export default function ContextSettingsTab({
 
               {/* Auto-extraction Settings */}
               <div className="pt-2 space-y-3">
+                {/* Auto-extract character moments */}
                 <div>
                   <label className="flex items-center">
                     <input
@@ -626,19 +646,31 @@ export default function ContextSettingsTab({
                     />
                     <span className="text-sm text-white">Auto-extract character moments</span>
                   </label>
+                  <div className="text-xs text-gray-400 mt-1">
+                    Automatically extract character moments from scenes
+                  </div>
                 </div>
 
-                <div>
-                  <label className="flex items-center">
+                {/* Character Extraction Interval - nested under auto-extract */}
+                {contextSettings.auto_extract_character_moments !== false && (
+                  <div className="ml-4 pl-4 border-l-2 border-purple-500">
+                    <label className="block text-sm font-medium text-white mb-2">
+                      Character Extraction Interval: {contextSettings.character_extraction_threshold || 5} scenes
+                    </label>
                     <input
-                      type="checkbox"
-                      checked={contextSettings.auto_extract_plot_events !== false}
-                      onChange={(e) => setContextSettings({ ...contextSettings, auto_extract_plot_events: e.target.checked })}
-                      className="mr-2"
+                      type="range"
+                      min="3"
+                      max="50"
+                      step="1"
+                      value={contextSettings.character_extraction_threshold || 5}
+                      onChange={(e) => setContextSettings({ ...contextSettings, character_extraction_threshold: parseInt(e.target.value) })}
+                      className="w-full"
                     />
-                    <span className="text-sm text-white">Auto-extract plot events</span>
-                  </label>
-                </div>
+                    <div className="text-xs text-gray-400 mt-1">
+                      Run character/NPC extraction after this many scenes
+                    </div>
+                  </div>
+                )}
 
                 {/* Extraction Confidence Threshold */}
                 <div>
@@ -693,25 +725,6 @@ export default function ContextSettingsTab({
                 />
                 <div className="text-xs text-gray-400 mt-1">
                   Scenes are grouped into batches for better LLM cache hit rates
-                </div>
-              </div>
-
-              {/* Character Extraction Threshold */}
-              <div>
-                <label className="block text-sm font-medium text-white mb-2">
-                  Character Extraction Interval: {contextSettings.character_extraction_threshold || 5} scenes
-                </label>
-                <input
-                  type="range"
-                  min="3"
-                  max="50"
-                  step="1"
-                  value={contextSettings.character_extraction_threshold || 5}
-                  onChange={(e) => setContextSettings({ ...contextSettings, character_extraction_threshold: parseInt(e.target.value) })}
-                  className="w-full"
-                />
-                <div className="text-xs text-gray-400 mt-1">
-                  Run character/NPC extraction after this many scenes
                 </div>
               </div>
             </div>
