@@ -31,6 +31,8 @@ from .story_tasks import (
     restore_npc_tracking_in_background,
     cleanup_semantic_data_in_background,
     restore_entity_states_in_background,
+    rollback_plot_progress_in_background,
+    rollback_working_memory_and_relationships_in_background,
 )
 
 # Import helper functions from story_helpers.py
@@ -1080,6 +1082,26 @@ async def delete_scenes_from_sequence(
                 max_deleted_seq=max_deleted_seq,
                 user_id=current_user.id,
                 user_settings=user_settings,
+                branch_id=branch_id
+            )
+        )
+
+        # 4. Plot progress rollback
+        logger.info(f"[SCENE:DELETE:BG_SCHEDULE] trace_id={trace_id} task=plot_progress_rollback")
+        asyncio.create_task(
+            rollback_plot_progress_in_background(
+                story_id=story_id,
+                min_deleted_seq=min_deleted_seq,
+                branch_id=branch_id
+            )
+        )
+
+        # 5. Working memory and relationships rollback
+        logger.info(f"[SCENE:DELETE:BG_SCHEDULE] trace_id={trace_id} task=working_memory_relationships")
+        asyncio.create_task(
+            rollback_working_memory_and_relationships_in_background(
+                story_id=story_id,
+                min_deleted_seq=min_deleted_seq,
                 branch_id=branch_id
             )
         )

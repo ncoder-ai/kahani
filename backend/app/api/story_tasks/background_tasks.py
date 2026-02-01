@@ -15,6 +15,7 @@ import json
 import logging
 import time
 import uuid
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 from ...database import SessionLocal, get_background_db
@@ -1407,6 +1408,231 @@ async def restore_entity_states_in_background(
         logger.error(f"[DELETE-BG:ENTITY:ERROR] trace_id={trace_id} duration_ms={total_duration:.2f} error={e}")
         import traceback
         logger.error(f"[DELETE-BG:ENTITY:TRACEBACK] trace_id={trace_id} {traceback.format_exc()}")
+
+
+async def rollback_plot_progress_in_background(
+    story_id: int,
+    min_deleted_seq: int,
+    branch_id: int = None
+):
+    """Background task to rollback plot progress after scene deletion.
+
+    Invalidates plot progress batches that covered deleted scenes and
+    recalculates chapter.plot_progress from remaining batches.
+    Also handles cases where events were added directly to plot_progress
+    without corresponding batches.
+    """
+    trace_id = f"plot-rollback-bg-{uuid.uuid4()}"
+    task_start = time.perf_counter()
+
+    logger.info(f"[DELETE-BG:PLOT:START] trace_id={trace_id} story_id={story_id} min_deleted_seq={min_deleted_seq} branch_id={branch_id}")
+
+    try:
+        # Delay to ensure database commits from main session are visible
+        await asyncio.sleep(0.3)
+
+        with get_background_db() as bg_db:
+            from ...models import Chapter, Scene
+            from ...models.chapter import ChapterPlotProgressBatch
+            from sqlalchemy.orm.attributes import flag_modified
+
+            # Find chapters affected by the deletion
+            # Get all chapters for this story that have scenes in the deleted range
+            chapters_query = bg_db.query(Chapter).join(Scene).filter(
+                Scene.story_id == story_id
+            )
+            if branch_id is not None:
+                chapters_query = chapters_query.filter(Scene.branch_id == branch_id)
+
+            chapters = chapters_query.distinct().all()
+
+            for chapter in chapters:
+                needs_update = False
+
+                # Get the actual max scene sequence for this chapter
+                max_scene_query = bg_db.query(Scene).filter(
+                    Scene.chapter_id == chapter.id,
+                    Scene.is_deleted == False
+                )
+                if branch_id is not None:
+                    max_scene_query = max_scene_query.filter(Scene.branch_id == branch_id)
+                last_scene = max_scene_query.order_by(Scene.sequence_number.desc()).first()
+                actual_max_seq = last_scene.sequence_number if last_scene else 0
+
+                # Find batches that cover any deleted scenes
+                affected_batches = bg_db.query(ChapterPlotProgressBatch).filter(
+                    ChapterPlotProgressBatch.chapter_id == chapter.id,
+                    ChapterPlotProgressBatch.end_scene_sequence >= min_deleted_seq
+                ).all()
+
+                if affected_batches:
+                    # Find the earliest affected batch
+                    earliest_affected = min(affected_batches, key=lambda b: b.start_scene_sequence)
+
+                    # Delete this batch AND all subsequent batches
+                    batches_to_delete = bg_db.query(ChapterPlotProgressBatch).filter(
+                        ChapterPlotProgressBatch.chapter_id == chapter.id,
+                        ChapterPlotProgressBatch.start_scene_sequence >= earliest_affected.start_scene_sequence
+                    ).all()
+
+                    deleted_count = len(batches_to_delete)
+                    for batch in batches_to_delete:
+                        bg_db.delete(batch)
+
+                    logger.info(f"[DELETE-BG:PLOT:INVALIDATE] trace_id={trace_id} chapter_id={chapter.id} deleted_batches={deleted_count}")
+                    needs_update = True
+
+                # Also check if plot_progress.scene_count exceeds actual max scene
+                # This handles cases where events were added directly without batches
+                current_progress = chapter.plot_progress or {}
+                current_scene_count = current_progress.get("scene_count", 0)
+                if current_scene_count > actual_max_seq:
+                    logger.info(f"[DELETE-BG:PLOT:STALE] trace_id={trace_id} chapter_id={chapter.id} "
+                               f"progress_scene_count={current_scene_count} > actual_max_seq={actual_max_seq}")
+                    needs_update = True
+
+                if needs_update:
+                    # Recalculate progress from remaining batches
+                    remaining_batches = bg_db.query(ChapterPlotProgressBatch).filter(
+                        ChapterPlotProgressBatch.chapter_id == chapter.id
+                    ).order_by(ChapterPlotProgressBatch.start_scene_sequence).all()
+
+                    if remaining_batches:
+                        latest_batch = max(remaining_batches, key=lambda b: b.end_scene_sequence)
+                        # Union all events from remaining batches
+                        all_events = set()
+                        for batch in remaining_batches:
+                            all_events.update(batch.completed_events or [])
+
+                        chapter.plot_progress = {
+                            "completed_events": list(all_events),
+                            "scene_count": actual_max_seq,
+                            "last_updated": datetime.utcnow().isoformat()
+                        }
+                        chapter.last_plot_extraction_scene_count = actual_max_seq
+                        logger.info(f"[DELETE-BG:PLOT:RESTORE] trace_id={trace_id} chapter_id={chapter.id} events={len(all_events)} scene_count={actual_max_seq}")
+                    else:
+                        # No remaining batches - clear progress
+                        chapter.plot_progress = {
+                            "completed_events": [],
+                            "scene_count": actual_max_seq,
+                            "last_updated": datetime.utcnow().isoformat()
+                        }
+                        chapter.last_plot_extraction_scene_count = actual_max_seq
+                        logger.info(f"[DELETE-BG:PLOT:CLEAR] trace_id={trace_id} chapter_id={chapter.id} no_batches scene_count={actual_max_seq}")
+
+                    flag_modified(chapter, "plot_progress")
+
+            bg_db.commit()
+
+            total_duration = (time.perf_counter() - task_start) * 1000
+            logger.info(f"[DELETE-BG:PLOT:END] trace_id={trace_id} total_duration_ms={total_duration:.2f} chapters_processed={len(chapters)}")
+
+    except Exception as e:
+        total_duration = (time.perf_counter() - task_start) * 1000
+        logger.error(f"[DELETE-BG:PLOT:ERROR] trace_id={trace_id} duration_ms={total_duration:.2f} error={e}")
+        import traceback
+        logger.error(f"[DELETE-BG:PLOT:TRACEBACK] trace_id={trace_id} {traceback.format_exc()}")
+
+
+async def rollback_working_memory_and_relationships_in_background(
+    story_id: int,
+    min_deleted_seq: int,
+    branch_id: int = None
+):
+    """Background task to rollback working memory and relationships after scene deletion.
+
+    - Updates WorkingMemory.last_scene_sequence to actual max scene
+    - Deletes CharacterRelationship records for deleted scenes
+    - Updates RelationshipSummary.last_scene_sequence
+    """
+    trace_id = f"wm-rel-rollback-bg-{uuid.uuid4()}"
+    task_start = time.perf_counter()
+
+    logger.info(f"[DELETE-BG:WM_REL:START] trace_id={trace_id} story_id={story_id} min_deleted_seq={min_deleted_seq} branch_id={branch_id}")
+
+    try:
+        # Delay to ensure database commits from main session are visible
+        await asyncio.sleep(0.3)
+
+        with get_background_db() as bg_db:
+            from ...models import Scene, WorkingMemory
+            from ...models.relationship import CharacterRelationship, RelationshipSummary
+
+            # Get actual max scene sequence
+            max_scene_query = bg_db.query(Scene).filter(
+                Scene.story_id == story_id,
+                Scene.is_deleted == False
+            )
+            if branch_id is not None:
+                max_scene_query = max_scene_query.filter(Scene.branch_id == branch_id)
+            last_scene = max_scene_query.order_by(Scene.sequence_number.desc()).first()
+            actual_max_seq = last_scene.sequence_number if last_scene else 0
+
+            # 1. Update WorkingMemory
+            wm_query = bg_db.query(WorkingMemory).filter(WorkingMemory.story_id == story_id)
+            if branch_id is not None:
+                wm_query = wm_query.filter(WorkingMemory.branch_id == branch_id)
+            working_memory = wm_query.first()
+
+            if working_memory and working_memory.last_scene_sequence > actual_max_seq:
+                old_seq = working_memory.last_scene_sequence
+                working_memory.last_scene_sequence = actual_max_seq
+                logger.info(f"[DELETE-BG:WM_REL:WM] trace_id={trace_id} updated last_scene_sequence {old_seq} -> {actual_max_seq}")
+
+            # 2. Delete CharacterRelationship records for deleted scenes
+            rel_delete_query = bg_db.query(CharacterRelationship).filter(
+                CharacterRelationship.story_id == story_id,
+                CharacterRelationship.scene_sequence >= min_deleted_seq
+            )
+            if branch_id is not None:
+                rel_delete_query = rel_delete_query.filter(CharacterRelationship.branch_id == branch_id)
+            deleted_rels = rel_delete_query.delete()
+            logger.info(f"[DELETE-BG:WM_REL:REL] trace_id={trace_id} deleted {deleted_rels} relationship records")
+
+            # 3. Update RelationshipSummary records
+            summary_query = bg_db.query(RelationshipSummary).filter(
+                RelationshipSummary.story_id == story_id,
+                RelationshipSummary.last_scene_sequence >= min_deleted_seq
+            )
+            if branch_id is not None:
+                summary_query = summary_query.filter(RelationshipSummary.branch_id == branch_id)
+            stale_summaries = summary_query.all()
+
+            for summary in stale_summaries:
+                # Find the last remaining relationship for this pair
+                last_rel = bg_db.query(CharacterRelationship).filter(
+                    CharacterRelationship.story_id == story_id,
+                    CharacterRelationship.character_a == summary.character_a,
+                    CharacterRelationship.character_b == summary.character_b,
+                    CharacterRelationship.scene_sequence < min_deleted_seq
+                )
+                if branch_id is not None:
+                    last_rel = last_rel.filter(CharacterRelationship.branch_id == branch_id)
+                last_rel = last_rel.order_by(CharacterRelationship.scene_sequence.desc()).first()
+
+                if last_rel:
+                    # Update summary from last remaining relationship
+                    summary.relationship_type = last_rel.relationship_type
+                    summary.strength = last_rel.strength
+                    summary.last_scene_sequence = last_rel.scene_sequence
+                    logger.debug(f"[DELETE-BG:WM_REL:SUMMARY] Updated {summary.character_a}<->{summary.character_b} to scene {last_rel.scene_sequence}")
+                else:
+                    # No remaining relationships - delete summary
+                    bg_db.delete(summary)
+                    logger.debug(f"[DELETE-BG:WM_REL:SUMMARY] Deleted {summary.character_a}<->{summary.character_b} - no remaining data")
+
+            bg_db.commit()
+
+            total_duration = (time.perf_counter() - task_start) * 1000
+            logger.info(f"[DELETE-BG:WM_REL:END] trace_id={trace_id} total_duration_ms={total_duration:.2f} "
+                       f"deleted_rels={deleted_rels} updated_summaries={len(stale_summaries)}")
+
+    except Exception as e:
+        total_duration = (time.perf_counter() - task_start) * 1000
+        logger.error(f"[DELETE-BG:WM_REL:ERROR] trace_id={trace_id} duration_ms={total_duration:.2f} error={e}")
+        import traceback
+        logger.error(f"[DELETE-BG:WM_REL:TRACEBACK] trace_id={trace_id} {traceback.format_exc()}")
 
 
 async def update_working_memory_in_background(
