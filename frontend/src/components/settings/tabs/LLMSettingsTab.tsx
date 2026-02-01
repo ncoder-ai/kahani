@@ -5,7 +5,7 @@ import { getApiBaseUrl } from '@/lib/api';
 import { useConfig } from '@/contexts/ConfigContext';
 import { SamplerSettings, DEFAULT_SAMPLER_SETTINGS } from '@/types/settings';
 import TextCompletionTemplateEditor from '../../TextCompletionTemplateEditor';
-import { SettingsTabProps, LLMSettings, ExtractionModelSettings } from '../types';
+import { SettingsTabProps, LLMSettings, ExtractionModelSettings, THINKING_DISABLE_OPTIONS } from '../types';
 
 // Helper function to safely parse JSON template
 const safeParseJSON = (jsonString: string | undefined | null): any => {
@@ -713,6 +713,123 @@ export default function LLMSettingsTab({
                     </label>
                     <div className="text-xs text-gray-400 ml-6">
                       If enabled, uses main LLM if extraction model fails
+                    </div>
+
+                    {/* Advanced Sampling Settings */}
+                    <div className="pt-4 border-t border-gray-600">
+                      <h5 className="text-sm font-semibold text-white mb-3">Advanced Sampling</h5>
+
+                      <div className="space-y-4">
+                        {/* Top P */}
+                        <div>
+                          <label className="block text-sm font-medium text-white mb-2">
+                            Top P: {extractionModelSettings.top_p ?? 1.0}
+                          </label>
+                          <input
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.05"
+                            value={extractionModelSettings.top_p ?? 1.0}
+                            onChange={(e) => setExtractionModelSettings({ ...extractionModelSettings, top_p: parseFloat(e.target.value) })}
+                            className="w-full"
+                          />
+                          <div className="text-xs text-gray-400 mt-1">
+                            Nucleus sampling (0.95 recommended for GLM)
+                          </div>
+                        </div>
+
+                        {/* Repetition Penalty */}
+                        <div>
+                          <label className="block text-sm font-medium text-white mb-2">
+                            Repetition Penalty: {extractionModelSettings.repetition_penalty ?? 1.0}
+                          </label>
+                          <input
+                            type="range"
+                            min="0"
+                            max="2"
+                            step="0.05"
+                            value={extractionModelSettings.repetition_penalty ?? 1.0}
+                            onChange={(e) => setExtractionModelSettings({ ...extractionModelSettings, repetition_penalty: parseFloat(e.target.value) })}
+                            className="w-full"
+                          />
+                          <div className="text-xs text-gray-400 mt-1">
+                            1.0 = disabled (recommended for GLM, Qwen)
+                          </div>
+                        </div>
+
+                        {/* Min P */}
+                        <div>
+                          <label className="block text-sm font-medium text-white mb-2">
+                            Min P: {(extractionModelSettings.min_p ?? 0).toFixed(3)}
+                          </label>
+                          <input
+                            type="range"
+                            min="0"
+                            max="0.1"
+                            step="0.001"
+                            value={extractionModelSettings.min_p ?? 0}
+                            onChange={(e) => setExtractionModelSettings({ ...extractionModelSettings, min_p: parseFloat(e.target.value) })}
+                            className="w-full"
+                          />
+                          <div className="text-xs text-gray-400 mt-1">
+                            Minimum probability threshold (0.01 for llama.cpp)
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Thinking Disable Settings */}
+                    <div className="pt-4 border-t border-gray-600">
+                      <h5 className="text-sm font-semibold text-white mb-3">Thinking/Reasoning Control</h5>
+
+                      <div className="space-y-4">
+                        {/* Thinking Disable Method Dropdown */}
+                        <div>
+                          <label className="block text-sm font-medium text-white mb-2">
+                            Thinking Disable Method
+                          </label>
+                          <select
+                            value={extractionModelSettings.thinking_disable_method ?? 'none'}
+                            onChange={(e) => setExtractionModelSettings({
+                              ...extractionModelSettings,
+                              thinking_disable_method: e.target.value as ExtractionModelSettings['thinking_disable_method']
+                            })}
+                            className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
+                          >
+                            {THINKING_DISABLE_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                          <div className="text-xs text-gray-400 mt-1">
+                            {THINKING_DISABLE_OPTIONS.find(o => o.value === (extractionModelSettings.thinking_disable_method ?? 'none'))?.description}
+                          </div>
+                        </div>
+
+                        {/* Custom Pattern Input (only shown when method is 'custom') */}
+                        {extractionModelSettings.thinking_disable_method === 'custom' && (
+                          <div>
+                            <label className="block text-sm font-medium text-white mb-2">
+                              Custom Pattern (Regex)
+                            </label>
+                            <input
+                              type="text"
+                              value={extractionModelSettings.thinking_disable_custom ?? ''}
+                              onChange={(e) => setExtractionModelSettings({
+                                ...extractionModelSettings,
+                                thinking_disable_custom: e.target.value
+                              })}
+                              className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white font-mono text-sm"
+                              placeholder="<think>[\s\S]*?</think>"
+                            />
+                            <div className="text-xs text-gray-400 mt-1">
+                              Regex pattern to strip from responses (e.g., &lt;think&gt;...&lt;/think&gt;)
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     {/* Test Connection Button */}

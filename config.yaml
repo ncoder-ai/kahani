@@ -161,10 +161,63 @@ extraction_model:
   temperature: 0.3
   max_tokens: 1000
   fallback_to_main: true
+  # Advanced sampling settings
+  top_p: 1.0
+  repetition_penalty: 1.0  # 1.0 = disabled
+  min_p: 0.0
+  # Thinking/reasoning disable settings
+  # Methods: "none", "qwen3", "deepseek", "mistral", "gemini", "openai", "kimi", "glm", "custom"
+  thinking_disable_method: "none"
+  thinking_disable_custom: ""  # Custom tag pattern for "custom" method (e.g., "<think>", "[THINKING]")
   recommended_models:
     - "qwen2.5-3b-instruct"
     - "ministral-3b-instruct"
     - "phi-3-mini"
+    - "glm-4-flash"
+  # Thinking disable presets for dropdown
+  thinking_presets:
+    none:
+      name: "None"
+      description: "No thinking to disable"
+      strip_pattern: ""
+    qwen3:
+      name: "Qwen3 (/no_think)"
+      description: "Add /no_think prefix to prompts and strip <think> tags"
+      strip_pattern: "<think>[\\s\\S]*?</think>"
+      prompt_prefix: "/no_think "
+    deepseek:
+      name: "DeepSeek (<think> tags)"
+      description: "Strip <think>...</think> tags from response"
+      strip_pattern: "<think>[\\s\\S]*?</think>"
+    mistral:
+      name: "Mistral (prompt_mode)"
+      description: "Uses prompt_mode=null API parameter"
+      api_param: "prompt_mode"
+      api_value: null
+    gemini:
+      name: "Gemini (thinkingBudget)"
+      description: "Uses thinkingBudget=0 API parameter"
+      api_param: "thinking_config"
+      api_value: {"thinking_budget": 0}
+    openai:
+      name: "OpenAI o1/o3 (reasoning_effort)"
+      description: "Uses reasoning_effort=none API parameter"
+      api_param: "reasoning_effort"
+      api_value: "none"
+    kimi:
+      name: "Kimi K2"
+      description: "Use Kimi-K2-Instruct model variant"
+      strip_pattern: ""
+    glm:
+      name: "GLM-4"
+      description: "Passes enable_thinking=False to chat template + strips <think> tags"
+      api_param: "chat_template_kwargs"
+      api_value: {"enable_thinking": false}
+      strip_pattern: "<think>[\\s\\S]*?</think>"
+    custom:
+      name: "Custom"
+      description: "Define custom tag pattern to strip"
+      strip_pattern: ""  # User defines in thinking_disable_custom
 
 npc_tracking:
   enabled: true
@@ -312,6 +365,11 @@ user_defaults:
     max_tokens: 1000
     fallback_to_main: true
     use_context_aware_extraction: false  # Use main LLM with full scene context for extraction (better accuracy, leverages cache)
+    top_p: 1.0
+    repetition_penalty: 1.0  # 1.0 = disabled
+    min_p: 0.0
+    thinking_disable_method: "none"  # "none", "qwen3", "deepseek", "mistral", "gemini", "openai", "kimi", "glm", "custom"
+    thinking_disable_custom: ""  # Custom tag pattern when method is "custom"
   advanced:
     custom_system_prompt: ""
     experimental_features: false

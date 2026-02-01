@@ -120,6 +120,17 @@ class ExtractionModelSettingsUpdate(BaseModel):
     fallback_to_main: Optional[bool] = None
     enable_combined_extraction: Optional[bool] = None  # Enable combined extraction (default: True)
     use_context_aware_extraction: Optional[bool] = None  # Use main LLM with full scene context for better extraction
+    # Advanced sampling settings
+    top_p: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    repetition_penalty: Optional[float] = Field(default=None, ge=0.0, le=3.0)  # 0 or 1.0 = disabled
+    min_p: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    # Thinking disable settings
+    # Methods: "none", "qwen3", "deepseek", "mistral", "gemini", "openai", "kimi", "glm", "custom"
+    thinking_disable_method: Optional[str] = Field(
+        default=None,
+        pattern="^(none|qwen3|deepseek|mistral|gemini|openai|kimi|glm|custom)$"
+    )
+    thinking_disable_custom: Optional[str] = None  # Custom tag pattern for "custom" method
 
 
 class SamplerSettingValue(BaseModel):
@@ -500,6 +511,18 @@ async def update_user_settings(
             user_settings.extraction_fallback_to_main = ext.fallback_to_main
         if ext.use_context_aware_extraction is not None:
             user_settings.use_context_aware_extraction = ext.use_context_aware_extraction
+        # Advanced sampling settings
+        if ext.top_p is not None:
+            user_settings.extraction_model_top_p = ext.top_p
+        if ext.repetition_penalty is not None:
+            user_settings.extraction_model_repetition_penalty = ext.repetition_penalty
+        if ext.min_p is not None:
+            user_settings.extraction_model_min_p = ext.min_p
+        # Thinking disable settings
+        if ext.thinking_disable_method is not None:
+            user_settings.extraction_model_thinking_disable_method = ext.thinking_disable_method
+        if ext.thinking_disable_custom is not None:
+            user_settings.extraction_model_thinking_disable_custom = ext.thinking_disable_custom
 
     # Update sampler settings
     if settings_update.sampler_settings:

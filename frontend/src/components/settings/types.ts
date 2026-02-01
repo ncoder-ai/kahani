@@ -76,7 +76,28 @@ export interface ExtractionModelSettings {
   temperature: number;
   max_tokens: number;
   fallback_to_main: boolean;
+  use_context_aware_extraction?: boolean;
+  // Advanced sampling settings
+  top_p?: number;
+  repetition_penalty?: number;
+  min_p?: number;
+  // Thinking disable settings
+  thinking_disable_method?: 'none' | 'qwen3' | 'deepseek' | 'mistral' | 'gemini' | 'openai' | 'kimi' | 'glm' | 'custom';
+  thinking_disable_custom?: string;
 }
+
+// Thinking disable method options for dropdown
+export const THINKING_DISABLE_OPTIONS = [
+  { value: 'none', label: 'None', description: 'No thinking to disable' },
+  { value: 'qwen3', label: 'Qwen3 (/no_think)', description: 'Add /no_think prefix and strip <think> tags' },
+  { value: 'deepseek', label: 'DeepSeek', description: 'Strip <think>...</think> tags' },
+  { value: 'mistral', label: 'Mistral Magistral', description: 'Uses prompt_mode=null API parameter' },
+  { value: 'gemini', label: 'Gemini', description: 'Uses thinkingBudget=0 API parameter' },
+  { value: 'openai', label: 'OpenAI o1/o3', description: 'Uses reasoning_effort=none API parameter' },
+  { value: 'kimi', label: 'Kimi K2', description: 'Strip thinking tags (use Instruct variant)' },
+  { value: 'glm', label: 'GLM-4', description: 'API param + strips <think> tags (for KoboldCpp, set CoT to Prevented)' },
+  { value: 'custom', label: 'Custom', description: 'Define custom regex pattern to strip' },
+] as const;
 
 export interface TTSProvider {
   type: string;

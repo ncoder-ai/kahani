@@ -105,6 +105,12 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     temperature: 0.3,
     max_tokens: 1000,
     fallback_to_main: true,
+    use_context_aware_extraction: false,
+    top_p: 1.0,
+    repetition_penalty: 1.0,
+    min_p: 0.0,
+    thinking_disable_method: 'none',
+    thinking_disable_custom: '',
   });
 
   // Generation Preferences
@@ -289,6 +295,12 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             temperature: settings.extraction_model_settings.temperature ?? 0.3,
             max_tokens: settings.extraction_model_settings.max_tokens ?? 1000,
             fallback_to_main: settings.extraction_model_settings.fallback_to_main !== false,
+            use_context_aware_extraction: settings.extraction_model_settings.use_context_aware_extraction ?? false,
+            top_p: settings.extraction_model_settings.top_p ?? 1.0,
+            repetition_penalty: settings.extraction_model_settings.repetition_penalty ?? 1.0,
+            min_p: settings.extraction_model_settings.min_p ?? 0.0,
+            thinking_disable_method: settings.extraction_model_settings.thinking_disable_method ?? 'none',
+            thinking_disable_custom: settings.extraction_model_settings.thinking_disable_custom ?? '',
           });
         }
 

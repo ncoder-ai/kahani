@@ -116,6 +116,11 @@ class UserSettings(Base):
     extraction_model_max_tokens = Column(Integer, nullable=True)
     extraction_fallback_to_main = Column(Boolean, nullable=True)
     use_context_aware_extraction = Column(Boolean, nullable=True)  # Use main LLM with full context for extraction
+    extraction_model_top_p = Column(Float, nullable=True)
+    extraction_model_repetition_penalty = Column(Float, nullable=True)
+    extraction_model_min_p = Column(Float, nullable=True)
+    extraction_model_thinking_disable_method = Column(String(50), nullable=True)  # "none", "qwen3", "deepseek", "mistral", "gemini", "openai", "kimi", "custom"
+    extraction_model_thinking_disable_custom = Column(Text, nullable=True)  # Custom tag pattern to strip
 
     # Advanced Settings
     custom_system_prompt = Column(Text, nullable=True)
@@ -267,6 +272,11 @@ class UserSettings(Base):
                 "max_tokens": self.extraction_model_max_tokens if self.extraction_model_max_tokens is not None else ext_model_defaults.get("max_tokens", 1000),
                 "fallback_to_main": self.extraction_fallback_to_main if self.extraction_fallback_to_main is not None else ext_model_defaults.get("fallback_to_main", True),
                 "use_context_aware_extraction": self.use_context_aware_extraction if self.use_context_aware_extraction is not None else ext_model_defaults.get("use_context_aware_extraction", False),
+                "top_p": self.extraction_model_top_p if self.extraction_model_top_p is not None else ext_model_defaults.get("top_p", 1.0),
+                "repetition_penalty": self.extraction_model_repetition_penalty if self.extraction_model_repetition_penalty is not None else ext_model_defaults.get("repetition_penalty", 1.0),
+                "min_p": self.extraction_model_min_p if self.extraction_model_min_p is not None else ext_model_defaults.get("min_p", 0.0),
+                "thinking_disable_method": self.extraction_model_thinking_disable_method if self.extraction_model_thinking_disable_method is not None else ext_model_defaults.get("thinking_disable_method", "none"),
+                "thinking_disable_custom": self.extraction_model_thinking_disable_custom or ext_model_defaults.get("thinking_disable_custom", ""),
                 "enable_combined_extraction": True  # Default: enabled, combines all extractions in one LLM call
             },
             "advanced": {
@@ -584,6 +594,16 @@ class UserSettings(Base):
             self.extraction_fallback_to_main = ext_model.get("fallback_to_main", True)
         if self.use_context_aware_extraction is None:
             self.use_context_aware_extraction = ext_model.get("use_context_aware_extraction", False)
+        if self.extraction_model_top_p is None:
+            self.extraction_model_top_p = ext_model.get("top_p", 1.0)
+        if self.extraction_model_repetition_penalty is None:
+            self.extraction_model_repetition_penalty = ext_model.get("repetition_penalty", 1.0)
+        if self.extraction_model_min_p is None:
+            self.extraction_model_min_p = ext_model.get("min_p", 0.0)
+        if self.extraction_model_thinking_disable_method is None:
+            self.extraction_model_thinking_disable_method = ext_model.get("thinking_disable_method", "none")
+        if self.extraction_model_thinking_disable_custom is None:
+            self.extraction_model_thinking_disable_custom = ext_model.get("thinking_disable_custom", "")
 
         # Advanced Settings
         adv = user_defaults.get("advanced", {})
