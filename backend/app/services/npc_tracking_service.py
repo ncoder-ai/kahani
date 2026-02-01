@@ -109,11 +109,17 @@ class NPCTrackingService:
             logger.info(f"[NPC-EXTRACT-BATCH] Found {len(story_characters)} explicit characters to exclude")
             
             explicit_character_names = set()
+            explicit_name_parts = set()  # For partial matching (e.g., "Radhika" matches "Radhika Sharma")
             for sc in story_characters:
                 character = db.query(Character).filter(Character.id == sc.character_id).first()
                 if character:
-                    explicit_character_names.add(character.name.lower())
-            
+                    name_lower = character.name.lower()
+                    explicit_character_names.add(name_lower)
+                    # Add individual name parts for partial matching
+                    for part in name_lower.split():
+                        if len(part) > 2:  # Skip short parts like "a", "of"
+                            explicit_name_parts.add(part)
+
             # Concatenate scenes with clear markers
             scenes_text = []
             for scene_id, scene_sequence, scene_content in scenes:
@@ -158,7 +164,22 @@ class NPCTrackingService:
                 
                 for npc_data_scene in npcs_for_scene:
                     npc_name = npc_data_scene.get('name', '').strip()
-                    if not npc_name or npc_name.lower() in explicit_character_names:
+                    if not npc_name:
+                        logger.debug(f"[NPC-EXTRACT-BATCH] Skipping NPC with empty name")
+                        continue
+                    # Check full name match
+                    npc_lower = npc_name.lower()
+                    if npc_lower in explicit_character_names:
+                        logger.info(f"[NPC-EXTRACT-BATCH] Skipping '{npc_name}' - matches explicit character (full)")
+                        continue
+                    # Check partial name match (e.g., "Radhika" matches "Radhika Sharma")
+                    if npc_lower in explicit_name_parts:
+                        logger.info(f"[NPC-EXTRACT-BATCH] Skipping '{npc_name}' - matches explicit character (partial)")
+                        continue
+                    # Check if any part of NPC name matches explicit character parts
+                    npc_parts = npc_lower.split()
+                    if any(part in explicit_name_parts for part in npc_parts if len(part) > 2):
+                        logger.info(f"[NPC-EXTRACT-BATCH] Skipping '{npc_name}' - name part matches explicit character")
                         continue
                     
                     # Convert string booleans to actual booleans
@@ -303,7 +324,10 @@ class NPCTrackingService:
                 )
                 
                 # Validate NPCs
-                validated_npcs = self._validate_npcs(npc_data.get('npcs', []) if npc_data else [])
+                raw_npcs = npc_data.get('npcs', []) if npc_data else []
+                logger.info(f"[NPC-EXTRACT-BATCH] Raw NPCs from extraction model: {[n.get('name') for n in raw_npcs]}")
+                validated_npcs = self._validate_npcs(raw_npcs)
+                logger.info(f"[NPC-EXTRACT-BATCH] Validated NPCs: {[n.get('name') for n in validated_npcs]}")
                 if validated_npcs:
                     logger.info(f"Extraction model successfully extracted {len(validated_npcs)} NPCs from batch")
                     return {'npcs': validated_npcs}
@@ -446,11 +470,16 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
             story_characters = char_query.all()
             
             explicit_character_names = set()
+            explicit_name_parts = set()  # For partial matching
             for sc in story_characters:
                 character = db.query(Character).filter(Character.id == sc.character_id).first()
                 if character:
-                    explicit_character_names.add(character.name.lower())
-            
+                    name_lower = character.name.lower()
+                    explicit_character_names.add(name_lower)
+                    for part in name_lower.split():
+                        if len(part) > 2:
+                            explicit_name_parts.add(part)
+
             # Extract NPCs using LLM
             npc_data = await self._extract_npcs_with_llm(
                 scene_content,
@@ -473,8 +502,16 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
             # Store mentions and update tracking
             for npc in npc_data["npcs"]:
                 npc_name = npc.get("name", "").strip()
-                if not npc_name or npc_name.lower() in explicit_character_names:
-                    continue  # Skip if already an explicit character
+                if not npc_name:
+                    continue
+                # Check full and partial name matches
+                npc_lower = npc_name.lower()
+                if npc_lower in explicit_character_names or npc_lower in explicit_name_parts:
+                    continue  # Skip if matches explicit character
+                # Check if any part of NPC name matches explicit character parts
+                npc_parts = npc_lower.split()
+                if any(part in explicit_name_parts for part in npc_parts if len(part) > 2):
+                    continue
                 
                 # Convert string booleans to actual booleans (LLM sometimes returns 'true'/'false' as strings)
                 def to_bool(value):

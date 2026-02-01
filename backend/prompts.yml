@@ -934,6 +934,60 @@ plot_events_cache_friendly:
 
     If no significant events: {{"plot_events": []}}
 
+# Combined moments + NPCs extraction (cache-friendly)
+moments_and_npcs_cache_friendly:
+  user: |
+    === SCENE JUST GENERATED ===
+    {scene_content}
+
+    === EXTRACT CHARACTER MOMENTS AND NPCs ONLY ===
+    Explicit characters: {character_names}
+
+    Extract TWO types of information:
+
+    1. CHARACTER MOMENTS (for explicit characters only: {character_names})
+       - Significant moments (confidence >= 70)
+       - Maximum 5 moments per scene
+       - Moment types: "action", "dialogue", "development", "relationship"
+
+    2. NPCs/ENTITIES (NOT in explicit character list)
+       - NAMED PEOPLE or entities NOT in: {explicit_names}
+       - Classify as "CHARACTER" (people) or "ENTITY" (locations, objects, organizations)
+       - Maximum 5 total NPCs
+       - Prioritize: has_dialogue OR has_actions OR mention_count >= 3
+
+       === WHAT IS NOT A CHARACTER (ALWAYS EXCLUDE) ===
+       ✗ Materials & Surfaces: marble, granite, wood, steel, leather, tiles, countertop
+       ✗ Locations & Places: sunroom, kitchen, office, street names, cities, countries
+       ✗ Food & Drinks: coffee, espresso, wine, pasta, any food items
+       ✗ Objects & Furniture: workbench, compressor, chair, table, car, phone
+       ✗ Generic Descriptors: "the man", "a woman", "someone", "his wife", "her husband"
+       ✗ Role-Based Labels: "Hindu wife", "the waiter", "a stranger", "the driver"
+
+    Return ONLY valid JSON:
+    {{
+      "character_moments": [
+        {{
+          "character_name": "Character Name",
+          "moment_type": "action",
+          "content": "Description of the moment",
+          "confidence": 85
+        }}
+      ],
+      "npcs": [
+        {{
+          "name": "NPC name",
+          "entity_type": "CHARACTER",
+          "mention_count": 3,
+          "has_dialogue": true,
+          "has_actions": true,
+          "has_relationships": false,
+          "context_snippets": ["snippet"],
+          "properties": {{"role": "role", "description": "brief description"}}
+        }}
+      ]
+    }}
+
 # Plot Structure Prompts
 plot_generation:
   complete_plot:
