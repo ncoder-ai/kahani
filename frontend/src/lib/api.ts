@@ -808,7 +808,8 @@ class ApiClient {
     }>(`/api/stories/${storyId}/extract-interactions`, { method: 'POST' });
   }
 
-  async getStoryInteractions(storyId: number) {
+  async getStoryInteractions(storyId: number, branchId?: number) {
+    const params = branchId !== undefined ? `?branch_id=${branchId}` : '';
     return this.request<{
       story_id: number;
       interaction_types_configured: string[];
@@ -823,7 +824,7 @@ class ApiClient {
       interactions_not_occurred: string[];
       total_interactions: number;
       total_scenes: number;
-    }>(`/api/stories/${storyId}/interactions`);
+    }>(`/api/stories/${storyId}/interactions${params}`);
   }
 
   async getExtractionProgress(storyId: number) {
@@ -843,7 +844,8 @@ class ApiClient {
   }
 
   // Entity States API
-  async getEntityStates(storyId: number) {
+  async getEntityStates(storyId: number, branchId?: number) {
+    const params = branchId !== undefined ? `?branch_id=${branchId}` : '';
     return this.request<{
       story_id: number;
       branch_id: number | null;
@@ -909,7 +911,7 @@ class ApiClient {
         locations: number;
         objects: number;
       };
-    }>(`/api/stories/${storyId}/entity-states`);
+    }>(`/api/stories/${storyId}/entity-states${params}`);
   }
 
   async deleteEntityState(storyId: number, type: 'characters' | 'locations' | 'objects', stateId: number) {
@@ -1572,17 +1574,23 @@ class ApiClient {
   }
 
   // Story Character Voice Style Management
-  async getStoryCharacters(storyId: number) {
+  async getStoryCharacters(storyId: number, branchId?: number) {
+    console.log('[API] getStoryCharacters called with storyId:', storyId, 'branchId:', branchId, 'type:', typeof branchId);
+    const params = branchId !== undefined ? `?branch_id=${branchId}` : '';
+    console.log('[API] getStoryCharacters URL params:', params);
     return this.request<Array<{
       id: number;  // story_character id
       character_id: number;
       story_id: number;
+      branch_id: number | null;
       role: string | null;
       voice_style_override: VoiceStyle | null;
       name: string;
       description: string | null;
+      appearance: string | null;
+      portrait_image_id: number | null;
       default_voice_style: VoiceStyle | null;
-    }>>(`/api/characters/story/${storyId}/characters`);
+    }>>(`/api/characters/story/${storyId}/characters${params}`);
   }
 
   async updateStoryCharacterVoiceStyle(storyId: number, storyCharacterId: number, voiceStyleOverride: VoiceStyle | null) {
@@ -1646,13 +1654,19 @@ class ApiClient {
   }
 
   // Character Assistant API
-  async checkCharacterImportance(storyId: number, chapterId?: number) {
-    const params = chapterId ? `?chapter_id=${chapterId}` : '';
-    return this.request<{ new_character_detected: boolean }>(`/api/stories/${storyId}/character-importance-check${params}`);
+  async checkCharacterImportance(storyId: number, chapterId?: number, branchId?: number) {
+    const params = new URLSearchParams();
+    if (chapterId !== undefined) params.set('chapter_id', String(chapterId));
+    if (branchId !== undefined) params.set('branch_id', String(branchId));
+    const qs = params.toString();
+    return this.request<{ new_character_detected: boolean }>(`/api/stories/${storyId}/character-importance-check${qs ? `?${qs}` : ''}`);
   }
 
-  async getCharacterSuggestions(storyId: number, chapterId?: number) {
-    const params = chapterId ? `?chapter_id=${chapterId}` : '';
+  async getCharacterSuggestions(storyId: number, chapterId?: number, branchId?: number) {
+    const params = new URLSearchParams();
+    if (chapterId !== undefined) params.set('chapter_id', String(chapterId));
+    if (branchId !== undefined) params.set('branch_id', String(branchId));
+    const qs = params.toString();
     return this.request<{
       suggestions: Array<{
         name: string;
@@ -1666,7 +1680,7 @@ class ApiClient {
       }>;
       chapter_analyzed: number | null;
       total_scenes_analyzed: number;
-    }>(`/api/stories/${storyId}/character-suggestions${params}`);
+    }>(`/api/stories/${storyId}/character-suggestions${qs ? `?${qs}` : ''}`);
   }
 
   async analyzeCharacterDetails(storyId: number, characterName: string) {
@@ -2192,7 +2206,12 @@ class ApiClient {
     });
   }
 
-  async addCharacterToChapter(storyId: number, chapterId: number, characterId?: number, storyCharacterId?: number) {
+  async addCharacterToChapter(storyId: number, chapterId: number, characterId?: number, storyCharacterId?: number, role?: string) {
+    const params = new URLSearchParams();
+    if (characterId !== undefined) params.set('character_id', String(characterId));
+    if (storyCharacterId !== undefined) params.set('story_character_id', String(storyCharacterId));
+    if (role !== undefined) params.set('role', role);
+    const qs = params.toString();
     return this.request<{
       id: number;
       story_id: number;
@@ -2218,9 +2237,8 @@ class ApiClient {
       location_name?: string | null;
       time_period?: string | null;
       scenario?: string | null;
-    }>(`/api/stories/${storyId}/chapters/${chapterId}/characters`, {
+    }>(`/api/stories/${storyId}/chapters/${chapterId}/characters${qs ? `?${qs}` : ''}`, {
       method: 'POST',
-      body: JSON.stringify({ character_id: characterId, story_character_id: storyCharacterId }),
     });
   }
 
@@ -2968,14 +2986,15 @@ class ApiClient {
     });
   }
 
-  async getContradictionsSummary(storyId: number) {
+  async getContradictionsSummary(storyId: number, branchId?: number) {
+    const params = branchId !== undefined ? `?branch_id=${branchId}` : '';
     return this.request<{
       total: number;
       unresolved: number;
       resolved: number;
       by_type: Record<string, number>;
       by_severity: Record<string, number>;
-    }>(`/api/stories/${storyId}/contradictions/summary`);
+    }>(`/api/stories/${storyId}/contradictions/summary${params}`);
   }
 
   // Utility methods

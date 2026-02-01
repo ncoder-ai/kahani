@@ -222,6 +222,17 @@ async def finalize_draft_story(
         story.content_rating = "nsfw" if current_user.allow_nsfw else "sfw"
         logger.info(f"[FINALIZE] Set default content_rating={story.content_rating} for story {story_id} (user allow_nsfw={current_user.allow_nsfw})")
 
+    # Ensure the story has a main branch (required for chapters and character association)
+    # This needs to be done BEFORE processing characters so they can be associated with the branch
+    from ..services.branch_service import get_branch_service
+    branch_service = get_branch_service()
+    main_branch = branch_service.ensure_main_branch(db, story_id)
+
+    # Set the story's current branch to the main branch
+    if not story.current_branch_id:
+        story.current_branch_id = main_branch.id
+        logger.info(f"[FINALIZE] Set current_branch_id={main_branch.id} for story {story_id}")
+
     # Process characters from draft_data and create StoryCharacter relationships
     characters_data = draft_data.get('characters', [])
     if characters_data:
@@ -263,21 +274,23 @@ async def finalize_draft_story(
                     db.flush()  # Get the character ID
                     logger.info(f"[FINALIZE] Created new character: {character.name} (ID: {character.id})")
 
-            # Check if StoryCharacter relationship already exists
+            # Check if StoryCharacter relationship already exists for this branch
             existing_story_char = db.query(StoryCharacter).filter(
                 StoryCharacter.story_id == story_id,
+                StoryCharacter.branch_id == main_branch.id,
                 StoryCharacter.character_id == character.id
             ).first()
 
             if not existing_story_char:
-                # Create StoryCharacter relationship with story-specific role
+                # Create StoryCharacter relationship with story-specific role and branch
                 story_character = StoryCharacter(
                     story_id=story_id,
+                    branch_id=main_branch.id,
                     character_id=character.id,
                     role=char_data.get('role', '')  # Store role in the relationship
                 )
                 db.add(story_character)
-                logger.info(f"[FINALIZE] Linked character {character.name} to story {story_id} with role: {char_data.get('role', 'N/A')}")
+                logger.info(f"[FINALIZE] Linked character {character.name} to story {story_id}, branch {main_branch.id} with role: {char_data.get('role', 'N/A')}")
 
                 # Mark NPC as converted if it was tracked as an NPC
                 try:
@@ -294,16 +307,6 @@ async def finalize_draft_story(
                 except Exception as e:
                     logger.warning(f"Failed to mark NPC as converted during finalization: {e}")
                     # Don't fail story finalization if NPC marking fails
-
-    # Ensure the story has a main branch (required for chapters)
-    from ..services.branch_service import get_branch_service
-    branch_service = get_branch_service()
-    main_branch = branch_service.ensure_main_branch(db, story_id)
-
-    # Set the story's current branch to the main branch
-    if not story.current_branch_id:
-        story.current_branch_id = main_branch.id
-        logger.info(f"[FINALIZE] Set current_branch_id={main_branch.id} for story {story_id}")
 
     # Mark as active
     logger.info(f"[FINALIZE] Setting story {story_id} to ACTIVE status")

@@ -990,6 +990,7 @@ async def add_character_to_chapter(
     chapter_id: int,
     character_id: Optional[int] = None,
     story_character_id: Optional[int] = None,
+    role: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -1045,22 +1046,25 @@ async def add_character_to_chapter(
         if not char:
             raise HTTPException(status_code=404, detail="Character not found")
         
-        # Check if StoryCharacter exists
+        # Check if StoryCharacter exists for this branch
         story_char = db.query(StoryCharacter).filter(
             StoryCharacter.story_id == story_id,
+            StoryCharacter.branch_id == story.current_branch_id,
             StoryCharacter.character_id == character_id
         ).first()
-        
+
         if not story_char:
-            # Create StoryCharacter entry
+            # Create StoryCharacter entry with branch and role
             story_char = StoryCharacter(
                 story_id=story_id,
+                branch_id=story.current_branch_id,
                 character_id=character_id,
+                role=role,
                 is_active=True
             )
             db.add(story_char)
             db.flush()
-            logger.info(f"[CHAPTER] Created StoryCharacter entry for character {character_id}")
+            logger.info(f"[CHAPTER] Created StoryCharacter entry for character {character_id} in branch {story.current_branch_id} with role '{role}'")
         
         target_story_character_id = story_char.id
     else:

@@ -68,6 +68,7 @@ interface EntityStatesModalProps {
   isOpen: boolean;
   onClose: () => void;
   storyId: number;
+  branchId?: number;
   storyTitle: string;
 }
 
@@ -77,6 +78,7 @@ export default function EntityStatesModal({
   isOpen,
   onClose,
   storyId,
+  branchId,
   storyTitle
 }: EntityStatesModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>('characters');
@@ -96,12 +98,12 @@ export default function EntityStatesModal({
     if (isOpen) {
       loadEntityStates();
     }
-  }, [isOpen, storyId]);
+  }, [isOpen, storyId, branchId]);
 
   const loadEntityStates = async () => {
     setLoading(true);
     try {
-      const result = await apiClient.getEntityStates(storyId);
+      const result = await apiClient.getEntityStates(storyId, branchId);
       setCharacterStates(result.character_states);
       setLocationStates(result.location_states);
       setObjectStates(result.object_states);

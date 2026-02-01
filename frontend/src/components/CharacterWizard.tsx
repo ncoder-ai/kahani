@@ -31,13 +31,14 @@ interface CharacterDetails {
 interface CharacterWizardProps {
   storyId: number;
   chapterId?: number;
+  branchId?: number;
   onCharacterCreated: (character: any) => void;
   onClose: () => void;
 }
 
 import RoleSelector, { CHARACTER_ROLES, getRoleInfo } from '@/components/RoleSelector';
 
-export default function CharacterWizard({ storyId, chapterId, onCharacterCreated, onClose }: CharacterWizardProps) {
+export default function CharacterWizard({ storyId, chapterId, branchId, onCharacterCreated, onClose }: CharacterWizardProps) {
   const [currentStep, setCurrentStep] = useState(1);
   const [suggestions, setSuggestions] = useState<CharacterSuggestion[]>([]);
   const [selectedCharacter, setSelectedCharacter] = useState<CharacterSuggestion | null>(null);
@@ -58,7 +59,19 @@ export default function CharacterWizard({ storyId, chapterId, onCharacterCreated
     try {
       setLoading(true);
       setError(null);
-      const response = await apiClient.getCharacterSuggestions(storyId, chapterId);
+
+      // If branchId is not provided, fetch the story to get its current_branch_id
+      let effectiveBranchId = branchId;
+      if (effectiveBranchId === undefined) {
+        try {
+          const story = await apiClient.getStory(storyId);
+          effectiveBranchId = story.current_branch_id;
+        } catch (err) {
+          console.warn('[CharacterWizard] Failed to get story, proceeding without branch filter');
+        }
+      }
+
+      const response = await apiClient.getCharacterSuggestions(storyId, chapterId, effectiveBranchId);
       setSuggestions(response.suggestions);
     } catch (err) {
       setError('Failed to load character suggestions');

@@ -32,6 +32,7 @@ interface ContradictionsModalProps {
   isOpen: boolean;
   onClose: () => void;
   storyId: number;
+  branchId?: number;
   storyTitle: string;
 }
 
@@ -54,6 +55,7 @@ export default function ContradictionsModal({
   isOpen,
   onClose,
   storyId,
+  branchId,
   storyTitle
 }: ContradictionsModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>('unresolved');
@@ -71,8 +73,8 @@ export default function ContradictionsModal({
     setError(null);
     try {
       const [allContradictions, summaryData] = await Promise.all([
-        apiClient.getContradictions(storyId, { resolved: true }),
-        apiClient.getContradictionsSummary(storyId),
+        apiClient.getContradictions(storyId, { resolved: true, branchId }),
+        apiClient.getContradictionsSummary(storyId, branchId),
       ]);
 
       setAllData(allContradictions);
@@ -83,7 +85,7 @@ export default function ContradictionsModal({
     } finally {
       setLoading(false);
     }
-  }, [storyId]);
+  }, [storyId, branchId]);
 
   // Filter based on active tab
   const contradictions = activeTab === 'resolved'

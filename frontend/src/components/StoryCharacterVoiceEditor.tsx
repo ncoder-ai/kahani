@@ -17,6 +17,7 @@ interface StoryCharacter {
 
 interface StoryCharacterVoiceEditorProps {
   storyId: number;
+  branchId?: number;
   isOpen: boolean;
   onClose: () => void;
   onUpdate?: () => void;  // Callback when voice styles are updated
@@ -24,6 +25,7 @@ interface StoryCharacterVoiceEditorProps {
 
 export default function StoryCharacterVoiceEditor({
   storyId,
+  branchId,
   isOpen,
   onClose,
   onUpdate
@@ -42,13 +44,25 @@ export default function StoryCharacterVoiceEditor({
     if (isOpen) {
       loadData();
     }
-  }, [isOpen, storyId]);
+  }, [isOpen, storyId, branchId]);
 
   const loadData = async () => {
     try {
       setLoading(true);
+
+      // If branchId is not provided, fetch the story to get its current_branch_id
+      let effectiveBranchId = branchId;
+      if (effectiveBranchId === undefined) {
+        try {
+          const story = await apiClient.getStory(storyId);
+          effectiveBranchId = story.current_branch_id;
+        } catch (err) {
+          console.warn('[StoryCharacterVoiceEditor] Failed to get story, proceeding without branch filter');
+        }
+      }
+
       const [chars, presets] = await Promise.all([
-        apiClient.getStoryCharacters(storyId),
+        apiClient.getStoryCharacters(storyId, effectiveBranchId),
         apiClient.getVoiceStylePresets()
       ]);
       setCharacters(chars);

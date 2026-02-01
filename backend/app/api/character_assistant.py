@@ -106,11 +106,17 @@ class CharacterCreatedResponse(BaseModel):
 async def get_character_suggestions(
     story_id: int,
     chapter_id: Optional[int] = None,
+    branch_id: Optional[int] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get character suggestions for a story chapter."""
-    
+    """Get character suggestions for a story chapter.
+
+    Args:
+        branch_id: Optional branch ID to filter suggestions. If not provided,
+                   uses the active branch for the story.
+    """
+
     # Verify story ownership
     from ..models import Story, StoryBranch
     from ..models.npc_tracking import NPCTracking
@@ -119,21 +125,22 @@ async def get_character_suggestions(
         Story.id == story_id,
         Story.owner_id == current_user.id
     ).first()
-    
+
     if not story:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Story not found"
         )
-    
-    # Get active branch
-    active_branch = db.query(StoryBranch).filter(
-        and_(
-            StoryBranch.story_id == story_id,
-            StoryBranch.is_active == True
-        )
-    ).first()
-    branch_id = active_branch.id if active_branch else None
+
+    # Use provided branch_id or fall back to active branch
+    if branch_id is None:
+        active_branch = db.query(StoryBranch).filter(
+            and_(
+                StoryBranch.story_id == story_id,
+                StoryBranch.is_active == True
+            )
+        ).first()
+        branch_id = active_branch.id if active_branch else None
     
     # DEBUG: Log branch info
     logger.info(f"[CHAR-SUGGEST] story_id={story_id}, story.current_branch_id={story.current_branch_id}, active_branch_id={branch_id}")
@@ -164,7 +171,10 @@ async def get_character_suggestions(
     try:
         from ..services.npc_tracking_service import NPCTrackingService
         npc_service = NPCTrackingService(current_user.id, user_settings_dict)
-        suggestions = npc_service.get_npcs_as_suggestions(db, story_id, branch_id=branch_id)
+
+        # Use importance threshold from user settings (default 10.0 to filter out minor mentions)
+        min_importance = user_settings_dict.get('character_assistant_settings', {}).get('importance_threshold', 10.0)
+        suggestions = npc_service.get_npcs_as_suggestions(db, story_id, min_importance=min_importance, branch_id=branch_id)
         
         # Sort by importance score
         suggestions.sort(key=lambda x: x.get('importance_score', 0), reverse=True)
@@ -348,21 +358,27 @@ async def create_character_from_suggestion(
         db.add(character)
         db.flush()  # Get the character ID
     
-    # Check if story character relationship already exists
+    # Get the active branch for this character association
+    active_branch_id = story.current_branch_id
+
+    # Check if story character relationship already exists for this branch
     existing_story_char = db.query(StoryCharacter).filter(
         StoryCharacter.story_id == story_id,
+        StoryCharacter.branch_id == active_branch_id,
         StoryCharacter.character_id == character.id
     ).first()
-    
+
     if not existing_story_char:
-        # Create story character relationship
+        # Create story character relationship with branch
         story_character = StoryCharacter(
             story_id=story_id,
+            branch_id=active_branch_id,
             character_id=character.id,
             role=character_data.role
         )
         db.add(story_character)
         db.flush()  # Get the story character ID
+        logger.info(f"Created StoryCharacter for '{character.name}' in story {story_id}, branch {active_branch_id}")
     else:
         story_character = existing_story_char
     
@@ -400,39 +416,48 @@ async def create_character_from_suggestion(
 async def check_character_importance(
     story_id: int,
     chapter_id: Optional[int] = None,
+    branch_id: Optional[int] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Check if any new important characters are detected using NPC tracking."""
-    
+    """Check if any new important characters are detected using NPC tracking.
+
+    Args:
+        branch_id: Optional branch ID to filter NPCs. If not provided,
+                   checks NPCs across all branches.
+    """
+
     # Verify story ownership
     story = db.query(Story).filter(
         Story.id == story_id,
         Story.owner_id == current_user.id
     ).first()
-    
+
     if not story:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Story not found"
         )
-    
+
     # Get user settings with story context for proper NSFW filtering
     # This considers both user profile AND story content_rating
     user_settings_dict = get_or_create_user_settings(current_user.id, db, current_user, story)
-    
+
     # Check NPC tracking for characters that haven't been converted
     try:
         from ..services.npc_tracking_service import NPCTrackingService
         from ..models import NPCTracking
-        
+
         npc_service = NPCTrackingService(current_user.id, user_settings_dict)
-        
-        # Get all NPCs that haven't been converted to characters
-        npcs = db.query(NPCTracking).filter(
+
+        # Get all NPCs that haven't been converted to characters, filtered by branch if provided
+        query = db.query(NPCTracking).filter(
             NPCTracking.story_id == story_id,
             NPCTracking.converted_to_character == False
-        ).all()
+        )
+        if branch_id is not None:
+            query = query.filter(NPCTracking.branch_id == branch_id)
+        npcs = query.all()
         
         # Check if any NPCs exist (regardless of threshold for discovery purposes)
         has_characters = len(npcs) > 0

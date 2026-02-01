@@ -77,6 +77,7 @@ class ObjectStateUpdate(BaseModel):
 @router.get("/{story_id}/entity-states")
 async def get_entity_states(
     story_id: int,
+    branch_id: Optional[int] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -84,6 +85,10 @@ async def get_entity_states(
     Get all entity states (characters, locations, objects) for a story.
 
     Returns comprehensive state data for review and editing.
+
+    Args:
+        branch_id: Optional branch ID to filter states. If not provided,
+                   uses the active branch for the story.
     """
     from ..models import CharacterState, LocationState, ObjectState, Character, StoryBranch
 
@@ -99,12 +104,13 @@ async def get_entity_states(
             detail="Story not found"
         )
 
-    # Get active branch
-    active_branch = db.query(StoryBranch).filter(
-        StoryBranch.story_id == story_id,
-        StoryBranch.is_active == True
-    ).first()
-    branch_id = active_branch.id if active_branch else None
+    # Use provided branch_id or fall back to active branch
+    if branch_id is None:
+        active_branch = db.query(StoryBranch).filter(
+            StoryBranch.story_id == story_id,
+            StoryBranch.is_active == True
+        ).first()
+        branch_id = active_branch.id if active_branch else None
 
     # Get character states with character names
     char_states_query = db.query(CharacterState).filter(

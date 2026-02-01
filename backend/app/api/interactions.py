@@ -8,6 +8,7 @@ Extracted from stories.py for better organization.
 
 import logging
 import os
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
@@ -81,6 +82,7 @@ async def get_interaction_presets(
 @router.get("/{story_id}/interactions")
 async def get_story_interactions(
     story_id: int,
+    branch_id: Optional[int] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -88,6 +90,10 @@ async def get_story_interactions(
     Get all recorded character interactions for a story.
 
     Returns the interaction history showing what has occurred between characters.
+
+    Args:
+        branch_id: Optional branch ID to filter interactions. If not provided,
+                   uses the active branch for the story.
     """
     from ..models import CharacterInteraction, Character, StoryBranch, Scene
 
@@ -103,12 +109,13 @@ async def get_story_interactions(
             detail="Story not found"
         )
 
-    # Get active branch
-    active_branch = db.query(StoryBranch).filter(
-        StoryBranch.story_id == story_id,
-        StoryBranch.is_active == True
-    ).first()
-    branch_id = active_branch.id if active_branch else None
+    # Use provided branch_id or fall back to active branch
+    if branch_id is None:
+        active_branch = db.query(StoryBranch).filter(
+            StoryBranch.story_id == story_id,
+            StoryBranch.is_active == True
+        ).first()
+        branch_id = active_branch.id if active_branch else None
 
     # Get all interactions
     query = db.query(CharacterInteraction).filter(

@@ -17,14 +17,16 @@ interface CharacterInteractionsModalProps {
   isOpen: boolean;
   onClose: () => void;
   storyId: number;
+  branchId?: number;
   storyTitle: string;
 }
 
-export default function CharacterInteractionsModal({ 
-  isOpen, 
-  onClose, 
+export default function CharacterInteractionsModal({
+  isOpen,
+  onClose,
   storyId,
-  storyTitle 
+  branchId,
+  storyTitle
 }: CharacterInteractionsModalProps) {
   const [interactions, setInteractions] = useState<Interaction[]>([]);
   const [loading, setLoading] = useState(false);
@@ -41,12 +43,12 @@ export default function CharacterInteractionsModal({
     if (isOpen) {
       loadInteractions();
     }
-  }, [isOpen, storyId]);
-  
+  }, [isOpen, storyId, branchId]);
+
   const loadInteractions = async () => {
     setLoading(true);
     try {
-      const result = await apiClient.getStoryInteractions(storyId);
+      const result = await apiClient.getStoryInteractions(storyId, branchId);
       setInteractions(result.interactions);
     } catch (err) {
       console.error('Failed to load interactions:', err);

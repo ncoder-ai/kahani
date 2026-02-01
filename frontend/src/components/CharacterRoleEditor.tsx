@@ -18,10 +18,11 @@ interface CharacterRoleEditorProps {
   isOpen: boolean;
   onClose: () => void;
   storyId: number;
+  branchId?: number;
   onSaved?: () => void;
 }
 
-export default function CharacterRoleEditor({ isOpen, onClose, storyId, onSaved }: CharacterRoleEditorProps) {
+export default function CharacterRoleEditor({ isOpen, onClose, storyId, branchId, onSaved }: CharacterRoleEditorProps) {
   const [characters, setCharacters] = useState<StoryCharacter[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -33,13 +34,24 @@ export default function CharacterRoleEditor({ isOpen, onClose, storyId, onSaved 
     if (isOpen && storyId) {
       loadCharacters();
     }
-  }, [isOpen, storyId]);
+  }, [isOpen, storyId, branchId]);
 
   const loadCharacters = async () => {
     setLoading(true);
     setError(null);
     try {
-      const storyCharacters = await apiClient.getStoryCharacters(storyId);
+      // If branchId is not provided, fetch the story to get its current_branch_id
+      let effectiveBranchId = branchId;
+      if (effectiveBranchId === undefined) {
+        try {
+          const story = await apiClient.getStory(storyId);
+          effectiveBranchId = story.current_branch_id;
+        } catch (err) {
+          console.warn('[CharacterRoleEditor] Failed to get story, proceeding without branch filter');
+        }
+      }
+
+      const storyCharacters = await apiClient.getStoryCharacters(storyId, effectiveBranchId);
       setCharacters(storyCharacters);
       // Initialize pending roles with current roles
       const initialRoles: Record<number, string> = {};

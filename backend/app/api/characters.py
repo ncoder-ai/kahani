@@ -446,6 +446,8 @@ class StoryCharacterResponse(BaseModel):
     # Include character details
     name: str
     description: Optional[str] = None
+    appearance: Optional[str] = None  # Character appearance
+    portrait_image_id: Optional[int] = None  # Portrait image ID
     default_voice_style: Optional[Dict[str, Any]] = None  # Character's default voice style
 
     class Config:
@@ -467,6 +469,9 @@ async def get_story_characters(
         branch_id: Optional branch ID to filter characters by branch.
                    If not provided, returns characters from all branches.
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"[get_story_characters] story_id={story_id}, branch_id={branch_id}")
 
     # Verify story ownership
     story = db.query(Story).filter(
@@ -501,6 +506,8 @@ async def get_story_characters(
                 voice_style_override=sc.voice_style_override,
                 name=character.name,
                 description=character.description,
+                appearance=character.appearance,
+                portrait_image_id=character.portrait_image_id,
                 default_voice_style=character.voice_style
             ))
 

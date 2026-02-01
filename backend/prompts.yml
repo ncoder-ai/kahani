@@ -824,26 +824,48 @@ npc_extraction_cache_friendly:
     === SCENE JUST GENERATED ===
     {scene_content}
 
-    === EXTRACT NPCs ===
+    === EXTRACT NPCs (NAMED PEOPLE ONLY) ===
     Explicit Characters (already tracked): {explicit_names}
 
-    Extract ALL named entities that are NOT in the explicit character list.
+    Extract ONLY NAMED PEOPLE who are NOT in the explicit character list.
 
-    For each entity, classify as:
+    === CLASSIFICATION TEST ===
+    Ask: "Can this entity SPEAK, THINK, and MAKE DECISIONS?"
+    - If YES → It MAY be a CHARACTER (continue evaluation)
+    - If NO → DO NOT INCLUDE IT
+
+    === WHAT IS A CHARACTER ===
+    ✓ Human characters with names (e.g., "John", "Dr. Smith", "Mr. Patel")
+    ✓ Named aliens, robots, or AI with sentience
+    ✓ Named animals that speak or think in the story
+    ✓ Named mythological beings or personified entities
+
+    === WHAT IS NOT A CHARACTER (ALWAYS EXCLUDE) ===
+    ✗ Materials & Surfaces: marble, granite, wood, steel, leather, tiles, countertop
+    ✗ Locations & Places: sunroom, kitchen, office, street names, cities, countries
+    ✗ Food & Drinks: coffee, espresso, wine, pasta, any food items
+    ✗ Objects & Furniture: workbench, compressor, chair, table, car, phone
+    ✗ Weather & Nature: rain, sunshine, traffic, wind
+    ✗ Abstract Concepts: time, silence, darkness, memory
+    ✗ Organizations: companies, teams, governments (unless personified)
+    ✗ Generic Descriptors: "the man", "a woman", "someone", "his wife", "her husband" (must have actual names)
+    ✗ Role-Based Labels: "Hindu wife", "the waiter", "a stranger", "the driver" (describe by role, not name)
+
+    For each CHARACTER found, classify as:
     - CHARACTER: Sentient beings with agency (humans, aliens, robots, sentient animals)
-    - ENTITY: Non-character entities (locations, objects, organizations)
+    - ENTITY: Keep this ONLY for genuinely ambiguous cases
 
     Return JSON:
     {{
       "npcs": [
         {{
-          "name": "Entity name",
+          "name": "Person's actual name",
           "entity_type": "CHARACTER",
           "mention_count": 1,
           "has_dialogue": true,
           "has_actions": true,
           "has_relationships": false,
-          "context_snippets": ["snippet showing the entity"],
+          "context_snippets": ["snippet showing the character"],
           "properties": {{
             "role": "role description",
             "description": "One-sentence description"
@@ -852,7 +874,7 @@ npc_extraction_cache_friendly:
       ]
     }}
 
-    If no entities found: {{"npcs": []}}
+    If no NAMED PEOPLE found: {{"npcs": []}}
 
 # Character Moments Extraction (cache-friendly)
 # Uses same context structure as scene generation for cache hits

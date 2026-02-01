@@ -43,13 +43,29 @@ export default function StoryCharacterManager({
       // Load API base URL for image URLs
       getApiBaseUrl().then(url => setApiBaseUrl(url));
     }
-  }, [isOpen, storyId]);
+  }, [isOpen, storyId, branchId]);
 
   const loadCharacters = async () => {
     try {
       setLoading(true);
       setError(null);
-      const storyCharacters = await apiClient.getStoryCharacters(storyId);
+
+      // If branchId is not provided, fetch the story to get its current_branch_id
+      let effectiveBranchId = branchId;
+      if (effectiveBranchId === undefined) {
+        console.log('[StoryCharacterManager] branchId is undefined, fetching story to get current_branch_id');
+        try {
+          const story = await apiClient.getStory(storyId);
+          effectiveBranchId = story.current_branch_id;
+          console.log('[StoryCharacterManager] Got current_branch_id from story:', effectiveBranchId);
+        } catch (err) {
+          console.warn('[StoryCharacterManager] Failed to get story, proceeding without branch filter');
+        }
+      }
+
+      console.log('[StoryCharacterManager] Loading characters with storyId:', storyId, 'branchId:', effectiveBranchId);
+      const storyCharacters = await apiClient.getStoryCharacters(storyId, effectiveBranchId);
+      console.log('[StoryCharacterManager] Loaded characters:', storyCharacters);
       setCharacters(storyCharacters);
     } catch (err: any) {
       console.error('Failed to load story characters:', err);
@@ -177,65 +193,72 @@ export default function StoryCharacterManager({
               {characters.map((character) => (
                 <div
                   key={character.id}
-                  className="flex items-center gap-4 p-4 bg-white/5 rounded-xl border border-white/10 hover:border-white/20 transition-colors"
+                  className="p-4 bg-white/5 rounded-xl border border-white/10 hover:border-white/20 transition-colors"
                 >
-                  {/* Portrait */}
-                  <div className="w-16 h-16 flex-shrink-0 rounded-lg overflow-hidden bg-white/10">
-                    {character.portrait_image_id ? (
-                      <img
-                        src={getPortraitUrl(character.portrait_image_id)}
-                        alt={character.name}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <User className="w-8 h-8 text-white/30" />
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Character Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-semibold text-white truncate">{character.name}</h3>
-                      {character.role && (
-                        <span className="px-2 py-0.5 text-xs bg-purple-500/20 text-purple-300 rounded-full">
-                          {character.role}
-                        </span>
-                      )}
-                      {!character.portrait_image_id && (
-                        <span className="px-2 py-0.5 text-xs bg-amber-500/20 text-amber-300 rounded-full flex items-center gap-1">
-                          <ImageIcon className="w-3 h-3" />
-                          No portrait
-                        </span>
+                  <div className="flex items-start gap-4">
+                    {/* Portrait */}
+                    <div className="w-14 h-14 flex-shrink-0 rounded-lg overflow-hidden bg-white/10">
+                      {character.portrait_image_id ? (
+                        <img
+                          src={getPortraitUrl(character.portrait_image_id)}
+                          alt={character.name}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <User className="w-6 h-6 text-white/30" />
+                        </div>
                       )}
                     </div>
-                    <p className="text-sm text-white/60 mt-1 line-clamp-2">
-                      {character.appearance || character.description || 'No description'}
-                    </p>
-                  </div>
 
-                  {/* Actions */}
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <button
-                      onClick={() => handleEditCharacter(character.character_id)}
-                      className="p-2 bg-blue-500/20 text-blue-300 rounded-lg hover:bg-blue-500/30 transition-colors"
-                      title="Edit character"
-                    >
-                      <Edit className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => handleRemoveCharacter(character.id, character.name)}
-                      disabled={removingCharacterId === character.id}
-                      className="p-2 bg-red-500/20 text-red-300 rounded-lg hover:bg-red-500/30 transition-colors disabled:opacity-50"
-                      title="Remove from story"
-                    >
-                      {removingCharacterId === character.id ? (
-                        <div className="w-4 h-4 border-2 border-red-300/30 border-t-red-300 rounded-full animate-spin" />
-                      ) : (
-                        <Trash2 className="w-4 h-4" />
-                      )}
-                    </button>
+                    {/* Character Info */}
+                    <div className="flex-1 min-w-0">
+                      {/* Name - always visible */}
+                      <h3 className="text-lg font-semibold text-white mb-1">{character.name}</h3>
+
+                      {/* Role and portrait badges */}
+                      <div className="flex flex-wrap items-center gap-2 mb-2">
+                        {character.role && (
+                          <span className="px-2 py-0.5 text-xs bg-purple-500/20 text-purple-300 rounded-full">
+                            {character.role}
+                          </span>
+                        )}
+                        {!character.portrait_image_id && (
+                          <span className="px-2 py-0.5 text-xs bg-amber-500/20 text-amber-300 rounded-full flex items-center gap-1">
+                            <ImageIcon className="w-3 h-3" />
+                            No portrait
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Description */}
+                      <p className="text-sm text-white/60 line-clamp-2">
+                        {character.appearance || character.description || 'No description'}
+                      </p>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button
+                        onClick={() => handleEditCharacter(character.character_id)}
+                        className="p-2 bg-blue-500/20 text-blue-300 rounded-lg hover:bg-blue-500/30 transition-colors"
+                        title="Edit character"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleRemoveCharacter(character.id, character.name)}
+                        disabled={removingCharacterId === character.id}
+                        className="p-2 bg-red-500/20 text-red-300 rounded-lg hover:bg-red-500/30 transition-colors disabled:opacity-50"
+                        title="Remove from story"
+                      >
+                        {removingCharacterId === character.id ? (
+                          <div className="w-4 h-4 border-2 border-red-300/30 border-t-red-300 rounded-full animate-spin" />
+                        ) : (
+                          <Trash2 className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}

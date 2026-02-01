@@ -166,12 +166,17 @@ async def resolve_contradiction(
 @router.get("/stories/{story_id}/contradictions/summary")
 async def get_contradictions_summary(
     story_id: int,
+    branch_id: Optional[int] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Get a summary of contradictions for a story.
 
     Returns counts by type and severity.
+
+    Args:
+        branch_id: Optional branch ID to filter contradictions. If not provided,
+                   returns contradictions for all branches.
     """
     # Verify story ownership
     story = db.query(Story).filter(
@@ -185,10 +190,13 @@ async def get_contradictions_summary(
             detail="Story not found"
         )
 
-    # Get all contradictions
-    contradictions = db.query(Contradiction).filter(
+    # Get contradictions, optionally filtered by branch
+    query = db.query(Contradiction).filter(
         Contradiction.story_id == story_id
-    ).all()
+    )
+    if branch_id is not None:
+        query = query.filter(Contradiction.branch_id == branch_id)
+    contradictions = query.all()
 
     # Build summary
     summary = {

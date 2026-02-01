@@ -1749,7 +1749,7 @@ export default function StoryPage() {
     // Automatically add character to current active chapter
     if (activeChapter && activeChapter.id) {
       try {
-        await apiClient.addCharacterToChapter(storyId, activeChapter.id, character.id);
+        await apiClient.addCharacterToChapter(storyId, activeChapter.id, character.id, undefined, character.role);
         // Reload active chapter to get updated character list
         const updatedChapter = await apiClient.getActiveChapter(storyId);
         setActiveChapter(updatedChapter);
@@ -1819,7 +1819,7 @@ export default function StoryPage() {
 
   const checkCharacterImportance = async () => {
     try {
-      const response = await apiClient.checkCharacterImportance(storyId, currentChapterId);
+      const response = await apiClient.checkCharacterImportance(storyId, currentChapterId, currentBranchId);
       setShowCharacterBanner(response.new_character_detected);
     } catch (error) {
       console.error('Failed to check character importance:', error);
@@ -3506,6 +3506,7 @@ export default function StoryPage() {
         <CharacterWizard
           storyId={storyId}
           chapterId={currentChapterId}
+          branchId={currentBranchId}
           onCharacterCreated={handleCharacterCreated}
           onClose={() => setShowCharacterWizard(false)}
         />
@@ -3514,6 +3515,7 @@ export default function StoryPage() {
       {/* Story Character Voice Editor Modal */}
       <StoryCharacterVoiceEditor
         storyId={storyId}
+        branchId={currentBranchId}
         isOpen={showCharacterVoiceEditor}
         onClose={() => setShowCharacterVoiceEditor(false)}
       />
@@ -3521,6 +3523,7 @@ export default function StoryPage() {
       {/* Character Role Editor Modal */}
       <CharacterRoleEditor
         storyId={storyId}
+        branchId={currentBranchId}
         isOpen={showCharacterRoleEditor}
         onClose={() => setShowCharacterRoleEditor(false)}
       />
@@ -3638,14 +3641,16 @@ export default function StoryPage() {
         isOpen={showInteractionsModal}
         onClose={() => setShowInteractionsModal(false)}
         storyId={storyId}
+        branchId={currentBranchId}
         storyTitle={story?.title || ''}
       />
-      
+
       {/* Entity States Modal */}
       <EntityStatesModal
         isOpen={showEntityStatesModal}
         onClose={() => setShowEntityStatesModal(false)}
         storyId={storyId}
+        branchId={currentBranchId}
         storyTitle={story?.title || ''}
       />
 
@@ -3654,6 +3659,7 @@ export default function StoryPage() {
         isOpen={showContradictionsModal}
         onClose={() => setShowContradictionsModal(false)}
         storyId={storyId}
+        branchId={currentBranchId}
         storyTitle={story?.title || ''}
       />
       

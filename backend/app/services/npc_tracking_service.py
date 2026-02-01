@@ -1522,9 +1522,115 @@ Return ONLY the JSON, no other text."""
                 logger.debug(f"Could not check for entity_type column, skipping filter: {e}")
                 pass
             
+            # Get all NPCs first
+            npcs = query.order_by(NPCTracking.importance_score.desc()).all()
+
+            # Filter out NPCs that match existing story_characters
+            # Get existing story character names for this story/branch
+            from ..models import StoryCharacter, Character
+            existing_chars_query = db.query(Character.name).join(
+                StoryCharacter, StoryCharacter.character_id == Character.id
+            ).filter(StoryCharacter.story_id == story_id)
+            if branch_id:
+                existing_chars_query = existing_chars_query.filter(StoryCharacter.branch_id == branch_id)
+            existing_char_names = {name.lower() for (name,) in existing_chars_query.all()}
+
+            # Build a set of name variations for existing characters
+            # e.g., "Nishant Saran" -> {"nishant saran", "nishant", "saran", "mr. saran", "mr saran"}
+            existing_name_parts = set()
+            for name in existing_char_names:
+                existing_name_parts.add(name)
+                # Add individual words (first name, last name)
+                for part in name.split():
+                    if len(part) > 2:  # Skip very short parts like "a", "of"
+                        existing_name_parts.add(part)
+                        # Also add with common titles
+                        existing_name_parts.add(f"mr. {part}")
+                        existing_name_parts.add(f"mr {part}")
+                        existing_name_parts.add(f"mrs. {part}")
+                        existing_name_parts.add(f"mrs {part}")
+                        existing_name_parts.add(f"ms. {part}")
+                        existing_name_parts.add(f"ms {part}")
+                        existing_name_parts.add(f"dr. {part}")
+                        existing_name_parts.add(f"dr {part}")
+
+            logger.info(f"[NPC-SUGGESTIONS] Existing character name parts to filter: {existing_name_parts}")
+
+            # Filter out NPCs that match existing characters
+            def matches_existing_character(npc_name: str) -> bool:
+                npc_lower = npc_name.lower().strip()
+                # Direct match
+                if npc_lower in existing_name_parts:
+                    return True
+                # Check if any part of NPC name matches existing character parts
+                # e.g., "Ali Malik" should match if "ali" exists
+                npc_parts = npc_lower.split()
+                for part in npc_parts:
+                    if len(part) > 2 and part in existing_name_parts:
+                        return True
+                # Check if NPC name without title matches
+                for title in ['mr. ', 'mr ', 'mrs. ', 'mrs ', 'ms. ', 'ms ', 'dr. ', 'dr ']:
+                    if npc_lower.startswith(title):
+                        without_title = npc_lower[len(title):]
+                        if without_title in existing_name_parts:
+                            return True
+                        # Also check parts of the name without title
+                        for part in without_title.split():
+                            if len(part) > 2 and part in existing_name_parts:
+                                return True
+                return False
+
+            npcs = [npc for npc in npcs if not matches_existing_character(npc.character_name)]
+            logger.info(f"[NPC-SUGGESTIONS] NPCs after filtering existing characters: {len(npcs)}")
+
+            # Filter out obvious non-character entities (objects, materials, locations)
+            # These are commonly misclassified by the extraction model
+            NON_CHARACTER_PATTERNS = {
+                # Materials
+                'marble', 'granite', 'wood', 'stone', 'tile', 'tiles', 'glass', 'metal',
+                'calacatta', 'carrara', 'quartz', 'porcelain', 'ceramic',
+                # Furniture/fixtures
+                'countertop', 'counter', 'workbench', 'bench', 'table', 'chair', 'cabinet',
+                'sink', 'faucet', 'island', 'shelf', 'shelves', 'drawer', 'door',
+                # Construction/tools
+                'compressor', 'drill', 'saw', 'hammer', 'equipment', 'tool', 'tools',
+                'sheeting', 'plastic', 'pipe', 'pipes', 'wire', 'wires', 'cable',
+                # Rooms/locations
+                'sunroom', 'kitchen', 'bathroom', 'bedroom', 'living room', 'garage',
+                'basement', 'attic', 'hallway', 'patio', 'deck', 'porch',
+                # Food/drinks
+                'coffee', 'tea', 'water', 'wine', 'beer', 'food', 'meal',
+                # Nature/weather
+                'sun', 'moon', 'rain', 'wind', 'sky', 'cloud', 'clouds', 'tree', 'trees',
+                # Other objects
+                'lighting', 'pendant', 'lamp', 'light', 'sample', 'samples',
+                'traffic', 'car', 'cars', 'vehicle', 'vehicles', 'phone', 'computer',
+                # Generic role-based descriptors (not actual names)
+                'wife', 'husband', 'waiter', 'waitress', 'driver', 'stranger',
+                'guard', 'soldier', 'servant', 'maid', 'butler', 'clerk',
+            }
+
+            def is_likely_object(npc_name: str) -> bool:
+                npc_lower = npc_name.lower().strip()
+                # Check if any word in the name is a known non-character pattern
+                words = npc_lower.split()
+                for word in words:
+                    if word in NON_CHARACTER_PATTERNS:
+                        return True
+                # Check for multi-word patterns
+                if npc_lower in NON_CHARACTER_PATTERNS:
+                    return True
+                # Check if the full name contains a non-character pattern
+                for pattern in NON_CHARACTER_PATTERNS:
+                    if pattern in npc_lower:
+                        return True
+                return False
+
+            npcs = [npc for npc in npcs if not is_likely_object(npc.character_name)]
+            logger.info(f"[NPC-SUGGESTIONS] NPCs after filtering objects: {len(npcs)}")
+
             # Post-process to remove duplicates (case-insensitive and substring matches)
             # This handles existing duplicates in the database
-            npcs = query.order_by(NPCTracking.importance_score.desc()).all()
             
             # Deduplicate by case-insensitive name and substring matches
             # e.g., "Reynolds" and "Sheriff Reynolds" should be merged
