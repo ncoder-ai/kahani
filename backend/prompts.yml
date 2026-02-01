@@ -2737,6 +2737,18 @@ pacing:
     The chapter's story beats will emerge naturally - no need to rush into them.
     Let the reader settle into the scene before any major plot developments.
   
+  # Strict mode ("1") - explicitly highlight the next beat to focus on
+  strict_next_beat: |
+    >>> NEXT BEAT TO WORK TOWARDS: {next_beat}
+    Focus on setting up or completing this specific story beat in this scene.
+    Don't skip ahead to later beats - progress through the story linearly.
+
+  # Flexible mode ("3") - highlight the next few beats to focus on
+  flexible_next_beats: |
+    >>> NEXT BEATS TO WORK TOWARDS: {next_beats}
+    Focus on these {count} upcoming story beats - progress through them naturally.
+    These are your immediate focus - later beats will come in future scenes.
+
   # Low progress (1-49%) - some events done, plenty remaining
   progress_low: |
     Story beats to weave in naturally (when the moment is right): {remaining_events}

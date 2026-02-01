@@ -40,7 +40,7 @@ class ContextSettingsUpdate(BaseModel):
     summary_threshold: int = Field(ge=3, le=20, default=5)
     summary_threshold_tokens: int = Field(ge=1000, le=50000, default=8000)
     enable_summarization: bool = True
-    character_extraction_threshold: Optional[int] = Field(default=None, ge=3, le=20)
+    character_extraction_threshold: Optional[int] = Field(default=None, ge=1, le=20)
     scene_batch_size: Optional[int] = Field(default=None, ge=5, le=50)  # Batch size for scene caching
     # Semantic Memory Settings
     enable_semantic_memory: Optional[bool] = None
@@ -68,6 +68,7 @@ class GenerationPreferencesUpdate(BaseModel):
     scene_length: str = Field(pattern="^(short|medium|long)$", default="medium")
     auto_choices: Optional[bool] = None
     choices_count: Optional[int] = Field(ge=2, le=6, default=3)
+    enable_streaming: Optional[bool] = None  # Enable streaming generation
     alert_on_high_context: Optional[bool] = None
     use_extraction_llm_for_summary: Optional[bool] = None
     separate_choice_generation: Optional[bool] = None
@@ -404,6 +405,9 @@ async def update_user_settings(
     # Update generation preferences
     if settings_update.generation_preferences:
         gen = settings_update.generation_preferences
+        logger.info(f"[SETTINGS UPDATE] Received generation_preferences: "
+                   f"enable_chapter_plot_tracking={gen.enable_chapter_plot_tracking}, "
+                   f"default_plot_check_mode={gen.default_plot_check_mode}")
         if gen.default_genre is not None:
             user_settings.default_genre = gen.default_genre
         if gen.default_tone is not None:

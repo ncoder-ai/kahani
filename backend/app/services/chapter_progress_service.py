@@ -607,18 +607,24 @@ class ChapterProgressService:
 
         return chapter.plot_progress
     
-    def generate_pacing_guidance(self, chapter: Chapter) -> str:
+    def generate_pacing_guidance(self, chapter: Chapter, plot_check_mode: str = "all") -> str:
         """
         Generate adaptive pacing guidance based on chapter progress.
-        
+
         Uses prompts from prompts.yml for all guidance text.
-        
+
         The guidance becomes more directive as the chapter progresses:
         - 0% progress: Focus on atmosphere, setup, character grounding
         - < 50% progress: Subtle reminder of remaining events
         - 50-80% progress: Moderate suggestion to incorporate events
         - > 80% progress: Explicit directive to address remaining events
-        
+
+        When plot_check_mode is "1" (strict), explicitly highlights the next beat to focus on.
+
+        Args:
+            chapter: The chapter to generate guidance for
+            plot_check_mode: "1" for strict (next beat only), "3" for flexible, "all" for full
+
         Returns:
             Pacing guidance string for the LLM, or empty string if no guidance needed
         """
@@ -663,12 +669,47 @@ class ChapterProgressService:
                     parts.append(complete_guidance)
             return "\n".join(parts)
         
-        # Format remaining events for substitution
-        remaining_str = ", ".join(remaining_events[:3])
-        if len(remaining_events) > 3:
-            remaining_str += f" (+{len(remaining_events) - 3} more)"
-        remaining_all = ", ".join(remaining_events)
-        
+        # Format remaining events based on plot_check_mode
+        # Mode "1": only show the next beat
+        # Mode "3": only show next 3 beats
+        # Mode "all": show all remaining beats
+        if plot_check_mode == "1":
+            events_to_show = remaining_events[:1]
+        elif plot_check_mode == "3":
+            events_to_show = remaining_events[:3]
+        else:
+            events_to_show = remaining_events
+
+        remaining_str = ", ".join(events_to_show)
+        remaining_all = ", ".join(events_to_show)  # Same as remaining_str when mode limits beats
+
+        # When in strict mode ("1"), explicitly highlight the next beat to work towards
+        if plot_check_mode == "1" and remaining_events:
+            next_beat = remaining_events[0]
+            strict_guidance = prompt_manager.get_raw_prompt(
+                "pacing.strict_next_beat",
+                next_beat=next_beat
+            )
+            if strict_guidance:
+                parts.append(strict_guidance)
+            else:
+                parts.append(f">>> NEXT BEAT TO WORK TOWARDS: {next_beat}")
+                parts.append("Focus on setting up or completing this specific story beat in this scene.")
+
+        # When in flexible mode ("3"), highlight the next few beats to focus on
+        elif plot_check_mode == "3" and remaining_events:
+            next_beats = remaining_events[:3]
+            flexible_guidance = prompt_manager.get_raw_prompt(
+                "pacing.flexible_next_beats",
+                next_beats=", ".join(next_beats),
+                count=len(next_beats)
+            )
+            if flexible_guidance:
+                parts.append(flexible_guidance)
+            else:
+                parts.append(f">>> NEXT BEATS TO WORK TOWARDS: {', '.join(next_beats)}")
+                parts.append("Focus on these upcoming story beats - progress through them naturally.")
+
         # At 0% progress (no events completed yet) - focus on setup
         if completed_count == 0:
             early_guidance = prompt_manager.get_raw_prompt("pacing.progress_early")

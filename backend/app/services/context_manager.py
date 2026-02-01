@@ -1256,11 +1256,19 @@ Appearance: {char.get('appearance', '')}
                 from .chapter_progress_service import ChapterProgressService
                 chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
                 if chapter:
+                    # Get plot_check_mode from story (defaults to user preference or "all")
+                    story = db.query(Story).filter(Story.id == chapter.story_id).first()
+                    plot_check_mode = "all"
+                    if story and story.plot_check_mode:
+                        plot_check_mode = story.plot_check_mode
+                    elif gen_prefs.get("default_plot_check_mode"):
+                        plot_check_mode = gen_prefs.get("default_plot_check_mode")
+
                     progress_service = ChapterProgressService(db)
-                    pacing_guidance = progress_service.generate_pacing_guidance(chapter)
+                    pacing_guidance = progress_service.generate_pacing_guidance(chapter, plot_check_mode=plot_check_mode)
                     if pacing_guidance:
                         scene_context["pacing_guidance"] = pacing_guidance
-                        logger.info(f"[CONTEXT BUILD] Added pacing guidance for chapter {chapter_id}")
+                        logger.info(f"[CONTEXT BUILD] Added pacing guidance for chapter {chapter_id} (plot_check_mode={plot_check_mode})")
             except Exception as e:
                 logger.warning(f"[CONTEXT BUILD] Failed to generate pacing guidance: {e}")
         
