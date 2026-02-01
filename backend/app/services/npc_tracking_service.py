@@ -252,8 +252,15 @@ class NPCTrackingService:
             temperature = extraction_settings.get('temperature', ext_defaults.get('temperature'))
             max_tokens = extraction_settings.get('max_tokens', service_defaults.get('npc_tracking_max_tokens', 1500))
 
+            # Get advanced sampling settings
+            top_p = extraction_settings.get('top_p', ext_defaults.get('top_p', 1.0))
+            repetition_penalty = extraction_settings.get('repetition_penalty', ext_defaults.get('repetition_penalty', 1.0))
+            min_p = extraction_settings.get('min_p', ext_defaults.get('min_p', 0.0))
+            thinking_disable_method = extraction_settings.get('thinking_disable_method', ext_defaults.get('thinking_disable_method', 'none'))
+            thinking_disable_custom = extraction_settings.get('thinking_disable_custom', ext_defaults.get('thinking_disable_custom', ''))
+
             # Get timeout from user's LLM settings
-            llm_settings = user_settings.get('llm_settings', {})
+            llm_settings = self.user_settings.get('llm_settings', {})
             timeout_total = llm_settings.get('timeout_total', 240)
 
             # Create extraction service
@@ -263,7 +270,12 @@ class NPCTrackingService:
                 api_key=api_key,
                 temperature=temperature,
                 max_tokens=max_tokens,
-                timeout_total=timeout_total
+                timeout_total=timeout_total,
+                top_p=top_p,
+                repetition_penalty=repetition_penalty,
+                min_p=min_p,
+                thinking_disable_method=thinking_disable_method,
+                thinking_disable_custom=thinking_disable_custom
             )
         except Exception as e:
             logger.warning(f"Failed to initialize extraction service: {e}")

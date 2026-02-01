@@ -18,6 +18,7 @@ from .semantic_memory import get_semantic_memory_service
 from .character_memory_service import get_character_memory_service
 from .plot_thread_service import get_plot_thread_service
 from .llm.prompts import prompt_manager
+from .llm.extraction_service import extract_json_robust
 from ..config import settings
 from ..models import Scene, SceneVariant, Story, Chapter, StoryCharacter, Character
 from .llm.service import UnifiedLLMService
@@ -413,24 +414,8 @@ async def _try_combined_extraction(
                     )
 
                     if response:
-                        # Clean and parse response
-                        response_clean = response.strip()
-                        if response_clean.startswith("```json"):
-                            response_clean = response_clean[7:]
-                        elif response_clean.startswith("```"):
-                            response_clean = response_clean[3:]
-                        if response_clean.endswith("```"):
-                            response_clean = response_clean[:-3]
-                        response_clean = response_clean.strip()
-
-                        try:
-                            extraction_results = json.loads(response_clean)
-                        except json.JSONDecodeError:
-                            json_match = re.search(r'\{[\s\S]*\}', response_clean)
-                            if json_match:
-                                extraction_results = json.loads(json_match.group())
-                            else:
-                                raise
+                        # Parse response using robust extractor
+                        extraction_results = extract_json_robust(response)
 
                         # Store character moments
                         char_service = get_character_memory_service()
@@ -575,15 +560,9 @@ async def run_inline_entity_extraction(
         extraction_time = (time.perf_counter() - start_time) * 1000
         logger.info(f"[INLINE_ENTITY] LLM response received in {extraction_time:.0f}ms")
 
-        # Parse JSON response
+        # Parse JSON response using robust extractor
         try:
-            # Clean response (remove markdown code blocks if present)
-            cleaned_response = raw_response.strip()
-            if cleaned_response.startswith("```"):
-                lines = cleaned_response.split("\n")
-                cleaned_response = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-
-            entity_states = json.loads(cleaned_response)
+            entity_states = extract_json_robust(raw_response)
         except json.JSONDecodeError as e:
             logger.error(f"[INLINE_ENTITY] Failed to parse JSON response: {e}")
             logger.debug(f"[INLINE_ENTITY] Raw response: {raw_response[:500]}...")

@@ -737,42 +737,20 @@ entity_only_extraction:
     === SCENE JUST GENERATED ===
     {scene_content}
 
-    === EXTRACT ENTITY STATE CHANGES ONLY ===
+    === EXTRACT CHARACTER STATES ===
     Known characters: {character_names}
     Chapter location: {chapter_location}
 
-    Extract ONLY entity state changes from the scene above. Be concise and factual.
+    Extract state changes for characters in this scene. Be concise and factual.
 
-    For CHARACTERS:
-    - Location: Use "{chapter_location}" unless they explicitly moved elsewhere
-    - emotional_state: 1-2 words ONLY (e.g., "nervous", "aroused", "angry")
-    - physical_condition: 1-3 words (e.g., "tired", "sweating", "nude")
-    - current_attire: Specific items or "nude" (NOT "dressed provocatively")
+    Guidelines:
+    - location: ONLY the room name (e.g., "kitchen", "bedroom", "living room", "garden"). Never copy the chapter location text verbatim.
+    - emotional_state: 1-2 words (e.g., "nervous", "aroused", "angry")
+    - physical_condition: 1-3 words (e.g., "tired", "sweating", "flushed")
+    - current_attire: Specific items or "nude"
 
-    For LOCATIONS:
-    - Only include if atmosphere/condition changed in this scene
-    - Name should be room/building, NOT furniture
-
-    For OBJECTS:
-    - Only plot-critical items (NOT furniture, body parts, everyday items)
-    - Only if ownership/state changed in this scene
-
-    Return ONLY valid JSON:
-    {{
-      "characters": [
-        {{
-          "name": "character name",
-          "location": "room or {chapter_location}",
-          "emotional_state": "1-2 words or null",
-          "physical_condition": "1-3 words or null",
-          "current_attire": "specific items or null",
-          "knowledge_gained": ["factual info learned"],
-          "relationship_changes": {{}}
-        }}
-      ],
-      "locations": [],
-      "objects": []
-    }}
+    Return ONLY this JSON structure:
+    {{"characters": [{{"name": "...", "location": "kitchen", "emotional_state": "...", "physical_condition": "...", "current_attire": "..."}}]}}
 
 # Working Memory Extraction (cache-friendly)
 # Uses same context structure as scene generation for cache hits

@@ -18,15 +18,88 @@ prompt_manager = PromptManager()
 
 
 def clean_llm_json(json_str: str) -> str:
-    """Clean common LLM JSON formatting issues."""
-    json_str = json_str.strip()
-    if json_str.startswith("```json"):
-        json_str = json_str[7:]
-    if json_str.startswith("```"):
-        json_str = json_str[3:]
-    if json_str.endswith("```"):
-        json_str = json_str[:-3]
-    return json_str.strip()
+    """
+    Clean common LLM JSON formatting issues and extract valid JSON.
+
+    Handles:
+    - Markdown code blocks (```json ... ```)
+    - Extra content after valid JSON
+    - Whitespace and formatting issues
+    """
+    if not json_str:
+        return json_str
+
+    text = json_str.strip()
+
+    # Step 1: Remove markdown code blocks
+    if text.startswith("```"):
+        first_newline = text.find("\n")
+        if first_newline != -1:
+            text = text[first_newline + 1:]
+        else:
+            text = text[3:]
+
+    # Remove trailing ``` and everything after first ```
+    if "```" in text:
+        end_marker = text.find("```")
+        if end_marker != -1:
+            text = text[:end_marker]
+
+    text = text.strip()
+
+    # Step 2: Find first complete JSON using brace matching
+    start_char = None
+    end_char = None
+    start_idx = -1
+
+    for i, char in enumerate(text):
+        if char == '{':
+            start_char = '{'
+            end_char = '}'
+            start_idx = i
+            break
+        elif char == '[':
+            start_char = '['
+            end_char = ']'
+            start_idx = i
+            break
+
+    if start_idx == -1:
+        return text  # No JSON found, return as-is
+
+    # Count braces/brackets to find matching end
+    depth = 0
+    in_string = False
+    escape_next = False
+
+    for i in range(start_idx, len(text)):
+        char = text[i]
+
+        if escape_next:
+            escape_next = False
+            continue
+
+        if char == '\\' and in_string:
+            escape_next = True
+            continue
+
+        if char == '"' and not escape_next:
+            in_string = not in_string
+            continue
+
+        if in_string:
+            continue
+
+        if char == start_char:
+            depth += 1
+        elif char == end_char:
+            depth -= 1
+            if depth == 0:
+                # Found complete JSON, return just this part
+                return text[start_idx:i + 1]
+
+    # If we get here, JSON wasn't complete - return what we have
+    return text
 
 
 class ChapterProgressService:

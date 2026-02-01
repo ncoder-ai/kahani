@@ -6,7 +6,7 @@ for extraction tasks like plot event extraction. Optimized for fast, cost-effect
 """
 
 import litellm
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, Any, List, Tuple, Optional, Union
 import logging
 import time
 import json
@@ -16,6 +16,118 @@ from aiohttp import ClientTimeout
 from .prompts import prompt_manager
 
 logger = logging.getLogger(__name__)
+
+
+def extract_json_robust(text: str) -> Union[Dict, List]:
+    """
+    Robustly extract JSON from LLM response text.
+
+    Handles:
+    - Markdown code blocks (```json ... ```)
+    - Extra content after valid JSON
+    - Whitespace and formatting issues
+
+    Returns:
+        Parsed JSON (dict or list)
+
+    Raises:
+        json.JSONDecodeError if no valid JSON found
+    """
+    if not text:
+        raise json.JSONDecodeError("Empty response", text, 0)
+
+    original_text = text
+    text = text.strip()
+
+    # Step 1: Remove markdown code blocks
+    if text.startswith("```"):
+        # Find the end of the opening line (```json or just ```)
+        first_newline = text.find("\n")
+        if first_newline != -1:
+            text = text[first_newline + 1:]
+        else:
+            text = text[3:]
+
+    # Remove trailing ``` if present
+    if "```" in text:
+        # Find first ``` and take everything before it
+        end_marker = text.find("```")
+        if end_marker != -1:
+            text = text[:end_marker]
+
+    text = text.strip()
+
+    # Step 2: Try direct parse first
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Step 3: Find first complete JSON object or array using brace matching
+    start_char = None
+    end_char = None
+    start_idx = -1
+
+    # Find first { or [
+    for i, char in enumerate(text):
+        if char == '{':
+            start_char = '{'
+            end_char = '}'
+            start_idx = i
+            break
+        elif char == '[':
+            start_char = '['
+            end_char = ']'
+            start_idx = i
+            break
+
+    if start_idx == -1:
+        raise json.JSONDecodeError("No JSON object or array found", original_text, 0)
+
+    # Count braces/brackets to find matching end
+    depth = 0
+    in_string = False
+    escape_next = False
+    end_idx = -1
+
+    for i in range(start_idx, len(text)):
+        char = text[i]
+
+        if escape_next:
+            escape_next = False
+            continue
+
+        if char == '\\' and in_string:
+            escape_next = True
+            continue
+
+        if char == '"' and not escape_next:
+            in_string = not in_string
+            continue
+
+        if in_string:
+            continue
+
+        if char == start_char:
+            depth += 1
+        elif char == end_char:
+            depth -= 1
+            if depth == 0:
+                end_idx = i + 1
+                break
+
+    if end_idx == -1:
+        raise json.JSONDecodeError("Unclosed JSON structure", original_text, start_idx)
+
+    json_str = text[start_idx:end_idx]
+
+    try:
+        result = json.loads(json_str)
+        logger.debug(f"[JSON_EXTRACT] Successfully extracted JSON from position {start_idx} to {end_idx}")
+        return result
+    except json.JSONDecodeError as e:
+        logger.warning(f"[JSON_EXTRACT] Brace-matched JSON failed to parse: {e}")
+        raise json.JSONDecodeError(f"Extracted JSON invalid: {e}", original_text, start_idx)
 
 # Thinking tag patterns for different models
 THINKING_PATTERNS = {
