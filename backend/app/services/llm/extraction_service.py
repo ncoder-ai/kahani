@@ -798,48 +798,39 @@ If no moments found, return {{"moments": []}}. Return ONLY the JSON, no other te
             
             explicit_names_str = ", ".join(explicit_character_names) if explicit_character_names else "None"
             
-            prompt = f"""Analyze this story scene and extract ALL named entities (characters, beings, entities) 
-that are NOT in the explicit character list.
+            prompt = f"""Extract ONLY PEOPLE and SENTIENT BEINGS from this scene.
 
 Scene (Sequence #{scene_sequence}):
 {scene_content}
 
-Explicit Characters (already tracked): {explicit_names_str}
+Already tracked characters (SKIP these): {explicit_names_str}
 
-Extract ALL named entities that:
-- Are mentioned by name
-- Are NOT in the explicit character list above
-- Could be characters, NPCs, entities, beings, or important figures
-- Have dialogue, perform actions, or have relationships in the scene
+ONLY extract:
+- Humans (people with names like "Mr. Smith", "Sarah", "the doctor")
+- Sentient beings (aliens, robots with personalities, talking animals)
+- Named individuals who speak, think, or make decisions
 
-For each NPC, identify:
-- Name (exact name as mentioned)
-- Mention count (how many times mentioned in this scene)
-- Has dialogue (true/false)
-- Has actions (true/false - performs actions in scene)
-- Has relationships (true/false - interacts with other characters)
-- Context snippets (array of 2-3 short text snippets mentioning this NPC)
-- Properties (role, description, etc. if mentioned)
+DO NOT extract (these are NOT NPCs):
+- Objects: marble, tile, countertop, workbench, coffee, equipment
+- Locations: kitchen, sunroom, office, hallway
+- Materials: Carrara, Calacatta Gold, plastic, wood
+- Nature: sun, rain, traffic, weather
+- Abstract concepts: silence, tension, time
 
-Return ONLY valid JSON in this exact format:
+For each PERSON found, return:
 {{
   "npcs": [
     {{
-      "name": "NPC name",
-      "mention_count": 3,
+      "name": "Person's name",
+      "mention_count": 1,
       "has_dialogue": true,
       "has_actions": true,
-      "has_relationships": true,
-      "context_snippets": ["snippet 1", "snippet 2"],
-      "properties": {{
-        "role": "role description",
-        "description": "brief description"
-      }}
+      "has_relationships": true
     }}
   ]
 }}
 
-If no NPCs found, return {{"npcs": []}}. Return ONLY the JSON, no other text."""
+If no PEOPLE found, return {{"npcs": []}}. Return ONLY JSON."""
             
             params = self._get_generation_params()
             response = await acompletion(
@@ -880,47 +871,38 @@ If no NPCs found, return {{"npcs": []}}. Return ONLY the JSON, no other text."""
             
             explicit_names_str = ", ".join(explicit_character_names) if explicit_character_names else "None"
             
-            prompt = f"""Analyze the following scenes and extract ALL named entities (characters, beings, entities) 
-that are NOT in the explicit character list.
+            prompt = f"""Extract ONLY PEOPLE and SENTIENT BEINGS from these scenes.
 
 {batch_content}
 
-Explicit Characters (already tracked): {explicit_names_str}
+Already tracked characters (SKIP these): {explicit_names_str}
 
-Extract ALL named entities that:
-- Are mentioned by name
-- Are NOT in the explicit character list above
-- Could be characters, NPCs, entities, beings, or important figures
-- Have dialogue, perform actions, or have relationships in the scenes
+ONLY extract:
+- Humans (people with names like "Mr. Smith", "Sarah", "the doctor")
+- Sentient beings (aliens, robots with personalities, talking animals)
+- Named individuals who speak, think, or make decisions
 
-For each NPC, identify:
-- Name (exact name as mentioned)
-- Mention count (how many times mentioned across scenes)
-- Has dialogue (true/false)
-- Has actions (true/false - performs actions)
-- Has relationships (true/false - interacts with other characters)
-- Context snippets (array of 2-3 short text snippets mentioning this NPC)
-- Properties (role, description, etc. if mentioned)
+DO NOT extract (these are NOT NPCs):
+- Objects: marble, tile, countertop, workbench, coffee, equipment
+- Locations: kitchen, sunroom, office, hallway
+- Materials: Carrara, Calacatta Gold, plastic, wood
+- Nature: sun, rain, traffic, weather
+- Abstract concepts: silence, tension, time
 
-Return ONLY valid JSON in this exact format:
+For each PERSON found, return:
 {{
   "npcs": [
     {{
-      "name": "NPC name",
+      "name": "Person's name",
       "mention_count": 3,
       "has_dialogue": true,
       "has_actions": true,
-      "has_relationships": true,
-      "context_snippets": ["snippet 1", "snippet 2"],
-      "properties": {{
-        "role": "role description",
-        "description": "brief description"
-      }}
+      "has_relationships": true
     }}
   ]
 }}
 
-If no NPCs found, return {{"npcs": []}}. Return ONLY the JSON, no other text."""
+If no PEOPLE found, return {{"npcs": []}}. Return ONLY JSON."""
             
             params = self._get_generation_params(max_tokens=self.max_tokens * 2)
             response = await acompletion(
