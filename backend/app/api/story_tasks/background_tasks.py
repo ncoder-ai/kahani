@@ -1468,7 +1468,8 @@ async def rollback_plot_progress_in_background(
                 chapter = bg_db.query(Chapter).filter(Chapter.id == scene_near_deletion.chapter_id).first()
                 if chapter:
                     chapters = [chapter]
-                    logger.info(f"[DELETE-BG:PLOT:CONTEXT] trace_id={trace_id} chapter_id={chapter.id}")
+                    logger.info(f"[DELETE-BG:PLOT:CONTEXT] trace_id={trace_id} chapter_id={chapter.id} "
+                               f"branch_id={branch_id} from_scene_seq={scene_near_deletion.sequence_number}")
 
             for chapter in chapters:
                 needs_update = False
