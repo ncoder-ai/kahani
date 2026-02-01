@@ -152,6 +152,7 @@ interface Story {
   world_setting: string;
   status: string;
   content_rating?: string;  // "sfw" or "nsfw"
+  plot_check_mode?: '1' | '3' | 'all';  // How many events to check
   scenes: Scene[];
   story_arc?: StoryArc | null;
   flow_info?: {

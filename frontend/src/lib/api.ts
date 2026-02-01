@@ -788,7 +788,7 @@ class ApiClient {
     return this.request<any>(`/api/stories/`, { method: 'POST', body: JSON.stringify(data) });
   }
 
-  async updateStory(id: number, data: { title?: string; description?: string; genre?: string; tone?: string; world_setting?: string; initial_premise?: string; scenario?: string; content_rating?: string; interaction_types?: string[]; }) {
+  async updateStory(id: number, data: { title?: string; description?: string; genre?: string; tone?: string; world_setting?: string; initial_premise?: string; scenario?: string; content_rating?: string; interaction_types?: string[]; plot_check_mode?: '1' | '3' | 'all'; }) {
     return this.request<any>(`/api/stories/${id}`, { method: 'PUT', body: JSON.stringify(data) });
   }
 

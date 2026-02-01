@@ -115,7 +115,19 @@ class ChapterProgressService:
     
     def __init__(self, db: Session):
         self.db = db
-    
+
+    def get_all_chapter_events(self, chapter_plot: dict) -> list:
+        """
+        Combine key_events + climax + resolution into one ordered list.
+        Brainstorm output stays unchanged, we just flatten at tracking time.
+        """
+        events = list(chapter_plot.get("key_events", []))
+        if chapter_plot.get("climax"):
+            events.append(chapter_plot["climax"])
+        if chapter_plot.get("resolution"):
+            events.append(chapter_plot["resolution"])
+        return events
+
     def get_chapter_progress(self, chapter: Chapter) -> Dict[str, Any]:
         """
         Get the current progress for a chapter.
@@ -135,9 +147,10 @@ class ChapterProgressService:
                 "scene_count": 0
             }
         
-        key_events = chapter.chapter_plot.get("key_events", [])
-        total_events = len(key_events)
-        
+        # Use unified event list (key_events + climax + resolution)
+        all_events = self.get_all_chapter_events(chapter.chapter_plot)
+        total_events = len(all_events)
+
         # Get progress from stored data or initialize
         progress_data = chapter.plot_progress or {
             "completed_events": [],
@@ -146,12 +159,12 @@ class ChapterProgressService:
             "resolution_reached": False,
             "last_updated": None
         }
-        
+
         completed_events = progress_data.get("completed_events", [])
-        
-        # Calculate remaining events
-        remaining_events = [e for e in key_events if e not in completed_events]
-        
+
+        # Calculate remaining events from unified list
+        remaining_events = [e for e in all_events if e not in completed_events]
+
         # Calculate progress percentage
         progress_percentage = (len(completed_events) / total_events * 100) if total_events > 0 else 0
         
@@ -179,7 +192,8 @@ class ChapterProgressService:
             "scene_count": actual_scene_count,  # Use actual scene count, not stored
             "climax": chapter.chapter_plot.get("climax"),
             "resolution": chapter.chapter_plot.get("resolution"),
-            "key_events": key_events
+            "key_events": chapter.chapter_plot.get("key_events", []),
+            "all_events": all_events  # Unified list for reference
         }
     
     def update_progress(
@@ -187,17 +201,19 @@ class ChapterProgressService:
         chapter: Chapter,
         new_completed_events: List[str],
         scene_count: Optional[int] = None,
-        climax_reached: bool = False
+        climax_reached: bool = False,
+        resolution_reached: bool = False
     ) -> Dict[str, Any]:
         """
         Update the progress for a chapter.
-        
+
         Args:
             chapter: The chapter to update
             new_completed_events: List of newly completed event descriptions
             scene_count: Current scene count (optional, auto-calculated if not provided)
             climax_reached: Whether the climax has been reached
-            
+            resolution_reached: Whether the resolution has been reached
+
         Returns:
             Updated progress data
         """
@@ -232,7 +248,11 @@ class ChapterProgressService:
         # Update climax status (once True, stays True)
         if climax_reached or progress_data.get("climax_reached", False):
             progress_data["climax_reached"] = True
-        
+
+        # Update resolution status (once True, stays True)
+        if resolution_reached or progress_data.get("resolution_reached", False):
+            progress_data["resolution_reached"] = True
+
         # Update completed events
         progress_data["completed_events"] = list(existing_completed)
         progress_data["last_updated"] = datetime.utcnow().isoformat()
@@ -340,9 +360,18 @@ class ChapterProgressService:
             all_events = set()
             for batch in batches:
                 all_events.update(batch.completed_events or [])
+
+            # Derive climax_reached and resolution_reached from completed events
+            climax = chapter.chapter_plot.get("climax", "") if chapter.chapter_plot else ""
+            resolution = chapter.chapter_plot.get("resolution", "") if chapter.chapter_plot else ""
+            climax_reached = climax in all_events if climax else False
+            resolution_reached = resolution in all_events if resolution else False
+
             chapter.plot_progress = {
                 "completed_events": list(all_events),
                 "scene_count": latest_batch.end_scene_sequence,
+                "climax_reached": climax_reached,
+                "resolution_reached": resolution_reached,
                 "last_updated": datetime.utcnow().isoformat()
             }
             chapter.last_plot_extraction_scene_count = latest_batch.end_scene_sequence
@@ -758,60 +787,74 @@ class ChapterProgressService:
         scene_content: str,
         llm_service,
         user_id: int,
-        user_settings: Dict[str, Any]
+        user_settings: Dict[str, Any],
+        plot_check_mode: str = "1"
     ) -> Dict[str, Any]:
         """
         Extract completed events from a scene and update chapter progress.
-        
+
         Args:
             chapter: The chapter to update
             scene_content: The generated scene text
             llm_service: The LLM service to use for extraction
             user_id: User ID for LLM call
             user_settings: User settings for LLM call
-            
+            plot_check_mode: How many events to check - "1" (strict), "3", or "all"
+
         Returns:
             Updated progress data
         """
         if not chapter.chapter_plot:
             return {}
-        
+
         # Refresh chapter to get latest plot_progress from database
         # This prevents reading stale data when processing multiple scenes in a loop
         self.db.refresh(chapter)
-        
-        key_events = chapter.chapter_plot.get("key_events", [])
-        
+
+        # Get ALL events as unified list (key_events + climax + resolution)
+        all_events = self.get_all_chapter_events(chapter.chapter_plot)
+
         # Get already completed events
         progress = chapter.plot_progress or {}
         already_completed = set(progress.get("completed_events", []))
-        
+
         # Only check for events that haven't been completed yet
-        remaining_events = [e for e in key_events if e not in already_completed]
-        
+        remaining_events = [e for e in all_events if e not in already_completed]
+
         if not remaining_events:
             # All events already completed, just update scene count
             return self.update_progress(chapter, [])
-        
-        # Extract newly completed events
+
+        # Apply plot_check_mode filter
+        if plot_check_mode == "1":
+            events_to_check = remaining_events[:1]
+        elif plot_check_mode == "3":
+            events_to_check = remaining_events[:3]
+        else:  # "all"
+            events_to_check = remaining_events
+
+        # Extract newly completed events via LLM
         new_completed = await self.extract_completed_events(
             scene_content=scene_content,
-            key_events=remaining_events,
+            key_events=events_to_check,
             llm_service=llm_service,
             user_id=user_id,
             user_settings=user_settings
         )
-        
-        # Check if climax was reached
+
+        # Derive climax_reached and resolution_reached from completed events
         climax = chapter.chapter_plot.get("climax", "")
-        climax_reached = False
-        if climax and climax.lower() in scene_content.lower():
-            climax_reached = True
-        
+        resolution = chapter.chapter_plot.get("resolution", "")
+
+        all_completed = already_completed.union(new_completed)
+        climax_reached = climax in all_completed if climax else False
+        resolution_reached = resolution in all_completed if resolution else False
+
         # Update progress
         return self.update_progress(
             chapter=chapter,
             new_completed_events=new_completed,
-            climax_reached=climax_reached
+            climax_reached=climax_reached,
+            resolution_reached=resolution_reached
         )
 

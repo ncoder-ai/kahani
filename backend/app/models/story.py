@@ -118,6 +118,10 @@ class Story(Base):
     # These are used by the entity extraction service to track character interactions
     interaction_types = Column(JSON, nullable=True, default=list)
 
+    # Plot event checking mode - how many events to send for LLM detection
+    # "1" = next event only (strict), "3" = next 3 events, "all" = all remaining
+    plot_check_mode = Column(String(10), nullable=True)
+
     # Extraction Quality Metrics - track how well entity extraction is working
     # success_rate: ratio of extractions with meaningful data (2+ non-empty fields per character)
     # empty_rate: ratio of extractions that returned empty or no character data

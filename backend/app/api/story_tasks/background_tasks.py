@@ -957,7 +957,15 @@ async def run_plot_extraction_in_background(
                 local_llm_service = UnifiedLLMService()
                 context_manager = get_context_manager_for_user(user_settings, user_id)
 
-                key_events = extraction_chapter.chapter_plot.get("key_events", [])
+                # Get story to access plot_check_mode
+                from ...models import Story
+                story = extraction_db.query(Story).filter(Story.id == story_id).first()
+                plot_check_mode = story.plot_check_mode if story else "1"
+                if not plot_check_mode:
+                    plot_check_mode = "1"  # Default to strict
+
+                # Use unified event list (key_events + climax + resolution)
+                all_events = progress_service.get_all_chapter_events(extraction_chapter.chapter_plot)
                 all_extracted_events = []
                 scenes_processed = 0
                 batch_start_sequence = None
@@ -983,9 +991,17 @@ async def run_plot_extraction_in_background(
                                 # Get already completed events to only check remaining
                                 progress = extraction_chapter.plot_progress or {}
                                 already_completed = set(progress.get("completed_events", []))
-                                remaining_events = [e for e in key_events if e not in already_completed]
+                                remaining_events = [e for e in all_events if e not in already_completed]
 
                                 if remaining_events:
+                                    # Apply plot_check_mode filter
+                                    if plot_check_mode == "1":
+                                        events_to_check = remaining_events[:1]
+                                    elif plot_check_mode == "3":
+                                        events_to_check = remaining_events[:3]
+                                    else:  # "all"
+                                        events_to_check = remaining_events
+
                                     # Build context for cache-friendly extraction
                                     scene_context = scene_generation_context
                                     if scene_context is None and context_manager:
@@ -1003,7 +1019,7 @@ async def run_plot_extraction_in_background(
                                     # Extract events from this scene (always cache-friendly)
                                     extracted = await progress_service.extract_completed_events(
                                         scene_content=variant.content,
-                                        key_events=remaining_events,
+                                        key_events=events_to_check,
                                         llm_service=local_llm_service,
                                         user_id=user_id,
                                         user_settings=user_settings,
@@ -1437,14 +1453,16 @@ async def rollback_plot_progress_in_background(
             from sqlalchemy.orm.attributes import flag_modified
 
             # Find chapters affected by the deletion
-            # Get all chapters for this story that have scenes in the deleted range
-            chapters_query = bg_db.query(Chapter).join(Scene).filter(
-                Scene.story_id == story_id
+            # Get chapter IDs first to avoid JSON comparison issues with distinct()
+            chapter_ids_query = bg_db.query(Scene.chapter_id).filter(
+                Scene.story_id == story_id,
+                Scene.chapter_id != None
             )
             if branch_id is not None:
-                chapters_query = chapters_query.filter(Scene.branch_id == branch_id)
+                chapter_ids_query = chapter_ids_query.filter(Scene.branch_id == branch_id)
 
-            chapters = chapters_query.distinct().all()
+            chapter_ids = [row[0] for row in chapter_ids_query.distinct().all()]
+            chapters = bg_db.query(Chapter).filter(Chapter.id.in_(chapter_ids)).all() if chapter_ids else []
 
             for chapter in chapters:
                 needs_update = False

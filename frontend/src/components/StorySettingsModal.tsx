@@ -38,6 +38,7 @@ export default function StorySettingsModal({ isOpen, onClose, storyId, onSaved }
     initial_premise: '',
     scenario: '',
     content_rating: 'sfw' as 'sfw' | 'nsfw',
+    plot_check_mode: '1' as '1' | '3' | 'all',
   });
   const [userAllowsNsfw, setUserAllowsNsfw] = useState(false);
   
@@ -79,6 +80,7 @@ export default function StorySettingsModal({ isOpen, onClose, storyId, onSaved }
         initial_premise: story.initial_premise ?? '',
         scenario: story.scenario ?? '',
         content_rating: (story.content_rating || 'sfw') as 'sfw' | 'nsfw',
+        plot_check_mode: (story.plot_check_mode || '1') as '1' | '3' | 'all',
       });
       setInteractionTypes(story.interaction_types || []);
       
@@ -194,7 +196,15 @@ export default function StorySettingsModal({ isOpen, onClose, storyId, onSaved }
 
     try {
       await apiClient.updateStory(storyId, {
-        ...formData,
+        title: formData.title,
+        description: formData.description,
+        genre: formData.genre,
+        tone: formData.tone,
+        world_setting: formData.world_setting,
+        initial_premise: formData.initial_premise,
+        scenario: formData.scenario,
+        content_rating: formData.content_rating,
+        plot_check_mode: formData.plot_check_mode,
         interaction_types: interactionTypes,
       });
       if (onSaved) {
@@ -471,6 +481,26 @@ export default function StorySettingsModal({ isOpen, onClose, storyId, onSaved }
                       </p>
                     </div>
                   )}
+                </div>
+
+                {/* Plot Check Mode */}
+                <div className="border-t border-slate-700 pt-4 sm:pt-6">
+                  <label className="block text-xs sm:text-sm font-medium text-gray-200 mb-1.5 sm:mb-2">
+                    Plot Check Mode
+                  </label>
+                  <select
+                    value={formData.plot_check_mode}
+                    onChange={(e) => handleChange('plot_check_mode', e.target.value)}
+                    className="w-full px-3 sm:px-4 py-2 bg-slate-700 border border-slate-500 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  >
+                    <option value="1">Next event only (strict linear)</option>
+                    <option value="3">Next 3 events (slight flexibility)</option>
+                    <option value="all">All remaining events (full flexibility)</option>
+                  </select>
+                  <p className="text-[10px] sm:text-xs text-gray-400 mt-2">
+                    Controls how many plot events are checked after each scene.
+                    Strict = events must happen in exact order. Flexible = events can be detected out of order.
+                  </p>
                 </div>
 
                 {/* Content Rating */}

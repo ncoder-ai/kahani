@@ -97,6 +97,7 @@ class StoryCreate(BaseModel):
     initial_premise: Optional[str] = ""
     story_mode: Optional[str] = "dynamic"  # dynamic or structured
     content_rating: Optional[str] = None  # "sfw" or "nsfw" - defaults to user's allow_nsfw setting
+    plot_check_mode: Optional[str] = None  # "1" (strict), "3", or "all" - defaults to user's default_plot_check_mode
 
 class StoryUpdate(BaseModel):
     title: Optional[str] = None
@@ -108,6 +109,7 @@ class StoryUpdate(BaseModel):
     scenario: Optional[str] = None
     content_rating: Optional[str] = None  # "sfw" or "nsfw"
     interaction_types: Optional[List[str]] = None  # User-defined interaction types to track
+    plot_check_mode: Optional[str] = None  # "1" (strict), "3", or "all"
 
 
 class VariantGenerateRequest(BaseModel):
@@ -191,6 +193,19 @@ async def create_story(
         # Default: if user allows NSFW, default to NSFW; otherwise SFW
         content_rating = "nsfw" if current_user.allow_nsfw else "sfw"
 
+    # Get user settings for default plot_check_mode
+    user_settings = db.query(UserSettings).filter(
+        UserSettings.user_id == current_user.id
+    ).first()
+
+    # Determine plot_check_mode: use provided value, or inherit from user settings
+    if story_data.plot_check_mode:
+        plot_check_mode = story_data.plot_check_mode
+    elif user_settings and user_settings.default_plot_check_mode:
+        plot_check_mode = user_settings.default_plot_check_mode
+    else:
+        plot_check_mode = "1"  # Default to strict
+
     story = Story(
         title=story_data.title,
         description=story_data.description,
@@ -200,7 +215,8 @@ async def create_story(
         world_setting=story_data.world_setting,
         initial_premise=story_data.initial_premise,
         story_mode=story_data.story_mode or "dynamic",
-        content_rating=content_rating
+        content_rating=content_rating,
+        plot_check_mode=plot_check_mode
     )
 
     db.add(story)
@@ -302,6 +318,7 @@ async def get_story(
         "status": story.status,
         "content_rating": story.content_rating or "sfw",
         "interaction_types": story.interaction_types or [],
+        "plot_check_mode": story.plot_check_mode or "1",
         "scenes": scenes,
         "flow_info": {
             "total_scenes": len(scenes),
@@ -390,6 +407,14 @@ async def update_story(
         story.content_rating = rating
     if story_data.interaction_types is not None:
         story.interaction_types = story_data.interaction_types
+    if story_data.plot_check_mode is not None:
+        # Validate plot_check_mode value
+        if story_data.plot_check_mode not in ("1", "3", "all"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="plot_check_mode must be '1', '3', or 'all'"
+            )
+        story.plot_check_mode = story_data.plot_check_mode
 
     db.commit()
     db.refresh(story)
@@ -405,6 +430,7 @@ async def update_story(
         "scenario": story.scenario,
         "content_rating": story.content_rating,
         "interaction_types": story.interaction_types,
+        "plot_check_mode": story.plot_check_mode or "1",
         "message": "Story updated successfully"
     }
 

@@ -79,6 +79,7 @@ class UserSettings(Base):
     use_extraction_llm_for_summary = Column(Boolean, nullable=True)  # Use extraction LLM instead of main LLM for summaries
     separate_choice_generation = Column(Boolean, nullable=True)  # Generate choices in separate LLM call for higher quality
     enable_chapter_plot_tracking = Column(Boolean, nullable=True)  # Track plot progress and guide LLM pacing
+    default_plot_check_mode = Column(String(10), nullable=True)  # Default plot check mode for new stories: "1", "3", or "all"
     
     # UI Preferences
     color_theme = Column(String(30), nullable=True)
@@ -234,7 +235,8 @@ class UserSettings(Base):
                 "alert_on_high_context": self.alert_on_high_context if self.alert_on_high_context is not None else gen_defaults.get("alert_on_high_context", True),
                 "use_extraction_llm_for_summary": self.use_extraction_llm_for_summary if self.use_extraction_llm_for_summary is not None else gen_defaults.get("use_extraction_llm_for_summary", False),
                 "separate_choice_generation": self.separate_choice_generation if self.separate_choice_generation is not None else gen_defaults.get("separate_choice_generation", False),
-                "enable_chapter_plot_tracking": self.enable_chapter_plot_tracking if self.enable_chapter_plot_tracking is not None else gen_defaults.get("enable_chapter_plot_tracking", True)
+                "enable_chapter_plot_tracking": self.enable_chapter_plot_tracking if self.enable_chapter_plot_tracking is not None else gen_defaults.get("enable_chapter_plot_tracking", True),
+                "default_plot_check_mode": self.default_plot_check_mode if self.default_plot_check_mode is not None else gen_defaults.get("default_plot_check_mode", "1")
             },
             "ui_preferences": {
                 "color_theme": self.color_theme if self.color_theme is not None else ui_defaults.get("color_theme", "pure-dark"),
@@ -529,7 +531,9 @@ class UserSettings(Base):
             self.separate_choice_generation = gen.get("separate_choice_generation", False)
         if self.enable_chapter_plot_tracking is None:
             self.enable_chapter_plot_tracking = gen.get("enable_chapter_plot_tracking", True)
-        
+        if self.default_plot_check_mode is None:
+            self.default_plot_check_mode = gen.get("default_plot_check_mode", "1")
+
         # UI Preferences
         ui = user_defaults.get("ui_preferences", {})
         if self.color_theme is None:

@@ -414,6 +414,26 @@ export default function ContextSettingsTab({
           {/* Plot Tracking Sub-settings */}
           {(generationPrefs as any).enable_chapter_plot_tracking !== false && (
             <div className="ml-4 pl-4 border-l-2 border-blue-600 space-y-4">
+              {/* Default Plot Check Mode */}
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
+                  Default Plot Check Mode (for new stories)
+                </label>
+                <select
+                  value={(generationPrefs as any).default_plot_check_mode || '1'}
+                  onChange={(e) => setGenerationPrefs({ ...generationPrefs, default_plot_check_mode: e.target.value as '1' | '3' | 'all' } as any)}
+                  className="w-full bg-gray-700 text-white rounded px-3 py-2"
+                >
+                  <option value="1">Next event only (strict linear) - Recommended</option>
+                  <option value="3">Next 3 events (slight flexibility)</option>
+                  <option value="all">All remaining events (full flexibility)</option>
+                </select>
+                <div className="text-xs text-gray-400 mt-1">
+                  Controls how many plot events are checked after each scene.
+                  Strict = events must happen in order. Flexible = events can trigger out of order.
+                </div>
+              </div>
+
               {/* Auto-extract plot events */}
               <div>
                 <label className="flex items-center">

@@ -335,6 +335,8 @@ user_defaults:
     alert_on_high_context: true
     use_extraction_llm_for_summary: false
     separate_choice_generation: false
+    enable_chapter_plot_tracking: true  # Track plot progress and guide LLM pacing
+    default_plot_check_mode: "1"  # How many events to check: "1" (strict), "3" (flexible), "all"
   ui_preferences:
     color_theme: "pure-dark"
     font_size: "medium"

@@ -125,6 +125,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     use_extraction_llm_for_summary: false,
     separate_choice_generation: false,
     enable_chapter_plot_tracking: true,
+    default_plot_check_mode: '1' as const,
   });
 
   // Image Generation Settings
@@ -276,6 +277,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             use_extraction_llm_for_summary: settings.generation_preferences.use_extraction_llm_for_summary || false,
             separate_choice_generation: settings.generation_preferences.separate_choice_generation || false,
             enable_chapter_plot_tracking: settings.generation_preferences.enable_chapter_plot_tracking !== false,
+            default_plot_check_mode: (settings.generation_preferences.default_plot_check_mode || '1') as '1' | '3' | 'all',
           });
         }
 

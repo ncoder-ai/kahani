@@ -28,6 +28,8 @@ from .background_tasks import (
     initialize_branch_entity_states_in_background,
     run_inline_entity_extraction_background,
     run_chapter_summary_background,
+    rollback_plot_progress_in_background,
+    rollback_working_memory_and_relationships_in_background,
 )
 
 __all__ = [
@@ -55,4 +57,6 @@ __all__ = [
     'initialize_branch_entity_states_in_background',
     'run_inline_entity_extraction_background',
     'run_chapter_summary_background',
+    'rollback_plot_progress_in_background',
+    'rollback_working_memory_and_relationships_in_background',
 ]
