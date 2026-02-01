@@ -1452,17 +1452,23 @@ async def rollback_plot_progress_in_background(
             from ...models.chapter import ChapterPlotProgressBatch
             from sqlalchemy.orm.attributes import flag_modified
 
-            # Find chapters affected by the deletion
-            # Get chapter IDs first to avoid JSON comparison issues with distinct()
-            chapter_ids_query = bg_db.query(Scene.chapter_id).filter(
+            # Find the specific chapter affected by the deletion
+            # Look for the chapter that contains scenes around the deleted sequence
+            scene_near_deletion = bg_db.query(Scene).filter(
                 Scene.story_id == story_id,
+                Scene.sequence_number < min_deleted_seq,
                 Scene.chapter_id != None
             )
             if branch_id is not None:
-                chapter_ids_query = chapter_ids_query.filter(Scene.branch_id == branch_id)
+                scene_near_deletion = scene_near_deletion.filter(Scene.branch_id == branch_id)
+            scene_near_deletion = scene_near_deletion.order_by(Scene.sequence_number.desc()).first()
 
-            chapter_ids = [row[0] for row in chapter_ids_query.distinct().all()]
-            chapters = bg_db.query(Chapter).filter(Chapter.id.in_(chapter_ids)).all() if chapter_ids else []
+            chapters = []
+            if scene_near_deletion and scene_near_deletion.chapter_id:
+                chapter = bg_db.query(Chapter).filter(Chapter.id == scene_near_deletion.chapter_id).first()
+                if chapter:
+                    chapters = [chapter]
+                    logger.info(f"[DELETE-BG:PLOT:CONTEXT] trace_id={trace_id} chapter_id={chapter.id}")
 
             for chapter in chapters:
                 needs_update = False
