@@ -559,6 +559,7 @@ async def run_inline_entity_extraction(
 
         extraction_time = (time.perf_counter() - start_time) * 1000
         logger.info(f"[INLINE_ENTITY] LLM response received in {extraction_time:.0f}ms")
+        logger.info(f"[INLINE_ENTITY] Raw response: {raw_response[:1500] if raw_response else 'None'}")
 
         # Parse JSON response using robust extractor
         try:

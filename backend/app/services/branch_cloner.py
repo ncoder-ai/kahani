@@ -126,8 +126,11 @@ class BranchCloner:
         if config.creates_mapping:
             self.id_maps[config.creates_mapping] = {}
 
+        records_to_clone = query.all()
+        logger.info(f"[CLONE] {table_name}: Found {len(records_to_clone)} records to clone from branch {self.source_branch_id}")
+
         count = 0
-        for old_record in query.all():
+        for old_record in records_to_clone:
             new_record = self._clone_record(old_record, config)
             self.db.add(new_record)
             self.db.flush()  # Get new ID
@@ -135,6 +138,7 @@ class BranchCloner:
             # Store ID mapping
             if config.creates_mapping:
                 self.id_maps[config.creates_mapping][old_record.id] = new_record.id
+                logger.debug(f"[CLONE] {table_name}: Mapped {old_record.id} -> {new_record.id}")
 
             # Clone nested models
             for nested_table in config.nested_models:
@@ -145,7 +149,7 @@ class BranchCloner:
             count += 1
 
         self.stats[table_name] = count
-        logger.debug(f"Cloned {count} records from {table_name}")
+        logger.info(f"[CLONE] {table_name}: Successfully cloned {count} records")
 
     def _clone_via_mapping(self, config: BranchCloneConfig) -> None:
         """
