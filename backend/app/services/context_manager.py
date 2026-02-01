@@ -102,17 +102,18 @@ class ContextManager:
         ).first()
         return active_branch.id if active_branch else None
     
-    async def build_story_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None, exclude_scene_id: Optional[int] = None, branch_id: Optional[int] = None) -> Dict[str, Any]:
+    async def build_story_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None, exclude_scene_id: Optional[int] = None, branch_id: Optional[int] = None, user_intent: Optional[str] = None) -> Dict[str, Any]:
         """
         Build optimized context for story generation, managing token limits
-        
+
         Args:
             story_id: Story ID
             db: Database session
             chapter_id: Optional chapter ID to separate active/inactive characters
             exclude_scene_id: Optional scene ID to exclude from context (for regeneration)
             branch_id: Optional branch ID (if not provided, uses active branch)
-        
+            user_intent: Optional user intent (used by SemanticContextManager for semantic search)
+
         Returns:
             Optimized context dict with story info, characters, and scene history
         """

@@ -449,7 +449,7 @@ scene_base:
     {prose_style_reminder}
     {tone_reminder}
   # Task instruction for guided enhancement (context sent separately in multi-message)
-  # Used by generate_scene_variants_with_choices_streaming() when enhancement_guidance is provided
+  # Used by generate_variant_with_choices_streaming() when enhancement_guidance is provided
   task_guided_enhancement: |
     === ORIGINAL SCENE ===
     {original_scene}

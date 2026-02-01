@@ -596,7 +596,7 @@ Write a compelling continuation that follows naturally from the scene above. Foc
         """
         Get task instruction for guided enhancement from scene_base.task_guided_enhancement.
         
-        This is used by generate_scene_variants_with_choices_streaming() for the final
+        This is used by generate_variant_with_choices_streaming() for the final
         message in the multi-message structure. Context is sent separately.
         
         Args:

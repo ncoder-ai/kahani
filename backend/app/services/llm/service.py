@@ -210,6 +210,315 @@ class UnifiedLLMService:
 
         return messages
 
+    def _build_scene_task_message(
+        self,
+        context: Dict[str, Any],
+        user_settings: Dict[str, Any],
+        db: Optional[Session] = None,
+        include_choices_reminder: bool = True
+    ) -> str:
+        """
+        Build the task message for new scene generation.
+
+        This is the final message in the multi-message structure that varies per request.
+        The prefix (system + context) is built by _build_cache_friendly_message_prefix().
+
+        Args:
+            context: Scene generation context
+            user_settings: User settings dict
+            db: Database session for preset lookups
+            include_choices_reminder: Whether to append choices reminder (False for separate choice generation)
+
+        Returns:
+            Task message content string
+        """
+        # Get prose_style from writing preset
+        prose_style = 'balanced'
+        user_id = context.get('user_id')
+        if db and user_id:
+            from ...models.writing_style_preset import WritingStylePreset
+            active_preset = db.query(WritingStylePreset).filter(
+                WritingStylePreset.user_id == user_id,
+                WritingStylePreset.is_active == True
+            ).first()
+            if active_preset and hasattr(active_preset, 'prose_style') and active_preset.prose_style:
+                prose_style = active_preset.prose_style
+
+        # Get settings
+        generation_prefs = user_settings.get("generation_preferences", {})
+        scene_length = generation_prefs.get("scene_length", "medium")
+        choices_count = generation_prefs.get("choices_count", 4)
+        scene_length_description = self._get_scene_length_description(scene_length)
+
+        # Get immediate_situation from context
+        immediate_situation = context.get("current_situation") or ""
+        immediate_situation = str(immediate_situation) if immediate_situation else ""
+        has_immediate = bool(immediate_situation and immediate_situation.strip())
+
+        # Get task instruction
+        tone = context.get('tone', '')
+        task_content = prompt_manager.get_task_instruction(
+            has_immediate=has_immediate,
+            prose_style=prose_style,
+            tone=tone,
+            immediate_situation=immediate_situation or "",
+            scene_length_description=scene_length_description
+        )
+
+        # Append choices reminder if needed
+        if include_choices_reminder:
+            choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
+            if choices_reminder:
+                task_content = task_content + "\n\n" + choices_reminder
+
+        return task_content
+
+    def _build_variant_task_message(
+        self,
+        context: Dict[str, Any],
+        user_settings: Dict[str, Any],
+        db: Optional[Session] = None,
+        original_scene: str = "",
+        include_choices_reminder: bool = True
+    ) -> str:
+        """
+        Build the task message for variant generation.
+
+        For guided enhancement (has enhancement_guidance), uses enhancement task.
+        For simple variant, uses same task as scene generation.
+
+        Args:
+            context: Scene generation context
+            user_settings: User settings dict
+            db: Database session for preset lookups
+            original_scene: Original scene content (for guided enhancement)
+            include_choices_reminder: Whether to append choices reminder
+
+        Returns:
+            Task message content string
+        """
+        # Get prose_style from writing preset
+        prose_style = 'balanced'
+        user_id = context.get('user_id')
+        if db and user_id:
+            from ...models.writing_style_preset import WritingStylePreset
+            active_preset = db.query(WritingStylePreset).filter(
+                WritingStylePreset.user_id == user_id,
+                WritingStylePreset.is_active == True
+            ).first()
+            if active_preset and hasattr(active_preset, 'prose_style') and active_preset.prose_style:
+                prose_style = active_preset.prose_style
+
+        # Get settings
+        generation_prefs = user_settings.get("generation_preferences", {})
+        scene_length = generation_prefs.get("scene_length", "medium")
+        choices_count = generation_prefs.get("choices_count", 4)
+        scene_length_description = self._get_scene_length_description(scene_length)
+
+        # Check if this is guided enhancement
+        enhancement_guidance = context.get("enhancement_guidance", "")
+        tone = context.get('tone', '')
+
+        if enhancement_guidance:
+            # Guided enhancement: use task_guided_enhancement from prompts.yml
+            task_content = prompt_manager.get_enhancement_task_instruction(
+                original_scene=original_scene,
+                enhancement_guidance=enhancement_guidance,
+                scene_length_description=scene_length_description,
+                choices_count=choices_count,
+                prose_style=prose_style,
+                tone=tone,
+                skip_choices_reminder=not include_choices_reminder
+            )
+        else:
+            # Simple variant: use same task instruction as scene generation
+            immediate_situation = context.get("current_situation") or ""
+            immediate_situation = str(immediate_situation) if immediate_situation else ""
+            has_immediate = bool(immediate_situation and immediate_situation.strip())
+
+            task_content = prompt_manager.get_task_instruction(
+                has_immediate=has_immediate,
+                prose_style=prose_style,
+                tone=tone,
+                immediate_situation=immediate_situation or "",
+                scene_length_description=scene_length_description
+            )
+
+            # Append choices reminder if needed
+            if include_choices_reminder:
+                choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
+                if choices_reminder:
+                    task_content = task_content + "\n\n" + choices_reminder
+
+        return task_content
+
+    def _build_continuation_task_message(
+        self,
+        context: Dict[str, Any],
+        user_settings: Dict[str, Any],
+        db: Optional[Session] = None,
+        include_choices_reminder: bool = True
+    ) -> str:
+        """
+        Build the task message for scene continuation.
+
+        Args:
+            context: Continuation context with current_scene_content and continuation_prompt
+            user_settings: User settings dict
+            db: Database session for preset lookups
+            include_choices_reminder: Whether to append choices reminder
+
+        Returns:
+            Task message content string
+        """
+        # Get prose_style from writing preset
+        prose_style = 'balanced'
+        user_id = context.get('user_id')
+        if db and user_id:
+            from ...models.writing_style_preset import WritingStylePreset
+            active_preset = db.query(WritingStylePreset).filter(
+                WritingStylePreset.user_id == user_id,
+                WritingStylePreset.is_active == True
+            ).first()
+            if active_preset and hasattr(active_preset, 'prose_style') and active_preset.prose_style:
+                prose_style = active_preset.prose_style
+
+        # Get settings
+        generation_prefs = user_settings.get("generation_preferences", {})
+        scene_length = generation_prefs.get("scene_length", "medium")
+        choices_count = generation_prefs.get("choices_count", 4)
+        scene_length_map = {"short": "short (50-100 words)", "medium": "medium (100-150 words)", "long": "long (150-250 words)"}
+        scene_length_description = scene_length_map.get(scene_length, "medium (100-150 words)")
+
+        # Get current scene content and continuation prompt
+        current_scene_content = context.get("current_scene_content", "") or context.get("current_content", "")
+        continuation_prompt = context.get("continuation_prompt", "Continue this scene with more details and development.")
+
+        # Clean scene content
+        cleaned_scene_content = self._clean_instruction_tags(current_scene_content)
+        cleaned_scene_content = self._clean_scene_numbers(cleaned_scene_content)
+
+        # Get prose style and tone reminders
+        prose_style_reminder = prompt_manager.get_prose_style_reminder(prose_style)
+        tone = context.get('tone', '')
+        tone_reminder = prompt_manager.get_tone_reminder(tone)
+
+        # Build choices reminder if needed
+        if include_choices_reminder:
+            choices_reminder_text = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
+        else:
+            choices_reminder_text = ""
+
+        # Build the continuation task message
+        task_content = f"""=== CURRENT SCENE TO CONTINUE ===
+{cleaned_scene_content}
+
+=== CONTINUATION INSTRUCTION ===
+{continuation_prompt}
+
+Write a compelling continuation that follows naturally from the scene above.
+Focus on engaging narrative and dialogue. Do not repeat previous content.
+Write approximately {scene_length_description} in length.
+
+{prose_style_reminder}
+{tone_reminder}
+
+{choices_reminder_text}"""
+
+        return task_content
+
+    def _build_concluding_task_message(
+        self,
+        context: Dict[str, Any],
+        chapter_info: Dict[str, Any],
+        user_settings: Dict[str, Any],
+        db: Optional[Session] = None
+    ) -> str:
+        """
+        Build the task message for chapter-concluding scene.
+
+        Args:
+            context: Scene generation context
+            chapter_info: Chapter information (chapter_number, title, etc.)
+            user_settings: User settings dict
+            db: Database session for preset lookups
+
+        Returns:
+            Task message content string (no choices - concluding scenes don't have choices)
+        """
+        # Get prose_style from writing preset
+        prose_style = 'balanced'
+        user_id = context.get('user_id')
+        if db and user_id:
+            from ...models.writing_style_preset import WritingStylePreset
+            active_preset = db.query(WritingStylePreset).filter(
+                WritingStylePreset.user_id == user_id,
+                WritingStylePreset.is_active == True
+            ).first()
+            if active_preset and hasattr(active_preset, 'prose_style') and active_preset.prose_style:
+                prose_style = active_preset.prose_style
+
+        # Get settings
+        generation_prefs = user_settings.get("generation_preferences", {})
+        scene_length = generation_prefs.get("scene_length", "medium")
+        scene_length_description = self._get_scene_length_description(scene_length)
+
+        # Get chapter info
+        chapter_number = chapter_info.get("chapter_number", 1)
+
+        # Get prose style and tone reminders
+        prose_style_reminder = prompt_manager.get_prose_style_reminder(prose_style)
+        tone = context.get('tone', '')
+        tone_reminder = prompt_manager.get_tone_reminder(tone)
+
+        # Build the concluding task message
+        task_content = f"""=== CHAPTER CONCLUSION INSTRUCTION ===
+
+Write a compelling conclusion for Chapter {chapter_number} that:
+1. Brings this chapter to a natural and satisfying end
+2. Provides closure for the chapter's events while leaving the overall story open
+3. Sets up anticipation for what might come next
+4. Ends at a natural chapter break point
+
+Write approximately {scene_length_description} in length.
+Write ONLY narrative content. Do not include any choices, options, or questions for the reader.
+
+{prose_style_reminder}
+{tone_reminder}
+
+Chapter Conclusion:"""
+
+        return task_content
+
+    def _parse_choices_from_response(self, response: str) -> Tuple[str, Optional[List[str]]]:
+        """
+        Parse ###CHOICES### marker from complete response.
+
+        Args:
+            response: Complete LLM response text
+
+        Returns:
+            Tuple of (scene_content, choices_list or None if no marker found)
+        """
+        CHOICES_MARKER = "###CHOICES###"
+        if CHOICES_MARKER in response:
+            parts = response.split(CHOICES_MARKER, 1)
+            scene_content = parts[0].strip()
+            choices_text = parts[1].strip() if len(parts) > 1 else ""
+            choices = self._parse_choices_from_json(choices_text)
+            if choices:
+                logger.info(f"[CHOICES] Successfully parsed {len(choices)} choices from response")
+            else:
+                logger.warning(f"[CHOICES] Marker found but parsing failed. Choices text: {choices_text[:200]}")
+            return scene_content, choices
+        else:
+            # No marker found - try post-processing extraction
+            scene_content, extracted_choices = self._extract_choices_from_response_end(response)
+            if extracted_choices:
+                logger.info(f"[CHOICES] Post-processing extracted {len(extracted_choices)} choices from response end")
+                return scene_content, extracted_choices
+            return response.strip(), None
+
     async def generate(
         self,
         prompt: str,
@@ -826,7 +1135,224 @@ class UnifiedLLMService:
             else:
                 logger.warning(f"[CHOICES] Could not extract choices from response. Response length: {len(cleaned_response)} chars")
                 return (cleaned_response, None)
-    
+
+    # =====================================================================
+    # UNIFIED NON-STREAMING METHODS (cache-aligned)
+    # These use the same message structure as streaming methods for cache hits
+    # =====================================================================
+
+    async def generate_variant_with_choices(
+        self,
+        original_scene: str,
+        context: Dict[str, Any],
+        user_id: int,
+        user_settings: Dict[str, Any],
+        db: Optional[Session] = None
+    ) -> Tuple[str, Optional[List[str]]]:
+        """
+        Generate scene variant and choices in a single non-streaming call.
+
+        Uses SAME multi-message structure as streaming methods for maximum cache hits.
+        This is the unified non-streaming equivalent of generate_variant_with_choices_streaming().
+
+        Args:
+            original_scene: Original scene content (for guided enhancement)
+            context: Scene generation context
+            user_id: User ID for LLM settings
+            user_settings: User settings dict
+            db: Database session for preset lookups
+
+        Returns:
+            Tuple of (scene_content, choices_list or None)
+        """
+        logger.info(f"[VARIANT NON-STREAMING] Starting variant generation with cache-friendly structure")
+
+        # Get settings
+        generation_prefs = user_settings.get("generation_preferences", {})
+        choices_count = generation_prefs.get("choices_count", 4)
+        separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
+
+        # Build cache-friendly message prefix (SAME as streaming version)
+        messages = self._build_cache_friendly_message_prefix(
+            context=context,
+            user_id=user_id,
+            user_settings=user_settings,
+            db=db
+        )
+
+        # Build task message (SAME logic as streaming version)
+        task_content = self._build_variant_task_message(
+            context=context,
+            user_settings=user_settings,
+            db=db,
+            original_scene=original_scene,
+            include_choices_reminder=not separate_choice_generation
+        )
+        messages.append({"role": "user", "content": task_content})
+
+        # Add buffer for choices section
+        base_max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
+        choices_buffer_tokens = max(300, choices_count * 50)
+        max_tokens = base_max_tokens + choices_buffer_tokens
+
+        logger.info(f"[VARIANT NON-STREAMING] Using {len(messages)} messages, max_tokens={max_tokens}")
+
+        # Generate with multi-message structure
+        response = await self._generate_with_messages(
+            messages=messages,
+            user_id=user_id,
+            user_settings=user_settings,
+            max_tokens=max_tokens
+        )
+
+        # Clean the response
+        cleaned_response = self._clean_scene_numbers(response)
+
+        # Parse choices from response
+        scene_content, choices = self._parse_choices_from_response(cleaned_response)
+
+        # If separate_choice_generation is enabled, discard inline choices
+        if separate_choice_generation and choices:
+            logger.info(f"[VARIANT NON-STREAMING] Separate choice generation enabled - discarding {len(choices)} inline choices")
+            choices = None
+
+        return scene_content, choices
+
+    async def generate_continuation_with_choices(
+        self,
+        context: Dict[str, Any],
+        user_id: int,
+        user_settings: Dict[str, Any],
+        db: Optional[Session] = None
+    ) -> Tuple[str, Optional[List[str]]]:
+        """
+        Generate scene continuation and choices in a single non-streaming call.
+
+        Uses SAME multi-message structure as streaming methods for maximum cache hits.
+        This is the unified non-streaming equivalent of generate_continuation_with_choices_streaming().
+
+        Args:
+            context: Continuation context with current_scene_content and continuation_prompt
+            user_id: User ID for LLM settings
+            user_settings: User settings dict
+            db: Database session for preset lookups
+
+        Returns:
+            Tuple of (continuation_content, choices_list or None)
+        """
+        logger.info(f"[CONTINUATION NON-STREAMING] Starting continuation generation with cache-friendly structure")
+
+        # Get settings
+        generation_prefs = user_settings.get("generation_preferences", {})
+        choices_count = generation_prefs.get("choices_count", 4)
+        separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
+
+        # Build cache-friendly message prefix (SAME as streaming version)
+        messages = self._build_cache_friendly_message_prefix(
+            context=context,
+            user_id=user_id,
+            user_settings=user_settings,
+            db=db
+        )
+
+        # Build task message (SAME logic as streaming version)
+        task_content = self._build_continuation_task_message(
+            context=context,
+            user_settings=user_settings,
+            db=db,
+            include_choices_reminder=not separate_choice_generation
+        )
+        messages.append({"role": "user", "content": task_content})
+
+        # Add buffer for choices section
+        base_max_tokens = prompt_manager.get_max_tokens("scene_continuation", user_settings)
+        choices_buffer_tokens = max(300, choices_count * 50)
+        max_tokens = base_max_tokens + choices_buffer_tokens
+
+        logger.info(f"[CONTINUATION NON-STREAMING] Using {len(messages)} messages, max_tokens={max_tokens}")
+
+        # Generate with multi-message structure
+        response = await self._generate_with_messages(
+            messages=messages,
+            user_id=user_id,
+            user_settings=user_settings,
+            max_tokens=max_tokens
+        )
+
+        # Clean the response
+        cleaned_response = self._clean_scene_numbers(response)
+
+        # Parse choices from response
+        continuation_content, choices = self._parse_choices_from_response(cleaned_response)
+
+        # If separate_choice_generation is enabled, discard inline choices
+        if separate_choice_generation and choices:
+            logger.info(f"[CONTINUATION NON-STREAMING] Separate choice generation enabled - discarding {len(choices)} inline choices")
+            choices = None
+
+        return continuation_content, choices
+
+    async def generate_concluding_scene(
+        self,
+        context: Dict[str, Any],
+        chapter_info: Dict[str, Any],
+        user_id: int,
+        user_settings: Dict[str, Any],
+        db: Optional[Session] = None
+    ) -> str:
+        """
+        Generate a chapter-concluding scene in a non-streaming fashion.
+
+        Uses SAME multi-message structure as streaming methods for maximum cache hits.
+        This is the unified non-streaming equivalent of generate_concluding_scene_streaming().
+
+        Unlike other scene generation methods, this does NOT generate choices
+        as chapter endings are meant to conclude rather than branch.
+
+        Args:
+            context: Scene generation context from context_manager
+            chapter_info: Dictionary with chapter_number, chapter_title, etc.
+            user_id: User ID for LLM settings
+            user_settings: User settings dictionary
+            db: Database session for prompt templates
+
+        Returns:
+            Scene content string (no choices)
+        """
+        logger.info(f"[CONCLUDING NON-STREAMING] Starting concluding scene generation with cache-friendly structure")
+
+        # Build cache-friendly message prefix (SAME as streaming version)
+        messages = self._build_cache_friendly_message_prefix(
+            context=context,
+            user_id=user_id,
+            user_settings=user_settings,
+            db=db
+        )
+
+        # Build task message (SAME logic as streaming version)
+        task_content = self._build_concluding_task_message(
+            context=context,
+            chapter_info=chapter_info,
+            user_settings=user_settings,
+            db=db
+        )
+        messages.append({"role": "user", "content": task_content})
+
+        max_tokens = prompt_manager.get_max_tokens("chapter_conclusion", user_settings)
+
+        logger.info(f"[CONCLUDING NON-STREAMING] Using {len(messages)} messages, max_tokens={max_tokens}")
+
+        # Generate with multi-message structure
+        response = await self._generate_with_messages(
+            messages=messages,
+            user_id=user_id,
+            user_settings=user_settings,
+            max_tokens=max_tokens
+        )
+
+        # Clean and return the response
+        return self._clean_scene_numbers(response)
+
     async def generate_scene_streaming(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> AsyncGenerator[str, None]:
         """
         Generate a story scene with streaming using multi-message structure for better cache utilization.
@@ -945,187 +1471,15 @@ class UnifiedLLMService:
             except Exception as e:
                 logger.error(f"Failed to write raw response to file: {e}")
     
-    async def generate_scene_variants(self, original_scene: str, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], db: Optional[Session] = None) -> str:
-        """Generate alternative versions of a scene (non-streaming, legacy endpoint)"""
-        
-        # Check if this is guided enhancement (has enhancement_guidance) or simple variant
-        enhancement_guidance = context.get("enhancement_guidance", "")
-        
-        # Get scene length and choices count from user settings
-        generation_prefs = user_settings.get("generation_preferences", {})
-        scene_length = generation_prefs.get("scene_length", "medium")
-        choices_count = generation_prefs.get("choices_count", 4)
-        scene_length_description = self._get_scene_length_description(scene_length)
-        
-        # Get prose_style from writing preset (default to balanced)
-        prose_style = 'balanced'
-        if db and user_id:
-            from ...models.writing_style_preset import WritingStylePreset
-            active_preset = db.query(WritingStylePreset).filter(
-                WritingStylePreset.user_id == user_id,
-                WritingStylePreset.is_active == True
-            ).first()
-            if active_preset and hasattr(active_preset, 'prose_style') and active_preset.prose_style:
-                prose_style = active_preset.prose_style
-        
-        # Extract immediate_situation from context for template variable
-        immediate_situation = context.get("current_situation") or ""
-        immediate_situation = str(immediate_situation) if immediate_situation else ""
-        
-        # POV instruction (default third person)
-        pov_instruction = "in third person (he/she/they/character names)"
-        
-        if enhancement_guidance:
-            # Guided enhancement: use scene_guided_enhancement template with original scene
-            # Exclude last scene from previous events to avoid duplication
-            system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-                "scene_guided_enhancement", "scene_guided_enhancement",
-                user_id=user_id,
-                db=db,
-                context=self._format_context_for_scene(context, exclude_last_scene=True),
-                original_scene=original_scene,
-                enhancement_guidance=enhancement_guidance,
-                scene_length_description=scene_length_description,
-                choices_count=choices_count,
-                pov_instruction=pov_instruction
-            )
-        else:
-            # Simple variant: use same templates as new scene generation for cache optimization
-            # Choose template based on whether we have immediate_situation
-            has_immediate = bool(immediate_situation and immediate_situation.strip())
-            if has_immediate:
-                template_key = "scene_with_immediate"
-            else:
-                template_key = "scene_without_immediate"
-            
-            # Get task instruction from prompts.yml
-            tone = context.get('tone', '')
-            task_instruction = prompt_manager.get_task_instruction(
-                has_immediate=has_immediate,
-                prose_style=prose_style,
-                tone=tone,
-                immediate_situation=immediate_situation or "",
-                scene_length_description=scene_length_description
-            )
-            
-            system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-                template_key, template_key,
-                user_id=user_id,
-                db=db,
-                context=self._format_context_for_scene(context, exclude_last_scene=False),
-                scene_length_description=scene_length_description,
-                choices_count=choices_count,
-                immediate_situation=immediate_situation,
-                pov_instruction=pov_instruction,
-                task_instruction=task_instruction
-            )
-        
-        max_tokens = prompt_manager.get_max_tokens("scene_with_immediate", user_settings)
-        
-        response = await self._generate(
-            prompt=user_prompt,
-            user_id=user_id,
-            user_settings=user_settings,
-            system_prompt=system_prompt,
-            max_tokens=max_tokens
-        )
-        
-        return self._clean_scene_numbers(response)
-    
-    # NOTE: generate_scene_variants_streaming was removed - it was dead code (never called)
-    # Use generate_variant_with_choices_streaming instead for streaming variant generation
-    
-    async def generate_scene_continuation(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], db: Optional[Session] = None) -> str:
-        """Generate continuation content for an existing scene"""
-        
-        # Detect POV from current scene content
-        current_content = context.get("current_content", "")
-        previous_scenes = context.get("previous_scenes", "")
-        
-        # Detect POV from current scene and previous scenes
-        pov = self._detect_pov(current_content)
-        if previous_scenes:
-            previous_pov = self._detect_pov(previous_scenes)
-            # Prefer POV from previous scenes if available (more context)
-            if previous_pov != 'third' or pov == 'third':
-                pov = previous_pov
-        
-        # Get choices count from user settings
-        generation_prefs = user_settings.get("generation_preferences", {})
-        choices_count = generation_prefs.get("choices_count", 4)
-        
-        # Enhance system prompt with POV consistency requirement
-        system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-            "story_generation", "scene_continuation",
-            user_id=user_id,
-            db=db,
-            context=self._format_context_for_continuation(context),
-            choices_count=choices_count
-        )
-        
-        if pov == 'first':
-            system_prompt += "\n\nIMPORTANT: Continue the story in first person perspective (using 'I', 'me', 'my'). Maintain consistency with the established first-person narrative style."
-        else:
-            system_prompt += "\n\nIMPORTANT: Continue the story in third person perspective (using 'he', 'she', 'they', character names). Maintain consistency with the established third-person narrative style."
-        
-        max_tokens = prompt_manager.get_max_tokens("scene_continuation", user_settings)
-        
-        response = await self._generate(
-            prompt=user_prompt,
-            user_id=user_id,
-            user_settings=user_settings,
-            system_prompt=system_prompt,
-            max_tokens=max_tokens
-        )
-        
-        return self._clean_scene_numbers(response)
-    
-    async def generate_scene_continuation_streaming(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any], db: Optional[Session] = None) -> AsyncGenerator[str, None]:
-        """Generate continuation content for an existing scene with streaming"""
-        
-        # Detect POV from current scene content
-        current_content = context.get("current_content", "") or context.get("current_scene_content", "")
-        previous_scenes = context.get("previous_scenes", "")
-        
-        # Detect POV from current scene and previous scenes
-        pov = self._detect_pov(current_content)
-        if previous_scenes:
-            previous_pov = self._detect_pov(previous_scenes)
-            # Prefer POV from previous scenes if available (more context)
-            if previous_pov != 'third' or pov == 'third':
-                pov = previous_pov
-        
-        # Get choices count from user settings
-        generation_prefs = user_settings.get("generation_preferences", {})
-        choices_count = generation_prefs.get("choices_count", 4)
-        
-        system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-            "story_generation", "scene_continuation",
-            user_id=user_id,
-            db=db,
-            context=self._format_context_for_continuation(context),
-            choices_count=choices_count
-        )
-        
-        # Enhance system prompt with POV consistency requirement
-        if pov == 'first':
-            system_prompt += "\n\nIMPORTANT: Continue the story in first person perspective (using 'I', 'me', 'my'). Maintain consistency with the established first-person narrative style."
-        else:
-            system_prompt += "\n\nIMPORTANT: Continue the story in third person perspective (using 'he', 'she', 'they', character names). Maintain consistency with the established third-person narrative style."
-        
-        max_tokens = prompt_manager.get_max_tokens("scene_continuation", user_settings)
-        
-        async for chunk in self._generate_stream(
-            prompt=user_prompt,
-            user_id=user_id,
-            user_settings=user_settings,
-            system_prompt=system_prompt,
-            max_tokens=max_tokens
-        ):
-            cleaned_chunk = self._clean_scene_numbers_chunk(chunk)
-            if cleaned_chunk:  # Only yield non-empty chunks
-                yield cleaned_chunk
-    
+    # ==========================================================================
+    # REMOVED DEPRECATED METHODS
+    # ==========================================================================
+    # The following methods were removed as they used non-cache-friendly message patterns:
+    # - generate_scene_variants() - Use generate_variant_with_choices() instead
+    # - generate_scene_continuation() - Use generate_continuation_with_choices() instead
+    # - generate_scene_continuation_streaming() - Use generate_continuation_with_choices_streaming() instead
+    # ==========================================================================
+
     def _fix_incomplete_json_array(self, json_str: str) -> Optional[str]:
         """Fix incomplete JSON array. Delegates to choice_parser module."""
         return fix_incomplete_json_array(json_str)
@@ -4360,8 +4714,13 @@ Chapter Conclusion:"""
         user_settings: dict = None,
         branch_id: int = None
     ) -> Any:
-        """Create a new variant for an existing scene"""
-        from ...models import Scene, SceneVariant, Story
+        """
+        Create a new variant for an existing scene.
+
+        Uses the unified cache-friendly message structure for better cache hits.
+        Returns the variant with scene content and inline choices.
+        """
+        from ...models import Scene, SceneVariant, Story, SceneChoice
         from ..context_manager import ContextManager
 
         scene = db.query(Scene).filter(Scene.id == scene_id).first()
@@ -4386,31 +4745,43 @@ Chapter Conclusion:"""
 
         # Build context using ContextManager
         context_manager = ContextManager(user_settings=user_settings or {})
-        context = await context_manager.build_scene_generation_context(
-            story.id, db, custom_prompt=custom_prompt, exclude_scene_id=scene_id, branch_id=effective_branch_id
-        )
-        
-        # Generate new content using the original scene as base
+
+        # Get original variant for reference
         original_variant = db.query(SceneVariant)\
             .filter(SceneVariant.scene_id == scene_id, SceneVariant.is_original == True)\
             .first()
-        
+
+        # Set enhancement_guidance if custom_prompt was provided (for guided enhancement)
+        if custom_prompt:
+            context = await context_manager.build_scene_generation_context(
+                story.id, db, custom_prompt=custom_prompt, exclude_scene_id=scene_id,
+                branch_id=effective_branch_id, is_variant_generation=True
+            )
+            # Add enhancement_guidance for _build_variant_task_message to pick up
+            context["enhancement_guidance"] = custom_prompt
+        else:
+            context = await context_manager.build_scene_generation_context(
+                story.id, db, exclude_scene_id=scene_id, branch_id=effective_branch_id
+            )
+
+        # Generate new content with inline choices using unified cache-friendly method
         if original_variant:
-            # Generate variant based on original
-            new_content = await self.generate_scene_variants(
+            new_content, choices = await self.generate_variant_with_choices(
                 original_scene=original_variant.content,
                 context=context,
                 user_id=user_id,
-                user_settings=user_settings or {}
+                user_settings=user_settings or {},
+                db=db
             )
         else:
             # Generate new scene if no original exists
-            new_content = await self.generate_scene(
+            new_content, choices = await self.generate_scene_with_choices(
                 context=context,
                 user_id=user_id,
-                user_settings=user_settings or {}
+                user_settings=user_settings or {},
+                db=db
             )
-        
+
         # Create the new variant
         variant = SceneVariant(
             scene_id=scene_id,
@@ -4422,10 +4793,25 @@ Chapter Conclusion:"""
             generation_prompt=custom_prompt,
             generation_method="regeneration"
         )
-        
+
         db.add(variant)
+        db.flush()  # Get variant ID for choice creation
+
+        # Create choices if parsed from inline generation
+        if choices and len(choices) >= 2:
+            for idx, choice_text in enumerate(choices, 1):
+                choice = SceneChoice(
+                    scene_id=scene_id,
+                    scene_variant_id=variant.id,
+                    branch_id=effective_branch_id,
+                    choice_text=choice_text,
+                    choice_order=idx
+                )
+                db.add(choice)
+            logger.info(f"Created {len(choices)} inline choices for variant {variant.id}")
+
         db.commit()
-        
+
         logger.info(f"Successfully created variant {variant.id} (#{next_variant_number}) for scene {scene_id}")
         return variant
 

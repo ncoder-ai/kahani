@@ -37,6 +37,8 @@ export default function ContextSettingsTab({
       });
       if (response.ok) {
         showMessage('Settings saved!', 'success');
+        // Notify other components (like story page) that settings changed
+        window.dispatchEvent(new CustomEvent('kahaniSettingsChanged'));
       } else {
         showMessage('Failed to save settings', 'error');
       }

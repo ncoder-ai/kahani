@@ -1271,82 +1271,11 @@ export default function StoryPage() {
     }
   };
 
-  const generateNewScene = async (prompt?: string) => {
-    if (!story) return;
-    
-    setError('');
-    setIsGenerating(true);
-    setIsSceneOperationInProgress(true); // Block variant loading operations
-    
-    // Start timing
-    const startTime = Date.now();
-    setGenerationStartTime(startTime);
-
-    try {
-      // Determine content mode and user content based on first scene mode
-      let userContent: string | undefined;
-      let contentMode: 'ai_generate' | 'user_scene' | 'user_prompt' = 'ai_generate';
-      
-      if (firstSceneMode === 'write' && userSceneContent.trim()) {
-        if (writeMode === 'scene') {
-          contentMode = 'user_scene';
-          userContent = userSceneContent.trim();
-        } else {
-          contentMode = 'user_prompt';
-          userContent = userSceneContent.trim();
-        }
-      }
-      
-      const response = await apiClient.generateScene(
-        story.id, 
-        prompt || customPrompt,
-        userContent,
-        contentMode
-      );
-      
-      // End timing
-      const endTime = Date.now();
-      const generationTime = (endTime - startTime) / 1000; // Convert to seconds
-      setLastGenerationTime(generationTime);
-      setGenerationStartTime(null);
-
-      // AUTO-PLAY TTS if enabled and session provided
-      if (response.auto_play && response.auto_play.session_id) {
-        globalTTS.connectToSession(response.auto_play.session_id, response.auto_play.scene_id);
-      }
-
-      // Reload the story to get the new scene and its choices
-      await loadStory(false, true); // Scroll to new scene after generation
-      setCustomPrompt('');
-      setUserSceneContent(''); // Clear user content after successful generation
-      setFirstSceneMode('ai'); // Reset to AI mode after first scene
-
-      // Reset choice selection state
-      setSelectedChoice(null);
-      setShowChoicesDuringGeneration(true);
-      
-      // Refresh chapter sidebar to update context counter
-      setChapterSidebarRefreshKey(prev => prev + 1);
-
-      // Check for new important characters
-      checkCharacterImportance();
-
-    } catch (err) {
-      console.error('generateNewScene error', err);
-      setError(err instanceof Error ? err.message : 'Failed to generate scene');
-      setGenerationStartTime(null);
-    } finally {
-      setIsGenerating(false);
-      // Clear operation flag with delay to let DOM settle
-      setTimeout(() => setIsSceneOperationInProgress(false), 1500);
-    }
-  };
-
   const generateNewSceneStreaming = async (prompt?: string, isConcluding?: boolean) => {
     if (!story) return;
-    
+
     setError('');
-    setIsStreaming(true);
+    setIsStreaming(true);  // Always show loading state
     setIsSceneOperationInProgress(true); // Block variant loading operations
     setStreamingContent('');
     // Clear thinking state for new generation
@@ -1682,17 +1611,13 @@ export default function StoryPage() {
     }
   };
 
-  // Wrapper function to choose between streaming and regular generation
+  // Scene generation - chooses endpoint based on streaming setting
   const generateScene = async (prompt?: string, isConcluding?: boolean) => {
     // Set the selected choice for UI feedback
     setSelectedChoice(prompt || null);
     setShowChoicesDuringGeneration(false);
-
-    if (useStreaming) {
-      return generateNewSceneStreaming(prompt, isConcluding);
-    } else {
-      return generateNewScene(prompt);
-    }
+    // Always use streaming endpoint - backend returns JSON when streaming disabled
+    return generateNewSceneStreaming(prompt, isConcluding);
   };
 
   const updateScene = async (sceneId: number, content: string, variantId?: number) => {
@@ -1959,8 +1884,9 @@ export default function StoryPage() {
     try {
       setIsRegenerating(true);
       
-      if (useStreaming) {
-        // Streaming variant creation with animation
+      // Always use streaming endpoint - backend returns JSON when streaming disabled
+      {
+        // Always show loading state - streaming UI used for loading indicator
         setIsStreaming(true);
         setStreamingVariantSceneId(sceneId);
         setStreamingVariantContent('');
@@ -2129,37 +2055,6 @@ export default function StoryPage() {
         
         // Clear abort controller reference after completion
         variantGenerationAbortControllerRef.current = null;
-      } else {
-        // Non-streaming variant creation
-        const response = await apiClient.createSceneVariant(story.id, sceneId, customPrompt);
-        
-        // Check if auto-play was triggered
-        if (response.auto_play_session_id) {
-          globalTTS.connectToSession(response.auto_play_session_id, sceneId);
-        }
-        
-        // Update the scene with the new variant content and choices directly in state
-        if (response.variant && story) {
-          const updatedScenes = story.scenes.map(s => {
-            if (s.id === sceneId) {
-              return {
-                ...s,
-                content: response.variant.content || s.content,
-                variant_id: response.variant.id,
-                variant_number: response.variant.variant_number,
-                has_multiple_variants: true,  // Set flag to show navigation arrows
-                choices: response.variant.choices 
-                  ? response.variant.choices.map((c: any) => c.text || c.choice_text)
-                  : s.choices
-              };
-            }
-            return s;
-          });
-          setStory({ ...story, scenes: updatedScenes });
-        }
-        
-        // Clear regenerating flag
-        setIsRegenerating(false);
       }
       
     } catch (error) {
@@ -2181,8 +2076,9 @@ export default function StoryPage() {
     try {
       setIsRegenerating(true);
       
-      if (useStreaming) {
-        // Use streaming for continuation
+      // Always use streaming endpoint - backend returns JSON when streaming disabled
+      {
+        // Always show loading state - streaming UI used for loading indicator
         setIsStreamingContinuation(true);
         setStreamingContinuation('');
         setStreamingContinuationSceneId(sceneId);
@@ -2285,13 +2181,6 @@ export default function StoryPage() {
         
         // Clear abort controller reference after completion
         continuationAbortControllerRef.current = null;
-      } else {
-        // Use non-streaming continuation
-        const response = await apiClient.continueScene(story.id, sceneId, customPrompt);
-        
-        // Reload story to show updated scene
-        await loadStory(false, true); // Scroll to updated last scene after continuing
-        
       }
       
     } catch (error) {
@@ -3281,7 +3170,7 @@ export default function StoryPage() {
                               setError('Please enter your scene content or prompt');
                               return;
                             }
-                            useStreaming ? generateNewSceneStreaming() : generateNewScene();
+                            generateScene();  // Always use streaming endpoint - backend returns JSON when streaming disabled
                           }}
                           disabled={isGenerating || isStreaming || (firstSceneMode === 'write' && !userSceneContent.trim())}
                           className="w-full sm:w-auto theme-btn-primary px-8 py-4 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl"

@@ -106,6 +106,14 @@ def clean_scene_content(content: str) -> str:
         # Word count annotations: "(Word count: 150)", "[~200 words]"
         content = re.sub(r'\n?\s*(?:\[|\()?\s*(?:~?\s*\d+\s*words?|word\s*count[:\s]*\d+)\s*(?:\]|\))?\s*$', '', content, flags=re.IGNORECASE).strip()
 
+        # === CHOICES MARKER CLEANUP (at end of content) ===
+        # Remove CHOICES [...] format that LLMs sometimes output instead of ###CHOICES###
+        # Pattern: "CHOICES" followed by JSON array at end of content
+        # Newline is optional (\n?) since LLM may output directly after text
+        content = re.sub(r'\n?\s*CHOICES\s+\[.*\]\s*$', '', content, flags=re.IGNORECASE | re.DOTALL).strip()
+        # Also remove ###CHOICES### marker and everything after it
+        content = re.sub(r'\n?\s*###\s*CHOICES\s*###.*$', '', content, flags=re.IGNORECASE | re.DOTALL).strip()
+
         # === EMBEDDED METADATA (anywhere in content) ===
 
         # Scene numbers embedded: "### Scene 113 ###" in middle of text

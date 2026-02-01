@@ -41,8 +41,6 @@ from .story_helpers import (
     SceneVariantServiceAdapter,
     SceneVariantService,
     generate_scene_streaming,
-    generate_scene_continuation,
-    generate_scene_continuation_streaming,
     get_n_value_from_settings,
     create_scene_with_multi_variants,
     create_additional_variants,

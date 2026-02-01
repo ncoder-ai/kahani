@@ -1144,6 +1144,7 @@ async def generate_scene_streaming_endpoint(
                 'type': 'complete',
                 'scene_id': scene.id,
                 'variant_id': variant.id,
+                'content': cleaned_full_content,  # Include cleaned content for non-streaming mode
                 'choices': choices_data,
                 'chapter_id': chapter_id
             }
@@ -1384,6 +1385,63 @@ async def generate_scene_streaming_endpoint(
             # Send [DONE] as the LAST event after all extraction status events
             yield "data: [DONE]\n\n"
 
+    # Check if streaming is disabled in user settings
+    generation_prefs = user_settings.get("generation_preferences", {})
+    enable_streaming = generation_prefs.get("enable_streaming", True)
+
+    if not enable_streaming:
+        # Non-streaming mode: collect all generator output and return JSON
+        logger.info(f"[SCENE:NON-STREAMING:START] trace_id={trace_id} story_id={story_id}")
+
+        complete_data = None
+        full_content = ""
+        chunk_count = 0
+
+        try:
+            async for chunk in generate_stream():
+                chunk_count += 1
+                if chunk_count % 10 == 0:
+                    logger.info(f"[SCENE:NON-STREAMING:PROGRESS] trace_id={trace_id} chunks={chunk_count}")
+
+                # Parse SSE format: "data: {...}\n\n"
+                if chunk.startswith("data: "):
+                    data_str = chunk[6:].strip()
+                    if data_str == "[DONE]":
+                        logger.info(f"[SCENE:NON-STREAMING:DONE] trace_id={trace_id} total_chunks={chunk_count}")
+                        continue
+                    try:
+                        event = json.loads(data_str)
+                        if event.get("type") == "content":
+                            full_content += event.get("chunk", "")
+                        elif event.get("type") == "complete":
+                            complete_data = event
+                            logger.info(f"[SCENE:NON-STREAMING:COMPLETE] trace_id={trace_id} scene_id={event.get('scene_id')}")
+                    except json.JSONDecodeError:
+                        continue
+        except Exception as e:
+            logger.error(f"[SCENE:NON-STREAMING:ERROR] trace_id={trace_id} error={e}")
+            raise
+
+        if complete_data:
+            from fastapi.responses import JSONResponse
+            # Use cleaned content from completion event, not raw full_content which includes ###CHOICES### marker
+            cleaned_content = complete_data.get("content", full_content)
+            logger.info(f"[SCENE:NON-STREAMING:RETURN] trace_id={trace_id} content_len={len(cleaned_content)}")
+            return JSONResponse(content={
+                "scene_id": complete_data.get("scene_id"),
+                "variant_id": complete_data.get("variant_id"),
+                "content": cleaned_content,
+                "choices": complete_data.get("choices", []),
+                "chapter_id": complete_data.get("chapter_id")
+            })
+        else:
+            logger.error(f"[SCENE:NON-STREAMING:NO_COMPLETE] trace_id={trace_id} chunks={chunk_count}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Scene generation failed - no completion data received"
+            )
+
+    # Streaming mode: return StreamingResponse
     response = StreamingResponse(
         generate_stream(),
         media_type="text/plain",

@@ -100,13 +100,8 @@ async def generate_scene_streaming(context, user_id, user_settings):
         yield chunk
 
 
-async def generate_scene_continuation(context, user_id, user_settings, db=None):
-    return await llm_service.generate_scene_continuation(context, user_id, user_settings, db)
-
-
-async def generate_scene_continuation_streaming(context, user_id, user_settings, db=None):
-    async for chunk in llm_service.generate_scene_continuation_streaming(context, user_id, user_settings, db):
-        yield chunk
+# REMOVED: generate_scene_continuation() - Use llm_service.generate_continuation_with_choices() instead
+# REMOVED: generate_scene_continuation_streaming() - Use llm_service.generate_continuation_with_choices_streaming() instead
 
 
 def SceneVariantService(db: Session):

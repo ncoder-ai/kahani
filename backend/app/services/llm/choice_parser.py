@@ -378,6 +378,17 @@ def extract_choices_from_response_end(full_text: str) -> Tuple[str, Optional[Lis
                 logger.info(f"[CHOICES EXTRACTION] Found marker '{match.group().strip()}' at position {marker_pos}")
                 return (scene, parsed)
 
+    # Special case: Handle "CHOICES [...]" format (LLM outputs choices word followed by JSON array)
+    choices_word_match = re.search(r'\n\s*CHOICES\s+(\[.+\])\s*$', search_region, re.IGNORECASE | re.DOTALL)
+    if choices_word_match:
+        marker_pos = search_start + choices_word_match.start()
+        scene = full_text[:marker_pos].strip()
+        choices_json = choices_word_match.group(1)
+        parsed = parse_choices_from_json(choices_json)
+        if parsed:
+            logger.info(f"[CHOICES EXTRACTION] Found 'CHOICES [...]' format at position {marker_pos}")
+            return (scene, parsed)
+
     # Fallback: Look for JSON array at the very end
     json_match = re.search(r'\[\s*"[^"]+"\s*(?:,\s*"[^"]+"\s*)+\]\s*$', search_region)
     if json_match:

@@ -428,6 +428,8 @@ async def update_user_settings(
             user_settings.enable_chapter_plot_tracking = gen.enable_chapter_plot_tracking
         if gen.default_plot_check_mode is not None:
             user_settings.default_plot_check_mode = gen.default_plot_check_mode
+        if gen.enable_streaming is not None:
+            user_settings.enable_streaming = gen.enable_streaming
 
     # Update UI preferences
     if settings_update.ui_preferences:

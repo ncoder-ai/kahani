@@ -74,6 +74,7 @@ from .story_helpers import (
     create_scene_with_multi_variants,
     create_additional_variants,
     setup_auto_play_if_enabled,
+    trigger_auto_play_tts,
     invalidate_extractions_for_scene,
     invalidate_and_regenerate_extractions_for_scene,
     llm_service,
@@ -301,7 +302,6 @@ async def create_scene_variant(
                 logger.warning(f"No active StoryFlow entry found for scene {scene_id} trace_id={trace_id}")
         
             # Check if this is the last scene and trigger auto-play TTS if enabled
-            # Do this BEFORE generating choices so user can start listening sooner
             auto_play_session_id = None
             try:
                 # Check if this scene is the last scene in the story
@@ -327,55 +327,58 @@ async def create_scene_variant(
                 logger.error(f"[AUTO-PLAY] Failed to trigger auto-play: {e}")
                 # Don't fail variant generation if auto-play fails
 
-            # Generate choices for the new variant
-            try:
-                # Build full scene generation context for choice generation
-                # Note: We don't have the original scene generation context here, so we rebuild it
-                # Use get_context_manager_for_user to get SemanticContextManager for structured format
-                context_manager = get_context_manager_for_user(user_settings, current_user.id)
+            # Choices are now generated inline with the variant (cache-friendly single LLM call)
+            # Only generate separately if separate_choice_generation is enabled and no choices exist
+            generation_prefs = user_settings.get("generation_preferences", {})
+            separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
 
-                # Get active chapter for character separation (filter by branch to avoid cross-branch confusion)
-                active_branch_id = story.current_branch_id
-                active_chapter = db.query(Chapter).filter(
-                    Chapter.story_id == story_id,
-                    Chapter.branch_id == active_branch_id,
-                    Chapter.status == ChapterStatus.ACTIVE
-                ).first()
-                chapter_id = active_chapter.id if active_chapter else None
+            # Check if variant already has choices from inline generation
+            existing_choices = db.query(SceneChoice)\
+                .filter(SceneChoice.scene_variant_id == variant.id)\
+                .count()
 
-                # Build full scene generation context
-                choice_context = await context_manager.build_scene_generation_context(
-                    story_id, db, chapter_id=chapter_id, exclude_scene_id=scene_id
-                )
+            if existing_choices == 0 and separate_choice_generation:
+                # Separate choice generation mode - generate choices in dedicated call
+                try:
+                    context_manager = get_context_manager_for_user(user_settings, current_user.id)
+                    active_branch_id = story.current_branch_id
+                    active_chapter = db.query(Chapter).filter(
+                        Chapter.story_id == story_id,
+                        Chapter.branch_id == active_branch_id,
+                        Chapter.status == ChapterStatus.ACTIVE
+                    ).first()
+                    chapter_id = active_chapter.id if active_chapter else None
 
-                generated_choices = await llm_service.generate_choices(
-                    variant.content,
-                    choice_context,
-                    current_user.id,
-                    user_settings,
-                    db
-                )
-
-                # Get branch_id from scene
-                scene = db.query(Scene).filter(Scene.id == scene_id).first()
-                branch_id = scene.branch_id if scene else None
-
-                # Create choice records for the variant
-                for idx, choice_text in enumerate(generated_choices, 1):
-                    choice = SceneChoice(
-                        scene_id=scene_id,
-                        scene_variant_id=variant.id,
-                        branch_id=branch_id,
-                        choice_text=choice_text,
-                        choice_order=idx
+                    choice_context = await context_manager.build_scene_generation_context(
+                        story_id, db, chapter_id=chapter_id, exclude_scene_id=scene_id
                     )
-                    db.add(choice)
 
-                db.commit()
-                logger.info(f"Generated {len(generated_choices)} choices for variant {variant.id}")
-            except Exception as e:
-                logger.warning(f"Failed to generate choices for variant {variant.id}: {e}")
-                # Continue without choices - fallback will be used
+                    generated_choices = await llm_service.generate_choices(
+                        variant.content,
+                        choice_context,
+                        current_user.id,
+                        user_settings,
+                        db
+                    )
+
+                    scene = db.query(Scene).filter(Scene.id == scene_id).first()
+                    branch_id = scene.branch_id if scene else None
+
+                    for idx, choice_text in enumerate(generated_choices, 1):
+                        choice = SceneChoice(
+                            scene_id=scene_id,
+                            scene_variant_id=variant.id,
+                            branch_id=branch_id,
+                            choice_text=choice_text,
+                            choice_order=idx
+                        )
+                        db.add(choice)
+                    db.commit()
+                    logger.info(f"[VARIANT] Generated {len(generated_choices)} choices in separate call")
+                except Exception as e:
+                    logger.warning(f"[VARIANT] Failed to generate choices separately: {e}")
+            elif existing_choices > 0:
+                logger.info(f"[VARIANT] Using {existing_choices} choices from inline generation")
 
             # Get choices for the new variant
             choices = db.query(SceneChoice)\
@@ -1004,7 +1007,56 @@ async def create_scene_variant_streaming(
         except Exception as e:
             logger.error(f"Error in variant stream: {e}")
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
-    
+
+    # Check if streaming is disabled in user settings
+    generation_prefs = user_settings.get("generation_preferences", {})
+    enable_streaming = generation_prefs.get("enable_streaming", True)
+
+    if not enable_streaming:
+        logger.info(f"[VARIANT:NON-STREAMING:START] scene_id={scene_id}")
+        complete_data = None
+        full_content = ""
+        chunk_count = 0
+
+        try:
+            async for chunk in generate_variant_stream():
+                chunk_count += 1
+                if chunk.startswith("data: "):
+                    data_str = chunk[6:].strip()
+                    if data_str == "[DONE]":
+                        continue
+                    try:
+                        event = json.loads(data_str)
+                        if event.get("type") == "content":
+                            full_content += event.get("chunk", "")
+                        elif event.get("type") == "complete":
+                            complete_data = event
+                            logger.info(f"[VARIANT:NON-STREAMING:COMPLETE] scene_id={scene_id}")
+                    except json.JSONDecodeError:
+                        continue
+        except Exception as e:
+            logger.error(f"[VARIANT:NON-STREAMING:ERROR] scene_id={scene_id} error={e}")
+            raise
+
+        if complete_data:
+            from fastapi.responses import JSONResponse
+            # Extract variant data - streaming format has it nested under 'variant' key
+            variant_data = complete_data.get("variant", {})
+            # Use cleaned content from saved variant, not raw full_content which includes ###CHOICES### marker
+            cleaned_content = variant_data.get("content", full_content)
+            logger.info(f"[VARIANT:NON-STREAMING:RETURN] scene_id={scene_id} content_len={len(cleaned_content)}")
+            return JSONResponse(content={
+                "variant_id": variant_data.get("id"),
+                "variant_number": variant_data.get("variant_number"),
+                "content": cleaned_content,
+                "choices": variant_data.get("choices", [])
+            })
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Variant generation failed - no completion data received"
+            )
+
     return StreamingResponse(
         generate_variant_stream(),
         media_type="text/plain",
@@ -1100,10 +1152,12 @@ async def continue_scene(
             story_id, scene_id, current_variant.content, db, custom_prompt,
             branch_id=story.current_branch_id  # Pass branch_id for branch-aware context
         )
-        
-        # Generate continuation content
-        continuation_content = await generate_scene_continuation(context, current_user.id, user_settings, db)
-        
+
+        # Generate continuation content with inline choices using unified cache-friendly method
+        continuation_content, parsed_choices = await llm_service.generate_continuation_with_choices(
+            context, current_user.id, user_settings, db
+        )
+
         # Clean the continuation content before appending
         cleaned_continuation = llm_service._clean_scene_content(continuation_content.rstrip())
         
@@ -1130,6 +1184,36 @@ async def continue_scene(
             branch_id=scene.branch_id
         )
 
+        # Handle choices from inline generation
+        choices_data = []
+        if parsed_choices and len(parsed_choices) >= 2:
+            try:
+                # Delete existing choices for this variant (continuation replaces choices)
+                db.query(SceneChoice).filter(
+                    SceneChoice.scene_variant_id == current_variant.id
+                ).delete()
+
+                # Create new choices
+                for idx, choice_text in enumerate(parsed_choices, 1):
+                    choice = SceneChoice(
+                        scene_id=scene_id,
+                        scene_variant_id=current_variant.id,
+                        branch_id=scene.branch_id,
+                        choice_text=choice_text,
+                        choice_order=idx
+                    )
+                    db.add(choice)
+                    choices_data.append({
+                        "text": choice_text,
+                        "order": idx
+                    })
+                db.commit()
+                logger.info(f"[CONTINUE] Generated {len(choices_data)} choices from inline generation")
+            except Exception as e:
+                logger.warning(f"[CONTINUE] Failed to save inline choices: {e}")
+                db.rollback()
+                choices_data = []
+
         return {
             "message": "Scene continued successfully",
             "scene": {
@@ -1137,7 +1221,8 @@ async def continue_scene(
                 "content": new_content,
                 "title": scene.title,
                 "sequence_number": scene.sequence_number
-            }
+            },
+            "choices": choices_data
         }
         
     except Exception as e:
@@ -1276,11 +1361,52 @@ async def continue_scene_streaming(
             
             # Send completion
             yield f"data: {json.dumps({'type': 'complete', 'scene_id': scene_id, 'new_content': new_content, 'choices': choices_data})}\n\n"
-            
+
         except Exception as e:
             logger.error(f"Error in continuation stream: {e}")
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
-    
+
+    # Check if streaming is disabled in user settings
+    generation_prefs = user_settings.get("generation_preferences", {})
+    enable_streaming = generation_prefs.get("enable_streaming", True)
+
+    if not enable_streaming:
+        logger.info(f"[CONTINUE:NON-STREAMING:START] scene_id={scene_id}")
+        complete_data = None
+        chunk_count = 0
+
+        try:
+            async for chunk in generate_continuation_stream():
+                chunk_count += 1
+                if chunk.startswith("data: "):
+                    data_str = chunk[6:].strip()
+                    if data_str == "[DONE]":
+                        continue
+                    try:
+                        event = json.loads(data_str)
+                        if event.get("type") == "complete":
+                            complete_data = event
+                            logger.info(f"[CONTINUE:NON-STREAMING:COMPLETE] scene_id={scene_id}")
+                    except json.JSONDecodeError:
+                        continue
+        except Exception as e:
+            logger.error(f"[CONTINUE:NON-STREAMING:ERROR] scene_id={scene_id} error={e}")
+            raise
+
+        if complete_data:
+            from fastapi.responses import JSONResponse
+            logger.info(f"[CONTINUE:NON-STREAMING:RETURN] scene_id={scene_id}")
+            return JSONResponse(content={
+                "scene_id": complete_data.get("scene_id"),
+                "new_content": complete_data.get("new_content"),
+                "choices": complete_data.get("choices", [])
+            })
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Continuation generation failed - no completion data received"
+            )
+
     return StreamingResponse(
         generate_continuation_stream(),
         media_type="text/plain",

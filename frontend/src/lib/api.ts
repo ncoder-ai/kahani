@@ -987,16 +987,6 @@ class ApiClient {
     });
   }
 
-  async generateScene(storyId: number, customPrompt = '', userContent?: string, contentMode: 'ai_generate' | 'user_scene' | 'user_prompt' = 'ai_generate') {
-    const formData = new FormData();
-    formData.append('custom_prompt', customPrompt);
-    if (userContent) {
-      formData.append('user_content', userContent);
-    }
-    formData.append('content_mode', contentMode);
-    return this.request<any>(`/api/stories/${storyId}/scenes`, { method: 'POST', headers: {}, body: formData });
-  }
-
   async generateSceneStreaming(
     storyId: number,
     customPrompt = '',
@@ -1084,11 +1074,36 @@ class ApiClient {
         clearTimeout(timeoutId);
         throw new Error(`HTTP error! status: ${response.status}`);
       }
+
+      // Check if backend returned JSON (non-streaming mode)
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        clearTimeout(timeoutId);
+        const data = await response.json();
+        // Send content as a single chunk so UI can display it
+        if (data.content && onChunk) {
+          onChunk(data.content);
+          fullStreamedContent = data.content;
+        }
+        // Call onComplete with the JSON data
+        if (onComplete) {
+          onComplete(
+            data.scene_id,
+            data.variant_id,
+            data.choices || [],
+            undefined, // autoPlay
+            undefined, // multiGen
+            data.chapter_id
+          );
+        }
+        return;
+      }
+
       if (!response.body) {
         clearTimeout(timeoutId);
         throw new Error('No response body');
       }
-      
+
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';  // Buffer for incomplete lines
@@ -1289,13 +1304,6 @@ class ApiClient {
   }
 
   // Scene Variants
-  async createSceneVariant(storyId: number, sceneId: number, customPrompt?: string) {
-    return this.request<{ message: string; variant: any; auto_play_session_id?: string }>(`/api/stories/${storyId}/scenes/${sceneId}/variants`, {
-      method: 'POST',
-      body: JSON.stringify({ custom_prompt: customPrompt }),
-    });
-  }
-
   async createSceneVariantStreaming(
     storyId: number,
     sceneId: number,
@@ -1326,23 +1334,45 @@ class ApiClient {
       });
       
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      
+
+      // Check if backend returned JSON (non-streaming mode)
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await response.json();
+        // Send content as a single chunk
+        if (data.content && onChunk) {
+          onChunk(data.content);
+        }
+        // Call onComplete with structure matching streaming format (variant nested inside)
+        if (onComplete) {
+          onComplete({
+            variant: {
+              id: data.variant_id,
+              variant_number: data.variant_number,
+              content: data.content,
+              choices: data.choices || []
+            }
+          });
+        }
+        return;
+      }
+
       const reader = response.body?.getReader();
       if (!reader) throw new Error('Failed to get response reader');
-      
+
       try {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          
+
           const chunk = new TextDecoder().decode(value);
           const lines = chunk.split('\n');
-          
+
           for (const line of lines) {
             if (line.startsWith('data: ')) {
               const data = line.slice(6);
               if (data === '[DONE]') continue;
-              
+
               try {
                 const parsed = JSON.parse(data);
                 if (parsed.type === 'content' && onChunk) onChunk(parsed.chunk);
@@ -1470,20 +1500,12 @@ class ApiClient {
   }
 
   // Scene Continuation
-  async continueScene(storyId: number, sceneId: number, customPrompt?: string) {
-    return this.request<{ message: string; scene: any }>(`/api/stories/${storyId}/scenes/${sceneId}/continue`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ custom_prompt: customPrompt }),
-    });
-  }
-
   async continueSceneStreaming(
     storyId: number,
     sceneId: number,
     customPrompt = '',
     onChunk?: (chunk: string) => void,
-    onComplete?: (sceneId: number, newContent: string) => void,
+    onComplete?: (sceneId: number, newContent: string, choices?: any[]) => void,
     onError?: (error: string) => void,
     abortSignal?: AbortSignal
   ) {
@@ -1498,6 +1520,18 @@ class ApiClient {
       });
 
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+      // Check if backend returned JSON (non-streaming mode)
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await response.json();
+        // Call onComplete with the JSON data including choices
+        if (onComplete) {
+          onComplete(data.scene_id, data.new_content, data.choices);
+        }
+        return;
+      }
+
       const reader = response.body?.getReader();
       if (!reader) throw new Error('Failed to get response reader');
       const decoder = new TextDecoder();
@@ -1513,7 +1547,7 @@ class ApiClient {
             try {
               const parsed = JSON.parse(data);
               if (parsed.type === 'content' && onChunk) onChunk(parsed.chunk);
-              else if (parsed.type === 'complete' && onComplete) onComplete(parsed.scene_id, parsed.new_content);
+              else if (parsed.type === 'complete' && onComplete) onComplete(parsed.scene_id, parsed.new_content, parsed.choices);
               else if (parsed.type === 'error' && onError) onError(parsed.message);
             } catch (e) {
               // ignore non-JSON lines
