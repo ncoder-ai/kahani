@@ -899,31 +899,25 @@ Chapter Conclusion:"""
             return self._clean_scene_numbers(response_text)
         
         # === MULTI-MESSAGE STRUCTURE FOR BETTER CACHING ===
-        # Build messages array with context split into stable/dynamic parts
-        
-        messages = [{"role": "system", "content": system_prompt.strip()}]
-        
-        # Get scene batch size from user settings for cache optimization
-        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-        
-        # Add context as multiple user messages (most stable → most dynamic)
-        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-        messages.extend(context_messages)
-        
-        # Add the final task message from prompts.yml (most dynamic - changes every scene)
-        has_immediate = bool(immediate_situation and immediate_situation.strip())
-        tone = context.get('tone', '')
-        task_content = prompt_manager.get_task_instruction(
-            has_immediate=has_immediate,
-            prose_style=prose_style,
-            tone=tone,
-            immediate_situation=immediate_situation or "",
-            scene_length_description=scene_length_description
+        # Use cache-friendly helper for consistent message prefix
+        messages = self._build_cache_friendly_message_prefix(
+            context=context,
+            user_id=user_id,
+            user_settings=user_settings,
+            db=db
         )
-        
+
+        # Build task instruction using helper (no choices for this method)
+        task_content = self._build_scene_task_message(
+            context=context,
+            user_settings=user_settings,
+            db=db,
+            include_choices_reminder=False
+        )
+
         messages.append({"role": "user", "content": task_content})
-        
-        logger.info(f"[SCENE GENERATION] Using multi-message structure: {len(messages)} messages (1 system + {len(context_messages)} context + 1 task)")
+
+        logger.info(f"[SCENE GENERATION] Using multi-message structure: {len(messages)} messages")
         
         # Call LLM with multi-message structure
         from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
@@ -1030,36 +1024,24 @@ Chapter Conclusion:"""
             
         else:
             # === MULTI-MESSAGE STRUCTURE FOR BETTER CACHING ===
-            messages = [{"role": "system", "content": system_prompt.strip()}]
-            
-            # Get scene batch size from user settings for cache optimization
-            scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-            
-            # Add context as multiple user messages (most stable → most dynamic)
-            context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-            messages.extend(context_messages)
-            
-            # Get task instruction and choices reminder from prompts.yml
-            has_immediate = bool(immediate_situation and immediate_situation.strip())
-            tone = context.get('tone', '')
-            task_content = prompt_manager.get_task_instruction(
-                has_immediate=has_immediate,
-                prose_style=prose_style,
-                tone=tone,
-                immediate_situation=immediate_situation or "",
-                scene_length_description=scene_length_description
+            # Use cache-friendly helper for consistent message prefix
+            messages = self._build_cache_friendly_message_prefix(
+                context=context,
+                user_id=user_id,
+                user_settings=user_settings,
+                db=db
             )
-            
-            # Only append choices reminder if separate_choice_generation is NOT enabled
-            if not separate_choice_generation:
-                choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
-                if choices_reminder:
-                    task_content = task_content + "\n\n" + choices_reminder
-            else:
-                logger.info(f"[SCENE WITH CHOICES] Separate choice generation enabled - skipping choices reminder in task")
-            
+
+            # Build task instruction using helper
+            task_content = self._build_scene_task_message(
+                context=context,
+                user_settings=user_settings,
+                db=db,
+                include_choices_reminder=not separate_choice_generation
+            )
+
             messages.append({"role": "user", "content": task_content})
-            
+
             logger.info(f"[SCENE WITH CHOICES] Using multi-message structure: {len(messages)} messages")
             
             # Apply NSFW filter
@@ -1416,29 +1398,25 @@ Chapter Conclusion:"""
             return
         
         # === MULTI-MESSAGE STRUCTURE FOR BETTER CACHING ===
-        messages = [{"role": "system", "content": system_prompt.strip()}]
-        
-        # Get scene batch size from user settings for cache optimization
-        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-        
-        # Add context as multiple user messages (most stable → most dynamic)
-        context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-        messages.extend(context_messages)
-        
-        # Add the final task message from prompts.yml (most dynamic - changes every scene)
-        has_immediate = bool(immediate_situation and immediate_situation.strip())
-        tone = context.get('tone', '')
-        task_content = prompt_manager.get_task_instruction(
-            has_immediate=has_immediate,
-            prose_style=prose_style,
-            tone=tone,
-            immediate_situation=immediate_situation or "",
-            scene_length_description=scene_length_description
+        # Use cache-friendly helper for consistent message prefix
+        messages = self._build_cache_friendly_message_prefix(
+            context=context,
+            user_id=user_id,
+            user_settings=user_settings,
+            db=None  # No db access in this method
         )
-        
+
+        # Build task instruction using helper (no choices for this method)
+        task_content = self._build_scene_task_message(
+            context=context,
+            user_settings=user_settings,
+            db=None,
+            include_choices_reminder=False
+        )
+
         messages.append({"role": "user", "content": task_content})
-        
-        logger.info(f"[SCENE GENERATION STREAMING] Using multi-message structure: {len(messages)} messages (1 system + {len(context_messages)} context + 1 task)")
+
+        logger.info(f"[SCENE GENERATION STREAMING] Using multi-message structure: {len(messages)} messages")
         
         # Collect all raw chunks for raw response capture (before cleaning)
         raw_chunks = []

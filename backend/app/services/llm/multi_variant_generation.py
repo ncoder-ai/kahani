@@ -199,72 +199,31 @@ class MultiVariantGeneration:
         """
         CHOICES_MARKER = "###CHOICES###"
 
-        # Get scene length, choices count from user settings
+        # Get settings for max_tokens calculation
         generation_prefs = user_settings.get("generation_preferences", {})
-        scene_length = generation_prefs.get("scene_length", "medium")
         choices_count = generation_prefs.get("choices_count", 4)
         separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
-        scene_length_description = self._service._get_scene_length_description(scene_length)
-
-        # Get POV and prose style from writing preset
-        pov = 'third'
-        prose_style = 'balanced'
-        if db and user_id:
-            from ...models.writing_style_preset import WritingStylePreset
-            active_preset = db.query(WritingStylePreset).filter(
-                WritingStylePreset.user_id == user_id,
-                WritingStylePreset.is_active == True
-            ).first()
-            if active_preset:
-                if hasattr(active_preset, 'pov') and active_preset.pov:
-                    pov = active_preset.pov
-                if hasattr(active_preset, 'prose_style') and active_preset.prose_style:
-                    prose_style = active_preset.prose_style
-
-        # Build system prompt (same as single generation)
-        system_prompt = prompt_manager.get_prompt(
-            "scene_with_immediate", "system",
-            user_id=user_id,
-            db=db,
-            scene_length_description=scene_length_description,
-            choices_count=choices_count,
-            skip_choices=separate_choice_generation
-        )
-
-        pov_reminder = prompt_manager.get_pov_reminder(pov)
-        if pov_reminder:
-            system_prompt += "\n\n" + pov_reminder
 
         # Calculate max tokens
         base_max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
         choices_buffer_tokens = max(300, choices_count * 50)
         max_tokens = base_max_tokens + choices_buffer_tokens
 
-        # Build messages
-        messages = [{"role": "system", "content": system_prompt.strip()}]
-
-        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-        context_messages = self._service._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-        messages.extend(context_messages)
-
-        # Get task instruction
-        immediate_situation = context.get("current_situation") or ""
-        immediate_situation = str(immediate_situation) if immediate_situation else ""
-        has_immediate = bool(immediate_situation and immediate_situation.strip())
-        tone = context.get('tone', '')
-
-        task_content = prompt_manager.get_task_instruction(
-            has_immediate=has_immediate,
-            prose_style=prose_style,
-            tone=tone,
-            immediate_situation=immediate_situation or "",
-            scene_length_description=scene_length_description
+        # Use cache-friendly helper for consistent message prefix
+        messages = self._service._build_cache_friendly_message_prefix(
+            context=context,
+            user_id=user_id,
+            user_settings=user_settings,
+            db=db
         )
 
-        if not separate_choice_generation:
-            choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
-            if choices_reminder:
-                task_content = task_content + "\n\n" + choices_reminder
+        # Build task instruction using helper
+        task_content = self._service._build_scene_task_message(
+            context=context,
+            user_settings=user_settings,
+            db=db,
+            include_choices_reminder=not separate_choice_generation
+        )
 
         messages.append({"role": "user", "content": task_content})
 
@@ -337,70 +296,31 @@ class MultiVariantGeneration:
         """
         CHOICES_MARKER = "###CHOICES###"
 
-        # Get scene settings
+        # Get settings for max_tokens calculation
         generation_prefs = user_settings.get("generation_preferences", {})
-        scene_length = generation_prefs.get("scene_length", "medium")
         choices_count = generation_prefs.get("choices_count", 4)
         separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
-        scene_length_description = self._service._get_scene_length_description(scene_length)
 
-        # Get POV and prose style
-        pov = 'third'
-        prose_style = 'balanced'
-        if db and user_id:
-            from ...models.writing_style_preset import WritingStylePreset
-            active_preset = db.query(WritingStylePreset).filter(
-                WritingStylePreset.user_id == user_id,
-                WritingStylePreset.is_active == True
-            ).first()
-            if active_preset:
-                if hasattr(active_preset, 'pov') and active_preset.pov:
-                    pov = active_preset.pov
-                if hasattr(active_preset, 'prose_style') and active_preset.prose_style:
-                    prose_style = active_preset.prose_style
-
-        # Build system prompt
-        system_prompt = prompt_manager.get_prompt(
-            "scene_with_immediate", "system",
-            user_id=user_id,
-            db=db,
-            scene_length_description=scene_length_description,
-            choices_count=choices_count,
-            skip_choices=separate_choice_generation
-        )
-
-        pov_reminder = prompt_manager.get_pov_reminder(pov)
-        if pov_reminder:
-            system_prompt += "\n\n" + pov_reminder
-
+        # Calculate max tokens
         base_max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
         choices_buffer_tokens = max(300, choices_count * 50)
         max_tokens = base_max_tokens + choices_buffer_tokens
 
-        # Build messages
-        messages = [{"role": "system", "content": system_prompt.strip()}]
-
-        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-        context_messages = self._service._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-        messages.extend(context_messages)
-
-        immediate_situation = context.get("current_situation") or ""
-        immediate_situation = str(immediate_situation) if immediate_situation else ""
-        has_immediate = bool(immediate_situation and immediate_situation.strip())
-        tone = context.get('tone', '')
-
-        task_content = prompt_manager.get_task_instruction(
-            has_immediate=has_immediate,
-            prose_style=prose_style,
-            tone=tone,
-            immediate_situation=immediate_situation or "",
-            scene_length_description=scene_length_description
+        # Use cache-friendly helper for consistent message prefix
+        messages = self._service._build_cache_friendly_message_prefix(
+            context=context,
+            user_id=user_id,
+            user_settings=user_settings,
+            db=db
         )
 
-        if not separate_choice_generation:
-            choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
-            if choices_reminder:
-                task_content = task_content + "\n\n" + choices_reminder
+        # Build task instruction using helper
+        task_content = self._service._build_scene_task_message(
+            context=context,
+            user_settings=user_settings,
+            db=db,
+            include_choices_reminder=not separate_choice_generation
+        )
 
         messages.append({"role": "user", "content": task_content})
 
@@ -449,60 +369,23 @@ class MultiVariantGeneration:
             - During streaming: (chunk_text, False, None)
             - On completion: ("", True, [content_0, ..., content_n-1])
         """
-        generation_prefs = user_settings.get("generation_preferences", {})
-        scene_length = generation_prefs.get("scene_length", "medium")
-        choices_count = generation_prefs.get("choices_count", 4)
-        scene_length_description = self._service._get_scene_length_description(scene_length)
-
-        pov = 'third'
-        prose_style = 'balanced'
-        if db and user_id:
-            from ...models.writing_style_preset import WritingStylePreset
-            active_preset = db.query(WritingStylePreset).filter(
-                WritingStylePreset.user_id == user_id,
-                WritingStylePreset.is_active == True
-            ).first()
-            if active_preset:
-                if hasattr(active_preset, 'pov') and active_preset.pov:
-                    pov = active_preset.pov
-                if hasattr(active_preset, 'prose_style') and active_preset.prose_style:
-                    prose_style = active_preset.prose_style
-
-        # Build system prompt with skip_choices=True
-        system_prompt = prompt_manager.get_prompt(
-            "scene_with_immediate", "system",
-            user_id=user_id,
-            db=db,
-            scene_length_description=scene_length_description,
-            choices_count=choices_count,
-            skip_choices=True  # Don't include choices in generation
-        )
-
-        pov_reminder = prompt_manager.get_pov_reminder(pov)
-        if pov_reminder:
-            system_prompt += "\n\n" + pov_reminder
-
         max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
 
-        messages = [{"role": "system", "content": system_prompt.strip()}]
-
-        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-        context_messages = self._service._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-        messages.extend(context_messages)
-
-        immediate_situation = context.get("current_situation") or ""
-        immediate_situation = str(immediate_situation) if immediate_situation else ""
-        has_immediate = bool(immediate_situation and immediate_situation.strip())
-        tone = context.get('tone', '')
-
-        task_content = prompt_manager.get_task_instruction(
-            has_immediate=has_immediate,
-            prose_style=prose_style,
-            tone=tone,
-            immediate_situation=immediate_situation or "",
-            scene_length_description=scene_length_description
+        # Use cache-friendly helper for consistent message prefix
+        messages = self._service._build_cache_friendly_message_prefix(
+            context=context,
+            user_id=user_id,
+            user_settings=user_settings,
+            db=db
         )
-        # Don't add choices reminder - separate generation
+
+        # Build task instruction using helper - no choices reminder for separate generation
+        task_content = self._service._build_scene_task_message(
+            context=context,
+            user_settings=user_settings,
+            db=db,
+            include_choices_reminder=False
+        )
 
         messages.append({"role": "user", "content": task_content})
 
@@ -536,57 +419,22 @@ class MultiVariantGeneration:
         Returns:
             List of scene contents
         """
-        generation_prefs = user_settings.get("generation_preferences", {})
-        scene_length = generation_prefs.get("scene_length", "medium")
-        choices_count = generation_prefs.get("choices_count", 4)
-        scene_length_description = self._service._get_scene_length_description(scene_length)
-
-        pov = 'third'
-        prose_style = 'balanced'
-        if db and user_id:
-            from ...models.writing_style_preset import WritingStylePreset
-            active_preset = db.query(WritingStylePreset).filter(
-                WritingStylePreset.user_id == user_id,
-                WritingStylePreset.is_active == True
-            ).first()
-            if active_preset:
-                if hasattr(active_preset, 'pov') and active_preset.pov:
-                    pov = active_preset.pov
-                if hasattr(active_preset, 'prose_style') and active_preset.prose_style:
-                    prose_style = active_preset.prose_style
-
-        system_prompt = prompt_manager.get_prompt(
-            "scene_with_immediate", "system",
-            user_id=user_id,
-            db=db,
-            scene_length_description=scene_length_description,
-            choices_count=choices_count,
-            skip_choices=True
-        )
-
-        pov_reminder = prompt_manager.get_pov_reminder(pov)
-        if pov_reminder:
-            system_prompt += "\n\n" + pov_reminder
-
         max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
 
-        messages = [{"role": "system", "content": system_prompt.strip()}]
+        # Use cache-friendly helper for consistent message prefix
+        messages = self._service._build_cache_friendly_message_prefix(
+            context=context,
+            user_id=user_id,
+            user_settings=user_settings,
+            db=db
+        )
 
-        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-        context_messages = self._service._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-        messages.extend(context_messages)
-
-        immediate_situation = context.get("current_situation") or ""
-        immediate_situation = str(immediate_situation) if immediate_situation else ""
-        has_immediate = bool(immediate_situation and immediate_situation.strip())
-        tone = context.get('tone', '')
-
-        task_content = prompt_manager.get_task_instruction(
-            has_immediate=has_immediate,
-            prose_style=prose_style,
-            tone=tone,
-            immediate_situation=immediate_situation or "",
-            scene_length_description=scene_length_description
+        # Build task instruction using helper - no choices reminder for separate generation
+        task_content = self._service._build_scene_task_message(
+            context=context,
+            user_settings=user_settings,
+            db=db,
+            include_choices_reminder=False
         )
 
         messages.append({"role": "user", "content": task_content})
@@ -823,57 +671,47 @@ class MultiVariantGeneration:
         """
         CHOICES_MARKER = "###CHOICES###"
 
+        # Get settings for max_tokens calculation
         generation_prefs = user_settings.get("generation_preferences", {})
-        scene_length = generation_prefs.get("scene_length", "medium")
         choices_count = generation_prefs.get("choices_count", 4)
         separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
-        scene_length_description = self._service._get_scene_length_description(scene_length)
 
-        pov = 'third'
-        prose_style = 'balanced'
-        if db and user_id:
-            from ...models.writing_style_preset import WritingStylePreset
-            active_preset = db.query(WritingStylePreset).filter(
-                WritingStylePreset.user_id == user_id,
-                WritingStylePreset.is_active == True
-            ).first()
-            if active_preset:
-                if hasattr(active_preset, 'pov') and active_preset.pov:
-                    pov = active_preset.pov
-                if hasattr(active_preset, 'prose_style') and active_preset.prose_style:
-                    prose_style = active_preset.prose_style
-
-        # Build system prompt
-        system_prompt = prompt_manager.get_prompt(
-            "scene_with_immediate", "system",
-            user_id=user_id,
-            db=db,
-            scene_length_description=scene_length_description,
-            choices_count=choices_count,
-            skip_choices=separate_choice_generation
-        )
-
-        pov_reminder = prompt_manager.get_pov_reminder(pov)
-        if pov_reminder:
-            system_prompt += "\n\n" + pov_reminder
-
+        # Calculate max tokens
         base_max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
         choices_buffer_tokens = max(300, choices_count * 50)
         max_tokens = base_max_tokens + choices_buffer_tokens
 
-        messages = [{"role": "system", "content": system_prompt.strip()}]
+        # Use cache-friendly helper for consistent message prefix
+        messages = self._service._build_cache_friendly_message_prefix(
+            context=context,
+            user_id=user_id,
+            user_settings=user_settings,
+            db=db
+        )
 
-        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-        context_messages = self._service._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-        messages.extend(context_messages)
-
-        # Add custom prompt or regeneration instruction
-        immediate_situation = context.get("current_situation") or ""
-        immediate_situation = str(immediate_situation) if immediate_situation else ""
-        has_immediate = bool(immediate_situation and immediate_situation.strip())
-        tone = context.get('tone', '')
-
+        # Build task instruction
         if custom_prompt and custom_prompt.strip():
+            # Guided variant: Use different task instruction with custom guidance
+            # This intentionally breaks cache as the user wants different behavior
+            scene_length = generation_prefs.get("scene_length", "medium")
+            scene_length_description = self._service._get_scene_length_description(scene_length)
+
+            # Get prose_style from writing preset
+            prose_style = 'balanced'
+            if db and user_id:
+                from ...models.writing_style_preset import WritingStylePreset
+                active_preset = db.query(WritingStylePreset).filter(
+                    WritingStylePreset.user_id == user_id,
+                    WritingStylePreset.is_active == True
+                ).first()
+                if active_preset and hasattr(active_preset, 'prose_style') and active_preset.prose_style:
+                    prose_style = active_preset.prose_style
+
+            immediate_situation = context.get("current_situation") or ""
+            immediate_situation = str(immediate_situation) if immediate_situation else ""
+            has_immediate = bool(immediate_situation and immediate_situation.strip())
+            tone = context.get('tone', '')
+
             task_content = f"Regenerate the scene with the following guidance: {custom_prompt.strip()}\n\n"
             task_content += prompt_manager.get_task_instruction(
                 has_immediate=has_immediate,
@@ -882,24 +720,24 @@ class MultiVariantGeneration:
                 immediate_situation=immediate_situation or "",
                 scene_length_description=scene_length_description
             )
-        else:
-            task_content = "Regenerate this scene with a fresh take, maintaining the same context but with different creative choices.\n\n"
-            task_content += prompt_manager.get_task_instruction(
-                has_immediate=has_immediate,
-                prose_style=prose_style,
-                tone=tone,
-                immediate_situation=immediate_situation or "",
-                scene_length_description=scene_length_description
-            )
 
-        if not separate_choice_generation:
-            choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
-            if choices_reminder:
-                task_content = task_content + "\n\n" + choices_reminder
+            if not separate_choice_generation:
+                choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
+                if choices_reminder:
+                    task_content = task_content + "\n\n" + choices_reminder
+        else:
+            # Simple regeneration: Use EXACT same task instruction as scene generation
+            # This enables 100% cache hit rate
+            task_content = self._service._build_scene_task_message(
+                context=context,
+                user_settings=user_settings,
+                db=db,
+                include_choices_reminder=not separate_choice_generation
+            )
 
         messages.append({"role": "user", "content": task_content})
 
-        logger.info(f"[MULTI-GEN VARIANT] Starting streaming regeneration with n={n} for scene {scene_id}")
+        logger.info(f"[MULTI-GEN VARIANT] Starting streaming regeneration with n={n} for scene {scene_id}, guided={bool(custom_prompt)}")
 
         streaming_buffer = ""
         found_marker_in_stream = False
@@ -960,55 +798,46 @@ class MultiVariantGeneration:
         """
         CHOICES_MARKER = "###CHOICES###"
 
+        # Get settings for max_tokens calculation
         generation_prefs = user_settings.get("generation_preferences", {})
-        scene_length = generation_prefs.get("scene_length", "medium")
         choices_count = generation_prefs.get("choices_count", 4)
         separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
-        scene_length_description = self._service._get_scene_length_description(scene_length)
 
-        pov = 'third'
-        prose_style = 'balanced'
-        if db and user_id:
-            from ...models.writing_style_preset import WritingStylePreset
-            active_preset = db.query(WritingStylePreset).filter(
-                WritingStylePreset.user_id == user_id,
-                WritingStylePreset.is_active == True
-            ).first()
-            if active_preset:
-                if hasattr(active_preset, 'pov') and active_preset.pov:
-                    pov = active_preset.pov
-                if hasattr(active_preset, 'prose_style') and active_preset.prose_style:
-                    prose_style = active_preset.prose_style
-
-        system_prompt = prompt_manager.get_prompt(
-            "scene_with_immediate", "system",
-            user_id=user_id,
-            db=db,
-            scene_length_description=scene_length_description,
-            choices_count=choices_count,
-            skip_choices=separate_choice_generation
-        )
-
-        pov_reminder = prompt_manager.get_pov_reminder(pov)
-        if pov_reminder:
-            system_prompt += "\n\n" + pov_reminder
-
+        # Calculate max tokens
         base_max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
         choices_buffer_tokens = max(300, choices_count * 50)
         max_tokens = base_max_tokens + choices_buffer_tokens
 
-        messages = [{"role": "system", "content": system_prompt.strip()}]
+        # Use cache-friendly helper for consistent message prefix
+        messages = self._service._build_cache_friendly_message_prefix(
+            context=context,
+            user_id=user_id,
+            user_settings=user_settings,
+            db=db
+        )
 
-        scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
-        context_messages = self._service._format_context_as_messages(context, scene_batch_size=scene_batch_size)
-        messages.extend(context_messages)
-
-        immediate_situation = context.get("current_situation") or ""
-        immediate_situation = str(immediate_situation) if immediate_situation else ""
-        has_immediate = bool(immediate_situation and immediate_situation.strip())
-        tone = context.get('tone', '')
-
+        # Build task instruction
         if custom_prompt and custom_prompt.strip():
+            # Guided variant: Use different task instruction with custom guidance
+            scene_length = generation_prefs.get("scene_length", "medium")
+            scene_length_description = self._service._get_scene_length_description(scene_length)
+
+            # Get prose_style from writing preset
+            prose_style = 'balanced'
+            if db and user_id:
+                from ...models.writing_style_preset import WritingStylePreset
+                active_preset = db.query(WritingStylePreset).filter(
+                    WritingStylePreset.user_id == user_id,
+                    WritingStylePreset.is_active == True
+                ).first()
+                if active_preset and hasattr(active_preset, 'prose_style') and active_preset.prose_style:
+                    prose_style = active_preset.prose_style
+
+            immediate_situation = context.get("current_situation") or ""
+            immediate_situation = str(immediate_situation) if immediate_situation else ""
+            has_immediate = bool(immediate_situation and immediate_situation.strip())
+            tone = context.get('tone', '')
+
             task_content = f"Regenerate the scene with the following guidance: {custom_prompt.strip()}\n\n"
             task_content += prompt_manager.get_task_instruction(
                 has_immediate=has_immediate,
@@ -1017,24 +846,23 @@ class MultiVariantGeneration:
                 immediate_situation=immediate_situation or "",
                 scene_length_description=scene_length_description
             )
-        else:
-            task_content = "Regenerate this scene with a fresh take, maintaining the same context but with different creative choices.\n\n"
-            task_content += prompt_manager.get_task_instruction(
-                has_immediate=has_immediate,
-                prose_style=prose_style,
-                tone=tone,
-                immediate_situation=immediate_situation or "",
-                scene_length_description=scene_length_description
-            )
 
-        if not separate_choice_generation:
-            choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
-            if choices_reminder:
-                task_content = task_content + "\n\n" + choices_reminder
+            if not separate_choice_generation:
+                choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
+                if choices_reminder:
+                    task_content = task_content + "\n\n" + choices_reminder
+        else:
+            # Simple regeneration: Use EXACT same task instruction as scene generation
+            task_content = self._service._build_scene_task_message(
+                context=context,
+                user_settings=user_settings,
+                db=db,
+                include_choices_reminder=not separate_choice_generation
+            )
 
         messages.append({"role": "user", "content": task_content})
 
-        logger.info(f"[MULTI-GEN VARIANT] Starting non-streaming regeneration with n={n} for scene {scene_id}")
+        logger.info(f"[MULTI-GEN VARIANT] Starting non-streaming regeneration with n={n} for scene {scene_id}, guided={bool(custom_prompt)}")
 
         contents = await self.generate_multi_completions(
             messages=messages,
