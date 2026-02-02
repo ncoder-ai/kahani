@@ -174,6 +174,7 @@ export default function SceneVariantDisplay({
   const [isRegeneratingChoices, setIsRegeneratingChoices] = useState(false);
   const [choicesVersion, setChoicesVersion] = useState(0);
   const [showGuidedOptions, setShowGuidedOptions] = useState(false);
+  const [customGuideText, setCustomGuideText] = useState('');
   // Editable choice state
   const [editingChoiceId, setEditingChoiceId] = useState<number | null>(null);
   const [editingChoiceText, setEditingChoiceText] = useState<string>('');
@@ -1302,6 +1303,41 @@ export default function SceneVariantDisplay({
                         {option.label}
                       </button>
                     ))}
+                  </div>
+                  {/* Custom Guide Input */}
+                  <div className="p-2 border-t border-purple-500/20">
+                    <div className="text-xs text-purple-300 mb-1.5 px-1">Custom Guide</div>
+                    <textarea
+                      value={customGuideText}
+                      onChange={(e) => setCustomGuideText(e.target.value)}
+                      placeholder="Describe how to regenerate this scene..."
+                      disabled={isGenerating || isStreaming || isRegenerating}
+                      className="w-full px-3 py-2 text-sm bg-gray-800/80 border border-purple-500/30 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500/50 resize-none disabled:opacity-50"
+                      rows={2}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey && customGuideText.trim()) {
+                          e.preventDefault();
+                          setShowGuidedOptions(false);
+                          resetMenuTimer();
+                          onCreateVariant?.(scene.id, customGuideText.trim(), currentVariantId || undefined);
+                          setCustomGuideText('');
+                        }
+                      }}
+                    />
+                    <button
+                      onClick={() => {
+                        if (customGuideText.trim()) {
+                          setShowGuidedOptions(false);
+                          resetMenuTimer();
+                          onCreateVariant?.(scene.id, customGuideText.trim(), currentVariantId || undefined);
+                          setCustomGuideText('');
+                        }
+                      }}
+                      disabled={isGenerating || isStreaming || isRegenerating || !customGuideText.trim()}
+                      className="w-full mt-2 px-3 py-2 text-sm font-medium text-white bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 rounded-lg transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
+                    >
+                      Generate with Custom Guide
+                    </button>
                   </div>
                 </div>
               </div>
