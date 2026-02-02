@@ -257,6 +257,7 @@ frontend/out/
 *.sqlite3
 
 # Database files (exclude from git - users start fresh)
+backend/kahani.db
 backend/data/kahani.db
 backend/data/*.db
 backend/data/chromadb/
@@ -285,6 +286,7 @@ verify_*.py
 *_validation_*.txt
 backend/scripts/prompt_outputs/
 backend/scripts/TEST_RESULTS.md
+backend/prompt_comparison_report.json
 validation_output.log
 
 # Whisper and Silero-VAD models
