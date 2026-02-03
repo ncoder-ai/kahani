@@ -21,16 +21,17 @@ logger = logging.getLogger(__name__)
 
 class PromptManager:
     """Enhanced prompt manager with database and YAML support"""
-    
+
     def __init__(self, prompts_file_path: str = None):
         """Initialize prompt manager with path to prompts.yml"""
         if prompts_file_path is None:
             # Default to prompts.yml in the backend directory
             current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
             prompts_file_path = os.path.join(current_dir, "prompts.yml")
-        
+
         self.prompts_file_path = prompts_file_path
         self._prompts_cache: Optional[Dict[str, Any]] = None
+        self._file_mtime: float = 0  # Track file modification time for auto-reload
         self._load_prompts()
     
     def _load_prompts(self):
@@ -38,6 +39,8 @@ class PromptManager:
         try:
             with open(self.prompts_file_path, 'r', encoding='utf-8') as file:
                 self._prompts_cache = yaml.safe_load(file)
+            # Store file modification time for auto-reload detection
+            self._file_mtime = os.path.getmtime(self.prompts_file_path)
             logger.info(f"Loaded prompts from {self.prompts_file_path}")
         except FileNotFoundError:
             logger.error(f"Prompts file not found: {self.prompts_file_path}")
@@ -48,7 +51,17 @@ class PromptManager:
         except Exception as e:
             logger.error(f"Unexpected error loading prompts: {e}")
             self._prompts_cache = {}
-    
+
+    def _check_reload(self):
+        """Check if prompts.yml has been modified and reload if needed (hot-reload for development)"""
+        try:
+            current_mtime = os.path.getmtime(self.prompts_file_path)
+            if current_mtime > self._file_mtime:
+                logger.info(f"[PROMPTS] Detected prompts.yml change, reloading...")
+                self._load_prompts()
+        except Exception as e:
+            logger.warning(f"[PROMPTS] Error checking prompts file modification: {e}")
+
     def reload_prompts(self):
         """Reload prompts from file (useful for development)"""
         self._load_prompts()
@@ -57,14 +70,17 @@ class PromptManager:
         """
         Get a raw prompt from YAML without system/user distinction.
         Used for simple text templates like pacing guidance.
-        
+
         Args:
             template_key: Template identifier (e.g., 'pacing.chapter_plot_header')
             **template_vars: Variables to substitute in the prompt
-            
+
         Returns:
             The prompt text with variables substituted, or empty string if not found
         """
+        # Check for prompts.yml changes and hot-reload if modified
+        self._check_reload()
+
         # Map template keys to YAML structure
         yaml_mapping = {
             "pacing.chapter_plot_header": ("pacing", "chapter_plot_header"),
@@ -98,15 +114,17 @@ class PromptManager:
             return ""
     
     def get_prompt(
-        self, 
-        template_key: str, 
-        prompt_type: str = "system", 
+        self,
+        template_key: str,
+        prompt_type: str = "system",
         user_id: Optional[int] = None,
         db: Optional[Session] = None,
         **template_vars
     ) -> str:
         """
         Get a specific prompt with TWO-TIER system:
+
+        Note: Automatically checks for prompts.yml changes and reloads if modified (hot-reload).
         
         SYSTEM PROMPTS (user-customizable):
         1. Active writing style preset's system_prompt (universal)
@@ -128,8 +146,11 @@ class PromptManager:
         Returns:
             The requested prompt text with variables substituted
         """
+        # Check for prompts.yml changes and hot-reload if modified
+        self._check_reload()
+
         prompt_text = ""
-        
+
         # Extract skip_choices from template_vars (for system prompts)
         skip_choices = template_vars.pop('skip_choices', False)
         
@@ -478,13 +499,16 @@ class PromptManager:
     def get_user_choices_reminder(self, **template_vars) -> str:
         """
         Public method to get the user choices reminder with variable substitution.
-        
+
         Args:
             **template_vars: Variables to substitute (e.g., choices_count)
-            
+
         Returns:
             The choices reminder text with variables substituted
         """
+        # Check for prompts.yml changes and hot-reload if modified
+        self._check_reload()
+
         reminder = self._get_user_choices_reminder()
         if reminder and template_vars:
             return self._substitute_variables(reminder, **template_vars)
@@ -493,16 +517,19 @@ class PromptManager:
     def get_task_instruction(self, has_immediate: bool, prose_style: str = 'balanced', tone: str = None, **template_vars) -> str:
         """
         Get task instruction for multi-message structure from scene_base.
-        
+
         Args:
             has_immediate: Whether there's an immediate_situation (determines which template)
             prose_style: The prose style to use for the reminder
             tone: The story's tone (e.g., 'lighthearted', 'dark', 'mysterious')
             **template_vars: Variables to substitute (e.g., immediate_situation, scene_length_description)
-            
+
         Returns:
             The task instruction text with variables substituted
         """
+        # Check for prompts.yml changes and hot-reload if modified
+        self._check_reload()
+
         if not self._prompts_cache:
             return ""
         

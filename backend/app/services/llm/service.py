@@ -144,6 +144,58 @@ class UnifiedLLMService:
             os.makedirs(logs_dir, exist_ok=True)  # Ensure directory exists
             return os.path.join(logs_dir, filename)
 
+    def _format_plot_for_choices(self, context: Dict[str, Any], user_settings: Optional[Dict[str, Any]] = None) -> str:
+        """
+        Format chapter plot info for inclusion in choices reminder.
+
+        This provides plot guidance ONLY to choice generation, not scene generation.
+        Keeps scenes focused on user directives while choices can steer toward plot.
+
+        Args:
+            context: Scene generation context containing chapter_plot and pacing_guidance
+            user_settings: User settings dict containing default_plot_check_mode
+
+        Returns:
+            Formatted string for {chapter_plot_for_choices} placeholder, or empty string
+        """
+        parts = []
+
+        # Get plot_check_mode from user settings (controls how many events to show)
+        # "1" = show only next event, "3" = show up to 3, "all" = show all
+        plot_check_mode = "1"  # Default to showing just next event
+        if user_settings:
+            plot_check_mode = user_settings.get("generation_preferences", {}).get("default_plot_check_mode", "1")
+
+        chapter_plot = context.get("chapter_plot")
+        if chapter_plot:
+            if chapter_plot.get("key_events"):
+                events = chapter_plot["key_events"]
+                if isinstance(events, list) and events:
+                    # Limit events based on plot_check_mode setting
+                    if plot_check_mode == "1":
+                        events_to_show = events[:1]
+                    elif plot_check_mode == "3":
+                        events_to_show = events[:3]
+                    else:  # "all"
+                        events_to_show = events
+
+                    if events_to_show:
+                        events_str = "; ".join(events_to_show)
+                        parts.append(f"Upcoming story beats: {events_str}")
+            if chapter_plot.get("climax"):
+                parts.append(f"Building toward: {chapter_plot['climax']}")
+
+        # Also check pacing_guidance for remaining events
+        pacing_guidance = context.get("pacing_guidance")
+        if pacing_guidance and not parts:
+            # Extract key info from pacing guidance if no chapter_plot
+            # This is a fallback - chapter_plot should have the info
+            pass
+
+        if parts:
+            return "CHAPTER DIRECTION (for choices): " + " | ".join(parts)
+        return ""
+
     def _build_cache_friendly_message_prefix(
         self,
         context: Dict[str, Any],
@@ -267,9 +319,13 @@ class UnifiedLLMService:
             scene_length_description=scene_length_description
         )
 
-        # Append choices reminder if needed
+        # Append choices reminder if needed (with plot guidance for choices only)
         if include_choices_reminder:
-            choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
+            chapter_plot_for_choices = self._format_plot_for_choices(context, user_settings)
+            choices_reminder = prompt_manager.get_user_choices_reminder(
+                choices_count=choices_count,
+                chapter_plot_for_choices=chapter_plot_for_choices
+            )
             if choices_reminder:
                 task_content = task_content + "\n\n" + choices_reminder
 
@@ -346,9 +402,13 @@ class UnifiedLLMService:
                 scene_length_description=scene_length_description
             )
 
-            # Append choices reminder if needed
+            # Append choices reminder if needed (with plot guidance for choices only)
             if include_choices_reminder:
-                choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
+                chapter_plot_for_choices = self._format_plot_for_choices(context, user_settings)
+                choices_reminder = prompt_manager.get_user_choices_reminder(
+                    choices_count=choices_count,
+                    chapter_plot_for_choices=chapter_plot_for_choices
+                )
                 if choices_reminder:
                     task_content = task_content + "\n\n" + choices_reminder
 
@@ -405,9 +465,13 @@ class UnifiedLLMService:
         tone = context.get('tone', '')
         tone_reminder = prompt_manager.get_tone_reminder(tone)
 
-        # Build choices reminder if needed
+        # Build choices reminder if needed (with plot guidance for choices only)
         if include_choices_reminder:
-            choices_reminder_text = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
+            chapter_plot_for_choices = self._format_plot_for_choices(context, user_settings)
+            choices_reminder_text = prompt_manager.get_user_choices_reminder(
+                choices_count=choices_count,
+                chapter_plot_for_choices=chapter_plot_for_choices
+            )
         else:
             choices_reminder_text = ""
 
@@ -1582,10 +1646,14 @@ Chapter Conclusion:"""
             )
             # Only append choices reminder if separate_choice_generation is NOT enabled
             if not separate_choice_generation:
-                choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
+                chapter_plot_for_choices = self._format_plot_for_choices(context, user_settings)
+                choices_reminder = prompt_manager.get_user_choices_reminder(
+                    choices_count=choices_count,
+                    chapter_plot_for_choices=chapter_plot_for_choices
+                )
                 if choices_reminder:
                     task_instruction = task_instruction + "\n\n" + choices_reminder
-            
+
             _, user_prompt = prompt_manager.get_prompt_pair(
                 "scene_with_immediate", "scene_with_immediate",
                 user_id=user_id,
@@ -1707,12 +1775,16 @@ Chapter Conclusion:"""
         # Only append choices reminder if separate_choice_generation is NOT enabled
         # When enabled, choices will be generated in a separate LLM call for higher quality
         if not separate_choice_generation:
-            choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
+            chapter_plot_for_choices = self._format_plot_for_choices(context, user_settings)
+            choices_reminder = prompt_manager.get_user_choices_reminder(
+                choices_count=choices_count,
+                chapter_plot_for_choices=chapter_plot_for_choices
+            )
             if choices_reminder:
                 task_content = task_content + "\n\n" + choices_reminder
         else:
             logger.info(f"[SCENE WITH CHOICES STREAMING] Separate choice generation enabled - skipping choices reminder in task")
-        
+
         messages.append({"role": "user", "content": task_content})
 
         logger.info(f"[SCENE WITH CHOICES STREAMING] Using multi-message structure: {len(messages)} messages")
@@ -1989,12 +2061,16 @@ Chapter Conclusion:"""
             
             # Only append choices reminder if separate_choice_generation is NOT enabled
             if not separate_choice_generation:
-                choices_reminder = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
+                chapter_plot_for_choices = self._format_plot_for_choices(context, user_settings)
+                choices_reminder = prompt_manager.get_user_choices_reminder(
+                    choices_count=choices_count,
+                    chapter_plot_for_choices=chapter_plot_for_choices
+                )
                 if choices_reminder:
                     task_content = task_content + "\n\n" + choices_reminder
-        
+
         messages.append({"role": "user", "content": task_content})
-        
+
         # Add buffer for choices section - dynamic based on choices_count
         base_max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
         choices_buffer_tokens = max(300, choices_count * 50)  # At least 300, or 50 per choice
@@ -2196,8 +2272,12 @@ Chapter Conclusion:"""
         if separate_choice_generation:
             choices_reminder_text = ""
         else:
-            choices_reminder_text = prompt_manager.get_user_choices_reminder(choices_count=choices_count)
-        
+            chapter_plot_for_choices = self._format_plot_for_choices(context, user_settings)
+            choices_reminder_text = prompt_manager.get_user_choices_reminder(
+                choices_count=choices_count,
+                chapter_plot_for_choices=chapter_plot_for_choices
+            )
+
         # Get prose style and tone reminders
         prose_style_reminder = prompt_manager.get_prose_style_reminder(prose_style)
         tone = context.get('tone', '')
@@ -2675,13 +2755,16 @@ Chapter Conclusion:"""
             pov_instruction = "in third person perspective (using 'he', 'she', 'they', character names)"
         
         # Use choice_generation.user template from YAML instead of hardcoded text
+        # Include plot guidance for choices (plot is NOT in prefix, only in choice generation)
+        chapter_plot_for_choices = self._format_plot_for_choices(context, user_settings)
         final_message = prompt_manager.get_prompt(
             "choice_generation", "user",
             scene_content=cleaned_scene_content,
             choices_count=choices_count,
-            pov_instruction=pov_instruction
+            pov_instruction=pov_instruction,
+            chapter_plot_for_choices=chapter_plot_for_choices
         )
-        
+
         messages.append({"role": "user", "content": final_message})
         
         # Calculate max tokens - use YAML settings or user settings
@@ -4144,17 +4227,18 @@ Chapter Conclusion:"""
         1. Story Foundation: genre, tone, setting, scenario, characters (per story)
         2. Character Dialogue Styles: voice/speech patterns (per story)
         3. Chapter Context: story_so_far, previous/current chapter summaries (per chapter)
-        4. Chapter Plot Guidance: story beats from brainstorming (per chapter)
-        5. Completed Scene Batches: stable scene history (per batch)
-        6. Character Interaction History: firsts between characters (rarely changes)
-        7. Character Relationships: relationship arcs and strength (occasionally changes)
-        8. Character States: entity states, locations, objects (periodically changes)
+        4. Completed Scene Batches: stable scene history (per batch)
+        5. Character Interaction History: firsts between characters (rarely changes)
+        6. Character Relationships: relationship arcs and strength (occasionally changes)
+        7. Character States: entity states, locations, objects (periodically changes)
         ──── cache break point ────
-        9. Relevant Context: semantic search results (changes every scene)
-        10. Recent Scenes: active scene batch (changes every scene)
-        11. Story Focus: working memory, threads, character attention (changes every scene)
-        12. Current Progress: pacing guidance (changes every scene)
-        13. Continuity Warnings: unresolved contradictions (if any)
+        8. Relevant Context: semantic search results (changes every scene)
+        9. Recent Scenes: active scene batch (changes every scene)
+        10. Story Focus: working memory, threads, character attention (changes every scene)
+        11. Continuity Warnings: unresolved contradictions (if any)
+
+        NOTE: Chapter Plot Guidance and Pacing are NOT included in prefix.
+        Plot guidance is passed only to choice generation via the task message.
 
         Args:
             context: Context dictionary from context_manager
@@ -4232,42 +4316,11 @@ Chapter Conclusion:"""
                 "content": "=== CHAPTER CONTEXT ===\n" + "\n\n".join(summary_parts)
             })
         
-        # === MESSAGE 2.5: Chapter Plot Guidance (from brainstorming) ===
-        chapter_plot = context.get("chapter_plot")
-        arc_phase = context.get("arc_phase")
-        
-        if chapter_plot or arc_phase:
-            plot_parts = []
-            
-            if arc_phase:
-                plot_parts.append(f"Story Arc Phase: {arc_phase.get('name', 'Unknown')}")
-                if arc_phase.get('description'):
-                    plot_parts.append(f"Phase Goal: {arc_phase['description']}")
-            
-            if chapter_plot:
-                if chapter_plot.get('summary'):
-                    plot_parts.append(f"Chapter Summary: {chapter_plot['summary']}")
-                if chapter_plot.get('key_events'):
-                    events = chapter_plot['key_events']
-                    if isinstance(events, list):
-                        # Format as story beats, not a checklist
-                        events_formatted = "\n  - ".join(events)
-                        plot_parts.append(f"Story Beats (weave in naturally across scenes):\n  - {events_formatted}")
-                if chapter_plot.get('climax'):
-                    plot_parts.append(f"Building Toward: {chapter_plot['climax']}")
-                if chapter_plot.get('resolution'):
-                    plot_parts.append(f"Chapter Resolution: {chapter_plot['resolution']}")
-            
-            if plot_parts:
-                # Get header and footer from prompts.yml
-                header = prompt_manager.get_raw_prompt("pacing.chapter_plot_header") or "=== CHAPTER PLOT GUIDANCE ==="
-                footer = prompt_manager.get_raw_prompt("pacing.chapter_plot_footer") or ""
-                
-                messages.append({
-                    "role": "user",
-                    "content": header.strip() + "\n" + "\n".join(plot_parts) + footer
-                })
-        
+        # === MESSAGE 2.5: Chapter Plot Guidance - REMOVED ===
+        # Plot guidance is now only included in choice generation, not scene generation.
+        # This prevents plot beats from competing with user's scene directives.
+        # See user_choices_reminder in prompts.yml for where plot guidance is used.
+
         # === MESSAGES 3+: Scene Batches + Suffix Sections ===
         #
         # Message order after scene batches (most stable → most dynamic):
@@ -4406,13 +4459,9 @@ Chapter Conclusion:"""
                     "content": "=== STORY FOCUS ===\n" + "\n".join(focus_parts)
                 })
 
-        # --- H. CURRENT PROGRESS (pacing guidance, changes every scene) ---
-        pacing_guidance = context.get("pacing_guidance")
-        if pacing_guidance:
-            messages.append({
-                "role": "user",
-                "content": f"=== CURRENT PROGRESS ===\n{pacing_guidance}"
-            })
+        # --- H. CURRENT PROGRESS - REMOVED ---
+        # Pacing guidance is now only included in choice generation, not scene generation.
+        # This prevents plot beats from competing with user's scene directives.
 
         # --- I. CONTINUITY WARNINGS (if any) ---
         contradiction_context = context.get("contradiction_context")

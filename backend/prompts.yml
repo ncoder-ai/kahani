@@ -398,35 +398,25 @@ scene_base:
     IMPORTANT: Write all choices {pov_instruction}. The choices should match the story's narrative style.
   
   # User prompt suffix - appended to all scene user prompts by PromptManager
+  # {chapter_plot_for_choices} is populated with plot guidance when available
   user_choices_reminder: |
     After completing the scene, add ###CHOICES### with {choices_count} choices.
-    Remember: Subtle variations within the moment's flow, not dramatic forks.
-    Use specific details from the scene. Each choice: 1 sentence, max 15 words.
+    CRITICAL: Choices must continue from WHERE YOUR SCENE ENDS - use names/details from YOUR scene.
+    {chapter_plot_for_choices}
+    Each choice: 1 sentence, max 15 words. Subtle variations, not dramatic forks.
 
   # Task instructions for multi-message structure (context sent separately)
   # Used when immediate_situation is provided (continue choice or custom text)
   task_with_immediate: |
-    ####### WHAT HAPPENS NEXT #######
-    {immediate_situation}
-    ##################################
+    YOUR TASK: Write a scene showing exactly this:
+    >>> {immediate_situation} <<<
 
-    SCENE PRIORITY: The directive above defines what THIS scene is about. Any chapter plot beats or pacing guidance mentioned earlier are long-term chapter goals—they do NOT need to happen in this scene. Focus entirely on the directive above and let this scene breathe at its own pace.
+    Show these events in vivid detail. Start at the BEGINNING—don't skip ahead.
+    Follow each character's DIALOGUE STYLE. Minimize adverbs/adjectives.
+    {prose_style_reminder}
+    {tone_reminder}
 
-    Your task is to ELABORATE and SHOW the events specified above in vivid detail.
-
-    REQUIREMENTS:
-    1. Start at the BEGINNING of these events - don't assume they already happened
-    2. Show every action with vivid detail and description
-    3. Do NOT skip ahead or summarize - elaborate fully on what's specified
-    4. Do NOT rush to incorporate chapter plot beats—this scene is about the directive above
-    5. DO NOT repeat text from recent scenes
-    6. Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
-    7. {prose_style_reminder}
-    8. {tone_reminder}
-
-    DIALOGUE: Each character has a unique DIALOGUE STYLE in their description. You MUST write their dialogue following their voice style, including any language mixing specified.
-
-    Write an engaging scene ({scene_length_description}) that elaborates on the above.
+    Write {scene_length_description} depicting: {immediate_situation}
 
   # Task instructions when no immediate_situation (first scene or "Generate Scene")
   task_without_immediate: |
@@ -650,12 +640,17 @@ choice_generation:
     {scene_content}
 
     === GENERATE CHOICES ===
-    Generate {choices_count} organic choices for what happens next.
-    
-    Remember: Subtle variations within the moment's flow, not dramatic forks.
-    Use specific details from the scene. Each choice: 1 sentence, max 15 words.
-    
-    Output ONLY a valid JSON object in this format:
+    Generate {choices_count} choices for what happens NEXT in the scene above.
+
+    CRITICAL: Base choices ONLY on the SCENE JUST GENERATED above. Ignore earlier context.
+    - Choices must continue from WHERE the scene ends
+    - Use character names, locations, and details FROM the scene above
+    - Do NOT reference events from earlier scenes that aren't in this scene
+    {chapter_plot_for_choices}
+
+    Each choice: 1 sentence, max 15 words. Subtle variations, not dramatic forks.
+
+    Output ONLY a valid JSON object:
     {{"choices": ["Choice 1", "Choice 2", "Choice 3", "Choice 4"]}}
 
 # Plot Event Extraction (cache-friendly)
