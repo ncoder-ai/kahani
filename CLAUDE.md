@@ -119,3 +119,7 @@ Per-user LLM/TTS settings stored in `user_settings` table. Access via `get_user_
 
 ### Modifying LLM prompts
 Edit `backend/prompts.yml` - changes take effect on next request (hot reload).
+
+## Preferences
+
+- Never add "Co-Authored-By" lines to git commit messages

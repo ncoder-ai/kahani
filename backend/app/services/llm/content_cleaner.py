@@ -50,6 +50,13 @@ def clean_scene_content(content: str) -> str:
         # === HEADER/PREFIX PATTERNS (at start of content) ===
         # Order matters: most specific patterns first, most general last
 
+        # "WHAT HAPPENS NEXT" instruction echo - LLM sometimes echoes back the task instruction
+        # Pattern: "####### WHAT HAPPENS NEXT #######" or "WHAT HAPPENS NEXT" followed by the user's text
+        content = re.sub(r'^#{2,}\s*WHAT\s+HAPPENS\s+NEXT\s*#{2,}\s*\n?', '', content, flags=re.IGNORECASE).strip()
+        content = re.sub(r'^WHAT\s+HAPPENS\s+NEXT\s*\n', '', content, flags=re.IGNORECASE).strip()
+        # Also clean the closing delimiter if present
+        content = re.sub(r'^#{2,}\s*\n?', '', content, flags=re.MULTILINE).strip()
+
         # Markdown scene headers with numbers: "### SCENE 113 ###", "## SCENE 7 ##"
         # Must come BEFORE generic scene markers to catch specific pattern
         content = re.sub(r'^#{1,6}\s*SCENE\s+\d+\s*#{1,6}\s*\n?', '', content, flags=re.IGNORECASE).strip()
@@ -186,6 +193,9 @@ def clean_scene_numbers_chunk(chunk: str, chars_processed: int = 0) -> str:
         if re.search(r'^(?:#+\s*)?START\s+OF\s+SCENE\s*(?:#+)?$', stripped, re.IGNORECASE):
             return ''
         if re.search(r'^(?:#+\s*)?(?:BEGIN|BEGINNING)\s+(?:OF\s+)?SCENE\s*(?:#+)?$', stripped, re.IGNORECASE):
+            return ''
+        # "WHAT HAPPENS NEXT" instruction echo
+        if re.search(r'^(?:#+\s*)?WHAT\s+HAPPENS\s+NEXT\s*(?:#+)?$', stripped, re.IGNORECASE):
             return ''
 
     # Markdown scene headers with numbers: "### SCENE 113 ###" (most specific first)
