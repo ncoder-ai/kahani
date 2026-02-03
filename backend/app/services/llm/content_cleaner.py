@@ -159,6 +159,39 @@ def clean_instruction_tags(content: str) -> str:
     return content.strip()
 
 
+def clean_scene_numbers_from_summary(summary: str) -> str:
+    """
+    Remove scene numbers and markers from chapter summaries.
+
+    The LLM generates summaries with scene markers like:
+    - **SCENE 248**
+    - **SCENES 249-250**
+    - ### SCENE 5 ###
+    - Scene 10:
+
+    These teach the LLM to generate scene numbers, so we strip them.
+    """
+    if not summary:
+        return summary
+
+    # Remove bold scene markers: **SCENE 248**, **SCENES 249-250**
+    summary = re.sub(r'\*\*SCENES?\s+\d+(?:-\d+)?\*\*\s*\n?', '', summary, flags=re.IGNORECASE)
+
+    # Remove markdown scene headers: ### SCENE 5 ###, ## Scene 10 ##
+    summary = re.sub(r'^#{1,6}\s*SCENES?\s+\d+(?:-\d+)?[^#\n]*#{0,6}\s*\n?', '', summary, flags=re.MULTILINE | re.IGNORECASE)
+
+    # Remove plain scene markers: Scene 10:, SCENE 5 -
+    summary = re.sub(r'^SCENES?\s+\d+(?:-\d+)?\s*[:\-]?\s*\n?', '', summary, flags=re.MULTILINE | re.IGNORECASE)
+
+    # Remove horizontal rules that separate scene sections: ---, ===, ***
+    summary = re.sub(r'^\s*[-=*]{3,}\s*$\n?', '', summary, flags=re.MULTILINE)
+
+    # Normalize multiple blank lines to single
+    summary = re.sub(r'\n{3,}', '\n\n', summary)
+
+    return summary.strip()
+
+
 def clean_scene_numbers_chunk(chunk: str, chars_processed: int = 0) -> str:
     """
     Clean scene numbers and junk from streaming chunks.

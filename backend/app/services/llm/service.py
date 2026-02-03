@@ -29,6 +29,7 @@ from .content_cleaner import (
     clean_scene_numbers,
     clean_instruction_tags,
     clean_scene_numbers_chunk,
+    clean_scene_numbers_from_summary,
 )
 from .choice_parser import (
     fix_incomplete_json_array,
@@ -4297,9 +4298,11 @@ Chapter Conclusion:"""
         # === MESSAGE 2: STORY HISTORY (cumulative summary of previous chapters) ===
         # Only story_so_far - previous_chapter_summary is redundant as it's included in story_so_far
         if context.get("story_so_far"):
+            # Clean scene numbers from summary to avoid teaching LLM to generate them
+            cleaned_story_so_far = clean_scene_numbers_from_summary(context['story_so_far'])
             messages.append({
                 "role": "user",
-                "content": "=== STORY HISTORY ===\n" + context['story_so_far']
+                "content": "=== STORY HISTORY ===\n" + cleaned_story_so_far
             })
 
         # === MESSAGE 3: CURRENT CHAPTER (setting + progress so far) ===
@@ -4312,7 +4315,9 @@ Chapter Conclusion:"""
         if context.get("chapter_scenario"):
             current_chapter_parts.append(f"Scenario: {context['chapter_scenario']}")
         if context.get("current_chapter_summary"):
-            current_chapter_parts.append(f"Progress So Far:\n{context['current_chapter_summary']}")
+            # Clean scene numbers from summary to avoid teaching LLM to generate them
+            cleaned_summary = clean_scene_numbers_from_summary(context['current_chapter_summary'])
+            current_chapter_parts.append(f"Progress So Far:\n{cleaned_summary}")
 
         if current_chapter_parts:
             messages.append({
@@ -4630,6 +4635,8 @@ Chapter Conclusion:"""
         # Note: previous_chapter_summary removed as it's redundant with story_so_far
         story_so_far = context.get("story_so_far")
         if story_so_far:
+            # Clean scene numbers from summary to avoid teaching LLM to generate them
+            story_so_far = clean_scene_numbers_from_summary(story_so_far)
             logger.info(f"[CONTEXT FORMAT] Including story_so_far ({len(story_so_far)} chars)")
             context_parts.append(f"Story So Far:\n{story_so_far}")
         else:
@@ -4638,6 +4645,8 @@ Chapter Conclusion:"""
         # Add current chapter summary if available (summary of this chapter's progress so far)
         current_chapter_summary = context.get("current_chapter_summary")
         if current_chapter_summary:
+            # Clean scene numbers from summary to avoid teaching LLM to generate them
+            current_chapter_summary = clean_scene_numbers_from_summary(current_chapter_summary)
             logger.info(f"[CONTEXT FORMAT] Including current_chapter_summary ({len(current_chapter_summary)} chars)")
             context_parts.append(f"Current Chapter Summary:\n{current_chapter_summary}")
         else:
