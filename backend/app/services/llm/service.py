@@ -169,7 +169,6 @@ class UnifiedLLMService:
         # Get completed events from plot_progress to filter them out
         plot_progress = context.get("plot_progress", {})
         completed_events = set(plot_progress.get("completed_events", []))
-        logger.info(f"[PLOT_FOR_CHOICES] plot_progress in context: {bool(plot_progress)}, completed_events count: {len(completed_events)}")
 
         chapter_plot = context.get("chapter_plot")
         if chapter_plot:
@@ -194,16 +193,8 @@ class UnifiedLLMService:
                     else:
                         logger.info("[PLOT_FOR_CHOICES] All key_events completed, skipping events section")
 
-            # Only show climax if not already completed
-            if chapter_plot.get("climax") and chapter_plot["climax"] not in completed_events:
-                parts.append(f"Building toward: {chapter_plot['climax']}")
-
-        # Also check pacing_guidance for remaining events
-        pacing_guidance = context.get("pacing_guidance")
-        if pacing_guidance and not parts:
-            # Extract key info from pacing guidance if no chapter_plot
-            # This is a fallback - chapter_plot should have the info
-            pass
+            # Note: Climax is shown in CHAPTER DIRECTION (static chapter arc),
+            # so we don't need to repeat it here for choices
 
         if parts:
             return "CHAPTER DIRECTION (for choices): " + " | ".join(parts)
@@ -4286,21 +4277,13 @@ Chapter Conclusion:"""
             char_text = self._format_characters_section(characters, include_voice_style=False)
             if char_text:
                 foundation_parts.append(char_text)
-        
-        # Chapter metadata (stable per chapter)
-        if context.get("chapter_location"):
-            foundation_parts.append(f"Chapter Location: {context['chapter_location']}")
-        if context.get("chapter_time_period"):
-            foundation_parts.append(f"Chapter Time Period: {context['chapter_time_period']}")
-        if context.get("chapter_scenario"):
-            foundation_parts.append(f"Chapter Scenario: {context['chapter_scenario']}")
-        
+
         if foundation_parts:
             messages.append({
                 "role": "user",
                 "content": "=== STORY FOUNDATION ===\n" + "\n\n".join(foundation_parts)
             })
-        
+
         # === MESSAGE 1.5: Character Dialogue Styles (separate for prominence) ===
         # This is placed in its own message to ensure the LLM treats voice styles as important
         if characters:
@@ -4310,33 +4293,66 @@ Chapter Conclusion:"""
                     "role": "user",
                     "content": "=== CHARACTER DIALOGUE STYLES ===\nIMPORTANT: Each character below has a specific way of speaking. You MUST write their dialogue following these instructions exactly.\n\n" + voice_styles_text
                 })
-        
-        # === MESSAGE 2: Chapter Summaries (stable per chapter, changes on summary updates) ===
-        summary_parts = []
-        
-        if context.get("story_so_far"):
-            summary_parts.append(f"Story So Far:\n{context['story_so_far']}")
-        
-        if context.get("previous_chapter_summary"):
-            summary_parts.append(f"Previous Chapter Summary:\n{context['previous_chapter_summary']}")
-        
-        if context.get("current_chapter_summary"):
-            summary_parts.append(f"Current Chapter Summary:\n{context['current_chapter_summary']}")
-        
-        if summary_parts:
-            messages.append({
-                "role": "user", 
-                "content": "=== CHAPTER CONTEXT ===\n" + "\n\n".join(summary_parts)
-            })
-        
-        # === MESSAGE 2.5: Chapter Plot Guidance - REMOVED ===
-        # Plot guidance is now only included in choice generation, not scene generation.
-        # This prevents plot beats from competing with user's scene directives.
-        # See user_choices_reminder in prompts.yml for where plot guidance is used.
 
-        # === MESSAGES 3+: Scene Batches + Suffix Sections ===
+        # === MESSAGE 2: STORY HISTORY (cumulative summary of previous chapters) ===
+        # Only story_so_far - previous_chapter_summary is redundant as it's included in story_so_far
+        if context.get("story_so_far"):
+            messages.append({
+                "role": "user",
+                "content": "=== STORY HISTORY ===\n" + context['story_so_far']
+            })
+
+        # === MESSAGE 3: CURRENT CHAPTER (setting + progress so far) ===
+        current_chapter_parts = []
+
+        if context.get("chapter_location"):
+            current_chapter_parts.append(f"Location: {context['chapter_location']}")
+        if context.get("chapter_time_period"):
+            current_chapter_parts.append(f"Time: {context['chapter_time_period']}")
+        if context.get("chapter_scenario"):
+            current_chapter_parts.append(f"Scenario: {context['chapter_scenario']}")
+        if context.get("current_chapter_summary"):
+            current_chapter_parts.append(f"Progress So Far:\n{context['current_chapter_summary']}")
+
+        if current_chapter_parts:
+            messages.append({
+                "role": "user",
+                "content": "=== CURRENT CHAPTER ===\n" + "\n\n".join(current_chapter_parts)
+            })
+
+        # === MESSAGE 4: CHAPTER DIRECTION (static chapter arc - does not change per scene) ===
+        # This shows the overall chapter plan: key events, climax, resolution
+        # It's static per chapter for optimal caching
+        chapter_plot = context.get("chapter_plot")
+        if chapter_plot:
+            direction_parts = []
+
+            if chapter_plot.get("key_events"):
+                events = chapter_plot["key_events"]
+                if isinstance(events, list) and events:
+                    events_formatted = "\n".join(f"  {i+1}. {e}" for i, e in enumerate(events))
+                    direction_parts.append(f"Key Story Beats:\n{events_formatted}")
+
+            if chapter_plot.get("climax"):
+                direction_parts.append(f"Climax: {chapter_plot['climax']}")
+
+            if chapter_plot.get("resolution"):
+                direction_parts.append(f"Resolution: {chapter_plot['resolution']}")
+
+            if direction_parts:
+                messages.append({
+                    "role": "user",
+                    "content": "=== CHAPTER DIRECTION ===\n" + "\n\n".join(direction_parts)
+                })
+
+        # === MESSAGES 5+: Scene Batches + Suffix Sections ===
         #
-        # Message order after scene batches (most stable → most dynamic):
+        # Full message order (most stable → most dynamic):
+        #   1. STORY FOUNDATION (stable per story)
+        #   2. CHARACTER DIALOGUE STYLES (stable per story)
+        #   3. STORY HISTORY (stable per chapter - cumulative summary)
+        #   4. CURRENT CHAPTER (location, time, scenario, progress - updates as chapter progresses)
+        #   5. CHAPTER DIRECTION (pacing guidance - updates as progress changes)
         #   A. Completed scene batches (stable per batch, cached)
         #   B. CHARACTER INTERACTION HISTORY (rarely changes, often cached)
         #   C. CHARACTER RELATIONSHIPS (changes occasionally, sometimes cached)
@@ -4345,11 +4361,10 @@ Chapter Conclusion:"""
         #   E. RELEVANT CONTEXT (semantic search results, changes every scene)
         #   F. RECENT SCENES (active scene batch, changes every scene)
         #   G. STORY FOCUS (working memory/threads, changes every scene)
-        #   H. CURRENT PROGRESS (pacing guidance, changes every scene)
-        #   I. CONTINUITY WARNINGS (if any)
+        #   H. CONTINUITY WARNINGS (if any)
         #
         # Character info grouped together (B-C-D) for coherence.
-        # Most volatile sections (E-I) at the end, closest to generation instruction.
+        # Most volatile sections (E-H) at the end, closest to generation instruction.
 
         previous_scenes_text = context.get("previous_scenes", "")
 
@@ -4472,9 +4487,8 @@ Chapter Conclusion:"""
                     "content": "=== STORY FOCUS ===\n" + "\n".join(focus_parts)
                 })
 
-        # --- H. CURRENT PROGRESS - REMOVED ---
-        # Pacing guidance is now only included in choice generation, not scene generation.
-        # This prevents plot beats from competing with user's scene directives.
+        # --- H. CONTINUITY WARNINGS (moved up, was I) ---
+        # Note: Pacing guidance is now in CHAPTER DIRECTION (message 5, earlier in the list)
 
         # --- I. CONTINUITY WARNINGS (if any) ---
         contradiction_context = context.get("contradiction_context")
@@ -4612,22 +4626,15 @@ Chapter Conclusion:"""
         if context.get("chapter_scenario"):
             context_parts.append(f"Chapter Scenario: {context['chapter_scenario']}")
         
-        # Add story_so_far if available (summary of all previous chapters)
+        # Add story_so_far if available (cumulative summary of all previous chapters)
+        # Note: previous_chapter_summary removed as it's redundant with story_so_far
         story_so_far = context.get("story_so_far")
         if story_so_far:
             logger.info(f"[CONTEXT FORMAT] Including story_so_far ({len(story_so_far)} chars)")
             context_parts.append(f"Story So Far:\n{story_so_far}")
         else:
             logger.info("[CONTEXT FORMAT] story_so_far is None or empty, not including")
-        
-        # Add previous chapter summary if available
-        previous_chapter_summary = context.get("previous_chapter_summary")
-        if previous_chapter_summary:
-            logger.info(f"[CONTEXT FORMAT] Including previous_chapter_summary ({len(previous_chapter_summary)} chars)")
-            context_parts.append(f"Previous Chapter Summary:\n{previous_chapter_summary}")
-        else:
-            logger.info("[CONTEXT FORMAT] previous_chapter_summary is None or empty, not including")
-        
+
         # Add current chapter summary if available (summary of this chapter's progress so far)
         current_chapter_summary = context.get("current_chapter_summary")
         if current_chapter_summary:

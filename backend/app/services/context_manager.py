@@ -1545,16 +1545,12 @@ Appearance: {char.get('appearance', '')}
         if context.get("chapter_scenario"):
             context_parts.append(f"Chapter Scenario: {context['chapter_scenario']}")
         
-        # Add story_so_far if available (summary of all previous chapters)
+        # Add story_so_far if available (cumulative summary of all previous chapters)
+        # Note: previous_chapter_summary removed as redundant with story_so_far
         story_so_far = context.get("story_so_far")
         if story_so_far:
             context_parts.append(f"Story So Far:\n{story_so_far}")
-        
-        # Add previous chapter summary if available
-        previous_chapter_summary = context.get("previous_chapter_summary")
-        if previous_chapter_summary:
-            context_parts.append(f"Previous Chapter Summary:\n{previous_chapter_summary}")
-        
+
         # Add previous_scenes (this includes recent scenes, semantic scenes, entity states, etc.)
         if context.get("previous_scenes"):
             previous_scenes_text = context['previous_scenes']

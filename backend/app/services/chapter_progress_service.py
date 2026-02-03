@@ -684,6 +684,7 @@ class ChapterProgressService:
         remaining_all = ", ".join(events_to_show)  # Same as remaining_str when mode limits beats
 
         # When in strict mode ("1"), explicitly highlight the next beat to work towards
+        # Skip progress-based guidance since we're already showing the explicit beat
         if plot_check_mode == "1" and remaining_events:
             next_beat = remaining_events[0]
             strict_guidance = prompt_manager.get_raw_prompt(
@@ -695,9 +696,12 @@ class ChapterProgressService:
             else:
                 parts.append(f">>> NEXT BEAT TO WORK TOWARDS: {next_beat}")
                 parts.append("Focus on setting up or completing this specific story beat in this scene.")
+            # Return here to avoid duplicate beat listing in progress guidance
+            return "\n".join(parts)
 
         # When in flexible mode ("3"), highlight the next few beats to focus on
-        elif plot_check_mode == "3" and remaining_events:
+        # Skip progress-based guidance since we're already showing the explicit beats
+        if plot_check_mode == "3" and remaining_events:
             next_beats = remaining_events[:3]
             flexible_guidance = prompt_manager.get_raw_prompt(
                 "pacing.flexible_next_beats",
@@ -709,6 +713,8 @@ class ChapterProgressService:
             else:
                 parts.append(f">>> NEXT BEATS TO WORK TOWARDS: {', '.join(next_beats)}")
                 parts.append("Focus on these upcoming story beats - progress through them naturally.")
+            # Return here to avoid duplicate beat listing in progress guidance
+            return "\n".join(parts)
 
         # At 0% progress (no events completed yet) - focus on setup
         if completed_count == 0:
@@ -718,8 +724,8 @@ class ChapterProgressService:
             else:
                 parts.append("Focus on THIS SCENE: Establish atmosphere, ground the characters. No rush to hit plot points.")
             return "\n".join(parts)
-        
-        # Progress-based guidance
+
+        # Progress-based guidance (only for "all" mode - strict/flexible modes return above)
         if progress_pct < 50:
             # Low progress - subtle reminder
             low_guidance = prompt_manager.get_raw_prompt(
