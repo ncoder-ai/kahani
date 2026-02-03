@@ -1269,7 +1269,8 @@ async def generate_scene_streaming_endpoint(
                             yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'scheduled', 'message': extraction_msg})}\n\n"
                         else:
                             # Threshold not reached - skip extraction with clear reason
-                            skip_msg = f"Skipped ({scenes_since_extraction}/{effective_threshold})"
+                            # Show extraction_threshold (not effective_threshold) since that's what full extraction uses
+                            skip_msg = f"Skipped ({scenes_since_extraction}/{extraction_threshold})"
                             logger.warning(f"[EXTRACTION] ✗ SKIPPED: {skip_msg}")
                             yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'skipped', 'message': skip_msg})}\n\n"
                     else:

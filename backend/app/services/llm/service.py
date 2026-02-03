@@ -152,7 +152,7 @@ class UnifiedLLMService:
         Keeps scenes focused on user directives while choices can steer toward plot.
 
         Args:
-            context: Scene generation context containing chapter_plot and pacing_guidance
+            context: Scene generation context containing chapter_plot, plot_progress, and pacing_guidance
             user_settings: User settings dict containing default_plot_check_mode
 
         Returns:
@@ -166,23 +166,36 @@ class UnifiedLLMService:
         if user_settings:
             plot_check_mode = user_settings.get("generation_preferences", {}).get("default_plot_check_mode", "1")
 
+        # Get completed events from plot_progress to filter them out
+        plot_progress = context.get("plot_progress", {})
+        completed_events = set(plot_progress.get("completed_events", []))
+        logger.info(f"[PLOT_FOR_CHOICES] plot_progress in context: {bool(plot_progress)}, completed_events count: {len(completed_events)}")
+
         chapter_plot = context.get("chapter_plot")
         if chapter_plot:
             if chapter_plot.get("key_events"):
                 events = chapter_plot["key_events"]
                 if isinstance(events, list) and events:
-                    # Limit events based on plot_check_mode setting
-                    if plot_check_mode == "1":
-                        events_to_show = events[:1]
-                    elif plot_check_mode == "3":
-                        events_to_show = events[:3]
-                    else:  # "all"
-                        events_to_show = events
+                    # Filter out already completed events
+                    remaining_events = [e for e in events if e not in completed_events]
 
-                    if events_to_show:
-                        events_str = "; ".join(events_to_show)
-                        parts.append(f"Upcoming story beats: {events_str}")
-            if chapter_plot.get("climax"):
+                    if remaining_events:
+                        # Limit events based on plot_check_mode setting
+                        if plot_check_mode == "1":
+                            events_to_show = remaining_events[:1]
+                        elif plot_check_mode == "3":
+                            events_to_show = remaining_events[:3]
+                        else:  # "all"
+                            events_to_show = remaining_events
+
+                        if events_to_show:
+                            events_str = "; ".join(events_to_show)
+                            parts.append(f"Upcoming story beats: {events_str}")
+                    else:
+                        logger.info("[PLOT_FOR_CHOICES] All key_events completed, skipping events section")
+
+            # Only show climax if not already completed
+            if chapter_plot.get("climax") and chapter_plot["climax"] not in completed_events:
                 parts.append(f"Building toward: {chapter_plot['climax']}")
 
         # Also check pacing_guidance for remaining events

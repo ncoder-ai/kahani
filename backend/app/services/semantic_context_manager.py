@@ -708,6 +708,12 @@ class SemanticContextManager(ContextManager):
             if hasattr(chapter, 'chapter_plot') and chapter.chapter_plot:
                 base_context["chapter_plot"] = chapter.chapter_plot
                 logger.info(f"[SEMANTIC CONTEXT BUILD] Chapter {chapter.chapter_number}: Including chapter_plot guidance")
+
+            # Add plot progress (completed events) if available
+            if hasattr(chapter, 'plot_progress') and chapter.plot_progress:
+                base_context["plot_progress"] = chapter.plot_progress
+                completed_count = len(chapter.plot_progress.get("completed_events", []))
+                logger.info(f"[SEMANTIC CONTEXT BUILD] Chapter {chapter.chapter_number}: Including plot_progress ({completed_count} completed events)")
             
             # Add arc phase details if available
             if hasattr(chapter, 'arc_phase_id') and chapter.arc_phase_id:

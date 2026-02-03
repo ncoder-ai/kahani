@@ -329,7 +329,13 @@ class ContextManager:
             if hasattr(chapter, 'chapter_plot') and chapter.chapter_plot:
                 base_context["chapter_plot"] = chapter.chapter_plot
                 logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: Including chapter_plot guidance")
-            
+
+            # Add plot progress (completed events) if available
+            if hasattr(chapter, 'plot_progress') and chapter.plot_progress:
+                base_context["plot_progress"] = chapter.plot_progress
+                completed_count = len(chapter.plot_progress.get("completed_events", []))
+                logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: Including plot_progress ({completed_count} completed events)")
+
             # Add arc phase details if available
             if hasattr(chapter, 'arc_phase_id') and chapter.arc_phase_id:
                 # Get the arc phase from the story
@@ -1235,6 +1241,7 @@ Appearance: {char.get('appearance', '')}
             "current_chapter_summary": full_context.get("current_chapter_summary"),
             # Add chapter plot guidance (from brainstorming)
             "chapter_plot": full_context.get("chapter_plot"),
+            "plot_progress": full_context.get("plot_progress"),  # Track completed events for choice generation
             "arc_phase": full_context.get("arc_phase"),
             # Pacing guidance will be added below if enabled
             "pacing_guidance": None,
