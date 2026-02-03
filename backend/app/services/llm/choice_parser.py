@@ -113,6 +113,63 @@ def fix_malformed_json_escaping(text: str) -> str:
     return text
 
 
+def fix_single_quotes_to_double(text: str) -> str:
+    """
+    Convert single-quoted JSON array to double-quoted.
+    Handles cases where LLM outputs ['choice1', 'choice2'] instead of ["choice1", "choice2"].
+    """
+    # Only apply if it looks like a single-quoted array
+    if not re.search(r"\[\s*'", text):
+        return text
+
+    # Simple state machine to convert single quotes to double quotes
+    # while preserving single quotes inside strings
+    result = []
+    in_string = False
+    string_char = None
+    i = 0
+
+    while i < len(text):
+        char = text[i]
+
+        # Handle escape sequences
+        if i > 0 and text[i-1] == '\\':
+            result.append(char)
+            i += 1
+            continue
+
+        if not in_string:
+            if char == "'":
+                # Starting a string with single quote - convert to double
+                result.append('"')
+                in_string = True
+                string_char = "'"
+            elif char == '"':
+                result.append(char)
+                in_string = True
+                string_char = '"'
+            else:
+                result.append(char)
+        else:
+            if char == string_char:
+                # End of string
+                if string_char == "'":
+                    result.append('"')
+                else:
+                    result.append(char)
+                in_string = False
+                string_char = None
+            elif char == '"' and string_char == "'":
+                # Double quote inside single-quoted string - escape it
+                result.append('\\"')
+            else:
+                result.append(char)
+
+        i += 1
+
+    return ''.join(result)
+
+
 def extract_choices_with_regex(text: str) -> Optional[List[str]]:
     """
     Fallback method to extract choices using regex when JSON parsing fails.
@@ -342,6 +399,92 @@ def parse_choices_from_json(text: str) -> Optional[List[str]]:
         return None
 
 
+def detect_json_array_in_prose(text: str, min_scene_length: int = 200) -> Tuple[str, Optional[List[str]]]:
+    """
+    Detect JSON array anywhere in prose text.
+
+    Since story prose NEVER contains JSON arrays like ["...", "..."],
+    any such pattern is almost certainly choice data that the LLM output
+    without proper markers.
+
+    Args:
+        text: The full response text
+        min_scene_length: Minimum chars before JSON to consider it as choices (not scene content)
+
+    Returns:
+        Tuple of (scene_content, parsed_choices) where parsed_choices may be None
+    """
+    if not text or len(text) < min_scene_length:
+        return (text, None)
+
+    # Pattern to find JSON array start - matches both ["..."] and ['...']
+    # Look for [ followed by quote (single or double) with optional whitespace
+    json_start_pattern = r'\[\s*["\']'
+
+    # Find all potential JSON array starts
+    for match in re.finditer(json_start_pattern, text):
+        start_pos = match.start()
+
+        # Only consider if there's substantial content before it (likely scene content)
+        if start_pos < min_scene_length:
+            continue
+
+        # Extract from the [ to end of text
+        potential_json = text[start_pos:]
+
+        # Try to find the closing bracket
+        # Use a simple bracket counter that handles strings
+        bracket_count = 0
+        in_string = False
+        string_char = None
+        escaped = False
+        end_pos = None
+
+        for i, char in enumerate(potential_json):
+            if escaped:
+                escaped = False
+                continue
+
+            if char == '\\':
+                escaped = True
+                continue
+
+            if not in_string:
+                if char in '"\'':
+                    in_string = True
+                    string_char = char
+                elif char == '[':
+                    bracket_count += 1
+                elif char == ']':
+                    bracket_count -= 1
+                    if bracket_count == 0:
+                        end_pos = i + 1
+                        break
+            else:
+                if char == string_char:
+                    in_string = False
+                    string_char = None
+
+        if end_pos is None:
+            # No closing bracket found, try to fix incomplete array
+            json_str = potential_json
+        else:
+            json_str = potential_json[:end_pos]
+
+        # Try to parse this as choices
+        # First, try to fix single quotes if present
+        if "'" in json_str and '"' not in json_str:
+            json_str = fix_single_quotes_to_double(json_str)
+
+        parsed = parse_choices_from_json(json_str)
+        if parsed and len(parsed) >= 2:
+            scene_content = text[:start_pos].strip()
+            logger.info(f"[CHOICES DETECTION] Found JSON array in prose at position {start_pos}")
+            return (scene_content, parsed)
+
+    return (text, None)
+
+
 def extract_choices_from_response_end(full_text: str) -> Tuple[str, Optional[List[str]]]:
     """
     Extract choices from the end of a response.
@@ -389,14 +532,38 @@ def extract_choices_from_response_end(full_text: str) -> Tuple[str, Optional[Lis
             logger.info(f"[CHOICES EXTRACTION] Found 'CHOICES [...]' format at position {marker_pos}")
             return (scene, parsed)
 
-    # Fallback: Look for JSON array at the very end
-    json_match = re.search(r'\[\s*"[^"]+"\s*(?:,\s*"[^"]+"\s*)+\]\s*$', search_region)
-    if json_match:
-        parsed = parse_choices_from_json(json_match.group())
-        if parsed and len(parsed) >= 2:
-            marker_pos = search_start + json_match.start()
-            scene = full_text[:marker_pos].strip()
-            logger.info(f"[CHOICES EXTRACTION] Found JSON array at end (position {marker_pos})")
-            return (scene, parsed)
+    # === IMPROVED FALLBACK: Robust JSON array detection ===
+    # Since story prose NEVER contains JSON arrays, any array pattern is likely choices
+
+    # Pattern 1: JSON array with double quotes (handles escaped quotes inside strings)
+    # Uses a more permissive pattern that doesn't require array at absolute end
+    json_patterns = [
+        # Double-quoted array - handles escaped quotes with (?:[^"\\]|\\.)*
+        r'\[\s*"(?:[^"\\]|\\.)*"\s*(?:,\s*"(?:[^"\\]|\\.)*"\s*)+\]',
+        # Single-quoted array (some LLMs use single quotes)
+        r"\[\s*'(?:[^'\\]|\\.)*'\s*(?:,\s*'(?:[^'\\]|\\.)*'\s*)+\]",
+    ]
+
+    for pattern in json_patterns:
+        json_match = re.search(pattern, search_region, re.DOTALL)
+        if json_match:
+            json_str = json_match.group()
+
+            # If single-quoted, convert to double quotes
+            if json_str.startswith("[") and "'" in json_str and '"' not in json_str:
+                json_str = fix_single_quotes_to_double(json_str)
+
+            parsed = parse_choices_from_json(json_str)
+            if parsed and len(parsed) >= 2:
+                marker_pos = search_start + json_match.start()
+                scene = full_text[:marker_pos].strip()
+                logger.info(f"[CHOICES EXTRACTION] Found JSON array at position {marker_pos} (improved pattern)")
+                return (scene, parsed)
+
+    # Pattern 2: Use the prose detection as final fallback
+    # This handles cases where the array might be malformed or split across regions
+    scene, choices = detect_json_array_in_prose(full_text, min_scene_length=200)
+    if choices:
+        return (scene, choices)
 
     return (full_text, None)

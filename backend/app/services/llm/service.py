@@ -33,9 +33,11 @@ from .content_cleaner import (
 from .choice_parser import (
     fix_incomplete_json_array,
     fix_malformed_json_escaping,
+    fix_single_quotes_to_double,
     extract_choices_with_regex,
     parse_choices_from_json,
     extract_choices_from_response_end,
+    detect_json_array_in_prose,
 )
 from .plot_parser import (
     get_plot_point_name,
@@ -1477,6 +1479,10 @@ Chapter Conclusion:"""
     def _extract_choices_from_response_end(self, full_text: str) -> Tuple[str, Optional[List[str]]]:
         """Extract choices from response end. Delegates to choice_parser module."""
         return extract_choices_from_response_end(full_text)
+
+    def _detect_json_array_in_prose(self, text: str, min_scene_length: int = 200) -> Tuple[str, Optional[List[str]]]:
+        """Detect JSON array in prose text. Delegates to choice_parser module."""
+        return detect_json_array_in_prose(text, min_scene_length)
     
     async def generate_scene_with_choices_streaming(
         self, 
@@ -1622,7 +1628,27 @@ Chapter Conclusion:"""
                         found_marker = True
                         rolling_buffer = ""
                     else:
-                        if len(rolling_buffer) > len(CHOICES_MARKER) * 2:
+                        # === NEW: Detect JSON array start pattern ===
+                        total_scene_len = sum(len(s) for s in scene_buffer) + len(rolling_buffer)
+                        json_array_pattern = r'\[\s*["\']'
+                        json_match = re.search(json_array_pattern, rolling_buffer)
+
+                        if json_match and total_scene_len > 300:
+                            json_start = json_match.start()
+                            scene_part = rolling_buffer[:json_start]
+                            choices_part = rolling_buffer[json_start:]
+
+                            if scene_part:
+                                yield (scene_part, False, None)
+                            scene_buffer.append(scene_part)
+
+                            if choices_part:
+                                choices_buffer.append(choices_part)
+
+                            found_marker = True
+                            rolling_buffer = ""
+                            logger.info(f"[CHOICES TEXT COMPLETION] Detected JSON array start")
+                        elif len(rolling_buffer) > len(CHOICES_MARKER) * 2:
                             excess_length = len(rolling_buffer) - len(CHOICES_MARKER)
                             excess = rolling_buffer[:excess_length]
                             scene_buffer.append(excess)
@@ -1630,15 +1656,25 @@ Chapter Conclusion:"""
                             rolling_buffer = rolling_buffer[excess_length:]
                 else:
                     choices_buffer.append(cleaned_chunk)
-            
+
             if not found_marker and rolling_buffer:
                 scene_buffer.append(rolling_buffer)
                 yield (rolling_buffer, False, None)
-            
+
+            # Build raw response for fallback extraction
+            raw_full_response = ''.join(raw_chunks)
+
             parsed_choices = None
             if found_marker and choices_buffer:
                 choices_text = ''.join(choices_buffer).strip()
                 parsed_choices = self._parse_choices_from_json(choices_text)
+            elif not found_marker:
+                # Fallback: try to extract choices from raw response
+                logger.warning(f"[CHOICES TEXT COMPLETION] Marker not found, attempting extraction...")
+                scene_content, extracted_choices = self._extract_choices_from_response_end(raw_full_response)
+                if extracted_choices:
+                    logger.info(f"[CHOICES TEXT COMPLETION] Extracted {len(extracted_choices)} choices")
+                    parsed_choices = extracted_choices
             
             # If separate_choice_generation is enabled, discard any inline choices
             if separate_choice_generation and parsed_choices:
@@ -1735,38 +1771,62 @@ Chapter Conclusion:"""
             if not found_marker:
                 # Add to rolling buffer
                 rolling_buffer += cleaned_chunk
-                
+
                 # Check if marker is in rolling buffer
                 if CHOICES_MARKER in rolling_buffer:
                     # Split: before marker goes to scene, after to choices
                     parts = rolling_buffer.split(CHOICES_MARKER, 1)
                     scene_part = parts[0]  # Everything before marker - guaranteed to be new content
                     choices_part = parts[1] if len(parts) > 1 else ""
-                    
+
                     # scene_part is guaranteed to be new content (rolling_buffer only has unyielded content)
                     # Yield ALL of it to preserve complete scene text before marker
                     if scene_part:
                         yield (scene_part, False, None)
-                    
+
                     scene_buffer.append(scene_part)
-                    
+
                     # Buffer the choices part - DO NOT YIELD
                     if choices_part:
                         choices_buffer.append(choices_part)
-                    
+
                     found_marker = True
                     rolling_buffer = ""  # Clear rolling buffer
                     # Continue reading to get all choice chunks
                 else:
-                    # Keep rolling buffer small (only last len(MARKER) chars needed)
-                    # to detect marker split across chunks
-                    if len(rolling_buffer) > len(CHOICES_MARKER) * 2:
-                        # Yield the excess (keeping last MARKER length in buffer)
-                        excess_length = len(rolling_buffer) - len(CHOICES_MARKER)
-                        excess = rolling_buffer[:excess_length]
-                        scene_buffer.append(excess)
-                        yield (excess, False, None)
-                        rolling_buffer = rolling_buffer[excess_length:]
+                    # === NEW: Detect JSON array start pattern ===
+                    # Since story prose NEVER contains JSON arrays, if we see ["
+                    # after substantial content, it's likely choices without marker
+                    total_scene_len = sum(len(s) for s in scene_buffer) + len(rolling_buffer)
+                    json_array_pattern = r'\[\s*["\']'
+                    json_match = re.search(json_array_pattern, rolling_buffer)
+
+                    if json_match and total_scene_len > 300:
+                        # Found potential JSON array start after substantial content
+                        json_start = json_match.start()
+                        scene_part = rolling_buffer[:json_start]
+                        choices_part = rolling_buffer[json_start:]
+
+                        if scene_part:
+                            yield (scene_part, False, None)
+                        scene_buffer.append(scene_part)
+
+                        if choices_part:
+                            choices_buffer.append(choices_part)
+
+                        found_marker = True  # Treat as if we found marker
+                        rolling_buffer = ""
+                        logger.info(f"[CHOICES STREAMING] Detected JSON array start at position {total_scene_len - len(rolling_buffer) + json_start}")
+                    else:
+                        # Keep rolling buffer small (only last len(MARKER) chars needed)
+                        # to detect marker split across chunks
+                        if len(rolling_buffer) > len(CHOICES_MARKER) * 2:
+                            # Yield the excess (keeping last MARKER length in buffer)
+                            excess_length = len(rolling_buffer) - len(CHOICES_MARKER)
+                            excess = rolling_buffer[:excess_length]
+                            scene_buffer.append(excess)
+                            yield (excess, False, None)
+                            rolling_buffer = rolling_buffer[excess_length:]
             else:
                 # After marker, buffer for choice parsing - DO NOT YIELD
                 choices_buffer.append(cleaned_chunk)
@@ -1966,7 +2026,8 @@ Chapter Conclusion:"""
         found_marker = False
         rolling_buffer = ""  # Buffer to detect marker across chunks
         total_chunks = 0
-        
+        raw_chunks = []  # Collect raw chunks for fallback extraction
+
         # Use multi-message streaming for cache optimization
         async for chunk in self._generate_stream_with_messages(
             messages=messages,
@@ -1975,38 +2036,59 @@ Chapter Conclusion:"""
             max_tokens=max_tokens
         ):
             total_chunks += 1
+            raw_chunks.append(chunk)
             cleaned_chunk = self._clean_scene_numbers_chunk(chunk)
             if not cleaned_chunk:
                 continue
-            
+
             if not found_marker:
                 # Add to rolling buffer
                 rolling_buffer += cleaned_chunk
-                
+
                 # Check if marker is in rolling buffer
                 if CHOICES_MARKER in rolling_buffer:
                     # Split: before marker goes to scene, after to choices
                     parts = rolling_buffer.split(CHOICES_MARKER, 1)
                     scene_part = parts[0]  # Everything before marker - guaranteed to be new content
                     choices_part = parts[1] if len(parts) > 1 else ""
-                    
+
                     # scene_part is guaranteed to be new content (rolling_buffer only has unyielded content)
                     # Yield ALL of it to preserve complete scene text before marker
                     if scene_part:
                         yield (scene_part, False, None)
-                    
+
                     scene_buffer.append(scene_part)
-                    
+
                     # Buffer the choices part - DO NOT YIELD
                     if choices_part:
                         choices_buffer.append(choices_part)
-                    
+
                     found_marker = True
                     rolling_buffer = ""  # Clear rolling buffer
                     # Continue reading to get all choice chunks
                 else:
-                    # Keep rolling buffer small (only last len(MARKER) chars needed)
-                    if len(rolling_buffer) > len(CHOICES_MARKER) * 2:
+                    # === NEW: Detect JSON array start pattern ===
+                    total_scene_len = sum(len(s) for s in scene_buffer) + len(rolling_buffer)
+                    json_array_pattern = r'\[\s*["\']'
+                    json_match = re.search(json_array_pattern, rolling_buffer)
+
+                    if json_match and total_scene_len > 300:
+                        json_start = json_match.start()
+                        scene_part = rolling_buffer[:json_start]
+                        choices_part = rolling_buffer[json_start:]
+
+                        if scene_part:
+                            yield (scene_part, False, None)
+                        scene_buffer.append(scene_part)
+
+                        if choices_part:
+                            choices_buffer.append(choices_part)
+
+                        found_marker = True
+                        rolling_buffer = ""
+                        logger.info(f"[CHOICES VARIANT] Detected JSON array start")
+                    elif len(rolling_buffer) > len(CHOICES_MARKER) * 2:
+                        # Keep rolling buffer small (only last len(MARKER) chars needed)
                         excess_length = len(rolling_buffer) - len(CHOICES_MARKER)
                         excess = rolling_buffer[:excess_length]
                         scene_buffer.append(excess)
@@ -2015,12 +2097,15 @@ Chapter Conclusion:"""
             else:
                 # After marker, buffer for choice parsing - DO NOT YIELD
                 choices_buffer.append(cleaned_chunk)
-        
+
         # After stream ends, yield any remaining rolling buffer content
         if not found_marker and rolling_buffer:
             scene_buffer.append(rolling_buffer)
             yield (rolling_buffer, False, None)
-        
+
+        # Build raw response for fallback extraction
+        raw_full_response = ''.join(raw_chunks)
+
         # Parse choices from buffer
         parsed_choices = None
         if found_marker and choices_buffer:
@@ -2030,8 +2115,14 @@ Chapter Conclusion:"""
                 logger.warning(f"[CHOICES VARIANT] Marker found but parsing failed. Choices text: {choices_text[:200]}")
         else:
             if not found_marker:
-                logger.warning(f"[CHOICES VARIANT] ERROR: ###CHOICES### marker not found after {total_chunks} chunks")
-                logger.warning(f"[CHOICES VARIANT] Scene buffer length: {len(''.join(scene_buffer))} chars")
+                logger.warning(f"[CHOICES VARIANT] Marker not found after {total_chunks} chunks. Attempting extraction...")
+                # Fallback: try to extract choices from raw response
+                scene_content, extracted_choices = self._extract_choices_from_response_end(raw_full_response)
+                if extracted_choices:
+                    logger.info(f"[CHOICES VARIANT] Extracted {len(extracted_choices)} choices from response")
+                    parsed_choices = extracted_choices
+                else:
+                    logger.warning(f"[CHOICES VARIANT] Could not extract choices. Scene length: {len(''.join(scene_buffer))} chars")
             else:
                 logger.warning(f"[CHOICES VARIANT] Marker found but choices_buffer is empty")
         
