@@ -409,28 +409,33 @@ scene_base:
     ####### WHAT HAPPENS NEXT #######
     {immediate_situation}
     ##################################
-    
-    CRITICAL: The "WHAT HAPPENS NEXT" above specifies the exact events that MUST happen in this scene. Your task is to ELABORATE and SHOW these events in detail.
-    
+
+    SCENE PRIORITY: The directive above defines what THIS scene is about. Any chapter plot beats or pacing guidance mentioned earlier are long-term chapter goals—they do NOT need to happen in this scene. Focus entirely on the directive above and let this scene breathe at its own pace.
+
+    Your task is to ELABORATE and SHOW the events specified above in vivid detail.
+
     REQUIREMENTS:
     1. Start at the BEGINNING of these events - don't assume they already happened
     2. Show every action with vivid detail and description
     3. Do NOT skip ahead or summarize - elaborate fully on what's specified
-    4. DO NOT repeat text from recent scenes
-    5. Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
-    6. {prose_style_reminder}
-    7. {tone_reminder}
-    
+    4. Do NOT rush to incorporate chapter plot beats—this scene is about the directive above
+    5. DO NOT repeat text from recent scenes
+    6. Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
+    7. {prose_style_reminder}
+    8. {tone_reminder}
+
     DIALOGUE: Each character has a unique DIALOGUE STYLE in their description. You MUST write their dialogue following their voice style, including any language mixing specified.
-    
+
     Write an engaging scene ({scene_length_description}) that elaborates on the above.
 
   # Task instructions when no immediate_situation (first scene or "Generate Scene")
   task_without_immediate: |
     Write an engaging scene ({scene_length_description}) that continues naturally from the previous events. If this is the first scene, establish the story world and introduce the characters naturally.
-    
+
+    PACING: Let the scene unfold at its own natural pace. Chapter plot beats are goals spread across many scenes—you don't need to hit any specific beat in this scene. Focus on making THIS scene engaging and immersive.
+
     DIALOGUE: Each character has a unique DIALOGUE STYLE in their description. You MUST write their dialogue following their voice style, including any language mixing specified.
-    
+
     {prose_style_reminder}
     {tone_reminder}
 
@@ -443,9 +448,11 @@ scene_base:
     === CONTINUATION INSTRUCTION ===
     {continuation_prompt}
 
+    SCENE PRIORITY: The continuation instruction above defines what happens next. Any chapter plot beats mentioned earlier are long-term goals—do NOT rush to incorporate them. Let this continuation flow naturally from the instruction.
+
     Write a compelling continuation that follows naturally from the scene above. Focus on engaging narrative. Do not repeat previous content.
     Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
-    
+
     {prose_style_reminder}
     {tone_reminder}
   # Task instruction for guided enhancement (context sent separately in multi-message)
@@ -457,11 +464,13 @@ scene_base:
     === ENHANCEMENT REQUEST ===
     {enhancement_guidance}
 
+    SCENE PRIORITY: The enhancement request above is your focus. Any chapter plot beats mentioned earlier are long-term goals—this rewrite should focus on the enhancement, not on advancing plot beats.
+
     Rewrite the scene above incorporating the requested enhancement.
     Maintain the same core events and outcomes. Keep consistency with established story elements.
     Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
     Write approximately {scene_length_description} in length.
-    
+
     {prose_style_reminder}
     {tone_reminder}
 
@@ -2721,11 +2730,12 @@ pacing:
   
   # Footer with pacing instructions (appended after plot details)
   chapter_plot_footer: |
-    
-    PACING INSTRUCTION: These story beats should unfold naturally across multiple scenes.
-    Focus on making THIS scene engaging on its own - don't rush to hit multiple plot points.
-    Let moments breathe with character development, atmosphere, and tension building.
-    One major story beat per scene is plenty. Sometimes a scene needs no plot advancement at all.
+
+    PACING: These story beats are CHAPTER-LEVEL goals spread across many scenes.
+    Do NOT try to hit multiple beats in one scene. Do NOT rush toward the climax.
+    Let each scene breathe with character moments, atmosphere, and natural development.
+    One beat per scene is plenty. Many scenes need NO plot advancement at all.
+    If the user specifies what happens next, THAT takes priority over these beats.
   
   # Progress summary line (always shown)
   progress_summary: |
@@ -2733,42 +2743,43 @@ pacing:
   
   # Early chapter (0% progress) - no events completed yet
   progress_early: |
-    Focus on THIS SCENE: Establish atmosphere, ground the characters, build the world.
-    The chapter's story beats will emerge naturally - no need to rush into them.
-    Let the reader settle into the scene before any major plot developments.
+    This scene: Establish atmosphere, ground the characters, build the world.
+    The chapter's story beats will emerge naturally across future scenes—no need to rush.
+    Let the reader settle in. Plot developments will come when the story is ready.
   
-  # Strict mode ("1") - explicitly highlight the next beat to focus on
+  # Strict mode ("1") - gently indicate the next beat (not a requirement)
   strict_next_beat: |
-    >>> NEXT BEAT TO WORK TOWARDS: {next_beat}
-    Focus on setting up or completing this specific story beat in this scene.
-    Don't skip ahead to later beats - progress through the story linearly.
+    Chapter direction (for reference): {next_beat}
+    This beat can emerge naturally if the scene leads there—no need to force it.
+    If the user has specified what happens in this scene, focus on THAT instead.
 
-  # Flexible mode ("3") - highlight the next few beats to focus on
+  # Flexible mode ("3") - indicate upcoming beats as reference
   flexible_next_beats: |
-    >>> NEXT BEATS TO WORK TOWARDS: {next_beats}
-    Focus on these {count} upcoming story beats - progress through them naturally.
-    These are your immediate focus - later beats will come in future scenes.
+    Upcoming chapter beats (for reference): {next_beats}
+    These {count} beats can unfold across multiple scenes—let them emerge organically.
+    If the user has specified what happens in this scene, their directive takes priority.
 
   # Low progress (1-49%) - some events done, plenty remaining
   progress_low: |
-    Story beats to weave in naturally (when the moment is right): {remaining_events}
-    Take your time - these should emerge organically from character actions and choices.
-  
+    Story beats ahead (weave in when natural): {remaining_events}
+    These are chapter-level goals, not scene requirements. Let them emerge from character choices.
+
   # Mid progress (50-79%) - roughly half done
   progress_mid: |
     Story beats still ahead: {remaining_events}
-    Building toward: {climax}
-    The chapter is finding its rhythm - continue developing naturally.
-  
+    Chapter building toward: {climax}
+    Continue at the scene's natural pace—don't rush to cover multiple beats.
+
   # High progress (80%+) - most events done, approaching climax
   progress_high: |
-    Final story beats to address: {remaining_events}
-    The chapter is building toward its climax: {climax}
-  
+    Remaining beats: {remaining_events}
+    Chapter approaching climax: {climax}
+    These can resolve naturally—prioritize scene quality over checking off beats.
+
   # All events complete - guide toward climax/resolution
   progress_complete: |
-    All key story beats have occurred. 
-    Guide the narrative toward the chapter's climax: {climax}
+    All key story beats have occurred.
+    The chapter can move toward its climax when the scene naturally allows: {climax}
 
 # =============================================================================
 # CHARACTER VOICE/DIALOG STYLES
