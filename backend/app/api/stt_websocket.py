@@ -258,7 +258,7 @@ async def create_stt_session(
         logger.error(f"Failed to create STT session: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to create session: {str(e)}"
+            detail="Failed to create session"
         )
 
 
@@ -291,5 +291,5 @@ async def get_device_info():
         logger.error(f"Failed to get device info: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to get device info: {str(e)}"
+            detail="Failed to get device info"
         )

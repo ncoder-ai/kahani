@@ -264,7 +264,7 @@ async def get_user_settings(
         logger.error(f"Error retrieving user settings for user {current_user.id}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve settings: {str(e)}"
+            detail="Failed to retrieve settings"
         )
 
 @router.put("/")
@@ -1268,7 +1268,7 @@ async def download_stt_model_endpoint(
         logger.error(f"Failed to download STT models: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to download STT models: {str(e)}"
+            detail="Failed to download STT models"
         )
 
 

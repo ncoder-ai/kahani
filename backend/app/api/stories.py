@@ -494,7 +494,7 @@ async def get_story_context_info(
         logger.error(f"Failed to analyze context for story {story_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to analyze story context: {str(e)}"
+            detail="Failed to analyze story context"
         )
 
 @router.get("/{story_id}/choices")
@@ -681,7 +681,7 @@ async def generate_more_choices(
         logger.error(f"Failed to generate more choices for variant {variant_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate choices: {str(e)}"
+            detail="Failed to generate choices"
         )
 
 @router.post("/{story_id}/regenerate-last-scene")
@@ -764,7 +764,7 @@ async def regenerate_last_scene(
         logger.error(f"Failed to regenerate scene for story {story_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to regenerate scene: {str(e)}"
+            detail="Failed to regenerate scene"
         )
 
 

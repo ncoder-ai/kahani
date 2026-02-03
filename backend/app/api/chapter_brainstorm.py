@@ -204,7 +204,7 @@ async def create_chapter_brainstorm_session(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"[CHAPTER_BRAINSTORM:CREATE] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to create session: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to create session")
 
 
 @router.get("/{story_id}/chapters/brainstorm/sessions")
@@ -238,7 +238,7 @@ async def list_chapter_brainstorm_sessions(
 
     except Exception as e:
         logger.error(f"[CHAPTER_BRAINSTORM:LIST] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to list sessions: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to list sessions")
 
 
 @router.get("/{story_id}/chapters/brainstorm/{session_id}")
@@ -285,7 +285,7 @@ async def get_chapter_brainstorm_session(
         raise
     except Exception as e:
         logger.error(f"[CHAPTER_BRAINSTORM:GET] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get session: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to get session")
 
 
 @router.delete("/{story_id}/chapters/brainstorm/{session_id}")
@@ -322,7 +322,7 @@ async def delete_chapter_brainstorm_session(
         raise
     except Exception as e:
         logger.error(f"[CHAPTER_BRAINSTORM:DELETE] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to delete session: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to delete session")
 
 
 # ====== MESSAGE ENDPOINTS ======
@@ -368,7 +368,7 @@ async def send_chapter_brainstorm_message(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"[CHAPTER_BRAINSTORM:MESSAGE] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to send message: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to send message")
 
 
 @router.post("/{story_id}/chapters/brainstorm/{session_id}/message/stream")
@@ -472,7 +472,7 @@ async def extract_chapter_plot(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"[CHAPTER_BRAINSTORM:EXTRACT] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to extract plot: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to extract plot")
 
 
 @router.post("/{story_id}/chapters/brainstorm/{session_id}/apply")
@@ -512,7 +512,7 @@ async def apply_brainstorm_to_chapter(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"[CHAPTER_BRAINSTORM:APPLY] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to apply plot: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to apply plot")
 
 
 @router.put("/{story_id}/chapters/brainstorm/{session_id}/plot")
@@ -551,7 +551,7 @@ async def update_chapter_brainstorm_plot(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"[CHAPTER_BRAINSTORM:UPDATE_PLOT] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to update plot: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to update plot")
 
 
 # ====== STRUCTURED ELEMENTS ENDPOINTS ======
@@ -623,7 +623,7 @@ async def get_chapter_brainstorm_elements(
         raise
     except Exception as e:
         logger.error(f"[CHAPTER_BRAINSTORM:GET_ELEMENTS] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get elements: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to get elements")
 
 
 @router.put("/{story_id}/chapters/brainstorm/{session_id}/elements")
@@ -670,4 +670,4 @@ async def update_chapter_brainstorm_element(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"[CHAPTER_BRAINSTORM:UPDATE_ELEMENT] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to update element: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to update element")

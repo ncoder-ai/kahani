@@ -286,7 +286,7 @@ async def get_available_models(
         logger.error(f"Error getting available models: {e}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Failed to get available models: {str(e)}"
+            detail="Failed to get available models"
         )
 
 
@@ -455,7 +455,7 @@ async def generate_character_portrait(
         logger.error(f"Error generating character portrait: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate portrait: {str(e)}"
+            detail="Failed to generate portrait"
         )
 
 
@@ -720,7 +720,7 @@ async def generate_scene_image(
         logger.error(f"Error generating scene image: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate scene image: {str(e)}"
+            detail="Failed to generate scene image"
         )
 
 

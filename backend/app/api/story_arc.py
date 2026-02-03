@@ -76,7 +76,7 @@ async def generate_story_arc(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"[STORY_ARC:GENERATE] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to generate story arc: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to generate story arc")
 
 
 @router.put("/{story_id}/arc")
@@ -113,7 +113,7 @@ async def update_story_arc(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"[STORY_ARC:UPDATE] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to update story arc: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to update story arc")
 
 
 @router.get("/{story_id}/arc")
@@ -148,4 +148,4 @@ async def get_story_arc(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"[STORY_ARC:GET] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get story arc: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to get story arc")

@@ -297,7 +297,7 @@ async def analyze_character_details(
         logger.error(f"Character extraction failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to analyze character: {str(e)}"
+            detail="Failed to analyze character"
         )
     except Exception as e:
         logger.error(f"Unexpected error during character extraction: {e}")

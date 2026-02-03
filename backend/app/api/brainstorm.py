@@ -92,7 +92,7 @@ async def create_brainstorm_session(
         
     except Exception as e:
         logger.error(f"[BRAINSTORM:CREATE] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to create session: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to create session")
 
 
 @router.get("/session/{session_id}")
@@ -135,7 +135,7 @@ async def get_brainstorm_session(
         raise
     except Exception as e:
         logger.error(f"[BRAINSTORM:GET] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get session: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to get session")
 
 
 @router.delete("/session/{session_id}")
@@ -170,7 +170,7 @@ async def delete_brainstorm_session(
         raise
     except Exception as e:
         logger.error(f"[BRAINSTORM:DELETE] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to delete session: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to delete session")
 
 
 # ====== CHAT INTERACTION ======
@@ -209,7 +209,7 @@ async def send_chat_message(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"[BRAINSTORM:CHAT] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to send message: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to send message")
 
 
 # ====== ELEMENT EXTRACTION ======
@@ -252,7 +252,7 @@ async def extract_story_elements(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"[BRAINSTORM:EXTRACT] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to extract elements: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to extract elements")
 
 
 @router.post("/elements/update")
@@ -287,7 +287,7 @@ async def update_story_elements(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"[BRAINSTORM:UPDATE] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to update elements: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to update elements")
 
 
 @router.post("/complete")
@@ -326,7 +326,7 @@ async def complete_brainstorm_session(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"[BRAINSTORM:COMPLETE] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to complete session: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to complete session")
 
 
 @router.get("/sessions/list")
@@ -368,7 +368,7 @@ async def list_user_sessions(
         
     except Exception as e:
         logger.error(f"[BRAINSTORM:LIST] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to list sessions: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to list sessions")
 
 
 @router.get("/sessions")
@@ -404,7 +404,7 @@ async def get_user_brainstorm_sessions(
         
     except Exception as e:
         logger.error(f"[BRAINSTORM:SESSIONS] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get sessions: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to get sessions")
 
 
 # ====== STORY ARC GENERATION ======
@@ -448,7 +448,7 @@ async def generate_arc_from_session(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"[BRAINSTORM:GEN_ARC] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to generate story arc: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to generate story arc")
 
 
 # ====== CHARACTER GENERATION ======
@@ -543,5 +543,5 @@ async def generate_characters_for_session(
         raise
     except Exception as e:
         logger.error(f"[BRAINSTORM:GEN_CHAR] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to generate characters: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to generate characters")
 

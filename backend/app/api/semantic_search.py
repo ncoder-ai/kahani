@@ -130,13 +130,13 @@ async def semantic_search(
     except RuntimeError as e:
         raise HTTPException(
             status_code=503,
-            detail=f"Semantic memory service not available: {str(e)}"
+            detail="Semantic memory service not available"
         )
     except Exception as e:
         logger.error(f"Semantic search failed: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Semantic search failed: {str(e)}"
+            detail="Semantic search failed"
         )
 
 
@@ -188,13 +188,13 @@ async def get_character_arc(
     except RuntimeError as e:
         raise HTTPException(
             status_code=503,
-            detail=f"Character memory service not available: {str(e)}"
+            detail="Character memory service not available"
         )
     except Exception as e:
         logger.error(f"Failed to get character arc: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to get character arc: {str(e)}"
+            detail="Failed to get character arc"
         )
 
 
@@ -248,13 +248,13 @@ async def get_plot_threads(
     except RuntimeError as e:
         raise HTTPException(
             status_code=503,
-            detail=f"Plot thread service not available: {str(e)}"
+            detail="Plot thread service not available"
         )
     except Exception as e:
         logger.error(f"Failed to get plot threads: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to get plot threads: {str(e)}"
+            detail="Failed to get plot threads"
         )
 
 
@@ -287,7 +287,7 @@ async def get_story_semantic_stats(
         logger.error(f"Failed to get semantic stats: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to get semantic stats: {str(e)}"
+            detail="Failed to get semantic stats"
         )
 
 
@@ -341,12 +341,12 @@ async def mark_thread_resolved(
     except RuntimeError as e:
         raise HTTPException(
             status_code=503,
-            detail=f"Plot thread service not available: {str(e)}"
+            detail="Plot thread service not available"
         )
     except Exception as e:
         logger.error(f"Failed to mark thread resolved: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to mark thread resolved: {str(e)}"
+            detail="Failed to mark thread resolved"
         )
 

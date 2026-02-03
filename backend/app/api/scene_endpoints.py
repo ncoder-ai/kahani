@@ -123,7 +123,7 @@ async def generate_scene(
             logger.error(f"Failed to build context for story {story_id}: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to prepare story context: {str(e)}"
+                detail="Failed to prepare story context"
             )
     elif content_mode == "user_prompt":
         # User provided a prompt for AI generation
@@ -151,7 +151,7 @@ async def generate_scene(
             logger.error(f"Failed to build context for story {story_id}: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to prepare story context: {str(e)}"
+                detail="Failed to prepare story context"
             )
 
         # Generate scene content using enhanced method
@@ -161,7 +161,7 @@ async def generate_scene(
             logger.error(f"Failed to generate scene for story {story_id}: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to generate scene: {str(e)}"
+                detail="Failed to generate scene"
             )
     else:
         # Default: ai_generate mode
@@ -185,7 +185,7 @@ async def generate_scene(
             logger.error(f"Failed to build context for story {story_id}: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to prepare story context: {str(e)}"
+                detail="Failed to prepare story context"
             )
 
         # Generate scene content using enhanced method with combined choices
@@ -209,7 +209,7 @@ async def generate_scene(
             logger.error(f"Failed to generate scene for story {story_id}: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to generate scene: {str(e)}"
+                detail="Failed to generate scene"
             )
 
     # Create scene with variant system - use active scene count from StoryFlow
@@ -342,7 +342,7 @@ async def generate_scene(
         logger.error(f"Failed to create scene with variant: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create scene: {str(e)}"
+            detail="Failed to create scene"
         )
 
     # Save manual choice if custom_prompt was provided
@@ -581,7 +581,7 @@ async def generate_scene_streaming_endpoint(
             logger.error(f"Failed to build context for story {story_id}: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to prepare story context: {str(e)}"
+                detail="Failed to prepare story context"
             )
     elif content_mode == "user_prompt":
         # User provided a prompt for AI generation
@@ -630,7 +630,7 @@ async def generate_scene_streaming_endpoint(
         logger.error(f"Failed to build context for story {story_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to prepare story context: {str(e)}"
+            detail="Failed to prepare story context"
         )
 
     # Calculate next sequence number - use active scene count from StoryFlow

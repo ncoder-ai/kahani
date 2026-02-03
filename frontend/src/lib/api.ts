@@ -2465,13 +2465,6 @@ class ApiClient {
     });
   }
 
-  // System / admin
-  async restartBackend() {
-    return this.request<{ message: string; trace_id: string; estimated_downtime?: string }>(`/api/admin/restart`, {
-      method: 'POST',
-    });
-  }
-
   async getBranchStats(storyId: number, branchId: number) {
     return this.request<{
       branch_id: number;

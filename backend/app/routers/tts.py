@@ -566,7 +566,7 @@ async def list_voices(
         logger.error(f"Failed to fetch voices: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch voices: {str(e)}"
+            detail="Failed to fetch voices"
         )
 
 
@@ -640,7 +640,7 @@ async def test_tts(
         logger.error(f"Failed to generate test audio: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate audio: {str(e)}"
+            detail="Failed to generate audio"
         )
 
 
@@ -716,7 +716,7 @@ async def test_voice_preview(
         logger.error(f"Failed to generate voice preview: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate audio: {str(e)}"
+            detail="Failed to generate audio"
         )
 
 
@@ -787,7 +787,7 @@ async def generate_scene_audio(
         logger.error(f"Failed to generate scene audio: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate audio: {str(e)}"
+            detail="Failed to generate audio"
         )
 
 
@@ -876,7 +876,7 @@ async def generate_scene_audio_websocket(
         logger.error(f"Failed to create TTS session: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create session: {str(e)}"
+            detail="Failed to create session"
         )
 
 
@@ -1588,7 +1588,7 @@ async def get_audio_generation_status(
         logger.error(f"Failed to get status for scene {scene_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get audio status: {str(e)}"
+            detail="Failed to get audio status"
         )
 
 
@@ -1755,7 +1755,7 @@ async def get_scene_audio_chunk(
         logger.error(f"Failed to serve chunk {chunk_number} for scene {scene_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to serve audio chunk: {str(e)}"
+            detail="Failed to serve audio chunk"
         )
 
 
@@ -1836,7 +1836,7 @@ async def delete_scene_audio_chunks(
         logger.error(f"Failed to delete audio chunks for scene {scene_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete audio chunks: {str(e)}"
+            detail="Failed to delete audio chunks"
         )
 
 

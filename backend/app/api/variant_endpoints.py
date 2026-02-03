@@ -417,7 +417,7 @@ async def create_scene_variant(
             logger.error(f"Failed to create scene variant: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to create scene variant: {str(e)}"
+                detail="Failed to create scene variant"
             )
 
 @router.post("/{story_id}/scenes/{scene_id}/variants/stream")
@@ -1229,7 +1229,7 @@ async def continue_scene(
         logger.error(f"Failed to continue scene {scene_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to continue scene: {str(e)}"
+            detail="Failed to continue scene"
         )
 
 @router.post("/{story_id}/scenes/{scene_id}/continue/stream")
@@ -1567,7 +1567,7 @@ async def update_scene_variant(
             db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to update scene variant: {str(e)}"
+                detail="Failed to update scene variant"
             )
 
 
@@ -1716,7 +1716,7 @@ async def regenerate_scene_variant_choices(
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to regenerate choices: {str(e)}"
+            detail="Failed to regenerate choices"
         )
 
 

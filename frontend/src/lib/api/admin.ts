@@ -8,15 +8,6 @@ import { BaseApiClient } from './base';
 
 export class AdminApi extends BaseApiClient {
   /**
-   * Restart the backend server
-   */
-  async restartBackend(): Promise<{ message: string }> {
-    return this.request('/api/admin/restart', {
-      method: 'POST',
-    });
-  }
-
-  /**
    * Get list of users (admin only)
    */
   async getUsers(skip = 0, limit = 50): Promise<{

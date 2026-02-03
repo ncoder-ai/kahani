@@ -68,9 +68,6 @@ export default function VoiceSettingsTab({
   const [ttsConnectionStatus, setTtsConnectionStatus] = useState<'idle' | 'success' | 'failed'>('idle');
   const [showVoiceBrowser, setShowVoiceBrowser] = useState(false);
   const [testAudio, setTestAudio] = useState<HTMLAudioElement | null>(null);
-  const [isRestartingBackend, setIsRestartingBackend] = useState(false);
-  const [restartMessage, setRestartMessage] = useState<string | null>(null);
-
   useEffect(() => {
     loadTTSProviders();
     loadCurrentTTSSettings();
@@ -380,39 +377,6 @@ export default function VoiceSettingsTab({
       showMessage('Failed to download STT models', 'error');
     } finally {
       setIsDownloadingSTTModel(false);
-    }
-  };
-
-  const handleBackendRestart = async () => {
-    if (!confirm('Are you sure you want to restart the backend? This will briefly interrupt all services.')) {
-      return;
-    }
-
-    setIsRestartingBackend(true);
-    setRestartMessage('Sending restart signal...');
-
-    try {
-      const response = await fetch(`${await getApiBaseUrl()}/api/admin/restart`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
-
-      if (response.ok) {
-        setRestartMessage('Backend is restarting...');
-        setTimeout(() => {
-          setRestartMessage(null);
-          setIsRestartingBackend(false);
-          showMessage('Backend restarted successfully', 'success');
-        }, 5000);
-      } else {
-        setRestartMessage('Failed to restart');
-        showMessage('Failed to restart backend', 'error');
-        setIsRestartingBackend(false);
-      }
-    } catch (error) {
-      setRestartMessage('Restart request failed');
-      showMessage('Failed to restart backend', 'error');
-      setIsRestartingBackend(false);
     }
   };
 
@@ -812,33 +776,6 @@ export default function VoiceSettingsTab({
       </div>
 
       {/* System / Maintenance */}
-      <div className="border-t border-gray-700 pt-6 mt-6">
-        <h3 className="text-lg font-semibold text-white mb-2">System</h3>
-        <p className="text-sm text-gray-400 mb-3">
-          Restart the backend if the app becomes unresponsive.
-        </p>
-        {restartMessage && (
-          <p className="text-xs text-gray-500 mb-2">{restartMessage}</p>
-        )}
-        <button
-          onClick={handleBackendRestart}
-          disabled={isRestartingBackend}
-          className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-        >
-          {isRestartingBackend ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              <span>Restarting...</span>
-            </>
-          ) : (
-            <>
-              <AlertCircle className="w-4 h-4" />
-              <span>Restart Backend</span>
-            </>
-          )}
-        </button>
-      </div>
-
       {/* Voice Browser Modal */}
       <VoiceBrowserModal
         isOpen={showVoiceBrowser}

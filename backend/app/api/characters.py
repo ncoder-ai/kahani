@@ -411,7 +411,7 @@ async def generate_character_with_ai(
         logger.error(f"Character generation failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate character: {str(e)}"
+            detail="Failed to generate character"
         )
     except Exception as e:
         logger.error(f"Unexpected error during character generation: {e}")

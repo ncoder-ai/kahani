@@ -906,7 +906,7 @@ async def conclude_chapter(
         db.rollback()
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to conclude chapter: {str(e)}"
+            detail="Failed to conclude chapter"
         )
     
     return build_chapter_response(chapter, db)
@@ -1952,7 +1952,7 @@ async def get_chapter_progress(
         return progress
     except Exception as e:
         logger.error(f"[CHAPTER_PROGRESS:GET] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get progress: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to get progress")
 
 
 @router.put("/{story_id}/chapters/{chapter_id}/progress/events")
@@ -1997,7 +1997,7 @@ async def toggle_event_completion(
         return progress
     except Exception as e:
         logger.error(f"[CHAPTER_PROGRESS:TOGGLE] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to update event: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to update event")
 
 
 @router.put("/{story_id}/chapters/{chapter_id}/progress/milestone")
@@ -2047,7 +2047,7 @@ async def toggle_milestone_completion(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"[CHAPTER_PROGRESS:MILESTONE] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to update milestone: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to update milestone")
 
 
 @router.post("/{story_id}/chapters/{chapter_id}/progress/extract")
@@ -2146,4 +2146,4 @@ async def extract_chapter_progress(
         
     except Exception as e:
         logger.error(f"[CHAPTER_PROGRESS:EXTRACT] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to extract progress: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to extract progress")
