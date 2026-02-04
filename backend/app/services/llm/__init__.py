@@ -8,8 +8,9 @@ using LiteLLM for multi-provider support and centralized prompt management.
 from .service import UnifiedLLMService
 from .client import LLMClient
 from .prompts import PromptManager, prompt_manager
+from .llm_generation_core import LLMConnectionError
 
-__all__ = ['UnifiedLLMService', 'LLMClient', 'PromptManager', 'prompt_manager']
+__all__ = ['UnifiedLLMService', 'LLMClient', 'PromptManager', 'prompt_manager', 'LLMConnectionError']
 
 # Global service instance
 unified_llm_service = UnifiedLLMService()

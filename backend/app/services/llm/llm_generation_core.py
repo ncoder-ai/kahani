@@ -24,6 +24,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class LLMConnectionError(Exception):
+    """Raised when LLM server is unavailable or connection fails."""
+    pass
+
+
 class LLMGenerationCore:
     """
     Handles core LLM generation operations.
@@ -157,15 +162,15 @@ class LLMGenerationCore:
             # Provide helpful error messages for common connection issues
             if "404" in error_msg or "Not Found" in error_msg:
                 if client.api_type == "openai_compatible":
-                    raise ValueError(f"API endpoint not found. For TabbyAPI and similar services, try adding '/v1' to your URL: {client.api_url}/v1")
+                    raise LLMConnectionError(f"API endpoint not found. For TabbyAPI and similar services, try adding '/v1' to your URL: {client.api_url}/v1")
                 else:
-                    raise ValueError(f"API endpoint not found at {client.api_url}. Please check your URL.")
+                    raise LLMConnectionError(f"API endpoint not found at {client.api_url}. Please check your URL.")
             elif "401" in error_msg or "Unauthorized" in error_msg:
-                raise ValueError(f"Authentication failed. Please check your API key.")
+                raise LLMConnectionError(f"Authentication failed. Please check your API key.")
             elif "403" in error_msg or "Forbidden" in error_msg:
-                raise ValueError(f"Access forbidden. Please check your API key and permissions.")
+                raise LLMConnectionError(f"Access forbidden. Please check your API key and permissions.")
             elif "Connection" in error_msg or "timeout" in error_msg.lower():
-                raise ValueError(f"Cannot connect to {client.api_url}. Please check if the service is running and accessible.")
+                raise LLMConnectionError(f"Cannot connect to {client.api_url}. Please check if the service is running and accessible.")
             else:
                 # Fallback to direct HTTP for LM Studio and TabbyAPI
                 if client.api_type in ["lm_studio", "openai_compatible"]:
@@ -780,8 +785,12 @@ class LLMGenerationCore:
                 logger.info(f"[REASONING] Streamed {reasoning_chars} chars of reasoning content")
 
         except Exception as e:
-            logger.error(f"LLM streaming failed for user {user_id}: {e}")
-            raise ValueError(f"LLM streaming failed: {str(e)}")
+            error_msg = str(e)
+            logger.error(f"LLM streaming failed for user {user_id}: {error_msg}")
+            # Raise specific exception for connection errors so endpoints can handle gracefully
+            if any(keyword in error_msg.lower() for keyword in ['connection', 'connect', 'timeout', 'unreachable', 'refused']):
+                raise LLMConnectionError(f"Cannot connect to LLM server: {error_msg}")
+            raise ValueError(f"LLM streaming failed: {error_msg}")
 
     async def generate_text_completion_stream(
         self,

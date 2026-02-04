@@ -338,7 +338,51 @@ class ExtractionLLMService:
                 return False, f"Cannot connect to {self.url}. Is the service running?", response_time
             else:
                 return False, f"Connection failed: {error_msg}", response_time
-    
+
+    async def check_health(self, timeout: float = 3.0) -> Tuple[bool, str]:
+        """
+        Quick connectivity check - verify extraction server is reachable without doing inference.
+
+        Args:
+            timeout: Maximum time to wait for response (default 3 seconds)
+
+        Returns:
+            Tuple of (is_healthy: bool, message: str)
+        """
+        # Ensure URL has /v1 suffix
+        base_url = self.url
+        if not base_url.endswith('/v1'):
+            base_url = f"{base_url}/v1"
+
+        try:
+            client_timeout = ClientTimeout(total=timeout)
+            async with aiohttp.ClientSession(timeout=client_timeout) as session:
+                headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+
+                # Try /models endpoint (standard OpenAI-compatible endpoint)
+                try:
+                    async with session.get(f"{base_url}/models", headers=headers) as response:
+                        if response.status < 500:
+                            return True, "Extraction server is reachable"
+                        elif response.status >= 500:
+                            return False, f"Extraction server error (status {response.status})"
+                except aiohttp.ClientResponseError:
+                    pass  # Try fallback
+
+                # Fallback: try base URL
+                async with session.get(base_url, headers=headers) as response:
+                    if response.status < 500:
+                        return True, "Extraction server is reachable"
+                    else:
+                        return False, f"Extraction server returned error status {response.status}"
+
+        except aiohttp.ClientConnectorError:
+            return False, f"Cannot connect to extraction server at {self.url}. Is it running?"
+        except TimeoutError:
+            return False, f"Extraction server at {self.url} is not responding (timeout after {timeout}s)"
+        except Exception as e:
+            return False, f"Extraction health check failed: {str(e)}"
+
     async def generate(
         self,
         prompt: str,

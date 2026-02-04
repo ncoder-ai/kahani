@@ -5,7 +5,8 @@ Handles LiteLLM client configuration and connection management for different pro
 """
 
 import litellm
-from typing import Dict, Any, Optional
+import httpx
+from typing import Dict, Any, Optional, Tuple
 import logging
 
 logger = logging.getLogger(__name__)
@@ -476,3 +477,65 @@ class LLMClient:
                 return False, f"Cannot connect to {self.api_url}. Please check if the service is running and accessible."
             else:
                 return False, f"Connection failed: {error_msg}"
+
+    async def check_health(self, timeout: float = 3.0) -> Tuple[bool, str]:
+        """
+        Quick connectivity check - verify server is reachable without doing inference.
+
+        This is much faster than test_connection() as it only checks if the HTTP
+        endpoint responds, not whether the model can generate text.
+
+        Args:
+            timeout: Maximum time to wait for response (default 3 seconds)
+
+        Returns:
+            Tuple of (is_healthy: bool, message: str)
+        """
+        # For cloud providers that go through LiteLLM, we can't easily health check
+        # without making an actual API call. Skip health check for these.
+        cloud_providers = ['anthropic', 'openai', 'openrouter', 'together', 'groq', 'mistral']
+        if self.api_type in cloud_providers:
+            # Assume cloud providers are available - they have their own reliability
+            logger.debug(f"Skipping health check for cloud provider: {self.api_type}")
+            return True, f"Cloud provider {self.api_type} - assuming available"
+
+        # For local/self-hosted providers, do HTTP health check
+        base_url = self.api_url
+        if not base_url.endswith('/v1'):
+            base_url = f"{base_url}/v1"
+
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+
+                # Try /models endpoint first (standard OpenAI-compatible endpoint)
+                try:
+                    response = await client.get(f"{base_url}/models", headers=headers)
+                    if response.status_code < 500:
+                        return True, "LLM server is reachable"
+                    elif response.status_code >= 500:
+                        return False, f"LLM server error (status {response.status_code})"
+                except httpx.HTTPStatusError:
+                    pass  # Try fallback
+
+                # Fallback: try HEAD request to base URL
+                try:
+                    response = await client.head(base_url, headers=headers)
+                    if response.status_code < 500:
+                        return True, "LLM server is reachable"
+                except httpx.HTTPStatusError:
+                    pass
+
+                # Last resort: try GET to base URL
+                response = await client.get(base_url, headers=headers)
+                if response.status_code < 500:
+                    return True, "LLM server is reachable"
+                else:
+                    return False, f"LLM server returned error status {response.status_code}"
+
+        except httpx.ConnectError:
+            return False, f"Cannot connect to LLM server at {self.api_url}. Is it running?"
+        except httpx.TimeoutException:
+            return False, f"LLM server at {self.api_url} is not responding (timeout after {timeout}s)"
+        except Exception as e:
+            return False, f"LLM health check failed: {str(e)}"

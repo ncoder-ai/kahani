@@ -21,6 +21,7 @@ from ..models import (
     Story, Scene, User, SceneChoice, SceneVariant, StoryFlow, Chapter, ChapterStatus
 )
 from ..services.llm.service import UnifiedLLMService
+from ..services.llm import LLMConnectionError
 from ..dependencies import get_current_user
 
 # Import from story_helpers.py for shared functions
@@ -645,11 +646,25 @@ async def generate_scene_streaming_endpoint(
             thinking_content = ""
             is_thinking = False
 
+            # Quick health check before starting generation
+            try:
+                client = llm_service.get_user_client(current_user.id, user_settings)
+                is_healthy, health_msg = await client.check_health(timeout=3.0)
+                if not is_healthy:
+                    logger.error(f"[SCENE STREAM] LLM health check failed: {health_msg}")
+                    yield f"data: {json.dumps({'type': 'error', 'message': f'LLM server unavailable: {health_msg}'})}\n\n"
+                    return
+            except Exception as e:
+                logger.warning(f"[SCENE STREAM] Health check error (proceeding anyway): {e}")
+                # Don't block on health check failures - let the actual generation try
+
             # Send initial metadata
             yield f"data: {json.dumps({'type': 'start', 'sequence': next_sequence})}\n\n"
 
-            # Check for multi-generation (n > 1)
-            n_value = get_n_value_from_settings(user_settings)
+            # Wrap entire generation in try-except to catch LLM connection errors
+            try:
+                # Check for multi-generation (n > 1)
+                n_value = get_n_value_from_settings(user_settings)
 
             if n_value > 1 and not user_provided_content:
                 # =====================================================================
@@ -863,6 +878,18 @@ async def generate_scene_streaming_endpoint(
                             yield f"data: {json.dumps({'type': 'thinking_end', 'total_chars': len(thinking_content)})}\n\n"
                         parsed_choices = choices
                         break
+
+            except LLMConnectionError as conn_error:
+                # Centralized handler for LLM connection failures
+                logger.error(f"[SCENE STREAM] LLM connection error: {conn_error}")
+                yield f"data: {json.dumps({'type': 'error', 'message': str(conn_error)})}\n\n"
+                return
+            except Exception as gen_error:
+                # Catch any other generation errors
+                error_msg = str(gen_error)
+                logger.error(f"[SCENE STREAM] Generation failed: {error_msg}")
+                yield f"data: {json.dumps({'type': 'error', 'message': f'Scene generation failed: {error_msg}'})}\n\n"
+                return
 
             # Save the scene to database FIRST (before choices)
             # Clean the final assembled content comprehensively (chunk cleaning may miss patterns)

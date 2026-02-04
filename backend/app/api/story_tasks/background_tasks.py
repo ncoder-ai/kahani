@@ -162,6 +162,18 @@ async def run_inline_entity_extraction_background(
         # Small delay to ensure main response completes
         await asyncio.sleep(0.1)
 
+        # Quick health check before extraction
+        try:
+            from ...services.llm.service import UnifiedLLMService
+            main_llm = UnifiedLLMService()
+            client = main_llm.get_user_client(user_id, user_settings)
+            is_healthy, health_msg = await client.check_health(timeout=3.0)
+            if not is_healthy:
+                logger.warning(f"[INLINE_CHECK] LLM unavailable: {health_msg}, skipping inline extraction")
+                return
+        except Exception as health_err:
+            logger.warning(f"[INLINE_CHECK] Health check failed (proceeding anyway): {health_err}")
+
         from ...services.semantic_integration import run_inline_entity_extraction
 
         bg_db = SessionLocal()
@@ -708,6 +720,46 @@ async def run_extractions_in_background(
         # Increased from 0.1s to 0.3s for better reliability under load
         await asyncio.sleep(0.3)
 
+        # Quick health check before extraction to avoid hanging on unavailable LLM
+        try:
+            from ...services.llm.service import UnifiedLLMService
+            from ...services.llm.extraction_service import ExtractionLLMService
+            from ...config import settings
+
+            # Check extraction model health first (if enabled)
+            extraction_settings = user_settings.get('extraction_model_settings', {})
+            if extraction_settings.get('enabled', False):
+                ext_defaults = settings._yaml_config.get('extraction_model', {})
+                url = extraction_settings.get('url', ext_defaults.get('url'))
+                model = extraction_settings.get('model_name', ext_defaults.get('model_name'))
+                api_key = extraction_settings.get('api_key', ext_defaults.get('api_key', ''))
+
+                if url and model:
+                    ext_service = ExtractionLLMService(url=url, model=model, api_key=api_key)
+                    is_healthy, health_msg = await ext_service.check_health(timeout=3.0)
+                    if not is_healthy:
+                        logger.warning(f"[EXTRACTION] Extraction model unavailable: {health_msg}")
+                        # Check main LLM as fallback
+                        main_llm = UnifiedLLMService()
+                        client = main_llm.get_user_client(user_id, user_settings)
+                        is_healthy, health_msg = await client.check_health(timeout=3.0)
+                        if not is_healthy:
+                            logger.warning(f"[EXTRACTION] Main LLM also unavailable: {health_msg}, skipping extraction")
+                            return
+                        else:
+                            logger.info(f"[EXTRACTION] Will use main LLM fallback for extraction")
+            else:
+                # No extraction model, check main LLM
+                main_llm = UnifiedLLMService()
+                client = main_llm.get_user_client(user_id, user_settings)
+                is_healthy, health_msg = await client.check_health(timeout=3.0)
+                if not is_healthy:
+                    logger.warning(f"[EXTRACTION] LLM unavailable: {health_msg}, skipping extraction")
+                    return
+        except Exception as health_err:
+            logger.warning(f"[EXTRACTION] Health check failed (proceeding anyway): {health_err}")
+            # Don't block on health check failures
+
         extraction_db = SessionLocal()
         try:
             # Reload chapter to get fresh data (in case it was updated)
@@ -893,6 +945,18 @@ async def run_plot_extraction_in_background(
         async with lock:
             # Delay to ensure database commits from main session are visible
             await asyncio.sleep(0.3)
+
+            # Quick health check before extraction to avoid hanging on unavailable LLM
+            try:
+                from ...services.llm.service import UnifiedLLMService
+                main_llm = UnifiedLLMService()
+                client = main_llm.get_user_client(user_id, user_settings)
+                is_healthy, health_msg = await client.check_health(timeout=3.0)
+                if not is_healthy:
+                    logger.warning(f"[PLOT_EXTRACTION] LLM unavailable: {health_msg}, skipping extraction")
+                    return
+            except Exception as health_err:
+                logger.warning(f"[PLOT_EXTRACTION] Health check failed (proceeding anyway): {health_err}")
 
             extraction_db = SessionLocal()
             try:
