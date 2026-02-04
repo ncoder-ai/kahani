@@ -53,11 +53,6 @@ class LLMClient:
         self.repetition_penalty = self.llm_config.get('repetition_penalty')
         self.max_tokens = self.llm_config.get('max_tokens')
         
-        # Text completion settings
-        self.completion_mode = self.llm_config.get('completion_mode', 'chat')
-        self.text_completion_template = self.llm_config.get('text_completion_template')
-        self.text_completion_preset = self.llm_config.get('text_completion_preset', 'llama3')
-        
         # Reasoning/Thinking settings
         self.reasoning_effort = self.llm_config.get('reasoning_effort')  # None = auto, "disabled", "low", "medium", "high"
         self.show_thinking_content = self.llm_config.get('show_thinking_content', True)
@@ -65,7 +60,7 @@ class LLMClient:
         # Advanced sampler settings (from sampler_settings in user_settings)
         self.sampler_settings = user_settings.get('sampler_settings', {})
         
-        logger.info(f"LLMClient initialized: completion_mode={self.completion_mode}, api_type={self.api_type}, model={self.model_name}, reasoning_effort={self.reasoning_effort}")
+        logger.info(f"LLMClient initialized: api_type={self.api_type}, model={self.model_name}, reasoning_effort={self.reasoning_effort}")
         
         # Configure LiteLLM model string based on provider
         self.model_string = self._build_model_string()
@@ -380,64 +375,6 @@ class LLMClient:
     def get_streaming_params(self, max_tokens: Optional[int] = None, temperature: Optional[float] = None) -> Dict[str, Any]:
         """Get generation parameters for streaming API calls"""
         params = self.get_generation_params(max_tokens, temperature)
-        params["stream"] = True
-        return params
-    
-    def get_text_completion_params(self, max_tokens: Optional[int] = None, temperature: Optional[float] = None) -> Dict[str, Any]:
-        """
-        Get generation parameters for text completion API calls.
-        
-        Similar to get_generation_params() but for /v1/completions endpoint.
-        Uses 'prompt' field instead of 'messages'.
-        """
-        params = {
-            "model": self.model_string,
-            "max_tokens": max_tokens if max_tokens is not None else self.max_tokens,
-            "temperature": temperature if temperature is not None else self.temperature,
-        }
-        
-        # Add optional parameters if set
-        if self.top_p is not None:
-            params["top_p"] = self.top_p
-        
-        # Add API base URL for OpenAI-compatible providers
-        if self.api_type in ["openai-compatible", "openai_compatible", "tabbyapi", "lm_studio"]:
-            # Ensure URL ends with /v1
-            api_url = self.api_url.rstrip('/')
-            if not api_url.endswith('/v1'):
-                api_url += '/v1'
-            params["api_base"] = api_url
-            
-            if self.api_key:
-                params["api_key"] = self.api_key
-        
-        # Add provider-specific parameters
-        if self.api_type == "koboldcpp":
-            if self.top_k is not None:
-                params["top_k"] = self.top_k
-            if self.repetition_penalty is not None:
-                params["repetition_penalty"] = self.repetition_penalty
-        elif self.api_type in ["openai-compatible", "tabbyapi", "lm_studio"]:
-            # For OpenAI-compatible APIs, use extra_body for non-standard params
-            extra_body = {}
-            if self.top_k is not None:
-                extra_body["top_k"] = self.top_k
-            if self.repetition_penalty is not None:
-                extra_body["repetition_penalty"] = self.repetition_penalty
-            
-            # Add enabled advanced samplers from sampler_settings
-            extra_body = self._add_enabled_samplers(extra_body)
-            
-            if extra_body:
-                params["extra_body"] = extra_body
-        
-        logger.info(f"Final text completion params: model={params.get('model')}, api_base={params.get('api_base')}, has_prompt={('prompt' in params)}")
-        logger.debug(f"Full text completion params: {params}")
-        return params
-    
-    def get_text_completion_streaming_params(self, max_tokens: Optional[int] = None, temperature: Optional[float] = None) -> Dict[str, Any]:
-        """Get generation parameters for streaming text completion API calls"""
-        params = self.get_text_completion_params(max_tokens, temperature)
         params["stream"] = True
         return params
     

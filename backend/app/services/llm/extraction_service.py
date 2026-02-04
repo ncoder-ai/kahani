@@ -11,8 +11,7 @@ import logging
 import time
 import json
 import re
-import aiohttp
-from aiohttp import ClientTimeout
+import httpx
 from .prompts import prompt_manager
 
 logger = logging.getLogger(__name__)
@@ -188,8 +187,8 @@ class ExtractionLLMService:
         self.thinking_disable_custom = thinking_disable_custom
         self._thinking_pattern = self._compile_thinking_pattern()
 
-        # Use timeout from user settings, with reasonable connect timeout
-        self.timeout = ClientTimeout(total=timeout_total, connect=30)
+        # Use timeout from user settings
+        self.timeout_total = timeout_total
 
         # Configure LiteLLM for OpenAI-compatible endpoint
         self._configure_litellm()
@@ -313,7 +312,7 @@ class ExtractionLLMService:
             response = await acompletion(
                 **params,
                 messages=[{"role": "user", "content": "Say 'OK'"}],
-                timeout=self.timeout.total
+                timeout=self.timeout_total
             )
             
             response_time = time.time() - start_time
@@ -355,30 +354,29 @@ class ExtractionLLMService:
             base_url = f"{base_url}/v1"
 
         try:
-            client_timeout = ClientTimeout(total=timeout)
-            async with aiohttp.ClientSession(timeout=client_timeout) as session:
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
 
                 # Try /models endpoint (standard OpenAI-compatible endpoint)
                 try:
-                    async with session.get(f"{base_url}/models", headers=headers) as response:
-                        if response.status < 500:
-                            return True, "Extraction server is reachable"
-                        elif response.status >= 500:
-                            return False, f"Extraction server error (status {response.status})"
-                except aiohttp.ClientResponseError:
+                    response = await client.get(f"{base_url}/models", headers=headers)
+                    if response.status_code < 500:
+                        return True, "Extraction server is reachable"
+                    elif response.status_code >= 500:
+                        return False, f"Extraction server error (status {response.status_code})"
+                except httpx.HTTPStatusError:
                     pass  # Try fallback
 
                 # Fallback: try base URL
-                async with session.get(base_url, headers=headers) as response:
-                    if response.status < 500:
-                        return True, "Extraction server is reachable"
-                    else:
-                        return False, f"Extraction server returned error status {response.status}"
+                response = await client.get(base_url, headers=headers)
+                if response.status_code < 500:
+                    return True, "Extraction server is reachable"
+                else:
+                    return False, f"Extraction server returned error status {response.status_code}"
 
-        except aiohttp.ClientConnectorError:
+        except httpx.ConnectError:
             return False, f"Cannot connect to extraction server at {self.url}. Is it running?"
-        except TimeoutError:
+        except httpx.TimeoutException:
             return False, f"Extraction server at {self.url} is not responding (timeout after {timeout}s)"
         except Exception as e:
             return False, f"Extraction health check failed: {str(e)}"
@@ -417,7 +415,7 @@ class ExtractionLLMService:
             response = await acompletion(
                 **params,
                 messages=messages,
-                timeout=self.timeout.total
+                timeout=self.timeout_total
             )
 
             content = response.choices[0].message.content
@@ -467,7 +465,7 @@ class ExtractionLLMService:
             response = await acompletion(
                 **params,
                 messages=messages,
-                timeout=self.timeout.total
+                timeout=self.timeout_total
             )
 
             content = response.choices[0].message.content
@@ -537,7 +535,7 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}
                 ],
-                timeout=self.timeout.total
+                timeout=self.timeout_total
             )
             
             content = response.choices[0].message.content.strip()
@@ -604,7 +602,7 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}
                 ],
-                timeout=self.timeout.total * 2  # Longer timeout for batch
+                timeout=self.timeout_total * 2  # Longer timeout for batch
             )
             
             content = response.choices[0].message.content.strip()
@@ -745,7 +743,7 @@ If no moments found, return {{"moments": []}}. Return ONLY the JSON, no other te
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}
                 ],
-                timeout=self.timeout.total
+                timeout=self.timeout_total
             )
             
             content = response.choices[0].message.content.strip()
@@ -807,7 +805,7 @@ If no moments found, return {{"moments": []}}. Return ONLY the JSON, no other te
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}
                 ],
-                timeout=self.timeout.total * 2
+                timeout=self.timeout_total * 2
             )
             
             content = response.choices[0].message.content.strip()
@@ -883,7 +881,7 @@ If no PEOPLE found, return {{"npcs": []}}. Return ONLY JSON."""
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}
                 ],
-                timeout=self.timeout.total
+                timeout=self.timeout_total
             )
             
             content = response.choices[0].message.content.strip()
@@ -955,7 +953,7 @@ If no PEOPLE found, return {{"npcs": []}}. Return ONLY JSON."""
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}
                 ],
-                timeout=self.timeout.total * 2
+                timeout=self.timeout_total * 2
             )
             
             content = response.choices[0].message.content.strip()
@@ -1034,7 +1032,7 @@ Include "interactions": [] in your JSON response (empty array if no tracked inte
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}
                 ],
-                timeout=self.timeout.total
+                timeout=self.timeout_total
             )
 
             content = response.choices[0].message.content.strip()
@@ -1101,7 +1099,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}
                 ],
-                timeout=self.timeout.total * 2
+                timeout=self.timeout_total * 2
             )
             
             content = response.choices[0].message.content.strip()
@@ -1162,7 +1160,7 @@ Summary:"""
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}
                 ],
-                timeout=self.timeout.total * 3  # Longer timeout for summaries
+                timeout=self.timeout_total * 3  # Longer timeout for summaries
             )
             
             content = response.choices[0].message.content.strip()

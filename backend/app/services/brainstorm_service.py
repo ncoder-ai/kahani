@@ -201,103 +201,74 @@ class BrainstormService:
                     character_context += "\n\nPlease generate story ideas that incorporate these characters, while also suggesting additional characters if needed for the story."
                     logger.info(f"[BRAINSTORM] Added {len(characters)} pre-selected characters to context")
             
-            # Get LLM client to check completion mode
+            # Get LLM client
             client = self.llm_service.get_user_client(self.user_id, self.user_settings)
-            
-            # For chat mode, use proper messages array for multi-turn conversation
-            if client.completion_mode == "chat":
-                # Build messages array for proper multi-turn conversation
-                messages = []
-                
-                # Handle system prompt with NSFW filter if needed
-                # Check both user permission AND session's content_rating
-                user_allow_nsfw = self.user_settings.get('allow_nsfw', False) if self.user_settings else False
-                session_content_rating = session.extracted_elements.get('content_rating', 'sfw') if session.extracted_elements else 'sfw'
-                # Effective NSFW = user allows AND session is rated NSFW
-                effective_allow_nsfw = user_allow_nsfw and session_content_rating.lower() == 'nsfw'
-                
-                if system_prompt and system_prompt.strip():
-                    final_system_prompt = system_prompt.strip() + character_context
-                    # Inject NSFW filter if content should be filtered
-                    if should_inject_nsfw_filter(effective_allow_nsfw):
-                        final_system_prompt = final_system_prompt + "\n\n" + get_nsfw_prevention_prompt()
-                    messages.append({"role": "system", "content": final_system_prompt})
-                elif should_inject_nsfw_filter(effective_allow_nsfw):
-                    # No system prompt provided, but we need to inject NSFW filter
-                    messages.append({"role": "system", "content": get_nsfw_prevention_prompt() + character_context})
-                
-                # Add all conversation history as proper message turns
-                logger.info(f"[BRAINSTORM] Building messages array from {len(conversation_history)} conversation messages")
-                if len(conversation_history) == 0:
-                    logger.error(f"[BRAINSTORM] ERROR: Conversation history is empty! This will cause context loss!")
-                
-                for msg in conversation_history:
-                    # Map our roles to chat API roles
-                    role = msg.get("role", "")
-                    content = msg.get("content", "")
-                    if role == "user":
-                        messages.append({"role": "user", "content": content})
-                    elif role == "assistant":
-                        messages.append({"role": "assistant", "content": content})
-                    else:
-                        logger.warning(f"[BRAINSTORM] Unknown message role: {role}, skipping message")
-                
-                logger.info(f"[BRAINSTORM] Final messages array has {len(messages)} messages (1 system + {len(messages)-1} conversation)")
-                if len(messages) > 1:
-                    logger.info(f"[BRAINSTORM] Last user message: {messages[-1] if messages[-1].get('role') == 'user' else 'N/A'}")
-                    logger.info(f"[BRAINSTORM] Last assistant message: {[m for m in messages if m.get('role') == 'assistant'][-1] if any(m.get('role') == 'assistant' for m in messages) else 'N/A'}")
-                
-                # Get generation parameters
-                gen_params = client.get_generation_params(
-                    self.user_settings.get('generation_preferences', {}).get('max_tokens', 1000),
-                    0.8  # Higher temperature for creative brainstorming
-                )
-                gen_params["messages"] = messages
-                
-                # Get timeout
-                user_timeout = None
-                if self.user_settings:
-                    llm_settings = self.user_settings.get('llm_settings', {})
-                    user_timeout = llm_settings.get('timeout_total')
-                timeout_value = user_timeout if user_timeout is not None else settings.llm_timeout_total
-                gen_params["timeout"] = timeout_value
-                
-                # Call LLM with proper chat messages format
-                response = await acompletion(**gen_params)
-                ai_response = response.choices[0].message.content
-                
-                # Save assistant response to conversation history
-                session.add_message("assistant", ai_response)
-                self.db.commit()
-                self.db.refresh(session)
-            else:
-                # Text completion mode - build conversation as text (fallback)
-                conversation_text = ""
-                for msg in conversation_history[:-1]:  # Exclude the just-added user message
-                    role_label = "User" if msg["role"] == "user" else "AI"
-                    conversation_text += f"{role_label}: {msg['content']}\n\n"
-                
-                # Add current user message
-                conversation_text += f"User: {user_message}\n\nAI:"
-                
-                # Add character context to system prompt for text completion mode
-                final_system_prompt = system_prompt + character_context if system_prompt else character_context
-                
-                # Generate AI response using standard method
-                ai_response = await self.llm_service.generate(
-                    prompt=conversation_text,
-                    user_id=self.user_id,
-                    user_settings=self.user_settings,
-                    system_prompt=final_system_prompt,
-                    max_tokens=self.user_settings.get('generation_preferences', {}).get('max_tokens', 1000),
-                    temperature=0.8  # Higher temperature for creative brainstorming
-                )
-                
-                # Save assistant response to conversation history
-                session.add_message("assistant", ai_response)
-                self.db.commit()
-                self.db.refresh(session)
-            
+
+            # Build messages array for proper multi-turn conversation
+            messages = []
+
+            # Handle system prompt with NSFW filter if needed
+            # Check both user permission AND session's content_rating
+            user_allow_nsfw = self.user_settings.get('allow_nsfw', False) if self.user_settings else False
+            session_content_rating = session.extracted_elements.get('content_rating', 'sfw') if session.extracted_elements else 'sfw'
+            # Effective NSFW = user allows AND session is rated NSFW
+            effective_allow_nsfw = user_allow_nsfw and session_content_rating.lower() == 'nsfw'
+
+            if system_prompt and system_prompt.strip():
+                final_system_prompt = system_prompt.strip() + character_context
+                # Inject NSFW filter if content should be filtered
+                if should_inject_nsfw_filter(effective_allow_nsfw):
+                    final_system_prompt = final_system_prompt + "\n\n" + get_nsfw_prevention_prompt()
+                messages.append({"role": "system", "content": final_system_prompt})
+            elif should_inject_nsfw_filter(effective_allow_nsfw):
+                # No system prompt provided, but we need to inject NSFW filter
+                messages.append({"role": "system", "content": get_nsfw_prevention_prompt() + character_context})
+
+            # Add all conversation history as proper message turns
+            logger.info(f"[BRAINSTORM] Building messages array from {len(conversation_history)} conversation messages")
+            if len(conversation_history) == 0:
+                logger.error(f"[BRAINSTORM] ERROR: Conversation history is empty! This will cause context loss!")
+
+            for msg in conversation_history:
+                # Map our roles to chat API roles
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                if role == "user":
+                    messages.append({"role": "user", "content": content})
+                elif role == "assistant":
+                    messages.append({"role": "assistant", "content": content})
+                else:
+                    logger.warning(f"[BRAINSTORM] Unknown message role: {role}, skipping message")
+
+            logger.info(f"[BRAINSTORM] Final messages array has {len(messages)} messages (1 system + {len(messages)-1} conversation)")
+            if len(messages) > 1:
+                logger.info(f"[BRAINSTORM] Last user message: {messages[-1] if messages[-1].get('role') == 'user' else 'N/A'}")
+                logger.info(f"[BRAINSTORM] Last assistant message: {[m for m in messages if m.get('role') == 'assistant'][-1] if any(m.get('role') == 'assistant' for m in messages) else 'N/A'}")
+
+            # Get generation parameters
+            gen_params = client.get_generation_params(
+                self.user_settings.get('generation_preferences', {}).get('max_tokens', 1000),
+                0.8  # Higher temperature for creative brainstorming
+            )
+            gen_params["messages"] = messages
+
+            # Get timeout
+            user_timeout = None
+            if self.user_settings:
+                llm_settings = self.user_settings.get('llm_settings', {})
+                user_timeout = llm_settings.get('timeout_total')
+            timeout_value = user_timeout if user_timeout is not None else settings.llm_timeout_total
+            gen_params["timeout"] = timeout_value
+
+            # Call LLM with proper chat messages format
+            response = await acompletion(**gen_params)
+            ai_response = response.choices[0].message.content
+
+            # Save assistant response to conversation history
+            session.add_message("assistant", ai_response)
+            self.db.commit()
+            self.db.refresh(session)
+
             logger.info(f"[BRAINSTORM] Session {session_id} - exchanged messages, total: {len(session.messages)}")
             
             return {

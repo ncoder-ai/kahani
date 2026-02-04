@@ -666,23 +666,147 @@ async def generate_scene_streaming_endpoint(
                 # Check for multi-generation (n > 1)
                 n_value = get_n_value_from_settings(user_settings)
 
-            if n_value > 1 and not user_provided_content:
+                if n_value > 1 and not user_provided_content:
+                    # =====================================================================
+                    # MULTI-GENERATION PATH (n > 1)
+                    # =====================================================================
+                    logger.info(f"[MULTI-GEN] Starting multi-generation with n={n_value} for story {story_id}")
+
+                    generation_prefs = user_settings.get("generation_preferences", {})
+                    separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
+
+                    scene_context = context.copy() if isinstance(context, dict) else {"story_context": context}
+                    if effective_custom_prompt and effective_custom_prompt.strip():
+                        scene_context["custom_prompt"] = effective_custom_prompt.strip()
+
+                    variants_data = None
+
+                    if is_concluding_bool:
+                        # Multi-generation concluding scene (no choices)
+                        chapter_info = {
+                            "chapter_number": active_chapter.chapter_number if active_chapter else 1,
+                            "chapter_title": active_chapter.title if active_chapter else "Untitled",
+                            "chapter_location": active_chapter.location_name if active_chapter else "Unknown",
+                            "chapter_time_period": active_chapter.time_period if active_chapter else "Unknown",
+                            "chapter_scenario": active_chapter.scenario if active_chapter else "None"
+                        }
+
+                        async for chunk, is_complete, contents in llm_service.generate_concluding_scene_streaming_multi(
+                            scene_context,
+                            chapter_info,
+                            current_user.id,
+                            user_settings,
+                            db,
+                            n_value
+                        ):
+                            if not is_complete:
+                                yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                            else:
+                                # Convert contents to variants_data format (no choices for concluding scenes)
+                                variants_data = [{"content": c, "choices": []} for c in contents]
+
+                    elif separate_choice_generation:
+                        # Separate mode: generate scenes, then choices in parallel
+                        async for chunk, is_complete, contents in llm_service.generate_scene_streaming_multi(
+                            scene_context,
+                            current_user.id,
+                            user_settings,
+                            db,
+                            n_value
+                        ):
+                            if not is_complete:
+                                yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                            else:
+                                # Generate choices for all variants in parallel
+                                yield f"data: {json.dumps({'type': 'status', 'message': 'Generating choices for all variants...'})}\n\n"
+                                all_choices = await llm_service.generate_choices_for_variants(
+                                    contents,
+                                    scene_context,
+                                    current_user.id,
+                                    user_settings,
+                                    db
+                                )
+                                variants_data = [
+                                    {"content": c, "choices": ch}
+                                    for c, ch in zip(contents, all_choices)
+                                ]
+
+                    else:
+                        # Combined mode: scene + choices together
+                        async for chunk, is_complete, vdata in llm_service.generate_scene_with_choices_streaming_multi(
+                            scene_context,
+                            current_user.id,
+                            user_settings,
+                            db,
+                            n_value
+                        ):
+                            if not is_complete:
+                                yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                            else:
+                                variants_data = vdata
+
+                    # Create Scene with multiple variants (chapter_id already set atomically)
+                    if variants_data:
+                        scene, created_variants = create_scene_with_multi_variants(
+                            db=db,
+                            story_id=story_id,
+                            sequence_number=next_sequence,
+                            variants_data=variants_data,
+                            branch_id=active_branch_id,
+                            generation_method=generation_method,
+                            title=f"Scene {next_sequence}",
+                            custom_prompt=effective_custom_prompt if effective_custom_prompt else None,
+                            chapter_id=chapter_id
+                        )
+
+                        # Format response
+                        variants_response = []
+                        for v in created_variants:
+                            # Get choices for this variant
+                            variant_choices = db.query(SceneChoice).filter(
+                                SceneChoice.scene_variant_id == v.id
+                            ).order_by(SceneChoice.choice_order).all()
+
+                            variants_response.append({
+                                "id": v.id,
+                                "variant_number": v.variant_number,
+                                "content": v.content,
+                                "is_original": v.is_original,
+                                "choices": [{"text": c.choice_text, "order": c.choice_order} for c in variant_choices]
+                            })
+
+                        # Send multi_complete event
+                        yield f"data: {json.dumps({'type': 'multi_complete', 'scene_id': scene.id, 'sequence': next_sequence, 'total_variants': len(created_variants), 'variants': variants_response, 'chapter_id': chapter_id})}\n\n"
+
+                        # Update chapter stats (chapter_id already set during scene creation)
+                        if active_chapter:
+                            active_chapter.scenes_count = llm_service.get_active_scene_count(db, story_id, branch_id=active_branch_id, chapter_id=active_chapter.id)
+                            db.commit()
+
+                        logger.info(f"[MULTI-GEN] Created scene {scene.id} with {len(created_variants)} variants in chapter {chapter_id}")
+
+                        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                        return  # Exit early - don't continue to single-generation path
+                    else:
+                        logger.error("[MULTI-GEN] No variants data generated")
+                        yield f"data: {json.dumps({'type': 'error', 'message': 'Failed to generate variants'})}\n\n"
+                        return
+
                 # =====================================================================
-                # MULTI-GENERATION PATH (n > 1)
+                # SINGLE-GENERATION PATH (n == 1 or user_provided_content)
                 # =====================================================================
-                logger.info(f"[MULTI-GEN] Starting multi-generation with n={n_value} for story {story_id}")
 
-                generation_prefs = user_settings.get("generation_preferences", {})
-                separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
+                # Handle user-provided content vs AI generation
+                if user_provided_content:
+                    # User wrote their own scene - send it immediately as a single chunk
+                    full_content = user_provided_content
+                    yield f"data: {json.dumps({'type': 'content', 'chunk': user_provided_content})}\n\n"
+                    parsed_choices = None  # User-provided scenes need separate choice generation
+                elif is_concluding_bool:
+                    # Generate concluding scene (no choices)
+                    logger.info(f"[SCENE STREAM] Generating concluding scene for story {story_id}")
 
-                scene_context = context.copy() if isinstance(context, dict) else {"story_context": context}
-                if effective_custom_prompt and effective_custom_prompt.strip():
-                    scene_context["custom_prompt"] = effective_custom_prompt.strip()
-
-                variants_data = None
-
-                if is_concluding_bool:
-                    # Multi-generation concluding scene (no choices)
+                    # Get chapter info for the concluding prompt
                     chapter_info = {
                         "chapter_number": active_chapter.chapter_number if active_chapter else 1,
                         "chapter_title": active_chapter.title if active_chapter else "Untitled",
@@ -691,193 +815,69 @@ async def generate_scene_streaming_endpoint(
                         "chapter_scenario": active_chapter.scenario if active_chapter else "None"
                     }
 
-                    async for chunk, is_complete, contents in llm_service.generate_concluding_scene_streaming_multi(
-                        scene_context,
+                    async for chunk in llm_service.generate_concluding_scene_streaming(
+                        context,
                         chapter_info,
                         current_user.id,
                         user_settings,
-                        db,
-                        n_value
+                        db
                     ):
-                        if not is_complete:
-                            yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
-                        else:
-                            # Convert contents to variants_data format (no choices for concluding scenes)
-                            variants_data = [{"content": c, "choices": []} for c in contents]
-
-                elif separate_choice_generation:
-                    # Separate mode: generate scenes, then choices in parallel
-                    async for chunk, is_complete, contents in llm_service.generate_scene_streaming_multi(
-                        scene_context,
-                        current_user.id,
-                        user_settings,
-                        db,
-                        n_value
-                    ):
-                        if not is_complete:
-                            yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
-                        else:
-                            # Generate choices for all variants in parallel
-                            yield f"data: {json.dumps({'type': 'status', 'message': 'Generating choices for all variants...'})}\n\n"
-                            all_choices = await llm_service.generate_choices_for_variants(
-                                contents,
-                                scene_context,
-                                current_user.id,
-                                user_settings,
-                                db
-                            )
-                            variants_data = [
-                                {"content": c, "choices": ch}
-                                for c, ch in zip(contents, all_choices)
-                            ]
-
-                else:
-                    # Combined mode: scene + choices together
-                    async for chunk, is_complete, vdata in llm_service.generate_scene_with_choices_streaming_multi(
-                        scene_context,
-                        current_user.id,
-                        user_settings,
-                        db,
-                        n_value
-                    ):
-                        if not is_complete:
-                            yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
-                        else:
-                            variants_data = vdata
-
-                # Create Scene with multiple variants (chapter_id already set atomically)
-                if variants_data:
-                    scene, created_variants = create_scene_with_multi_variants(
-                        db=db,
-                        story_id=story_id,
-                        sequence_number=next_sequence,
-                        variants_data=variants_data,
-                        branch_id=active_branch_id,
-                        generation_method=generation_method,
-                        title=f"Scene {next_sequence}",
-                        custom_prompt=effective_custom_prompt if effective_custom_prompt else None,
-                        chapter_id=chapter_id
-                    )
-
-                    # Format response
-                    variants_response = []
-                    for v in created_variants:
-                        # Get choices for this variant
-                        variant_choices = db.query(SceneChoice).filter(
-                            SceneChoice.scene_variant_id == v.id
-                        ).order_by(SceneChoice.choice_order).all()
-
-                        variants_response.append({
-                            "id": v.id,
-                            "variant_number": v.variant_number,
-                            "content": v.content,
-                            "is_original": v.is_original,
-                            "choices": [{"text": c.choice_text, "order": c.choice_order} for c in variant_choices]
-                        })
-
-                    # Send multi_complete event
-                    yield f"data: {json.dumps({'type': 'multi_complete', 'scene_id': scene.id, 'sequence': next_sequence, 'total_variants': len(created_variants), 'variants': variants_response, 'chapter_id': chapter_id})}\n\n"
-
-                    # Update chapter stats (chapter_id already set during scene creation)
-                    if active_chapter:
-                        active_chapter.scenes_count = llm_service.get_active_scene_count(db, story_id, branch_id=active_branch_id, chapter_id=active_chapter.id)
-                        db.commit()
-
-                    logger.info(f"[MULTI-GEN] Created scene {scene.id} with {len(created_variants)} variants in chapter {chapter_id}")
-
-                    yield f"data: {json.dumps({'type': 'done'})}\n\n"
-                    return  # Exit early - don't continue to single-generation path
-                else:
-                    logger.error("[MULTI-GEN] No variants data generated")
-                    yield f"data: {json.dumps({'type': 'error', 'message': 'Failed to generate variants'})}\n\n"
-                    return
-
-            # =====================================================================
-            # SINGLE-GENERATION PATH (n == 1 or user_provided_content)
-            # =====================================================================
-
-            # Handle user-provided content vs AI generation
-            if user_provided_content:
-                # User wrote their own scene - send it immediately as a single chunk
-                full_content = user_provided_content
-                yield f"data: {json.dumps({'type': 'content', 'chunk': user_provided_content})}\n\n"
-                parsed_choices = None  # User-provided scenes need separate choice generation
-            elif is_concluding_bool:
-                # Generate concluding scene (no choices)
-                logger.info(f"[SCENE STREAM] Generating concluding scene for story {story_id}")
-
-                # Get chapter info for the concluding prompt
-                chapter_info = {
-                    "chapter_number": active_chapter.chapter_number if active_chapter else 1,
-                    "chapter_title": active_chapter.title if active_chapter else "Untitled",
-                    "chapter_location": active_chapter.location_name if active_chapter else "Unknown",
-                    "chapter_time_period": active_chapter.time_period if active_chapter else "Unknown",
-                    "chapter_scenario": active_chapter.scenario if active_chapter else "None"
-                }
-
-                async for chunk in llm_service.generate_concluding_scene_streaming(
-                    context,
-                    chapter_info,
-                    current_user.id,
-                    user_settings,
-                    db
-                ):
-                    # Check if this is thinking content
-                    if chunk.startswith("__THINKING__:"):
-                        thinking_chunk = chunk[13:]  # Remove prefix
-                        thinking_content += thinking_chunk
-                        if not is_thinking:
-                            is_thinking = True
-                            yield f"data: {json.dumps({'type': 'thinking_start'})}\n\n"
-                        yield f"data: {json.dumps({'type': 'thinking_chunk', 'chunk': thinking_chunk})}\n\n"
-                    else:
-                        if is_thinking:
-                            is_thinking = False
-                            yield f"data: {json.dumps({'type': 'thinking_end', 'total_chars': len(thinking_content)})}\n\n"
-                        full_content += chunk
-                        yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
-
-                # Concluding scenes don't have choices
-                parsed_choices = None
-            else:
-                # Use combined scene + choices generation
-                scene_context = context.copy() if isinstance(context, dict) else {"story_context": context}
-                if effective_custom_prompt and effective_custom_prompt.strip():
-                    scene_context["custom_prompt"] = effective_custom_prompt.strip()
-
-                parsed_choices = None
-                async for chunk, scene_complete, choices in llm_service.generate_scene_with_choices_streaming(
-                    scene_context,
-                    current_user.id,
-                    user_settings,
-                    db
-                ):
-                    if not scene_complete:
-                        # Check if this is thinking content (prefixed by LLM service)
+                        # Check if this is thinking content
                         if chunk.startswith("__THINKING__:"):
                             thinking_chunk = chunk[13:]  # Remove prefix
                             thinking_content += thinking_chunk
                             if not is_thinking:
-                                # First thinking chunk - send thinking_start
                                 is_thinking = True
                                 yield f"data: {json.dumps({'type': 'thinking_start'})}\n\n"
-                            # Stream thinking chunk to frontend
                             yield f"data: {json.dumps({'type': 'thinking_chunk', 'chunk': thinking_chunk})}\n\n"
                         else:
-                            # Regular content - send thinking_end if we were thinking
                             if is_thinking:
                                 is_thinking = False
                                 yield f"data: {json.dumps({'type': 'thinking_end', 'total_chars': len(thinking_content)})}\n\n"
-                            # Stream regular content
                             full_content += chunk
                             yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
-                    else:
-                        # Scene complete, choices parsed
-                        # Make sure to close thinking if still open
-                        if is_thinking:
-                            yield f"data: {json.dumps({'type': 'thinking_end', 'total_chars': len(thinking_content)})}\n\n"
-                        parsed_choices = choices
-                        break
+
+                    # Concluding scenes don't have choices
+                    parsed_choices = None
+                else:
+                    # Use combined scene + choices generation
+                    scene_context = context.copy() if isinstance(context, dict) else {"story_context": context}
+                    if effective_custom_prompt and effective_custom_prompt.strip():
+                        scene_context["custom_prompt"] = effective_custom_prompt.strip()
+
+                    parsed_choices = None
+                    async for chunk, scene_complete, choices in llm_service.generate_scene_with_choices_streaming(
+                        scene_context,
+                        current_user.id,
+                        user_settings,
+                        db
+                    ):
+                        if not scene_complete:
+                            # Check if this is thinking content (prefixed by LLM service)
+                            if chunk.startswith("__THINKING__:"):
+                                thinking_chunk = chunk[13:]  # Remove prefix
+                                thinking_content += thinking_chunk
+                                if not is_thinking:
+                                    # First thinking chunk - send thinking_start
+                                    is_thinking = True
+                                    yield f"data: {json.dumps({'type': 'thinking_start'})}\n\n"
+                                # Stream thinking chunk to frontend
+                                yield f"data: {json.dumps({'type': 'thinking_chunk', 'chunk': thinking_chunk})}\n\n"
+                            else:
+                                # Regular content - send thinking_end if we were thinking
+                                if is_thinking:
+                                    is_thinking = False
+                                    yield f"data: {json.dumps({'type': 'thinking_end', 'total_chars': len(thinking_content)})}\n\n"
+                                # Stream regular content
+                                full_content += chunk
+                                yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                        else:
+                            # Scene complete, choices parsed
+                            # Make sure to close thinking if still open
+                            if is_thinking:
+                                yield f"data: {json.dumps({'type': 'thinking_end', 'total_chars': len(thinking_content)})}\n\n"
+                            parsed_choices = choices
+                            break
 
             except LLMConnectionError as conn_error:
                 # Centralized handler for LLM connection failures

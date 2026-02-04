@@ -22,7 +22,6 @@ import uuid
 
 from .client import LLMClient
 from .prompts import prompt_manager
-from .templates import TextCompletionTemplateManager
 from .thinking_parser import ThinkingTagParser
 from .content_cleaner import (
     clean_scene_content,
@@ -94,12 +93,11 @@ class UnifiedLLMService:
     def get_user_client(self, user_id: int, user_settings: Dict[str, Any]) -> LLMClient:
         """Get or create LLM client configuration for user"""
         # Always recreate client from user_settings to ensure we have latest settings
-        # This is important for completion_mode and other settings that affect API calls
         try:
             client = LLMClient(user_settings)
             # Update cache with new client
             self._client_cache[user_id] = client
-            logger.info(f"Created/updated LLM client for user {user_id} with provider {client.api_type}, completion_mode={client.completion_mode}")
+            logger.info(f"Created/updated LLM client for user {user_id} with provider {client.api_type}")
         except Exception as e:
             logger.error(f"Failed to create LLM client for user {user_id}: {e}")
             raise
@@ -701,42 +699,6 @@ Chapter Conclusion:"""
             prompt, user_id, user_settings, system_prompt, max_tokens, temperature, skip_nsfw_filter
         )
     
-    async def _generate_text_completion(
-        self,
-        prompt: str,
-        user_id: int,
-        user_settings: Dict[str, Any],
-        system_prompt: str = "",
-        max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None,
-        skip_nsfw_filter: bool = False
-    ) -> str:
-        """Internal method for text completion generation.
-
-        Wrapper for LLMGenerationCore.generate_text_completion.
-        """
-        return await self._generation_core.generate_text_completion(
-            prompt, user_id, user_settings, system_prompt, max_tokens, temperature, skip_nsfw_filter
-        )
-    
-    async def _direct_http_fallback(self, client, messages, max_tokens, temperature, stream, user_settings: Optional[Dict[str, Any]] = None):
-        """Direct HTTP fallback for LM Studio when LiteLLM fails.
-
-        Wrapper for LLMGenerationCore.direct_http_fallback.
-        """
-        return await self._generation_core.direct_http_fallback(
-            client, messages, max_tokens, temperature, stream, user_settings
-        )
-    
-    async def _direct_http_text_completion_fallback(self, client, prompt, max_tokens, temperature, stream, user_settings: Optional[Dict[str, Any]] = None):
-        """Direct HTTP call to /v1/completions endpoint for text completion.
-
-        Wrapper for LLMGenerationCore.direct_http_text_completion_fallback.
-        """
-        return await self._generation_core.direct_http_text_completion_fallback(
-            client, prompt, max_tokens, temperature, stream, user_settings
-        )
-    
     async def _generate_stream(
         self,
         prompt: str,
@@ -755,26 +717,7 @@ Chapter Conclusion:"""
             prompt, user_id, user_settings, system_prompt, max_tokens, temperature, skip_nsfw_filter
         ):
             yield chunk
-    
-    async def _generate_text_completion_stream(
-        self,
-        prompt: str,
-        user_id: int,
-        user_settings: Dict[str, Any],
-        system_prompt: str = "",
-        max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None,
-        skip_nsfw_filter: bool = False
-    ) -> AsyncGenerator[str, None]:
-        """Internal method for streaming text completion generation.
 
-        Wrapper for LLMGenerationCore.generate_text_completion_stream.
-        """
-        async for chunk in self._generation_core.generate_text_completion_stream(
-            prompt, user_id, user_settings, system_prompt, max_tokens, temperature, skip_nsfw_filter
-        ):
-            yield chunk
-    
     def _clean_scene_content(self, content: str) -> str:
         """
         Comprehensive cleaning of LLM-generated scene content.
@@ -947,28 +890,9 @@ Chapter Conclusion:"""
         )
         
         max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
-        
-        # Check completion mode - multi-message only works with chat completion
+
         client = self.get_user_client(user_id, user_settings)
-        completion_mode = client.completion_mode
-        
-        if completion_mode == "text":
-            # Text completion mode - fall back to single prompt approach
-            formatted_context = self._format_context_for_scene(context)
-            _, user_prompt = prompt_manager.get_prompt_pair(
-                template_key, template_key,
-                user_id=user_id,
-                db=db,
-                context=formatted_context,
-                scene_length_description=scene_length_description,
-                choices_count=choices_count,
-                immediate_situation=immediate_situation
-            )
-            response_text = await self._generate_text_completion(
-                user_prompt, user_id, user_settings, system_prompt, max_tokens, None, False
-            )
-            return self._clean_scene_numbers(response_text)
-        
+
         # === MULTI-MESSAGE STRUCTURE FOR BETTER CACHING ===
         # Use cache-friendly helper for consistent message prefix
         messages = self._build_cache_friendly_message_prefix(
@@ -1074,85 +998,66 @@ Chapter Conclusion:"""
         logger.info(f"[SCENE WITH CHOICES] Using max_tokens: {max_tokens} (base: {base_max_tokens} + 300 buffer for choices)")
         
         client = self.get_user_client(user_id, user_settings)
-        completion_mode = client.completion_mode
-        
-        if completion_mode == "text":
-            # Text completion mode - fall back to single prompt approach
-            formatted_context = self._format_context_for_scene(context)
-            _, user_prompt = prompt_manager.get_prompt_pair(
-                template_key, template_key,
-                user_id=user_id,
-                db=db,
-                context=formatted_context,
-                scene_length_description=scene_length_description,
-                choices_count=choices_count,
-                immediate_situation=immediate_situation
-            )
-            response_text = await self._generate_text_completion(
-                user_prompt, user_id, user_settings, system_prompt, max_tokens, None, False
-            )
-            cleaned_response = self._clean_scene_numbers(response_text)
-            
-        else:
-            # === MULTI-MESSAGE STRUCTURE FOR BETTER CACHING ===
-            # Use cache-friendly helper for consistent message prefix
-            messages = self._build_cache_friendly_message_prefix(
-                context=context,
-                user_id=user_id,
-                user_settings=user_settings,
-                db=db
-            )
 
-            # Build task instruction using helper
-            task_content = self._build_scene_task_message(
-                context=context,
-                user_settings=user_settings,
-                db=db,
-                include_choices_reminder=not separate_choice_generation
-            )
+        # === MULTI-MESSAGE STRUCTURE FOR BETTER CACHING ===
+        # Use cache-friendly helper for consistent message prefix
+        messages = self._build_cache_friendly_message_prefix(
+            context=context,
+            user_id=user_id,
+            user_settings=user_settings,
+            db=db
+        )
 
-            messages.append({"role": "user", "content": task_content})
+        # Build task instruction using helper
+        task_content = self._build_scene_task_message(
+            context=context,
+            user_settings=user_settings,
+            db=db,
+            include_choices_reminder=not separate_choice_generation
+        )
 
-            logger.info(f"[SCENE WITH CHOICES] Using multi-message structure: {len(messages)} messages")
-            
-            # Apply NSFW filter
-            from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
-            user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
-            
-            if should_inject_nsfw_filter(user_allow_nsfw):
-                messages[0]["content"] = messages[0]["content"].strip() + "\n\n" + get_nsfw_prevention_prompt()
-            
-            # Get generation parameters
-            gen_params = client.get_generation_params(max_tokens, None)
-            gen_params["messages"] = messages
-            
-            # Get timeout from user settings or fallback to system default
-            user_timeout = None
-            if user_settings:
-                llm_settings = user_settings.get('llm_settings', {})
-                user_timeout = llm_settings.get('timeout_total')
-            timeout_value = user_timeout if user_timeout is not None else settings.llm_timeout_total
-            gen_params["timeout"] = timeout_value
-            
-            # Call LLM and get full response object
-            response = await acompletion(**gen_params)
-            
-            # Log raw response for scene generation debugging
-            self._log_raw_response(response, "New Scene Generation with Choices (Multi-Message)")
-            
-            # Extract content
-            response_text = response.choices[0].message.content
-            
-            # Print raw LLM response to console for scene generation with choices
-            logger.info("=" * 80)
-            logger.info("RAW LLM RESPONSE - SCENE GENERATION WITH CHOICES (MULTI-MESSAGE)")
-            logger.info("=" * 80)
-            logger.info(f"Full response text ({len(response_text)} chars):")
-            logger.info(response_text)
-            logger.info("=" * 80)
-            
-            cleaned_response = self._clean_scene_numbers(response_text)
-        
+        messages.append({"role": "user", "content": task_content})
+
+        logger.info(f"[SCENE WITH CHOICES] Using multi-message structure: {len(messages)} messages")
+
+        # Apply NSFW filter
+        from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
+        user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
+
+        if should_inject_nsfw_filter(user_allow_nsfw):
+            messages[0]["content"] = messages[0]["content"].strip() + "\n\n" + get_nsfw_prevention_prompt()
+
+        # Get generation parameters
+        gen_params = client.get_generation_params(max_tokens, None)
+        gen_params["messages"] = messages
+
+        # Get timeout from user settings or fallback to system default
+        user_timeout = None
+        if user_settings:
+            llm_settings = user_settings.get('llm_settings', {})
+            user_timeout = llm_settings.get('timeout_total')
+        timeout_value = user_timeout if user_timeout is not None else settings.llm_timeout_total
+        gen_params["timeout"] = timeout_value
+
+        # Call LLM and get full response object
+        response = await acompletion(**gen_params)
+
+        # Log raw response for scene generation debugging
+        self._log_raw_response(response, "New Scene Generation with Choices (Multi-Message)")
+
+        # Extract content
+        response_text = response.choices[0].message.content
+
+        # Print raw LLM response to console for scene generation with choices
+        logger.info("=" * 80)
+        logger.info("RAW LLM RESPONSE - SCENE GENERATION WITH CHOICES (MULTI-MESSAGE)")
+        logger.info("=" * 80)
+        logger.info(f"Full response text ({len(response_text)} chars):")
+        logger.info(response_text)
+        logger.info("=" * 80)
+
+        cleaned_response = self._clean_scene_numbers(response_text)
+
         # Split scene and choices
         if CHOICES_MARKER in cleaned_response:
             parts = cleaned_response.split(CHOICES_MARKER, 1)
@@ -1441,33 +1346,9 @@ Chapter Conclusion:"""
         )
         
         max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
-        
-        # Check completion mode - multi-message only works with chat completion
+
         client = self.get_user_client(user_id, user_settings)
-        completion_mode = client.completion_mode
-        
-        if completion_mode == "text":
-            # Text completion mode - fall back to single prompt approach
-            formatted_context = self._format_context_for_scene(context)
-            _, user_prompt = prompt_manager.get_prompt_pair(
-                template_key, template_key,
-                user_id=user_id,
-                context=formatted_context,
-                scene_length_description=scene_length_description,
-                choices_count=choices_count,
-                immediate_situation=immediate_situation
-            )
-            
-            raw_chunks = []
-            async for chunk in self._generate_stream_text_completion(
-                user_prompt, user_id, user_settings, system_prompt, max_tokens, None, False
-            ):
-                raw_chunks.append(chunk)
-                cleaned_chunk = self._clean_scene_numbers_chunk(chunk)
-                if cleaned_chunk:
-                    yield cleaned_chunk
-            return
-        
+
         # === MULTI-MESSAGE STRUCTURE FOR BETTER CACHING ===
         # Use cache-friendly helper for consistent message prefix
         messages = self._build_cache_friendly_message_prefix(
@@ -1631,132 +1512,8 @@ Chapter Conclusion:"""
         max_tokens = base_max_tokens + choices_buffer_tokens
         logger.info(f"[SCENE WITH CHOICES STREAMING] Using max_tokens: {max_tokens} (base: {base_max_tokens} + {choices_buffer_tokens} buffer for {choices_count} choices)")
         
-        # Check completion mode - multi-message only works with chat completion
         client = self.get_user_client(user_id, user_settings)
-        completion_mode = client.completion_mode
-        
-        if completion_mode == "text":
-            # Text completion mode - fall back to single prompt approach
-            formatted_context = self._format_context_for_scene(context)
-            
-            # Get task instruction from prompts.yml
-            has_immediate = bool(immediate_situation and immediate_situation.strip())
-            tone = context.get('tone', '')
-            task_instruction = prompt_manager.get_task_instruction(
-                has_immediate=has_immediate,
-                prose_style=prose_style,
-                tone=tone,
-                immediate_situation=immediate_situation or "",
-                scene_length_description=scene_length_description
-            )
-            # Only append choices reminder if separate_choice_generation is NOT enabled
-            if not separate_choice_generation:
-                chapter_plot_for_choices = self._format_plot_for_choices(context, user_settings)
-                choices_reminder = prompt_manager.get_user_choices_reminder(
-                    choices_count=choices_count,
-                    chapter_plot_for_choices=chapter_plot_for_choices
-                )
-                if choices_reminder:
-                    task_instruction = task_instruction + "\n\n" + choices_reminder
 
-            _, user_prompt = prompt_manager.get_prompt_pair(
-                "scene_with_immediate", "scene_with_immediate",
-                user_id=user_id,
-                db=db,
-                context=formatted_context,
-                scene_length_description=scene_length_description,
-                choices_count=choices_count,
-                immediate_situation=immediate_situation,
-                pov_instruction=pov_instruction,
-                task_instruction=task_instruction
-            )
-            
-            scene_buffer = []
-            choices_buffer = []
-            found_marker = False
-            rolling_buffer = ""
-            total_chunks = 0
-            raw_chunks = []
-            
-            async for chunk in self._generate_stream_text_completion(
-                user_prompt, user_id, user_settings, system_prompt, max_tokens, None, False
-            ):
-                total_chunks += 1
-                raw_chunks.append(chunk)
-                cleaned_chunk = self._clean_scene_numbers_chunk(chunk)
-                if not cleaned_chunk:
-                    continue
-                
-                if not found_marker:
-                    rolling_buffer += cleaned_chunk
-                    if CHOICES_MARKER in rolling_buffer:
-                        parts = rolling_buffer.split(CHOICES_MARKER, 1)
-                        scene_part = parts[0]
-                        choices_part = parts[1] if len(parts) > 1 else ""
-                        if scene_part:
-                            yield (scene_part, False, None)
-                        scene_buffer.append(scene_part)
-                        if choices_part:
-                            choices_buffer.append(choices_part)
-                        found_marker = True
-                        rolling_buffer = ""
-                    else:
-                        # === NEW: Detect JSON array start pattern ===
-                        total_scene_len = sum(len(s) for s in scene_buffer) + len(rolling_buffer)
-                        json_array_pattern = r'\[\s*["\']'
-                        json_match = re.search(json_array_pattern, rolling_buffer)
-
-                        if json_match and total_scene_len > 300:
-                            json_start = json_match.start()
-                            scene_part = rolling_buffer[:json_start]
-                            choices_part = rolling_buffer[json_start:]
-
-                            if scene_part:
-                                yield (scene_part, False, None)
-                            scene_buffer.append(scene_part)
-
-                            if choices_part:
-                                choices_buffer.append(choices_part)
-
-                            found_marker = True
-                            rolling_buffer = ""
-                            logger.info(f"[CHOICES TEXT COMPLETION] Detected JSON array start")
-                        elif len(rolling_buffer) > len(CHOICES_MARKER) * 2:
-                            excess_length = len(rolling_buffer) - len(CHOICES_MARKER)
-                            excess = rolling_buffer[:excess_length]
-                            scene_buffer.append(excess)
-                            yield (excess, False, None)
-                            rolling_buffer = rolling_buffer[excess_length:]
-                else:
-                    choices_buffer.append(cleaned_chunk)
-
-            if not found_marker and rolling_buffer:
-                scene_buffer.append(rolling_buffer)
-                yield (rolling_buffer, False, None)
-
-            # Build raw response for fallback extraction
-            raw_full_response = ''.join(raw_chunks)
-
-            parsed_choices = None
-            if found_marker and choices_buffer:
-                choices_text = ''.join(choices_buffer).strip()
-                parsed_choices = self._parse_choices_from_json(choices_text)
-            elif not found_marker:
-                # Fallback: try to extract choices from raw response
-                logger.warning(f"[CHOICES TEXT COMPLETION] Marker not found, attempting extraction...")
-                scene_content, extracted_choices = self._extract_choices_from_response_end(raw_full_response)
-                if extracted_choices:
-                    logger.info(f"[CHOICES TEXT COMPLETION] Extracted {len(extracted_choices)} choices")
-                    parsed_choices = extracted_choices
-            
-            # If separate_choice_generation is enabled, discard any inline choices
-            if separate_choice_generation and parsed_choices:
-                logger.info(f"[CHOICES TEXT COMPLETION] Separate choice generation enabled - discarding {len(parsed_choices)} inline choices")
-                parsed_choices = None
-            
-            yield ("", True, parsed_choices)
-            return
-        
         # === MULTI-MESSAGE STRUCTURE FOR BETTER CACHING ===
         # Use helper to build cache-friendly prefix (system + context messages)
         messages = self._build_cache_friendly_message_prefix(
@@ -5048,19 +4805,7 @@ Chapter Conclusion:"""
             Generated text content
         """
         client = self.get_user_client(user_id, user_settings)
-        
-        # Check completion mode - multi-message only works with chat completion
-        if client.completion_mode == "text":
-            # For text completion, fall back to combining messages into single prompt
-            logger.warning("Multi-message generation not supported for text completion mode, combining messages")
-            combined_prompt = "\n\n".join([
-                msg["content"] for msg in messages if msg["role"] == "user"
-            ])
-            system_prompt = next((msg["content"] for msg in messages if msg["role"] == "system"), "")
-            return await self._generate_text_completion(
-                combined_prompt, user_id, user_settings, system_prompt, max_tokens, temperature, skip_nsfw_filter
-            )
-        
+
         # Inject NSFW filter into system message if needed
         from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
         user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
@@ -5124,21 +4869,7 @@ Chapter Conclusion:"""
             Generated text chunks
         """
         client = self.get_user_client(user_id, user_settings)
-        
-        # Check completion mode - multi-message only works with chat completion
-        if client.completion_mode == "text":
-            # For text completion, fall back to combining messages into single prompt
-            logger.warning("Multi-message streaming not supported for text completion mode, combining messages")
-            combined_prompt = "\n\n".join([
-                msg["content"] for msg in messages if msg["role"] == "user"
-            ])
-            system_prompt = next((msg["content"] for msg in messages if msg["role"] == "system"), "")
-            async for chunk in self._generate_stream_text_completion(
-                combined_prompt, user_id, user_settings, system_prompt, max_tokens, temperature, skip_nsfw_filter
-            ):
-                yield chunk
-            return
-        
+
         # Inject NSFW filter into system message if needed
         from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
         user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
