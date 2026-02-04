@@ -356,8 +356,7 @@ scene_base:
     - Start directly with narrative
     - DO NOT use markdown headers (###, ===, ---, ***) in the scene narrative itself
     - DO NOT include meta-labels like "SCENE START" or "NEW SCENE" in the scene
-    - ONLY exception: Use ###CHOICES### marker when generating choices (as instructed below)
-    
+
     SCENE CONTENT: Write pure narrative. End with action, dialogue, or description.
   
   # Standard choices generation instructions - SINGLE SOURCE OF TRUTH
@@ -392,10 +391,10 @@ scene_base:
     
     CRITICAL: Complete the choices section. Do not stop mid-response.
   
-  # POV reminder appended to system prompt - ensures choices match story POV
-  # Uses {pov_perspective} for the full perspective description
+  # POV reminder appended to system prompt - ensures prose matches story POV
+  # Uses {pov_instruction} for the perspective description
   pov_reminder: |
-    IMPORTANT: Write all choices {pov_instruction}. The choices should match the story's narrative style.
+    IMPORTANT: Write all prose and dialogue {pov_instruction}. Maintain consistent narrative perspective throughout.
   
   # User prompt suffix - appended to all scene user prompts by PromptManager
   # {chapter_plot_for_choices} is populated with plot guidance when available
