@@ -4336,7 +4336,7 @@ Chapter Conclusion:"""
                 events = chapter_plot["key_events"]
                 if isinstance(events, list) and events:
                     events_formatted = "\n".join(f"  {i+1}. {e}" for i, e in enumerate(events))
-                    direction_parts.append(f"Key Story Beats:\n{events_formatted}")
+                    direction_parts.append(f"Plot Milestones:\n{events_formatted}")
 
             if chapter_plot.get("climax"):
                 direction_parts.append(f"Climax: {chapter_plot['climax']}")
