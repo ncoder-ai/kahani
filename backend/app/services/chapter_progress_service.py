@@ -621,10 +621,16 @@ class ChapterProgressService:
         Returns:
             Updated progress data
         """
+        from ..models import ChapterPlotProgressBatch
         from sqlalchemy.orm.attributes import flag_modified
 
         if milestone not in ("climax", "resolution"):
             raise ValueError(f"Invalid milestone: {milestone}. Must be 'climax' or 'resolution'.")
+
+        # Get the actual event text for this milestone
+        milestone_event = None
+        if chapter.chapter_plot:
+            milestone_event = chapter.chapter_plot.get(milestone)
 
         # Get existing progress or initialize
         existing_progress = chapter.plot_progress or {}
@@ -636,11 +642,44 @@ class ChapterProgressService:
             "last_updated": existing_progress.get("last_updated")
         }
 
-        # Update the milestone status
+        # Update the milestone flag
         if milestone == "climax":
             progress_data["climax_reached"] = completed
         else:  # resolution
             progress_data["resolution_reached"] = completed
+
+        # Also update completed_events and batches for the actual event
+        if milestone_event:
+            completed_events = set(progress_data.get("completed_events", []))
+
+            if completed:
+                completed_events.add(milestone_event)
+            else:
+                completed_events.discard(milestone_event)
+
+            progress_data["completed_events"] = list(completed_events)
+
+            # Update batches to keep them in sync (same logic as toggle_event_completion_with_batch)
+            all_batches = self.db.query(ChapterPlotProgressBatch).filter(
+                ChapterPlotProgressBatch.chapter_id == chapter.id
+            ).all()
+
+            if completed:
+                # When toggling ON: add to the latest batch only
+                latest_batch = max(all_batches, key=lambda b: b.end_scene_sequence) if all_batches else None
+                if latest_batch:
+                    batch_events = set(latest_batch.completed_events or [])
+                    batch_events.add(milestone_event)
+                    latest_batch.completed_events = list(batch_events)
+                    flag_modified(latest_batch, "completed_events")
+            else:
+                # When toggling OFF: remove from ALL batches
+                for batch in all_batches:
+                    batch_events = set(batch.completed_events or [])
+                    if milestone_event in batch_events:
+                        batch_events.discard(milestone_event)
+                        batch.completed_events = list(batch_events)
+                        flag_modified(batch, "completed_events")
 
         progress_data["last_updated"] = datetime.utcnow().isoformat()
 
