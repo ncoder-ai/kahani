@@ -1035,6 +1035,9 @@ async def run_plot_extraction_in_background(
                 batch_start_sequence = None
                 batch_end_sequence = None
 
+                # Track events completed during this extraction run (in addition to DB-stored events)
+                session_completed = set()
+
                 for scene in scenes_in_chapter:
                     if scene.sequence_number > actual_from_sequence and scene.sequence_number <= actual_to_sequence:
                         # Track batch range
@@ -1052,9 +1055,10 @@ async def run_plot_extraction_in_background(
                                 SceneVariant.id == flow_entry.scene_variant_id
                             ).first()
                             if variant and variant.content:
-                                # Get already completed events to only check remaining
+                                # Get already completed events from DB + events found in this session
                                 progress = extraction_chapter.plot_progress or {}
                                 already_completed = set(progress.get("completed_events", []))
+                                already_completed.update(session_completed)  # Include events found this run
                                 remaining_events = [e for e in all_events if e not in already_completed]
 
                                 if remaining_events:
@@ -1091,6 +1095,8 @@ async def run_plot_extraction_in_background(
                                         db=extraction_db
                                     )
                                     all_extracted_events.extend(extracted)
+                                    # Update session_completed so next iteration checks for NEXT event
+                                    session_completed.update(extracted)
 
                                 scenes_processed += 1
 
