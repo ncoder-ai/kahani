@@ -77,6 +77,8 @@ export interface ExtractionModelSettings {
   max_tokens: number;
   fallback_to_main: boolean;
   use_context_aware_extraction?: boolean;
+  // Use main LLM for specific extraction types
+  use_main_llm_for_plot_extraction?: boolean;
   // Advanced sampling settings
   top_p?: number;
   repetition_penalty?: number;

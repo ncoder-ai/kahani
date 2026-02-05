@@ -715,6 +715,20 @@ export default function LLMSettingsTab({
                       If enabled, uses main LLM if extraction model fails
                     </div>
 
+                    {/* Use Main LLM for Plot Extraction */}
+                    <label className="flex items-center gap-2 cursor-pointer mt-3">
+                      <input
+                        type="checkbox"
+                        checked={extractionModelSettings.use_main_llm_for_plot_extraction || false}
+                        onChange={(e) => setExtractionModelSettings({ ...extractionModelSettings, use_main_llm_for_plot_extraction: e.target.checked })}
+                        className="w-4 h-4 rounded"
+                      />
+                      <span className="text-sm text-white">Use main LLM for plot extraction</span>
+                    </label>
+                    <div className="text-xs text-gray-400 ml-6">
+                      Plot event extraction requires higher accuracy - use main LLM instead of extraction model
+                    </div>
+
                     {/* Advanced Sampling Settings */}
                     <div className="pt-4 border-t border-gray-600">
                       <h5 className="text-sm font-semibold text-white mb-3">Advanced Sampling</h5>

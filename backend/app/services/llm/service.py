@@ -2686,6 +2686,12 @@ Chapter Conclusion:"""
         ext_settings = user_settings.get('extraction_model_settings', {})
         use_extraction_model = ext_settings.get('enabled', False)
 
+        # Check if user wants to use main LLM for plot extraction specifically
+        use_main_for_plot = ext_settings.get('use_main_llm_for_plot_extraction', False)
+        if use_main_for_plot:
+            use_extraction_model = False
+            logger.info("[PLOT_EXTRACTION] Using main LLM (use_main_llm_for_plot_extraction enabled)")
+
         try:
             if use_extraction_model:
                 # Use extraction LLM with SAME message structure
