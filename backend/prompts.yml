@@ -669,20 +669,25 @@ plot_extraction:
 
     {key_events}
 
-    INSTRUCTIONS:
-    - Mark events that COMPLETED in this scene (the core action finished, not just started)
-    - An event that BEGINS but doesn't CONCLUDE is NOT complete
-    - Example: "Hero proposes the plan" - if proposed but not agreed to yet, NOT complete
-    - Example: "They seal the deal" - if they're about to agree but haven't yet, NOT complete
-    - Exact wording doesn't need to match - check if the ESSENCE of the event happened
-    - Hints, setup, or partial progress do NOT count as complete
-    - Most scenes contain 0-1 complete events - be selective
-    - Return the EXACT event text from the list - do not paraphrase
+    MATCHING RULES (be INCLUSIVE, not strict):
+    - Match if the CORE SITUATION occurred, even with different details
+    - Location differences don't matter (driveway vs foyer vs kitchen = same)
+    - Action variations don't matter (hands on waist vs backside vs hips = same intimate touch)
+    - Dialogue paraphrasing is fine (exact words not required)
 
-    Return ONLY a valid JSON array with the exact event descriptions:
-    ["Event text copied exactly", "Another event if applicable"]
+    WHAT COUNTS AS A MATCH:
+    - The key characters are involved in the described interaction
+    - The essential action/moment happened (embrace, kiss, touch, confrontation, etc.)
+    - The emotional/situational beat occurred (watching spouse with another, first intimate contact, etc.)
 
-    If no events COMPLETED, return: []
+    WHAT DOES NOT COUNT:
+    - Event only begins but key moment hasn't happened yet
+    - Just hints or foreshadowing without the actual event
+
+    Return the EXACT event text from the list for any matches:
+    ["Event text copied exactly"]
+
+    If truly no events occurred, return: []
 
 # Combined Entity Extraction (cache-friendly)
 # Uses same context structure as scene generation for cache hits
