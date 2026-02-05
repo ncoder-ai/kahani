@@ -43,6 +43,8 @@ class CharacterState(Base):
     
     # Physical State
     current_location = Column(Text, nullable=True)
+    current_position = Column(Text, nullable=True)  # Sub-room position: "sitting on Ali's lap", "standing by counter"
+    items_in_hand = Column(JSON, nullable=True)  # Array of items currently held: ["coffee mug"]
     physical_condition = Column(Text, nullable=True)  # "healthy", "wounded", "exhausted"
     appearance = Column(Text, nullable=True)  # Current appearance description
     possessions = Column(JSON, nullable=True)  # Array of items
@@ -90,6 +92,8 @@ class CharacterState(Base):
             "branch_id": self.branch_id,  # Include branch_id for proper snapshot/restore
             "last_updated_scene": self.last_updated_scene,
             "current_location": self.current_location,
+            "current_position": self.current_position,
+            "items_in_hand": self.items_in_hand or [],
             "physical_condition": self.physical_condition,
             "appearance": self.appearance,
             "possessions": self.possessions or [],

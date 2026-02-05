@@ -856,6 +856,8 @@ class ApiClient {
         story_id: number;
         last_updated_scene: number | null;
         current_location: string | null;
+        current_position: string | null;
+        items_in_hand: string[];
         physical_condition: string | null;
         appearance: string | null;
         possessions: string[];
@@ -923,6 +925,8 @@ class ApiClient {
 
   async updateCharacterState(storyId: number, stateId: number, data: {
     current_location?: string | null;
+    current_position?: string | null;
+    items_in_hand?: string[];
     physical_condition?: string | null;
     appearance?: string | null;
     possessions?: string[];

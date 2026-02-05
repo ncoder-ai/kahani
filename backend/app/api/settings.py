@@ -122,6 +122,7 @@ class ExtractionModelSettingsUpdate(BaseModel):
     fallback_to_main: Optional[bool] = None
     enable_combined_extraction: Optional[bool] = None  # Enable combined extraction (default: True)
     use_context_aware_extraction: Optional[bool] = None  # Use main LLM with full scene context for better extraction
+    use_main_llm_for_plot_extraction: Optional[bool] = None  # Use main LLM for plot event extraction
     # Advanced sampling settings
     top_p: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     repetition_penalty: Optional[float] = Field(default=None, ge=0.0, le=3.0)  # 0 or 1.0 = disabled
@@ -520,6 +521,8 @@ async def update_user_settings(
             user_settings.extraction_fallback_to_main = ext.fallback_to_main
         if ext.use_context_aware_extraction is not None:
             user_settings.use_context_aware_extraction = ext.use_context_aware_extraction
+        if ext.use_main_llm_for_plot_extraction is not None:
+            user_settings.use_main_llm_for_plot_extraction = ext.use_main_llm_for_plot_extraction
         # Advanced sampling settings
         if ext.top_p is not None:
             user_settings.extraction_model_top_p = ext.top_p

@@ -3001,6 +3001,16 @@ Appearance: {char.get('appearance', '')}
                         elif loc:
                             logger.debug(f"[ENTITY STATES] Skipping outdated location for {character.name} (last updated scene {char_state.last_updated_scene}, current {current_scene_sequence})")
 
+                        # Current position (sub-room arrangement)
+                        pos = _val(char_state.current_position)
+                        if pos and show_location:
+                            char_text += f"\n  Position: {pos}"
+
+                        # Items in hand
+                        if char_state.items_in_hand and len(char_state.items_in_hand) > 0:
+                            items_str = ", ".join(char_state.items_in_hand)
+                            char_text += f"\n  Holding: {items_str}"
+
                         if _val(char_state.emotional_state):
                             # Sort emotional state attributes for deterministic cache-friendly ordering
                             emo_attrs = [a.strip() for a in char_state.emotional_state.split(',')]

@@ -1411,6 +1411,21 @@ class EntityStateService:
                 val = char_update["location"]
                 char_state.current_location = None if isinstance(val, str) and val.lower() == "null" else val
 
+            if char_update.get("current_position"):
+                val = char_update["current_position"]
+                char_state.current_position = None if isinstance(val, str) and val.lower() == "null" else val
+
+            if char_update.get("items_in_hand") is not None:
+                # items_in_hand is an array - can be empty []
+                val = char_update["items_in_hand"]
+                if isinstance(val, list):
+                    char_state.items_in_hand = val
+                elif val and isinstance(val, str) and val.lower() != "null":
+                    # Handle case where LLM returns a string instead of array
+                    char_state.items_in_hand = [val]
+                else:
+                    char_state.items_in_hand = []
+
             if char_update.get("emotional_state"):
                 val = char_update["emotional_state"]
                 char_state.emotional_state = None if isinstance(val, str) and val.lower() == "null" else val

@@ -755,19 +755,23 @@ entity_only_extraction:
     {scene_content}
 
     === EXTRACT CHARACTER STATES ===
+    IMPORTANT: Extract ONLY from the "SCENE JUST GENERATED" section above. Ignore any earlier context.
+
     Known characters: {character_names}
     Chapter location: {chapter_location}
 
-    Extract state changes for characters in this scene. Be concise and factual.
+    Extract the CURRENT state of characters as described in the scene above. Be concise and factual.
 
     Guidelines:
     - location: ONLY the room name (e.g., "kitchen", "bedroom", "living room", "garden"). Never copy the chapter location text verbatim.
-    - emotional_state: 1-2 words (e.g., "nervous", "aroused", "angry")
+    - current_position: Physical arrangement within the room AS STATED IN THE SCENE ABOVE (e.g., "seated at table", "standing by window", "sitting on couch"). NOT the room name.
+    - items_in_hand: Array of items actively held (e.g., ["coffee mug"], ["fork"]). Use [] if nothing held.
+    - emotional_state: 1-2 words (e.g., "nervous", "excited", "angry")
     - physical_condition: 1-3 words (e.g., "tired", "sweating", "flushed")
     - current_attire: Specific items or "nude"
 
     Return ONLY this JSON structure:
-    {{"characters": [{{"name": "...", "location": "kitchen", "emotional_state": "...", "physical_condition": "...", "current_attire": "..."}}]}}
+    {{"characters": [{{"name": "...", "location": "kitchen", "current_position": "seated at table", "items_in_hand": [], "emotional_state": "...", "physical_condition": "...", "current_attire": "..."}}]}}
 
 # Working Memory Extraction (cache-friendly)
 # Uses same context structure as scene generation for cache hits
@@ -1704,6 +1708,18 @@ entity_state_extraction:
         * GOOD: "bedroom", "living room" (if character moves to specific room)
         * BAD: "chaise", "sofa", "bed", "chair" (furniture is NOT a location)
         * BAD: "next to the bed", "by the window" (spatial reference, not location)
+
+      For "current_position": Physical arrangement within the room
+        * GOOD: "sitting on couch", "standing by the window", "seated at dining table"
+        * GOOD: "standing by counter", "lying on bed", "leaning against doorframe"
+        * BAD: Just repeating the room name ("in kitchen")
+        * This captures WHERE in the room the character is positioned
+
+      For "items_in_hand": Objects the character is actively holding RIGHT NOW
+        * Use array format: ["coffee mug"], ["phone", "keys"], or [] if nothing held
+        * "coffee mug forgotten in his hand" = still holding it = ["coffee mug"]
+        * If character set something down, do NOT include it
+        * Only include items explicitly mentioned as being held/carried
       
       CRITICAL - NO PURPLE PROSE:
       
@@ -1765,6 +1781,8 @@ entity_state_extraction:
           {{
             "name": "character name",
             "location": "{chapter_location} or specific room",
+            "current_position": "physical position in room (e.g., sitting on couch, standing by door)",
+            "items_in_hand": ["item"] or [],
             "emotional_state": "1-2 word emotion or null",
             "physical_condition": "1-3 word physical state or null",
             "current_attire": "specific clothing items or nude or null",
@@ -1811,18 +1829,22 @@ entity_state_extraction:
       - Use "{chapter_location}" as default location for all characters
       - Furniture (chaise, sofa, bed, chair) is NOT a location
       - Only use room names if character moves to different room
-      
+
+      POSITION AND ITEMS:
+      - current_position: Where in the room (e.g., "sitting on couch", "standing by counter")
+      - items_in_hand: What they're actively holding (e.g., ["coffee mug"]), use [] if nothing
+
       NO PURPLE PROSE - use single words only:
       - emotional_state: "nervous", "excited", "calm" (NOT "feeling a shift in role")
       - physical_condition: "tired", "sweating" (NOT "compliant" or "exerted")
       - current_attire: "nude", "wearing dress" (NOT "wearing perfume and sweat")
       - knowledge_gained: facts learned (NOT actions or behaviors)
-      
+
       OBJECT RULES:
       - Only include objects actively used in THIS scene
       - If object not mentioned, character no longer has it (add to possessions_lost)
-      
-      Return JSON with characters, locations, objects arrays.
+
+      Return JSON with characters (including current_position, items_in_hand), locations, objects arrays.
 
   # Batch/combined extraction (used by extraction_service.py and semantic_integration.py)
   batch:

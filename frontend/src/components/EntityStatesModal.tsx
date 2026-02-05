@@ -14,6 +14,8 @@ interface CharacterState {
   story_id: number;
   last_updated_scene: number | null;
   current_location: string | null;
+  current_position: string | null;
+  items_in_hand: string[];
   physical_condition: string | null;
   appearance: string | null;
   possessions: string[];
@@ -381,9 +383,11 @@ export default function EntityStatesModal({
               <h3 className="text-base sm:text-lg font-medium text-white truncate">{state.character_name}</h3>
               <p className="text-xs sm:text-sm text-gray-300 truncate">
                 {state.current_location && <span className="text-blue-400">{state.current_location}</span>}
-                {state.current_location && state.emotional_state && ' • '}
+                {state.current_location && state.current_position && ' — '}
+                {state.current_position && <span className="text-cyan-400">{state.current_position}</span>}
+                {(state.current_location || state.current_position) && state.emotional_state && ' • '}
                 {state.emotional_state && <span className="text-purple-400">{state.emotional_state}</span>}
-                {(state.current_location || state.emotional_state) && state.last_updated_scene && ' • '}
+                {(state.current_location || state.current_position || state.emotional_state) && state.last_updated_scene && ' • '}
                 {state.last_updated_scene && <span>Scene {state.last_updated_scene}</span>}
               </p>
             </div>
@@ -452,6 +456,7 @@ export default function EntityStatesModal({
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
               <div className="space-y-1">
                 {renderStringField('Location', 'current_location', state.current_location, isEditing)}
+                {renderStringField('Position', 'current_position', state.current_position, isEditing)}
                 {renderStringField('Emotional State', 'emotional_state', state.emotional_state, isEditing)}
                 {renderStringField('Physical Condition', 'physical_condition', state.physical_condition, isEditing)}
                 {renderStringField('Appearance', 'appearance', state.appearance, isEditing)}
@@ -459,6 +464,7 @@ export default function EntityStatesModal({
                 {renderStringField('Arc Stage', 'arc_stage', state.arc_stage, isEditing)}
               </div>
               <div className="space-y-1">
+                {renderArrayField('Holding', 'items_in_hand', state.items_in_hand, isEditing)}
                 {renderArrayField('Possessions', 'possessions', state.possessions, isEditing)}
                 {renderArrayField('Knowledge', 'knowledge', state.knowledge, isEditing)}
                 {renderArrayField('Secrets', 'secrets', state.secrets, isEditing)}

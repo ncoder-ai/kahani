@@ -437,17 +437,35 @@ class LLMClient:
             return True, f"Cloud provider {self.api_type} - assuming available"
 
         # For local/self-hosted providers, do HTTP health check
-        base_url = self.api_url
-        if not base_url.endswith('/v1'):
+        base_url = self.api_url.rstrip('/')
+        if base_url.endswith('/v1'):
+            root_url = base_url[:-3]  # Strip /v1 to get root
+        else:
+            root_url = base_url
             base_url = f"{base_url}/v1"
 
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
 
-                # Try /models endpoint first (standard OpenAI-compatible endpoint)
+                # For TabbyAPI, use dedicated /health endpoint at root
+                if self.api_type == 'tabbyapi':
+                    health_url = f"{root_url}/health"
+                    logger.debug(f"[HEALTH CHECK] TabbyAPI health check: {health_url}")
+                    try:
+                        response = await client.get(health_url, headers=headers)
+                        if response.status_code == 200:
+                            return True, "TabbyAPI server is healthy"
+                        elif response.status_code >= 500:
+                            return False, f"TabbyAPI server error (status {response.status_code})"
+                    except httpx.HTTPStatusError:
+                        pass  # Fall through to generic check
+
+                # Try /models endpoint (standard OpenAI-compatible endpoint)
+                models_url = f"{base_url}/models"
+                logger.debug(f"[HEALTH CHECK] Checking {models_url}")
                 try:
-                    response = await client.get(f"{base_url}/models", headers=headers)
+                    response = await client.get(models_url, headers=headers)
                     if response.status_code < 500:
                         return True, "LLM server is reachable"
                     elif response.status_code >= 500:
