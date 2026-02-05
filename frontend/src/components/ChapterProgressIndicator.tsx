@@ -9,6 +9,8 @@ interface ChapterProgressIndicatorProps {
   chapterId: number | null;
   enabled: boolean;
   onProgressChange?: (progress: ChapterProgress | null) => void;
+  /** Increment this value to trigger a refresh (e.g., after scene generation) */
+  refreshTrigger?: number;
 }
 
 /**
@@ -21,7 +23,8 @@ export default function ChapterProgressIndicator({
   storyId,
   chapterId,
   enabled,
-  onProgressChange
+  onProgressChange,
+  refreshTrigger = 0
 }: ChapterProgressIndicatorProps) {
   const [progress, setProgress] = useState<ChapterProgress | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -53,7 +56,7 @@ export default function ChapterProgressIndicator({
 
   useEffect(() => {
     fetchProgress();
-  }, [fetchProgress]);
+  }, [fetchProgress, refreshTrigger]);
 
   // Toggle event completion
   const handleToggleEvent = async (event: string, currentlyCompleted: boolean) => {

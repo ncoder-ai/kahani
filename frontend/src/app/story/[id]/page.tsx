@@ -313,6 +313,8 @@ export default function StoryPage() {
   const [lastGenerationTime, setLastGenerationTime] = useState<number | null>(null);
   const [generationStartTime, setGenerationStartTime] = useState<number | null>(null);
   const [extractionStatus, setExtractionStatus] = useState<{ status: 'extracting' | 'complete' | 'error'; message: string } | null>(null);
+  // Plot progress refresh trigger - incremented after scene generation to refetch progress
+  const [plotProgressRefreshTrigger, setPlotProgressRefreshTrigger] = useState(0);
   // Contradiction check state (inline post-generation check)
   const [sceneContradictions, setSceneContradictions] = useState<Record<number, Array<{
     id: number; type: string; character_name: string | null;
@@ -1424,6 +1426,12 @@ export default function StoryPage() {
             if (isMultiGen) {
               console.log(`[MULTI-GEN] Generated ${multiGen.totalVariants} variants - swipe to explore`);
             }
+
+            // Trigger plot progress refresh after a delay to allow background extraction to complete
+            // Plot extraction runs asynchronously after scene generation, so we wait before refreshing
+            setTimeout(() => {
+              setPlotProgressRefreshTrigger(prev => prev + 1);
+            }, 8000); // 8 seconds should be enough for extraction to complete
             
             // Check if choices were received
             if (choices && choices.length > 0) {
@@ -3835,6 +3843,7 @@ export default function StoryPage() {
         storyId={storyId}
         chapterId={activeChapterId}
         enabled={userSettings?.generation_preferences?.enable_chapter_plot_tracking !== false}
+        refreshTrigger={plotProgressRefreshTrigger}
       />
     </div>
   );
