@@ -166,7 +166,7 @@ class UnifiedLLMService:
             plot_check_mode = user_settings.get("generation_preferences", {}).get("default_plot_check_mode", "1")
 
         # Get completed events from plot_progress to filter them out
-        plot_progress = context.get("plot_progress", {})
+        plot_progress = context.get("plot_progress") or {}
         completed_events = set(plot_progress.get("completed_events", []))
 
         chapter_plot = context.get("chapter_plot")
@@ -264,6 +264,26 @@ class UnifiedLLMService:
         scene_batch_size = user_settings.get('context_settings', {}).get('scene_batch_size', 10) if user_settings else 10
         context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
         messages.extend(context_messages)
+
+        # 7. Store context snapshot for cache consistency during variant regeneration
+        # This captures all dynamic context fields that can change between scene generation and variant
+        context_snapshot = {}
+
+        if context.get('entity_states_text'):
+            context_snapshot['entity_states_text'] = context['entity_states_text']
+
+        if context.get('story_focus'):
+            context_snapshot['story_focus'] = context['story_focus']
+
+        if context.get('relationship_context'):
+            context_snapshot['relationship_context'] = context['relationship_context']
+
+        if context_snapshot:
+            # Store as JSON string for persistence in Text column
+            import json
+            context['_context_snapshot'] = json.dumps(context_snapshot)
+            # Also keep legacy field for backward compatibility
+            context['_entity_states_snapshot'] = context.get('entity_states_text', '')
 
         return messages
 
@@ -1556,7 +1576,12 @@ Chapter Conclusion:"""
         if settings.prompt_debug:
             try:
                 import json
-                prompt_file_path = self._get_prompt_debug_path("prompt_sent_scene.json")
+                import time
+                # Use timestamp to prevent overwriting - scene vs variant comparison
+                ts = int(time.time() * 1000)
+                prompt_file_path = self._get_prompt_debug_path(f"prompt_sent_scene_{ts}.json")
+                # Also save to standard path for backwards compatibility
+                prompt_file_path_std = self._get_prompt_debug_path("prompt_sent_scene.json")
                 client = self.get_user_client(user_id, user_settings)
                 debug_data = {
                     "messages": messages,
@@ -1567,6 +1592,9 @@ Chapter Conclusion:"""
                 }
                 with open(prompt_file_path, "w", encoding="utf-8") as f:
                     json.dump(debug_data, f, indent=2, ensure_ascii=False)
+                with open(prompt_file_path_std, "w", encoding="utf-8") as f:
+                    json.dump(debug_data, f, indent=2, ensure_ascii=False)
+                logger.info(f"[PROMPT DEBUG] Saved scene prompt to {prompt_file_path}")
             except Exception as e:
                 logger.warning(f"Failed to write prompt debug file: {e}")
         
@@ -4114,19 +4142,20 @@ Chapter Conclusion:"""
         #   2. CHARACTER DIALOGUE STYLES (stable per story)
         #   3. STORY HISTORY (stable per chapter - cumulative summary)
         #   4. CURRENT CHAPTER (location, time, scenario, progress - updates as chapter progresses)
-        #   5. CHAPTER DIRECTION (pacing guidance - updates as progress changes)
+        #   5. CHAPTER DIRECTION (plot milestones - static per chapter)
         #   A. Completed scene batches (stable per batch, cached)
         #   B. CHARACTER INTERACTION HISTORY (rarely changes, often cached)
-        #   C. CHARACTER RELATIONSHIPS (changes occasionally, sometimes cached)
-        #   D. CHARACTER STATES (entity states/locations/objects, changes periodically)
-        #   ──── cache break point (below changes every scene) ────
-        #   E. RELEVANT CONTEXT (semantic search results, changes every scene)
-        #   F. RECENT SCENES (active scene batch, changes every scene)
-        #   G. STORY FOCUS (working memory/threads, changes every scene)
-        #   H. CONTINUITY WARNINGS (if any)
+        #   C. CHARACTER STATES (snapshotted for variants - stable)
+        #   D. CHARACTER RELATIONSHIPS (snapshotted, stable between scenes - moved up for cache)
+        #   E. STORY FOCUS (working memory/threads - snapshotted, stable between scenes)
+        #   F. CONTINUITY WARNINGS (stable between consecutive scenes)
+        #   ──── DYNAMIC SECTIONS (change every scene, placed at end) ────
+        #   G. RECENT SCENES (active scene batch, changes every scene - CACHE BREAKS HERE)
+        #   H. RELEVANT CONTEXT (character context)
+        #   I. RELATED PAST SCENES (semantic search - LAST for maximum attention)
         #
-        # Character info grouped together (B-C-D) for coherence.
-        # Most volatile sections (E-H) at the end, closest to generation instruction.
+        # Cache optimization: Stable sections (D, E, F) moved BEFORE RECENT SCENES
+        # to maximize cached prefix. These are identical between consecutive scenes.
 
         previous_scenes_text = context.get("previous_scenes", "")
 
@@ -4177,7 +4206,17 @@ Chapter Conclusion:"""
                 "content": "=== CHARACTER INTERACTION HISTORY ===\n(Factual record of what has occurred between characters)\n\n" + interaction_history_match.group(1).strip()
             })
 
-        # --- C. CHARACTER RELATIONSHIPS (changes occasionally) ---
+        # --- C. CHARACTER STATES (entity states, locations, objects) - SNAPSHOTTED ---
+        # Placed early because it's snapshotted for variant regeneration (stable)
+        entity_states_text = context.get("entity_states_text")
+        if entity_states_text:
+            messages.append({
+                "role": "user",
+                "content": f"=== CHARACTER STATES ===\n{entity_states_text}"
+            })
+
+        # --- D. CHARACTER RELATIONSHIPS (snapshotted, stable between consecutive scenes) ---
+        # Moved BEFORE RECENT SCENES for cache optimization - identical between scenes
         relationship_context = context.get("relationship_context")
         if relationship_context and relationship_context.get("relationships"):
             rel_parts = []
@@ -4192,9 +4231,16 @@ Chapter Conclusion:"""
                 else:
                     indicator = "~"
 
+                # Strip scene counts from arc summary for cache stability
+                # e.g., "acquaintance -> romantic (warming over 289 scenes)" -> "acquaintance -> romantic (warming)"
+                arc_text = rel.get('arc', 'developing')
+                if arc_text:
+                    arc_text = re.sub(r'\s+over\s+\d+\s+scenes?\)?', ')', arc_text)
+                    arc_text = arc_text.replace('()', '').strip()  # Clean up empty parens
+
                 rel_parts.append(
                     f"{chars}: {rel.get('type', 'unknown')} [{indicator}]\n"
-                    f"  Arc: {rel.get('arc', 'developing')}"
+                    f"  Arc: {arc_text}"
                 )
 
             rel_text = "\n".join(rel_parts)
@@ -4208,27 +4254,8 @@ Chapter Conclusion:"""
                 "content": f"=== CHARACTER RELATIONSHIPS ===\n{rel_text}"
             })
 
-        # --- D. CHARACTER STATES (entity states, locations, objects) ---
-        # Prefer entity_states_text from context dict (passed separately by SemanticContextManager)
-        entity_states_text = context.get("entity_states_text")
-        if entity_states_text:
-            messages.append({
-                "role": "user",
-                "content": f"=== CHARACTER STATES ===\n{entity_states_text}"
-            })
-
-        # --- E. RELEVANT CONTEXT (semantic search results only, changes every scene) ---
-        if relevant_context_match:
-            messages.append({
-                "role": "user",
-                "content": "=== RELEVANT CONTEXT ===\n" + relevant_context_match.group(1).strip()
-            })
-
-        # --- F. RECENT SCENES (active scene batch, changes every scene) ---
-        if recent_scenes_message:
-            messages.append(recent_scenes_message)
-
-        # --- G. STORY FOCUS (working memory + active threads) ---
+        # --- E. STORY FOCUS (working memory + active threads) - stable between consecutive scenes ---
+        # Moved BEFORE RECENT SCENES for cache optimization
         story_focus = context.get("story_focus")
         if story_focus:
             focus_parts = []
@@ -4249,10 +4276,8 @@ Chapter Conclusion:"""
                     "content": "=== STORY FOCUS ===\n" + "\n".join(focus_parts)
                 })
 
-        # --- H. CONTINUITY WARNINGS (moved up, was I) ---
-        # Note: Pacing guidance is now in CHAPTER DIRECTION (message 5, earlier in the list)
-
-        # --- I. CONTINUITY WARNINGS (if any) ---
+        # --- F. CONTINUITY WARNINGS (stable between consecutive scenes) ---
+        # Moved BEFORE RECENT SCENES for cache optimization
         contradiction_context = context.get("contradiction_context")
         if contradiction_context:
             messages.append({
@@ -4262,6 +4287,36 @@ Chapter Conclusion:"""
                     "Naturally address or acknowledge them in your writing "
                     "(e.g., mention travel between locations, explain emotional shifts):\n\n"
                     + "\n".join(contradiction_context)
+            })
+
+        # ──── DYNAMIC SECTIONS BELOW (change every scene, cache breaks here) ────
+
+        # --- G. RECENT SCENES (active scene batch, changes every scene - CACHE BREAKS HERE) ---
+        if recent_scenes_message:
+            messages.append(recent_scenes_message)
+
+        # --- H. RELEVANT CONTEXT (character context only now, semantic scenes moved to end) ---
+        if relevant_context_match:
+            # Filter out "Relevant Past Events" if present - they're now in dedicated message
+            relevant_text = relevant_context_match.group(1).strip()
+            # Remove the Relevant Past Events section if it somehow got included
+            relevant_text = re.sub(r'Relevant Past Events:.*?(?=Character Context:|$)', '', relevant_text, flags=re.DOTALL).strip()
+            if relevant_text:
+                messages.append({
+                    "role": "user",
+                    "content": "=== RELEVANT CONTEXT ===\n" + relevant_text
+                })
+
+        # --- I. RELATED PAST SCENES (semantic search results - LAST before task) ---
+        # Positioned LAST for maximum LLM attention - directly relevant to what happens next
+        semantic_scenes_text = context.get("semantic_scenes_text")
+        if semantic_scenes_text:
+            messages.append({
+                "role": "user",
+                "content": "=== RELATED PAST SCENES ===\n"
+                    "The following scenes from earlier in the story are directly relevant to what happens next. "
+                    "Use these details - DO NOT invent or contradict what's described here:\n\n"
+                    + semantic_scenes_text
             })
 
         return messages
@@ -4598,15 +4653,23 @@ Chapter Conclusion:"""
         choices: List[Dict[str, Any]] = None,
         generation_method: str = "auto",
         branch_id: int = None,
-        chapter_id: int = None
+        chapter_id: int = None,
+        entity_states_snapshot: str = None,
+        context_snapshot: str = None
     ) -> Tuple[Any, Any]:
         """Create a new scene with its first variant.
 
         Wrapper for SceneDatabaseOperations.create_scene_with_variant.
+
+        Args:
+            entity_states_snapshot: Entity states text at generation time for cache consistency (legacy)
+            context_snapshot: Full context snapshot JSON for complete cache consistency
         """
         return self._scene_db_ops.create_scene_with_variant(
             db, story_id, sequence_number, content, title,
-            custom_prompt, choices, generation_method, branch_id, chapter_id
+            custom_prompt, choices, generation_method, branch_id, chapter_id,
+            entity_states_snapshot=entity_states_snapshot,
+            context_snapshot=context_snapshot
         )
 
     async def regenerate_scene_variant(

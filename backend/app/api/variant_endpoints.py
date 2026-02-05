@@ -350,7 +350,8 @@ async def create_scene_variant(
                     chapter_id = active_chapter.id if active_chapter else None
 
                     choice_context = await context_manager.build_scene_generation_context(
-                        story_id, db, chapter_id=chapter_id, exclude_scene_id=scene_id
+                        story_id, db, chapter_id=chapter_id, exclude_scene_id=scene_id,
+                        use_entity_states_snapshot=True  # Use saved entity states for cache consistency
                     )
 
                     generated_choices = await llm_service.generate_choices(
@@ -527,8 +528,9 @@ async def create_scene_variant_streaming(
                 
                 # Build context
                 context = await context_manager.build_scene_generation_context(
-                    story_id, db, custom_prompt or "", is_variant_generation=True, 
-                    exclude_scene_id=scene_id, chapter_id=chapter_id, branch_id=branch_id
+                    story_id, db, custom_prompt or "", is_variant_generation=True,
+                    exclude_scene_id=scene_id, chapter_id=chapter_id, branch_id=branch_id,
+                    use_entity_states_snapshot=True  # Use saved entity states for cache consistency
                 )
                 
                 # Get current max variant number
@@ -674,8 +676,9 @@ async def create_scene_variant_streaming(
                 # CONCLUDING SCENE: Generate chapter-ending scene without choices
                 logger.warning(f"[VARIANT] Mode: CONCLUDING SCENE")
                 context = await context_manager.build_scene_generation_context(
-                    story_id, db, "", is_variant_generation=False, 
-                    exclude_scene_id=scene_id, chapter_id=chapter_id, branch_id=branch_id
+                    story_id, db, "", is_variant_generation=False,
+                    exclude_scene_id=scene_id, chapter_id=chapter_id, branch_id=branch_id,
+                    use_entity_states_snapshot=True  # Use saved entity states for cache consistency
                 )
                 
                 # Get chapter info for the concluding prompt
@@ -707,8 +710,9 @@ async def create_scene_variant_streaming(
                 # GUIDED ENHANCEMENT: Has custom prompt from user
                 logger.warning(f"[VARIANT] Mode: GUIDED ENHANCEMENT")
                 context = await context_manager.build_scene_generation_context(
-                    story_id, db, custom_prompt, is_variant_generation=True, 
-                    exclude_scene_id=scene_id, chapter_id=chapter_id, branch_id=branch_id
+                    story_id, db, custom_prompt, is_variant_generation=True,
+                    exclude_scene_id=scene_id, chapter_id=chapter_id, branch_id=branch_id,
+                    use_entity_states_snapshot=True  # Use saved entity states for cache consistency
                 )
                 
                 # Use guided enhancement function
@@ -741,9 +745,11 @@ async def create_scene_variant_streaming(
                 
                 # Build context with original continue option (triggers IMMEDIATE SITUATION)
                 # chapter_id ensures context is identical to new scene generation for cache hits
+                # use_entity_states_snapshot ensures we use the exact entity states from original generation
                 context = await context_manager.build_scene_generation_context(
-                    story_id, db, original_continue_option, is_variant_generation=False, 
-                    exclude_scene_id=scene_id, chapter_id=chapter_id, branch_id=branch_id
+                    story_id, db, original_continue_option, is_variant_generation=False,
+                    exclude_scene_id=scene_id, chapter_id=chapter_id, branch_id=branch_id,
+                    use_entity_states_snapshot=True  # Use saved entity states for cache consistency
                 )
                 
                 # Use the SAME function as new scene generation
@@ -805,7 +811,21 @@ async def create_scene_variant_streaming(
             
             # Clean the final assembled variant content comprehensively (chunk cleaning may miss patterns)
             cleaned_variant_content = llm_service._clean_scene_content(variant_content.rstrip())
-            
+
+            # Get snapshots from context (populated by _build_cache_friendly_message_prefix)
+            # These store the context used during generation for future cache consistency
+            entity_states_snapshot = context.get('_entity_states_snapshot') if isinstance(context, dict) else None
+            context_snapshot = context.get('_context_snapshot') if isinstance(context, dict) else None
+
+            # If no context_snapshot in current context, copy from original variant
+            # This ensures cache consistency when regenerating from the new variant
+            if not context_snapshot and variant_to_regenerate_from:
+                context_snapshot = variant_to_regenerate_from.context_snapshot
+                entity_states_snapshot = entity_states_snapshot or variant_to_regenerate_from.entity_states_snapshot
+                logger.info(f"[VARIANT] Copying snapshots from variant {variant_to_regenerate_from.id}: "
+                           f"context_snapshot={'yes' if context_snapshot else 'no'}, "
+                           f"entity_states_snapshot={'yes' if entity_states_snapshot else 'no'}")
+
             # Create the new variant
             variant = SceneVariant(
                 scene_id=scene_id,
@@ -815,7 +835,9 @@ async def create_scene_variant_streaming(
                 title=scene.title,
                 original_content=original_variant.content if original_variant else cleaned_variant_content,
                 generation_prompt=prompt_to_save,
-                generation_method=generation_method
+                generation_method=generation_method,
+                entity_states_snapshot=entity_states_snapshot,
+                context_snapshot=context_snapshot
             )
             
             db.add(variant)
@@ -1141,8 +1163,8 @@ async def continue_scene(
                 detail="No active scene variant found"
             )
         
-        # Build context for continuation - use get_context_manager_for_user to get SemanticContextManager
-        # which produces structured format needed for multi-message LLM caching
+        # Build context for continuation - ContextManager produces structured format
+        # needed for multi-message LLM caching (uses hybrid strategy if enabled)
         context_manager = get_context_manager_for_user(user_settings, current_user.id)
         
         # Get custom_prompt from the request model
@@ -1283,8 +1305,8 @@ async def continue_scene_streaming(
             # Thinking/reasoning handler
             thinking_handler = ThinkingStreamHandler()
 
-            # Build context for continuation - use get_context_manager_for_user to get SemanticContextManager
-            # which produces structured format needed for multi-message LLM caching
+            # Build context for continuation - ContextManager produces structured format
+            # needed for multi-message LLM caching (uses hybrid strategy if enabled)
             context_manager = get_context_manager_for_user(user_settings, current_user.id)
 
             # Get custom_prompt from the request model
@@ -1640,7 +1662,8 @@ async def regenerate_scene_variant_choices(
         
         # Build context excluding the current scene (same as generate_more_choices)
         choice_context = await context_manager.build_scene_generation_context(
-            story_id, db, chapter_id=chapter_id, exclude_scene_id=scene_id
+            story_id, db, chapter_id=chapter_id, exclude_scene_id=scene_id,
+            use_entity_states_snapshot=True  # Use saved entity states for cache consistency
         )
         
         # Generate new choices using the same fallback logic

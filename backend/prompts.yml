@@ -341,10 +341,12 @@ scene_base:
     3. Maintain strict consistency with established story elements
     4. Create dramatic tension appropriate to genre and tone
     5. Use vivid, descriptive language
-    
+
     {prose_style_instruction}
-    
+
     SPECIFICITY: Use character names, places, events from context. Reference previous scenes. Build on established relationships.
+
+    IMPORTANT - PAST EVENTS: When referencing memories, marks, past moments, or anything that "happened before," use the "Relevant Past Events" section which contains the actual scenes where those events occurred. DO NOT invent or hallucinate details about past events - use the specific details provided in context.
   
   # Standard formatting rules for all scenes
   formatting: |
@@ -414,6 +416,8 @@ scene_base:
     Follow each character's DIALOGUE STYLE. Minimize adverbs/adjectives.
     {prose_style_reminder}
     {tone_reminder}
+
+    CRITICAL - USING PAST EVENTS: If the prompt references past events (memories, marks, prior moments, things that happened before), check the "Relevant Past Events" section in the context. Use THOSE SPECIFIC DETAILS - don't invent or hallucinate what happened. The semantic search has found the actual scenes where those events occurred.
 
     Write {scene_length_description} depicting: {immediate_situation}
 
@@ -640,14 +644,15 @@ choice_generation:
 
     === GENERATE CHOICES ===
     Generate {choices_count} choices for what happens NEXT in the scene above.
-
-    CRITICAL: Base choices ONLY on the SCENE JUST GENERATED above. Ignore earlier context.
-    - Choices must continue from WHERE the scene ends
-    - Use character names, locations, and details FROM the scene above
-    - Do NOT reference events from earlier scenes that aren't in this scene
     {chapter_plot_for_choices}
 
-    Each choice: 1 sentence, max 15 words. Subtle variations, not dramatic forks.
+    IMPORTANT: Choices should move the story toward the upcoming plot beats above.
+
+    RULES:
+    - Choices must continue from WHERE the scene ends
+    - Use character names, locations, and details FROM the scene above
+    - Each choice: 1 sentence, max 15 words
+    - Subtle variations, not dramatic forks
 
     Output ONLY a valid JSON object:
     {{"choices": ["Choice 1", "Choice 2", "Choice 3", "Choice 4"]}}

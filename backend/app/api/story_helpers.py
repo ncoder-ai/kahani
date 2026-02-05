@@ -79,8 +79,25 @@ class SceneVariantServiceAdapter:
     def get_scene_variants(self, scene_id: int):
         return llm_service.get_scene_variants(self.db, scene_id)
 
-    def create_scene_with_variant(self, story_id: int, sequence_number: int, content: str, title: str = None, custom_prompt: str = None, choices: List[Dict[str, Any]] = None, generation_method: str = "auto", branch_id: int = None, chapter_id: int = None):
-        return llm_service.create_scene_with_variant(self.db, story_id, sequence_number, content, title, custom_prompt, choices, generation_method, branch_id, chapter_id)
+    def create_scene_with_variant(self, story_id: int, sequence_number: int, content: str, title: str = None, custom_prompt: str = None, choices: List[Dict[str, Any]] = None, generation_method: str = "auto", branch_id: int = None, chapter_id: int = None, entity_states_snapshot: str = None, context: Dict[str, Any] = None):
+        """Create a new scene with its first variant.
+
+        Args:
+            context: Optional context dict - if provided, will automatically extract
+                    _entity_states_snapshot and _context_snapshot from it for cache consistency
+        """
+        context_snapshot = None
+        # Auto-extract snapshots from context if provided and not explicitly set
+        if context is not None:
+            if entity_states_snapshot is None:
+                entity_states_snapshot = context.get('_entity_states_snapshot')
+                if entity_states_snapshot:
+                    logger.info(f"[SNAPSHOT] Auto-extracted entity_states_snapshot from context ({len(entity_states_snapshot)} chars)")
+            # Extract full context snapshot (includes story_focus, relationship_context)
+            context_snapshot = context.get('_context_snapshot')
+            if context_snapshot:
+                logger.info(f"[SNAPSHOT] Auto-extracted context_snapshot from context ({len(context_snapshot)} chars)")
+        return llm_service.create_scene_with_variant(self.db, story_id, sequence_number, content, title, custom_prompt, choices, generation_method, branch_id, chapter_id, entity_states_snapshot=entity_states_snapshot, context_snapshot=context_snapshot)
 
     async def regenerate_scene_variant(self, scene_id: int, custom_prompt: str = None, user_settings: dict = None, user_id: int = None, branch_id: int = None):
         # Use provided user_id or fall back to default
@@ -141,7 +158,8 @@ def create_scene_with_multi_variants(
     generation_method: str = "auto",
     title: Optional[str] = None,
     custom_prompt: Optional[str] = None,
-    chapter_id: Optional[int] = None
+    chapter_id: Optional[int] = None,
+    context: Optional[Dict[str, Any]] = None
 ) -> Tuple[Scene, List[SceneVariant]]:
     """
     Create a Scene with multiple SceneVariants and their choices.
@@ -156,10 +174,18 @@ def create_scene_with_multi_variants(
         title: Optional scene title
         custom_prompt: Optional custom prompt used
         chapter_id: Optional chapter ID to link scene to
+        context: Optional context dict - will extract _entity_states_snapshot for cache consistency
 
     Returns:
         Tuple of (Scene, List[SceneVariant])
     """
+    # Extract entity_states_snapshot from context if available
+    entity_states_snapshot = None
+    if context is not None:
+        entity_states_snapshot = context.get('_entity_states_snapshot')
+        if entity_states_snapshot:
+            logger.info(f"[MULTI-GEN] Extracted entity_states_snapshot from context ({len(entity_states_snapshot)} chars)")
+
     # Create the scene
     scene = Scene(
         story_id=story_id,
@@ -176,7 +202,7 @@ def create_scene_with_multi_variants(
     first_variant = None
 
     for idx, vdata in enumerate(variants_data):
-        # Create variant
+        # Create variant - only first variant (which becomes active) gets the snapshot
         variant = SceneVariant(
             scene_id=scene.id,
             variant_number=idx + 1,
@@ -185,7 +211,8 @@ def create_scene_with_multi_variants(
             title=title or f"Scene {sequence_number}",
             original_content=vdata["content"],
             generation_prompt=custom_prompt,
-            generation_method=generation_method
+            generation_method=generation_method,
+            entity_states_snapshot=entity_states_snapshot if idx == 0 else None
         )
         db.add(variant)
         db.flush()  # Get variant ID
@@ -255,6 +282,27 @@ def create_additional_variants(
     if not scene:
         raise ValueError(f"Scene {scene_id} not found")
 
+    # Get the active variant's context_snapshot to copy to new variants
+    # This ensures cache consistency when regenerating from the new variant
+    from ..models import StoryFlow
+    active_flow = db.query(StoryFlow).filter(
+        StoryFlow.scene_id == scene_id,
+        StoryFlow.is_active == True
+    ).first()
+
+    original_context_snapshot = None
+    original_entity_states_snapshot = None
+    if active_flow:
+        original_variant = db.query(SceneVariant).filter(
+            SceneVariant.id == active_flow.scene_variant_id
+        ).first()
+        if original_variant:
+            original_context_snapshot = original_variant.context_snapshot
+            original_entity_states_snapshot = original_variant.entity_states_snapshot
+            logger.info(f"[VARIANT] Copying snapshots from original variant {original_variant.id}: "
+                       f"context_snapshot={'yes' if original_context_snapshot else 'no'}, "
+                       f"entity_states_snapshot={'yes' if original_entity_states_snapshot else 'no'}")
+
     created_variants = []
     first_new_variant = None
 
@@ -269,7 +317,10 @@ def create_additional_variants(
             title=scene.title,
             original_content=vdata["content"],
             generation_prompt=custom_prompt,
-            generation_method="regeneration"
+            generation_method="regeneration",
+            # Copy snapshots from original variant for cache consistency
+            context_snapshot=original_context_snapshot,
+            entity_states_snapshot=original_entity_states_snapshot
         )
         db.add(variant)
         db.flush()

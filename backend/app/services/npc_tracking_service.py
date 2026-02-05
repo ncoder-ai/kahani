@@ -229,8 +229,10 @@ class NPCTrackingService:
                             raise
                 
                 # Create snapshot after all NPCs for this scene are processed
-                self._create_npc_tracking_snapshot(db, story_id, scene_id, scene_sequence, branch_id=branch_id)
-            
+                # Pass chapter_id for chapter-aware NPC tiering
+                scene_chapter_id = scene_exists.chapter_id if scene_exists else None
+                self._create_npc_tracking_snapshot(db, story_id, scene_id, scene_sequence, branch_id=branch_id, chapter_id=scene_chapter_id)
+
             db.commit()
             logger.info(f"Batch extracted and stored {total_npcs_tracked} NPCs from {len(scenes)} scenes")
             
@@ -559,8 +561,10 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
                         raise
             
             # Create snapshot after all NPCs for this scene are processed
-            self._create_npc_tracking_snapshot(db, story_id, scene_id, scene_sequence, branch_id=branch_id)
-            
+            # Pass chapter_id for chapter-aware NPC tiering
+            scene_chapter_id = scene_exists.chapter_id if scene_exists else None
+            self._create_npc_tracking_snapshot(db, story_id, scene_id, scene_sequence, branch_id=branch_id, chapter_id=scene_chapter_id)
+
             db.commit()
             results["extraction_successful"] = True
             logger.info(f"Extracted {results['npcs_tracked']} NPCs from scene {scene_id}")
@@ -1059,27 +1063,34 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
         story_id: int,
         scene_id: int,
         scene_sequence: int,
-        branch_id: int = None
+        branch_id: int = None,
+        chapter_id: int = None
     ):
         """
         Create a snapshot of all NPC tracking data for a scene.
         This enables fast rollback on scene deletion without recalculation.
-        
+
+        Also pre-calculates tiered NPC lists for context building, ensuring
+        cache stability - all scenes until the next extraction use the same lists.
+
         Args:
             db: Database session
             story_id: Story ID
             scene_id: Scene ID
             scene_sequence: Scene sequence number
             branch_id: Optional branch ID for filtering
+            chapter_id: Optional chapter ID for chapter-aware tiering
         """
         try:
+            from sqlalchemy import desc
+
             # Get all current NPC tracking records for this story (filtered by branch)
             npc_query = db.query(NPCTracking).filter(NPCTracking.story_id == story_id)
             if branch_id:
                 npc_query = npc_query.filter(NPCTracking.branch_id == branch_id)
-            all_npcs = npc_query.all()
-            
-            # Build snapshot data
+            all_npcs = npc_query.order_by(desc(NPCTracking.importance_score)).all()
+
+            # Build raw snapshot data (for rollback)
             snapshot_data = {}
             for npc in all_npcs:
                 snapshot_data[npc.character_name] = {
@@ -1099,7 +1110,69 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
                     "converted_to_character": npc.converted_to_character or False,
                     "extracted_profile": npc.extracted_profile or {}
                 }
-            
+
+            # === PRE-CALCULATE TIERED NPC LISTS FOR CONTEXT ===
+            # This ensures all scenes until the next extraction use the same NPC lists
+            active_window = self.user_settings.get("npc_active_recency_window", settings.npc_active_recency_window)
+            inactive_window = self.user_settings.get("npc_inactive_recency_window", settings.npc_inactive_recency_window)
+            use_chapter_awareness = self.user_settings.get("npc_use_chapter_awareness", settings.npc_use_chapter_awareness)
+            limit = 10  # Max NPCs per tier
+
+            # Get NPCs in current chapter (if chapter awareness is enabled)
+            chapter_npc_names = set()
+            if use_chapter_awareness and chapter_id:
+                chapter_scenes = db.query(Scene).filter(
+                    Scene.chapter_id == chapter_id,
+                    Scene.is_deleted == False
+                ).all()
+                chapter_scene_ids = [s.id for s in chapter_scenes]
+                if chapter_scene_ids:
+                    chapter_mentions = db.query(NPCMention.character_name).filter(
+                        NPCMention.scene_id.in_(chapter_scene_ids)
+                    ).distinct().all()
+                    chapter_npc_names = {m[0].lower() for m in chapter_mentions}
+
+            # Calculate tiered lists
+            active_npcs_for_context = []
+            inactive_npcs_for_context = []
+
+            for npc in all_npcs:
+                # Skip NPCs that haven't crossed threshold or are converted to characters
+                if not npc.crossed_threshold or npc.converted_to_character:
+                    continue
+
+                last_appearance = npc.last_appearance_scene or 0
+                scenes_since_appearance = scene_sequence - last_appearance
+                in_current_chapter = npc.character_name.lower() in chapter_npc_names
+
+                # Determine tier
+                is_active = scenes_since_appearance <= active_window or in_current_chapter
+                is_inactive = not is_active and scenes_since_appearance <= inactive_window
+
+                if is_active and len(active_npcs_for_context) < limit:
+                    profile = npc.extracted_profile or {}
+                    active_npcs_for_context.append({
+                        "name": npc.character_name,
+                        "role": profile.get("role", "NPC"),
+                        "description": profile.get("description", ""),
+                        "personality": ", ".join(profile.get("personality", [])),
+                        "background": profile.get("background", ""),
+                        "goals": profile.get("goals", ""),
+                        "relationships": profile.get("relationships", {})
+                    })
+                elif is_inactive and len(inactive_npcs_for_context) < limit:
+                    profile = npc.extracted_profile or {}
+                    inactive_npcs_for_context.append({
+                        "name": npc.character_name,
+                        "role": profile.get("role", "NPC")
+                    })
+
+            # Store pre-calculated lists in snapshot_data with special keys
+            snapshot_data["_active_npcs_for_context"] = active_npcs_for_context
+            snapshot_data["_inactive_npcs_for_context"] = inactive_npcs_for_context
+            snapshot_data["_snapshot_scene_sequence"] = scene_sequence
+            snapshot_data["_chapter_id"] = chapter_id
+
             # Delete existing snapshot for this scene if it exists (in case of regeneration)
             existing_query = db.query(NPCTrackingSnapshot).filter(
                 NPCTrackingSnapshot.scene_id == scene_id
@@ -1109,7 +1182,7 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
             existing_snapshot = existing_query.first()
             if existing_snapshot:
                 db.delete(existing_snapshot)
-            
+
             # Create new snapshot
             snapshot = NPCTrackingSnapshot(
                 scene_id=scene_id,
@@ -1120,9 +1193,10 @@ If no entities found, return {{"npcs": []}}. Return ONLY the JSON, no other text
             )
             db.add(snapshot)
             db.commit()
-            
-            logger.debug(f"Created NPC tracking snapshot for scene {scene_id} (sequence {scene_sequence}) with {len(snapshot_data)} NPCs")
-            
+
+            logger.info(f"[NPC SNAPSHOT] Created snapshot for scene {scene_id} (seq {scene_sequence}): "
+                       f"{len(active_npcs_for_context)} active, {len(inactive_npcs_for_context)} inactive NPCs for context")
+
         except Exception as e:
             logger.error(f"Failed to create NPC tracking snapshot for scene {scene_id}: {e}")
             db.rollback()
@@ -1867,12 +1941,18 @@ Return ONLY the JSON, no other text."""
     ) -> Dict[str, List[Dict[str, Any]]]:
         """
         Get NPCs formatted for context inclusion with tiered recency-based filtering.
-        
+
+        IMPORTANT: This method first tries to load pre-calculated NPC lists from the
+        most recent NPC tracking snapshot. This ensures cache stability - all scenes
+        until the next extraction use the exact same NPC lists.
+
+        Falls back to dynamic calculation only for old snapshots without pre-calculated lists.
+
         Returns NPCs in three tiers based on recency:
         - TIER 1 (Active): Appeared in last N scenes OR in current chapter - full details
         - TIER 2 (Inactive): Appeared in last M scenes but not Tier 1 - brief mention (name + role)
         - TIER 3 (Dormant): Haven't appeared in last M scenes - excluded from context
-        
+
         Args:
             db: Database session
             story_id: Story ID
@@ -1880,7 +1960,7 @@ Return ONLY the JSON, no other text."""
             chapter_id: Current chapter ID for chapter-awareness
             limit: Maximum number of NPCs per tier (default: 10)
             branch_id: Optional branch ID for filtering
-            
+
         Returns:
             Dictionary with:
             - active_npcs: List of NPCs with full details (Tier 1)
@@ -1888,16 +1968,11 @@ Return ONLY the JSON, no other text."""
         """
         try:
             from sqlalchemy import desc
-            
+
             # Get active branch if not specified
             if branch_id is None:
                 branch_id = self._get_active_branch_id(db, story_id)
-            
-            # Get recency window settings from user settings or config defaults
-            active_window = self.user_settings.get("npc_active_recency_window", settings.npc_active_recency_window)
-            inactive_window = self.user_settings.get("npc_inactive_recency_window", settings.npc_inactive_recency_window)
-            use_chapter_awareness = self.user_settings.get("npc_use_chapter_awareness", settings.npc_use_chapter_awareness)
-            
+
             # If no current scene sequence provided, get the latest scene sequence
             if current_scene_sequence is None:
                 latest_scene = db.query(Scene).filter(
@@ -1905,7 +1980,41 @@ Return ONLY the JSON, no other text."""
                     Scene.is_deleted == False
                 ).order_by(desc(Scene.sequence_number)).first()
                 current_scene_sequence = latest_scene.sequence_number if latest_scene else 0
-            
+
+            # === TRY TO LOAD FROM SNAPSHOT FIRST ===
+            # Find the most recent snapshot at or before current scene
+            snapshot_query = db.query(NPCTrackingSnapshot).filter(
+                NPCTrackingSnapshot.story_id == story_id,
+                NPCTrackingSnapshot.scene_sequence <= current_scene_sequence
+            )
+            if branch_id is not None:
+                snapshot_query = snapshot_query.filter(NPCTrackingSnapshot.branch_id == branch_id)
+            snapshot = snapshot_query.order_by(desc(NPCTrackingSnapshot.scene_sequence)).first()
+
+            if snapshot and snapshot.snapshot_data:
+                # Check if snapshot has pre-calculated context lists
+                active_npcs = snapshot.snapshot_data.get("_active_npcs_for_context")
+                inactive_npcs = snapshot.snapshot_data.get("_inactive_npcs_for_context")
+
+                if active_npcs is not None and inactive_npcs is not None:
+                    logger.info(f"[NPC TIERED] Using pre-calculated lists from snapshot (scene {snapshot.scene_sequence}): "
+                               f"{len(active_npcs)} active, {len(inactive_npcs)} inactive")
+                    return {
+                        "active_npcs": active_npcs,
+                        "inactive_npcs": inactive_npcs
+                    }
+                else:
+                    logger.info(f"[NPC TIERED] Snapshot {snapshot.scene_sequence} has no pre-calculated lists, falling back to dynamic calculation")
+
+            # === FALLBACK: DYNAMIC CALCULATION ===
+            # This path is used for old snapshots or when no snapshot exists
+            logger.info(f"[NPC TIERED] No valid snapshot found, using dynamic calculation for scene {current_scene_sequence}")
+
+            # Get recency window settings from user settings or config defaults
+            active_window = self.user_settings.get("npc_active_recency_window", settings.npc_active_recency_window)
+            inactive_window = self.user_settings.get("npc_inactive_recency_window", settings.npc_inactive_recency_window)
+            use_chapter_awareness = self.user_settings.get("npc_use_chapter_awareness", settings.npc_use_chapter_awareness)
+
             # Get NPCs in current chapter (if chapter awareness is enabled)
             chapter_npc_names = set()
             if use_chapter_awareness and chapter_id:
@@ -1915,18 +2024,18 @@ Return ONLY the JSON, no other text."""
                     Scene.is_deleted == False
                 ).all()
                 chapter_scene_ids = [s.id for s in chapter_scenes]
-                
+
                 # Get NPCs that appear in any of these scenes
                 if chapter_scene_ids:
                     chapter_mentions = db.query(NPCMention.character_name).filter(
                         NPCMention.scene_id.in_(chapter_scene_ids)
                     ).distinct().all()
                     chapter_npc_names = {m[0].lower() for m in chapter_mentions}
-            
+
             # Log configuration
-            logger.info(f"[NPC TIERED] Config: active_window={active_window}, inactive_window={inactive_window}, "
+            logger.info(f"[NPC TIERED] Dynamic calc config: active_window={active_window}, inactive_window={inactive_window}, "
                        f"chapter_awareness={use_chapter_awareness}, current_scene={current_scene_sequence}")
-            
+
             # Get ALL NPCs that crossed threshold for this story/branch (including NULL branch_id for shared NPCs)
             npcs_query = db.query(NPCTracking).filter(
                 NPCTracking.story_id == story_id,
@@ -1936,25 +2045,25 @@ Return ONLY the JSON, no other text."""
             if branch_id:
                 npcs_query = npcs_query.filter(NPCTracking.branch_id == branch_id)
             all_npcs = npcs_query.order_by(desc(NPCTracking.importance_score)).all()
-            
+
             logger.info(f"[NPC TIERED] Total NPCs that crossed threshold: {len(all_npcs)}")
-            
+
             # Categorize NPCs into tiers
             active_npcs = []
             inactive_npcs = []
             dormant_count = 0
-            
+
             for npc in all_npcs:
                 last_appearance = npc.last_appearance_scene or 0
                 scenes_since_appearance = current_scene_sequence - last_appearance
-                
+
                 # Check if NPC is in current chapter
                 in_current_chapter = npc.character_name.lower() in chapter_npc_names
-                
+
                 # Determine tier
                 is_active = False
                 is_inactive = False
-                
+
                 # Tier 1: Active - appeared recently OR in current chapter
                 if scenes_since_appearance <= active_window or in_current_chapter:
                     is_active = True
@@ -1964,12 +2073,12 @@ Return ONLY the JSON, no other text."""
                 # Tier 3: Dormant - excluded
                 else:
                     dormant_count += 1
-                
+
                 tier_label = "ACTIVE" if is_active else ("INACTIVE" if is_inactive else "DORMANT")
                 chapter_note = " (in chapter)" if in_current_chapter else ""
                 logger.debug(f"[NPC TIERED]   {npc.character_name}: last_scene={last_appearance}, "
                            f"scenes_ago={scenes_since_appearance}, tier={tier_label}{chapter_note}")
-                
+
                 if is_active and len(active_npcs) < limit:
                     profile = npc.extracted_profile or {}
                     active_npcs.append({
@@ -1987,15 +2096,15 @@ Return ONLY the JSON, no other text."""
                         "name": npc.character_name,
                         "role": profile.get("role", "NPC")
                     })
-            
-            logger.info(f"[NPC TIERED] Result: {len(active_npcs)} active, {len(inactive_npcs)} inactive, "
+
+            logger.info(f"[NPC TIERED] Dynamic result: {len(active_npcs)} active, {len(inactive_npcs)} inactive, "
                        f"{dormant_count} dormant (excluded)")
-            
+
             return {
                 "active_npcs": active_npcs,
                 "inactive_npcs": inactive_npcs
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to get tiered NPCs for context: {e}")
             import traceback
