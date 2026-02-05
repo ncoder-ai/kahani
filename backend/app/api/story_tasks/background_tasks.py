@@ -995,12 +995,15 @@ async def run_plot_extraction_in_background(
                 max_sequence_in_chapter = max(scene_sequence_numbers)
                 min_sequence_in_chapter = min(scene_sequence_numbers)
 
-                # Use last_plot_extraction_scene_count as from_sequence
-                actual_from_sequence = extraction_chapter.last_plot_extraction_scene_count or 0
-                if actual_from_sequence == 0 or actual_from_sequence >= max_sequence_in_chapter:
-                    actual_from_sequence = min_sequence_in_chapter - 1
+                # Use caller-provided from_sequence when valid, otherwise fall back to DB state
+                if from_sequence > 0:
+                    actual_from_sequence = from_sequence
+                else:
+                    actual_from_sequence = extraction_chapter.last_plot_extraction_scene_count or 0
+                    if actual_from_sequence == 0 or actual_from_sequence >= max_sequence_in_chapter:
+                        actual_from_sequence = min_sequence_in_chapter - 1
 
-                actual_to_sequence = max_sequence_in_chapter
+                actual_to_sequence = to_sequence if to_sequence > 0 else max_sequence_in_chapter
 
                 # Safety check
                 if actual_from_sequence >= actual_to_sequence:
