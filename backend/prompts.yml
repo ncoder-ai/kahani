@@ -665,20 +665,24 @@ plot_extraction:
     {scene_content}
 
     === EXTRACT PLOT EVENTS ===
-    Analyze the scene above and determine which of these planned story events occurred:
+    Analyze the scene above and determine which of these planned story events COMPLETED:
 
     {key_events}
 
     INSTRUCTIONS:
-    - Only mark events that CLEARLY and DEFINITIVELY happened in this scene
-    - Hints, foreshadowing, or partial progress do NOT count
-    - Most scenes contain 0-2 events - be selective
+    - Mark events that COMPLETED in this scene (the core action finished, not just started)
+    - An event that BEGINS but doesn't CONCLUDE is NOT complete
+    - Example: "Hero proposes the plan" - if proposed but not agreed to yet, NOT complete
+    - Example: "They seal the deal" - if they're about to agree but haven't yet, NOT complete
+    - Exact wording doesn't need to match - check if the ESSENCE of the event happened
+    - Hints, setup, or partial progress do NOT count as complete
+    - Most scenes contain 0-1 complete events - be selective
     - Return the EXACT event text from the list - do not paraphrase
 
     Return ONLY a valid JSON array with the exact event descriptions:
     ["Event text copied exactly", "Another event if applicable"]
 
-    If no events occurred, return: []
+    If no events COMPLETED, return: []
 
 # Combined Entity Extraction (cache-friendly)
 # Uses same context structure as scene generation for cache hits
@@ -2465,7 +2469,9 @@ chapter_brainstorm:
       1. **Chapter Overview**: A high-level 2-3 sentence summary of what happens
       2. **Characters & Dynamics**: Which characters appear and their relationships/tensions
       3. **Tone & Atmosphere**: The emotional feel of the chapter
-      4. **Key Events**: Specific plot beats that must happen (ordered list)
+      4. **Key Events**: Plot beats that must happen (describe WHAT happens, not exact dialog)
+         - GOOD: "The detective confronts the suspect with evidence"
+         - BAD: "Detective says 'I know you did it' and suspect says 'fine, I confess'" (too specific)
       5. **Chapter Ending**: How this chapter concludes and sets up what's next
       
       When you've discussed enough about an element, suggest it clearly so the user can confirm it.
@@ -2582,14 +2588,18 @@ chapter_brainstorm:
       - Events that BUILD TENSION and lead up to the climax
       - Things that HAPPEN before the peak moment
       - Should be 3-5 distinct story beats
-      - Example: "Ali corners Radhika in the kitchen" (this builds tension)
+      - Describe the BEAT, not exact dialog or specific actions
+      - WRONG: "Detective says 'you're under arrest' and villain says 'never!'" (too specific)
+      - RIGHT: "Detective attempts to arrest the villain" (describes the beat)
+      - The writer should have creative freedom in HOW the event unfolds
+      - Example: "The antagonist corners the protagonist in the warehouse" (builds tension)
 
       CLIMAX (the peak - MUST BE DIFFERENT from key_events):
       - The single most EMOTIONALLY INTENSE moment of the chapter
       - Where tension PEAKS or a major revelation/confrontation occurs
       - Describe the EMOTIONAL IMPACT, not just the action
-      - WRONG: "Ali and Radhika at the sink" (too vague, sounds like an event)
-      - RIGHT: "Radhika surrenders to temptation as Ali pins her against the sink, crossing the line she swore she never would"
+      - WRONG: "Hero and villain fight" (too vague, sounds like an event)
+      - RIGHT: "The hero makes a desperate last stand, sacrificing everything to save the city"
       - The climax should feel like THE MOMENT everything was building toward
 
       RESOLUTION (aftermath):
