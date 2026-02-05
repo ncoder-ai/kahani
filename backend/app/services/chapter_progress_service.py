@@ -381,9 +381,62 @@ class ChapterProgressService:
         
         flag_modified(chapter, "plot_progress")
         self.db.commit()
-        
+
         logger.info(f"[PLOT_PROGRESS:RESTORE] Restored progress from batches for chapter {chapter_id}")
-    
+
+    def restore_from_last_valid_batch(
+        self,
+        chapter_id: int,
+        min_deleted_seq: int
+    ) -> None:
+        """
+        Restore plot progress from the last batch that ends BEFORE the deleted scenes.
+        Used when scenes are deleted - we rollback to the last valid state.
+
+        Args:
+            chapter_id: The chapter ID
+            min_deleted_seq: The minimum sequence number of deleted scenes
+        """
+        from ..models import ChapterPlotProgressBatch
+        from sqlalchemy.orm.attributes import flag_modified
+
+        chapter = self.db.query(Chapter).filter(Chapter.id == chapter_id).first()
+        if not chapter:
+            return
+
+        # Find the last batch that ends BEFORE the deleted scenes
+        last_valid_batch = self.db.query(ChapterPlotProgressBatch).filter(
+            ChapterPlotProgressBatch.chapter_id == chapter_id,
+            ChapterPlotProgressBatch.end_scene_sequence < min_deleted_seq
+        ).order_by(ChapterPlotProgressBatch.end_scene_sequence.desc()).first()
+
+        if last_valid_batch:
+            # Restore from this batch's state
+            all_events = set(last_valid_batch.completed_events or [])
+
+            climax = chapter.chapter_plot.get("climax", "") if chapter.chapter_plot else ""
+            resolution = chapter.chapter_plot.get("resolution", "") if chapter.chapter_plot else ""
+            climax_reached = climax in all_events if climax else False
+            resolution_reached = resolution in all_events if resolution else False
+
+            chapter.plot_progress = {
+                "completed_events": list(all_events),
+                "scene_count": last_valid_batch.end_scene_sequence,
+                "climax_reached": climax_reached,
+                "resolution_reached": resolution_reached,
+                "last_updated": datetime.utcnow().isoformat()
+            }
+            chapter.last_plot_extraction_scene_count = last_valid_batch.end_scene_sequence
+            logger.info(f"[PLOT_PROGRESS:ROLLBACK] Restored from batch ending at scene {last_valid_batch.end_scene_sequence} with {len(all_events)} events for chapter {chapter_id}")
+        else:
+            # No valid batch before deleted scenes - reset to empty
+            chapter.plot_progress = None
+            chapter.last_plot_extraction_scene_count = 0
+            logger.info(f"[PLOT_PROGRESS:ROLLBACK] No valid batch found before scene {min_deleted_seq}, reset to empty for chapter {chapter_id}")
+
+        flag_modified(chapter, "plot_progress")
+        self.db.commit()
+
     def invalidate_plot_progress_batches_for_scene(self, scene_id: int) -> None:
         """
         Invalidate plot progress batches if scene was part of extracted range.

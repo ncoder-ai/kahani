@@ -597,6 +597,12 @@ class SceneDatabaseOperations:
                         db.delete(batch)
                     logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} plot_batches_invalidated={len(affected_plot_batches)}")
 
+                    # Rollback plot progress to last valid batch (before deleted scenes)
+                    from ..chapter_progress_service import ChapterProgressService
+                    progress_service = ChapterProgressService(db)
+                    progress_service.restore_from_last_valid_batch(chapter_id, min_deleted_seq)
+                    logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} plot_progress_rolled_back")
+
                 # Update last_extraction_scene_count and last_summary_scene_count to max remaining sequence
                 # This prevents extraction/summary from being skipped due to negative scene counts
                 remaining_scenes_query = db.query(Scene).filter(
