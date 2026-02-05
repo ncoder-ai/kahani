@@ -611,14 +611,15 @@ Write a compelling continuation that follows naturally from the scene above. Foc
         return instruction
     
     def get_enhancement_task_instruction(
-        self, 
-        original_scene: str, 
-        enhancement_guidance: str, 
+        self,
+        original_scene: str,
+        enhancement_guidance: str,
         scene_length_description: str = "medium (100-150 words)",
         choices_count: int = 4,
         prose_style: str = 'balanced',
         tone: str = None,
-        skip_choices_reminder: bool = False
+        skip_choices_reminder: bool = False,
+        chapter_plot_for_choices: str = ""
     ) -> str:
         """
         Get task instruction for guided enhancement from scene_base.task_guided_enhancement.
@@ -674,7 +675,10 @@ Write approximately {scene_length_description} in length.
         
         # Append choices reminder unless skipped (for separate choice generation)
         if not skip_choices_reminder:
-            choices_reminder = self.get_user_choices_reminder(choices_count=choices_count)
+            choices_reminder = self.get_user_choices_reminder(
+                choices_count=choices_count,
+                chapter_plot_for_choices=chapter_plot_for_choices
+            )
             if choices_reminder:
                 instruction = instruction + "\n\n" + choices_reminder
         

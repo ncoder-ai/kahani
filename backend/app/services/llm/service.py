@@ -402,6 +402,8 @@ class UnifiedLLMService:
 
         if enhancement_guidance:
             # Guided enhancement: use task_guided_enhancement from prompts.yml
+            # Get plot guidance for choices (upcoming story beats)
+            chapter_plot_for_choices = self._format_plot_for_choices(context, user_settings) if include_choices_reminder else ""
             task_content = prompt_manager.get_enhancement_task_instruction(
                 original_scene=original_scene,
                 enhancement_guidance=enhancement_guidance,
@@ -409,7 +411,8 @@ class UnifiedLLMService:
                 choices_count=choices_count,
                 prose_style=prose_style,
                 tone=tone,
-                skip_choices_reminder=not include_choices_reminder
+                skip_choices_reminder=not include_choices_reminder,
+                chapter_plot_for_choices=chapter_plot_for_choices
             )
         else:
             # Simple variant: use same task instruction as scene generation
@@ -1825,6 +1828,8 @@ Chapter Conclusion:"""
         tone = context.get('tone', '')
         if enhancement_guidance:
             # Guided enhancement: use task_guided_enhancement from prompts.yml
+            # Get plot guidance for choices (upcoming story beats)
+            chapter_plot_for_choices = self._format_plot_for_choices(context, user_settings) if not separate_choice_generation else ""
             task_content = prompt_manager.get_enhancement_task_instruction(
                 original_scene=original_scene,
                 enhancement_guidance=enhancement_guidance,
@@ -1832,7 +1837,8 @@ Chapter Conclusion:"""
                 choices_count=choices_count,
                 prose_style=prose_style,
                 tone=tone,
-                skip_choices_reminder=separate_choice_generation
+                skip_choices_reminder=separate_choice_generation,
+                chapter_plot_for_choices=chapter_plot_for_choices
             )
             logger.info(f"[GUIDED ENHANCEMENT] Using multi-message structure with enhancement task")
         else:

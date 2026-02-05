@@ -502,15 +502,10 @@ class ChapterProgressService:
         all_events = set(previous_batch.completed_events or []) if previous_batch else set()
         all_events.update(completed_events)
 
-        # IMPORTANT: Refresh chapter to get latest committed data before reading plot_progress
-        # This prevents stale data from being preserved if a deletion happened in another session
-        self.db.refresh(chapter)
-
-        # Preserve any manually toggled events from current progress
-        # This ensures user's manual toggles aren't lost when new batches are created
-        current_progress = chapter.plot_progress or {}
-        current_completed = set(current_progress.get("completed_events", []))
-        all_events.update(current_completed)
+        # NOTE: We intentionally do NOT preserve chapter.plot_progress events here.
+        # Manual toggles update batches directly via toggle_event_completion_with_batch(),
+        # so preservation would be redundant and could propagate bad extraction data.
+        # ChapterPlotProgressBatch is the single source of truth.
 
         # Check if batch already exists for this scene range (upsert logic)
         existing_batch = self.db.query(ChapterPlotProgressBatch).filter(
