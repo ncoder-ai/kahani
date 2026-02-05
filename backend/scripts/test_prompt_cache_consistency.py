@@ -47,14 +47,21 @@ if env_file.exists():
                 key, value = line.split("=", 1)
                 os.environ.setdefault(key.strip(), value.strip())
 
-# Fallback to PostgreSQL default (matches docker-compose)
-os.environ.setdefault("DATABASE_URL", "postgresql://kahani:kahani@localhost:5432/kahani")
+# Detect Docker environment
+is_docker = os.path.exists("/app") and os.getcwd().startswith("/app")
 
-# Fix Docker-internal hostnames for bare metal execution
-db_url = os.environ.get("DATABASE_URL", "")
-if "postgres:" in db_url and "@postgres:" in db_url:
-    # Replace Docker-internal 'postgres' hostname with 'localhost'
-    os.environ["DATABASE_URL"] = db_url.replace("@postgres:", "@localhost:")
+# Set database URL based on environment
+if is_docker:
+    # Inside Docker: use postgres service hostname
+    os.environ.setdefault("DATABASE_URL", "postgresql://kahani:kahani@postgres:5432/kahani")
+else:
+    # Bare metal: use localhost
+    os.environ.setdefault("DATABASE_URL", "postgresql://kahani:kahani@localhost:5432/kahani")
+    # Fix Docker-internal hostnames for bare metal execution
+    db_url = os.environ.get("DATABASE_URL", "")
+    if "postgres:" in db_url and "@postgres:" in db_url:
+        # Replace Docker-internal 'postgres' hostname with 'localhost'
+        os.environ["DATABASE_URL"] = db_url.replace("@postgres:", "@localhost:")
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session

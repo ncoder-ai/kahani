@@ -12,7 +12,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import or_
 from datetime import datetime
 
-from .semantic_context_manager import SemanticContextManager, create_semantic_context_manager
 from .context_manager import ContextManager
 from .semantic_memory import get_semantic_memory_service
 from .character_memory_service import get_character_memory_service
@@ -28,33 +27,19 @@ logger = logging.getLogger(__name__)
 
 def get_context_manager_for_user(user_settings: Dict[str, Any], user_id: int) -> ContextManager:
     """
-    Get appropriate context manager based on configuration
-    
+    Get context manager configured based on user settings.
+
+    The unified ContextManager handles both linear and semantic strategies
+    internally based on settings. Factory kept for backward compatibility.
+
     Args:
         user_settings: User settings dictionary
         user_id: User ID
-        
+
     Returns:
-        ContextManager (or SemanticContextManager if enabled)
+        ContextManager instance
     """
-    # Check if semantic memory is enabled globally
-    if not settings.enable_semantic_memory:
-        logger.debug("Semantic memory disabled globally, using standard ContextManager")
-        return ContextManager(user_settings=user_settings, user_id=user_id)
-    
-    # Check user-specific settings (context_strategy is nested under context_settings)
-    ctx_settings = user_settings.get("context_settings", {}) if user_settings else {}
-    if ctx_settings.get("context_strategy") == "linear":
-        logger.debug("User prefers linear context, using standard ContextManager")
-        return ContextManager(user_settings=user_settings, user_id=user_id)
-    
-    # Use semantic context manager
-    try:
-        logger.debug("Using SemanticContextManager for hybrid context")
-        return create_semantic_context_manager(user_settings=user_settings, user_id=user_id)
-    except Exception as e:
-        logger.warning(f"Failed to create SemanticContextManager, falling back to standard: {e}")
-        return ContextManager(user_settings=user_settings, user_id=user_id)
+    return ContextManager(user_settings=user_settings, user_id=user_id)
 
 
 async def process_scene_embeddings(

@@ -279,7 +279,8 @@ async def generate_scene(
             choices=choices_data,
             generation_method=generation_method,
             branch_id=active_branch_id,
-            chapter_id=chapter_id
+            chapter_id=chapter_id,
+            context=context  # Auto-extracts entity_states_snapshot for cache consistency
         )
 
         # Format choices for response (already in correct format)
@@ -514,6 +515,7 @@ async def generate_scene_streaming_endpoint(
     trace_id = f"scene-stream-{uuid.uuid4()}"
     start_time = time.perf_counter()
     logger.info(f"[SCENE:STREAM:START] trace_id={trace_id} story_id={story_id} content_mode={content_mode} is_concluding={is_concluding}")
+    logger.warning(f"[SCENE:STREAM:PARAMS] trace_id={trace_id} custom_prompt='{custom_prompt[:100] if custom_prompt else 'EMPTY'}' user_content='{user_content[:100] if user_content else 'EMPTY'}'")
 
     # Check if scene generation is already in progress for this story
     # Use non-blocking check since this is a streaming endpoint
@@ -623,6 +625,7 @@ async def generate_scene_streaming_endpoint(
     chapter_id = active_chapter.id
 
     # Use context manager to build optimized context
+    logger.warning(f"[SCENE:STREAM:CONTEXT] Building context with effective_custom_prompt='{effective_custom_prompt[:100] if effective_custom_prompt else 'EMPTY'}'")
     try:
         context = await context_manager.build_scene_generation_context(
             story_id, db, effective_custom_prompt, is_variant_generation=False, chapter_id=chapter_id, branch_id=active_branch_id
@@ -756,7 +759,8 @@ async def generate_scene_streaming_endpoint(
                             generation_method=generation_method,
                             title=f"Scene {next_sequence}",
                             custom_prompt=effective_custom_prompt if effective_custom_prompt else None,
-                            chapter_id=chapter_id
+                            chapter_id=chapter_id,
+                            context=scene_context  # Auto-extracts entity_states_snapshot
                         )
 
                         # Format response
@@ -802,6 +806,7 @@ async def generate_scene_streaming_endpoint(
                     full_content = user_provided_content
                     yield f"data: {json.dumps({'type': 'content', 'chunk': user_provided_content})}\n\n"
                     parsed_choices = None  # User-provided scenes need separate choice generation
+                    scene_context = context  # No LLM generation, so no snapshot, but we need scene_context defined
                 elif is_concluding_bool:
                     # Generate concluding scene (no choices)
                     logger.info(f"[SCENE STREAM] Generating concluding scene for story {story_id}")
@@ -815,8 +820,12 @@ async def generate_scene_streaming_endpoint(
                         "chapter_scenario": active_chapter.scenario if active_chapter else "None"
                     }
 
+                    # Use context directly (no copy needed for concluding scenes)
+                    # Store reference in scene_context for consistent snapshot retrieval
+                    scene_context = context
+
                     async for chunk in llm_service.generate_concluding_scene_streaming(
-                        context,
+                        scene_context,
                         chapter_info,
                         current_user.id,
                         user_settings,
@@ -923,6 +932,7 @@ async def generate_scene_streaming_endpoint(
 
             variant_service = SceneVariantService(db)
             try:
+                # Pass scene_context to automatically extract _entity_states_snapshot
                 scene, variant = variant_service.create_scene_with_variant(
                     story_id=story_id,
                     sequence_number=next_sequence,
@@ -932,7 +942,8 @@ async def generate_scene_streaming_endpoint(
                     choices=[],  # We'll add choices later
                     generation_method=generation_method,
                     branch_id=active_branch_id,
-                    chapter_id=chapter_id
+                    chapter_id=chapter_id,
+                    context=scene_context  # Auto-extracts entity_states_snapshot
                 )
                 logger.info(f"Created scene {scene.id} with variant {variant.id} for story {story_id} on branch {active_branch_id} chapter {chapter_id} trace_id={trace_id}")
             except Exception as e:

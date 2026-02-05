@@ -863,6 +863,9 @@ async def conclude_chapter(
         # Build a combined prompt string for the custom_prompt field
         conclusion_prompt_text = f"Chapter Conclusion Prompt:\n{user_prompt}"
         
+        # Extract entity_states_snapshot from context for cache consistency
+        entity_states_snapshot = context.get('entity_states_text') if context else None
+
         conclusion_scene, conclusion_variant = llm_service.create_scene_with_variant(
             db=db,
             story_id=story_id,
@@ -871,7 +874,8 @@ async def conclude_chapter(
             title=f"Chapter {chapter.chapter_number} Conclusion",
             custom_prompt=conclusion_prompt_text,
             generation_method="chapter_conclusion",
-            branch_id=chapter.branch_id
+            branch_id=chapter.branch_id,
+            entity_states_snapshot=entity_states_snapshot
         )
         
         # Link scene to chapter

@@ -456,7 +456,7 @@ async def get_story_context_info(
         # Get user settings (with story for content rating)
         user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
 
-        # Create context manager with user settings (uses SemanticContextManager if hybrid strategy enabled)
+        # Create context manager with user settings (uses hybrid strategy if enabled)
         context_manager = get_context_manager_for_user(user_settings, current_user.id)
 
         # Build context to analyze

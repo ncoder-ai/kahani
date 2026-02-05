@@ -47,9 +47,16 @@ class SceneDatabaseOperations:
         choices: List[Dict[str, Any]] = None,
         generation_method: str = "auto",
         branch_id: int = None,
-        chapter_id: int = None
+        chapter_id: int = None,
+        entity_states_snapshot: str = None,
+        context_snapshot: str = None
     ) -> Tuple[Any, Any]:
-        """Create a new scene with its first variant"""
+        """Create a new scene with its first variant
+
+        Args:
+            entity_states_snapshot: Entity states text at generation time for cache consistency (legacy)
+            context_snapshot: Full context snapshot JSON for complete cache consistency
+        """
         from ...models import Scene, SceneVariant, SceneChoice, StoryFlow
 
         # Get active branch if not specified
@@ -92,7 +99,9 @@ class SceneDatabaseOperations:
             title=title,
             original_content=content,
             generation_prompt=custom_prompt,
-            generation_method=generation_method
+            generation_method=generation_method,
+            entity_states_snapshot=entity_states_snapshot,
+            context_snapshot=context_snapshot
         )
         db.add(variant)
         db.flush()  # Get the variant ID

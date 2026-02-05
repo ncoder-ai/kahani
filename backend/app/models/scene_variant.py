@@ -41,6 +41,16 @@ class SceneVariant(Base):
     original_content = Column(Text)  # AI-generated content before user edits
     user_edited = Column(Boolean, default=False)
     edit_history = Column(JSON, default=[])
+
+    # Entity states snapshot for cache consistency during variant regeneration
+    # Stores the entity states text (~1-2KB) at the time this variant was generated
+    # Used to ensure identical LLM prompts when regenerating variants
+    entity_states_snapshot = Column(Text)
+
+    # Full context snapshot (JSON) for complete cache consistency
+    # Stores entity_states_text, story_focus, relationship_context as JSON
+    # Used to ensure 100% identical prompts when regenerating variants
+    context_snapshot = Column(Text)  # JSON string
     
     # Quality/preference tracking
     user_rating = Column(Integer)  # 1-5 stars if user rates
