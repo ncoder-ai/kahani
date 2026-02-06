@@ -61,12 +61,24 @@ export interface GenerateSceneImageRequest {
   custom_prompt?: string;
 }
 
+export interface GenerateCharacterImageRequest {
+  character_id: number;
+  style?: string;
+  checkpoint?: string;
+  width?: number;
+  height?: number;
+  steps?: number;
+  cfg_scale?: number;
+  custom_prompt?: string;
+}
+
 export interface GenerationJobResponse {
   job_id: string;
   status: 'pending' | 'queued' | 'processing' | 'completed' | 'failed' | 'cancelled';
   progress: number;
   image_id?: number;
   error?: string;
+  prompt?: string;
 }
 
 export interface GeneratedImage {
@@ -196,6 +208,22 @@ export class ImageGenerationApi extends BaseApiClient {
   ): Promise<GenerationJobResponse> {
     return this.request<GenerationJobResponse>(
       `/api/image-generation/scene/${sceneId}`,
+      {
+        method: 'POST',
+        body: JSON.stringify(options),
+      }
+    );
+  }
+
+  /**
+   * Generate an in-context image for a character in a scene
+   */
+  async generateCharacterImage(
+    sceneId: number,
+    options: GenerateCharacterImageRequest
+  ): Promise<GenerationJobResponse> {
+    return this.request<GenerationJobResponse>(
+      `/api/image-generation/scene/${sceneId}/character`,
       {
         method: 'POST',
         body: JSON.stringify(options),

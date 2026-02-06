@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { Sparkles, ChevronDown, ChevronLeft, ChevronRight, Download, Trash2, RefreshCw, X } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Sparkles, ChevronDown, ChevronLeft, ChevronRight, Download, Trash2, RefreshCw, X, User } from 'lucide-react';
 import { imageGenerationApi } from '@/lib/api/index';
 import type { ImageGenServerStatus, ImageGenAvailableModels, StylePreset } from '@/lib/api/index';
+import apiClient from '@/lib/api';
 
 interface SceneImage {
   id: number;
@@ -51,33 +52,12 @@ export default function SceneImageGenerator({
   const [generationProgress, setGenerationProgress] = useState<GenerationProgress>({ status: 'idle' });
   const [showOptions, setShowOptions] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Generate default prompt from scene content
-  const generateDefaultPrompt = useCallback((content: string, style: string): string => {
-    if (!content) return '';
-    // Take first ~200 chars, try to end at a sentence
-    let summary = content.slice(0, 250).trim();
-    const lastPeriod = summary.lastIndexOf('.');
-    if (lastPeriod > 100) {
-      summary = summary.slice(0, lastPeriod + 1);
-    } else if (!summary.endsWith('.')) {
-      const lastSpace = summary.lastIndexOf(' ');
-      if (lastSpace > 0) {
-        summary = summary.slice(0, lastSpace) + '...';
-      }
-    }
-
-    // Get style suffix
-    const styleSuffixes: Record<string, string> = {
-      illustrated: 'digital art, illustration, vibrant colors',
-      semi_realistic: 'semi-realistic, detailed, cinematic lighting',
-      anime: 'anime style, detailed, masterpiece quality',
-      photorealistic: 'photorealistic, detailed, 8k resolution',
-    };
-    const styleSuffix = styleSuffixes[style] || styleSuffixes.illustrated;
-
-    return `${summary}, ${styleSuffix}`;
-  }, []);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const confirmingDeleteRef = useRef(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const [subjectType, setSubjectType] = useState<'scene' | 'character'>('scene');
+  const [selectedCharacterId, setSelectedCharacterId] = useState<number | null>(null);
+  const [storyCharacters, setStoryCharacters] = useState<{character_id: number; name: string}[]>([]);
 
   // Load server status and available models
   useEffect(() => {
@@ -108,11 +88,24 @@ export default function SceneImageGenerator({
     loadServerInfo();
   }, [defaultCheckpoint]);
 
-  // Set default prompt when scene content or style changes
+  // Load story characters when switching to character mode
   useEffect(() => {
-    const defaultPrompt = generateDefaultPrompt(sceneContent, selectedStyle);
-    setCustomPrompt(defaultPrompt);
-  }, [sceneContent, selectedStyle, generateDefaultPrompt]);
+    if (subjectType !== 'character' || !storyId) return;
+    if (storyCharacters.length > 0) return; // already loaded
+
+    const loadCharacters = async () => {
+      try {
+        const chars = await apiClient.getStoryCharacters(storyId);
+        setStoryCharacters(chars);
+        if (chars.length > 0 && !selectedCharacterId) {
+          setSelectedCharacterId(chars[0].character_id);
+        }
+      } catch (err) {
+        console.error('Failed to load story characters:', err);
+      }
+    };
+    loadCharacters();
+  }, [subjectType, storyId, storyCharacters.length, selectedCharacterId]);
 
   // Load existing images for this scene
   useEffect(() => {
@@ -179,19 +172,31 @@ export default function SceneImageGenerator({
       setError(null);
       setGenerationProgress({ status: 'connecting', message: 'Connecting to server...' });
 
-      const result = await imageGenerationApi.generateSceneImage(sceneId, {
-        style: selectedStyle,
-        checkpoint: selectedCheckpoint || undefined,
-        custom_prompt: customPrompt || undefined,
-      });
+      const result = subjectType === 'character' && selectedCharacterId
+        ? await imageGenerationApi.generateCharacterImage(sceneId, {
+            character_id: selectedCharacterId,
+            style: selectedStyle,
+            checkpoint: selectedCheckpoint || undefined,
+            custom_prompt: customPrompt || undefined,
+          })
+        : await imageGenerationApi.generateSceneImage(sceneId, {
+            style: selectedStyle,
+            checkpoint: selectedCheckpoint || undefined,
+            custom_prompt: customPrompt || undefined,
+          });
 
       if (result.status === 'completed' && result.image_id) {
         setGenerationProgress({ status: 'complete', message: 'Image generated!' });
 
+        // Show the prompt that was actually used for generation
+        if (result.prompt) {
+          setCustomPrompt(result.prompt);
+        }
+
         // Add new image to the list and select it
         const newImage: SceneImage = {
           id: result.image_id,
-          prompt: customPrompt,
+          prompt: result.prompt || customPrompt,
           created_at: new Date().toISOString(),
         };
         setImages(prev => [newImage, ...prev]);
@@ -274,7 +279,7 @@ export default function SceneImageGenerator({
       setGenerationProgress({ status: 'error', message: err.message || 'Generation failed' });
       setTimeout(() => setGenerationProgress({ status: 'idle' }), 3000);
     }
-  }, [sceneId, serverStatus, selectedStyle, selectedCheckpoint, customPrompt, onImageGenerated]);
+  }, [sceneId, serverStatus, selectedStyle, selectedCheckpoint, customPrompt, onImageGenerated, subjectType, selectedCharacterId]);
 
   const handleDelete = useCallback(async () => {
     if (images.length === 0) return;
@@ -282,7 +287,21 @@ export default function SceneImageGenerator({
     const currentImage = images[currentIndex];
     if (!currentImage) return;
 
-    if (!confirm('Delete this image?')) return;
+    // First tap: show confirmation state
+    if (!confirmingDeleteRef.current) {
+      confirmingDeleteRef.current = true;
+      setConfirmingDelete(true);
+      // Auto-reset after 3 seconds if not confirmed
+      setTimeout(() => {
+        confirmingDeleteRef.current = false;
+        setConfirmingDelete(false);
+      }, 3000);
+      return;
+    }
+
+    // Second tap: actually delete
+    confirmingDeleteRef.current = false;
+    setConfirmingDelete(false);
 
     try {
       setLoading(true);
@@ -329,17 +348,22 @@ export default function SceneImageGenerator({
   const navigatePrev = () => {
     if (currentIndex < images.length - 1) {
       setCurrentIndex(currentIndex + 1);
+      confirmingDeleteRef.current = false;
+      setConfirmingDelete(false);
     }
   };
 
   const navigateNext = () => {
     if (currentIndex > 0) {
       setCurrentIndex(currentIndex - 1);
+      confirmingDeleteRef.current = false;
+      setConfirmingDelete(false);
     }
   };
 
   const isGenerating = generationProgress.status === 'connecting' || generationProgress.status === 'generating';
-  const canGenerate = serverStatus?.online && !isGenerating && !loading;
+  const canGenerate = serverStatus?.online && !isGenerating && !loading
+    && (subjectType === 'scene' || selectedCharacterId !== null);
   const hasImages = images.length > 0;
   const canNavigatePrev = currentIndex < images.length - 1;
   const canNavigateNext = currentIndex > 0;
@@ -352,10 +376,23 @@ export default function SceneImageGenerator({
 
   return (
     <div className="mt-4 pt-4 border-t border-white/10">
-      {/* Header with close button when forceShow */}
-      {forceShow && onClose && (
-        <div className="flex items-center justify-between mb-3">
+      {/* Header with collapse toggle and close button */}
+      <div className="flex items-center justify-between mb-3">
+        {hasImages && (
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            className="flex items-center gap-1.5 text-sm font-medium text-white/70 hover:text-white/90 transition-colors"
+            title={collapsed ? 'Show image' : 'Hide image'}
+          >
+            <ChevronRight className={`w-3.5 h-3.5 transition-transform duration-200 ${collapsed ? '' : 'rotate-90'}`} />
+            <span>Scene Image</span>
+            {images.length > 1 && <span className="text-xs text-white/40">({images.length})</span>}
+          </button>
+        )}
+        {!hasImages && forceShow && (
           <span className="text-sm font-medium text-white/70">Scene Image</span>
+        )}
+        {forceShow && onClose && (
           <button
             onClick={onClose}
             className="p-1 text-white/50 hover:text-white/80 rounded"
@@ -363,11 +400,11 @@ export default function SceneImageGenerator({
           >
             <X className="w-4 h-4" />
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Image Display */}
-      {hasImages && currentImageUrl && (
+      {hasImages && currentImageUrl && !collapsed && (
         <div className="relative mb-3">
           <img
             src={currentImageUrl}
@@ -386,13 +423,13 @@ export default function SceneImageGenerator({
           )}
 
           {/* Image navigation and actions */}
-          <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
+          <div className="absolute bottom-2 left-2 right-2 z-10 flex items-center justify-between">
             {/* Navigation */}
-            <div className="flex items-center gap-2 bg-black/60 rounded-lg px-2 py-1">
+            <div className="flex items-center gap-1 bg-black/60 rounded-lg px-2 py-1">
               <button
                 onClick={navigatePrev}
                 disabled={!canNavigatePrev}
-                className="p-1 text-white/70 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
+                className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center text-white/70 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
                 title="Older image"
               >
                 <ChevronLeft className="w-4 h-4" />
@@ -403,7 +440,7 @@ export default function SceneImageGenerator({
               <button
                 onClick={navigateNext}
                 disabled={!canNavigateNext}
-                className="p-1 text-white/70 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
+                className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center text-white/70 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
                 title="Newer image"
               >
                 <ChevronRight className="w-4 h-4" />
@@ -414,15 +451,19 @@ export default function SceneImageGenerator({
             <div className="flex items-center gap-1 bg-black/60 rounded-lg px-2 py-1">
               <button
                 onClick={handleDownload}
-                className="p-1 text-white/70 hover:text-white"
+                className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center text-white/70 hover:text-white"
                 title="Download"
               >
                 <Download className="w-4 h-4" />
               </button>
               <button
-                onClick={handleDelete}
-                className="p-1 text-white/70 hover:text-red-400"
-                title="Delete"
+                onClick={(e) => { e.stopPropagation(); handleDelete(); }}
+                className={`p-2 min-w-[44px] min-h-[44px] flex items-center justify-center touch-manipulation ${
+                  confirmingDelete
+                    ? 'text-red-400 bg-red-900/50 rounded'
+                    : 'text-white/70 hover:text-red-400'
+                }`}
+                title={confirmingDelete ? 'Tap again to delete' : 'Delete'}
               >
                 <Trash2 className="w-4 h-4" />
               </button>
@@ -447,8 +488,8 @@ export default function SceneImageGenerator({
         </div>
       )}
 
-      {/* Controls */}
-      <div className="flex items-center gap-2">
+      {/* Controls - hidden when collapsed */}
+      {!collapsed && <div className="flex items-center gap-2">
         <button
           onClick={handleGenerate}
           disabled={!canGenerate}
@@ -480,11 +521,58 @@ export default function SceneImageGenerator({
           <div className={`w-1.5 h-1.5 rounded-full ${serverStatus?.online ? 'bg-green-500' : 'bg-red-500'}`} />
           <span>{serverStatus?.online ? 'Connected' : 'Offline'}</span>
         </div>
-      </div>
+      </div>}
 
       {/* Options Panel */}
-      {showOptions && (
+      {!collapsed && showOptions && (
         <div className="mt-3 space-y-3 p-3 bg-white/5 rounded-lg border border-white/10">
+          {/* Subject Type */}
+          <div>
+            <label className="block text-xs font-medium text-white/70 mb-1">Subject</label>
+            <div className="flex gap-1">
+              <button
+                onClick={() => { setSubjectType('scene'); setCustomPrompt(''); }}
+                className={`flex-1 px-3 py-1.5 text-xs rounded transition-colors ${
+                  subjectType === 'scene'
+                    ? 'bg-purple-500/30 text-purple-300 border border-purple-500/50'
+                    : 'bg-white/5 text-white/60 border border-white/10 hover:bg-white/10'
+                }`}
+              >
+                Scene
+              </button>
+              <button
+                onClick={() => { setSubjectType('character'); setCustomPrompt(''); }}
+                className={`flex-1 flex items-center justify-center gap-1 px-3 py-1.5 text-xs rounded transition-colors ${
+                  subjectType === 'character'
+                    ? 'bg-purple-500/30 text-purple-300 border border-purple-500/50'
+                    : 'bg-white/5 text-white/60 border border-white/10 hover:bg-white/10'
+                }`}
+              >
+                <User className="w-3 h-3" />
+                Character
+              </button>
+            </div>
+          </div>
+
+          {/* Character Selection (only when character mode) */}
+          {subjectType === 'character' && (
+            <div>
+              <label className="block text-xs font-medium text-white/70 mb-1">Character</label>
+              <select
+                value={selectedCharacterId ?? ''}
+                onChange={(e) => { setSelectedCharacterId(Number(e.target.value)); setCustomPrompt(''); }}
+                className="w-full p-1.5 text-xs bg-gray-800 border border-white/20 rounded text-white focus:outline-none focus:ring-1 focus:ring-purple-500 [&>option]:bg-gray-800"
+              >
+                {storyCharacters.length === 0 && (
+                  <option value="">Loading characters...</option>
+                )}
+                {storyCharacters.map((sc) => (
+                  <option key={sc.character_id} value={sc.character_id}>{sc.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
             {/* Model Selection */}
             <div>
@@ -534,7 +622,7 @@ export default function SceneImageGenerator({
             <textarea
               value={customPrompt}
               onChange={(e) => setCustomPrompt(e.target.value)}
-              placeholder="Enter image prompt..."
+              placeholder={subjectType === 'character' ? 'Leave empty for AI-generated prompt from character state' : 'Leave empty for AI-generated prompt from scene content'}
               className="w-full p-2 text-xs bg-gray-800 border border-white/20 rounded text-white placeholder-white/40 focus:outline-none focus:ring-1 focus:ring-purple-500 resize-none"
               rows={3}
             />
@@ -543,7 +631,7 @@ export default function SceneImageGenerator({
       )}
 
       {/* Error Message */}
-      {error && (
+      {!collapsed && error && (
         <div className="mt-2 text-xs text-red-400 bg-red-500/10 px-3 py-2 rounded">
           {error}
         </div>

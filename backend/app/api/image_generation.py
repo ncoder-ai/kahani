@@ -80,6 +80,18 @@ class GenerateSceneImageRequest(BaseModel):
     custom_prompt: Optional[str] = None  # Override auto-generated prompt
 
 
+class GenerateCharacterImageRequest(BaseModel):
+    """Request to generate an in-context image for a character in a scene"""
+    character_id: int
+    style: str = "illustrated"
+    checkpoint: Optional[str] = None
+    width: int = 1024
+    height: int = 1024
+    steps: int = 4
+    cfg_scale: float = 1.5
+    custom_prompt: Optional[str] = None
+
+
 class GenerationJobResponse(BaseModel):
     """Response for a generation job"""
     job_id: str
@@ -87,6 +99,7 @@ class GenerationJobResponse(BaseModel):
     progress: float = 0.0
     image_id: Optional[int] = None
     error: Optional[str] = None
+    prompt: Optional[str] = None
 
 
 class ImageResponse(BaseModel):
@@ -447,6 +460,7 @@ async def generate_character_portrait(
             status="completed",
             progress=1.0,
             image_id=generated_image.id,
+            prompt=prompt,
         )
 
     except HTTPException:
@@ -641,15 +655,47 @@ async def generate_scene_image(
     # Build the prompt
     style_preset = get_style_preset(request.style)
 
-    # Use custom prompt if provided, otherwise build from scene content
     if request.custom_prompt:
         prompt = f"{request.custom_prompt}, {style_preset['prompt_suffix']}"
     else:
-        # Simple prompt from scene content - take first 200 chars and add style
-        scene_summary = scene_content[:200].strip()
-        if scene_summary and not scene_summary.endswith('.'):
-            scene_summary = scene_summary.rsplit(' ', 1)[0] + '...'
-        prompt = f"{scene_summary}, {style_preset['prompt_suffix']}"
+        # Use LLM to generate an optimized image prompt from scene content
+        try:
+            from ..services.image_generation.prompt_generator import ImagePromptGenerator
+            from ..services.llm.service import UnifiedLLMService
+            from ..services.llm.prompts import PromptManager
+            from .story_helpers import get_or_create_user_settings
+
+            llm_service = UnifiedLLMService()
+            prompt_manager = PromptManager()
+            llm_user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
+            prompt_gen = ImagePromptGenerator(current_user.id, llm_user_settings, llm_service, prompt_manager)
+
+            # Get characters with appearances for richer prompt
+            characters = []
+            if variant and variant.characters_present:
+                for char_name in variant.characters_present:
+                    sc = db.query(StoryCharacter).join(Character).filter(
+                        StoryCharacter.story_id == scene.story_id,
+                        Character.name == char_name
+                    ).first()
+                    if sc:
+                        char = db.query(Character).filter(Character.id == sc.character_id).first()
+                        if char:
+                            characters.append({"name": char.name, "appearance": char.appearance or ""})
+
+            generated = await prompt_gen.generate_scene_prompt(
+                scene_content=scene_content,
+                characters=characters,
+                style_preset=request.style,
+            )
+            prompt = f"{generated}, {style_preset['prompt_suffix']}"
+            logger.info(f"[IMAGE_GEN] LLM-generated scene prompt: {prompt[:200]}...")
+        except Exception as e:
+            logger.warning(f"[IMAGE_GEN] LLM prompt generation failed, using fallback: {e}")
+            scene_summary = scene_content[:200].strip()
+            if scene_summary and not scene_summary.endswith('.'):
+                scene_summary = scene_summary.rsplit(' ', 1)[0] + '...'
+            prompt = f"{scene_summary}, {style_preset['prompt_suffix']}"
 
     negative_prompt = style_preset["negative_prompt"]
 
@@ -712,6 +758,7 @@ async def generate_scene_image(
             status="completed",
             progress=1.0,
             image_id=generated_image.id,
+            prompt=prompt,
         )
 
     except HTTPException:
@@ -721,6 +768,201 @@ async def generate_scene_image(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to generate scene image"
+        )
+
+
+@router.post("/scene/{scene_id}/character", response_model=GenerationJobResponse)
+async def generate_character_image(
+    scene_id: int,
+    request: GenerateCharacterImageRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Generate an in-context image for a character based on their current state in the story.
+
+    Uses the character's base appearance combined with their dynamic state
+    (location, emotions, attire, items held) to generate a contextual image.
+    """
+    user_settings = get_user_settings(db, current_user.id)
+
+    # Get the scene
+    scene = db.query(Scene).filter(Scene.id == scene_id).first()
+    if not scene:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scene not found"
+        )
+
+    # Verify user owns the story
+    story = db.query(Story).filter(
+        Story.id == scene.story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied"
+        )
+
+    # Load the character
+    character = db.query(Character).filter(
+        Character.id == request.character_id
+    ).first()
+    if not character:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Character not found"
+        )
+
+    # Always prioritize the physical appearance from the character card
+    base_appearance = character.appearance or ""
+    character_description = character.description or ""
+    if not base_appearance and not character_description:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Character has no appearance description"
+        )
+    # If no dedicated appearance field, fall back to general description
+    if not base_appearance:
+        base_appearance = character_description
+
+    # Get scene content for atmospheric context
+    from ..models.scene_variant import SceneVariant
+    variant = db.query(SceneVariant).filter(
+        SceneVariant.scene_id == scene_id
+    ).order_by(SceneVariant.created_at.desc()).first()
+    scene_content = variant.content if variant else ""
+
+    # Build the prompt
+    style_preset = get_style_preset(request.style)
+
+    if request.custom_prompt:
+        prompt = f"{request.custom_prompt}, {style_preset['prompt_suffix']}"
+    else:
+        # Load character state for dynamic context
+        from ..services.entity_state_service import EntityStateService
+        from .story_helpers import get_or_create_user_settings
+        llm_user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
+        entity_service = EntityStateService(current_user.id, llm_user_settings)
+        char_state = entity_service.get_character_state(
+            db, request.character_id, scene.story_id, scene.branch_id
+        )
+
+        current_state = {}
+        if char_state:
+            current_state = {
+                "appearance": char_state.appearance,
+                "current_location": char_state.current_location,
+                "current_position": char_state.current_position,
+                "emotional_state": char_state.emotional_state,
+                "physical_condition": char_state.physical_condition,
+                "items_in_hand": char_state.items_in_hand,
+            }
+
+        # Use LLM to generate optimized prompt with scene atmosphere
+        try:
+            from ..services.image_generation.prompt_generator import ImagePromptGenerator
+            from ..services.llm.service import UnifiedLLMService
+            from ..services.llm.prompts import PromptManager
+            from .story_helpers import get_or_create_user_settings
+
+            llm_service = UnifiedLLMService()
+            prompt_manager = PromptManager()
+            llm_user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
+            prompt_gen = ImagePromptGenerator(current_user.id, llm_user_settings, llm_service, prompt_manager)
+
+            generated = await prompt_gen.generate_character_in_context_prompt(
+                character_name=character.name,
+                base_appearance=base_appearance,
+                current_state=current_state,
+                style_preset=request.style,
+                scene_content=scene_content,
+            )
+            prompt = f"{generated}, {style_preset['prompt_suffix']}"
+            logger.info(f"[IMAGE_GEN] LLM-generated character prompt: {prompt[:200]}...")
+        except Exception as e:
+            logger.warning(f"[IMAGE_GEN] LLM prompt generation failed, using fallback: {e}")
+            appearance = current_state.get("appearance") or base_appearance
+            location = current_state.get("current_location") or ""
+            emotional = current_state.get("emotional_state") or ""
+            parts = [f"portrait of {character.name}", appearance]
+            if location:
+                parts.append(f"in {location}")
+            if emotional:
+                parts.append(f"{emotional} expression")
+            parts.append(style_preset["prompt_suffix"])
+            prompt = ", ".join(parts)
+
+    negative_prompt = style_preset["negative_prompt"]
+
+    # Get checkpoint
+    img_settings = user_settings._get_image_generation_settings()
+    checkpoint = request.checkpoint or img_settings.get("comfyui_checkpoint") or None
+
+    try:
+        provider = get_comfyui_provider(user_settings)
+
+        from ..services.image_generation import GenerationRequest as GenRequest
+        gen_request = GenRequest(
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            width=request.width,
+            height=request.height,
+            steps=request.steps,
+            cfg_scale=request.cfg_scale,
+            checkpoint=checkpoint,
+        )
+
+        result = await provider.generate_and_wait(gen_request)
+        await provider.close()
+
+        if not result.success or result.status != GenerationStatus.COMPLETED:
+            error_msg = str(result.error_message) if result.error_message else None
+            logger.warning(f"Character image generation failed: status={result.status}, error={error_msg}")
+            return GenerationJobResponse(
+                job_id=result.job_id or "",
+                status=result.status.value,
+                error=error_msg,
+            )
+
+        generation_params = {
+            "width": request.width,
+            "height": request.height,
+            "steps": request.steps,
+            "cfg_scale": request.cfg_scale,
+            "checkpoint": checkpoint,
+            "style": request.style,
+            "negative_prompt": negative_prompt,
+        }
+
+        generated_image = await save_generated_image(
+            image_data=result.image_data,
+            story_id=scene.story_id,
+            image_type="character_scene",
+            prompt=prompt,
+            generation_params=generation_params,
+            db=db,
+            branch_id=scene.branch_id,
+            scene_id=scene_id,
+            character_id=request.character_id,
+        )
+
+        return GenerationJobResponse(
+            job_id=result.job_id or "",
+            status="completed",
+            progress=1.0,
+            image_id=generated_image.id,
+            prompt=prompt,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating character image: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate character image"
         )
 
 

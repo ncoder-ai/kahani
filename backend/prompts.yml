@@ -3650,32 +3650,57 @@ dialog_styles:
 # Image Generation Prompts
 image_prompt_generation:
   portrait_from_appearance: |
-    Convert this character appearance description into an image generation prompt.
-    Focus on visual details only. Output ONLY the prompt, no explanations.
+    You are an image prompt writer for AI image generation models like Flux.
+    Convert this character appearance into a visual portrait prompt.
+    Output ONLY the prompt as comma-separated visual descriptors. No explanations.
 
     Character: {character_name}
     Appearance: {appearance}
-    Style: {style_preset}
+    Art style: {style_preset}
     {additional_context}
 
-    Generate a concise portrait prompt that captures their key visual features.
-    Focus on: face, hair, eyes, skin tone, distinctive features, clothing if mentioned.
-    Do not include names or non-visual information.
+    Write a single portrait prompt (40-60 words) describing: face and expression,
+    hair color and style, eye color, skin tone, distinctive features, clothing/attire,
+    lighting and background. Do NOT include names or non-visual information.
 
   scene_to_image_prompt: |
-    Convert this story scene into an image generation prompt.
-    Focus on the visual composition, setting, and action.
-    Output ONLY the prompt, no explanations.
+    You are an image prompt writer for AI image generation models like Flux.
+    Convert this story scene into a single visual image generation prompt.
+    Output ONLY the prompt as comma-separated visual descriptors. No explanations.
 
-    Scene content:
+    Scene text:
     {scene_content}
 
     Characters present: {characters}
     Location: {location}
-    Mood: {mood}
-    Style: {style_preset}
+    Mood/atmosphere: {mood}
+    Art style: {style_preset}
     {chapter_context}
 
-    Generate a detailed image prompt capturing this moment visually.
-    Focus on: composition, lighting, character poses, environment details, atmosphere.
-    Keep it under 100 words. Do not include dialogue or internal thoughts.
+    Write one image prompt (60-100 words) describing: the main subjects and their
+    appearance (NOT names), their poses and actions, the environment and setting,
+    lighting and atmosphere, camera framing and composition.
+    Do NOT include: character names, dialogue, thoughts, or narrative text.
+
+  character_in_context: |
+    You are an image prompt writer for AI image generation models like Flux.
+    Create a character portrait prompt showing this person in their current story moment.
+    Output ONLY the prompt as comma-separated visual descriptors. No explanations.
+
+    Base appearance: {base_appearance}
+    Current appearance/attire: {current_appearance}
+    Location: {location}
+    Pose/position: {position}
+    Emotional state: {emotional_state}
+    Physical condition: {physical_condition}
+    Items held: {items_held}
+    Art style: {style_preset}
+
+    Current scene excerpt (use for atmosphere, lighting, and setting details):
+    {scene_excerpt}
+
+    Write one portrait prompt (60-80 words) describing: the person's appearance and
+    current attire, their expression and body language matching their emotional state,
+    the setting and atmosphere from the scene around them, lighting conditions,
+    any objects they're holding or interacting with.
+    Do NOT include: names, dialogue, thoughts, or explanations.
