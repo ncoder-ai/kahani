@@ -60,8 +60,14 @@ export default function LLMSettingsTab({
   const [connectionTestResult, setConnectionTestResult] = useState<{success: boolean; message: string} | null>(null);
   const [extractionPresets, setExtractionPresets] = useState<Record<string, any>>({});
 
+  const [autoLoading, setAutoLoading] = useState(false);
+  const [autoLoadingExtraction, setAutoLoadingExtraction] = useState(false);
+
   useEffect(() => {
     loadExtractionPresets();
+    // Auto-fetch models silently if API URL is configured
+    autoFetchModels();
+    autoFetchExtractionModels();
   }, []);
 
   const loadExtractionPresets = async () => {
@@ -77,6 +83,64 @@ export default function LLMSettingsTab({
       }
     } catch (error) {
       console.error('Failed to load extraction model presets:', error);
+    }
+  };
+
+  const autoFetchModels = async () => {
+    if (!llmSettings.api_url) return;
+    setAutoLoading(true);
+    try {
+      const response = await fetch(`${await getApiBaseUrl()}/api/settings/available-models`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          api_url: llmSettings.api_url,
+          api_key: llmSettings.api_key,
+          api_type: llmSettings.api_type,
+          model_name: llmSettings.model_name
+        }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setAvailableModels(data.models);
+        }
+      }
+    } catch (error) {
+      // Silent failure on auto-load
+    } finally {
+      setAutoLoading(false);
+    }
+  };
+
+  const autoFetchExtractionModels = async () => {
+    if (!extractionModelSettings.enabled || !extractionModelSettings.url) return;
+    setAutoLoadingExtraction(true);
+    try {
+      const response = await fetch(`${await getApiBaseUrl()}/api/settings/extraction-model/available-models`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          url: extractionModelSettings.url,
+          api_key: extractionModelSettings.api_key,
+        }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setAvailableExtractionModels(data.models);
+        }
+      }
+    } catch (error) {
+      // Silent failure on auto-load
+    } finally {
+      setAutoLoadingExtraction(false);
     }
   };
 
@@ -367,10 +431,10 @@ export default function LLMSettingsTab({
                     />
                     <button
                       onClick={fetchAvailableModels}
-                      disabled={loadingModels || !llmSettings.api_url}
+                      disabled={loadingModels || autoLoading || !llmSettings.api_url}
                       className="px-4 py-2 theme-btn-primary rounded-md font-medium disabled:opacity-50"
                     >
-                      {loadingModels ? 'Loading...' : 'Fetch Models'}
+                      {loadingModels || autoLoading ? 'Loading...' : 'Fetch Models'}
                     </button>
                   </div>
                 </div>
@@ -625,10 +689,10 @@ export default function LLMSettingsTab({
                         />
                         <button
                           onClick={fetchExtractionModels}
-                          disabled={loadingExtractionModels}
+                          disabled={loadingExtractionModels || autoLoadingExtraction}
                           className="px-4 py-2 theme-btn-secondary rounded-md font-medium disabled:opacity-50"
                         >
-                          {loadingExtractionModels ? 'Loading...' : 'Fetch'}
+                          {loadingExtractionModels || autoLoadingExtraction ? 'Loading...' : 'Fetch'}
                         </button>
                       </div>
                     </div>

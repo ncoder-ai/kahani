@@ -52,9 +52,9 @@ export default function ImageGenSettingsTab({
 
   useEffect(() => {
     loadStylePresets();
-    // Check server status if URL is configured
+    // Auto-check server status and load models silently if URL is configured
     if (imageGenSettings.comfyui_server_url) {
-      checkServerStatus();
+      autoCheckServerAndLoadModels();
     }
   }, []);
 
@@ -69,6 +69,31 @@ export default function ImageGenSettingsTab({
       setStylePresets(presets);
     } catch (error) {
       console.error('Failed to load style presets:', error);
+    }
+  };
+
+  const autoCheckServerAndLoadModels = async () => {
+    setIsCheckingServer(true);
+    setServerStatus(null);
+    try {
+      const status = await imageGenerationApi.getServerStatus();
+      setServerStatus(status);
+      if (status.online) {
+        // Silently load models
+        setIsLoadingModels(true);
+        try {
+          const models = await imageGenerationApi.getAvailableModels();
+          setAvailableModels(models);
+        } catch (error) {
+          // Silent failure
+        } finally {
+          setIsLoadingModels(false);
+        }
+      }
+    } catch (error) {
+      setServerStatus({ online: false, error: 'Connection failed', queue_running: 0, queue_pending: 0, gpu_memory: {} });
+    } finally {
+      setIsCheckingServer(false);
     }
   };
 

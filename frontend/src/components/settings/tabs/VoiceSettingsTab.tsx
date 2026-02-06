@@ -68,11 +68,83 @@ export default function VoiceSettingsTab({
   const [ttsConnectionStatus, setTtsConnectionStatus] = useState<'idle' | 'success' | 'failed'>('idle');
   const [showVoiceBrowser, setShowVoiceBrowser] = useState(false);
   const [testAudio, setTestAudio] = useState<HTMLAudioElement | null>(null);
+  const [hasAutoConnected, setHasAutoConnected] = useState(false);
+  const [hasCheckedSTT, setHasCheckedSTT] = useState(false);
+
   useEffect(() => {
     loadTTSProviders();
     loadCurrentTTSSettings();
     loadSTTSettings();
   }, []);
+
+  // Auto-test TTS connection once settings are loaded (api_url becomes available)
+  useEffect(() => {
+    if (!hasAutoConnected && !isLoadingTTSSettings && ttsSettings.api_url && ttsVoices.length === 0) {
+      setHasAutoConnected(true);
+      autoTestTTSConnection();
+    }
+  }, [isLoadingTTSSettings, ttsSettings.api_url]);
+
+  // Auto-check STT model download status once STT settings are loaded
+  useEffect(() => {
+    if (!hasCheckedSTT && sttEnabled && sttModel) {
+      setHasCheckedSTT(true);
+      checkSTTModelStatus();
+    }
+  }, [sttEnabled, sttModel]);
+
+  const autoTestTTSConnection = async () => {
+    if (!ttsSettings.api_url) return;
+    setIsTestingTTSConnection(true);
+    setTtsConnectionStatus('idle');
+    try {
+      const response = await fetch(`${await getApiBaseUrl()}/api/tts/test-connection`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          provider_type: ttsSettings.provider_type,
+          api_url: ttsSettings.api_url,
+          api_key: ttsSettings.api_key,
+        }),
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setTtsConnectionStatus('success');
+        if (data.voices && data.voices.length > 0) {
+          setTtsVoices(data.voices);
+          if (!ttsSettings.voice_id || ttsSettings.voice_id === 'default') {
+            setTtsSettings(prev => ({ ...prev, voice_id: data.voices[0].id }));
+          }
+        }
+      } else {
+        setTtsConnectionStatus('failed');
+      }
+    } catch (error) {
+      setTtsConnectionStatus('failed');
+    } finally {
+      setIsTestingTTSConnection(false);
+    }
+  };
+
+  const checkSTTModelStatus = async () => {
+    try {
+      const response = await fetch(`${await getApiBaseUrl()}/api/settings/stt-model-status`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.enabled) {
+          setSttModelDownloaded(data.whisper?.downloaded ?? null);
+          setVadModelDownloaded(data.vad?.downloaded ?? null);
+        }
+      }
+    } catch (error) {
+      // Silent failure - STT model status check is non-critical
+    }
+  };
 
   const loadTTSProviders = async () => {
     setIsLoadingTTSProviders(true);
