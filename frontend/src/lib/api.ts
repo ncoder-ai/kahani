@@ -1,6 +1,7 @@
 // API configuration and utilities
 
 import { getApiBaseUrl as getApiBaseUrlFromConfig, getApiBaseUrlSync as getApiBaseUrlSyncFromConfig } from './apiUrl';
+import { syncTokenToModularClients } from './api/base';
 
 /**
  * Normalize API URL by adding default port if missing
@@ -387,6 +388,7 @@ class ApiClient {
    */
   setToken(token: string) {
     this.token = token;
+    syncTokenToModularClients(token);
   }
 
   /**
@@ -395,8 +397,8 @@ class ApiClient {
    */
   removeToken() {
     this.token = null;
-    // Clear cached timeout when token is removed
     this.cachedTimeoutMs = null;
+    syncTokenToModularClients(null);
   }
 
   /**

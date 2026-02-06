@@ -164,13 +164,59 @@ function getApiBaseUrlSync(): string {
 }
 
 /**
+ * Shared token storage for all BaseApiClient instances.
+ * Ensures token updates (login, refresh) are visible to every API singleton.
+ */
+const sharedTokenStore = {
+  token: null as string | null,
+
+  load() {
+    if (typeof window !== 'undefined') {
+      try {
+        const authStorage = localStorage.getItem('auth-storage');
+        if (authStorage) {
+          const parsed = JSON.parse(authStorage);
+          this.token = parsed.state?.token || null;
+        }
+      } catch (e) {
+        console.warn('[API] Failed to load token from auth store:', e);
+        this.token = null;
+      }
+    }
+  },
+
+  set(token: string) {
+    this.token = token;
+  },
+
+  clear() {
+    this.token = null;
+  },
+};
+
+/**
+ * Sync a token to the shared store so all modular API clients see it.
+ * Called by the legacy ApiClient when its token is set/cleared.
+ */
+export function syncTokenToModularClients(token: string | null) {
+  if (token) {
+    sharedTokenStore.set(token);
+  } else {
+    sharedTokenStore.clear();
+  }
+}
+
+/**
  * Base API Client class with shared HTTP infrastructure
  */
 export class BaseApiClient {
   protected baseURL: string;
-  protected token: string | null = null;
   private cachedTimeoutMs: number | null = null;
   private isFetchingTimeout: boolean = false;
+
+  protected get token(): string | null {
+    return sharedTokenStore.token;
+  }
 
   constructor(baseURL?: string) {
     if (baseURL) {
@@ -182,7 +228,7 @@ export class BaseApiClient {
         this.baseURL = '';
       }
     }
-    this.loadToken();
+    sharedTokenStore.load();
   }
 
   async initialize(): Promise<void> {
@@ -203,18 +249,7 @@ export class BaseApiClient {
   }
 
   private loadToken() {
-    if (typeof window !== 'undefined') {
-      try {
-        const authStorage = localStorage.getItem('auth-storage');
-        if (authStorage) {
-          const parsed = JSON.parse(authStorage);
-          this.token = parsed.state?.token || null;
-        }
-      } catch (e) {
-        console.warn('[API] Failed to load token from auth store:', e);
-        this.token = null;
-      }
-    }
+    sharedTokenStore.load();
   }
 
   private async handleTokenRefresh() {
@@ -227,11 +262,11 @@ export class BaseApiClient {
   }
 
   setToken(token: string) {
-    this.token = token;
+    sharedTokenStore.set(token);
   }
 
   removeToken() {
-    this.token = null;
+    sharedTokenStore.clear();
     this.cachedTimeoutMs = null;
   }
 
