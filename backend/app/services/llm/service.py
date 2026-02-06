@@ -190,10 +190,12 @@ class UnifiedLLMService:
                             events_str = "; ".join(events_to_show)
                             parts.append(f"Upcoming story beats: {events_str}")
                     else:
-                        logger.info("[PLOT_FOR_CHOICES] All key_events completed, skipping events section")
-
-            # Note: Climax is shown in CHAPTER DIRECTION (static chapter arc),
-            # so we don't need to repeat it here for choices
+                        # All key_events completed - fall back to climax/resolution as next beat
+                        logger.info("[PLOT_FOR_CHOICES] All key_events completed, checking climax/resolution")
+                        if chapter_plot.get("climax"):
+                            parts.append(f"Next beat (climax): {chapter_plot['climax']}")
+                        if chapter_plot.get("resolution"):
+                            parts.append(f"Resolution: {chapter_plot['resolution']}")
 
         if parts:
             return "CHAPTER DIRECTION (for choices): " + " | ".join(parts)
