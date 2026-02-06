@@ -684,10 +684,10 @@ plot_extraction:
     - Event only begins but key moment hasn't happened yet
     - Just hints or foreshadowing without the actual event
 
-    Return the EXACT event text from the list for any matches:
-    ["Event text copied exactly"]
+    Return a JSON object with each event number mapped to true or false:
+    {{"1": true, "2": false}}
 
-    If truly no events occurred, return: []
+    If no events occurred, all should be false.
 
 # Combined Entity Extraction (cache-friendly)
 # Uses same context structure as scene generation for cache hits
