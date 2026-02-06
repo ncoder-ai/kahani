@@ -29,6 +29,7 @@ class WritingStylePresetCreate(BaseModel):
     summary_system_prompt: Optional[str] = Field(None, description="Optional override for story summaries")
     pov: Optional[str] = Field(None, description="Point of view: 'first', 'second', or 'third'")
     prose_style: Optional[str] = Field('balanced', description="Prose style: balanced, dialogue_forward, internal_monologue, action_driven, description_driven, stream_of_consciousness, free_indirect, poetic_lyrical")
+    is_active: Optional[bool] = Field(False, description="Whether to set this preset as the active one")
 
 
 class WritingStylePresetUpdate(BaseModel):
@@ -39,6 +40,7 @@ class WritingStylePresetUpdate(BaseModel):
     summary_system_prompt: Optional[str] = None
     pov: Optional[str] = Field(None, description="Point of view: 'first', 'second', or 'third'")
     prose_style: Optional[str] = Field(None, description="Prose style: balanced, dialogue_forward, internal_monologue, action_driven, description_driven, stream_of_consciousness, free_indirect, poetic_lyrical")
+    is_active: Optional[bool] = Field(None, description="Whether to set this preset as the active one")
 
 
 class WritingStylePresetResponse(BaseModel):
@@ -172,7 +174,12 @@ async def create_preset(
     db: Session = Depends(get_db)
 ):
     """Create a new writing style preset"""
-    # Create new preset (inactive by default)
+    make_active = preset_data.is_active or False
+
+    # If activating, deactivate all other presets first
+    if make_active:
+        deactivate_all_presets(current_user.id, db)
+
     new_preset = WritingStylePreset(
         user_id=current_user.id,
         name=preset_data.name,
@@ -181,13 +188,16 @@ async def create_preset(
         summary_system_prompt=preset_data.summary_system_prompt,
         pov=preset_data.pov,
         prose_style=preset_data.prose_style or 'balanced',
-        is_active=False
+        is_active=make_active,
     )
-    
+
     db.add(new_preset)
     db.commit()
     db.refresh(new_preset)
-    
+
+    if make_active:
+        llm_service.invalidate_user_client(current_user.id)
+
     return new_preset
 
 
