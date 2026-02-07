@@ -1865,7 +1865,46 @@ class EntityStateService:
         if branch_id:
             query = query.filter(CharacterState.branch_id == branch_id)
         return query.first()
-    
+
+    def get_character_state_at_scene(
+        self,
+        db: Session,
+        character_id: int,
+        story_id: int,
+        branch_id: int,
+        scene_sequence: int
+    ) -> Optional[Dict[str, Any]]:
+        """Get character state from the batch snapshot covering a specific scene.
+
+        Looks up EntityStateBatch where start_scene_sequence <= scene_sequence <= end_scene_sequence.
+        If no exact match, falls back to the nearest batch before the scene.
+        Returns the character dict from the snapshot, or None if no batch found.
+        """
+        # Try exact batch covering this scene
+        batch = db.query(EntityStateBatch).filter(
+            EntityStateBatch.story_id == story_id,
+            EntityStateBatch.branch_id == branch_id if branch_id else EntityStateBatch.branch_id.is_(None),
+            EntityStateBatch.start_scene_sequence <= scene_sequence,
+            EntityStateBatch.end_scene_sequence >= scene_sequence,
+        ).first()
+
+        # Fall back to nearest batch before the scene
+        if not batch:
+            batch = db.query(EntityStateBatch).filter(
+                EntityStateBatch.story_id == story_id,
+                EntityStateBatch.branch_id == branch_id if branch_id else EntityStateBatch.branch_id.is_(None),
+                EntityStateBatch.end_scene_sequence < scene_sequence,
+            ).order_by(EntityStateBatch.end_scene_sequence.desc()).first()
+
+        if not batch or not batch.character_states_snapshot:
+            return None
+
+        for char_dict in batch.character_states_snapshot:
+            if char_dict.get("character_id") == character_id:
+                return char_dict
+
+        return None
+
     def get_all_character_states(
         self,
         db: Session,

@@ -3439,6 +3439,7 @@ image_prompt_generation:
     Convert the data below into a short image prompt (40-70 words).
     STRICT: Only describe what is stated in the scene and character data.
     Do NOT invent details. No quality tags (8K, masterpiece, Nikon, etc).
+    Infer gender and ethnicity from each character's background and name (e.g. Indian woman, Chinese-Canadian man). Never say "person" — always use man/woman/boy/girl.
     Output ONLY the prompt.
 
     Scene text:
@@ -3450,7 +3451,7 @@ image_prompt_generation:
     Art style: {style_preset}
     {chapter_context}
 
-    Describe one visual moment: who is visible (by appearance not name), what they
+    Describe one visual moment: who is visible (by ethnicity, gender, and appearance — not name), what they
     are doing, the setting, and lighting. Keep it concise.
 
   character_in_context: |
@@ -3459,10 +3460,13 @@ image_prompt_generation:
     - Use ONLY the data provided. Do NOT invent details.
     - Infer ethnicity from Name + Background (e.g. Indian name + born in India = indian man/woman).
     - Infer gender from Background context.
-    - Skip measurements (height, weight, bust/waist/hips) — not useful for image models.
-    - Skip dress style preferences — use Current Attire for what they're actually wearing now.
+    - Focus on: ethnicity, face, build, hair, clothing, pose, location, and the provided Expression.
+    - For Attire: name the garment simply (sundress, sari, shirt). Drop suggestive modifiers (riding up, partially open, unbuttoned, clinging, etc.).
+    - Skip measurements (height, weight, bust/waist/hips).
     - No character names in the prompt — describe by appearance only.
     - No quality tags (8K, masterpiece, etc). No narrative text or dialogue.
+    - No atmosphere/mood words (tense, intimate, charged, etc.).
+    - Use Scene Context ONLY to determine location and clothing if other fields say "not specified". Ignore everything else from Scene Context.
     - Output ONLY the prompt, nothing else.
 
     === EXAMPLES ===
@@ -3472,26 +3476,26 @@ image_prompt_generation:
     Background: Born in a coastal town in southern India. Former teacher turned shop owner. Mother of three.
     Appearance: Height 5'3", Fair skin, Black hair with gray strands, Dark brown eyes, Slightly plump hourglass figure, Small scar above left eyebrow, Gold necklace
     Current Attire: green sari
-    Emotion: nervous, excited
+    Expression: slight smile
     Pose: standing in doorway
     Location: living room
-    Physical Condition: blushing
+    Holding: nothing
 
     OUTPUT:
-    Indian woman, fair skin, black hair with gray strands in a bun, dark brown eyes, slightly plump hourglass figure, small scar above left eyebrow, gold necklace, wearing a green sari, nervous and excited expression, standing in doorway, blushing, in a warm living room
+    Indian woman, fair skin, black hair with gray strands in a bun, dark brown eyes, slightly plump figure, small scar above left eyebrow, gold necklace, wearing a green sari, slight smile, standing in doorway, in a living room
 
     INPUT:
     Name: David Liu
     Background: Chinese-Canadian architect. Father of two.
     Appearance: Tall, athletic build, short black hair, brown eyes, clean-shaven, wire-rimmed glasses
     Current Attire: rumpled dress shirt with sleeves rolled up
-    Emotion: exhausted, determined
+    Expression: tired expression
     Pose: hunched over drafting table
     Location: dimly lit studio
-    Physical Condition: dark circles under eyes
+    Holding: pencil
 
     OUTPUT:
-    Chinese-Canadian man, tall athletic build, short black hair, brown eyes, clean-shaven, wire-rimmed glasses, rumpled dress shirt with sleeves rolled up, exhausted but determined expression, hunched over a drafting table, dark circles under eyes, in a dimly lit studio
+    Chinese-Canadian man, tall athletic build, short black hair, brown eyes, clean-shaven, wire-rimmed glasses, rumpled dress shirt with sleeves rolled up, tired expression, hunched over a drafting table, holding a pencil, in a dimly lit studio
 
     === YOUR TURN ===
 
@@ -3500,10 +3504,10 @@ image_prompt_generation:
     Background: {character_background}
     Appearance: {base_appearance}
     Current Attire: {current_attire}
-    Emotion: {emotional_state}
+    Expression: {facial_expression}
     Pose: {position}
     Location: {location}
-    Physical Condition: {physical_condition}
     Holding: {items_held}
+    Scene Context: {scene_text}
 
     OUTPUT:

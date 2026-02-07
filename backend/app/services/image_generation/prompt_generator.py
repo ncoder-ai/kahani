@@ -194,16 +194,23 @@ class ImagePromptGenerator:
             else:
                 items_str = items or "nothing"
 
+            # Map emotional_state to a simple facial expression keyword
+            emotion_raw = current_state.get("emotional_state") or ""
+            facial_expression = self._simplify_emotion(emotion_raw)
+
+            # Truncate scene content for location/attire fallback
+            scene_text_truncated = (scene_content[:500] + "...") if scene_content and len(scene_content) > 500 else (scene_content or "not provided")
+
             prompt = template.format(
                 character_name=character_name,
                 character_background=character_background or "not provided",
                 base_appearance=base_appearance or "not provided",
                 current_attire=current_state.get("appearance") or "not specified",
-                emotional_state=current_state.get("emotional_state") or "neutral",
+                facial_expression=facial_expression,
                 position=current_state.get("current_position") or "not specified",
                 location=current_state.get("current_location") or "not specified",
-                physical_condition=current_state.get("physical_condition") or "normal",
                 items_held=items_str,
+                scene_text=scene_text_truncated,
             )
 
             response = await self._generate(prompt, max_tokens=150)
@@ -215,6 +222,42 @@ class ImagePromptGenerator:
             logger.error(f"Error generating character prompt: {e}")
             return self._fallback_character_in_context_prompt(
                 character_name, base_appearance, current_state, style_preset)
+
+    @staticmethod
+    def _simplify_emotion(emotion: str) -> str:
+        """Map complex emotional states to simple facial expression keywords for image generation."""
+        if not emotion:
+            return "neutral expression"
+        emotion_lower = emotion.lower()
+        # Map to simple, image-safe facial expressions
+        mapping = {
+            "happy": "smiling", "joy": "smiling", "excited": "smiling",
+            "amused": "smiling", "pleased": "smiling", "delighted": "smiling",
+            "sad": "somber expression", "grief": "somber expression",
+            "melancholy": "somber expression", "sorrowful": "somber expression",
+            "angry": "frowning", "furious": "frowning", "irritated": "frowning",
+            "frustrated": "frowning", "annoyed": "frowning",
+            "afraid": "wide-eyed", "scared": "wide-eyed", "terrified": "wide-eyed",
+            "fearful": "wide-eyed", "panic": "wide-eyed",
+            "surprised": "surprised expression", "shocked": "surprised expression",
+            "astonished": "surprised expression",
+            "nervous": "slight smile", "anxious": "pensive expression",
+            "worried": "pensive expression", "uneasy": "pensive expression",
+            "confident": "confident expression", "determined": "determined expression",
+            "resolute": "determined expression",
+            "calm": "calm expression", "serene": "calm expression",
+            "peaceful": "calm expression", "relaxed": "relaxed expression",
+            "thoughtful": "thoughtful expression", "pensive": "pensive expression",
+            "contemplative": "thoughtful expression",
+            "tired": "tired expression", "exhausted": "tired expression",
+            "weary": "tired expression",
+        }
+        # Check each keyword against the emotion string
+        for keyword, expression in mapping.items():
+            if keyword in emotion_lower:
+                return expression
+        # Default: neutral
+        return "neutral expression"
 
     def _fallback_portrait_prompt(
         self,

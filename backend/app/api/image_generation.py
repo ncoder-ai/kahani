@@ -670,7 +670,7 @@ async def generate_scene_image(
             llm_user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
             prompt_gen = ImagePromptGenerator(current_user.id, llm_user_settings, llm_service, prompt_manager)
 
-            # Get characters with appearances for richer prompt
+            # Get characters with appearances + background for richer prompt
             characters = []
             if variant and variant.characters_present:
                 for char_name in variant.characters_present:
@@ -681,7 +681,18 @@ async def generate_scene_image(
                     if sc:
                         char = db.query(Character).filter(Character.id == sc.character_id).first()
                         if char:
-                            characters.append({"name": char.name, "appearance": char.appearance or ""})
+                            # Combine appearance + background for gender/ethnicity inference
+                            appearance_parts = []
+                            if char.background:
+                                appearance_parts.append(char.background)
+                            if char.appearance:
+                                appearance_parts.append(char.appearance)
+                            elif char.description:
+                                appearance_parts.append(char.description)
+                            characters.append({
+                                "name": char.name,
+                                "appearance": ". ".join(appearance_parts) if appearance_parts else "no description"
+                            })
 
             generated = await prompt_gen.generate_scene_prompt(
                 scene_content=scene_content,
@@ -845,20 +856,36 @@ async def generate_character_image(
         from .story_helpers import get_or_create_user_settings
         llm_user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
         entity_service = EntityStateService(current_user.id, llm_user_settings)
-        char_state = entity_service.get_character_state(
-            db, request.character_id, scene.story_id, scene.branch_id
+
+        # Try batch snapshot for historical scene state
+        char_state_dict = entity_service.get_character_state_at_scene(
+            db, request.character_id, scene.story_id, scene.branch_id, scene.sequence_number
         )
 
         current_state = {}
-        if char_state:
+        if char_state_dict:
             current_state = {
-                "appearance": char_state.appearance,
-                "current_location": char_state.current_location,
-                "current_position": char_state.current_position,
-                "emotional_state": char_state.emotional_state,
-                "physical_condition": char_state.physical_condition,
-                "items_in_hand": char_state.items_in_hand,
+                "appearance": char_state_dict.get("appearance"),
+                "current_location": char_state_dict.get("current_location"),
+                "current_position": char_state_dict.get("current_position"),
+                "emotional_state": char_state_dict.get("emotional_state"),
+                "physical_condition": char_state_dict.get("physical_condition"),
+                "items_in_hand": char_state_dict.get("items_in_hand"),
             }
+        else:
+            # Fall back to live state (correct for latest scene or when no batches exist)
+            char_state = entity_service.get_character_state(
+                db, request.character_id, scene.story_id, scene.branch_id
+            )
+            if char_state:
+                current_state = {
+                    "appearance": char_state.appearance,
+                    "current_location": char_state.current_location,
+                    "current_position": char_state.current_position,
+                    "emotional_state": char_state.emotional_state,
+                    "physical_condition": char_state.physical_condition,
+                    "items_in_hand": char_state.items_in_hand,
+                }
 
         # Use LLM to generate optimized prompt with scene atmosphere
         try:
