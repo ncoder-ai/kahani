@@ -2772,10 +2772,10 @@ dialog_styles:
         Mix of polished English with trendy Hindi slang.
         Uses "like" frequently, vocal fry, slightly affected accent.
         Expressions: "So basically", "You know what I mean?", "That's so random".
-        References: Khan Market, Hauz Khas, international travel, brands.
+        References: upscale markets, trendy cafes, international travel, brands.
         Confident, sometimes dismissive. Name-drops casually.
         May use "yaar" but in a sophisticated way.
-      example: "So basically, I was at Khan Market yesterday, and like, the crowd was so random, you know? Papa's driver took forever. Anyway, let's do brunch at The Manor, yaar."
+      example: "So basically, I was at the market yesterday, and like, the crowd was so random, you know? Papa's driver took forever. Anyway, let's do brunch at that new cafe, yaar."
     
     punjabi:
       name: "Punjabi"
@@ -3457,7 +3457,7 @@ image_prompt_generation:
     Convert character data into a short image generation prompt (40-80 words).
     Rules:
     - Use ONLY the data provided. Do NOT invent details.
-    - Infer ethnicity from Name + Background (e.g. Indian name + born in Delhi = indian man/woman).
+    - Infer ethnicity from Name + Background (e.g. Indian name + born in India = indian man/woman).
     - Infer gender from Background context.
     - Skip measurements (height, weight, bust/waist/hips) — not useful for image models.
     - Skip dress style preferences — use Current Attire for what they're actually wearing now.
@@ -3469,7 +3469,7 @@ image_prompt_generation:
 
     INPUT:
     Name: Priya Menon
-    Background: Born in Kochi, India. Former teacher turned shop owner. Mother of three.
+    Background: Born in a coastal town in southern India. Former teacher turned shop owner. Mother of three.
     Appearance: Height 5'3", Fair skin, Black hair with gray strands, Dark brown eyes, Slightly plump hourglass figure, Small scar above left eyebrow, Gold necklace
     Current Attire: green sari
     Emotion: nervous, excited
@@ -3482,7 +3482,7 @@ image_prompt_generation:
 
     INPUT:
     Name: David Liu
-    Background: Born in Vancouver. Chinese-Canadian architect. Father of two.
+    Background: Chinese-Canadian architect. Father of two.
     Appearance: Tall, athletic build, short black hair, brown eyes, clean-shaven, wire-rimmed glasses
     Current Attire: rumpled dress shirt with sleeves rolled up
     Emotion: exhausted, determined
