@@ -472,38 +472,38 @@ image_generation:
     # Which LLM to use for text->image prompt conversion
     prompt_llm: "main"  # "main" or "extraction"
 
-  # Style presets (prompt suffixes, not checkpoint-specific)
+  # Style presets for modern models (Flux, z-image) — natural language, no tag spam
   style_presets:
     illustrated:
       name: "Illustrated"
       description: "Digital art with vibrant colors"
-      prompt_suffix: "digital art, illustration, vibrant colors"
-      negative_prompt: "photo, realistic, 3d render"
+      prompt_suffix: "in a digital illustration style with vibrant colors"
+      negative_prompt: ""
     semi_realistic:
       name: "Semi-Realistic"
       description: "Detailed cinematic style"
-      prompt_suffix: "semi-realistic, detailed, cinematic"
-      negative_prompt: "cartoon, anime, low quality"
+      prompt_suffix: "in a semi-realistic cinematic style"
+      negative_prompt: ""
     anime:
       name: "Anime"
       description: "Japanese anime art style"
-      prompt_suffix: "anime style, detailed, masterpiece"
-      negative_prompt: "photo, realistic, western"
+      prompt_suffix: "in anime art style"
+      negative_prompt: ""
     photorealistic:
       name: "Photorealistic"
-      description: "High-quality realistic images"
-      prompt_suffix: "photorealistic, detailed, 8k"
-      negative_prompt: "cartoon, illustration, painting"
+      description: "Realistic photographic style"
+      prompt_suffix: "photorealistic, natural lighting"
+      negative_prompt: ""
     fantasy:
       name: "Fantasy Art"
       description: "Epic fantasy illustration style"
-      prompt_suffix: "fantasy art, epic, detailed, magical lighting"
-      negative_prompt: "photo, realistic, modern"
+      prompt_suffix: "in a fantasy art style with dramatic lighting"
+      negative_prompt: ""
     noir:
       name: "Film Noir"
       description: "Dark, dramatic black and white style"
-      prompt_suffix: "film noir, dramatic lighting, high contrast, black and white"
-      negative_prompt: "colorful, bright, cheerful"
+      prompt_suffix: "in film noir style, black and white, dramatic shadows"
+      negative_prompt: ""
 
   # Character consistency settings by model type
   consistency:

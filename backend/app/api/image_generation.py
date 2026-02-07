@@ -872,12 +872,21 @@ async def generate_character_image(
             llm_user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
             prompt_gen = ImagePromptGenerator(current_user.id, llm_user_settings, llm_service, prompt_manager)
 
+            # Build background context for ethnicity/origin
+            bg_parts = []
+            if character_description and character_description != base_appearance:
+                bg_parts.append(character_description)
+            if character.background:
+                bg_parts.append(character.background)
+            character_background = ". ".join(bg_parts) if bg_parts else None
+
             generated = await prompt_gen.generate_character_in_context_prompt(
                 character_name=character.name,
                 base_appearance=base_appearance,
                 current_state=current_state,
                 style_preset=request.style,
                 scene_content=scene_content,
+                character_background=character_background,
             )
             prompt = f"{generated}, {style_preset['prompt_suffix']}"
             logger.info(f"[IMAGE_GEN] LLM-generated character prompt: {prompt[:200]}...")

@@ -3650,57 +3650,87 @@ dialog_styles:
 # Image Generation Prompts
 image_prompt_generation:
   portrait_from_appearance: |
-    You are an image prompt writer for AI image generation models like Flux.
-    Convert this character appearance into a visual portrait prompt.
-    Output ONLY the prompt as comma-separated visual descriptors. No explanations.
+    Convert the data below into a short image prompt (30-50 words).
+    ONLY use details from the fields provided. Do NOT invent clothing, colors, or
+    features not mentioned. No quality tags (8K, masterpiece, etc).
+    Output ONLY the prompt.
 
     Character: {character_name}
     Appearance: {appearance}
     Art style: {style_preset}
     {additional_context}
 
-    Write a single portrait prompt (40-60 words) describing: face and expression,
-    hair color and style, eye color, skin tone, distinctive features, clothing/attire,
-    lighting and background. Do NOT include names or non-visual information.
+    Use the character name to infer ethnicity/skin tone if not stated in appearance.
 
   scene_to_image_prompt: |
-    You are an image prompt writer for AI image generation models like Flux.
-    Convert this story scene into a single visual image generation prompt.
-    Output ONLY the prompt as comma-separated visual descriptors. No explanations.
+    Convert the data below into a short image prompt (40-70 words).
+    STRICT: Only describe what is stated in the scene and character data.
+    Do NOT invent details. No quality tags (8K, masterpiece, Nikon, etc).
+    Output ONLY the prompt.
 
     Scene text:
     {scene_content}
 
-    Characters present: {characters}
+    Characters present (describe by appearance, not name): {characters}
     Location: {location}
-    Mood/atmosphere: {mood}
+    Mood: {mood}
     Art style: {style_preset}
     {chapter_context}
 
-    Write one image prompt (60-100 words) describing: the main subjects and their
-    appearance (NOT names), their poses and actions, the environment and setting,
-    lighting and atmosphere, camera framing and composition.
-    Do NOT include: character names, dialogue, thoughts, or narrative text.
+    Describe one visual moment: who is visible (by appearance not name), what they
+    are doing, the setting, and lighting. Keep it concise.
 
   character_in_context: |
-    You are an image prompt writer for AI image generation models like Flux.
-    Create a character portrait prompt showing this person in their current story moment.
-    Output ONLY the prompt as comma-separated visual descriptors. No explanations.
+    Convert character data into a short image generation prompt (40-80 words).
+    Rules:
+    - Use ONLY the data provided. Do NOT invent details.
+    - Infer ethnicity from Name + Background (e.g. Indian name + born in Delhi = indian man/woman).
+    - Infer gender from Background context.
+    - Skip measurements (height, weight, bust/waist/hips) — not useful for image models.
+    - Skip dress style preferences — use Current Attire for what they're actually wearing now.
+    - No character names in the prompt — describe by appearance only.
+    - No quality tags (8K, masterpiece, etc). No narrative text or dialogue.
+    - Output ONLY the prompt, nothing else.
 
-    Base appearance: {base_appearance}
-    Current appearance/attire: {current_appearance}
+    === EXAMPLES ===
+
+    INPUT:
+    Name: Priya Menon
+    Background: Born in Kochi, India. Former teacher turned shop owner. Mother of three.
+    Appearance: Height 5'3", Fair skin, Black hair with gray strands, Dark brown eyes, Slightly plump hourglass figure, Small scar above left eyebrow, Gold necklace
+    Current Attire: green sari
+    Emotion: nervous, excited
+    Pose: standing in doorway
+    Location: living room
+    Physical Condition: blushing
+
+    OUTPUT:
+    Indian woman, fair skin, black hair with gray strands in a bun, dark brown eyes, slightly plump hourglass figure, small scar above left eyebrow, gold necklace, wearing a green sari, nervous and excited expression, standing in doorway, blushing, in a warm living room
+
+    INPUT:
+    Name: David Liu
+    Background: Born in Vancouver. Chinese-Canadian architect. Father of two.
+    Appearance: Tall, athletic build, short black hair, brown eyes, clean-shaven, wire-rimmed glasses
+    Current Attire: rumpled dress shirt with sleeves rolled up
+    Emotion: exhausted, determined
+    Pose: hunched over drafting table
+    Location: dimly lit studio
+    Physical Condition: dark circles under eyes
+
+    OUTPUT:
+    Chinese-Canadian man, tall athletic build, short black hair, brown eyes, clean-shaven, wire-rimmed glasses, rumpled dress shirt with sleeves rolled up, exhausted but determined expression, hunched over a drafting table, dark circles under eyes, in a dimly lit studio
+
+    === YOUR TURN ===
+
+    INPUT:
+    Name: {character_name}
+    Background: {character_background}
+    Appearance: {base_appearance}
+    Current Attire: {current_attire}
+    Emotion: {emotional_state}
+    Pose: {position}
     Location: {location}
-    Pose/position: {position}
-    Emotional state: {emotional_state}
-    Physical condition: {physical_condition}
-    Items held: {items_held}
-    Art style: {style_preset}
+    Physical Condition: {physical_condition}
+    Holding: {items_held}
 
-    Current scene excerpt (use for atmosphere, lighting, and setting details):
-    {scene_excerpt}
-
-    Write one portrait prompt (60-80 words) describing: the person's appearance and
-    current attire, their expression and body language matching their emotional state,
-    the setting and atmosphere from the scene around them, lighting conditions,
-    any objects they're holding or interacting with.
-    Do NOT include: names, dialogue, thoughts, or explanations.
+    OUTPUT:

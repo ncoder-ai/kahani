@@ -158,7 +158,7 @@ class ImagePromptGenerator:
                 chapter_context=chapter_context or ""
             )
 
-            response = await self._generate(prompt, max_tokens=300)
+            response = await self._generate(prompt, max_tokens=150)
             return self._clean_response(response)
 
         except Exception as e:
@@ -171,56 +171,50 @@ class ImagePromptGenerator:
         base_appearance: str,
         current_state: Dict[str, Any],
         style_preset: str = "illustrated",
-        scene_content: Optional[str] = None
+        scene_content: Optional[str] = None,
+        character_background: Optional[str] = None,
     ) -> str:
-        """Generate an image prompt for a character using their current dynamic state
-        and the atmosphere of the current scene.
+        """Generate an image prompt for a character using LLM with few-shot examples.
 
-        Args:
-            character_name: Name of the character
-            base_appearance: Character's base appearance description
-            current_state: Dict from CharacterState fields
-            style_preset: Art style preset
-            scene_content: Current scene text for atmospheric context
+        Sends all raw character data to the LLM along with examples of good prompts.
+        The LLM handles ethnicity inference, gender, filtering measurements, etc.
         """
         try:
             template = self._get_template("character_in_context")
 
             if not template:
-                logger.warning("Character-in-context prompt template not found, using fallback")
+                logger.warning("Character prompt template not found, using fallback")
                 return self._fallback_character_in_context_prompt(
-                    character_name, base_appearance, current_state, style_preset
-                )
+                    character_name, base_appearance, current_state, style_preset)
 
-            current_appearance = current_state.get("appearance") or "same as base"
-            location = current_state.get("current_location") or "unspecified"
-            position = current_state.get("current_position") or "unspecified"
-            emotional_state = current_state.get("emotional_state") or "neutral"
-            physical_condition = current_state.get("physical_condition") or "normal"
-            items_held = ", ".join(current_state.get("items_in_hand") or []) or "nothing"
-            scene_excerpt = scene_content[:500] if scene_content else "No scene context available"
+            # Format items held
+            items = current_state.get("items_in_hand")
+            if isinstance(items, list):
+                items_str = ", ".join(items)
+            else:
+                items_str = items or "nothing"
 
             prompt = template.format(
                 character_name=character_name,
-                base_appearance=base_appearance,
-                current_appearance=current_appearance,
-                location=location,
-                position=position,
-                emotional_state=emotional_state,
-                physical_condition=physical_condition,
-                items_held=items_held,
-                style_preset=style_preset,
-                scene_excerpt=scene_excerpt,
+                character_background=character_background or "not provided",
+                base_appearance=base_appearance or "not provided",
+                current_attire=current_state.get("appearance") or "not specified",
+                emotional_state=current_state.get("emotional_state") or "neutral",
+                position=current_state.get("current_position") or "not specified",
+                location=current_state.get("current_location") or "not specified",
+                physical_condition=current_state.get("physical_condition") or "normal",
+                items_held=items_str,
             )
 
-            response = await self._generate(prompt, max_tokens=200)
-            return self._clean_response(response)
+            response = await self._generate(prompt, max_tokens=150)
+            result = self._clean_response(response)
+            logger.info(f"[IMAGE_PROMPT] Character prompt: {result[:200]}")
+            return result
 
         except Exception as e:
-            logger.error(f"Error generating character-in-context prompt: {e}")
+            logger.error(f"Error generating character prompt: {e}")
             return self._fallback_character_in_context_prompt(
-                character_name, base_appearance, current_state, style_preset
-            )
+                character_name, base_appearance, current_state, style_preset)
 
     def _fallback_portrait_prompt(
         self,
@@ -288,13 +282,14 @@ class ImagePromptGenerator:
         return ", ".join(parts)
 
     def _get_style_suffix(self, style_preset: str) -> str:
-        """Get style-specific prompt suffix"""
+        """Get style-specific prompt suffix for modern models (Flux, z-image)"""
         style_suffixes = {
-            "illustrated": "digital art, illustration, vibrant colors",
-            "semi_realistic": "semi-realistic, detailed, cinematic lighting",
-            "anime": "anime style, detailed, masterpiece quality",
-            "photorealistic": "photorealistic, detailed, 8k resolution",
-            "fantasy": "fantasy art, magical, ethereal lighting",
-            "noir": "noir style, high contrast, dramatic shadows",
+            "illustrated": "in a digital illustration style with vibrant colors",
+            "semi_realistic": "in a semi-realistic cinematic style",
+            "anime": "in anime art style",
+            "photorealistic": "photorealistic, natural lighting",
+            "fantasy": "in a fantasy art style with dramatic lighting",
+            "noir": "in film noir style, black and white, dramatic shadows",
         }
         return style_suffixes.get(style_preset, style_suffixes["illustrated"])
+

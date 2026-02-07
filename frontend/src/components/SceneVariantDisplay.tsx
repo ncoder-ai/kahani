@@ -970,6 +970,8 @@ export default function SceneVariantDisplay({
           onClose={() => setShowImageGenerator(false)}
           defaultCheckpoint={userSettings?.image_generation_settings?.comfyui_checkpoint || ''}
           defaultStyle={userSettings?.image_generation_settings?.default_style || 'illustrated'}
+          defaultSteps={userSettings?.image_generation_settings?.steps}
+          defaultCfgScale={userSettings?.image_generation_settings?.cfg_scale}
         />
       )}
 

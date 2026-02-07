@@ -21,6 +21,8 @@ interface SceneImageGeneratorProps {
   onClose?: () => void; // Callback when user closes the generator
   defaultCheckpoint?: string; // User's preferred checkpoint from settings
   defaultStyle?: string; // User's preferred style from settings
+  defaultSteps?: number; // User's preferred steps from settings
+  defaultCfgScale?: number; // User's preferred cfg_scale from settings
 }
 
 interface GenerationProgress {
@@ -38,6 +40,8 @@ export default function SceneImageGenerator({
   onClose,
   defaultCheckpoint = '',
   defaultStyle = 'illustrated',
+  defaultSteps,
+  defaultCfgScale,
 }: SceneImageGeneratorProps) {
   const [images, setImages] = useState<SceneImage[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -55,6 +59,7 @@ export default function SceneImageGenerator({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const confirmingDeleteRef = useRef(false);
   const [collapsed, setCollapsed] = useState(false);
+  const promptFocusHandledRef = useRef(false);
   const [subjectType, setSubjectType] = useState<'scene' | 'character'>('scene');
   const [selectedCharacterId, setSelectedCharacterId] = useState<number | null>(null);
   const [storyCharacters, setStoryCharacters] = useState<{character_id: number; name: string}[]>([]);
@@ -177,11 +182,15 @@ export default function SceneImageGenerator({
             character_id: selectedCharacterId,
             style: selectedStyle,
             checkpoint: selectedCheckpoint || undefined,
+            steps: defaultSteps,
+            cfg_scale: defaultCfgScale,
             custom_prompt: customPrompt || undefined,
           })
         : await imageGenerationApi.generateSceneImage(sceneId, {
             style: selectedStyle,
             checkpoint: selectedCheckpoint || undefined,
+            steps: defaultSteps,
+            cfg_scale: defaultCfgScale,
             custom_prompt: customPrompt || undefined,
           });
 
@@ -279,7 +288,7 @@ export default function SceneImageGenerator({
       setGenerationProgress({ status: 'error', message: err.message || 'Generation failed' });
       setTimeout(() => setGenerationProgress({ status: 'idle' }), 3000);
     }
-  }, [sceneId, serverStatus, selectedStyle, selectedCheckpoint, customPrompt, onImageGenerated, subjectType, selectedCharacterId]);
+  }, [sceneId, serverStatus, selectedStyle, selectedCheckpoint, customPrompt, onImageGenerated, subjectType, selectedCharacterId, defaultSteps, defaultCfgScale]);
 
   const handleDelete = useCallback(async () => {
     if (images.length === 0) return;
@@ -622,6 +631,20 @@ export default function SceneImageGenerator({
             <textarea
               value={customPrompt}
               onChange={(e) => setCustomPrompt(e.target.value)}
+              onFocus={(e) => {
+                // Prevent browser from scrolling the parent scene list when focusing
+                // Same pattern as choice editing in SceneVariantDisplay
+                if (promptFocusHandledRef.current) {
+                  promptFocusHandledRef.current = false;
+                  return;
+                }
+                promptFocusHandledRef.current = true;
+                const el = e.target;
+                el.blur();
+                requestAnimationFrame(() => {
+                  el.focus({ preventScroll: true });
+                });
+              }}
               placeholder={subjectType === 'character' ? 'Leave empty for AI-generated prompt from character state' : 'Leave empty for AI-generated prompt from scene content'}
               className="w-full p-2 text-xs bg-gray-800 border border-white/20 rounded text-white placeholder-white/40 focus:outline-none focus:ring-1 focus:ring-purple-500 resize-none"
               rows={3}
