@@ -495,7 +495,7 @@ class ChapterSummaryService:
             else:
                 logger.info(f"[CHAPTER:SUMMARY:CF:DONE] trace_id={trace_id} status={status} duration_ms={duration_ms:.2f}")
 
-    async def generate_story_so_far(self, chapter_id: int) -> Optional[str]:
+    async def generate_story_so_far(self, chapter_id: int, auto_commit: bool = True) -> Optional[str]:
         """
         Generate "Story So Far" for a chapter using LLM rolling consolidation.
         Does NOT include the current chapter's summary.
@@ -529,7 +529,10 @@ class ChapterSummaryService:
         if not chapters_with_summaries:
             logger.info(f"[CHAPTER] No previous chapter summaries available for chapter {chapter_id}")
             chapter.story_so_far = None
-            self.db.commit()
+            if auto_commit:
+                self.db.commit()
+            else:
+                self.db.flush()
             return None
 
         # For only one previous chapter, use its auto_summary directly (no consolidation needed)
@@ -537,7 +540,10 @@ class ChapterSummaryService:
             only_ch = chapters_with_summaries[0]
             story_so_far = f"=== Chapter {only_ch.chapter_number}: {only_ch.title or 'Untitled'} ===\n{only_ch.auto_summary}"
             chapter.story_so_far = story_so_far
-            self.db.commit()
+            if auto_commit:
+                self.db.commit()
+            else:
+                self.db.flush()
             logger.info(f"[CHAPTER] story_so_far for chapter {chapter_id}: single previous chapter, {len(story_so_far)} chars (no consolidation needed)")
             return story_so_far
 
@@ -596,7 +602,10 @@ class ChapterSummaryService:
 
         # Update chapter
         chapter.story_so_far = story_so_far
-        self.db.commit()
+        if auto_commit:
+            self.db.commit()
+        else:
+            self.db.flush()
 
         total_chars = len(story_so_far)
         logger.info(f"[CHAPTER] Consolidated story_so_far for chapter {chapter_id} from {len(chapters_with_summaries)} previous chapters: {total_chars} chars")

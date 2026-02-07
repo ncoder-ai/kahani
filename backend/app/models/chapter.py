@@ -89,6 +89,7 @@ class Chapter(Base):
     
     # Status and metrics
     status = Column(Enum(ChapterStatus), default=ChapterStatus.ACTIVE)
+    creation_step = Column(Integer, nullable=True, default=None)  # None=fully created, 4=story_so_far pending
     context_tokens_used = Column(Integer, default=0)
     scenes_count = Column(Integer, default=0)
     

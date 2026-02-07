@@ -2643,6 +2643,34 @@ Appearance: {char.get('appearance', '')}
                 boosted_scenes = [(r.get('similarity_score', 0), r.get('sequence', 0), r.get('keyword_matches', [])) for r in similar_scenes[:10]]
                 logger.info(f"[SEMANTIC SEARCH] After keyword boost, top 10: {boosted_scenes}")
 
+            # === CHAPTER AFFINITY BOOST ===
+            # Scenes from the same chapter as recent scenes get a boost.
+            # This helps when users reference "events from today" or want recap of chapter events,
+            # ensuring same-chapter scenes outrank thematically-similar scenes from other chapters.
+            chapter_affinity_boost = 0.15
+            current_chapter_id = recent_scenes[-1].chapter_id if recent_scenes else None
+
+            if current_chapter_id is not None:
+                chapter_boosted_count = 0
+                for result in similar_scenes:
+                    result_chapter_id = result.get('chapter_id')
+                    if result_chapter_id is not None and result_chapter_id == current_chapter_id:
+                        original_score = result.get('similarity_score', 0.0)
+                        result['similarity_score'] = min(1.0, original_score + chapter_affinity_boost)
+                        result['chapter_boost'] = chapter_affinity_boost
+                        chapter_boosted_count += 1
+                        logger.debug(
+                            f"[SEMANTIC SEARCH] Chapter boost scene seq {result.get('sequence', '?')}: "
+                            f"{original_score:.3f} -> {result['similarity_score']:.3f}"
+                        )
+
+                if chapter_boosted_count > 0:
+                    similar_scenes.sort(key=lambda x: x.get('similarity_score', 0), reverse=True)
+                    logger.info(
+                        f"[SEMANTIC SEARCH] Chapter affinity boost: {chapter_boosted_count} scenes "
+                        f"from chapter {current_chapter_id} boosted by +{chapter_affinity_boost}"
+                    )
+
             # Filter by minimum similarity threshold and age
             current_scene_sequence = recent_scenes[-1].sequence_number if recent_scenes else None
             filtered_results = []

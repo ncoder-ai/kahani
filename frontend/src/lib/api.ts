@@ -2075,11 +2075,22 @@ class ApiClient {
 
               try {
                 const parsed = JSON.parse(data);
-                
+
                 if (parsed.type === 'status' && onStatusUpdate) {
                   onStatusUpdate({ message: parsed.message, step: parsed.step });
                 } else if (parsed.type === 'complete') {
                   chapterData = parsed.chapter;
+                } else if (parsed.type === 'enrichment_complete') {
+                  // Story context generated successfully — update chapter data if we have it
+                  if (onStatusUpdate) {
+                    onStatusUpdate({ message: 'Story context generated', step: 'enrichment_complete' });
+                  }
+                } else if (parsed.type === 'enrichment_failed') {
+                  // Non-fatal: chapter was created but story_so_far generation failed
+                  console.warn('[createChapter] Enrichment failed (non-fatal):', parsed.message);
+                  if (onStatusUpdate) {
+                    onStatusUpdate({ message: 'Story context generation failed (can retry later)', step: 'enrichment_failed' });
+                  }
                 } else if (parsed.type === 'error') {
                   throw new Error(parsed.message);
                 }
@@ -2122,6 +2133,83 @@ class ApiClient {
         method: 'POST',
         body: JSON.stringify(data),
       });
+    }
+  }
+
+  async resumeChapterCreation(
+    storyId: number,
+    chapterId: number,
+    onStatusUpdate?: (status: { message: string; step: string }) => void
+  ) {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (this.token) headers.Authorization = `Bearer ${this.token}`;
+
+    const response = await fetch(
+      `${this.baseURL}/api/stories/${storyId}/chapters/${chapterId}/resume-creation`,
+      {
+        method: 'POST',
+        headers,
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ detail: `HTTP ${response.status}: ${response.statusText}` }));
+      throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    // Handle streaming response (same pattern as createChapter)
+    if (response.headers.get('content-type')?.includes('text/event-stream')) {
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('No response body');
+      }
+
+      const decoder = new TextDecoder();
+      let chapterData: any = null;
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value);
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+              if (data === '[DONE]') continue;
+
+              try {
+                const parsed = JSON.parse(data);
+
+                if (parsed.type === 'status' && onStatusUpdate) {
+                  onStatusUpdate({ message: parsed.message, step: parsed.step });
+                } else if (parsed.type === 'complete') {
+                  chapterData = parsed.chapter;
+                } else if (parsed.type === 'error') {
+                  throw new Error(parsed.message);
+                }
+              } catch (e) {
+                if (e instanceof SyntaxError) continue;
+                throw e;
+              }
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+
+      if (!chapterData) {
+        throw new Error('No chapter data received from resume');
+      }
+
+      return chapterData;
+    } else {
+      return response.json();
     }
   }
 

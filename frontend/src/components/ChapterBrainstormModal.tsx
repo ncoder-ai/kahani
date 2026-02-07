@@ -70,6 +70,7 @@ interface ElementSlotProps {
   onDraftChange: (value: string) => void;
   onConfirmSuggestion?: () => void;
   onDismissSuggestion?: () => void;
+  onClear?: () => void;
   isSaving: boolean;
   multiline?: boolean;
   placeholder?: string;
@@ -88,6 +89,7 @@ function ElementSlot({
   onDraftChange,
   onConfirmSuggestion,
   onDismissSuggestion,
+  onClear,
   isSaving,
   multiline = false,
   placeholder = ''
@@ -204,7 +206,18 @@ function ElementSlot({
           <span className="text-white/30 text-xs italic">Not set</span>
         )}
       </div>
-      <Edit2 className="w-3 h-3 text-white/40 flex-shrink-0" />
+      <div className="flex items-center gap-1 flex-shrink-0">
+        {hasValue && onClear && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onClear(); }}
+            className="p-0.5 text-white/30 hover:text-red-400 transition-colors"
+            title="Clear"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        )}
+        <Edit2 className="w-3 h-3 text-white/40" />
+      </div>
     </div>
   );
 }
@@ -258,6 +271,8 @@ export default function ChapterBrainstormModal({
   const [isSavingPlotEdits, setIsSavingPlotEdits] = useState(false);
   const [showArcSidebar, setShowArcSidebar] = useState(false);
   
+  const [expandedArcPhaseId, setExpandedArcPhaseId] = useState<string | null>(null);
+
   // Previous sessions state
   const [previousSessions, setPreviousSessions] = useState<PreviousSession[]>([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
@@ -525,6 +540,12 @@ export default function ChapterBrainstormModal({
       delete updated[elementType];
       return updated;
     });
+  };
+
+  // Clear a confirmed element (reset to empty)
+  const clearElement = async (elementType: 'overview' | 'characters' | 'tone' | 'key_events' | 'ending') => {
+    const emptyValue = (elementType === 'characters' || elementType === 'key_events') ? [] : '';
+    await saveStructuredElement(elementType, emptyValue);
   };
 
   const getElementCount = () => {
@@ -1094,30 +1115,58 @@ export default function ChapterBrainstormModal({
           {/* Phase Selection */}
           {phase === 'select_phase' && (
             <div className="flex-1 p-4 md:p-6 overflow-y-auto">
-              <div className="max-w-2xl mx-auto space-y-3 md:space-y-4">
-                {storyArc?.phases.map((arcPhase) => (
-                  <button
-                    key={arcPhase.id}
-                    onClick={() => handlePhaseSelect(arcPhase)}
-                    disabled={isLoading}
-                    className="w-full text-left p-3 md:p-4 bg-white/5 hover:bg-white/10 active:bg-white/15 rounded-xl border border-white/10 hover:border-purple-500/50 transition-all touch-manipulation"
-                  >
-                    <h3 className="text-white font-semibold text-sm md:text-base">{arcPhase.name}</h3>
-                    <p className="text-white/60 text-xs md:text-sm mt-1 line-clamp-2">{arcPhase.description}</p>
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {arcPhase.key_events.slice(0, 2).map((event, i) => (
-                        <span key={i} className="px-2 py-0.5 bg-purple-500/20 text-purple-300 text-xs rounded truncate max-w-[150px]">
-                          {event}
-                        </span>
-                      ))}
-                      {arcPhase.key_events.length > 2 && (
-                        <span className="px-2 py-0.5 bg-white/10 text-white/50 text-xs rounded">
-                          +{arcPhase.key_events.length - 2}
-                        </span>
+              <div className="max-w-2xl mx-auto space-y-2 md:space-y-3">
+                {storyArc?.phases.map((arcPhase) => {
+                  const isExpanded = expandedArcPhaseId === arcPhase.id;
+                  return (
+                    <div
+                      key={arcPhase.id}
+                      className="w-full text-left p-2.5 md:p-4 bg-white/5 hover:bg-white/10 rounded-xl border border-white/10 hover:border-purple-500/50 transition-all"
+                    >
+                      <button
+                        onClick={() => setExpandedArcPhaseId(isExpanded ? null : arcPhase.id)}
+                        className="w-full text-left touch-manipulation"
+                      >
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-white font-semibold text-sm md:text-base">{arcPhase.name}</h3>
+                          <svg className={`w-4 h-4 text-white/40 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                        </div>
+                        <p className={`text-white/60 text-xs md:text-sm mt-1 ${isExpanded ? '' : 'line-clamp-2'}`}>{arcPhase.description}</p>
+                      </button>
+                      {isExpanded ? (
+                        <div className="mt-2">
+                          <div className="flex flex-wrap gap-1">
+                            {arcPhase.key_events.map((event, i) => (
+                              <span key={i} className="px-2 py-0.5 bg-purple-500/20 text-purple-300 text-xs rounded">
+                                {event}
+                              </span>
+                            ))}
+                          </div>
+                          <button
+                            onClick={() => handlePhaseSelect(arcPhase)}
+                            disabled={isLoading}
+                            className="mt-3 w-full py-1.5 bg-purple-600 hover:bg-purple-500 text-white text-sm rounded-lg transition-colors disabled:opacity-50"
+                          >
+                            Select this phase
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {arcPhase.key_events.slice(0, 2).map((event, i) => (
+                            <span key={i} className="px-2 py-0.5 bg-purple-500/20 text-purple-300 text-xs rounded truncate max-w-[150px]">
+                              {event}
+                            </span>
+                          ))}
+                          {arcPhase.key_events.length > 2 && (
+                            <span className="px-2 py-0.5 bg-white/10 text-white/50 text-xs rounded">
+                              +{arcPhase.key_events.length - 2}
+                            </span>
+                          )}
+                        </div>
                       )}
                     </div>
-                  </button>
-                ))}
+                  );
+                })}
                 
                 <button
                   onClick={() => handlePhaseSelect(null)}
@@ -1325,9 +1374,10 @@ export default function ChapterBrainstormModal({
                         onDraftChange={setElementDraft}
                         onConfirmSuggestion={() => confirmSuggestion('overview')}
                         onDismissSuggestion={() => dismissSuggestion('overview')}
+                        onClear={() => clearElement('overview')}
                         isSaving={savingElement}
                       />
-                      
+
                       {/* Tone */}
                       <ElementSlot
                         icon={<Palette className="w-3.5 h-3.5" />}
@@ -1345,9 +1395,10 @@ export default function ChapterBrainstormModal({
                         onDraftChange={setElementDraft}
                         onConfirmSuggestion={() => confirmSuggestion('tone')}
                         onDismissSuggestion={() => dismissSuggestion('tone')}
+                        onClear={() => clearElement('tone')}
                         isSaving={savingElement}
                       />
-                      
+
                       {/* Key Events */}
                       <ElementSlot
                         icon={<List className="w-3.5 h-3.5" />}
@@ -1370,11 +1421,12 @@ export default function ChapterBrainstormModal({
                         onDraftChange={setElementDraft}
                         onConfirmSuggestion={() => confirmSuggestion('key_events')}
                         onDismissSuggestion={() => dismissSuggestion('key_events')}
+                        onClear={() => clearElement('key_events')}
                         isSaving={savingElement}
                         multiline
                         placeholder="Enter each event on a new line"
                       />
-                      
+
                       {/* Ending */}
                       <ElementSlot
                         icon={<Flag className="w-3.5 h-3.5" />}
@@ -1392,9 +1444,10 @@ export default function ChapterBrainstormModal({
                         onDraftChange={setElementDraft}
                         onConfirmSuggestion={() => confirmSuggestion('ending')}
                         onDismissSuggestion={() => dismissSuggestion('ending')}
+                        onClear={() => clearElement('ending')}
                         isSaving={savingElement}
                       />
-                      
+
                       {/* Characters */}
                       <ElementSlot
                         icon={<Users className="w-3.5 h-3.5" />}
@@ -1424,6 +1477,7 @@ export default function ChapterBrainstormModal({
                         }}
                         onConfirmSuggestion={() => confirmSuggestion('characters')}
                         onDismissSuggestion={() => dismissSuggestion('characters')}
+                        onClear={() => clearElement('characters')}
                         onCancel={() => { setEditingElement(null); setElementDraft(''); }}
                         onDraftChange={setElementDraft}
                         isSaving={savingElement}

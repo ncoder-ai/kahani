@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, BookOpen, AlertCircle, Edit2, Save, X, Plus, CheckCircle, RefreshCw, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, BookOpen, AlertCircle, Edit2, Save, X, Plus, CheckCircle, RefreshCw, Trash2 } from 'lucide-react';
 import apiClient, { getApiBaseUrl, StoryArc } from '@/lib/api';
 import { getAuthToken } from '@/utils/jwt';
 import dynamic from 'next/dynamic';
@@ -26,6 +26,7 @@ interface Chapter {
   story_so_far: string | null;
   auto_summary: string | null;
   status: 'draft' | 'active' | 'completed';
+  creation_step?: number | null;
   context_tokens_used: number;
   scenes_count: number;
   last_summary_scene_count: number;
@@ -94,6 +95,9 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
   const [isSubmittingNewChapter, setIsSubmittingNewChapter] = useState(false);
   const [isConcludingChapter, setIsConcludingChapter] = useState(false);
   
+  // Story arc expand/collapse state
+  const [expandedArcPhaseId, setExpandedArcPhaseId] = useState<string | null>(null);
+
   // Summary generation state
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
   const [isGeneratingStorySummary, setIsGeneratingStorySummary] = useState(false);
@@ -110,6 +114,9 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
   const [brainstormPlot, setBrainstormPlot] = useState<any>(null);
   const [brainstormSessionId, setBrainstormSessionId] = useState<number | undefined>(undefined);
   const [brainstormArcPhaseId, setBrainstormArcPhaseId] = useState<string | undefined>(undefined);
+
+  // Resume creation state
+  const [isResumingCreation, setIsResumingCreation] = useState(false);
 
   useEffect(() => {
     loadChapters();
@@ -391,6 +398,51 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
     setChapterToActivate(null);
   };
 
+  const handleResumeCreation = async (chapter: Chapter) => {
+    setIsResumingCreation(true);
+    try {
+      await apiClient.resumeChapterCreation(
+        storyId,
+        chapter.id,
+        (status) => {
+          console.log('[ChapterSidebar] Resume status:', status);
+        }
+      );
+      // Reload chapters to get updated state
+      await loadChapters();
+      if (onChapterChange) {
+        onChapterChange(chapter.id);
+      }
+    } catch (err) {
+      console.error('Failed to resume chapter creation:', err);
+      setError(err instanceof Error ? err.message : 'Failed to resume chapter setup');
+    } finally {
+      setIsResumingCreation(false);
+    }
+  };
+
+  const handleDiscardIncompleteChapter = async (chapter: Chapter) => {
+    if (!confirm(
+      `Discard Chapter ${chapter.chapter_number}: "${chapter.title || 'Untitled'}"?\n\nThis will delete the incomplete chapter.`
+    )) {
+      return;
+    }
+    try {
+      setLoading(true);
+      await apiClient.deleteChapter(storyId, chapter.id);
+      await loadChapters();
+      if (onChapterChange) {
+        onChapterChange();
+      }
+    } catch (err: any) {
+      console.error('Failed to discard chapter:', err);
+      const errorMessage = err?.response?.data?.detail || 'Failed to discard chapter.';
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleChapterWizardComplete = async (
     chapterData: {
       title?: string;
@@ -454,6 +506,18 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
           // Status updates are handled by ChapterWizard
         };
         
+        let enrichmentFailed = false;
+        const wrappedStatusUpdate = (status: { message: string; step: string }) => {
+          if (status.step === 'enrichment_failed') {
+            enrichmentFailed = true;
+          }
+          if (onStatusUpdate) {
+            onStatusUpdate(status);
+          } else {
+            handleStatusUpdate(status);
+          }
+        };
+
         const newChapter = await apiClient.createChapter(
           storyId,
           {
@@ -470,9 +534,9 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
             chapter_plot: chapterData.chapter_plot,
             brainstorm_session_id: chapterData.brainstorm_session_id
           },
-          onStatusUpdate || handleStatusUpdate
+          wrappedStatusUpdate
         );
-        
+
         // Reload chapters to get updated list
         await loadChapters();
 
@@ -487,13 +551,24 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
         setNewChapterTitle('');
         setNewChapterDescription('');
 
-        // Show success message
-        alert(`Chapter ${newChapter.chapter_number} created successfully! You're now in the new chapter.`);
+        // Show success message (with warning if enrichment failed)
+        if (enrichmentFailed) {
+          alert(`Chapter ${newChapter.chapter_number} created! Story context generation failed but you can retry from the chapter list.`);
+        } else {
+          alert(`Chapter ${newChapter.chapter_number} created successfully! You're now in the new chapter.`);
+        }
       }
     } catch (err) {
       console.error('Failed to save chapter:', err);
       setIsSubmittingNewChapter(false);
-      alert(editingChapterId ? 'Failed to update chapter. Please try again.' : 'Failed to create new chapter. Please try again.');
+      const errMsg = err instanceof Error ? err.message : 'Unknown error';
+      if (editingChapterId) {
+        alert('Failed to update chapter. Please try again.');
+      } else {
+        // Check if a chapter may have been partially created (reload to detect)
+        await loadChapters();
+        alert(`Failed to create new chapter: ${errMsg}`);
+      }
       throw err; // Re-throw so ChapterWizard can catch and reset loading state
     }
   };
@@ -984,24 +1059,76 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
             {storyArc && storyArc.phases && storyArc.phases.length > 0 && (
               <div className="p-4 border-b border-slate-700">
                 <h3 className="text-sm font-semibold text-gray-400 uppercase mb-3">Story Arc</h3>
-                <div className="space-y-2">
-                  {storyArc.phases.map((phase, index) => (
-                    <div
-                      key={phase.id}
-                      className="p-2 rounded-lg bg-slate-800/50 border border-slate-700"
-                    >
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-purple-600/20 text-purple-300">
-                          Phase {index + 1}
-                        </span>
-                        <span className="font-medium text-sm text-white">{phase.name}</span>
-                      </div>
-                      <p className="text-xs text-gray-400 line-clamp-2">{phase.description}</p>
-                    </div>
-                  ))}
+                <div className="space-y-1.5">
+                  {storyArc.phases.map((phase, index) => {
+                    const isExpanded = expandedArcPhaseId === phase.id;
+                    return (
+                      <button
+                        key={phase.id}
+                        onClick={() => setExpandedArcPhaseId(isExpanded ? null : phase.id)}
+                        className="w-full text-left p-2 rounded-lg bg-slate-800/50 border border-slate-700 hover:border-purple-500/40 transition-colors cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-purple-600/20 text-purple-300">
+                            Phase {index + 1}
+                          </span>
+                          <span className="font-medium text-sm text-white flex-1">{phase.name}</span>
+                          <ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                        </div>
+                        <p className={`text-xs text-gray-400 ${isExpanded ? '' : 'line-clamp-2'}`}>{phase.description}</p>
+                        {isExpanded && phase.key_events && phase.key_events.length > 0 && (
+                          <div className="mt-2 space-y-1">
+                            {phase.key_events.map((event, i) => (
+                              <div key={i} className="text-xs text-purple-300/80 flex gap-1.5">
+                                <span className="text-purple-500 mt-0.5">•</span>
+                                <span>{event}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}
+
+            {/* Incomplete Chapter Banner */}
+            {chapters.filter(ch => ch.creation_step != null).map((ch) => (
+              <div key={`incomplete-${ch.id}`} className="mx-4 mt-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                <p className="text-amber-200 text-sm font-medium">
+                  Chapter {ch.chapter_number} setup incomplete
+                </p>
+                <p className="text-white/50 text-xs mt-1">Story context generation was interrupted</p>
+                <div className="flex gap-2 mt-2">
+                  <button
+                    onClick={() => handleResumeCreation(ch)}
+                    disabled={isResumingCreation}
+                    className="flex-1 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-600 text-white text-xs rounded-lg font-medium transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    {isResumingCreation ? (
+                      <>
+                        <RefreshCw className="w-3 h-3 animate-spin" />
+                        Resuming...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-3 h-3" />
+                        Resume Setup
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => handleDiscardIncompleteChapter(ch)}
+                    disabled={isResumingCreation}
+                    className="px-3 py-1.5 bg-red-600/60 hover:bg-red-600 disabled:bg-gray-600 text-white text-xs rounded-lg font-medium transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    Discard
+                  </button>
+                </div>
+              </div>
+            ))}
 
             {/* All Chapters List */}
             <div className="p-4">
