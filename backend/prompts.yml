@@ -665,28 +665,28 @@ plot_extraction:
     {scene_content}
 
     === EXTRACT PLOT EVENTS ===
-    Analyze the scene above and determine which of these planned story events COMPLETED:
+    Which of these planned events COMPLETED in the scene above?
 
     {key_events}
 
-    MATCHING RULES (be INCLUSIVE, not strict):
-    - Match if the CORE SITUATION occurred, even with different details
-    - Location differences don't matter (garden vs kitchen vs hallway = same)
-    - Action variations don't matter (handshake vs embrace vs wave = same greeting)
-    - Dialogue paraphrasing is fine (exact words not required)
+    RULES:
+    - Match the CORE SITUATION, not exact details (location/wording can differ)
+    - Event must have HAPPENED, not just been hinted at or started
+    - Partial progress = false (conversation started but revelation not made = false)
 
-    WHAT COUNTS AS A MATCH:
-    - The key characters are involved in the described interaction
-    - The essential action/moment happened (greeting, confrontation, revelation, departure, etc.)
-    - The emotional/situational beat occurred (first meeting, argument, reconciliation, etc.)
+    EXAMPLE 1:
+    Events: 1. Elena and Marco have their first argument  2. Elena discovers the hidden letter
+    Scene: Elena confronted Marco about the money. Voices rose. Marco stormed out, slamming the door. Elena sank into the chair, staring at the desk drawer she hadn't yet opened.
+    Answer: {{"1": true, "2": false}}
+    Why: The argument happened (even though about money, not specified topic). The letter was NOT discovered — she only looked at the drawer.
 
-    WHAT DOES NOT COUNT:
-    - Event only begins but key moment hasn't happened yet
-    - Just hints or foreshadowing without the actual event
+    EXAMPLE 2:
+    Events: 1. The group arrives at the mountain cabin  2. Tension between Kai and Suri boils over
+    Scene: The car pulled up to the cabin at dusk. Everyone piled out, stretching. Kai brushed past Suri without a word. She clenched her jaw but said nothing.
+    Answer: {{"1": true, "2": false}}
+    Why: Arrival happened. Tension is shown but hasn't "boiled over" — no confrontation yet, just coldness.
 
-    Return a JSON object with each event number mapped to true or false:
-    {{"1": true, "2": false}}
-
+    Return JSON: {{"1": true, "2": false}}
     If no events occurred, all should be false.
 
 # Combined Entity Extraction (cache-friendly)
@@ -697,38 +697,44 @@ combined_extraction:
     {scene_content}
 
     === EXTRACT ALL STORY ELEMENTS ===
-    Analyze the scene above and extract FOUR types of information:
+    Extract FOUR types from the scene. Explicit characters: {character_names}
+    Exclude from NPCs: {explicit_names}
+    {thread_section}
 
-    1. CHARACTER MOMENTS (for explicit characters only: {character_names})
-    2. NPCs and ENTITIES (NOT in the explicit character list: {explicit_names})
-    3. PLOT EVENTS (significant story events){thread_section}
-    4. ENTITY STATE CHANGES (characters, locations, objects)
+    RULES:
+    - Character moments: only SIGNIFICANT actions/dialogue/development (confidence >= 70), max 3 per character
+    - NPCs: only NAMED PEOPLE not in explicit list, max 3. No objects/locations/materials.
+    - Plot events: only significant events, max 2
+    - Entity states: 1-2 word emotional_state, room-level locations only, no furniture as locations
 
-    IMPORTANT: Extract only the MOST IMPORTANT/SIGNIFICANT items. Quality over quantity.
+    EXAMPLE:
+    Scene: "Dr. Reyes examined the wound while Kai gripped the table edge. 'You'll need stitches,' she said. In the hallway, Officer Tanaka waited with a notepad. The marble floor gleamed under fluorescent lights. Kai's phone buzzed — a text from an unknown number."
 
-    For CHARACTER MOMENTS:
-    - Focus on explicit characters: {character_names}
-    - Extract only significant moments (confidence >= 70)
-    - Maximum 3 moments per character
-    - Moment types: "action", "dialogue", "development", "relationship"
+    Explicit characters: Kai
+    Exclude from NPCs: Kai
 
-    For NPCs:
-    - Extract NAMED PEOPLE NOT in explicit character list
-    - Maximum 3 total NPCs
-    - Include: name, entity_type, has_dialogue, has_actions
+    Output:
+    {{
+      "character_moments": [
+        {{"character": "Kai", "moment_type": "action", "description": "Receives mysterious text from unknown number while being treated", "scene_id": 1, "confidence": 80}}
+      ],
+      "npcs": [
+        {{"name": "Dr. Reyes", "entity_type": "CHARACTER", "has_dialogue": true, "has_actions": true}},
+        {{"name": "Officer Tanaka", "entity_type": "CHARACTER", "has_dialogue": false, "has_actions": true}}
+      ],
+      "plot_events": [
+        {{"event_type": "complication", "description": "Kai receives text from unknown number", "importance": 75, "confidence": 85}}
+      ],
+      "entity_states": {{
+        "characters": [{{"name": "Kai", "location": "clinic", "emotional_state": "tense"}}],
+        "locations": [{{"name": "clinic", "condition": null, "atmosphere": "sterile", "occupants": ["Kai", "Dr. Reyes"]}}],
+        "objects": []
+      }}
+    }}
 
-    For PLOT EVENTS:
-    - Extract significant plot events only
-    - Maximum 2 events
-    - Event types: "introduction", "complication", "revelation", "resolution"
+    NOTE: "marble floor", "table", "phone" are NOT NPCs. "fluorescent lights" is NOT a character. Only people.
 
-    For ENTITY STATE CHANGES:
-    - Extract state changes for characters, locations, objects
-    - Maximum 5 total state changes
-    - Location = room/building names only, NOT furniture
-    - Emotional state = 1-2 words only
-
-    Return as JSON:
+    Return JSON:
     {{
       "character_moments": [
         {{"character": "Name", "moment_type": "dialogue", "description": "...", "scene_id": 1, "confidence": 85}}
@@ -755,23 +761,25 @@ entity_only_extraction:
     {scene_content}
 
     === EXTRACT CHARACTER STATES ===
-    IMPORTANT: Extract ONLY from the "SCENE JUST GENERATED" section above. Ignore any earlier context.
+    Extract ONLY from the scene above. Known characters: {character_names}. Chapter location: {chapter_location}
 
-    Known characters: {character_names}
-    Chapter location: {chapter_location}
+    EXAMPLE:
+    Scene: "Lena paced the kitchen in her bathrobe, clutching a mug of tea. Her hands trembled. 'I can't do this,' she whispered. Across the counter, Jay leaned against the fridge, arms crossed, still in yesterday's wrinkled shirt."
+    Output:
+    {{"characters": [
+      {{"name": "Lena", "location": "kitchen", "current_position": "pacing", "items_in_hand": ["mug of tea"], "emotional_state": "anxious", "physical_condition": "trembling", "current_attire": "bathrobe"}},
+      {{"name": "Jay", "location": "kitchen", "current_position": "leaning against fridge", "items_in_hand": [], "emotional_state": "guarded", "physical_condition": null, "current_attire": "wrinkled shirt"}}
+    ]}}
 
-    Extract the CURRENT state of characters as described in the scene above. Be concise and factual.
+    RULES:
+    - location: Room/building name ("kitchen", "bedroom"), NOT furniture ("couch", "bed")
+    - current_position: Where in room ("sitting on couch", "standing by door")
+    - emotional_state: 1-2 words ("nervous", "angry"), NOT prose ("feeling conflicted about her choices")
+    - items_in_hand: Only what they're HOLDING right now, [] if nothing
+    - current_attire: What they're WEARING ("jeans and t-shirt", "nude"), null if not mentioned. USING a towel ≠ wearing it.
 
-    Guidelines:
-    - location: ONLY the room name (e.g., "kitchen", "bedroom", "living room", "garden"). Never copy the chapter location text verbatim.
-    - current_position: Physical arrangement within the room AS STATED IN THE SCENE ABOVE (e.g., "seated at table", "standing by window", "sitting on couch"). NOT the room name.
-    - items_in_hand: Array of items actively held (e.g., ["coffee mug"], ["fork"]). Use [] if nothing held.
-    - emotional_state: 1-2 words (e.g., "nervous", "excited", "angry")
-    - physical_condition: 1-3 words (e.g., "tired", "sweating", "flushed")
-    - current_attire: Specific items or "nude"
-
-    Return ONLY this JSON structure:
-    {{"characters": [{{"name": "...", "location": "kitchen", "current_position": "seated at table", "items_in_hand": [], "emotional_state": "...", "physical_condition": "...", "current_attire": "..."}}]}}
+    Return ONLY JSON:
+    {{"characters": [{{"name": "...", "location": "...", "current_position": "...", "items_in_hand": [], "emotional_state": "...", "physical_condition": "...", "current_attire": "..."}}]}}
 
 # Working Memory Extraction (cache-friendly)
 # Uses same context structure as scene generation for cache hits
@@ -846,52 +854,38 @@ npc_extraction_cache_friendly:
     {scene_content}
 
     === EXTRACT NPCs (NAMED PEOPLE ONLY) ===
-    Explicit Characters (already tracked): {explicit_names}
+    Already tracked (SKIP these): {explicit_names}
 
-    Extract ONLY NAMED PEOPLE who are NOT in the explicit character list.
+    Extract ONLY named people/sentient beings NOT in the list above.
+    Test: Can it speak, think, and make decisions? If no → exclude it.
 
-    === CLASSIFICATION TEST ===
-    Ask: "Can this entity SPEAK, THINK, and MAKE DECISIONS?"
-    - If YES → It MAY be a CHARACTER (continue evaluation)
-    - If NO → DO NOT INCLUDE IT
+    EXAMPLE 1:
+    Scene: "The marble countertop gleamed as Dr. Voss examined the x-ray. Officer Tanaka waited by the door, coffee in hand. The espresso machine hummed. A stranger passed in the hallway."
+    Already tracked: None
+    Output:
+    {{
+      "npcs": [
+        {{"name": "Dr. Voss", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": false, "has_actions": true, "has_relationships": false, "context_snippets": ["Dr. Voss examined the x-ray"], "properties": {{"role": "doctor", "description": "Doctor examining x-ray"}}}},
+        {{"name": "Officer Tanaka", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": false, "has_actions": true, "has_relationships": false, "context_snippets": ["Officer Tanaka waited by the door"], "properties": {{"role": "police officer", "description": "Officer waiting at the door"}}}}
+      ]
+    }}
+    NOT extracted: marble (material), espresso machine (object), coffee (drink), stranger (no name)
 
-    === WHAT IS A CHARACTER ===
-    ✓ Human characters with names (e.g., "John", "Dr. Smith", "Mr. Patel")
-    ✓ Named aliens, robots, or AI with sentience
-    ✓ Named animals that speak or think in the story
-    ✓ Named mythological beings or personified entities
-
-    === WHAT IS NOT A CHARACTER (ALWAYS EXCLUDE) ===
-    ✗ Materials & Surfaces: marble, granite, wood, steel, leather, tiles, countertop
-    ✗ Locations & Places: sunroom, kitchen, office, street names, cities, countries
-    ✗ Food & Drinks: coffee, espresso, wine, pasta, any food items
-    ✗ Objects & Furniture: workbench, compressor, chair, table, car, phone
-    ✗ Weather & Nature: rain, sunshine, traffic, wind
-    ✗ Abstract Concepts: time, silence, darkness, memory
-    ✗ Organizations: companies, teams, governments (unless personified)
-    ✗ Generic Descriptors: "the man", "a woman", "someone", "his wife", "her husband" (must have actual names)
-    ✗ Role-Based Labels: "Hindu wife", "the waiter", "a stranger", "the driver" (describe by role, not name)
-
-    For each CHARACTER found, classify as:
-    - CHARACTER: Sentient beings with agency (humans, aliens, robots, sentient animals)
-    - ENTITY: Keep this ONLY for genuinely ambiguous cases
+    EXAMPLE 2:
+    Scene: "Mrs. Okafor set down her teacup. 'The garden needs tending,' she said. The wind rustled through the Carrara tiles of the patio. The crowd outside dispersed."
+    Already tracked: None
+    Output:
+    {{
+      "npcs": [
+        {{"name": "Mrs. Okafor", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": true, "has_actions": true, "has_relationships": false, "context_snippets": ["Mrs. Okafor set down her teacup"], "properties": {{"role": "unknown", "description": "Woman having tea, commenting on the garden"}}}}
+      ]
+    }}
+    NOT extracted: Carrara (material), wind (nature), crowd (unnamed group), garden (location)
 
     Return JSON:
     {{
       "npcs": [
-        {{
-          "name": "Person's actual name",
-          "entity_type": "CHARACTER",
-          "mention_count": 1,
-          "has_dialogue": true,
-          "has_actions": true,
-          "has_relationships": false,
-          "context_snippets": ["snippet showing the character"],
-          "properties": {{
-            "role": "role description",
-            "description": "One-sentence description"
-          }}
-        }}
+        {{"name": "Person's actual name", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": true, "has_actions": true, "has_relationships": false, "context_snippets": ["snippet"], "properties": {{"role": "role", "description": "One sentence"}}}}
       ]
     }}
 
@@ -905,22 +899,28 @@ character_moments_cache_friendly:
     {scene_content}
 
     === EXTRACT CHARACTER MOMENTS ===
-    Focus on these explicit characters: {character_names}
+    Explicit characters: {character_names}
 
-    Extract significant character moments (confidence >= 70):
-    - Moment types: "action", "dialogue", "development", "relationship"
-    - Maximum 3 moments per character
-    - Only extract SIGNIFICANT moments, not every mention
+    Extract only SIGNIFICANT moments (confidence >= 70). Max 3 per character.
+    Types: "action", "dialogue", "development", "relationship"
+
+    EXAMPLE:
+    Scene: "Ava poured herself coffee and sat down. She opened the envelope and read the letter twice, her face draining of color. 'We need to leave,' she told Dex. 'Tonight.' Dex nodded slowly, reaching for her hand across the table."
+    Characters: Ava, Dex
+    Output:
+    {{
+      "character_moments": [
+        {{"character": "Ava", "moment_type": "action", "description": "Reads letter that visibly shocks her", "confidence": 90}},
+        {{"character": "Ava", "moment_type": "dialogue", "description": "Urgently tells Dex they need to leave tonight", "confidence": 85}},
+        {{"character": "Dex", "moment_type": "relationship", "description": "Reaches for Ava's hand in support after her distress", "confidence": 75}}
+      ]
+    }}
+    NOT extracted: Ava pouring coffee (trivial), Ava sitting down (trivial), Dex nodding (minor unless context makes it significant)
 
     Return JSON:
     {{
       "character_moments": [
-        {{
-          "character": "Character Name",
-          "moment_type": "dialogue",
-          "description": "What happened in this moment",
-          "confidence": 85
-        }}
+        {{"character": "Name", "moment_type": "dialogue", "description": "What happened", "confidence": 85}}
       ]
     }}
 
@@ -961,52 +961,34 @@ moments_and_npcs_cache_friendly:
     === SCENE JUST GENERATED ===
     {scene_content}
 
-    === EXTRACT CHARACTER MOMENTS AND NPCs ONLY ===
+    === EXTRACT CHARACTER MOMENTS AND NPCs ===
     Explicit characters: {character_names}
+    Exclude from NPCs: {explicit_names}
 
-    Extract TWO types of information:
-
-    1. CHARACTER MOMENTS (for explicit characters only: {character_names})
-       - Significant moments (confidence >= 70)
-       - Maximum 5 moments per scene
-       - Moment types: "action", "dialogue", "development", "relationship"
-
-    2. NPCs/ENTITIES (NOT in explicit character list)
-       - NAMED PEOPLE or entities NOT in: {explicit_names}
-       - Classify as "CHARACTER" (people) or "ENTITY" (locations, objects, organizations)
-       - Maximum 5 total NPCs
-       - Prioritize: has_dialogue OR has_actions OR mention_count >= 3
-
-       === WHAT IS NOT A CHARACTER (ALWAYS EXCLUDE) ===
-       ✗ Materials & Surfaces: marble, granite, wood, steel, leather, tiles, countertop
-       ✗ Locations & Places: sunroom, kitchen, office, street names, cities, countries
-       ✗ Food & Drinks: coffee, espresso, wine, pasta, any food items
-       ✗ Objects & Furniture: workbench, compressor, chair, table, car, phone
-       ✗ Generic Descriptors: "the man", "a woman", "someone", "his wife", "her husband"
-       ✗ Role-Based Labels: "Hindu wife", "the waiter", "a stranger", "the driver"
-
-    Return ONLY valid JSON:
+    EXAMPLE:
+    Scene: "Ava slammed her fist on the table. 'I won't sign it,' she told Mr. Hahn. The marble floor echoed. A waiter refilled their glasses. Ava stood and walked to the window, arms crossed."
+    Explicit characters: Ava  |  Exclude: Ava
+    Output:
     {{
       "character_moments": [
-        {{
-          "character_name": "Character Name",
-          "moment_type": "action",
-          "content": "Description of the moment",
-          "confidence": 85
-        }}
+        {{"character_name": "Ava", "moment_type": "dialogue", "content": "Refuses to sign, confronts Mr. Hahn", "confidence": 90}},
+        {{"character_name": "Ava", "moment_type": "action", "content": "Slams fist on table in defiance", "confidence": 80}}
       ],
       "npcs": [
-        {{
-          "name": "NPC name",
-          "entity_type": "CHARACTER",
-          "mention_count": 3,
-          "has_dialogue": true,
-          "has_actions": true,
-          "has_relationships": false,
-          "context_snippets": ["snippet"],
-          "properties": {{"role": "role", "description": "brief description"}}
-        }}
+        {{"name": "Mr. Hahn", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": false, "has_actions": false, "has_relationships": true, "context_snippets": ["told Mr. Hahn"], "properties": {{"role": "unknown", "description": "Person Ava is confronting about signing"}}}}
       ]
+    }}
+    NOT extracted: marble (material), waiter (no name), table (furniture), glasses being refilled (trivial)
+
+    RULES:
+    - Moments: significant only (confidence >= 70), max 5. Skip trivial actions (sitting, pouring drinks).
+    - NPCs: NAMED PEOPLE only, max 5. No objects, materials, locations, or unnamed roles.
+    - Types: "action", "dialogue", "development", "relationship"
+
+    Return ONLY JSON:
+    {{
+      "character_moments": [{{"character_name": "Name", "moment_type": "action", "content": "Description", "confidence": 85}}],
+      "npcs": [{{"name": "NPC name", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": true, "has_actions": true, "has_relationships": false, "context_snippets": ["snippet"], "properties": {{"role": "role", "description": "brief"}}}}]
     }}
 
 # Plot Structure Prompts
@@ -1686,129 +1668,105 @@ entity_state_extraction:
   single:
     system: |
       You are a precise story state tracker. Extract entity states as JSON.
-      Focus on FACTS only - no interpretation, no purple prose, no emotional analysis.
-    
+      Focus on FACTS only - no interpretation, no purple prose.
+
     user: |
-      Chapter Location Context: {chapter_location}
-      
+      Chapter Location: {chapter_location}
       Scene (Sequence #{scene_sequence}):
       {scene_content}
-      
+
       Known Characters: {character_names}
-      
-      Extract entity states as JSON.
-      
-      CRITICAL - LOCATION HIERARCHY:
-      Characters are IN "{chapter_location}" unless they explicitly leave.
-      Use "{chapter_location}" as the primary location for all characters.
-      Only use sub-locations (rooms within building) if characters move between them.
-      
-      For "location":
-        * GOOD: "{chapter_location}" (use chapter location as default)
-        * GOOD: "bedroom", "living room" (if character moves to specific room)
-        * BAD: "chaise", "sofa", "bed", "chair" (furniture is NOT a location)
-        * BAD: "next to the bed", "by the window" (spatial reference, not location)
 
-      For "current_position": Physical arrangement within the room
-        * GOOD: "sitting on couch", "standing by the window", "seated at dining table"
-        * GOOD: "standing by counter", "lying on bed", "leaning against doorframe"
-        * BAD: Just repeating the room name ("in kitchen")
-        * This captures WHERE in the room the character is positioned
+      EXAMPLE 1:
+      Scene: "Mira stood by the kitchen window, gripping a glass of water. Her pulse raced. Across the room, Samir sat on the barstool, scrolling his phone. 'I saw the email,' he said quietly. Mira set the glass on the counter and turned to face him."
+      Chapter Location: apartment
+      Output:
+      {{
+        "characters": [
+          {{
+            "name": "Mira",
+            "location": "kitchen",
+            "current_position": "standing by window",
+            "items_in_hand": [],
+            "emotional_state": "anxious",
+            "physical_condition": "elevated pulse",
+            "current_attire": null,
+            "possessions_gained": [],
+            "possessions_lost": [],
+            "knowledge_gained": ["Samir saw the email"],
+            "relationship_changes": {{}}
+          }},
+          {{
+            "name": "Samir",
+            "location": "kitchen",
+            "current_position": "sitting on barstool",
+            "items_in_hand": ["phone"],
+            "emotional_state": "serious",
+            "physical_condition": null,
+            "current_attire": null,
+            "possessions_gained": [],
+            "possessions_lost": [],
+            "knowledge_gained": [],
+            "relationship_changes": {{}}
+          }}
+        ],
+        "locations": [{{"name": "kitchen", "condition": null, "atmosphere": "tense", "occupants": ["Mira", "Samir"]}}],
+        "objects": []
+      }}
+      Note: Glass set down = removed from items_in_hand. "Pulse raced" = "elevated pulse" not "feeling overwhelmed by confrontation". Phone actively used = in items_in_hand.
 
-      For "items_in_hand": Objects the character is actively holding RIGHT NOW
-        * Use array format: ["coffee mug"], ["phone", "keys"], or [] if nothing held
-        * "coffee mug forgotten in his hand" = still holding it = ["coffee mug"]
-        * If character set something down, do NOT include it
-        * Only include items explicitly mentioned as being held/carried
-      
-      CRITICAL - NO PURPLE PROSE:
-      
-      For "emotional_state": Single emotion words ONLY (1-2 words max)
-        * GOOD: "aroused", "nervous", "confident", "hesitant", "excited"
-        * BAD: "feeling a shift from passive to active role" (interpretation)
-        * BAD: "responds positively to authority" (behavioral description)
-        * BAD: "authoritative" (this describes behavior, not emotion)
-      
-      For "physical_condition": Observable physical state ONLY (1-3 words)
-        * GOOD: "tired", "sweating", "nude", "clothed"
-        * BAD: "compliant" (behavior, not physical condition)
-        * BAD: "exerted" (vague - use specific like "sweating" or "breathing hard")
-      
-      For "current_attire": ONLY physical clothing items currently WORN ON BODY
-        * GOOD: "nude", "wearing lingerie", "shirtless", "in a dress"
-        * GOOD: "wearing shirt and pants", "in underwear only", "wrapped in towel"
-        * BAD: "wearing perfume and sweat" (not clothing items)
-        * BAD: "dressed provocatively" (interpretation, not description)
-        * BAD: "wearing formal attire" (too vague - specify actual items)
-        * CRITICAL: Objects being USED/HELD are NOT attire. Read carefully:
-          - "dries hands on towel" = using towel, NOT wearing → use null
-          - "wrapped in towel after shower" = wearing towel → "wrapped in towel"
-          - "holds robe" = NOT wearing → use null
-          - "puts on robe" = wearing → "wearing robe"
-        * Use "nude" if explicitly naked, null if attire not mentioned or unchanged
-      
-      For "knowledge_gained": ONLY new factual information character learned
-        * GOOD: "learned Robert is a photographer", "discovered room has cameras"
-        * GOOD: "found out others were invited", "realized someone was watching"
-        * BAD: "commands someone to do something" (action, not knowledge)
-        * BAD: "responds positively to X" (behavior, not knowledge)
-        * BAD: "feels a shift in role" (feeling, not factual knowledge)
-        * BAD: "likes specific activity" (preference discovered is OK, but phrase as "discovered they enjoy X")
+      EXAMPLE 2:
+      Scene: "After the shower, Lena wrapped herself in a towel and found the note on the dresser. She read it twice, her eyes widening. She pulled on jeans and a sweater, stuffed the note in her pocket, and headed for the door."
+      Chapter Location: hotel room
+      Output:
+      {{
+        "characters": [
+          {{
+            "name": "Lena",
+            "location": "hotel room",
+            "current_position": "heading for door",
+            "items_in_hand": [],
+            "emotional_state": "alarmed",
+            "physical_condition": null,
+            "current_attire": "jeans and sweater",
+            "possessions_gained": ["note"],
+            "possessions_lost": [],
+            "knowledge_gained": ["read contents of note"],
+            "relationship_changes": {{}}
+          }}
+        ],
+        "locations": [{{"name": "hotel room", "condition": null, "atmosphere": null, "occupants": ["Lena"]}}],
+        "objects": []
+      }}
+      Note: Towel was worn briefly then replaced by jeans/sweater — final attire is what matters. Note in pocket = possession, not in hand. Dresser = furniture, NOT a location.
 
-      For "relationship_changes": Track SIGNIFICANT relationship changes only
-        * Include "type": friend, romantic, rival, family, professional, enemy, or neutral
-        * Include "change": what specifically changed (first kiss, argument, betrayal, alliance)
-        * Include "status": current state of relationship
-        * GOOD: {{"Mary": {{"type": "romantic", "change": "first kiss", "status": "dating"}}}}
-        * GOOD: {{"John": {{"type": "rival", "change": "discovered betrayal", "status": "enemies"}}}}
-        * BAD: {{"Mary": "talked"}} (not a relationship change, just interaction)
-        * Only include if relationship actually CHANGED this scene
+      COMMON MISTAKES (avoid these):
+      - emotional_state: "feeling a shift in her role" → use "nervous" or "conflicted"
+      - location: "chaise" or "by the window" → use room name like "bedroom"
+      - current_attire: "dries hands on towel" → null (USING not WEARING)
+      - objects: extracting "table", "hands", "coffee" → only extract plot-critical items
 
-      CRITICAL - OBJECT OWNERSHIP DECAY:
-      Objects are only "held" if character is ACTIVELY using them in THIS scene.
-      - If an object was used earlier but not mentioned now, set owner to null
-      - If character puts down/sets aside an object, add to possessions_lost
-      - Phone/camera/video: Only mark as "held" if actively being used right now
-      
-      DO NOT extract as objects:
-      - Furniture (table, chair, bed, sofa, chaise, couch, ottoman)
-      - Body parts (hands, eyes, face, arms, legs)
-      - Everyday items mentioned casually (phones, keys, cups - unless plot-critical)
-      
       Return ONLY valid JSON:
       {{
         "characters": [
           {{
             "name": "character name",
             "location": "{chapter_location} or specific room",
-            "current_position": "physical position in room (e.g., sitting on couch, standing by door)",
-            "items_in_hand": ["item"] or [],
-            "emotional_state": "1-2 word emotion or null",
-            "physical_condition": "1-3 word physical state or null",
-            "current_attire": "specific clothing items or nude or null",
-            "possessions_gained": ["item"],
-            "possessions_lost": ["item"],
-            "knowledge_gained": ["factual info learned"],
-            "relationship_changes": {{
-              "other_character_name": {{
-                "type": "friend|romantic|rival|family|professional|enemy|neutral",
-                "change": "what changed (e.g., 'first kiss', 'had argument', 'became allies')",
-                "status": "current relationship state (e.g., 'dating', 'enemies', 'close friends')"
-              }}
-            }}
+            "current_position": "physical position in room",
+            "items_in_hand": [],
+            "emotional_state": "1-2 words or null",
+            "physical_condition": "1-3 words or null",
+            "current_attire": "specific clothing or nude or null",
+            "possessions_gained": [],
+            "possessions_lost": [],
+            "knowledge_gained": [],
+            "relationship_changes": {{}}
           }}
         ],
-        "locations": [
-          {{
-            "name": "{chapter_location}",
-            "condition": "1-3 words or null",
-            "atmosphere": "1-3 words or null",
-            "occupants": ["character names"]
-          }}
-        ],
+        "locations": [{{"name": "{chapter_location}", "condition": null, "atmosphere": null, "occupants": []}}],
         "objects": []
       }}
-      
+
       If no changes for a category, use empty array. Return ONLY JSON.
 
   # Extraction service template (used by extraction_service.py for small local models)
@@ -1816,281 +1774,106 @@ entity_state_extraction:
     system: |
       You are a precise story state tracker. Extract entity states as JSON.
       Focus on FACTS only - no interpretation, no purple prose.
-    
+
     user: |
       Chapter Location: {chapter_location}
-      
       Scene #{scene_sequence}:
       {scene_content}
-      
       Known Characters: {character_names}
-      
-      LOCATION RULES:
-      - Use "{chapter_location}" as default location for all characters
-      - Furniture (chaise, sofa, bed, chair) is NOT a location
-      - Only use room names if character moves to different room
 
-      POSITION AND ITEMS:
-      - current_position: Where in the room (e.g., "sitting on couch", "standing by counter")
-      - items_in_hand: What they're actively holding (e.g., ["coffee mug"]), use [] if nothing
+      EXAMPLE:
+      Scene: "Mira stood by the kitchen window, gripping a glass of water. Her pulse raced. Samir sat on the barstool scrolling his phone. 'I saw the email,' he said."
+      Chapter Location: apartment
+      Output:
+      {{
+        "characters": [
+          {{"name": "Mira", "location": "kitchen", "current_position": "standing by window", "items_in_hand": ["glass of water"], "emotional_state": "anxious", "physical_condition": "elevated pulse", "current_attire": null}},
+          {{"name": "Samir", "location": "kitchen", "current_position": "sitting on barstool", "items_in_hand": ["phone"], "emotional_state": "serious", "physical_condition": null, "current_attire": null}}
+        ],
+        "locations": [{{"name": "kitchen", "condition": null, "atmosphere": "tense", "occupants": ["Mira", "Samir"]}}],
+        "objects": []
+      }}
 
-      NO PURPLE PROSE - use single words only:
-      - emotional_state: "nervous", "excited", "calm" (NOT "feeling a shift in role")
-      - physical_condition: "tired", "sweating" (NOT "compliant" or "exerted")
-      - current_attire: "nude", "wearing dress" (NOT "wearing perfume and sweat")
-      - knowledge_gained: facts learned (NOT actions or behaviors)
+      RULES:
+      - location: Room name ("{chapter_location}" default). Furniture is NOT a location.
+      - emotional_state: 1-2 words ("nervous", "angry"). NOT prose ("feeling conflicted about choices").
+      - current_attire: What's WORN on body. USING a towel ≠ wearing it. Null if not mentioned.
+      - items_in_hand: Only what's actively HELD. [] if nothing.
+      - objects: Only plot-critical items. No furniture, body parts, or casual mentions.
 
-      OBJECT RULES:
-      - Only include objects actively used in THIS scene
-      - If object not mentioned, character no longer has it (add to possessions_lost)
-
-      Return JSON with characters (including current_position, items_in_hand), locations, objects arrays.
+      Return JSON with characters, locations, objects arrays.
 
   # Batch/combined extraction (used by extraction_service.py and semantic_integration.py)
   batch:
     system: |
-      You are an expert story analysis assistant. Analyze scenes and extract character moments, NPCs, plot events, and entity state changes. 
-      Return only valid JSON with all four sections: character_moments, npcs, plot_events, and entity_states. 
-      CRITICAL: Focus on quality over quantity - extract only truly significant items. Be selective and precise.
-    
+      You are an expert story analysis assistant. Extract character moments, NPCs, plot events, and entity states from scenes.
+      Return only valid JSON. Focus on quality over quantity — be selective and precise.
+
     user: |
-      Analyze the following scenes and extract FOUR types of information in a single response:
-      
-      1. CHARACTER MOMENTS (for explicit characters only: {character_names})
-      2. NPCs and ENTITIES (NOT in the explicit character list: {explicit_names})
-      3. PLOT EVENTS (significant story events){thread_section}
-      4. ENTITY STATE CHANGES (characters, locations, objects)
-      
+      Extract FOUR types from these scenes:
+      1. CHARACTER MOMENTS (explicit characters: {character_names})
+      2. NPCs (NAMED PEOPLE not in: {explicit_names})
+      3. PLOT EVENTS{thread_section}
+      4. ENTITY STATE CHANGES
+
       Scenes:
       {batch_content}
-      
-      IMPORTANT: Extract only the MOST IMPORTANT/SIGNIFICANT items. Quality over quantity. Be highly selective.
-      
-      For CHARACTER MOMENTS:
-      - Focus on explicit characters: {character_names}
-      - Extract only significant moments (confidence >= 70)
-      - Maximum 5 moments per character per scene
-      - Moment types: "action", "dialogue", "development", "relationship"
-      
-      For NPCs:
-      - Extract NAMED PEOPLE (humans/characters) NOT in explicit character list: {character_names}
-      - PRIORITIZE human characters over objects/locations
-      - Classify each as "CHARACTER" (people, humans, sentient beings) or "ENTITY" (locations, objects, organizations)
-      - Focus on people with dialogue, actions, or relationships
-      - Maximum 5 total NPCs across all scenes (reduced from {max_npcs_total} - only most significant)
-      - Prioritize: has_dialogue OR has_actions OR mention_count >= 3
-      - DO NOT extract objects (coffeemaker, boxes, furniture) as NPCs - those go in entity_states
-      
-      For PLOT EVENTS:
-      - Extract significant plot events only
-      - Importance >= 70 AND confidence >= 80 (stricter thresholds)
-      - Maximum 5 total events across all scenes (reduced from {max_events_total})
-      - Event types: "introduction", "complication", "revelation", "resolution"
-      
-      For ENTITY STATE CHANGES:
-      - Extract state changes for characters, locations, and objects
-      - Focus on significant changes (location, emotional state, current attire, possessions, condition)
-      - Maximum 8 total state changes across all scenes (reduced from 15 - prioritize most plot-critical)
-      - Include only entities that have meaningful state changes
-      
-      CRITICAL INSTRUCTIONS FOR CHARACTER STATE EXTRACTION:
-      All character descriptions MUST be:
-      - FACTUAL: Only what is explicitly stated or directly observable
-      - CONCISE: 1-5 words for states (e.g., "angry", "wounded", "exhausted")
-      - OBJECTIVE: No interpretations, symbolism, or inferred meanings
-      
-      For "location": Use room/building names only
-        * GOOD: "bedroom", "kitchen", "forest clearing"
-        * BAD: "next to the bed", "by the window", "at the table"
-      
-      For "emotional_state": Single words or short phrases
-        * GOOD: "angry", "sad", "determined", "confused"
-        * BAD: "feeling complex emotions about recent events"
-      
-      For "physical_condition": Concise observable states
-        * GOOD: "wounded", "exhausted", "healthy"
-        * BAD: "appears to be in good health based on actions"
-      
-      For "current_attire": Extract ONLY what is explicitly WORN on body
-        * GOOD: "wearing torn red jacket", "shirtless", "in uniform", "wrapped in towel"
-        * BAD: "dressed in standard field gear" (if not stated)
-        * CRITICAL: USING an object != WEARING it ("dries hands on towel" is NOT attire)
-        * Use null if no clothing is mentioned or attire unchanged
-      
-      CRITICAL INSTRUCTIONS FOR LOCATION EXTRACTION:
-      ONLY extract locations that are:
-      - Rooms (bedroom, kitchen, living room, office, bathroom)
-      - Buildings (house, castle, tower, shop, barn)
-      - Outdoor areas (forest, courtyard, street, park, field)
-      - Named places (Blackwood Manor, Crystal Tower, Main Street)
-      
-      DO NOT extract:
-      - Furniture (table, chair, bed, sofa, desk)
-      - Parts of rooms (corner, doorway, window, headboard, ceiling)
-      - Spatial references (next to X, by the Y, near Z, under table)
-      - Temporary positions (where character is standing/sitting)
-      
-      Use consistent naming across scenes:
-        * GOOD: "bedroom" (same name every time)
-        * BAD: "[Character]'s bedroom" then "the bedroom" then "her room"
-      
-      CRITICAL INSTRUCTIONS FOR OBJECT EXTRACTION:
-      DO NOT extract:
-      - Body parts (hands, eyes, face, arms, legs, head, fingers, etc.) - NEVER extract these
-      - Furniture (tables, chairs, beds, sofas - unless central to plot action)
-      - Everyday items mentioned casually (phones, keys, cups, pens)
-      - Parts of objects (door handle, table leg, window pane)
-      - Natural features (trees, rocks, grass - unless named/magical)
-      - Clothing items (unless explicitly given/taken/significant to plot)
-      
-      ONLY extract objects that are:
-      - Weapons or tools actively used (guns, swords, knives, tools)
-      - Magical/special items with powers (artifacts, enchanted items)
-      - Plot devices (letters, maps, documents, keys to important places)
-      - Items explicitly given/taken between characters
-      - Objects mentioned 3+ times AND used in actions
-      
-      Maximum 3-5 objects total across all scenes (be highly selective - only most plot-critical)
-      
-      For "condition": ONLY factual physical condition (1-3 words)
-        * GOOD: "damaged", "intact", "locked", "broken", "pristine"
-        * BAD: "silent confirmation of a rendezvous" (interpretive)
-      
-      For "significance": ONLY factual role in scene (1 sentence max)
-        * GOOD: "used by character to call backup", "carried by character"
-        * BAD: "symbol of active planning and intention" (symbolic)
-      
-      EXTRACTION EXAMPLES:
-      
-      Example scene: "[CHARACTER_A] drew their [WEAPON] and aimed at the door. Their hands trembled as they entered the [ROOM]."
-      
-      CORRECT extraction for above example:
-      {{
-        "entity_states": {{
-          "characters": [
-            {{
-              "name": "[CHARACTER_A]",
-              "location": "[ROOM]",
-              "emotional_state": "nervous",
-              "possessions_gained": ["[WEAPON]"]
-            }}
-          ],
-          "locations": [
-            {{
-              "name": "[ROOM]",
-              "occupants": ["[CHARACTER_A]"]
-            }}
-          ],
-          "objects": [
-            {{
-              "name": "[WEAPON]",
-              "owner": "[CHARACTER_A]",
-              "condition": null,
-              "significance": "drawn and aimed at door"
-            }}
-          ]
-        }}
-      }}
-      
-      NOTE: Replace [CHARACTER_A], [WEAPON], [ROOM] with actual names from YOUR story's scenes.
-      DO NOT extract "[CHARACTER_A]", "[WEAPON]", or "[ROOM]" literally - these are placeholders!
-      
-      INCORRECT extraction (DO NOT DO THIS):
-      {{
-        "entity_states": {{
-          "characters": [
-            {{
-              "location": "next to the door",  # ❌ Spatial reference, not location
-              "emotional_state": "feeling complex mix of fear and determination"  # ❌ Too verbose
-            }}
-          ],
-          "locations": [
-            {{"name": "door"}},  # ❌ Part of room, not a location
-            {{"name": "next to the door"}}  # ❌ Spatial reference
-          ],
-          "objects": [
-            {{"name": "hands"}},  # ❌ Body part - NEVER extract
-            {{"name": "door"}},  # ❌ Part of room
-            {{"condition": "trembling with fear"}}  # ❌ Interpretive
-          ]
-        }}
-      }}
-      
-      Return ONLY valid JSON in this exact format:
+
+      EXAMPLE:
+      Scene: "Dr. Reyes stitched the wound while Kai gripped the exam table. 'Hold still,' she said. In the hallway, Officer Tanaka reviewed his notes. Kai's phone buzzed — a text from an unknown number. He grabbed it with his free hand. The fluorescent lights hummed overhead."
+
+      Explicit characters: Kai  |  Exclude from NPCs: Kai
+
+      Output:
       {{
         "character_moments": [
-          {{
-            "character_name": "Character Name",
-            "moment_type": "action",
-            "content": "Description of the moment",
-            "confidence": 85
-          }}
+          {{"character_name": "Kai", "moment_type": "action", "content": "Receives mysterious text from unknown number during treatment", "confidence": 80}}
         ],
         "npcs": [
-          {{
-            "name": "NPC name",
-            "entity_type": "CHARACTER",
-            "mention_count": 3,
-            "has_dialogue": true,
-            "has_actions": true,
-            "has_relationships": true,
-            "context_snippets": ["snippet 1", "snippet 2"],
-            "properties": {{
-              "role": "role description",
-              "description": "brief description"
-            }}
-          }}
+          {{"name": "Dr. Reyes", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": true, "has_actions": true, "has_relationships": false, "context_snippets": ["Dr. Reyes stitched the wound"], "properties": {{"role": "doctor", "description": "Doctor treating Kai's wound"}}}},
+          {{"name": "Officer Tanaka", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": false, "has_actions": true, "has_relationships": false, "context_snippets": ["Officer Tanaka reviewed his notes"], "properties": {{"role": "police officer", "description": "Officer reviewing notes in hallway"}}}}
         ],
         "plot_events": [
-          {{
-            "event_type": "complication",
-            "description": "Description of the event",
-            "importance": 85,
-            "confidence": 95,
-            "involved_characters": ["Character1", "Character2"]
-          }}
+          {{"event_type": "complication", "description": "Kai receives text from unknown number", "importance": 75, "confidence": 85, "involved_characters": ["Kai"]}}
         ],
         "entity_states": {{
           "characters": [
-            {{
-              "name": "character name",
-              "location": "room/building name or null",
-              "emotional_state": "1-3 word state or null",
-              "physical_condition": "1-3 word condition or null",
-              "current_attire": "factual clothing description from text only, or null",
-              "possessions_gained": ["item1"],
-              "possessions_lost": [],
-              "knowledge_gained": ["fact1"],
-              "relationship_changes": {{
-                "other_char": {{
-                  "type": "friend|romantic|rival|family|professional|enemy|neutral",
-                  "change": "what changed (first kiss, argument, alliance, betrayal)",
-                  "status": "current state of relationship"
-                }}
-              }}
-            }}
+            {{"name": "Kai", "location": "clinic", "emotional_state": "tense", "physical_condition": "wounded", "current_attire": null, "possessions_gained": [], "possessions_lost": [], "knowledge_gained": ["received unknown text"], "relationship_changes": {{}}}}
           ],
-          "locations": [
-            {{
-              "name": "room/building/area name (consistent naming)",
-              "condition": "1-3 word condition or null",
-              "atmosphere": "1-5 word atmosphere or null",
-              "occupants": ["character1"]
-            }}
-          ],
-          "objects": [
-            {{
-              "name": "object name (weapons/artifacts/plot-items only)",
-              "location": "where it is",
-              "owner": "who has it or null",
-              "condition": "1-3 word factual condition or null",
-              "significance": "factual role in scene (1 sentence max) or null"
-            }}
-          ]
+          "locations": [{{"name": "clinic", "condition": null, "atmosphere": "sterile", "occupants": ["Kai", "Dr. Reyes"]}}],
+          "objects": []
         }}
       }}
-      
-      If no items found for a category, return empty array [] or empty object {{}}. Return ONLY the JSON, no other text or markdown.
+
+      NOT extracted: fluorescent lights (object), exam table (furniture), hallway (sub-location not primary). "Gripped table" ≠ possession. Phone actively held = items_in_hand.
+
+      RULES:
+      - Character moments: significant only (confidence >= 70), max 5 per character. Pouring coffee = not significant.
+      - NPCs: NAMED PEOPLE only, max 5 total. No objects/materials/furniture/unnamed people.
+      - Plot events: importance >= 70, confidence >= 80, max 5 total.
+      - Entity states: 1-2 word emotional_state, room-level locations, no furniture as locations, no body parts as objects.
+      - Attire: only what's WORN on body. Using towel ≠ wearing it. Null if not mentioned.
+      - Objects: only weapons, plot devices, items given/taken. Max 3-5, no furniture/body parts.
+
+      Return ONLY valid JSON:
+      {{
+        "character_moments": [
+          {{"character_name": "Name", "moment_type": "action", "content": "Description", "confidence": 85}}
+        ],
+        "npcs": [
+          {{"name": "NPC name", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": true, "has_actions": true, "has_relationships": false, "context_snippets": ["snippet"], "properties": {{"role": "role", "description": "brief"}}}}
+        ],
+        "plot_events": [
+          {{"event_type": "complication", "description": "Description", "importance": 85, "confidence": 95, "involved_characters": ["Name"]}}
+        ],
+        "entity_states": {{
+          "characters": [{{"name": "name", "location": "room", "emotional_state": "1-2 words", "physical_condition": "1-3 words or null", "current_attire": "clothing or null", "possessions_gained": [], "possessions_lost": [], "knowledge_gained": [], "relationship_changes": {{}}}}],
+          "locations": [{{"name": "room/building", "condition": null, "atmosphere": null, "occupants": []}}],
+          "objects": []
+        }}
+      }}
+
+      Empty arrays for missing categories. Return ONLY JSON.
 
   # Lean extraction for character moments + NPCs only (entity states and plot events handled separately)
   # Uses cache-friendly multi-message structure
@@ -2099,44 +1882,34 @@ entity_state_extraction:
       === SCENE JUST GENERATED ===
       {scene_content}
 
-      === EXTRACT CHARACTER MOMENTS AND NPCs ONLY ===
+      === EXTRACT CHARACTER MOMENTS AND NPCs ===
       Explicit characters: {character_names}
+      Exclude from NPCs: {explicit_names}
 
-      Extract TWO types of information:
-
-      1. CHARACTER MOMENTS (for explicit characters only: {character_names})
-         - Significant moments (confidence >= 70)
-         - Maximum 5 moments per scene
-         - Moment types: "action", "dialogue", "development", "relationship"
-
-      2. NPCs/ENTITIES (NOT in explicit character list)
-         - NAMED PEOPLE or entities NOT in: {explicit_names}
-         - Classify as "CHARACTER" (people) or "ENTITY" (locations, objects, organizations)
-         - Maximum 5 total NPCs
-         - Prioritize: has_dialogue OR has_actions OR mention_count >= 3
-
-      Return ONLY valid JSON:
+      EXAMPLE:
+      Scene: "Ava slammed her fist on the table. 'I won't sign it,' she told Mr. Hahn. The marble floor echoed. A waiter refilled their glasses. Ava stood and walked to the window, arms crossed."
+      Explicit characters: Ava  |  Exclude: Ava
+      Output:
       {{
         "character_moments": [
-          {{
-            "character_name": "Character Name",
-            "moment_type": "action",
-            "content": "Description of the moment",
-            "confidence": 85
-          }}
+          {{"character_name": "Ava", "moment_type": "dialogue", "content": "Refuses to sign, confronts Mr. Hahn", "confidence": 90}},
+          {{"character_name": "Ava", "moment_type": "action", "content": "Slams fist on table in defiance", "confidence": 80}}
         ],
         "npcs": [
-          {{
-            "name": "NPC name",
-            "entity_type": "CHARACTER",
-            "mention_count": 3,
-            "has_dialogue": true,
-            "has_actions": true,
-            "has_relationships": false,
-            "context_snippets": ["snippet"],
-            "properties": {{"role": "role", "description": "brief description"}}
-          }}
+          {{"name": "Mr. Hahn", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": false, "has_actions": false, "has_relationships": true, "context_snippets": ["told Mr. Hahn"], "properties": {{"role": "unknown", "description": "Person Ava is confronting about signing"}}}}
         ]
+      }}
+      NOT extracted: marble (material), waiter (no name), table (furniture), glasses being refilled (trivial)
+
+      RULES:
+      - Moments: significant only (confidence >= 70), max 5. Skip trivial actions (sitting, pouring drinks).
+      - NPCs: NAMED PEOPLE only, max 5. No objects, materials, locations, or unnamed roles.
+      - Types: "action", "dialogue", "development", "relationship"
+
+      Return ONLY JSON:
+      {{
+        "character_moments": [{{"character_name": "Name", "moment_type": "action", "content": "Description", "confidence": 85}}],
+        "npcs": [{{"name": "NPC name", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": true, "has_actions": true, "has_relationships": false, "context_snippets": ["snippet"], "properties": {{"role": "role", "description": "brief"}}}}]
       }}
 
 # =============================================================================

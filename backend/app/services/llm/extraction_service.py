@@ -840,26 +840,22 @@ If no moments found, return {{"moments": []}}. Return ONLY the JSON, no other te
             
             explicit_names_str = ", ".join(explicit_character_names) if explicit_character_names else "None"
             
-            prompt = f"""Extract ONLY PEOPLE and SENTIENT BEINGS from this scene.
+            prompt = f"""Extract ONLY NAMED PEOPLE from this scene.
 
 Scene (Sequence #{scene_sequence}):
 {scene_content}
 
-Already tracked characters (SKIP these): {explicit_names_str}
+Already tracked (SKIP these): {explicit_names_str}
 
-ONLY extract:
-- Humans (people with names like "Mr. Smith", "Sarah", "the doctor")
-- Sentient beings (aliens, robots with personalities, talking animals)
-- Named individuals who speak, think, or make decisions
+EXAMPLE:
+Scene: "The marble countertop gleamed. Dr. Voss checked the chart. A stranger passed by. The coffee grew cold."
+Already tracked: None
+Output: {{"npcs": [{{"name": "Dr. Voss", "mention_count": 1, "has_dialogue": false, "has_actions": true, "has_relationships": false}}]}}
+NOT extracted: marble (material), stranger (no name), coffee (object)
 
-DO NOT extract (these are NOT NPCs):
-- Objects: marble, tile, countertop, workbench, coffee, equipment
-- Locations: kitchen, sunroom, office, hallway
-- Materials: Carrara, Calacatta Gold, plastic, wood
-- Nature: sun, rain, traffic, weather
-- Abstract concepts: silence, tension, time
+RULES: Only named people who can speak/think/decide. No objects, materials, locations, weather, or unnamed roles.
 
-For each PERSON found, return:
+Return JSON:
 {{
   "npcs": [
     {{
@@ -872,7 +868,7 @@ For each PERSON found, return:
   ]
 }}
 
-If no PEOPLE found, return {{"npcs": []}}. Return ONLY JSON."""
+If no NAMED PEOPLE found, return {{"npcs": []}}. Return ONLY JSON."""
             
             params = self._get_generation_params()
             response = await acompletion(
@@ -913,25 +909,21 @@ If no PEOPLE found, return {{"npcs": []}}. Return ONLY JSON."""
             
             explicit_names_str = ", ".join(explicit_character_names) if explicit_character_names else "None"
             
-            prompt = f"""Extract ONLY PEOPLE and SENTIENT BEINGS from these scenes.
+            prompt = f"""Extract ONLY NAMED PEOPLE from these scenes.
 
 {batch_content}
 
-Already tracked characters (SKIP these): {explicit_names_str}
+Already tracked (SKIP these): {explicit_names_str}
 
-ONLY extract:
-- Humans (people with names like "Mr. Smith", "Sarah", "the doctor")
-- Sentient beings (aliens, robots with personalities, talking animals)
-- Named individuals who speak, think, or make decisions
+EXAMPLE:
+Scene: "Mrs. Okafor set down her teacup. 'The garden needs work,' she said. The Carrara tiles gleamed. The crowd dispersed outside."
+Already tracked: None
+Output: {{"npcs": [{{"name": "Mrs. Okafor", "mention_count": 1, "has_dialogue": true, "has_actions": true, "has_relationships": false}}]}}
+NOT extracted: Carrara (material), crowd (unnamed group), garden (location), teacup (object)
 
-DO NOT extract (these are NOT NPCs):
-- Objects: marble, tile, countertop, workbench, coffee, equipment
-- Locations: kitchen, sunroom, office, hallway
-- Materials: Carrara, Calacatta Gold, plastic, wood
-- Nature: sun, rain, traffic, weather
-- Abstract concepts: silence, tension, time
+RULES: Only named people who can speak/think/decide. No objects, materials, locations, weather, or unnamed roles.
 
-For each PERSON found, return:
+Return JSON:
 {{
   "npcs": [
     {{
@@ -944,7 +936,7 @@ For each PERSON found, return:
   ]
 }}
 
-If no PEOPLE found, return {{"npcs": []}}. Return ONLY JSON."""
+If no NAMED PEOPLE found, return {{"npcs": []}}. Return ONLY JSON."""
             
             params = self._get_generation_params(max_tokens=self.max_tokens * 2)
             response = await acompletion(
@@ -1062,34 +1054,39 @@ Include "interactions": [] in your JSON response (empty array if no tracked inte
         try:
             from litellm import acompletion
             
-            prompt = f"""Analyze all appearances of the character "{character_name}" in the following story scenes.
-Extract comprehensive details about this character:
+            prompt = f"""Analyze all appearances of "{character_name}" in these scenes and extract character details.
 
-Story scenes featuring {character_name}:
+Scenes featuring {character_name}:
 {character_scenes_text}
 
-Extract the following information:
-- Physical description and appearance (how they look, dress, distinctive features)
-- Personality traits (list of adjectives describing their character)
-- Background and history (their past, where they're from, important life events)
-- Goals and motivations (what they want, what drives them)
-- Fears and weaknesses (what they're afraid of, their vulnerabilities)
-- Brief overall description (2-3 sentence summary of who they are)
-- Suggested role in the story (protagonist, antagonist, ally, mentor, love_interest, comic_relief, mysterious, or other)
-
-Return valid JSON with this exact structure:
+EXAMPLE:
+Character: "Elena Voss"
+Scenes: Elena adjusts her wire-rimmed glasses as she studies the map. She snaps at Kai for being late but later apologizes. She mentions growing up near the coast. Her hands shake when she sees the photograph.
+Output:
 {{
-  "name": "Character Name",
-  "description": "Overall 2-3 sentence description",
-  "personality_traits": ["trait1", "trait2", "trait3"],
-  "background": "Background and history text",
-  "goals": "Goals and motivations text",
-  "fears": "Fears and weaknesses text",
-  "appearance": "Physical description text",
-  "suggested_role": "role_name"
+  "name": "Elena Voss",
+  "description": "A meticulous and sharp-tongued researcher with a troubled past connected to the coast. Quick to anger but capable of remorse.",
+  "personality_traits": ["meticulous", "sharp-tongued", "remorseful", "anxious", "determined"],
+  "background": "Grew up near the coast. Has an emotional connection to events shown in a photograph.",
+  "goals": "Studying the map suggests she is searching for something or investigating a location.",
+  "fears": "The photograph triggers visible fear — connected to a past trauma.",
+  "appearance": "Wears wire-rimmed glasses. Hands shake under stress.",
+  "suggested_role": "protagonist"
 }}
 
-Return ONLY the JSON object, no other text or markdown formatting."""
+Now extract details for "{character_name}". Be concise — traits as single words, descriptions as 1-2 sentences. Only include what the text supports.
+
+Return ONLY JSON:
+{{
+  "name": "Character Name",
+  "description": "2-3 sentence summary",
+  "personality_traits": ["trait1", "trait2", "trait3"],
+  "background": "Background text",
+  "goals": "Goals text",
+  "fears": "Fears text",
+  "appearance": "Physical description",
+  "suggested_role": "role_name"
+}}"""
             
             # Use configured max_tokens from initialization
             params = self._get_generation_params(max_tokens=self.max_tokens)
@@ -1140,14 +1137,17 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             prompt = f"""{context_section}Story Content:
 {story_content}
 
-Create a comprehensive summary that captures the essential elements of this story while maintaining its tone and character development.
+Summarize this story, focusing on plot points, character development, and key conflicts.
 
-Instructions:
-- Capture the essential plot points and character development
-- Maintain the tone and style of the original story
-- Preserve important details while being concise
-- Focus on character relationships and growth
-- Highlight key conflicts and resolutions
+EXAMPLE:
+Story excerpt: Three scenes where Kai arrives at the cabin, argues with Suri about the plan, and discovers the locked basement door.
+Good summary: "Kai arrived at the mountain cabin expecting a quiet retreat, but tension with Suri erupted immediately over their conflicting plans. Their argument revealed deeper trust issues. The discovery of a locked basement door added a new mystery — someone had been here before them."
+
+RULES:
+- Cover key plot points and character developments
+- Keep character relationships and conflicts central
+- Be concise but preserve important details
+- Match the story's tone
 
 Summary:"""
             
