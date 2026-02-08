@@ -4128,20 +4128,24 @@ Chapter Conclusion:"""
             if not user_intent:
                 user_intent = context.get("current_situation")
             if not user_intent or not user_intent.strip():
+                logger.info(f"[SEMANTIC DECOMPOSE] Skipped: no user_intent (search_state={'present' if search_state else 'missing'}, current_situation={bool(context.get('current_situation'))})")
                 return False
 
             # Gate: need db for boost/filter
             if db is None:
+                logger.info("[SEMANTIC DECOMPOSE] Skipped: db is None")
                 return False
 
             # Gate: need extraction service
             extraction_service = self._get_extraction_service(user_settings)
             if not extraction_service:
+                logger.info("[SEMANTIC DECOMPOSE] Skipped: no extraction service")
                 return False
 
             # Gate: need context_manager ref and search state
             ctx_mgr = context.get("_context_manager_ref")
             if not ctx_mgr or not search_state:
+                logger.info(f"[SEMANTIC DECOMPOSE] Skipped: ctx_mgr={bool(ctx_mgr)}, search_state={bool(search_state)}")
                 return False
 
             logger.info(f"[SEMANTIC DECOMPOSE] Attempting query decomposition for: '{user_intent[:100]}...'")

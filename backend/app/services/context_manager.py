@@ -1323,7 +1323,11 @@ Appearance: {char.get('appearance', '')}
             # Entity states (character states, locations, objects) - passed separately for independent message positioning
             "entity_states_text": full_context.get("entity_states_text"),
             # Semantic scenes - passed separately for dedicated message positioning (LAST before task)
-            "semantic_scenes_text": full_context.get("semantic_scenes_text")
+            "semantic_scenes_text": full_context.get("semantic_scenes_text"),
+            # Internal refs for multi-query decomposition in service.py
+            "_semantic_search_state": full_context.get("_semantic_search_state"),
+            "_context_manager_ref": full_context.get("_context_manager_ref"),
+            "_context_snapshot": full_context.get("_context_snapshot"),
         }
         
         # Add pacing guidance if chapter plot tracking is enabled
