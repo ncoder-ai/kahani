@@ -970,7 +970,8 @@ Chapter Conclusion:"""
             "plot_events_cache_friendly": ("plot_events_cache_friendly", ""),
             "entity_only_extraction": ("entity_only_extraction", ""),
             "moments_and_npcs": ("moments_and_npcs_cache_friendly", ""),
-            "chapter_summary_cache_friendly": ("summary_generation", "chapter_summary_cache_friendly")
+            "chapter_summary_cache_friendly": ("summary_generation", "chapter_summary_cache_friendly"),
+            "scene_summary_for_embedding": ("scene_summary_for_embedding", "")
         }
         
         if template_key not in yaml_mapping:

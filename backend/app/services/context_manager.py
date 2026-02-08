@@ -6,6 +6,7 @@ The strategy is determined by user settings - no need for separate classes.
 """
 
 import logging
+from collections import Counter
 from typing import List, Dict, Any, Optional, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, desc
@@ -2064,6 +2065,21 @@ Appearance: {char.get('appearance', '')}
         )
         semantic_used_tokens = self.count_tokens(semantic_content) if semantic_content else 0
 
+        # Store search state for potential multi-query improvement in service.py
+        current_chapter_id = recent_scenes[-1].chapter_id if recent_scenes else None
+        # Dominant chapter = most frequent chapter among recent scenes (not just the last scene's chapter)
+        chapter_counts = Counter(s.chapter_id for s in recent_scenes if s.chapter_id)
+        dominant_chapter_id = chapter_counts.most_common(1)[0][0] if chapter_counts else current_chapter_id
+        context_state = {
+            "user_intent": user_intent,
+            "story_id": story_id,
+            "exclude_sequences": all_recent_scene_sequences,
+            "branch_id": branch_id,
+            "chapter_id": current_chapter_id,
+            "dominant_chapter_id": dominant_chapter_id,
+            "token_budget": semantic_tokens,
+        }
+
         # Get character-specific context
         character_content = await self._get_character_context(
             story_id, recent_scenes, character_tokens, db
@@ -2215,7 +2231,9 @@ Appearance: {char.get('appearance', '')}
             "character_context_included": character_content is not None,
             "entity_states_included": entity_states_content is not None,
             "interaction_history_included": interaction_history_content is not None,
-            "_context_snapshot": context_snapshot  # Return snapshot for story_focus/relationship_context override
+            "_context_snapshot": context_snapshot,  # Return snapshot for story_focus/relationship_context override
+            "_semantic_search_state": context_state,  # For multi-query decomposition in service.py
+            "_context_manager_ref": self,  # For service.py to call search_and_format_multi_query()
         }
 
     async def _get_base_context(self, story_id: int, db: Session, chapter_id: Optional[int] = None, branch_id: Optional[int] = None) -> Dict[str, Any]:
@@ -2794,6 +2812,227 @@ Appearance: {char.get('appearance', '')}
 
         except Exception as e:
             logger.error(f"Failed to get semantic scenes: {e}")
+            return None
+
+    @staticmethod
+    def _reciprocal_rank_fusion(
+        batch_results: "List[List[Dict[str, Any]]]",
+        k: int = 60
+    ) -> "List[Dict[str, Any]]":
+        """
+        Merge multiple ranked result lists using Reciprocal Rank Fusion.
+
+        Args:
+            batch_results: List of result lists (one per query) from batch search
+            k: RRF constant (default 60, standard value)
+
+        Returns:
+            Merged + deduplicated results with normalized RRF scores in similarity_score
+        """
+        rrf_scores: Dict[str, float] = {}  # embedding_id -> accumulated RRF score
+        best_result: Dict[str, Dict] = {}  # embedding_id -> best result dict
+
+        for result_list in batch_results:
+            for rank, result in enumerate(result_list):
+                eid = result.get('embedding_id', f"{result.get('scene_id')}_{result.get('variant_id')}")
+                score = 1.0 / (k + rank + 1)  # rank is 0-indexed, so +1
+                rrf_scores[eid] = rrf_scores.get(eid, 0.0) + score
+
+                # Keep the result dict with highest original similarity
+                if eid not in best_result or result.get('bi_encoder_score', 0) > best_result[eid].get('bi_encoder_score', 0):
+                    best_result[eid] = result
+
+        if not rrf_scores:
+            return []
+
+        # Normalize to [0, 1]
+        max_score = max(rrf_scores.values())
+        if max_score == 0:
+            return []
+
+        merged = []
+        for eid, rrf_score in rrf_scores.items():
+            result = dict(best_result[eid])
+            result['similarity_score'] = rrf_score / max_score
+            result['rrf_raw_score'] = rrf_score
+            merged.append(result)
+
+        # Sort descending by normalized RRF score
+        merged.sort(key=lambda x: x['similarity_score'], reverse=True)
+        return merged
+
+    async def search_and_format_multi_query(
+        self,
+        sub_queries: "List[str]",
+        context: "Dict[str, Any]",
+        db: Session
+    ) -> "Optional[str]":
+        """
+        Run multi-query semantic search with RRF fusion, then apply boosts and format.
+
+        Called from service.py after query decomposition succeeds.
+        Reads search parameters from context["_semantic_search_state"].
+
+        Args:
+            sub_queries: Decomposed sub-queries from LLM
+            context: The scene context dict containing _semantic_search_state
+            db: Database session
+
+        Returns:
+            Formatted semantic scenes text, or None if search fails
+        """
+        state = context.get("_semantic_search_state")
+        if not state:
+            logger.warning("[SEMANTIC MULTI-QUERY] No _semantic_search_state in context")
+            return None
+
+        if not self.semantic_memory:
+            return None
+
+        try:
+            user_intent = state["user_intent"]
+            story_id = state["story_id"]
+            exclude_sequences = state["exclude_sequences"]
+            branch_id = state["branch_id"]
+            chapter_id = state["chapter_id"]
+            token_budget = state["token_budget"]
+
+            # Build combined query (same as _get_semantic_scenes builds it)
+            # user_intent + last few recent scenes would be ideal, but we only have user_intent here
+            # The original combined query already ran; sub_queries are the decomposed version
+            all_queries = [user_intent] + sub_queries if user_intent else sub_queries
+
+            logger.info(f"[SEMANTIC MULTI-QUERY] Running {len(all_queries)} queries "
+                       f"(1 original + {len(sub_queries)} sub-queries)")
+
+            # Request more results per query for post-filtering
+            search_top_k = self.semantic_top_k * 5
+
+            # Batch search — single batch encode + single ChromaDB call
+            batch_results = await self.semantic_memory.search_similar_scenes_batch(
+                query_texts=all_queries,
+                story_id=story_id,
+                top_k=search_top_k,
+                exclude_sequences=exclude_sequences,
+                chapter_id=None  # Search across all chapters (same as normal path)
+            )
+
+            if not batch_results or all(len(r) == 0 for r in batch_results):
+                logger.info("[SEMANTIC MULTI-QUERY] No results from batch search")
+                return None
+
+            # RRF merge
+            similar_scenes = self._reciprocal_rank_fusion(batch_results)
+            logger.info(f"[SEMANTIC MULTI-QUERY] RRF merged {sum(len(r) for r in batch_results)} results "
+                       f"into {len(similar_scenes)} unique scenes")
+
+            if not similar_scenes:
+                return None
+
+            # === CHAPTER AFFINITY BOOST ===
+            # Use dominant_chapter_id (most frequent chapter in recent scenes) instead of
+            # current_chapter_id (last scene's chapter) to avoid boosting a chapter with only
+            # 1 scene when most recent context is from a different chapter.
+            # Keyword boost removed: RRF already ranks by relevance across focused sub-queries;
+            # keyword boost saturates on character names (every scene mentions them) → all scores
+            # become 1.0 → RRF ranking destroyed.
+            dominant_chapter_id = state.get("dominant_chapter_id", chapter_id)
+            chapter_affinity_boost = 0.25
+            if dominant_chapter_id is not None:
+                for result in similar_scenes:
+                    result_chapter_id = result.get('chapter_id')
+                    if result_chapter_id is not None and result_chapter_id == dominant_chapter_id:
+                        original_score = result.get('similarity_score', 0.0)
+                        # No min(1.0) cap — RRF normalizes top to 1.0, so capping would
+                        # prevent boosted scenes from outranking the normalized top.
+                        # Scores are only used for ranking, not as probabilities.
+                        result['similarity_score'] = original_score + chapter_affinity_boost
+                        result['chapter_boost'] = chapter_affinity_boost
+                # Sort by score desc, then by sequence desc (recency tiebreaker)
+                similar_scenes.sort(key=lambda x: (x.get('similarity_score', 0), x.get('sequence', 0)), reverse=True)
+
+            # === FILTER + FORMAT (same logic as _get_semantic_scenes) ===
+            current_scene_sequence = max(exclude_sequences) if exclude_sequences else None
+            filtered_results = []
+            for result in similar_scenes:
+                similarity_score = result.get('similarity_score', 0.0)
+                if similarity_score < self.semantic_min_similarity:
+                    continue
+
+                scene = db.query(Scene).filter(Scene.id == result['scene_id']).first()
+                if not scene:
+                    continue
+
+                if branch_id is not None and scene.branch_id != branch_id:
+                    continue
+
+                if current_scene_sequence is not None:
+                    scene_age = current_scene_sequence - scene.sequence_number
+                    if scene_age > 50 and similarity_score < 0.6:
+                        continue
+
+                filtered_results.append(result)
+
+            if not filtered_results:
+                logger.info("[SEMANTIC MULTI-QUERY] No scenes passed filters")
+                return None
+
+            # Sort by sequence (chronological), limit to semantic_scenes_in_context
+            filtered_with_scenes = []
+            for result in filtered_results[:self.semantic_scenes_in_context]:
+                scene = db.query(Scene).filter(Scene.id == result['scene_id']).first()
+                if scene:
+                    filtered_with_scenes.append((result, scene))
+
+            filtered_with_scenes.sort(key=lambda x: x[1].sequence_number)
+
+            if filtered_with_scenes:
+                selected_info = [(r['similarity_score'], s.sequence_number) for r, s in filtered_with_scenes]
+                logger.info(f"[SEMANTIC MULTI-QUERY] Selected scenes (score, seq#): {selected_info}")
+
+            # Format within token budget
+            relevant_parts = []
+            used_tokens = 0
+            num_scenes = len(filtered_with_scenes)
+            chars_per_token = 4
+            max_chars_per_scene = max(800, (token_budget * chars_per_token) // max(num_scenes, 1))
+            max_chars_per_scene = min(max_chars_per_scene, 2000)
+
+            for result, scene in filtered_with_scenes:
+                variant = db.query(SceneVariant).filter(SceneVariant.id == result['variant_id']).first()
+                if not variant:
+                    continue
+
+                truncated = len(variant.content) > max_chars_per_scene
+                content_preview = variant.content[:max_chars_per_scene] + ("..." if truncated else "")
+
+                scene_text = f"[Relevant from Scene {scene.sequence_number}]:\n{content_preview}"
+                scene_tokens = self.count_tokens(scene_text)
+
+                if used_tokens + scene_tokens <= token_budget:
+                    relevant_parts.append(scene_text)
+                    used_tokens += scene_tokens
+                else:
+                    shorter_content = variant.content[:400] + "..."
+                    shorter_text = f"[Relevant from Scene {scene.sequence_number}]:\n{shorter_content}"
+                    shorter_tokens = self.count_tokens(shorter_text)
+                    if used_tokens + shorter_tokens <= token_budget:
+                        relevant_parts.append(shorter_text)
+                        used_tokens += shorter_tokens
+                    else:
+                        break
+
+            if relevant_parts:
+                logger.info(f"[SEMANTIC MULTI-QUERY] Formatted {len(relevant_parts)} scenes, "
+                           f"total chars: {sum(len(p) for p in relevant_parts)}")
+                return "\n\n".join(relevant_parts)
+
+            return None
+
+        except Exception as e:
+            logger.error(f"[SEMANTIC MULTI-QUERY] Failed: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return None
 
     async def _get_character_context(

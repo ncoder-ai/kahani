@@ -472,8 +472,99 @@ class SemanticMemoryService:
             logger.error(f"Failed to search similar scenes: {e}")
             return []
     
+    async def search_similar_scenes_batch(
+        self,
+        query_texts: List[str],
+        story_id: int,
+        top_k: int = 5,
+        exclude_sequences: Optional[List[int]] = None,
+        chapter_id: Optional[int] = None
+    ) -> List[List[Dict[str, Any]]]:
+        """
+        Batch search for semantically similar scenes using multiple queries.
+
+        Uses single batch encode + single ChromaDB multi-query call for efficiency.
+        No reranking — RRF acts as the fusion mechanism downstream.
+
+        Args:
+            query_texts: List of query texts to search for
+            story_id: Story ID to filter by
+            top_k: Number of results per query
+            exclude_sequences: Scene sequences to exclude
+            chapter_id: Optional chapter filter
+
+        Returns:
+            List of result lists — one per query, same dict structure as search_similar_scenes()
+        """
+        if not query_texts:
+            return []
+
+        try:
+            await self._ensure_model_loaded()
+
+            # Single batch encode (one GPU pass)
+            query_embeddings = await asyncio.to_thread(
+                lambda: self.embedding_model.encode(query_texts, convert_to_numpy=True).tolist()
+            )
+
+            # Build where filter (same logic as search_similar_scenes)
+            retrieval_k = top_k * 2
+            filters = [{"story_id": {"$eq": story_id}}]
+            if chapter_id is not None:
+                filters.append({"chapter_id": {"$eq": chapter_id}})
+
+            where_filter = {"$and": filters} if len(filters) > 1 else filters[0]
+
+            # Single ChromaDB multi-query call
+            results = await asyncio.to_thread(
+                self.scenes_collection.query,
+                query_embeddings=query_embeddings,
+                n_results=retrieval_k,
+                where=where_filter,
+                include=["metadatas", "distances"]
+            )
+
+            # Process results for each query
+            all_results = []
+            for q_idx in range(len(query_texts)):
+                candidates = []
+                for i in range(len(results['ids'][q_idx])):
+                    metadata = results['metadatas'][q_idx][i]
+                    distance = results['distances'][q_idx][i]
+
+                    # Skip excluded sequences
+                    if exclude_sequences and metadata['sequence'] in exclude_sequences:
+                        continue
+
+                    # Normalize cosine distance to similarity [0, 1]
+                    normalized_similarity = max(0.0, 1.0 - (distance / 2.0))
+
+                    candidates.append({
+                        'embedding_id': results['ids'][q_idx][i],
+                        'scene_id': metadata['scene_id'],
+                        'variant_id': metadata['variant_id'],
+                        'sequence': metadata['sequence'],
+                        'chapter_id': metadata['chapter_id'],
+                        'similarity_score': normalized_similarity,
+                        'bi_encoder_score': normalized_similarity,
+                        'timestamp': metadata['timestamp'],
+                        'characters': metadata.get('characters', '[]'),
+                    })
+
+                # Sort by score descending, limit to top_k
+                candidates.sort(key=lambda x: x['similarity_score'], reverse=True)
+                all_results.append(candidates[:top_k])
+
+            logger.info(f"[SEMANTIC BATCH] Searched {len(query_texts)} queries for story {story_id}, "
+                       f"results per query: {[len(r) for r in all_results]}")
+            return all_results
+
+        except Exception as e:
+            logger.error(f"Failed batch search for similar scenes: {e}")
+            return [[] for _ in query_texts]
+
     # Character Moments
-    
+
     async def add_character_moment(
         self,
         character_id: int,

@@ -56,6 +56,7 @@ async def process_scene_embeddings(
     skip_plot_extraction: bool = False,
     skip_character_moments: bool = False,
     skip_entity_states: bool = False,
+    skip_scene_embedding: bool = False,
     branch_id: Optional[int] = None
 ) -> Dict[str, bool]:
     """
@@ -116,12 +117,12 @@ async def process_scene_embeddings(
             logger.warning(f"Scene {scene_id} does not exist, skipping embedding creation")
             return results
         
-        # 1. Create scene embedding (only if semantic memory enabled)
-        if not skip_semantic:
+        # 1. Create scene embedding (only if semantic memory enabled and not already done)
+        if not skip_semantic and not skip_scene_embedding:
             logger.info(f"Starting semantic processing for scene {scene_id}")
             semantic_memory = get_semantic_memory_service()
             logger.info(f"Semantic memory service obtained successfully")
-            
+
             # 1. Create scene embedding
             try:
                 logger.info(f"Creating scene embedding for scene {scene_id}")
@@ -791,7 +792,123 @@ async def batch_process_scene_extractions(
         if not scenes_data:
             logger.warning(f"No valid scenes to process in batch")
             return results
-        
+
+        # === STEP 1: Generate scene summary + contextual embedding ===
+        # This runs FIRST (before other extractions) to:
+        #   a) Warm the LLM cache for subsequent extraction calls
+        #   b) Create enriched embeddings in ChromaDB immediately
+        contextual_embedding_done = False
+        if len(scenes_data) == 1 and scene_generation_context is not None:
+            scene_id_embed, seq_embed, chapter_id_embed, scene_content_embed = scenes_data[0]
+            _, variant_id_embed, _, _ = scenes_for_embeddings[0]
+
+            # Step 1a: Generate 1-sentence summary + specific location via LLM
+            summary_result = None
+            try:
+                llm_service = UnifiedLLMService()
+                summary_result = await llm_service.generate_scene_summary_cache_friendly(
+                    scene_content=scene_content_embed,
+                    context=scene_generation_context,
+                    user_id=user_id,
+                    user_settings=user_settings,
+                    db=db
+                )
+                if summary_result:
+                    logger.warning(f"[EXTRACTION] Scene location: {summary_result.get('location', '')}, summary: {summary_result.get('summary', '')[:80]}")
+                else:
+                    logger.warning("[EXTRACTION] Scene summary generation returned None")
+            except Exception as e:
+                logger.warning(f"[EXTRACTION] Scene summary generation failed: {e}")
+
+            # Step 1b: Build contextual prefix and embed in ChromaDB
+            if settings.enable_semantic_memory:
+                try:
+                    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+                    prefix_parts = []
+                    if chapter:
+                        # Use LLM scene location, fall back to chapter location
+                        scene_location = summary_result.get("location", "") if summary_result else ""
+                        location_str = scene_location or chapter.location_name or "unknown"
+                        prefix_parts.append(
+                            f"Chapter {chapter.chapter_number} '{chapter.title}', "
+                            f"Scene {seq_embed}. "
+                            f"Location: {location_str}."
+                        )
+                    # Character names from scene_generation_context (deduplicated)
+                    active_chars = scene_generation_context.get("active_characters", [])
+                    if active_chars:
+                        if isinstance(active_chars, list):
+                            seen = set()
+                            names = []
+                            for c in active_chars:
+                                name = c.get("name", "") if isinstance(c, dict) else str(c)
+                                if name and name not in seen:
+                                    seen.add(name)
+                                    names.append(name)
+                            char_str = ", ".join(names)
+                        else:
+                            char_str = str(active_chars)
+                        if char_str:
+                            prefix_parts.append(f"Characters: {char_str}.")
+                    if summary_result and summary_result.get("summary"):
+                        prefix_parts.append(summary_result["summary"])
+
+                    context_prefix = "\n".join(prefix_parts)
+                    enriched_content = f"{context_prefix}\n{scene_content_embed}"
+
+                    semantic_memory = get_semantic_memory_service()
+                    embedding_id = await semantic_memory.add_scene_embedding(
+                        scene_id=scene_id_embed,
+                        variant_id=variant_id_embed,
+                        story_id=story_id,
+                        content=enriched_content,
+                        metadata={
+                            'sequence': seq_embed,
+                            'chapter_id': chapter_id or 0,
+                            'branch_id': branch_id or 0,
+                            'characters': [],
+                            'has_contextual_prefix': True
+                        }
+                    )
+
+                    # Store SceneEmbedding record in DB
+                    from ..models import SceneEmbedding
+                    import hashlib
+                    content_hash = hashlib.sha256(enriched_content.encode('utf-8')).hexdigest()
+
+                    existing_embedding = db.query(SceneEmbedding).filter(
+                        SceneEmbedding.embedding_id == embedding_id
+                    ).first()
+
+                    if existing_embedding:
+                        existing_embedding.content_hash = content_hash
+                        existing_embedding.sequence_order = seq_embed
+                        existing_embedding.chapter_id = chapter_id
+                        existing_embedding.content_length = len(enriched_content)
+                        existing_embedding.updated_at = None
+                    else:
+                        scene_embedding = SceneEmbedding(
+                            story_id=story_id,
+                            branch_id=branch_id,
+                            scene_id=scene_id_embed,
+                            variant_id=variant_id_embed,
+                            embedding_id=embedding_id,
+                            content_hash=content_hash,
+                            sequence_order=seq_embed,
+                            chapter_id=chapter_id,
+                            content_length=len(enriched_content)
+                        )
+                        db.add(scene_embedding)
+
+                    db.commit()
+                    contextual_embedding_done = True
+                    results['scene_embeddings'] += 1
+                    logger.warning(f"[EXTRACTION] Contextual embedding created: {embedding_id} (prefix: {len(context_prefix)} chars)")
+
+                except Exception as e:
+                    logger.warning(f"[EXTRACTION] Contextual embedding failed, will fall back to plain embedding: {e}")
+                    db.rollback()
+
         # Check if combined extraction is enabled (default: True)
         enable_combined = user_settings.get('extraction_model_settings', {}).get('enable_combined_extraction', True)
         
@@ -993,7 +1110,10 @@ async def batch_process_scene_extractions(
                 if not scene_exists:
                     logger.warning(f"Scene {scene_id} was deleted during extraction, skipping embedding")
                     continue
-                
+
+                # Skip scene embedding if contextual embedding was already created above
+                skip_embed = contextual_embedding_done and scene_id == scenes_for_embeddings[0][0]
+
                 # Process scene embeddings (still per-scene)
                 # Skip NPC/plot/character/entity extraction since they're done in batch above
                 scene_results = await process_scene_embeddings(
@@ -1009,20 +1129,22 @@ async def batch_process_scene_extractions(
                     skip_npc_extraction=True,
                     skip_plot_extraction=True,
                     skip_character_moments=True,
-                    skip_entity_states=True
+                    skip_entity_states=True,
+                    skip_scene_embedding=skip_embed
                 )
-                
+
                 # Aggregate results (NPCs, plot events, moments already counted above)
                 results['scenes_processed'] += 1
                 if scene_results.get('scene_embedding'):
                     results['scene_embeddings'] += 1
                 if scene_results.get('entity_states'):
                     results['entity_states'] += 1
-                
+
                 logger.debug(f"Processed scene {scene_id} (sequence {sequence_number}): "
                            f"embedding={scene_results.get('scene_embedding')}, "
-                           f"entities={scene_results.get('entity_states')}")
-                
+                           f"entities={scene_results.get('entity_states')}, "
+                           f"skip_embed={skip_embed}")
+
             except Exception as e:
                 logger.error(f"Failed to process scene {scene_id} embeddings: {e}")
                 # Continue with next scene

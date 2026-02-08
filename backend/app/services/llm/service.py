@@ -1241,6 +1241,9 @@ Chapter Conclusion:"""
             db=db
         )
 
+        # Try to improve semantic scenes with query decomposition + RRF
+        await self._maybe_improve_semantic_scenes(messages, context, user_settings, db)
+
         # Build task message (SAME logic as streaming version)
         task_content = self._build_continuation_task_message(
             context=context,
@@ -1385,6 +1388,10 @@ Chapter Conclusion:"""
             user_settings=user_settings,
             db=None  # No db access in this method
         )
+
+        # Try to improve semantic scenes with query decomposition + RRF
+        # (will gracefully return False when db=None)
+        await self._maybe_improve_semantic_scenes(messages, context, user_settings, db=None)
 
         # Build task instruction using helper (no choices for this method)
         task_content = self._build_scene_task_message(
@@ -1550,6 +1557,9 @@ Chapter Conclusion:"""
             user_settings=user_settings,
             db=db
         )
+
+        # Try to improve semantic scenes with query decomposition + RRF
+        await self._maybe_improve_semantic_scenes(messages, context, user_settings, db)
 
         # Get task instruction and choices reminder from prompts.yml
         has_immediate = bool(immediate_situation and immediate_situation.strip())
@@ -2057,6 +2067,9 @@ Chapter Conclusion:"""
             user_settings=user_settings,
             db=db
         )
+
+        # Try to improve semantic scenes with query decomposition + RRF
+        await self._maybe_improve_semantic_scenes(messages, context, user_settings, db)
 
         # === ONLY THIS FINAL MESSAGE IS DIFFERENT ===
         # Instead of new scene + choice request, we send current scene + continuation instruction
@@ -3528,6 +3541,106 @@ Chapter Conclusion:"""
             logger.error(f"[RELATIONSHIP] Cache-friendly extraction failed: {e}")
             return []
 
+    async def generate_scene_summary_cache_friendly(
+        self,
+        scene_content: str,
+        context: Dict[str, Any],
+        user_id: int,
+        user_settings: Dict[str, Any],
+        db: Optional[Session] = None
+    ) -> Optional[Dict[str, str]]:
+        """
+        Generate a 1-sentence factual summary and specific location for contextual embedding.
+
+        Uses cache-friendly multi-message structure (same prefix as scene generation)
+        so extraction LLM cache is warm for subsequent extraction calls.
+
+        Returns:
+            Dict with 'location' (specific room/area) and 'summary' (1-sentence), or None on failure
+        """
+        messages = self._build_cache_friendly_message_prefix(
+            context=context,
+            user_id=user_id,
+            user_settings=user_settings,
+            db=db
+        )
+
+        cleaned_scene = self._clean_scene_numbers(scene_content)
+        final_message = prompt_manager.get_prompt(
+            "scene_summary_for_embedding", "user",
+            scene_content=cleaned_scene
+        )
+        messages.append({"role": "user", "content": final_message})
+
+        logger.info(f"[SCENE_SUMMARY] Cache-friendly structure: {len(messages)} messages")
+
+        ext_settings = user_settings.get('extraction_model_settings', {})
+        use_extraction_model = ext_settings.get('enabled', False)
+
+        try:
+            if use_extraction_model:
+                extraction_service = self._get_extraction_service(user_settings)
+                if extraction_service:
+                    logger.info("[SCENE_SUMMARY] Using extraction LLM")
+                    response = await extraction_service.generate_with_messages(messages=messages, max_tokens=150)
+                else:
+                    use_extraction_model = False
+
+            if not use_extraction_model:
+                logger.info("[SCENE_SUMMARY] Using main LLM")
+                import copy
+                extraction_settings = copy.deepcopy(user_settings)
+                extraction_settings.setdefault('llm_settings', {})['temperature'] = 0.3
+                extraction_settings['llm_settings']['reasoning_effort'] = 'disabled'
+                response = await self._generate_with_messages(messages=messages, user_id=user_id, user_settings=extraction_settings, max_tokens=150)
+
+            if not response:
+                return None
+
+            import re
+            text = response.strip()
+            # Strip markdown formatting
+            text = re.sub(r'\*{1,3}(.+?)\*{1,3}', r'\1', text)
+            text = re.sub(r'#{1,6}\s*', '', text)
+            text = re.sub(r'`(.+?)`', r'\1', text)
+
+            # Parse response — prompt ends with "Location:" so LLM continues with value directly
+            # Response format: "Kitchen\nSummary: ..." (first line = location, no prefix)
+            location = ""
+            summary = ""
+            loc_match = re.search(r'(?i)^location:\s*(.+)', text, re.MULTILINE)
+            sum_match = re.search(r'(?i)^summary:\s*(.+)', text, re.MULTILINE)
+
+            if loc_match:
+                location = loc_match.group(1).strip().rstrip('.')
+            if sum_match:
+                summary = sum_match.group(1).strip()
+
+            # If no "Location:" prefix found, first non-empty line is the location
+            if not location:
+                lines = [l.strip() for l in text.split('\n') if l.strip()]
+                if lines:
+                    first = lines[0]
+                    if len(first) < 60 and not re.match(r'(?i)^summary:', first):
+                        location = first.rstrip('.')
+
+            # If no "Summary:" prefix found, grab text after location line
+            if not summary:
+                lines = [l.strip() for l in text.split('\n') if l.strip()]
+                non_loc_lines = [l for l in lines if l.rstrip('.') != location and not re.match(r'(?i)^location:', l)]
+                summary = ' '.join(non_loc_lines) if non_loc_lines else ""
+
+            # Take first sentence of summary if multiple
+            if '. ' in summary:
+                summary = summary[:summary.index('. ') + 1]
+
+            logger.info(f"[SCENE_SUMMARY] Location: {location}, Summary: {summary[:80]}")
+            return {"location": location, "summary": summary}
+
+        except Exception as e:
+            logger.error(f"[SCENE_SUMMARY] Cache-friendly generation failed: {e}")
+            return None
+
     async def extract_npcs_cache_friendly(
         self,
         scene_content: str,
@@ -3980,6 +4093,174 @@ Chapter Conclusion:"""
     def _format_character_voice_styles(self, characters: Any) -> str:
         """Format character voice styles. Delegates to context_formatter module."""
         return format_character_voice_styles(characters)
+
+    async def _maybe_improve_semantic_scenes(
+        self,
+        messages: List[Dict[str, str]],
+        context: Dict[str, Any],
+        user_settings: Dict[str, Any],
+        db: Optional[Session]
+    ) -> bool:
+        """
+        Try to improve semantic search results via query decomposition + RRF.
+
+        Splits multi-event user_intent into focused sub-queries using the extraction LLM,
+        then re-searches ChromaDB with each sub-query and merges via Reciprocal Rank Fusion.
+
+        Uses the SAME cache-friendly message prefix for the decomposition call,
+        so ExLlamaV3's radix cache gets ~95% hit on the shared prefix tokens.
+
+        Args:
+            messages: The message list built by _build_cache_friendly_message_prefix()
+            context: The scene context dict
+            user_settings: User settings
+            db: Database session (needed for boost/filter logic)
+
+        Returns:
+            True if messages were updated with improved results, False otherwise
+        """
+        try:
+            # Get user_intent
+            search_state = context.get("_semantic_search_state")
+            user_intent = None
+            if search_state:
+                user_intent = search_state.get("user_intent")
+            if not user_intent:
+                user_intent = context.get("current_situation")
+            if not user_intent or not user_intent.strip():
+                return False
+
+            # Gate: need db for boost/filter
+            if db is None:
+                return False
+
+            # Gate: need extraction service
+            extraction_service = self._get_extraction_service(user_settings)
+            if not extraction_service:
+                return False
+
+            # Gate: need context_manager ref and search state
+            ctx_mgr = context.get("_context_manager_ref")
+            if not ctx_mgr or not search_state:
+                return False
+
+            logger.info(f"[SEMANTIC DECOMPOSE] Attempting query decomposition for: '{user_intent[:100]}...'")
+
+            # Clone messages and append decomposition task
+            import copy
+            decompose_messages = copy.deepcopy(messages)
+
+            decompose_task = (
+                "=== DECOMPOSE SEARCH QUERY ===\n"
+                "Split this story continuation into separate events for searching past scenes.\n"
+                "Keep character names in each phrase. Return ONLY a JSON array (max 6 phrases).\n\n"
+                "Example: \"Maya remembers Ravi confronting her at the cafe and later apologizing at the park\"\n"
+                "[\"Ravi confronts Maya at the cafe\", \"Ravi apologizes to Maya at the park\"]\n\n"
+                "Example: \"Sam reflects on meeting Priya, their argument about the project, and the reconciliation\"\n"
+                "[\"Sam meets Priya\", \"Sam and Priya argue about the project\", \"Sam and Priya reconcile\"]\n\n"
+                "Example: \"Lena recalls the surprise party\"\n"
+                "[\"surprise party for Lena\"]\n\n"
+                f"Continuation to decompose:\n{user_intent}"
+            )
+            decompose_messages.append({"role": "user", "content": decompose_task})
+
+            # Call extraction LLM
+            response = await extraction_service.generate_with_messages(
+                messages=decompose_messages,
+                max_tokens=200
+            )
+
+            if not response or not response.strip():
+                logger.info("[SEMANTIC DECOMPOSE] Empty response from extraction LLM")
+                return False
+
+            # Parse JSON array from response
+            sub_queries = self._parse_decomposition_response(response)
+            if not sub_queries or len(sub_queries) < 2:
+                logger.info(f"[SEMANTIC DECOMPOSE] Not enough sub-queries ({len(sub_queries) if sub_queries else 0}), skipping")
+                return False
+
+            logger.info(f"[SEMANTIC DECOMPOSE] Sub-queries: {sub_queries}")
+
+            # Run multi-query search via context_manager
+            improved_text = await ctx_mgr.search_and_format_multi_query(
+                sub_queries=sub_queries,
+                context=context,
+                db=db
+            )
+
+            if not improved_text:
+                logger.info("[SEMANTIC DECOMPOSE] Multi-query search returned no results")
+                return False
+
+            # Find and replace the RELATED PAST SCENES message
+            replaced = False
+            for i, msg in enumerate(messages):
+                if msg.get("role") == "user" and "=== RELATED PAST SCENES ===" in msg.get("content", ""):
+                    messages[i]["content"] = (
+                        "=== RELATED PAST SCENES ===\n"
+                        "The following scenes from earlier in the story are directly relevant to what happens next. "
+                        "Use these details - DO NOT invent or contradict what's described here:\n\n"
+                        + improved_text
+                    )
+                    replaced = True
+                    break
+
+            if not replaced:
+                # Add as new message before the last message (task message)
+                new_msg = {
+                    "role": "user",
+                    "content": (
+                        "=== RELATED PAST SCENES ===\n"
+                        "The following scenes from earlier in the story are directly relevant to what happens next. "
+                        "Use these details - DO NOT invent or contradict what's described here:\n\n"
+                        + improved_text
+                    )
+                }
+                # Insert before the last message (which is the task instruction)
+                if len(messages) > 1:
+                    messages.insert(-1, new_msg)
+                else:
+                    messages.append(new_msg)
+
+            logger.info(f"[SEMANTIC DECOMPOSE] Successfully improved semantic scenes with "
+                       f"{len(sub_queries)} sub-queries (replaced={replaced})")
+            return True
+
+        except Exception as e:
+            logger.warning(f"[SEMANTIC DECOMPOSE] Failed (falling back to single-query): {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+            return False
+
+    def _parse_decomposition_response(self, response: str) -> Optional[List[str]]:
+        """Parse the JSON array from the decomposition LLM response."""
+        try:
+            # Strip markdown fences if present
+            cleaned = response.strip()
+            if cleaned.startswith("```"):
+                lines = cleaned.split("\n")
+                # Remove first and last fence lines
+                lines = [l for l in lines if not l.strip().startswith("```")]
+                cleaned = "\n".join(lines).strip()
+
+            # Try direct parse
+            result = json.loads(cleaned)
+            if isinstance(result, list) and all(isinstance(s, str) for s in result):
+                # Cap at 6 sub-queries
+                return [s.strip() for s in result[:6] if s.strip()]
+
+            # Try extracting JSON array from response
+            match = re.search(r'\[.*?\]', cleaned, re.DOTALL)
+            if match:
+                result = json.loads(match.group())
+                if isinstance(result, list) and all(isinstance(s, str) for s in result):
+                    return [s.strip() for s in result[:6] if s.strip()]
+
+        except (json.JSONDecodeError, Exception) as e:
+            logger.debug(f"[SEMANTIC DECOMPOSE] JSON parse failed: {e}, response: {response[:200]}")
+
+        return None
 
     def _get_extraction_service(self, user_settings: Dict[str, Any]):
         """
