@@ -1,0 +1,153 @@
+# =============================================================================
+# INTERACTION TYPE PRESETS
+# =============================================================================
+# 
+# These presets define which character interactions to track for different genres.
+# Users can load a preset as a starting point and customize for their story.
+#
+# IMPORTANT: Use SPECIFIC, FACTUAL terms - never vague phrases.
+# The purpose of tracking interactions is to maintain precise story continuity.
+#
+# RULE: If you can't objectively verify it happened by reading the scene,
+# the term is too vague. Use explicit, observable actions only.
+# =============================================================================
+
+# Default preset - universal interactions applicable to most stories
+default:
+  name: "Default"
+  description: "Basic interactions suitable for any story type"
+  types:
+    - "first meeting"
+    - "first argument"
+    - "first collaboration"
+    - "betrayal revealed"
+    - "first apology accepted"
+    - "secret shared"
+    - "alliance formed"
+
+# Romance genre preset
+romance:
+  name: "Romance"
+  description: "Interactions for romance and relationship-focused stories"
+  types:
+    - "first meeting"
+    - "first conversation alone"
+    - "first intentional touch"
+    - "first hand-holding"
+    - "first hug"
+    - "first kiss on lips"
+    - "first date"
+    - "first argument"
+    - "first apology accepted"
+    - "first wake up together"
+    - "first I love you spoken"
+    - "marriage proposal"
+
+# Drama genre preset
+drama:
+  name: "Drama"
+  description: "Interactions for dramatic, character-driven stories"
+  types:
+    - "first meeting"
+    - "first conflict"
+    - "first alliance"
+    - "betrayal revealed"
+    - "confrontation"
+    - "secret revealed"
+    - "apology given"
+    - "trust broken"
+    - "first apology accepted"
+    - "sacrifice made"
+
+# Thriller/Mystery genre preset
+thriller:
+  name: "Thriller/Mystery"
+  description: "Interactions for suspense and mystery stories"
+  types:
+    - "first encounter"
+    - "first suspicion voiced"
+    - "first threat made"
+    - "clue discovered together"
+    - "identity revealed"
+    - "betrayal revealed"
+    - "alliance formed"
+    - "confrontation"
+    - "rescue completed"
+    - "near-death experience shared"
+
+# Action/Adventure genre preset
+action:
+  name: "Action/Adventure"
+  description: "Interactions for action-oriented stories"
+  types:
+    - "first meeting"
+    - "first combat together"
+    - "first rescue completed"
+    - "first disagreement"
+    - "alliance formed"
+    - "betrayal revealed"
+    - "sacrifice made"
+    - "victory shared"
+    - "defeat shared"
+
+# Fantasy/Sci-Fi genre preset
+fantasy:
+  name: "Fantasy/Sci-Fi"
+  description: "Interactions for speculative fiction stories"
+  types:
+    - "first meeting"
+    - "power/ability revealed"
+    - "oath sworn aloud"
+    - "magical bond formed"
+    - "quest begun together"
+    - "betrayal revealed"
+    - "sacrifice made"
+    - "destiny revealed"
+    - "final battle together"
+
+# Family/Slice of Life genre preset
+family:
+  name: "Family/Slice of Life"
+  description: "Interactions for family and everyday life stories"
+  types:
+    - "first meeting"
+    - "first disagreement"
+    - "first apology accepted"
+    - "secret shared"
+    - "milestone celebrated"
+    - "crisis faced together"
+    - "lesson learned"
+    - "tradition established"
+
+# Horror genre preset
+horror:
+  name: "Horror"
+  description: "Interactions for horror and supernatural stories"
+  types:
+    - "first encounter"
+    - "first warning ignored"
+    - "first supernatural experience shared"
+    - "alliance formed under duress"
+    - "betrayal revealed"
+    - "sacrifice made"
+    - "survival together"
+    - "final confrontation"
+
+# Adult romance preset - more granular tracking for mature content
+adult_romance:
+  name: "Adult Romance"
+  description: "Detailed interaction tracking for mature romance stories"
+  types:
+    - "first meeting"
+    - "first compliment on appearance"
+    - "first intentional touch"
+    - "first kiss on lips"
+    - "first passionate kiss"
+    - "first undressing"
+    - "first oral sex"
+    - "first intercourse"
+    - "first wake up together"
+    - "first argument"
+    - "first apology accepted"
+    - "first I love you spoken"
+    - "marriage proposal"
