@@ -4162,23 +4162,26 @@ Chapter Conclusion:"""
             char_context = f"Characters in this story: {', '.join(char_names)}\n\n" if char_names else ""
 
             decompose_task = (
-                "=== DECOMPOSE SEARCH QUERY ===\n"
-                "Split this text into SEPARATE search phrases — one per distinct attribute.\n"
-                "Each phrase should target ONE thing: a clothing item, a location, a time, "
-                "an object, or a specific action.\n"
-                "NEVER combine two attributes into one phrase.\n"
-                "DROP generic verbs: came, went, arrived, walked, looked, was there, actions.\n"
-                "Keep character names. Return ONLY a JSON array.\n\n"
-                "Example: \"A is wearing a red jacket, B came over at noon, "
-                "and they were at the rooftop garden\"\n"
-                "[\"A in a red jacket\", \"at noon\", \"at the rooftop garden\"]\n"
-                "(3 phrases: outfit, time, location — 'came over' dropped)\n\n"
-                "Example: \"A confronted B at the cafe and later they argued at the park\"\n"
-                "[\"A confronts B at the cafe\", \"A and B argued at the park\"]\n"
-                "(2 phrases — each has ONE action + ONE location, not combined)\n\n"
-                "Example: \"They ate lunch on the kitchen counter\"\n"
-                "[\"during lunch\", \"on the kitchen counter\"]\n"
-                "(2 phrases: time and location SEPARATE — never combine into one)\n\n"
+                "=== CLASSIFY & DECOMPOSE ===\n"
+                "First classify the intent, then generate search queries to find relevant PAST scenes.\n\n"
+                "INTENT TYPES:\n"
+                "- direct: Scene continues current action (search for: clothing, location, objects, actions)\n"
+                "- recall: Character remembers/retells past events (search for the SPECIFIC PAST EVENTS being recalled)\n"
+                "- react: Character reacts to a discovery/event (search for what TRIGGERED the reaction)\n\n"
+                "EXAMPLE 1 (direct):\n"
+                "\"A is wearing a red jacket and they're at the rooftop garden\"\n"
+                "{\"intent\": \"direct\", \"queries\": [\"A in a red jacket\", \"at the rooftop garden\"]}\n\n"
+                "EXAMPLE 2 (recall):\n"
+                "\"A blushes and starts telling B about intimate moments with C, starting from the day the project began\"\n"
+                "{\"intent\": \"recall\", \"queries\": [\"project began\", \"first interactions with C\", \"early encounters with C\"]}\n"
+                "DROPPED: \"A blushes\", \"telling B\", \"intimate moments\" — these describe the CURRENT telling, not the PAST events\n\n"
+                "EXAMPLE 3 (react):\n"
+                "\"A storms out after discovering B's betrayal at the office\"\n"
+                "{\"intent\": \"react\", \"queries\": [\"B betrayal at the office\", \"B deception discovered\"]}\n\n"
+                "For recall: queries must target the PAST EVENTS being referenced, not the current scene.\n"
+                "DROP: emotions (blushes, aroused), the act of telling/remembering, vague phrases (intimate moments, growing feelings).\n"
+                "KEEP: time anchors (the day X started), specific events (first kiss, first visit), named periods (early days).\n\n"
+                "Return ONLY JSON: {\"intent\": \"<type>\", \"queries\": [\"...\"]}\n\n"
                 f"Text to decompose:\n{user_intent}"
             )
             decompose_messages = [{"role": "user", "content": char_context + decompose_task}]
@@ -4193,19 +4196,22 @@ Chapter Conclusion:"""
                 logger.info("[SEMANTIC DECOMPOSE] Empty response from extraction LLM")
                 return False
 
-            # Parse JSON array from response
-            sub_queries = self._parse_decomposition_response(response)
-            if not sub_queries or len(sub_queries) < 1:
+            # Parse intent + sub-queries from response
+            parsed = self._parse_decomposition_response(response)
+            if not parsed:
                 logger.info(f"[SEMANTIC DECOMPOSE] No sub-queries parsed, skipping")
                 return False
 
-            logger.info(f"[SEMANTIC DECOMPOSE] Sub-queries: {sub_queries}")
+            intent_type, sub_queries = parsed
+            logger.info(f"[SEMANTIC DECOMPOSE] Intent: {intent_type or 'direct (default)'}, "
+                       f"Sub-queries: {sub_queries}")
 
             # Run multi-query search via context_manager
             improved_text = await ctx_mgr.search_and_format_multi_query(
                 sub_queries=sub_queries,
                 context=context,
-                db=db
+                db=db,
+                intent_type=intent_type
             )
 
             if not improved_text:
@@ -4252,29 +4258,59 @@ Chapter Conclusion:"""
             logger.debug(traceback.format_exc())
             return False
 
-    def _parse_decomposition_response(self, response: str) -> Optional[List[str]]:
-        """Parse the JSON array from the decomposition LLM response."""
+    _VALID_INTENTS = {"direct", "recall", "react"}
+
+    def _parse_decomposition_response(self, response: str) -> Optional[tuple]:
+        """Parse the intent-aware JSON from the decomposition LLM response.
+
+        Returns:
+            (intent_type, queries) tuple where intent_type is one of
+            "direct"/"recall"/"react" or None (treated as direct),
+            or None if parsing fails entirely.
+        """
         try:
             # Strip markdown fences if present
             cleaned = response.strip()
             if cleaned.startswith("```"):
                 lines = cleaned.split("\n")
-                # Remove first and last fence lines
                 lines = [l for l in lines if not l.strip().startswith("```")]
                 cleaned = "\n".join(lines).strip()
 
             # Try direct parse
             result = json.loads(cleaned)
-            if isinstance(result, list) and all(isinstance(s, str) for s in result):
-                # Cap at 6 sub-queries
-                return [s.strip() for s in result[:6] if s.strip()]
 
-            # Try extracting JSON array from response
-            match = re.search(r'\[.*?\]', cleaned, re.DOTALL)
-            if match:
-                result = json.loads(match.group())
+            # New format: {"intent": "...", "queries": [...]}
+            if isinstance(result, dict) and "queries" in result:
+                queries = result["queries"]
+                if isinstance(queries, list) and all(isinstance(s, str) for s in queries):
+                    intent = result.get("intent", "").lower().strip()
+                    intent = intent if intent in self._VALID_INTENTS else None
+                    parsed = [s.strip() for s in queries[:6] if s.strip()]
+                    return (intent, parsed) if parsed else None
+
+            # Fallback: plain array (legacy or model ignoring new format)
+            if isinstance(result, list) and all(isinstance(s, str) for s in result):
+                parsed = [s.strip() for s in result[:6] if s.strip()]
+                return (None, parsed) if parsed else None
+
+            # Try extracting JSON object or array from response
+            obj_match = re.search(r'\{.*\}', cleaned, re.DOTALL)
+            if obj_match:
+                result = json.loads(obj_match.group())
+                if isinstance(result, dict) and "queries" in result:
+                    queries = result["queries"]
+                    if isinstance(queries, list) and all(isinstance(s, str) for s in queries):
+                        intent = result.get("intent", "").lower().strip()
+                        intent = intent if intent in self._VALID_INTENTS else None
+                        parsed = [s.strip() for s in queries[:6] if s.strip()]
+                        return (intent, parsed) if parsed else None
+
+            arr_match = re.search(r'\[.*?\]', cleaned, re.DOTALL)
+            if arr_match:
+                result = json.loads(arr_match.group())
                 if isinstance(result, list) and all(isinstance(s, str) for s in result):
-                    return [s.strip() for s in result[:6] if s.strip()]
+                    parsed = [s.strip() for s in result[:6] if s.strip()]
+                    return (None, parsed) if parsed else None
 
         except (json.JSONDecodeError, Exception) as e:
             logger.debug(f"[SEMANTIC DECOMPOSE] JSON parse failed: {e}, response: {response[:200]}")

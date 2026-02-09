@@ -2924,7 +2924,8 @@ Appearance: {char.get('appearance', '')}
         self,
         sub_queries: "List[str]",
         context: "Dict[str, Any]",
-        db: Session
+        db: Session,
+        intent_type: "Optional[str]" = None
     ) -> "Optional[str]":
         """
         Run multi-query semantic search with RRF fusion, then apply boosts and format.
@@ -2936,6 +2937,7 @@ Appearance: {char.get('appearance', '')}
             sub_queries: Decomposed sub-queries from LLM
             context: The scene context dict containing _semantic_search_state
             db: Database session
+            intent_type: Classified intent ("direct", "recall", "react") or None
 
         Returns:
             Formatted semantic scenes text, or None if search fails
@@ -2961,7 +2963,8 @@ Appearance: {char.get('appearance', '')}
             # sub-queries are more focused and produce better RRF fusion.
             all_queries = sub_queries
 
-            logger.info(f"[SEMANTIC MULTI-QUERY] Running {len(all_queries)} sub-queries")
+            logger.info(f"[SEMANTIC MULTI-QUERY] Running {len(all_queries)} sub-queries "
+                       f"(intent: {intent_type or 'direct'})")
 
             # Request more results per query for post-filtering
             search_top_k = self.semantic_top_k * 5
@@ -3279,32 +3282,38 @@ Appearance: {char.get('appearance', '')}
                                f"anchors: {[(a, f'{c:.2f}') for a, c in anchor_data]}, spread: {spread}")
 
                     # Step 3d: Apply confidence-weighted proximity boost
-                    result_scene_ids = [r['scene_id'] for r in similar_scenes]
-                    result_scenes = db.query(Scene.id, Scene.sequence_number).filter(
-                        Scene.id.in_(result_scene_ids)
-                    ).all()
-                    seq_by_id = {sid: seq for sid, seq in result_scenes}
+                    # Skip for recall intents — sub-queries already target early events;
+                    # recency-weighted boosting would fight that by inflating recent scenes.
+                    if intent_type == "recall":
+                        logger.info(f"[TEMPORAL ANCHOR] Computed anchors {[(a, f'{c:.2f}') for a, c in anchor_data]} "
+                                   f"but SKIPPING boost — recall intent")
+                    else:
+                        result_scene_ids = [r['scene_id'] for r in similar_scenes]
+                        result_scenes = db.query(Scene.id, Scene.sequence_number).filter(
+                            Scene.id.in_(result_scene_ids)
+                        ).all()
+                        seq_by_id = {sid: seq for sid, seq in result_scenes}
 
-                    boosted_count = 0
-                    for result in similar_scenes:
-                        seq = seq_by_id.get(result['scene_id'])
-                        if seq is None:
-                            continue
-                        # Best boost across all anchors (each weighted by confidence)
-                        best_boost = 0.0
-                        for anchor_val, confidence in anchor_data:
-                            distance = abs(seq - anchor_val)
-                            raw_boost = max(0.0, 0.50 - 0.005 * distance)
-                            best_boost = max(best_boost, raw_boost * confidence)
-                        if best_boost > 0:
-                            result['similarity_score'] += best_boost
-                            result['temporal_boost'] = best_boost
-                            boosted_count += 1
+                        boosted_count = 0
+                        for result in similar_scenes:
+                            seq = seq_by_id.get(result['scene_id'])
+                            if seq is None:
+                                continue
+                            # Best boost across all anchors (each weighted by confidence)
+                            best_boost = 0.0
+                            for anchor_val, confidence in anchor_data:
+                                distance = abs(seq - anchor_val)
+                                raw_boost = max(0.0, 0.50 - 0.005 * distance)
+                                best_boost = max(best_boost, raw_boost * confidence)
+                            if best_boost > 0:
+                                result['similarity_score'] += best_boost
+                                result['temporal_boost'] = best_boost
+                                boosted_count += 1
 
-                    if boosted_count > 0:
-                        similar_scenes.sort(key=lambda x: x.get('similarity_score', 0), reverse=True)
-                        logger.info(f"[TEMPORAL ANCHOR] Boosted {boosted_count} scenes. "
-                                   f"Top 5 after: {[(r.get('similarity_score', 0), seq_by_id.get(r['scene_id'], '?')) for r in similar_scenes[:5]]}")
+                        if boosted_count > 0:
+                            similar_scenes.sort(key=lambda x: x.get('similarity_score', 0), reverse=True)
+                            logger.info(f"[TEMPORAL ANCHOR] Boosted {boosted_count} scenes. "
+                                       f"Top 5 after: {[(r.get('similarity_score', 0), seq_by_id.get(r['scene_id'], '?')) for r in similar_scenes[:5]]}")
                 else:
                     logger.info("[TEMPORAL ANCHOR] No qualifying keywords found — skipping")
 
@@ -3330,25 +3339,26 @@ Appearance: {char.get('appearance', '')}
                             phrases.add(bigram)
             phrases = list(phrases)
 
+            # Batch-load content for top candidates (used by phrase boost + content verification)
+            candidate_ids = [r['scene_id'] for r in similar_scenes[:50]]
+            candidate_scenes_db = db.query(Scene).filter(Scene.id.in_(candidate_ids)).all()
+            scenes_by_id = {s.id: s for s in candidate_scenes_db}
+
+            flows = db.query(StoryFlow).filter(
+                StoryFlow.scene_id.in_(candidate_ids),
+                StoryFlow.is_active == True
+            ).all()
+            flow_by_scene = {f.scene_id: f for f in flows}
+
+            # Cache content strings for reuse
+            content_by_scene_id = {}
+            for sid in candidate_ids:
+                flow = flow_by_scene.get(sid)
+                content_by_scene_id[sid] = (flow.scene_variant.content if flow and flow.scene_variant else "").lower()
+
             if phrases:
-                # Batch-load content for top candidates via StoryFlow → SceneVariant
-                candidate_ids = [r['scene_id'] for r in similar_scenes[:40]]
-                candidate_scenes = db.query(Scene).filter(Scene.id.in_(candidate_ids)).all()
-                scenes_by_id = {s.id: s for s in candidate_scenes}
-
-                # Batch-load active flows for these scenes
-                flows = db.query(StoryFlow).filter(
-                    StoryFlow.scene_id.in_(candidate_ids),
-                    StoryFlow.is_active == True
-                ).all()
-                flow_by_scene = {f.scene_id: f for f in flows}
-
-                for result in similar_scenes[:40]:
-                    scene = scenes_by_id.get(result['scene_id'])
-                    if not scene:
-                        continue
-                    flow = flow_by_scene.get(scene.id)
-                    content = (flow.scene_variant.content if flow and flow.scene_variant else "").lower()
+                for result in similar_scenes[:50]:
+                    content = content_by_scene_id.get(result['scene_id'], "")
                     if not content:
                         continue
                     total_boost = 0.0
@@ -3365,6 +3375,31 @@ Appearance: {char.get('appearance', '')}
 
                 similar_scenes.sort(key=lambda x: x.get('similarity_score', 0), reverse=True)
                 logger.info(f"[SEMANTIC MULTI-QUERY] Phrase boost applied with phrases: {phrases}")
+
+            # === CONTENT VERIFICATION RE-SCORING ===
+            # Demote scenes whose high bi-encoder scores come from contextual prefix, not actual content.
+            # Extract keywords from sub-queries and check overlap with scene content.
+            verify_words = set()
+            for sq in sub_queries:
+                for w in _re.findall(r'\b[a-z]+\b', sq.lower()):
+                    if len(w) >= 4 and w not in _SEARCH_STOP_WORDS and w not in char_name_words:
+                        verify_words.add(w)
+
+            if verify_words:
+                for result in similar_scenes[:50]:
+                    content = content_by_scene_id.get(result['scene_id'], "")
+                    if not content:
+                        result['content_match'] = 0.0
+                        result['similarity_score'] *= 0.4
+                        continue
+                    matches = sum(1 for w in verify_words if w in content)
+                    ratio = matches / len(verify_words)
+                    result['content_match'] = ratio
+                    result['similarity_score'] *= (0.4 + 0.6 * ratio)
+
+                similar_scenes.sort(key=lambda x: x.get('similarity_score', 0), reverse=True)
+                logger.info(f"[CONTENT VERIFY] {len(verify_words)} keywords, re-scored top 50. "
+                           f"Top 5: {[(round(r.get('similarity_score', 0), 3), content_by_scene_id.get(r['scene_id'], '')[:30]) for r in similar_scenes[:5]]}")
 
             # No single-query rank merge — the hybrid bi-encoder + keyword pool
             # with temporal boosting produces better results than mixing with
@@ -3392,14 +3427,58 @@ Appearance: {char.get('appearance', '')}
                 logger.info("[SEMANTIC MULTI-QUERY] No scenes passed filters")
                 return None
 
-            # Sort by sequence (chronological), limit to semantic_scenes_in_context
-            filtered_with_scenes = []
-            for result in filtered_results[:self.semantic_scenes_in_context]:
-                scene = db.query(Scene).filter(Scene.id == result['scene_id']).first()
-                if scene:
-                    filtered_with_scenes.append((result, scene))
+            # === CLUSTER-BASED SELECTION ===
+            # Instead of simple top-N, group nearby scenes into clusters and select
+            # top-scoring clusters to keep contiguous scene groups together.
+            scene_limit = 15
 
+            # Get sequence numbers for all filtered results
+            result_ids = [r['scene_id'] for r in filtered_results]
+            result_scenes_db = db.query(Scene.id, Scene.sequence_number).filter(
+                Scene.id.in_(result_ids)
+            ).all()
+            seq_by_id_sel = {sid: seq for sid, seq in result_scenes_db}
+
+            # Attach seq to results and sort by seq
+            for r in filtered_results:
+                r['_seq'] = seq_by_id_sel.get(r['scene_id'], 0)
+            sorted_by_seq = sorted(filtered_results, key=lambda x: x['_seq'])
+
+            # Group into clusters (gap > 3 starts new cluster)
+            clusters = []
+            current_cluster = []
+            for r in sorted_by_seq:
+                if current_cluster and r['_seq'] - current_cluster[-1]['_seq'] > 3:
+                    clusters.append(current_cluster)
+                    current_cluster = [r]
+                else:
+                    current_cluster.append(r)
+            if current_cluster:
+                clusters.append(current_cluster)
+
+            # Score clusters by sum, select top until budget
+            clusters.sort(key=lambda c: sum(r.get('similarity_score', 0) for r in c), reverse=True)
+            selected = []
+            for cluster in clusters:
+                if len(selected) >= scene_limit:
+                    break
+                selected.extend(cluster)
+
+            # Build final list with Scene objects, sorted chronologically
+            selected_ids = {r['scene_id'] for r in selected}
+            all_selected_scenes = db.query(Scene).filter(Scene.id.in_(selected_ids)).all()
+            scene_obj_by_id = {s.id: s for s in all_selected_scenes}
+            filtered_with_scenes = []
+            for r in selected:
+                scene = scene_obj_by_id.get(r['scene_id'])
+                if scene:
+                    filtered_with_scenes.append((r, scene))
             filtered_with_scenes.sort(key=lambda x: x[1].sequence_number)
+
+            cluster_info = [(round(sum(r.get('similarity_score', 0) for r in c), 2),
+                             [r['_seq'] for r in c]) for c in clusters[:5]]
+            logger.info(f"[CLUSTER SELECT] {len(clusters)} clusters, selected {len(filtered_with_scenes)} scenes. "
+                       f"Top clusters (score, seqs): {cluster_info}")
 
             if filtered_with_scenes:
                 selected_info = [(r['similarity_score'], s.sequence_number) for r, s in filtered_with_scenes]
