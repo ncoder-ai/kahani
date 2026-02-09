@@ -1146,11 +1146,11 @@ async def restore_npc_tracking_in_background(
 
     logger.info(f"[DELETE-BG:NPC:START] trace_id={trace_id} story_id={story_id} sequence_number={sequence_number} branch_id={branch_id}")
 
-    # Retry configuration for DB connection pool exhaustion
-    max_retries = 3
-    base_delay = 1.0
+    async def _inner():
+        # Retry configuration for DB connection pool exhaustion
+        max_retries = 3
+        base_delay = 1.0
 
-    try:
         # Delay to ensure database commits from main session are visible
         await asyncio.sleep(0.3)
         logger.info(f"[DELETE-BG:NPC:PHASE] trace_id={trace_id} phase=delay_complete")
@@ -1272,6 +1272,11 @@ async def restore_npc_tracking_in_background(
                     # Not a pool error, re-raise immediately
                     raise
 
+    try:
+        await asyncio.wait_for(_inner(), timeout=30.0)
+    except asyncio.TimeoutError:
+        total_duration = (time.perf_counter() - task_start) * 1000
+        logger.error(f"[DELETE-BG:NPC:TIMEOUT] trace_id={trace_id} exceeded 30s, aborting duration_ms={total_duration:.2f}")
     except Exception as e:
         total_duration = (time.perf_counter() - task_start) * 1000
         logger.error(f"[DELETE-BG:NPC:ERROR] trace_id={trace_id} duration_ms={total_duration:.2f} error={e}")
@@ -1293,11 +1298,11 @@ async def cleanup_semantic_data_in_background(
 
     logger.info(f"[DELETE-BG:SEMANTIC:START] trace_id={trace_id} story_id={story_id} scene_count={total_scenes} scene_ids={scene_ids[:5]}{'...' if total_scenes > 5 else ''}")
 
-    # Retry configuration for DB connection pool exhaustion
-    max_retries = 3
-    base_delay = 1.0
+    async def _inner():
+        # Retry configuration for DB connection pool exhaustion
+        max_retries = 3
+        base_delay = 1.0
 
-    try:
         # Delay to ensure database commits from main session are visible
         await asyncio.sleep(0.3)
         logger.info(f"[DELETE-BG:SEMANTIC:PHASE] trace_id={trace_id} phase=delay_complete")
@@ -1362,6 +1367,11 @@ async def cleanup_semantic_data_in_background(
                     # Not a pool error, re-raise immediately
                     raise
 
+    try:
+        await asyncio.wait_for(_inner(), timeout=30.0)
+    except asyncio.TimeoutError:
+        total_duration = (time.perf_counter() - task_start) * 1000
+        logger.error(f"[DELETE-BG:SEMANTIC:TIMEOUT] trace_id={trace_id} exceeded 30s, aborting duration_ms={total_duration:.2f}")
     except Exception as e:
         total_duration = (time.perf_counter() - task_start) * 1000
         logger.error(f"[DELETE-BG:SEMANTIC:ERROR] trace_id={trace_id} duration_ms={total_duration:.2f} error={e}")
@@ -1387,11 +1397,11 @@ async def restore_entity_states_in_background(
 
     logger.info(f"[DELETE-BG:ENTITY:START] trace_id={trace_id} story_id={story_id} sequence_number={sequence_number} seq_range={min_deleted_seq}-{max_deleted_seq} branch_id={branch_id}")
 
-    # Retry configuration for DB connection pool exhaustion
-    max_retries = 3
-    base_delay = 1.0
+    async def _inner():
+        # Retry configuration for DB connection pool exhaustion
+        max_retries = 3
+        base_delay = 1.0
 
-    try:
         # Delay to ensure database commits from main session are visible
         await asyncio.sleep(0.3)
         logger.info(f"[DELETE-BG:ENTITY:PHASE] trace_id={trace_id} phase=delay_complete")
@@ -1425,52 +1435,17 @@ async def restore_entity_states_in_background(
                     )
 
                     # Phase 2: Invalidate batches that overlap with deleted scenes (filtered by branch)
+                    # Note: Entity state restoration is already handled by the main delete transaction.
+                    # This task only needs to invalidate stale batches as a safety net.
                     phase_start = time.perf_counter()
                     entity_service.invalidate_entity_batches_for_scenes(
                         bg_db, story_id, min_deleted_seq, max_deleted_seq, branch_id=branch_id
                     )
+                    bg_db.commit()
                     logger.info(f"[DELETE-BG:ENTITY:PHASE] trace_id={trace_id} phase=invalidate_batches duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
 
-                    # Phase 3: Check if remaining scenes form a complete batch (filtered by branch)
-                    phase_start = time.perf_counter()
-                    last_remaining_scene_query = bg_db.query(Scene).filter(
-                        Scene.story_id == story_id,
-                        Scene.sequence_number < sequence_number
-                    )
-                    if branch_id is not None:
-                        last_remaining_scene_query = last_remaining_scene_query.filter(Scene.branch_id == branch_id)
-                    last_remaining_scene = last_remaining_scene_query.order_by(Scene.sequence_number.desc()).first()
-                    logger.info(f"[DELETE-BG:ENTITY:PHASE] trace_id={trace_id} phase=query_last_scene duration_ms={(time.perf_counter()-phase_start)*1000:.2f} found={last_remaining_scene is not None}")
-
-                    if last_remaining_scene:
-                        # Phase 4a: Restore from last complete batch
-                        phase_start = time.perf_counter()
-                        logger.info(f"[DELETE-BG:ENTITY:CONTEXT] trace_id={trace_id} last_scene_seq={last_remaining_scene.sequence_number}")
-                        entity_service.restore_from_last_complete_batch(
-                            bg_db, story_id, max_deleted_seq, branch_id=branch_id
-                        )
-                        logger.info(f"[DELETE-BG:ENTITY:PHASE] trace_id={trace_id} phase=restore_from_batch duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
-
-                        total_duration = (time.perf_counter() - task_start) * 1000
-                        logger.info(f"[DELETE-BG:ENTITY:END] trace_id={trace_id} total_duration_ms={total_duration:.2f} action=restored_from_batch")
-                    else:
-                        # Phase 4b: No remaining scenes - just clear entity states for this branch
-                        phase_start = time.perf_counter()
-                        char_delete_query = bg_db.query(CharacterState).filter(CharacterState.story_id == story_id)
-                        loc_delete_query = bg_db.query(LocationState).filter(LocationState.story_id == story_id)
-                        obj_delete_query = bg_db.query(ObjectState).filter(ObjectState.story_id == story_id)
-                        if branch_id is not None:
-                            char_delete_query = char_delete_query.filter(CharacterState.branch_id == branch_id)
-                            loc_delete_query = loc_delete_query.filter(LocationState.branch_id == branch_id)
-                            obj_delete_query = obj_delete_query.filter(ObjectState.branch_id == branch_id)
-                        char_deleted = char_delete_query.delete()
-                        loc_deleted = loc_delete_query.delete()
-                        obj_deleted = obj_delete_query.delete()
-                        bg_db.commit()
-                        logger.info(f"[DELETE-BG:ENTITY:PHASE] trace_id={trace_id} phase=clear_states duration_ms={(time.perf_counter()-phase_start)*1000:.2f} char={char_deleted} loc={loc_deleted} obj={obj_deleted}")
-
-                        total_duration = (time.perf_counter() - task_start) * 1000
-                        logger.info(f"[DELETE-BG:ENTITY:END] trace_id={trace_id} total_duration_ms={total_duration:.2f} action=cleared_all_states")
+                    total_duration = (time.perf_counter() - task_start) * 1000
+                    logger.info(f"[DELETE-BG:ENTITY:END] trace_id={trace_id} total_duration_ms={total_duration:.2f} action=invalidated_batches")
 
                     # Success - exit retry loop
                     return
@@ -1492,6 +1467,11 @@ async def restore_entity_states_in_background(
                     # Not a pool error, re-raise immediately
                     raise
 
+    try:
+        await asyncio.wait_for(_inner(), timeout=30.0)
+    except asyncio.TimeoutError:
+        total_duration = (time.perf_counter() - task_start) * 1000
+        logger.error(f"[DELETE-BG:ENTITY:TIMEOUT] trace_id={trace_id} exceeded 30s, aborting duration_ms={total_duration:.2f}")
     except Exception as e:
         total_duration = (time.perf_counter() - task_start) * 1000
         logger.error(f"[DELETE-BG:ENTITY:ERROR] trace_id={trace_id} duration_ms={total_duration:.2f} error={e}")
@@ -1516,7 +1496,7 @@ async def rollback_plot_progress_in_background(
 
     logger.info(f"[DELETE-BG:PLOT:START] trace_id={trace_id} story_id={story_id} min_deleted_seq={min_deleted_seq} branch_id={branch_id}")
 
-    try:
+    async def _inner():
         # Delay to ensure database commits from main session are visible
         await asyncio.sleep(0.3)
 
@@ -1626,6 +1606,11 @@ async def rollback_plot_progress_in_background(
             total_duration = (time.perf_counter() - task_start) * 1000
             logger.info(f"[DELETE-BG:PLOT:END] trace_id={trace_id} total_duration_ms={total_duration:.2f} chapters_processed={len(chapters)}")
 
+    try:
+        await asyncio.wait_for(_inner(), timeout=30.0)
+    except asyncio.TimeoutError:
+        total_duration = (time.perf_counter() - task_start) * 1000
+        logger.error(f"[DELETE-BG:PLOT:TIMEOUT] trace_id={trace_id} exceeded 30s, aborting duration_ms={total_duration:.2f}")
     except Exception as e:
         total_duration = (time.perf_counter() - task_start) * 1000
         logger.error(f"[DELETE-BG:PLOT:ERROR] trace_id={trace_id} duration_ms={total_duration:.2f} error={e}")
@@ -1649,7 +1634,7 @@ async def rollback_working_memory_and_relationships_in_background(
 
     logger.info(f"[DELETE-BG:WM_REL:START] trace_id={trace_id} story_id={story_id} min_deleted_seq={min_deleted_seq} branch_id={branch_id}")
 
-    try:
+    async def _inner():
         # Delay to ensure database commits from main session are visible
         await asyncio.sleep(0.3)
 
@@ -1726,6 +1711,11 @@ async def rollback_working_memory_and_relationships_in_background(
             logger.info(f"[DELETE-BG:WM_REL:END] trace_id={trace_id} total_duration_ms={total_duration:.2f} "
                        f"deleted_rels={deleted_rels} updated_summaries={len(stale_summaries)}")
 
+    try:
+        await asyncio.wait_for(_inner(), timeout=30.0)
+    except asyncio.TimeoutError:
+        total_duration = (time.perf_counter() - task_start) * 1000
+        logger.error(f"[DELETE-BG:WM_REL:TIMEOUT] trace_id={trace_id} exceeded 30s, aborting duration_ms={total_duration:.2f}")
     except Exception as e:
         total_duration = (time.perf_counter() - task_start) * 1000
         logger.error(f"[DELETE-BG:WM_REL:ERROR] trace_id={trace_id} duration_ms={total_duration:.2f} error={e}")
@@ -1912,7 +1902,12 @@ async def initialize_branch_entity_states_in_background(
             )
 
             if last_batch:
-                # Step 2: Restore entity states from the batch
+                # Step 2: Delete existing entity states for this branch, then restore from batch
+                char_del = init_db.query(CharacterState).filter(CharacterState.story_id == story_id, CharacterState.branch_id == branch_id).delete()
+                loc_del = init_db.query(LocationState).filter(LocationState.story_id == story_id, LocationState.branch_id == branch_id).delete()
+                obj_del = init_db.query(ObjectState).filter(ObjectState.story_id == story_id, ObjectState.branch_id == branch_id).delete()
+                logger.info(f"[BRANCH:ENTITY:DELETE] trace_id={trace_id} chars={char_del} locs={loc_del} objs={obj_del}")
+
                 restore_result = entity_service.restore_entity_states_from_batch(init_db, last_batch)
                 # Commit restore immediately so it's not lost if extraction fails
                 init_db.commit()

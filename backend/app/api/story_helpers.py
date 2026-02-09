@@ -577,23 +577,24 @@ async def invalidate_and_regenerate_extractions_for_scene(
         # Find last valid batch before this scene (filtered by branch)
         last_valid_batch = entity_service.get_last_valid_batch(db, story_id, scene_sequence, branch_id=branch_id)
 
+        # Delete all existing entity states for this branch before restoring
+        char_del_query = db.query(CharacterState).filter(CharacterState.story_id == story_id)
+        loc_del_query = db.query(LocationState).filter(LocationState.story_id == story_id)
+        obj_del_query = db.query(ObjectState).filter(ObjectState.story_id == story_id)
+        if branch_id is not None:
+            char_del_query = char_del_query.filter(CharacterState.branch_id == branch_id)
+            loc_del_query = loc_del_query.filter(LocationState.branch_id == branch_id)
+            obj_del_query = obj_del_query.filter(ObjectState.branch_id == branch_id)
+        char_del_query.delete()
+        loc_del_query.delete()
+        obj_del_query.delete()
+
         if last_valid_batch:
             # Restore states from batch, then re-extract from modified scene onwards
             entity_service.restore_entity_states_from_batch(db, last_valid_batch)
             start_sequence = last_valid_batch.end_scene_sequence + 1
             logger.info(f"[MODIFY] Restored entity states from batch {last_valid_batch.id} (scenes 1-{last_valid_batch.end_scene_sequence})")
         else:
-            # No valid batch, delete all states for this branch and start from scratch
-            char_del_query = db.query(CharacterState).filter(CharacterState.story_id == story_id)
-            loc_del_query = db.query(LocationState).filter(LocationState.story_id == story_id)
-            obj_del_query = db.query(ObjectState).filter(ObjectState.story_id == story_id)
-            if branch_id is not None:
-                char_del_query = char_del_query.filter(CharacterState.branch_id == branch_id)
-                loc_del_query = loc_del_query.filter(LocationState.branch_id == branch_id)
-                obj_del_query = obj_del_query.filter(ObjectState.branch_id == branch_id)
-            char_del_query.delete()
-            loc_del_query.delete()
-            obj_del_query.delete()
             start_sequence = 1
             logger.info(f"[MODIFY] No valid batch found, starting entity state recalculation from scene 1 (branch {branch_id})")
 
