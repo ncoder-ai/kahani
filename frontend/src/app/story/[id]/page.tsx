@@ -585,7 +585,17 @@ export default function StoryPage() {
     const loadChapterInfo = async () => {
       try {
         if (activeChapterId) {
-          // Load the active chapter info
+          // Use already-fetched activeChapter if it matches (avoids redundant API call)
+          if (activeChapter && activeChapter.id === activeChapterId) {
+            setCurrentChapterInfo({
+              id: activeChapter.id,
+              number: activeChapter.chapter_number,
+              title: activeChapter.title,
+              isActive: activeChapter.status === 'active'
+            });
+            return;
+          }
+          // Fallback: fetch if we don't have it in state
           const chapter = await apiClient.getChapter(storyId, activeChapterId);
           setCurrentChapterInfo({
             id: chapter.id,
@@ -596,13 +606,13 @@ export default function StoryPage() {
         } else {
           // Try to find active chapter from chapters list
           const chapters = await apiClient.getChapters(storyId);
-          const activeChapter = chapters.find((ch: any) => ch.status === 'active');
-          if (activeChapter) {
-            setActiveChapterId(activeChapter.id);
+          const active = chapters.find((ch: any) => ch.status === 'active');
+          if (active) {
+            setActiveChapterId(active.id);
             setCurrentChapterInfo({
-              id: activeChapter.id,
-              number: activeChapter.chapter_number,
-              title: activeChapter.title,
+              id: active.id,
+              number: active.chapter_number,
+              title: active.title,
               isActive: true
             });
           }
@@ -612,7 +622,7 @@ export default function StoryPage() {
       }
     };
     loadChapterInfo();
-  }, [activeChapterId, storyId]);
+  }, [activeChapterId, storyId, activeChapter]);
 
   // Get scenes to display based on current mode and active chapter
   const getScenesToDisplay = (): Scene[] => {
@@ -1056,10 +1066,13 @@ export default function StoryPage() {
         setActiveChapterId(chapterIdToUse);
       }
 
-      // Fetch story with chapter filtering for optimized loading
+      // Fetch story and context status in parallel (they don't depend on each other)
       setDebugStep('4-fetch');
       console.log('[DEBUG] loadStory: Fetching story', storyId, branchIdToUse, chapterIdToUse);
-      const storyData = await apiClient.getStory(storyId, branchIdToUse || undefined, chapterIdToUse);
+      const [storyData] = await Promise.all([
+        apiClient.getStory(storyId, branchIdToUse || undefined, chapterIdToUse),
+        chapterIdToUse ? loadContextStatus(chapterIdToUse) : Promise.resolve()
+      ]);
       setDebugStep('5-got:' + (storyData?.scenes?.length || 0));
       console.log('[DEBUG] loadStory: Got story data, scenes:', storyData?.scenes?.length);
       setStory(storyData);
@@ -1087,9 +1100,6 @@ export default function StoryPage() {
           }
         }
       }
-
-      // Load context status for progress bar
-      await loadContextStatus();
 
       // Helper function to scroll to a scene element within the container
       const scrollToScene = (container: HTMLElement, element: HTMLElement) => {
@@ -1175,12 +1185,19 @@ export default function StoryPage() {
     await loadStory(true, false, branchId);  // scrollToLastScene=true to show last scene of new branch
   };
 
-  const loadContextStatus = async () => {
+  const loadContextStatus = async (chapterIdParam?: number) => {
     try {
-      const activeChapter = await apiClient.getActiveChapter(storyId);
-      if (activeChapter) {
-        const contextStatus = await apiClient.getChapterContextStatus(storyId, activeChapter.id);
+      const chapterId = chapterIdParam ?? activeChapterId;
+      if (chapterId) {
+        const contextStatus = await apiClient.getChapterContextStatus(storyId, chapterId);
         setContextUsagePercent(contextStatus.percentage_used);
+      } else {
+        // Fallback: fetch active chapter if no ID available
+        const activeChapter = await apiClient.getActiveChapter(storyId);
+        if (activeChapter) {
+          const contextStatus = await apiClient.getChapterContextStatus(storyId, activeChapter.id);
+          setContextUsagePercent(contextStatus.percentage_used);
+        }
       }
     } catch (err) {
       console.error('Failed to load context status:', err);
@@ -2831,16 +2848,15 @@ export default function StoryPage() {
       )}
       
       {/* Chapter Sidebar - Opens from main menu */}
-      <ChapterSidebar 
+      <ChapterSidebar
         key={chapterSidebarRefreshKey}
         storyId={storyId}
         isOpen={isChapterSidebarOpen}
         onToggle={() => setIsChapterSidebarOpen(!isChapterSidebarOpen)}
         onChapterChange={(newChapterId?: number) => {
           // Reload story with the new chapter (optimized - only fetches that chapter's scenes)
+          // loadContextStatus is called inside loadStory in parallel with story fetch
           loadStory(false, false, undefined, newChapterId);
-          // Update context status
-          loadContextStatus();
         }}
         onChapterSelect={(chapterId) => {
           // This will trigger the switch active chapter flow with confirmation
@@ -2850,6 +2866,8 @@ export default function StoryPage() {
         storyArc={story?.story_arc}
         enableStreaming={userSettings?.generation_preferences?.enable_streaming !== false}
         showThinkingContent={userSettings?.llm_settings?.show_thinking_content !== false}
+        initialActiveChapter={activeChapter}
+        initialContextPercent={contextUsagePercent}
       />
 
       {/* Main Story Container */}

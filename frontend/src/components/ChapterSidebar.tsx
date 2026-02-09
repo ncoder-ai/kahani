@@ -67,9 +67,11 @@ interface ChapterSidebarProps {
   storyArc?: StoryArc | null; // Story arc for display
   enableStreaming?: boolean; // Whether streaming is enabled for LLM responses
   showThinkingContent?: boolean; // Whether to show LLM thinking content
+  initialActiveChapter?: any; // Pre-fetched active chapter from parent (avoids redundant API call)
+  initialContextPercent?: number; // Pre-fetched context percentage from parent
 }
 
-export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterChange, onChapterSelect, currentChapterId, storyArc, enableStreaming = true, showThinkingContent = true }: ChapterSidebarProps) {
+export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterChange, onChapterSelect, currentChapterId, storyArc, enableStreaming = true, showThinkingContent = true, initialActiveChapter, initialContextPercent }: ChapterSidebarProps) {
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [activeChapter, setActiveChapter] = useState<Chapter | null>(null);
   const [contextStatus, setContextStatus] = useState<ChapterContextStatus | null>(null);
@@ -126,37 +128,53 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
     try {
       setLoading(true);
       setError(null);
-      
+
       // Load all chapters
       const chaptersData = await apiClient.getChapters(storyId);
       setChapters(chaptersData);
-      
-      // Load active chapter - may return null if no active chapter exists
-      try {
-        const activeChapterData = await apiClient.getActiveChapter(storyId);
-        setActiveChapter(activeChapterData);
-        
-        // Load context status for active chapter (only if chapter has scenes)
-        if (activeChapterData && activeChapterData.scenes_count > 0) {
-          try {
-            const statusData = await apiClient.getChapterContextStatus(storyId, activeChapterData.id);
-            setContextStatus(statusData);
-          } catch (err) {
-            console.warn('Failed to load context status:', err);
-            // Don't fail the whole load if context status fails
-            setContextStatus(null);
-          }
+
+      // Use pre-fetched active chapter if available (avoids redundant API calls on initial load)
+      if (initialActiveChapter && !activeChapter) {
+        setActiveChapter(initialActiveChapter);
+        if (initialContextPercent !== undefined) {
+          setContextStatus({
+            chapter_id: initialActiveChapter.id,
+            current_tokens: 0,
+            max_tokens: 0,
+            percentage_used: initialContextPercent,
+            should_create_new_chapter: false,
+            reason: null,
+            scenes_count: initialActiveChapter.scenes_count || 0
+          });
         }
-      } catch (err) {
-        // No active chapter found - this is expected when:
-        // 1. Story is newly created and no chapter exists yet
-        // 2. All chapters are completed and user needs to create a new one
-        if (err instanceof Error && (err.message.includes('404') || err.message.includes('No active chapter'))) {
-          setActiveChapter(null);
-          // Don't show error - user should create a new chapter
-        } else {
-          console.error('Failed to load active chapter:', err);
-          setError(err instanceof Error ? err.message : 'Failed to load active chapter');
+      } else {
+        // Fetch fresh data (for refresh-key remounts or when no initial data)
+        try {
+          const activeChapterData = await apiClient.getActiveChapter(storyId);
+          setActiveChapter(activeChapterData);
+
+          // Load context status for active chapter (only if chapter has scenes)
+          if (activeChapterData && activeChapterData.scenes_count > 0) {
+            try {
+              const statusData = await apiClient.getChapterContextStatus(storyId, activeChapterData.id);
+              setContextStatus(statusData);
+            } catch (err) {
+              console.warn('Failed to load context status:', err);
+              // Don't fail the whole load if context status fails
+              setContextStatus(null);
+            }
+          }
+        } catch (err) {
+          // No active chapter found - this is expected when:
+          // 1. Story is newly created and no chapter exists yet
+          // 2. All chapters are completed and user needs to create a new one
+          if (err instanceof Error && (err.message.includes('404') || err.message.includes('No active chapter'))) {
+            setActiveChapter(null);
+            // Don't show error - user should create a new chapter
+          } else {
+            console.error('Failed to load active chapter:', err);
+            setError(err instanceof Error ? err.message : 'Failed to load active chapter');
+          }
         }
       }
     } catch (err) {

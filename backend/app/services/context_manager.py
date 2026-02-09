@@ -2645,7 +2645,7 @@ Appearance: {char.get('appearance', '')}
                         if len(phrase) >= 5:  # Minimum phrase length
                             extracted_keywords.append(([phrase, words[i], words[i+1]], phrase, keyword_boost * 1.5))
 
-                # NOTE: Character name boosting removed — names like "radhika"/"ali" appear
+                # NOTE: Character name boosting removed — common character names appear
                 # in ~95% of scenes, providing zero discriminative signal and causing
                 # keyword boost saturation (every scene hits the cap).
 
