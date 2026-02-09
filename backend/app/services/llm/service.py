@@ -3550,13 +3550,13 @@ Chapter Conclusion:"""
         db: Optional[Session] = None
     ) -> Optional[Dict[str, str]]:
         """
-        Generate a 1-sentence factual summary and specific location for contextual embedding.
+        Generate a 2-3 sentence factual summary and specific location for contextual embedding.
 
         Uses cache-friendly multi-message structure (same prefix as scene generation)
         so extraction LLM cache is warm for subsequent extraction calls.
 
         Returns:
-            Dict with 'location' (specific room/area) and 'summary' (1-sentence), or None on failure
+            Dict with 'location' (specific room/area) and 'summary' (2-3 sentences), or None on failure
         """
         messages = self._build_cache_friendly_message_prefix(
             context=context,
@@ -3582,7 +3582,7 @@ Chapter Conclusion:"""
                 extraction_service = self._get_extraction_service(user_settings)
                 if extraction_service:
                     logger.info("[SCENE_SUMMARY] Using extraction LLM")
-                    response = await extraction_service.generate_with_messages(messages=messages, max_tokens=150)
+                    response = await extraction_service.generate_with_messages(messages=messages, max_tokens=300)
                 else:
                     use_extraction_model = False
 
@@ -3592,7 +3592,7 @@ Chapter Conclusion:"""
                 extraction_settings = copy.deepcopy(user_settings)
                 extraction_settings.setdefault('llm_settings', {})['temperature'] = 0.3
                 extraction_settings['llm_settings']['reasoning_effort'] = 'disabled'
-                response = await self._generate_with_messages(messages=messages, user_id=user_id, user_settings=extraction_settings, max_tokens=150)
+                response = await self._generate_with_messages(messages=messages, user_id=user_id, user_settings=extraction_settings, max_tokens=300)
 
             if not response:
                 return None
@@ -3604,17 +3604,20 @@ Chapter Conclusion:"""
             text = re.sub(r'#{1,6}\s*', '', text)
             text = re.sub(r'`(.+?)`', r'\1', text)
 
-            # Parse response — prompt ends with "Location:" so LLM continues with value directly
-            # Response format: "Kitchen\nSummary: ..." (first line = location, no prefix)
+            # Parse response — format: "Location: kitchen\nSummary: sentence(s)"
+            # Summary may span multiple lines (2-3 sentences)
             location = ""
             summary = ""
             loc_match = re.search(r'(?i)^location:\s*(.+)', text, re.MULTILINE)
-            sum_match = re.search(r'(?i)^summary:\s*(.+)', text, re.MULTILINE)
+            # Capture everything after "Summary:" (same line + subsequent lines)
+            sum_match = re.search(r'(?i)^summary:\s*(.*)', text, re.MULTILINE | re.DOTALL)
 
             if loc_match:
                 location = loc_match.group(1).strip().rstrip('.')
             if sum_match:
-                summary = sum_match.group(1).strip()
+                raw_summary = sum_match.group(1).strip()
+                # Join multi-line summary into single string, collapse whitespace
+                summary = ' '.join(raw_summary.split())
 
             # If no "Location:" prefix found, first non-empty line is the location
             if not location:
@@ -3629,10 +3632,6 @@ Chapter Conclusion:"""
                 lines = [l.strip() for l in text.split('\n') if l.strip()]
                 non_loc_lines = [l for l in lines if l.rstrip('.') != location and not re.match(r'(?i)^location:', l)]
                 summary = ' '.join(non_loc_lines) if non_loc_lines else ""
-
-            # Take first sentence of summary if multiple
-            if '. ' in summary:
-                summary = summary[:summary.index('. ') + 1]
 
             logger.info(f"[SCENE_SUMMARY] Location: {location}, Summary: {summary[:80]}")
             return {"location": location, "summary": summary}
@@ -4168,20 +4167,29 @@ Chapter Conclusion:"""
                 "- direct: Scene continues current action (search for: clothing, location, objects, actions)\n"
                 "- recall: Character remembers/retells past events (search for the SPECIFIC PAST EVENTS being recalled)\n"
                 "- react: Character reacts to a discovery/event (search for what TRIGGERED the reaction)\n\n"
-                "EXAMPLE 1 (direct):\n"
-                "\"A is wearing a red jacket and they're at the rooftop garden\"\n"
-                "{\"intent\": \"direct\", \"queries\": [\"A in a red jacket\", \"at the rooftop garden\"]}\n\n"
-                "EXAMPLE 2 (recall):\n"
-                "\"A blushes and starts telling B about intimate moments with C, starting from the day the project began\"\n"
-                "{\"intent\": \"recall\", \"queries\": [\"project began\", \"first interactions with C\", \"early encounters with C\"]}\n"
-                "DROPPED: \"A blushes\", \"telling B\", \"intimate moments\" — these describe the CURRENT telling, not the PAST events\n\n"
-                "EXAMPLE 3 (react):\n"
-                "\"A storms out after discovering B's betrayal at the office\"\n"
-                "{\"intent\": \"react\", \"queries\": [\"B betrayal at the office\", \"B deception discovered\"]}\n\n"
+                "TEMPORAL POSITION — When in the story timeline are the referenced events?\n"
+                "- earliest: The FIRST time something happened (first kiss, when they first met, back when it all started)\n"
+                "- latest: The MOST RECENT occurrence (last time, just yesterday, the other day)\n"
+                "- any: No specific timeline position, or multiple events across time\n"
+                "NOTE: \"when/how did this [mark, bruise, injury] happen?\" = latest (asking about a specific recent event).\n"
+                "Only use earliest when the text explicitly says \"first\", \"initially\", or \"back when\".\n\n"
+                "EXAMPLE 1 (direct, any):\n"
+                "A is wearing a red jacket and they are at the rooftop garden\n"
+                "{\"intent\": \"direct\", \"temporal\": \"any\", \"queries\": [\"A in a red jacket\", \"at the rooftop garden\"]}\n\n"
+                "EXAMPLE 2 (recall, earliest):\n"
+                "A blushes and starts telling B about the first time C touched her\n"
+                "{\"intent\": \"recall\", \"temporal\": \"earliest\", \"queries\": [\"C first touched A\", \"C initial physical contact with A\"]}\n"
+                "DROPPED: \"A blushes\", \"telling B\" — these describe the CURRENT scene, not the PAST events\n\n"
+                "EXAMPLE 3 (recall, any):\n"
+                "A describes intimate moments with C, from the day the project began\n"
+                "{\"intent\": \"recall\", \"temporal\": \"any\", \"queries\": [\"project began\", \"first interactions with C\", \"early encounters with C\"]}\n\n"
+                "EXAMPLE 4 (react, latest):\n"
+                "A storms out after discovering what B did last night at the office\n"
+                "{\"intent\": \"react\", \"temporal\": \"latest\", \"queries\": [\"B at the office last night\", \"B deception discovered\"]}\n\n"
                 "For recall: queries must target the PAST EVENTS being referenced, not the current scene.\n"
-                "DROP: emotions (blushes, aroused), the act of telling/remembering, vague phrases (intimate moments, growing feelings).\n"
-                "KEEP: time anchors (the day X started), specific events (first kiss, first visit), named periods (early days).\n\n"
-                "Return ONLY JSON: {\"intent\": \"<type>\", \"queries\": [\"...\"]}\n\n"
+                "DROP: emotions, the act of telling/remembering, vague phrases.\n"
+                "KEEP: time anchors, specific events, named periods.\n\n"
+                "Return ONLY JSON: {\"intent\": \"...\", \"temporal\": \"earliest|latest|any\", \"queries\": [\"...\"]}\n\n"
                 f"Text to decompose:\n{user_intent}"
             )
             decompose_messages = [{"role": "user", "content": char_context + decompose_task}]
@@ -4202,8 +4210,9 @@ Chapter Conclusion:"""
                 logger.info(f"[SEMANTIC DECOMPOSE] No sub-queries parsed, skipping")
                 return False
 
-            intent_type, sub_queries = parsed
+            intent_type, temporal_type, sub_queries = parsed
             logger.info(f"[SEMANTIC DECOMPOSE] Intent: {intent_type or 'direct (default)'}, "
+                       f"Temporal: {temporal_type or 'any (default)'}, "
                        f"Sub-queries: {sub_queries}")
 
             # Run multi-query search via context_manager
@@ -4211,7 +4220,8 @@ Chapter Conclusion:"""
                 sub_queries=sub_queries,
                 context=context,
                 db=db,
-                intent_type=intent_type
+                intent_type=intent_type,
+                temporal_type=temporal_type
             )
 
             if not improved_text:
@@ -4259,15 +4269,29 @@ Chapter Conclusion:"""
             return False
 
     _VALID_INTENTS = {"direct", "recall", "react"}
+    _VALID_TEMPORALS = {"earliest", "latest", "any"}
 
     def _parse_decomposition_response(self, response: str) -> Optional[tuple]:
         """Parse the intent-aware JSON from the decomposition LLM response.
 
         Returns:
-            (intent_type, queries) tuple where intent_type is one of
+            (intent_type, temporal_type, queries) tuple where intent_type is one of
             "direct"/"recall"/"react" or None (treated as direct),
+            temporal_type is "earliest"/"latest"/"any" or None,
             or None if parsing fails entirely.
         """
+        def _extract_fields(result: dict) -> Optional[tuple]:
+            """Extract intent, temporal, queries from a parsed dict."""
+            queries = result.get("queries")
+            if not isinstance(queries, list) or not all(isinstance(s, str) for s in queries):
+                return None
+            intent = result.get("intent", "").lower().strip()
+            intent = intent if intent in self._VALID_INTENTS else None
+            temporal = result.get("temporal", "").lower().strip()
+            temporal = temporal if temporal in self._VALID_TEMPORALS else None
+            parsed = [s.strip() for s in queries[:6] if s.strip()]
+            return (intent, temporal, parsed) if parsed else None
+
         try:
             # Strip markdown fences if present
             cleaned = response.strip()
@@ -4279,38 +4303,32 @@ Chapter Conclusion:"""
             # Try direct parse
             result = json.loads(cleaned)
 
-            # New format: {"intent": "...", "queries": [...]}
+            # New format: {"intent": "...", "temporal": "...", "queries": [...]}
             if isinstance(result, dict) and "queries" in result:
-                queries = result["queries"]
-                if isinstance(queries, list) and all(isinstance(s, str) for s in queries):
-                    intent = result.get("intent", "").lower().strip()
-                    intent = intent if intent in self._VALID_INTENTS else None
-                    parsed = [s.strip() for s in queries[:6] if s.strip()]
-                    return (intent, parsed) if parsed else None
+                return _extract_fields(result)
+
+            # Handle array-wrapped response: [{"intent": ..., "queries": [...]}]
+            if isinstance(result, list) and len(result) == 1 and isinstance(result[0], dict):
+                return _extract_fields(result[0])
 
             # Fallback: plain array (legacy or model ignoring new format)
             if isinstance(result, list) and all(isinstance(s, str) for s in result):
                 parsed = [s.strip() for s in result[:6] if s.strip()]
-                return (None, parsed) if parsed else None
+                return (None, None, parsed) if parsed else None
 
             # Try extracting JSON object or array from response
             obj_match = re.search(r'\{.*\}', cleaned, re.DOTALL)
             if obj_match:
                 result = json.loads(obj_match.group())
                 if isinstance(result, dict) and "queries" in result:
-                    queries = result["queries"]
-                    if isinstance(queries, list) and all(isinstance(s, str) for s in queries):
-                        intent = result.get("intent", "").lower().strip()
-                        intent = intent if intent in self._VALID_INTENTS else None
-                        parsed = [s.strip() for s in queries[:6] if s.strip()]
-                        return (intent, parsed) if parsed else None
+                    return _extract_fields(result)
 
             arr_match = re.search(r'\[.*?\]', cleaned, re.DOTALL)
             if arr_match:
                 result = json.loads(arr_match.group())
                 if isinstance(result, list) and all(isinstance(s, str) for s in result):
                     parsed = [s.strip() for s in result[:6] if s.strip()]
-                    return (None, parsed) if parsed else None
+                    return (None, None, parsed) if parsed else None
 
         except (json.JSONDecodeError, Exception) as e:
             logger.debug(f"[SEMANTIC DECOMPOSE] JSON parse failed: {e}, response: {response[:200]}")

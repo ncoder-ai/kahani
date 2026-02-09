@@ -847,7 +847,7 @@ relationship_cache_friendly:
     Empty if no relationship moments: {{"relationships": []}}
 
 # Scene Summary for Embedding (cache-friendly)
-# Used to generate a 1-sentence factual summary before ChromaDB embedding
+# Used to generate a 2-3 sentence factual summary before ChromaDB embedding
 # Uses same context structure as scene generation for cache hits
 scene_summary_for_embedding:
   user: |
@@ -855,24 +855,19 @@ scene_summary_for_embedding:
     {scene_content}
 
     === SUMMARIZE FOR INDEXING ===
-    Return TWO lines:
-    1. Location: just the room or area name, 1-4 words max (e.g. "kitchen", "back patio", "master bedroom", "living room"). No descriptions or adjectives.
-    2. Summary: ONE factual sentence of what happens. Include character names and key action. No opinions or adjectives.
+    Return TWO sections:
+    1. Location: just the room or area name, 1-4 words max (e.g. "kitchen", "back patio", "master bedroom"). No descriptions.
+    2. Summary: 2-3 factual sentences capturing ALL key actions in this scene. Include every character name and what each person physically does. Mention objects, clothing, or body parts involved. No opinions or adjectives — just facts.
 
     EXAMPLE 1:
-    Scene: "Kai stood at the kitchen counter reviewing blueprints when Suri walked in with grocery bags. They discussed the renovation timeline over coffee."
+    Scene: "Kai stood at the kitchen counter reviewing blueprints when Suri walked in with grocery bags. They discussed the renovation timeline over coffee. Suri pointed out a structural issue in the east wall design."
     Location: kitchen counter
-    Summary: Kai reviews renovation blueprints at the kitchen counter and discusses the timeline with Suri over coffee.
+    Summary: Kai reviews renovation blueprints at the kitchen counter. Suri arrives with grocery bags and they discuss the timeline over coffee. Suri identifies a structural issue in the east wall design.
 
     EXAMPLE 2:
-    Scene: "Dr. Voss noticed two colleagues whispering near the back patio door during the fundraiser. She straightened her name badge and walked over to join them."
+    Scene: "Dr. Voss noticed two colleagues whispering near the back patio door during the fundraiser. She straightened her name badge and walked over to join them. They were discussing preliminary results from the cancer trial."
     Location: back patio door
-    Summary: Dr. Voss notices colleagues whispering at a fundraiser and approaches them near the back patio door.
-
-    EXAMPLE 3:
-    Scene: "The morning sun cast long shadows as Tanaka reviewed the quarterly numbers on his laptop. His phone buzzed — a text from his partner about dinner plans."
-    Location: home office
-    Summary: Tanaka works on quarterly numbers in his home office and receives a text about dinner plans.
+    Summary: Dr. Voss observes two colleagues whispering near the back patio door at a fundraiser. She approaches them and learns they are discussing preliminary results from the cancer trial.
 
     NOT good: "Location: a room. Summary: A tense scene where desires collide." (too vague, no names)
 

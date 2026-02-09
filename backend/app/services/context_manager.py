@@ -2925,7 +2925,8 @@ Appearance: {char.get('appearance', '')}
         sub_queries: "List[str]",
         context: "Dict[str, Any]",
         db: Session,
-        intent_type: "Optional[str]" = None
+        intent_type: "Optional[str]" = None,
+        temporal_type: "Optional[str]" = None
     ) -> "Optional[str]":
         """
         Run multi-query semantic search with RRF fusion, then apply boosts and format.
@@ -2938,6 +2939,7 @@ Appearance: {char.get('appearance', '')}
             context: The scene context dict containing _semantic_search_state
             db: Database session
             intent_type: Classified intent ("direct", "recall", "react") or None
+            temporal_type: Temporal position ("earliest", "latest", "any") or None
 
         Returns:
             Formatted semantic scenes text, or None if search fails
@@ -3427,9 +3429,7 @@ Appearance: {char.get('appearance', '')}
                 logger.info("[SEMANTIC MULTI-QUERY] No scenes passed filters")
                 return None
 
-            # === CLUSTER-BASED SELECTION ===
-            # Instead of simple top-N, group nearby scenes into clusters and select
-            # top-scoring clusters to keep contiguous scene groups together.
+            # === SELECTION ===
             scene_limit = 15
 
             # Get sequence numbers for all filtered results
@@ -3439,32 +3439,58 @@ Appearance: {char.get('appearance', '')}
             ).all()
             seq_by_id_sel = {sid: seq for sid, seq in result_scenes_db}
 
-            # Attach seq to results and sort by seq
+            # Deduplicate by scene_id (keep highest score)
+            seen_scene_ids = {}
             for r in filtered_results:
-                r['_seq'] = seq_by_id_sel.get(r['scene_id'], 0)
-            sorted_by_seq = sorted(filtered_results, key=lambda x: x['_seq'])
+                sid = r['scene_id']
+                if sid not in seen_scene_ids or r.get('similarity_score', 0) > seen_scene_ids[sid].get('similarity_score', 0):
+                    seen_scene_ids[sid] = r
+            filtered_results = list(seen_scene_ids.values())
 
-            # Group into clusters (gap > 3 starts new cluster)
-            clusters = []
-            current_cluster = []
-            for r in sorted_by_seq:
-                if current_cluster and r['_seq'] - current_cluster[-1]['_seq'] > 3:
-                    clusters.append(current_cluster)
-                    current_cluster = [r]
-                else:
-                    current_cluster.append(r)
-            if current_cluster:
-                clusters.append(current_cluster)
+            # Remove scenes already in RECENT SCENES (they waste a slot)
+            if exclude_sequences:
+                exclude_set = set(exclude_sequences)
+                before_count = len(filtered_results)
+                filtered_results = [r for r in filtered_results if seq_by_id_sel.get(r['scene_id']) not in exclude_set]
+                removed = before_count - len(filtered_results)
+                if removed:
+                    logger.info(f"[SEMANTIC MULTI-QUERY] Removed {removed} scenes already in recent context")
 
-            # Score clusters by sum, select top until budget
-            clusters.sort(key=lambda c: sum(r.get('similarity_score', 0) for r in c), reverse=True)
-            selected = []
-            for cluster in clusters:
-                if len(selected) >= scene_limit:
-                    break
-                selected.extend(cluster)
+            # === TEMPORAL POSITION BOOST ===
+            # When the LLM classifies temporal intent, bias selection toward the
+            # right part of the timeline. Uses multiplicative boost so relevant
+            # scenes get amplified while irrelevant ones stay low.
+            # "earliest" boosts low sequence numbers, "latest" boosts high.
+            if temporal_type in ("earliest", "latest") and filtered_results:
+                seqs = [seq_by_id_sel.get(r['scene_id'], 0) for r in filtered_results]
+                min_seq, max_seq = min(seqs), max(seqs)
+                seq_range = max(1, max_seq - min_seq)
 
-            # Build final list with Scene objects, sorted chronologically
+                boosted = 0
+                for r in filtered_results:
+                    seq = seq_by_id_sel.get(r['scene_id'], 0)
+                    if temporal_type == "earliest":
+                        # Earliest scenes get highest boost (up to 50%)
+                        position_ratio = 1.0 - ((seq - min_seq) / seq_range)
+                    else:  # latest
+                        # Latest scenes get highest boost
+                        position_ratio = (seq - min_seq) / seq_range
+                    multiplier = 1.0 + 0.50 * position_ratio
+                    r['temporal_position_boost'] = multiplier
+                    r['similarity_score'] *= multiplier
+                    boosted += 1
+
+                filtered_results.sort(key=lambda r: r.get('similarity_score', 0), reverse=True)
+                top5 = [(round(r.get('similarity_score', 0), 3), seq_by_id_sel.get(r['scene_id'], '?'))
+                         for r in filtered_results[:5]]
+                logger.info(f"[TEMPORAL POSITION] Applied {temporal_type} boost (×1.0–1.5) to {boosted} scenes. "
+                           f"Top 5: {top5}")
+
+            # Select top-N by individual score (no clustering)
+            filtered_results.sort(key=lambda r: r.get('similarity_score', 0), reverse=True)
+            selected = filtered_results[:scene_limit]
+
+            # Build final list with Scene objects, sorted chronologically for output
             selected_ids = {r['scene_id'] for r in selected}
             all_selected_scenes = db.query(Scene).filter(Scene.id.in_(selected_ids)).all()
             scene_obj_by_id = {s.id: s for s in all_selected_scenes}
@@ -3475,22 +3501,17 @@ Appearance: {char.get('appearance', '')}
                     filtered_with_scenes.append((r, scene))
             filtered_with_scenes.sort(key=lambda x: x[1].sequence_number)
 
-            cluster_info = [(round(sum(r.get('similarity_score', 0) for r in c), 2),
-                             [r['_seq'] for r in c]) for c in clusters[:5]]
-            logger.info(f"[CLUSTER SELECT] {len(clusters)} clusters, selected {len(filtered_with_scenes)} scenes. "
-                       f"Top clusters (score, seqs): {cluster_info}")
-
             if filtered_with_scenes:
-                selected_info = [(r['similarity_score'], s.sequence_number) for r, s in filtered_with_scenes]
-                logger.info(f"[SEMANTIC MULTI-QUERY] Selected scenes (score, seq#): {selected_info}")
+                selected_info = [(round(r['similarity_score'], 3), s.sequence_number) for r, s in filtered_with_scenes]
+                logger.info(f"[SEMANTIC MULTI-QUERY] Selected {len(filtered_with_scenes)} scenes (score, seq#): {selected_info}")
 
             # Format within token budget
             relevant_parts = []
-            used_tokens = 0
             num_scenes = len(filtered_with_scenes)
             chars_per_token = 4
             max_chars_per_scene = max(800, (token_budget * chars_per_token) // max(num_scenes, 1))
             max_chars_per_scene = min(max_chars_per_scene, 2000)
+            total_tokens_used = 0
 
             for result, scene in filtered_with_scenes:
                 variant = db.query(SceneVariant).filter(SceneVariant.id == result['variant_id']).first()
@@ -3499,22 +3520,20 @@ Appearance: {char.get('appearance', '')}
 
                 truncated = len(variant.content) > max_chars_per_scene
                 content_preview = variant.content[:max_chars_per_scene] + ("..." if truncated else "")
-
                 scene_text = f"[Relevant from Scene {scene.sequence_number}]:\n{content_preview}"
                 scene_tokens = self.count_tokens(scene_text)
 
-                if used_tokens + scene_tokens <= token_budget:
+                if total_tokens_used + scene_tokens <= token_budget:
                     relevant_parts.append(scene_text)
-                    used_tokens += scene_tokens
+                    total_tokens_used += scene_tokens
                 else:
+                    # Try shorter version
                     shorter_content = variant.content[:400] + "..."
                     shorter_text = f"[Relevant from Scene {scene.sequence_number}]:\n{shorter_content}"
                     shorter_tokens = self.count_tokens(shorter_text)
-                    if used_tokens + shorter_tokens <= token_budget:
+                    if total_tokens_used + shorter_tokens <= token_budget:
                         relevant_parts.append(shorter_text)
-                        used_tokens += shorter_tokens
-                    else:
-                        break
+                        total_tokens_used += shorter_tokens
 
             if relevant_parts:
                 logger.info(f"[SEMANTIC MULTI-QUERY] Formatted {len(relevant_parts)} scenes, "

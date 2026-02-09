@@ -820,41 +820,16 @@ async def batch_process_scene_extractions(
             except Exception as e:
                 logger.warning(f"[EXTRACTION] Scene summary generation failed: {e}")
 
-            # Step 1b: Build contextual prefix and embed in ChromaDB
+            # Step 1b: Embed summary-only in ChromaDB
+            # Pure summary without chapter/character prefix — prefix dilutes
+            # bi-encoder signal by ~0.25 similarity points
             if settings.enable_semantic_memory:
                 try:
-                    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
-                    prefix_parts = []
-                    if chapter:
-                        # Use LLM scene location, fall back to chapter location
-                        scene_location = summary_result.get("location", "") if summary_result else ""
-                        location_str = scene_location or chapter.location_name or "unknown"
-                        prefix_parts.append(
-                            f"Chapter {chapter.chapter_number} '{chapter.title}', "
-                            f"Scene {seq_embed}. "
-                            f"Location: {location_str}."
-                        )
-                    # Character names from scene_generation_context (deduplicated)
-                    active_chars = scene_generation_context.get("active_characters", [])
-                    if active_chars:
-                        if isinstance(active_chars, list):
-                            seen = set()
-                            names = []
-                            for c in active_chars:
-                                name = c.get("name", "") if isinstance(c, dict) else str(c)
-                                if name and name not in seen:
-                                    seen.add(name)
-                                    names.append(name)
-                            char_str = ", ".join(names)
-                        else:
-                            char_str = str(active_chars)
-                        if char_str:
-                            prefix_parts.append(f"Characters: {char_str}.")
+                    # Use summary as embedding content; fall back to truncated scene content
                     if summary_result and summary_result.get("summary"):
-                        prefix_parts.append(summary_result["summary"])
-
-                    context_prefix = "\n".join(prefix_parts)
-                    enriched_content = f"{context_prefix}\n{scene_content_embed}"
+                        enriched_content = summary_result["summary"]
+                    else:
+                        enriched_content = scene_content_embed[:1000]
 
                     semantic_memory = get_semantic_memory_service()
                     embedding_id = await semantic_memory.add_scene_embedding(
