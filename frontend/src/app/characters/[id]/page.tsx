@@ -9,6 +9,7 @@ interface Character {
   id: number;
   name: string;
   description: string;
+  gender?: string;
   personality_traits: string[];
   background: string;
   goals: string;
@@ -111,6 +112,11 @@ export default function CharacterDetailPage() {
             <div>
               <h1 className="text-4xl font-bold text-white mb-2">{character.name}</h1>
               <div className="flex gap-2 mb-4">
+                {character.gender && (
+                  <span className="px-3 py-1 bg-indigo-500/20 text-indigo-300 text-sm rounded-full capitalize">
+                    {character.gender}
+                  </span>
+                )}
                 {character.is_template && (
                   <span className="px-3 py-1 bg-blue-500/20 text-blue-300 text-sm rounded-full">
                     Template

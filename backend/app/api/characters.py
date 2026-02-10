@@ -27,6 +27,7 @@ class VoiceStyleSchema(BaseModel):
 class CharacterCreate(BaseModel):
     name: str
     description: Optional[str] = ""
+    gender: Optional[str] = None
     personality_traits: Optional[List[str]] = []
     background: Optional[str] = ""
     goals: Optional[str] = ""
@@ -39,6 +40,7 @@ class CharacterCreate(BaseModel):
 class CharacterUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    gender: Optional[str] = None
     personality_traits: Optional[List[str]] = None
     background: Optional[str] = None
     goals: Optional[str] = None
@@ -52,6 +54,7 @@ class CharacterResponse(BaseModel):
     id: int
     name: str
     description: str
+    gender: Optional[str] = None
     personality_traits: List[str]
     background: str
     goals: str
@@ -140,6 +143,7 @@ async def get_characters(
             id=char.id,
             name=char.name,
             description=char.description or "",
+            gender=char.gender,
             personality_traits=char.personality_traits or [],
             background=char.background or "",
             goals=char.goals or "",
@@ -166,6 +170,7 @@ async def create_character(
     character = Character(
         name=character_data.name,
         description=character_data.description,
+        gender=character_data.gender,
         personality_traits=character_data.personality_traits,
         background=character_data.background,
         goals=character_data.goals,
@@ -185,6 +190,7 @@ async def create_character(
         id=character.id,
         name=character.name,
         description=character.description or "",
+        gender=character.gender,
         personality_traits=character.personality_traits or [],
         background=character.background or "",
         goals=character.goals or "",
@@ -221,6 +227,7 @@ async def get_character(
         id=character.id,
         name=character.name,
         description=character.description or "",
+        gender=character.gender,
         personality_traits=character.personality_traits or [],
         background=character.background or "",
         goals=character.goals or "",
@@ -266,6 +273,7 @@ async def update_character(
         id=character.id,
         name=character.name,
         description=character.description or "",
+        gender=character.gender,
         personality_traits=character.personality_traits or [],
         background=character.background or "",
         goals=character.goals or "",
@@ -391,6 +399,7 @@ async def generate_character_with_ai(
             id=0,  # Temporary ID, will be set when saved
             name=character_data['name'],
             description=character_data.get('description', ''),
+            gender=character_data.get('gender'),
             personality_traits=character_data.get('personality_traits', []),
             background=character_data.get('background', ''),
             goals=character_data.get('goals', ''),
@@ -446,6 +455,7 @@ class StoryCharacterResponse(BaseModel):
     # Include character details
     name: str
     description: Optional[str] = None
+    gender: Optional[str] = None
     appearance: Optional[str] = None  # Character appearance
     portrait_image_id: Optional[int] = None  # Portrait image ID
     default_voice_style: Optional[Dict[str, Any]] = None  # Character's default voice style
@@ -506,6 +516,7 @@ async def get_story_characters(
                 voice_style_override=sc.voice_style_override,
                 name=character.name,
                 description=character.description,
+                gender=character.gender,
                 appearance=character.appearance,
                 portrait_image_id=character.portrait_image_id,
                 default_voice_style=character.voice_style
@@ -557,7 +568,7 @@ async def update_story_character_voice_style(
     character = db.query(Character).filter(Character.id == story_character.character_id).first()
     
     logger.info(f"Updated voice style override for story_character {story_character_id} in story {story_id}")
-    
+
     return StoryCharacterResponse(
         id=story_character.id,
         character_id=story_character.character_id,
@@ -567,6 +578,7 @@ async def update_story_character_voice_style(
         voice_style_override=story_character.voice_style_override,
         name=character.name if character else "Unknown",
         description=character.description if character else None,
+        gender=character.gender if character else None,
         default_voice_style=character.voice_style if character else None
     )
 
@@ -666,6 +678,7 @@ async def update_story_character_role(
         voice_style_override=story_character.voice_style_override,
         name=character.name if character else "Unknown",
         description=character.description if character else None,
+        gender=character.gender if character else None,
         default_voice_style=character.voice_style if character else None
     )
 

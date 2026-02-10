@@ -4149,30 +4149,74 @@ Chapter Conclusion:"""
 
             logger.info(f"[SEMANTIC DECOMPOSE] Attempting query decomposition for: '{user_intent[:100]}...'")
 
-            # Build minimal context — character names only, no location/setting/chapter
-            # info that would contaminate sub-queries with current-scene details
+            # Build minimal context — character names with gender, no location/setting/chapter
+            # info that would contaminate sub-queries with current-scene details.
+            # Gender is critical for pronoun resolution ("her breasts" → Radhika, not Nishant).
             characters = context.get("characters", [])
             if isinstance(characters, dict) and "active_characters" in characters:
-                char_names = [c.get("name", "") for c in characters.get("active_characters", [])]
-                char_names += [c.get("name", "") for c in characters.get("inactive_characters", [])]
+                char_list = characters.get("active_characters", []) + characters.get("inactive_characters", [])
             else:
-                char_names = [c.get("name", "") for c in (characters if isinstance(characters, list) else [])]
-            char_names = [n for n in char_names if n]
-            char_context = f"Characters in this story: {', '.join(char_names)}\n\n" if char_names else ""
+                char_list = characters if isinstance(characters, list) else []
+
+            def _infer_gender(char_data: dict) -> str:
+                """Get gender from explicit field, or infer from appearance/description."""
+                # Prefer explicit gender field (from Character model)
+                explicit = (char_data.get("gender") or "").strip().lower()
+                if explicit:
+                    return explicit
+                # Infer from appearance
+                appearance = (char_data.get("appearance") or "").lower()
+                if any(kw in appearance for kw in ["bust ", "bra ", "36d", "34c", "32b", "hourglass"]):
+                    return "female"
+                # Infer from description/background pronouns
+                for field in ["description", "background"]:
+                    text = (char_data.get(field) or "").lower()
+                    if " she " in text or " her " in text or "wife" in text or "woman" in text or "mother" in text:
+                        return "female"
+                    if " he " in text or " his " in text or "husband" in text or " man " in text or "father" in text:
+                        return "male"
+                return ""
+
+            char_labels = []
+            for c in char_list:
+                name = c.get("name", "")
+                if not name:
+                    continue
+                parts = [name]
+                gender = _infer_gender(c)
+                if gender:
+                    parts.append(gender)
+                role = c.get("role", "")
+                if role:
+                    parts.append(role)
+                char_labels.append(f"{parts[0]} ({', '.join(parts[1:])})" if len(parts) > 1 else name)
+            char_context = f"Characters in this story: {', '.join(char_labels)}\n\n" if char_labels else ""
 
             decompose_task = (
                 "=== CLASSIFY & DECOMPOSE ===\n"
                 "First classify the intent, then generate search queries to find relevant PAST scenes.\n\n"
                 "INTENT TYPES:\n"
                 "- direct: Scene continues current action (search for: clothing, location, objects, actions)\n"
-                "- recall: Character remembers/retells past events (search for the SPECIFIC PAST EVENTS being recalled)\n"
-                "- react: Character reacts to a discovery/event (search for what TRIGGERED the reaction)\n\n"
+                "- recall: Character asks about, discusses, or remembers past events. Includes questions like "
+                "\"when/how did X happen?\", \"who did this?\", explaining or recounting something from the past\n"
+                "- react: Character discovers something RIGHT NOW in the current scene and reacts emotionally "
+                "(catches someone in the act, finds evidence, walks in on something)\n\n"
+                "KEY DISTINCTION: If a character ASKS about or DISCUSSES past events (even recent ones like "
+                "marks, injuries, encounters) → recall. If a character DISCOVERS something in real-time → react.\n\n"
                 "TEMPORAL POSITION — When in the story timeline are the referenced events?\n"
                 "- earliest: The FIRST time something happened (first kiss, when they first met, back when it all started)\n"
-                "- latest: The MOST RECENT occurrence (last time, just yesterday, the other day)\n"
-                "- any: No specific timeline position, or multiple events across time\n"
-                "NOTE: \"when/how did this [mark, bruise, injury] happen?\" = latest (asking about a specific recent event).\n"
-                "Only use earliest when the text explicitly says \"first\", \"initially\", or \"back when\".\n\n"
+                "- latest: The MOST RECENT occurrence — ONLY when text explicitly says \"last time\", \"just yesterday\", \"the other night\"\n"
+                "- any: No specific timeline position, asking WHEN something happened, or multiple events across time\n"
+                "Default to any. Only use earliest/latest when the text has explicit temporal words.\n"
+                "\"when did X happen?\" / \"who did X?\" = any (the user is asking, not specifying a timeframe).\n\n"
+                "SUB-QUERY RULES:\n"
+                "1. Maximum 3 queries.\n"
+                "2. Query 1 MUST use the user's EXACT action words — preserve specific verbs, body parts, and "
+                "descriptions verbatim. Do NOT rephrase into clinical or generic terms.\n"
+                "3. Each query must target a DIFFERENT aspect — never generate near-duplicates.\n"
+                "4. Do NOT replace specific words with generic alternatives. "
+                "\"licked her pussy\" ≠ \"intimate physical contact\". \"bruise marks\" ≠ \"physical encounter\".\n"
+                "5. No temporal qualifiers like \"(recent)\" — the temporal field handles timing.\n\n"
                 "EXAMPLE 1 (direct, any):\n"
                 "A is wearing a red jacket and they are at the rooftop garden\n"
                 "{\"intent\": \"direct\", \"temporal\": \"any\", \"queries\": [\"A in a red jacket\", \"at the rooftop garden\"]}\n\n"
@@ -4181,14 +4225,21 @@ Chapter Conclusion:"""
                 "{\"intent\": \"recall\", \"temporal\": \"earliest\", \"queries\": [\"C first touched A\", \"C initial physical contact with A\"]}\n"
                 "DROPPED: \"A blushes\", \"telling B\" — these describe the CURRENT scene, not the PAST events\n\n"
                 "EXAMPLE 3 (recall, any):\n"
-                "A describes intimate moments with C, from the day the project began\n"
-                "{\"intent\": \"recall\", \"temporal\": \"any\", \"queries\": [\"project began\", \"first interactions with C\", \"early encounters with C\"]}\n\n"
-                "EXAMPLE 4 (react, latest):\n"
-                "A storms out after discovering what B did last night at the office\n"
-                "{\"intent\": \"react\", \"temporal\": \"latest\", \"queries\": [\"B at the office last night\", \"B deception discovered\"]}\n\n"
+                "A asks B about the bruise marks on her body and when C had left them\n"
+                "{\"intent\": \"recall\", \"temporal\": \"any\", \"queries\": [\"bruise marks on B body\", \"C caused bruise marks on B\"]}\n"
+                "This is recall (asking about past events), NOT react. Temporal is any because A is asking WHEN.\n\n"
+                "EXAMPLE 4 (recall, earliest):\n"
+                "A then describes the time when C had licked her pussy\n"
+                "{\"intent\": \"recall\", \"temporal\": \"earliest\", \"queries\": [\"C licked A pussy\", \"C tongue between A legs\", \"C oral A\"]}\n"
+                "Query 1 keeps EXACT words. Query 2 uses story-vocabulary variant. Query 3 adds clinical term for coverage.\n"
+                "WRONG: [\"C intimate with A\", \"C first sexual encounter with A\"] — too generic, matches every scene.\n\n"
+                "EXAMPLE 5 (react, latest):\n"
+                "A walks into the room and finds B with marks all over — storms out in fury\n"
+                "{\"intent\": \"react\", \"temporal\": \"latest\", \"queries\": [\"marks on B body\", \"who hurt B recently\"]}\n"
+                "This is react because A is DISCOVERING the marks RIGHT NOW\n\n"
                 "For recall: queries must target the PAST EVENTS being referenced, not the current scene.\n"
                 "DROP: emotions, the act of telling/remembering, vague phrases.\n"
-                "KEEP: time anchors, specific events, named periods.\n\n"
+                "KEEP: specific verbs and nouns from the user's text, time anchors.\n\n"
                 "Return ONLY JSON: {\"intent\": \"...\", \"temporal\": \"earliest|latest|any\", \"queries\": [\"...\"]}\n\n"
                 f"Text to decompose:\n{user_intent}"
             )
@@ -4216,16 +4267,26 @@ Chapter Conclusion:"""
                        f"Sub-queries: {sub_queries}")
 
             # Run multi-query search via context_manager
-            improved_text = await ctx_mgr.search_and_format_multi_query(
+            improved_text, mq_top_score = await ctx_mgr.search_and_format_multi_query(
                 sub_queries=sub_queries,
                 context=context,
                 db=db,
                 intent_type=intent_type,
-                temporal_type=temporal_type
+                temporal_type=temporal_type,
+                user_intent=user_intent
             )
 
             if not improved_text:
                 logger.info("[SEMANTIC DECOMPOSE] Multi-query search returned no results")
+                return False
+
+            # Quality gate: only replace single-query if multi-query found good matches.
+            # Content verification scores below 0.6 indicate sub-queries don't match story
+            # vocabulary well — single-query keyword matching is likely better.
+            min_quality = 0.60
+            if mq_top_score < min_quality:
+                logger.info(f"[SEMANTIC DECOMPOSE] Multi-query top score {mq_top_score:.3f} < {min_quality} — "
+                           f"keeping single-query results (sub-queries too generic)")
                 return False
 
             # Find and replace the RELATED PAST SCENES message
@@ -4259,7 +4320,7 @@ Chapter Conclusion:"""
                     messages.append(new_msg)
 
             logger.info(f"[SEMANTIC DECOMPOSE] Successfully improved semantic scenes with "
-                       f"{len(sub_queries)} sub-queries (replaced={replaced})")
+                       f"{len(sub_queries)} sub-queries (replaced={replaced}, top_score={mq_top_score:.3f})")
             return True
 
         except Exception as e:

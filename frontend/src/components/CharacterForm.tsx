@@ -14,6 +14,7 @@ interface CharacterFormProps {
   initialData?: {
     name?: string;
     description?: string;
+    gender?: string;
     personality_traits?: string[];
     background?: string;
     goals?: string;
@@ -41,6 +42,7 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
   const [formData, setFormData] = useState({
     name: '',
     description: '',
+    gender: '',
     personality_traits: [] as string[],
     background: '',
     goals: '',
@@ -85,6 +87,7 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
       setFormData({
         name: initialData.name || '',
         description: initialData.description || '',
+        gender: initialData.gender || '',
         personality_traits: initialData.personality_traits || [],
         background: initialData.background || '',
         goals: initialData.goals || '',
@@ -98,6 +101,7 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
       setGeneratedCharacter({
         name: initialData.name || '',
         description: initialData.description || '',
+        gender: initialData.gender || '',
         personality_traits: initialData.personality_traits || [],
         background: initialData.background || '',
         goals: initialData.goals || '',
@@ -127,6 +131,7 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
       setFormData({
         name: character.name,
         description: character.description,
+        gender: character.gender || '',
         personality_traits: character.personality_traits,
         background: character.background,
         goals: character.goals,
@@ -238,6 +243,7 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
           {
             name: generatedCharacter.name,
             description: generatedCharacter.description,
+            gender: generatedCharacter.gender || formData.gender || undefined,
             personality_traits: generatedCharacter.personality_traits,
             background: generatedCharacter.background,
             goals: generatedCharacter.goals,
@@ -251,6 +257,7 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
         character = await apiClient.createCharacter({
           name: generatedCharacter.name,
           description: generatedCharacter.description,
+          gender: generatedCharacter.gender || formData.gender || undefined,
           personality_traits: generatedCharacter.personality_traits,
           background: generatedCharacter.background,
           goals: generatedCharacter.goals,
@@ -281,6 +288,7 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
       setFormData({
         name: generatedCharacter.name,
         description: generatedCharacter.description,
+        gender: generatedCharacter.gender || '',
         personality_traits: generatedCharacter.personality_traits || [],
         background: generatedCharacter.background,
         goals: generatedCharacter.goals,
@@ -322,6 +330,7 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
           {
             name: formData.name,
             description: formData.description,
+            gender: formData.gender || undefined,
             personality_traits: formData.personality_traits,
             background: formData.background,
             goals: formData.goals,
@@ -685,6 +694,23 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
                   rows={3}
                   className="w-full p-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none theme-focus-ring"
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
+                  Gender
+                </label>
+                <select
+                  value={formData.gender}
+                  onChange={(e) => handleInputChange('gender', e.target.value)}
+                  className="w-full p-3 bg-gray-800 border border-white/30 rounded-lg text-white focus:outline-none theme-focus-ring [&>option]:bg-gray-800 [&>option]:text-white"
+                >
+                  <option value="">Not specified</option>
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                  <option value="non-binary">Non-binary</option>
+                  <option value="other">Other</option>
+                </select>
               </div>
             </div>
 

@@ -1581,12 +1581,12 @@ class ApiClient {
 
   // Character API
   async getCharacter(characterId: number) {
-    return this.request<{ id: number; name: string; description: string; personality_traits: string[]; background: string; goals: string; fears: string; appearance: string; is_template: boolean; is_public: boolean; voice_style: VoiceStyle | null; portrait_image_id: number | null; creator_id: number; created_at: string; updated_at: string | null; }>(`/api/characters/${characterId}`);
+    return this.request<{ id: number; name: string; description: string; gender?: string; personality_traits: string[]; background: string; goals: string; fears: string; appearance: string; is_template: boolean; is_public: boolean; voice_style: VoiceStyle | null; portrait_image_id: number | null; creator_id: number; created_at: string; updated_at: string | null; }>(`/api/characters/${characterId}`);
   }
 
   async getCharacters(skip = 0, limit = 50, includePublic = true, templatesOnly = false) {
     const params = new URLSearchParams({ skip: String(skip), limit: String(limit), include_public: String(includePublic), templates_only: String(templatesOnly) });
-    return this.request<Array<{ id: number; name: string; description: string; personality_traits: string[]; background: string; goals: string; fears: string; appearance: string; is_template: boolean; is_public: boolean; creator_id: number; created_at: string; updated_at: string | null; }>>(`/api/characters/?${params}`);
+    return this.request<Array<{ id: number; name: string; description: string; gender?: string; personality_traits: string[]; background: string; goals: string; fears: string; appearance: string; is_template: boolean; is_public: boolean; creator_id: number; created_at: string; updated_at: string | null; }>>(`/api/characters/?${params}`);
   }
 
   async deleteCharacter(characterId: number) {
@@ -1600,12 +1600,12 @@ class ApiClient {
     });
   }
 
-  async updateCharacter(characterId: number, data: { name?: string; description?: string; personality_traits?: string[]; background?: string; goals?: string; fears?: string; appearance?: string; is_template?: boolean; is_public?: boolean; voice_style?: VoiceStyle | null; }) {
-    return this.request<{ id: number; name: string; description: string; personality_traits: string[]; background: string; goals: string; fears: string; appearance: string; is_template: boolean; is_public: boolean; voice_style: VoiceStyle | null; creator_id: number; created_at: string; updated_at: string | null; }>(`/api/characters/${characterId}`, { method: 'PUT', body: JSON.stringify(data) });
+  async updateCharacter(characterId: number, data: { name?: string; description?: string; gender?: string; personality_traits?: string[]; background?: string; goals?: string; fears?: string; appearance?: string; is_template?: boolean; is_public?: boolean; voice_style?: VoiceStyle | null; }) {
+    return this.request<{ id: number; name: string; description: string; gender?: string; personality_traits: string[]; background: string; goals: string; fears: string; appearance: string; is_template: boolean; is_public: boolean; voice_style: VoiceStyle | null; creator_id: number; created_at: string; updated_at: string | null; }>(`/api/characters/${characterId}`, { method: 'PUT', body: JSON.stringify(data) });
   }
 
-  async createCharacter(data: { name: string; description?: string; personality_traits?: string[]; background?: string; goals?: string; fears?: string; appearance?: string; is_template?: boolean; is_public?: boolean; voice_style?: VoiceStyle | null; }) {
-    return this.request<{ id: number; name: string; description: string; personality_traits: string[]; background: string; goals: string; fears: string; appearance: string; is_template: boolean; is_public: boolean; voice_style: VoiceStyle | null; creator_id: number; created_at: string; updated_at: string | null; }>(`/api/characters/`, { method: 'POST', body: JSON.stringify(data) });
+  async createCharacter(data: { name: string; description?: string; gender?: string; personality_traits?: string[]; background?: string; goals?: string; fears?: string; appearance?: string; is_template?: boolean; is_public?: boolean; voice_style?: VoiceStyle | null; }) {
+    return this.request<{ id: number; name: string; description: string; gender?: string; personality_traits: string[]; background: string; goals: string; fears: string; appearance: string; is_template: boolean; is_public: boolean; voice_style: VoiceStyle | null; creator_id: number; created_at: string; updated_at: string | null; }>(`/api/characters/`, { method: 'POST', body: JSON.stringify(data) });
   }
 
   // Get available voice style presets
@@ -1627,6 +1627,7 @@ class ApiClient {
       voice_style_override: VoiceStyle | null;
       name: string;
       description: string | null;
+      gender: string | null;
       appearance: string | null;
       portrait_image_id: number | null;
       default_voice_style: VoiceStyle | null;
@@ -1744,6 +1745,7 @@ class ApiClient {
   async createCharacterFromSuggestion(storyId: number, characterName: string, characterData: {
     name: string;
     description: string;
+    gender?: string;
     personality_traits: string[];
     background: string;
     goals: string;

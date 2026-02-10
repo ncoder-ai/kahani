@@ -151,9 +151,11 @@ async def startup_event():
             from .services.semantic_memory import initialize_semantic_memory_service
             initialize_semantic_memory_service(
                 persist_directory=settings.semantic_db_path,
-                embedding_model=settings.semantic_embedding_model
+                embedding_model=settings.semantic_embedding_model,
+                enable_reranking=settings.semantic_enable_reranking,
+                reranker_model=settings.semantic_reranker_model,
             )
-            logger.info("Semantic memory service initialized (models will load on first use)")
+            logger.info(f"Semantic memory service initialized (reranking={'enabled' if settings.semantic_enable_reranking else 'disabled'}, models will load on first use)")
         except Exception as e:
             logger.error(f"Failed to initialize semantic memory service: {e}")
             logger.warning("Continuing without semantic memory features")

@@ -10,7 +10,8 @@ class Character(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
     description = Column(Text)
-    
+    gender = Column(String(20), nullable=True)  # "male", "female", "non-binary", etc.
+
     # Character details
     personality_traits = Column(JSON, default=[])  # List of traits
     background = Column(Text)

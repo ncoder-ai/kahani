@@ -37,22 +37,23 @@ class SemanticMemoryService:
     in asyncio.to_thread() to prevent blocking the event loop.
     """
     
-    def __init__(self, persist_directory: str = "./data/chromadb", embedding_model: str = "sentence-transformers/all-mpnet-base-v2", reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"):
+    def __init__(self, persist_directory: str = "./data/chromadb", embedding_model: str = "sentence-transformers/all-mpnet-base-v2", reranker_model: str = "BAAI/bge-reranker-v2-m3", enable_reranking: bool = True):
         """
         Initialize the semantic memory service
-        
+
         Args:
             persist_directory: Directory for ChromaDB persistence
             embedding_model: Sentence transformer model name
             reranker_model: Cross-encoder model for reranking
+            enable_reranking: Whether to enable cross-encoder reranking
         """
         self.persist_directory = persist_directory
         self.embedding_model_name = embedding_model
         self.reranker_model_name = reranker_model
-        
+
         # Ensure persist directory exists
         os.makedirs(persist_directory, exist_ok=True)
-        
+
         # Initialize ChromaDB client with persistence
         self.client = chromadb.PersistentClient(
             path=persist_directory,
@@ -61,14 +62,14 @@ class SemanticMemoryService:
                 allow_reset=True
             )
         )
-        
+
         # Lazy-load embedding model to avoid blocking startup
         self.embedding_model = None
         self._embedding_dimension = None
-        
+
         # Lazy-load reranker model
         self.reranker = None
-        self.enable_reranking = False  # Disabled - bi-encoder similarity is sufficient for narrative content
+        self.enable_reranking = enable_reranking
         
         # Initialize collections
         self._init_collections()
@@ -248,6 +249,57 @@ class SemanticMemoryService:
             await asyncio.to_thread(self._load_reranker_model_sync)
             logger.info(f"Reranker model loaded successfully")
     
+    async def rerank_scenes(
+        self,
+        query_text: str,
+        scene_contents: Dict[int, str],
+        top_k: int = 30
+    ) -> Optional[Dict[int, float]]:
+        """
+        Rerank scenes using cross-encoder for precise relevance scoring.
+
+        Takes (query, document) pairs and scores them jointly, enabling the model
+        to detect semantic matches that bi-encoders miss (e.g., "licked her pussy"
+        matching "his tongue working between her legs").
+
+        Args:
+            query_text: User intent / query string
+            scene_contents: Dict of scene_id → scene content text
+            top_k: Max scenes to rerank (for performance)
+
+        Returns:
+            Dict of scene_id → normalized cross-encoder score [0, 1], or None if
+            reranking is disabled or fails.
+        """
+        if not self.enable_reranking or not scene_contents:
+            return None
+
+        try:
+            await self._ensure_reranker_loaded()
+            if self.reranker is None:
+                return None
+
+            # Build (query, document) pairs for top_k scenes
+            scene_ids = list(scene_contents.keys())[:top_k]
+            pairs = [(query_text, scene_contents[sid]) for sid in scene_ids]
+
+            # Run cross-encoder in thread pool (CPU-intensive)
+            raw_scores = await asyncio.to_thread(self.reranker.predict, pairs)
+
+            # Normalize scores to [0, 1] via sigmoid (bge-reranker outputs raw logits)
+            import math
+            scores = {}
+            for sid, raw in zip(scene_ids, raw_scores):
+                scores[sid] = 1.0 / (1.0 + math.exp(-float(raw)))
+
+            logger.info(f"[RERANK] Reranked {len(scores)} scenes. "
+                       f"Score range: [{min(scores.values()):.3f}, {max(scores.values()):.3f}]")
+            return scores
+
+        except Exception as e:
+            logger.warning(f"[RERANK] Cross-encoder reranking failed: {e}")
+            return None
+
     def _generate_embedding_sync(self, text: str) -> List[float]:
         """Synchronous embedding generation - to be called via asyncio.to_thread()"""
         embedding = self.embedding_model.encode(text, convert_to_numpy=True)
@@ -382,13 +434,29 @@ class SemanticMemoryService:
                 where_filter = filters[0]
             
             # Query collection - run in thread pool
-            results = await asyncio.to_thread(
-                self.scenes_collection.query,
-                query_embeddings=[query_embedding],
-                n_results=retrieval_k,
-                where=where_filter,
-                include=["metadatas", "distances", "documents"]  # Include documents for reranking
-            )
+            # Retry with reduced n_results if HNSW index can't satisfy the request
+            try:
+                results = await asyncio.to_thread(
+                    self.scenes_collection.query,
+                    query_embeddings=[query_embedding],
+                    n_results=retrieval_k,
+                    where=where_filter,
+                    include=["metadatas", "distances", "documents"]
+                )
+            except Exception as hnsw_err:
+                if "contiguous" in str(hnsw_err).lower() or "ef" in str(hnsw_err).lower():
+                    # HNSW can't return enough results — retry with smaller n_results
+                    fallback_k = min(retrieval_k // 2, 50)
+                    logger.warning(f"[SEMANTIC SEARCH] HNSW error with n_results={retrieval_k}, retrying with {fallback_k}: {hnsw_err}")
+                    results = await asyncio.to_thread(
+                        self.scenes_collection.query,
+                        query_embeddings=[query_embedding],
+                        n_results=fallback_k,
+                        where=where_filter,
+                        include=["metadatas", "distances", "documents"]
+                    )
+                else:
+                    raise
             
             # Process and filter results
             candidates = []
@@ -1043,21 +1111,32 @@ def get_semantic_memory_service() -> SemanticMemoryService:
     return semantic_memory_service
 
 
-def initialize_semantic_memory_service(persist_directory: str, embedding_model: str) -> SemanticMemoryService:
+def initialize_semantic_memory_service(
+    persist_directory: str,
+    embedding_model: str,
+    enable_reranking: bool = True,
+    reranker_model: Optional[str] = None,
+) -> SemanticMemoryService:
     """
     Initialize the global semantic memory service
-    
+
     Args:
         persist_directory: ChromaDB persistence directory
         embedding_model: Embedding model name
-        
+        enable_reranking: Whether to enable cross-encoder reranking
+        reranker_model: Cross-encoder model name (None = use default)
+
     Returns:
         Initialized SemanticMemoryService instance
     """
     global semantic_memory_service
-    semantic_memory_service = SemanticMemoryService(
-        persist_directory=persist_directory,
-        embedding_model=embedding_model
-    )
-    logger.info("Semantic memory service initialized successfully")
+    kwargs = {
+        "persist_directory": persist_directory,
+        "embedding_model": embedding_model,
+        "enable_reranking": enable_reranking,
+    }
+    if reranker_model:
+        kwargs["reranker_model"] = reranker_model
+    semantic_memory_service = SemanticMemoryService(**kwargs)
+    logger.info(f"Semantic memory service initialized (reranking={'enabled' if enable_reranking else 'disabled'})")
     return semantic_memory_service

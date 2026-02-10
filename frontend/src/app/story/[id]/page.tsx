@@ -203,7 +203,7 @@ export default function StoryPage() {
   const [brainstormPlot, setBrainstormPlot] = useState<any>(null);  // Plot from brainstorm to use in chapter creation
   const [brainstormSessionId, setBrainstormSessionId] = useState<number | undefined>(undefined);
   const [currentChapterId, setCurrentChapterId] = useState<number | undefined>(undefined);
-  const [storyCharacters, setStoryCharacters] = useState<Array<{name: string, role: string, description: string}>>([]);
+  const [storyCharacters, setStoryCharacters] = useState<Array<{name: string, role: string, description: string, gender?: string}>>([]);
   const [isGeneratingMoreOptions, setIsGeneratingMoreOptions] = useState(false);
   const [sceneHistory, setSceneHistory] = useState<Scene[][]>([]);
   const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
@@ -1692,7 +1692,8 @@ export default function StoryPage() {
     const newCharacter = {
       name: character.name,
       role: character.role,
-      description: character.description
+      description: character.description,
+      gender: character.gender
     };
     setStoryCharacters(prev => [...prev, newCharacter]);
     setShowCharacterQuickAdd(false);
@@ -1782,7 +1783,8 @@ export default function StoryPage() {
     setStoryCharacters(prev => [...prev, {
       name: character.name,
       role: character.role,
-      description: character.description
+      description: character.description,
+      gender: character.gender
     }]);
     setShowCharacterBanner(false);
   };

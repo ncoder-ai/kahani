@@ -29,6 +29,7 @@ export interface StoryData {
     name: string;
     role: string;
     description: string;
+    gender?: string;
   }>;
   plot_points: string[];
   scenario: string;

@@ -144,6 +144,8 @@ semantic_memory:
   embedding_model: "sentence-transformers/all-mpnet-base-v2"
   search_top_k: 5
   context_weight: 0.4
+  enable_reranking: true                        # Cross-encoder reranking for multi-query semantic search
+  # reranker_model: "BAAI/bge-reranker-v2-m3"  # Default; ~568M params, ~2.5GB RAM, ~3.5s on CPU
 
 # ----------------------------------------------------------------------------
 # EXTRACTION & NPC TRACKING

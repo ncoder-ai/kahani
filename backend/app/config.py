@@ -99,7 +99,9 @@ def flatten_yaml_config(yaml_config: dict) -> dict:
     flattened['semantic_embedding_model'] = semantic.get('embedding_model')
     flattened['semantic_search_top_k'] = semantic.get('search_top_k')
     flattened['semantic_context_weight'] = semantic.get('context_weight')
-    
+    flattened['semantic_enable_reranking'] = semantic.get('enable_reranking', True)
+    flattened['semantic_reranker_model'] = semantic.get('reranker_model')
+
     # Context Strategy
     strategy = yaml_config.get('context_strategy', {})
     flattened['context_strategy'] = strategy.get('strategy')
@@ -234,7 +236,9 @@ class Settings(BaseSettings):
     semantic_embedding_model: str
     semantic_search_top_k: int
     semantic_context_weight: float
-    
+    semantic_enable_reranking: bool = True
+    semantic_reranker_model: Optional[str] = None
+
     # Context Assembly Strategy
     context_strategy: str
     semantic_scenes_in_context: int

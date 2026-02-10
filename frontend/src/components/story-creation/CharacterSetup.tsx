@@ -99,6 +99,7 @@ interface Character {
   name: string;
   role: string;
   description: string;
+  gender?: string;
   id?: number; // Optional for persistent characters
 }
 
@@ -106,6 +107,7 @@ interface PersistentCharacter {
   id: number;
   name: string;
   description: string;
+  gender?: string;
   personality_traits: string[];
   background: string;
   goals: string;
@@ -154,7 +156,8 @@ export default function CharacterSetup({ storyData, onUpdate, onNext, onBack }: 
       id: persistentChar.id,
       name: persistentChar.name,
       role: role,
-      description: persistentChar.description
+      description: persistentChar.description,
+      gender: persistentChar.gender
     };
     
     const updatedCharacters = [...characters, newCharacter];
@@ -170,7 +173,8 @@ export default function CharacterSetup({ storyData, onUpdate, onNext, onBack }: 
         id: character.id,
         name: character.name,
         role: currentCharacter.role || 'other',
-        description: character.description
+        description: character.description,
+        gender: character.gender
       };
       
       const updatedCharacters = [...characters, newCharacter];

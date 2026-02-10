@@ -10,6 +10,7 @@ interface Character {
   id: number;
   name: string;
   description: string;
+  gender?: string;
   personality_traits: string[];
   background: string;
   goals: string;
@@ -302,7 +303,12 @@ export default function CharacterLibrary() {
                 </div>
 
                 <div className="flex justify-between items-start mb-4 pl-8">
-                  <h3 className="text-xl font-bold text-white">{character.name}</h3>
+                  <div>
+                    <h3 className="text-xl font-bold text-white">{character.name}</h3>
+                    {character.gender && (
+                      <span className="text-white/50 text-xs capitalize">{character.gender}</span>
+                    )}
+                  </div>
                   <div className="flex gap-2">
                     {character.is_template && (
                       <span className="px-2 py-1 bg-blue-500/20 text-blue-300 text-xs rounded">

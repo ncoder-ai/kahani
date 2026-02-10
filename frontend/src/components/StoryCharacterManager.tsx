@@ -10,6 +10,7 @@ interface StoryCharacter {
   character_id: number;
   name: string;
   description: string | null;
+  gender?: string | null;
   appearance?: string | null;
   role: string | null;
   portrait_image_id?: number | null;
@@ -216,11 +217,16 @@ export default function StoryCharacterManager({
                       {/* Name - always visible */}
                       <h3 className="text-lg font-semibold text-white mb-1">{character.name}</h3>
 
-                      {/* Role and portrait badges */}
+                      {/* Role, gender, and portrait badges */}
                       <div className="flex flex-wrap items-center gap-2 mb-2">
                         {character.role && (
                           <span className="px-2 py-0.5 text-xs bg-purple-500/20 text-purple-300 rounded-full">
                             {character.role}
+                          </span>
+                        )}
+                        {character.gender && (
+                          <span className="px-2 py-0.5 text-xs bg-blue-500/20 text-blue-300 rounded-full">
+                            {character.gender}
                           </span>
                         )}
                         {!character.portrait_image_id && (

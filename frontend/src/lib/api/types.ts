@@ -190,6 +190,7 @@ export interface Character {
   id: number;
   name: string;
   description?: string;
+  gender?: string;
   personality_traits?: string[];
   background?: string;
   goals?: string;
@@ -213,6 +214,7 @@ export interface StoryCharacter {
   // Character details included in response
   name: string;
   description?: string | null;
+  gender?: string | null;
   default_voice_style?: VoiceStyle | null;
   // Legacy field for backwards compatibility
   character?: Character;

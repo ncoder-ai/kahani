@@ -6,6 +6,7 @@ interface Character {
   name: string;
   role: string;
   description: string;
+  gender?: string | null;
   id?: number;
 }
 
@@ -53,7 +54,9 @@ export default function CharacterDisplay({ characters, onAddCharacter, showAddBu
                 </div>
                 <div className="flex-1">
                   <div className="text-white font-medium">{character.name}</div>
-                  <div className="text-white/60 text-xs">{roleInfo.name}</div>
+                  <div className="text-white/60 text-xs">
+                    {roleInfo.name}{character.gender ? ` · ${character.gender}` : ''}
+                  </div>
                 </div>
               </div>
             );

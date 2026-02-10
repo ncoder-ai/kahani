@@ -10,6 +10,7 @@ import { Character, StoryCharacter, VoiceStyle, VoiceStylePresetsResponse } from
 export interface CharacterCreateData {
   name: string;
   description?: string;
+  gender?: string;
   personality_traits?: string[];
   background?: string;
   goals?: string;
@@ -23,6 +24,7 @@ export interface CharacterCreateData {
 export interface CharacterUpdateData {
   name?: string;
   description?: string;
+  gender?: string;
   personality_traits?: string[];
   background?: string;
   goals?: string;

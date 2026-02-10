@@ -345,6 +345,7 @@ class ContextManager:
             
             char_data = {
                 "name": character.name,
+                "gender": character.gender or "",
                 "role": sc.role or "",
                 "description": character.description or "",
                 "personality": ", ".join(character.personality_traits) if character.personality_traits else "",
@@ -354,7 +355,7 @@ class ContextManager:
                 "appearance": character.appearance or "",
                 "relationships": ""
             }
-            
+
             if chapter_id and sc.id in chapter_story_char_ids:
                 # Active character - full details
                 active_characters.append(char_data)
@@ -362,6 +363,7 @@ class ContextManager:
                 # Inactive character - brief format
                 inactive_characters.append({
                     "name": character.name,
+                    "gender": character.gender or "",
                     "role": sc.role or ""
                 })
             else:
@@ -2319,6 +2321,7 @@ Appearance: {char.get('appearance', '')}
 
             char_data = {
                 "name": character.name,
+                "gender": character.gender or "",
                 "role": sc.role or "",
                 "description": character.description or "",
                 "personality": ", ".join(character.personality_traits) if character.personality_traits else "",
@@ -2337,6 +2340,7 @@ Appearance: {char.get('appearance', '')}
                 # Inactive character - brief format
                 inactive_characters.append({
                     "name": character.name,
+                    "gender": character.gender or "",
                     "role": sc.role or ""
                 })
             else:
@@ -2599,7 +2603,8 @@ Appearance: {char.get('appearance', '')}
                 story_id=story_id,
                 top_k=search_top_k,
                 exclude_sequences=exclude_sequences,
-                chapter_id=limit_to_chapter_id  # Limit to chapter if specified, otherwise None (entire story)
+                chapter_id=limit_to_chapter_id,  # Limit to chapter if specified, otherwise None (entire story)
+                use_reranking=False  # Single-query path uses keyword boosting; cross-encoder only in multi-query path
             )
 
             if not similar_scenes:
@@ -2864,10 +2869,14 @@ Appearance: {char.get('appearance', '')}
                 # Log first 200 chars of each semantic scene for debugging
                 for i, part in enumerate(relevant_parts):
                     logger.info(f"[SEMANTIC SEARCH] Scene {i+1} preview: {part[:200]}...")
-                return "\n\n".join(relevant_parts), filtered_results
+                # Only pass the top selected results (not all 200 candidates) to multi-query merge.
+                # Passing all candidates causes the merge to upgrade ~130 multi-query scores with
+                # keyword-boosted single-query scores, effectively bypassing content verification.
+                selected_results = [r for r, _s in filtered_results_with_scenes]
+                return "\n\n".join(relevant_parts), selected_results
 
             logger.info(f"[SEMANTIC SEARCH] No scenes fit within token budget after filtering")
-            return None, filtered_results
+            return None, []
 
         except Exception as e:
             logger.error(f"Failed to get semantic scenes: {e}")
@@ -2920,13 +2929,113 @@ Appearance: {char.get('appearance', '')}
         merged.sort(key=lambda x: x['similarity_score'], reverse=True)
         return merged
 
+    async def _lookup_interaction_scenes(
+        self,
+        sub_queries: "List[str]",
+        story_id: int,
+        branch_id: "Optional[int]",
+        db: Session,
+    ) -> "List[Dict[str, Any]]":
+        """
+        Check if decomposed sub-queries match any tracked interaction types.
+        Returns exact scene numbers from CharacterInteraction records.
+
+        Matching logic (keyword overlap, no LLM):
+        - Extract significant words from each interaction type
+        - Check overlap with combined sub-query text
+        - Require >=50% keyword overlap AND at least one character name match
+
+        Returns:
+            List of {"scene_sequence": int, "interaction_type": str} dicts
+        """
+        try:
+            from ..models import CharacterInteraction, Character
+
+            interactions = db.query(CharacterInteraction).filter(
+                CharacterInteraction.story_id == story_id
+            )
+            if branch_id is not None:
+                interactions = interactions.filter(
+                    (CharacterInteraction.branch_id == branch_id) |
+                    (CharacterInteraction.branch_id.is_(None))
+                )
+            interactions = interactions.all()
+
+            if not interactions:
+                return []
+
+            # Build combined sub-query text for matching
+            combined_text = " ".join(sq.lower() for sq in sub_queries)
+
+            # Words to strip from interaction types before matching
+            type_stop_words = frozenset({
+                'first', 'the', 'a', 'an', 'on', 'in', 'of', 'to', 'by', 'with',
+                'and', 'or', 'is', 'was', 'their', 'her', 'his', 'its',
+            })
+
+            # Cache character names by ID
+            char_cache = {}
+
+            matches = []
+            for interaction in interactions:
+                # Extract significant words from interaction type
+                type_words = [
+                    w for w in interaction.interaction_type.lower().replace('_', ' ').split()
+                    if w not in type_stop_words and len(w) >= 3
+                ]
+                if not type_words:
+                    continue
+
+                # Check keyword overlap
+                matched_words = sum(1 for w in type_words if w in combined_text)
+                overlap = matched_words / len(type_words)
+                if overlap < 0.5:
+                    continue
+
+                # Check character name match
+                for char_id in (interaction.character_a_id, interaction.character_b_id):
+                    if char_id not in char_cache:
+                        char = db.query(Character.name).filter(Character.id == char_id).first()
+                        char_cache[char_id] = char.name.lower() if char else ""
+                char_a_name = char_cache.get(interaction.character_a_id, "")
+                char_b_name = char_cache.get(interaction.character_b_id, "")
+
+                name_match = False
+                for name in (char_a_name, char_b_name):
+                    if name:
+                        # Check any part of the name (first name, last name)
+                        for part in name.split():
+                            if len(part) >= 3 and part in combined_text:
+                                name_match = True
+                                break
+                    if name_match:
+                        break
+
+                if not name_match:
+                    continue
+
+                matches.append({
+                    "scene_sequence": interaction.first_occurrence_scene,
+                    "interaction_type": interaction.interaction_type,
+                })
+                logger.info(f"[INTERACTION SHORTCUT] Matched '{interaction.interaction_type}' "
+                           f"at scene {interaction.first_occurrence_scene} "
+                           f"(overlap={overlap:.0%}, chars={char_a_name}/{char_b_name})")
+
+            return matches
+
+        except Exception as e:
+            logger.warning(f"[INTERACTION SHORTCUT] Lookup failed: {e}")
+            return []
+
     async def search_and_format_multi_query(
         self,
         sub_queries: "List[str]",
         context: "Dict[str, Any]",
         db: Session,
         intent_type: "Optional[str]" = None,
-        temporal_type: "Optional[str]" = None
+        temporal_type: "Optional[str]" = None,
+        user_intent: "Optional[str]" = None
     ) -> "Optional[str]":
         """
         Run multi-query semantic search with RRF fusion, then apply boosts and format.
@@ -2940,6 +3049,7 @@ Appearance: {char.get('appearance', '')}
             db: Database session
             intent_type: Classified intent ("direct", "recall", "react") or None
             temporal_type: Temporal position ("earliest", "latest", "any") or None
+            user_intent: Original user intent text for content verification keywords
 
         Returns:
             Formatted semantic scenes text, or None if search fails
@@ -2947,10 +3057,10 @@ Appearance: {char.get('appearance', '')}
         state = context.get("_semantic_search_state")
         if not state:
             logger.warning("[SEMANTIC MULTI-QUERY] No _semantic_search_state in context")
-            return None
+            return None, 0.0
 
         if not self.semantic_memory:
-            return None
+            return None, 0.0
 
         try:
             user_intent = state["user_intent"]
@@ -2959,6 +3069,23 @@ Appearance: {char.get('appearance', '')}
             branch_id = state["branch_id"]
             chapter_id = state["chapter_id"]
             token_budget = state["token_budget"]
+
+            # === INTERACTION HISTORY SHORTCUT ===
+            # For recall queries, check if sub-queries match tracked interaction types.
+            # If so, pin those scenes (±3 surrounding) as guaranteed inclusions.
+            pinned_scene_sequences = set()
+            if intent_type == "recall":
+                interaction_matches = await self._lookup_interaction_scenes(
+                    sub_queries, story_id, branch_id, db
+                )
+                for m in interaction_matches:
+                    for offset in range(-3, 4):  # ±3 surrounding scenes
+                        seq = m['scene_sequence'] + offset
+                        if seq > 0:
+                            pinned_scene_sequences.add(seq)
+                if pinned_scene_sequences:
+                    logger.info(f"[INTERACTION SHORTCUT] Pinning {len(pinned_scene_sequences)} scene sequences "
+                               f"from {len(interaction_matches)} interaction matches")
 
             # Use only decomposed sub-queries (not user_intent).
             # user_intent is a long narrative sentence that pulls in generic scenes;
@@ -2982,7 +3109,7 @@ Appearance: {char.get('appearance', '')}
 
             if not batch_results or all(len(r) == 0 for r in batch_results):
                 logger.info("[SEMANTIC MULTI-QUERY] No results from batch search")
-                return None
+                return None, 0.0
 
             # RRF merge of bi-encoder results
             be_results = self._reciprocal_rank_fusion(batch_results)
@@ -2990,7 +3117,7 @@ Appearance: {char.get('appearance', '')}
                        f"into {len(be_results)} unique scenes")
 
             if not be_results:
-                return None
+                return None, 0.0
 
             import re as _re
 
@@ -3324,24 +3451,7 @@ Appearance: {char.get('appearance', '')}
                 import traceback
                 logger.debug(traceback.format_exc())
 
-            # === PHRASE-LEVEL KEYWORD BOOST ===
-            # Boost scenes that contain specific multi-word phrases from sub-queries.
-            # Unlike single-word boost (which saturates on character names), phrase boost
-            # targets meaningful concepts like "hidden cameras", "secret passage", etc.
-
-            # Extract 2-word phrases from sub_queries, skipping name-only bigrams
-            phrases = set()
-            for sq in sub_queries:
-                words = _re.findall(r'\b[a-z]+\b', sq.lower())
-                for i in range(len(words) - 1):
-                    w1, w2 = words[i], words[i + 1]
-                    if w1 not in char_name_words and w2 not in char_name_words:
-                        bigram = f"{w1} {w2}"
-                        if len(bigram) >= 7:
-                            phrases.add(bigram)
-            phrases = list(phrases)
-
-            # Batch-load content for top candidates (used by phrase boost + content verification)
+            # Batch-load content for top candidates (used by reranking / phrase boost / content verification)
             candidate_ids = [r['scene_id'] for r in similar_scenes[:50]]
             candidate_scenes_db = db.query(Scene).filter(Scene.id.in_(candidate_ids)).all()
             scenes_by_id = {s.id: s for s in candidate_scenes_db}
@@ -3358,62 +3468,128 @@ Appearance: {char.get('appearance', '')}
                 flow = flow_by_scene.get(sid)
                 content_by_scene_id[sid] = (flow.scene_variant.content if flow and flow.scene_variant else "").lower()
 
-            if phrases:
-                for result in similar_scenes[:50]:
-                    content = content_by_scene_id.get(result['scene_id'], "")
-                    if not content:
-                        continue
-                    total_boost = 0.0
-                    matched = []
-                    for phrase in phrases:
-                        if phrase in content:
-                            total_boost += 0.15
-                            matched.append(phrase)
-                    if matched:
-                        capped = min(total_boost, 0.30)
-                        result['similarity_score'] += capped
-                        result['phrase_boost'] = capped
-                        result['phrase_matches'] = matched
+            # === CROSS-ENCODER RERANKING ===
+            # The cross-encoder processes (query, document) pairs jointly, so it can detect
+            # semantic matches that bi-encoders miss (e.g., "licked her pussy" matching
+            # "his tongue working between her legs"). Replaces phrase boost + content
+            # verification when available.
+            rerank_applied = False
+            if self.semantic_memory and user_intent:
+                rerank_candidates = {
+                    r['scene_id']: content_by_scene_id[r['scene_id']]
+                    for r in similar_scenes[:30]
+                    if content_by_scene_id.get(r['scene_id'])
+                }
+                if rerank_candidates:
+                    rerank_scores = await self.semantic_memory.rerank_scenes(
+                        query_text=user_intent,
+                        scene_contents=rerank_candidates
+                    )
+                    if rerank_scores:
+                        reranked_ids = set(rerank_scores.keys())
+                        for result in similar_scenes:
+                            sid = result['scene_id']
+                            if sid in reranked_ids:
+                                # Preserve any temporal boost from anchoring step
+                                temporal_boost = result.get('temporal_boost', 0.0)
+                                result['similarity_score'] = rerank_scores[sid] + temporal_boost
+                                result['rerank_score'] = rerank_scores[sid]
+                            else:
+                                # Scenes outside top 30: halve their score
+                                result['similarity_score'] *= 0.5
+                        similar_scenes.sort(key=lambda x: x.get('similarity_score', 0), reverse=True)
+                        rerank_applied = True
+                        top5_info = [(round(r.get('similarity_score', 0), 3),
+                                     round(r.get('rerank_score', 0), 3),
+                                     content_by_scene_id.get(r['scene_id'], '')[:40])
+                                    for r in similar_scenes[:5]]
+                        logger.info(f"[CROSS-ENCODER] Reranked {len(rerank_scores)} scenes. "
+                                   f"Top 5 (total, ce, preview): {top5_info}")
 
-                similar_scenes.sort(key=lambda x: x.get('similarity_score', 0), reverse=True)
-                logger.info(f"[SEMANTIC MULTI-QUERY] Phrase boost applied with phrases: {phrases}")
+            if not rerank_applied:
+                # Fallback: phrase boost + content verification (when reranker unavailable)
+                # === PHRASE-LEVEL KEYWORD BOOST ===
+                phrases = set()
+                for sq in sub_queries:
+                    words = _re.findall(r'\b[a-z]+\b', sq.lower())
+                    for i in range(len(words) - 1):
+                        w1, w2 = words[i], words[i + 1]
+                        if w1 not in char_name_words and w2 not in char_name_words:
+                            bigram = f"{w1} {w2}"
+                            if len(bigram) >= 7:
+                                phrases.add(bigram)
+                phrases = list(phrases)
 
-            # === CONTENT VERIFICATION RE-SCORING ===
-            # Demote scenes whose high bi-encoder scores come from contextual prefix, not actual content.
-            # Extract keywords from sub-queries and check overlap with scene content.
-            verify_words = set()
-            for sq in sub_queries:
-                for w in _re.findall(r'\b[a-z]+\b', sq.lower()):
-                    if len(w) >= 4 and w not in _SEARCH_STOP_WORDS and w not in char_name_words:
-                        verify_words.add(w)
+                if phrases:
+                    for result in similar_scenes[:50]:
+                        content = content_by_scene_id.get(result['scene_id'], "")
+                        if not content:
+                            continue
+                        total_boost = 0.0
+                        matched = []
+                        for phrase in phrases:
+                            if phrase in content:
+                                total_boost += 0.15
+                                matched.append(phrase)
+                        if matched:
+                            capped = min(total_boost, 0.30)
+                            result['similarity_score'] += capped
+                            result['phrase_boost'] = capped
+                            result['phrase_matches'] = matched
 
-            if verify_words:
-                for result in similar_scenes[:50]:
-                    content = content_by_scene_id.get(result['scene_id'], "")
-                    if not content:
-                        result['content_match'] = 0.0
-                        result['similarity_score'] *= 0.4
-                        continue
-                    matches = sum(1 for w in verify_words if w in content)
-                    ratio = matches / len(verify_words)
-                    result['content_match'] = ratio
-                    result['similarity_score'] *= (0.4 + 0.6 * ratio)
+                    similar_scenes.sort(key=lambda x: x.get('similarity_score', 0), reverse=True)
+                    logger.info(f"[SEMANTIC MULTI-QUERY] Phrase boost applied with phrases: {phrases}")
 
-                similar_scenes.sort(key=lambda x: x.get('similarity_score', 0), reverse=True)
-                logger.info(f"[CONTENT VERIFY] {len(verify_words)} keywords, re-scored top 50. "
-                           f"Top 5: {[(round(r.get('similarity_score', 0), 3), content_by_scene_id.get(r['scene_id'], '')[:30]) for r in similar_scenes[:5]]}")
+                # === CONTENT VERIFICATION RE-SCORING ===
+                verify_words = set()
+                verify_source = "sub-queries"
+                if user_intent:
+                    intent_words = set()
+                    for w in _re.findall(r'\b[a-z]+\b', user_intent.lower()):
+                        if len(w) >= 4 and w not in _SEARCH_STOP_WORDS and w not in char_name_words:
+                            intent_words.add(w)
+                    if len(intent_words) >= 2:
+                        verify_words = intent_words
+                        verify_source = "user_intent"
+                if not verify_words:
+                    for sq in sub_queries:
+                        for w in _re.findall(r'\b[a-z]+\b', sq.lower()):
+                            if len(w) >= 4 and w not in _SEARCH_STOP_WORDS and w not in char_name_words:
+                                verify_words.add(w)
 
-            # No single-query rank merge — the hybrid bi-encoder + keyword pool
-            # with temporal boosting produces better results than mixing with
-            # single-query (which drags in early-story generic matches).
+                if verify_words:
+                    for result in similar_scenes[:50]:
+                        content = content_by_scene_id.get(result['scene_id'], "")
+                        if not content:
+                            result['content_match'] = 0.0
+                            result['similarity_score'] *= 0.4
+                            continue
+                        matches = sum(1 for w in verify_words if w in content)
+                        ratio = matches / len(verify_words)
+                        result['content_match'] = ratio
+                        result['similarity_score'] *= (0.4 + 0.6 * ratio)
+
+                    similar_scenes.sort(key=lambda x: x.get('similarity_score', 0), reverse=True)
+                    logger.info(f"[CONTENT VERIFY] {len(verify_words)} keywords from {verify_source}: {sorted(verify_words)}, "
+                               f"Top 5: {[(round(r.get('similarity_score', 0), 3), round(r.get('content_match', 0), 2), content_by_scene_id.get(r['scene_id'], '')[:30]) for r in similar_scenes[:5]]}")
+
+            # No merge with single-query results. Multi-query runs independently with
+            # content verification to ensure scenes match actual query content. Merging
+            # single-query keyword-boosted scores would bypass content verification and
+            # promote scenes that match common words but not the specific query intent.
 
             # === FILTER + FORMAT ===
             # No chapter affinity boost: multi-query targets cross-chapter retrieval.
             # No age filter: past events ARE the target; min_similarity threshold suffices.
+            # Cross-encoder scores are sigmoid-normalized [0,1] — use stricter threshold
+            # to avoid padding budget with weakly relevant scenes.
+            min_sim = 0.5 if rerank_applied else self.semantic_min_similarity
             filtered_results = []
             for result in similar_scenes:
                 similarity_score = result.get('similarity_score', 0.0)
-                if similarity_score < self.semantic_min_similarity:
+                if result.get('pinned'):
+                    pass  # Pinned scenes bypass threshold
+                elif similarity_score < min_sim:
                     continue
 
                 scene = db.query(Scene).filter(Scene.id == result['scene_id']).first()
@@ -3427,7 +3603,7 @@ Appearance: {char.get('appearance', '')}
 
             if not filtered_results:
                 logger.info("[SEMANTIC MULTI-QUERY] No scenes passed filters")
-                return None
+                return None, 0.0
 
             # === SELECTION ===
             scene_limit = 15
@@ -3461,7 +3637,11 @@ Appearance: {char.get('appearance', '')}
             # right part of the timeline. Uses multiplicative boost so relevant
             # scenes get amplified while irrelevant ones stay low.
             # "earliest" boosts low sequence numbers, "latest" boosts high.
-            if temporal_type in ("earliest", "latest") and filtered_results:
+            # Skip for recall intents — user is asking about specific past events;
+            # position boost would inflate recent scenes over actually relevant ones.
+            if intent_type == "recall" and temporal_type in ("earliest", "latest"):
+                logger.info(f"[TEMPORAL POSITION] Skipping {temporal_type} position boost — recall intent")
+            elif temporal_type in ("earliest", "latest") and filtered_results:
                 seqs = [seq_by_id_sel.get(r['scene_id'], 0) for r in filtered_results]
                 min_seq, max_seq = min(seqs), max(seqs)
                 seq_range = max(1, max_seq - min_seq)
@@ -3486,9 +3666,49 @@ Appearance: {char.get('appearance', '')}
                 logger.info(f"[TEMPORAL POSITION] Applied {temporal_type} boost (×1.0–1.5) to {boosted} scenes. "
                            f"Top 5: {top5}")
 
-            # Select top-N by individual score (no clustering)
+            # Select top-N, guaranteeing pinned scenes (from interaction shortcut) are included
             filtered_results.sort(key=lambda r: r.get('similarity_score', 0), reverse=True)
-            selected = filtered_results[:scene_limit]
+
+            if pinned_scene_sequences:
+                # Partition: pinned scenes first, then fill remaining budget with top-scored
+                pinned = [r for r in filtered_results
+                          if seq_by_id_sel.get(r['scene_id']) in pinned_scene_sequences]
+                # Load any pinned scenes not already in the candidate pool
+                pinned_ids = {r['scene_id'] for r in pinned}
+                existing_seqs = {seq_by_id_sel.get(r['scene_id']) for r in filtered_results}
+                missing_seqs = pinned_scene_sequences - existing_seqs
+                if missing_seqs:
+                    missing_scenes = db.query(Scene).filter(
+                        Scene.story_id == story_id,
+                        Scene.branch_id == branch_id,
+                        Scene.sequence_number.in_(missing_seqs),
+                    ).all()
+                    for ms in missing_scenes:
+                        flow = db.query(StoryFlow).filter(
+                            StoryFlow.scene_id == ms.id,
+                            StoryFlow.is_active == True
+                        ).first()
+                        if flow and flow.scene_variant:
+                            r = {
+                                'scene_id': ms.id,
+                                'variant_id': flow.scene_variant.id,
+                                'sequence': ms.sequence_number,
+                                'chapter_id': ms.chapter_id,
+                                'similarity_score': 1.0,  # Authoritative match
+                                'pinned': True,
+                            }
+                            pinned.append(r)
+                            seq_by_id_sel[ms.id] = ms.sequence_number
+                    logger.info(f"[INTERACTION SHORTCUT] Loaded {len(missing_scenes)} additional pinned scenes from DB")
+
+                non_pinned = [r for r in filtered_results
+                              if r['scene_id'] not in pinned_ids]
+                remaining_budget = max(0, scene_limit - len(pinned))
+                selected = pinned + non_pinned[:remaining_budget]
+                logger.info(f"[INTERACTION SHORTCUT] Selected {len(pinned)} pinned + "
+                           f"{min(remaining_budget, len(non_pinned))} ranked = {len(selected)} total")
+            else:
+                selected = filtered_results[:scene_limit]
 
             # Build final list with Scene objects, sorted chronologically for output
             selected_ids = {r['scene_id'] for r in selected}
@@ -3536,17 +3756,18 @@ Appearance: {char.get('appearance', '')}
                         total_tokens_used += shorter_tokens
 
             if relevant_parts:
+                top_score = max(r.get('similarity_score', 0) for r, _s in filtered_with_scenes)
                 logger.info(f"[SEMANTIC MULTI-QUERY] Formatted {len(relevant_parts)} scenes, "
-                           f"total chars: {sum(len(p) for p in relevant_parts)}")
-                return "\n\n".join(relevant_parts)
+                           f"total chars: {sum(len(p) for p in relevant_parts)}, top_score: {top_score:.3f}")
+                return "\n\n".join(relevant_parts), top_score
 
-            return None
+            return None, 0.0
 
         except Exception as e:
             logger.error(f"[SEMANTIC MULTI-QUERY] Failed: {e}")
             import traceback
             logger.error(traceback.format_exc())
-            return None
+            return None, 0.0
 
     async def _get_character_context(
         self,
