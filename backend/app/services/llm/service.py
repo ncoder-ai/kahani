@@ -204,12 +204,12 @@ class UnifiedLLMService:
             return "CHAPTER DIRECTION (for choices): " + " | ".join(parts)
         return ""
 
-    def _build_cache_friendly_message_prefix(
+    async def _build_cache_friendly_message_prefix(
         self,
         context: Dict[str, Any],
         user_id: int,
         user_settings: Dict[str, Any],
-        db: Optional[Session] = None
+        db: Optional[Session] = None,
     ) -> List[Dict[str, str]]:
         """
         Build the common message prefix for all LLM operations.
@@ -229,6 +229,13 @@ class UnifiedLLMService:
         - All extraction operations
         - Memory operations
         """
+        # Short-circuit: if a saved prompt prefix exists (from original scene gen),
+        # return it directly. This guarantees byte-identical prefix for variant gen.
+        saved_prefix = context.get("_saved_prompt_prefix")
+        if saved_prefix:
+            logger.info(f"[PREFIX] Using saved prompt prefix ({len(saved_prefix)} messages)")
+            return saved_prefix
+
         # 1. Get user settings
         generation_prefs = user_settings.get("generation_preferences", {})
         scene_length = generation_prefs.get("scene_length", "medium")
@@ -270,25 +277,13 @@ class UnifiedLLMService:
         context_messages = self._format_context_as_messages(context, scene_batch_size=scene_batch_size)
         messages.extend(context_messages)
 
-        # 7. Store context snapshot for cache consistency during variant regeneration
-        # This captures all dynamic context fields that can change between scene generation and variant
-        context_snapshot = {}
-
-        if context.get('entity_states_text'):
-            context_snapshot['entity_states_text'] = context['entity_states_text']
-
-        if context.get('story_focus'):
-            context_snapshot['story_focus'] = context['story_focus']
-
-        if context.get('relationship_context'):
-            context_snapshot['relationship_context'] = context['relationship_context']
-
-        if context_snapshot:
-            # Store as JSON string for persistence in Text column
-            import json
-            context['_context_snapshot'] = json.dumps(context_snapshot)
-            # Also keep legacy field for backward compatibility
-            context['_entity_states_snapshot'] = context.get('entity_states_text', '')
+        # Try to improve semantic scenes with query decomposition + RRF.
+        # Internal gates handle skipping: _semantic_improved flag (already ran this cycle),
+        # no user_intent (extraction/summary contexts), no db, no extraction service.
+        await self._maybe_improve_semantic_scenes(messages, context, user_settings, db)
+        # Mark as done regardless of success/failure — scene gen's result is the source of truth.
+        # Prevents choices from re-running improvement with potentially different results.
+        context["_semantic_improved"] = True
 
         return messages
 
@@ -923,7 +918,7 @@ Chapter Conclusion:"""
 
         # === MULTI-MESSAGE STRUCTURE FOR BETTER CACHING ===
         # Use cache-friendly helper for consistent message prefix
-        messages = self._build_cache_friendly_message_prefix(
+        messages = await self._build_cache_friendly_message_prefix(
             context=context,
             user_id=user_id,
             user_settings=user_settings,
@@ -1029,7 +1024,7 @@ Chapter Conclusion:"""
 
         # === MULTI-MESSAGE STRUCTURE FOR BETTER CACHING ===
         # Use cache-friendly helper for consistent message prefix
-        messages = self._build_cache_friendly_message_prefix(
+        messages = await self._build_cache_friendly_message_prefix(
             context=context,
             user_id=user_id,
             user_settings=user_settings,
@@ -1159,7 +1154,7 @@ Chapter Conclusion:"""
         separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
 
         # Build cache-friendly message prefix (SAME as streaming version)
-        messages = self._build_cache_friendly_message_prefix(
+        messages = await self._build_cache_friendly_message_prefix(
             context=context,
             user_id=user_id,
             user_settings=user_settings,
@@ -1234,15 +1229,12 @@ Chapter Conclusion:"""
         separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
 
         # Build cache-friendly message prefix (SAME as streaming version)
-        messages = self._build_cache_friendly_message_prefix(
+        messages = await self._build_cache_friendly_message_prefix(
             context=context,
             user_id=user_id,
             user_settings=user_settings,
             db=db
         )
-
-        # Try to improve semantic scenes with query decomposition + RRF
-        await self._maybe_improve_semantic_scenes(messages, context, user_settings, db)
 
         # Build task message (SAME logic as streaming version)
         task_content = self._build_continuation_task_message(
@@ -1311,7 +1303,7 @@ Chapter Conclusion:"""
         logger.info(f"[CONCLUDING NON-STREAMING] Starting concluding scene generation with cache-friendly structure")
 
         # Build cache-friendly message prefix (SAME as streaming version)
-        messages = self._build_cache_friendly_message_prefix(
+        messages = await self._build_cache_friendly_message_prefix(
             context=context,
             user_id=user_id,
             user_settings=user_settings,
@@ -1382,16 +1374,12 @@ Chapter Conclusion:"""
 
         # === MULTI-MESSAGE STRUCTURE FOR BETTER CACHING ===
         # Use cache-friendly helper for consistent message prefix
-        messages = self._build_cache_friendly_message_prefix(
+        messages = await self._build_cache_friendly_message_prefix(
             context=context,
             user_id=user_id,
             user_settings=user_settings,
             db=None  # No db access in this method
         )
-
-        # Try to improve semantic scenes with query decomposition + RRF
-        # (will gracefully return False when db=None)
-        await self._maybe_improve_semantic_scenes(messages, context, user_settings, db=None)
 
         # Build task instruction using helper (no choices for this method)
         task_content = self._build_scene_task_message(
@@ -1549,43 +1537,54 @@ Chapter Conclusion:"""
         
         client = self.get_user_client(user_id, user_settings)
 
-        # === MULTI-MESSAGE STRUCTURE FOR BETTER CACHING ===
-        # Use helper to build cache-friendly prefix (system + context messages)
-        messages = self._build_cache_friendly_message_prefix(
-            context=context,
-            user_id=user_id,
-            user_settings=user_settings,
-            db=db
-        )
-
-        # Try to improve semantic scenes with query decomposition + RRF
-        await self._maybe_improve_semantic_scenes(messages, context, user_settings, db)
-
-        # Get task instruction and choices reminder from prompts.yml
-        has_immediate = bool(immediate_situation and immediate_situation.strip())
-        tone = context.get('tone', '')
-        task_content = prompt_manager.get_task_instruction(
-            has_immediate=has_immediate,
-            prose_style=prose_style,
-            tone=tone,
-            immediate_situation=immediate_situation or "",
-            scene_length_description=scene_length_description
-        )
-        
-        # Only append choices reminder if separate_choice_generation is NOT enabled
-        # When enabled, choices will be generated in a separate LLM call for higher quality
-        if not separate_choice_generation:
-            chapter_plot_for_choices = self._format_plot_for_choices(context, user_settings)
-            choices_reminder = prompt_manager.get_user_choices_reminder(
-                choices_count=choices_count,
-                chapter_plot_for_choices=chapter_plot_for_choices
-            )
-            if choices_reminder:
-                task_content = task_content + "\n\n" + choices_reminder
+        # Fast path: saved full prompt = simple variant regeneration.
+        # Use the exact prompt from original scene gen — 100% bit-for-bit identical.
+        saved_full_prompt = context.get("_saved_full_prompt")
+        if saved_full_prompt:
+            messages = saved_full_prompt
+            logger.info(f"[SCENE GEN STREAMING] Using saved full prompt ({len(messages)} messages)")
         else:
-            logger.info(f"[SCENE WITH CHOICES STREAMING] Separate choice generation enabled - skipping choices reminder in task")
+            # === MULTI-MESSAGE STRUCTURE FOR BETTER CACHING ===
+            # Use helper to build cache-friendly prefix (system + context messages)
+            messages = await self._build_cache_friendly_message_prefix(
+                context=context,
+                user_id=user_id,
+                user_settings=user_settings,
+                db=db
+            )
 
-        messages.append({"role": "user", "content": task_content})
+            # Get task instruction and choices reminder from prompts.yml
+            has_immediate = bool(immediate_situation and immediate_situation.strip())
+            tone = context.get('tone', '')
+            task_content = prompt_manager.get_task_instruction(
+                has_immediate=has_immediate,
+                prose_style=prose_style,
+                tone=tone,
+                immediate_situation=immediate_situation or "",
+                scene_length_description=scene_length_description
+            )
+
+            # Only append choices reminder if separate_choice_generation is NOT enabled
+            # When enabled, choices will be generated in a separate LLM call for higher quality
+            if not separate_choice_generation:
+                chapter_plot_for_choices = self._format_plot_for_choices(context, user_settings)
+                choices_reminder = prompt_manager.get_user_choices_reminder(
+                    choices_count=choices_count,
+                    chapter_plot_for_choices=chapter_plot_for_choices
+                )
+                if choices_reminder:
+                    task_content = task_content + "\n\n" + choices_reminder
+            else:
+                logger.info(f"[SCENE WITH CHOICES STREAMING] Separate choice generation enabled - skipping choices reminder in task")
+
+            messages.append({"role": "user", "content": task_content})
+
+            # Save full prompt snapshot for variant regeneration (prefix + task message).
+            # Simple variant: uses this as-is (100% identical prompt).
+            # Everything else: strips last message, uses as prefix, appends own task.
+            context['_prompt_prefix_snapshot'] = json.dumps({"v": 2, "messages": messages})
+            # Also save prefix for same-request reuse (choices generation after scene gen)
+            context['_saved_prompt_prefix'] = list(messages[:-1])
 
         logger.info(f"[SCENE WITH CHOICES STREAMING] Using multi-message structure: {len(messages)} messages")
 
@@ -1593,7 +1592,6 @@ Chapter Conclusion:"""
         from ...config import settings
         if settings.prompt_debug:
             try:
-                import json
                 import time
                 # Use timestamp to prevent overwriting - scene vs variant comparison
                 ts = int(time.time() * 1000)
@@ -1832,7 +1830,7 @@ Chapter Conclusion:"""
             pov_instruction = "in third person (he/she/they/character names)"
         
         # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
-        messages = self._build_cache_friendly_message_prefix(
+        messages = await self._build_cache_friendly_message_prefix(
             context=context,
             user_id=user_id,
             user_settings=user_settings,
@@ -2061,15 +2059,12 @@ Chapter Conclusion:"""
         scene_length_description = scene_length_map.get(scene_length, "medium (100-150 words)")
         
         # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
-        messages = self._build_cache_friendly_message_prefix(
+        messages = await self._build_cache_friendly_message_prefix(
             context=context,
             user_id=user_id,
             user_settings=user_settings,
             db=db
         )
-
-        # Try to improve semantic scenes with query decomposition + RRF
-        await self._maybe_improve_semantic_scenes(messages, context, user_settings, db)
 
         # === ONLY THIS FINAL MESSAGE IS DIFFERENT ===
         # Instead of new scene + choice request, we send current scene + continuation instruction
@@ -2268,7 +2263,7 @@ Write approximately {scene_length_description} in length.
         
         # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
         # This ensures cache hits with scene generation and choice generation
-        messages = self._build_cache_friendly_message_prefix(
+        messages = await self._build_cache_friendly_message_prefix(
             context=context,
             user_id=user_id,
             user_settings=user_settings,
@@ -2547,11 +2542,11 @@ Chapter Conclusion:"""
         scene_length_description = scene_length_map.get(scene_length, "medium (100-150 words)")
         
         # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
-        messages = self._build_cache_friendly_message_prefix(
+        messages = await self._build_cache_friendly_message_prefix(
             context=context,
             user_id=user_id,
             user_settings=user_settings,
-            db=db
+            db=db,
         )
 
         # === ONLY THIS FINAL MESSAGE IS DIFFERENT ===
@@ -2666,11 +2661,11 @@ Chapter Conclusion:"""
             return []
 
         # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
-        messages = self._build_cache_friendly_message_prefix(
+        messages = await self._build_cache_friendly_message_prefix(
             context=context,
             user_id=user_id,
             user_settings=user_settings,
-            db=db
+            db=db,
         )
 
         # === FINAL USER MESSAGE: SCENE + EXTRACTION INSTRUCTION ===
@@ -2820,11 +2815,11 @@ Chapter Conclusion:"""
             Raw JSON string response from LLM
         """
         # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
-        messages = self._build_cache_friendly_message_prefix(
+        messages = await self._build_cache_friendly_message_prefix(
             context=context,
             user_id=user_id,
             user_settings=user_settings,
-            db=db
+            db=db,
         )
 
         # === FINAL USER MESSAGE: SCENE + COMBINED EXTRACTION INSTRUCTION ===
@@ -2934,11 +2929,11 @@ Chapter Conclusion:"""
             Raw JSON string response from LLM
         """
         # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
-        messages = self._build_cache_friendly_message_prefix(
+        messages = await self._build_cache_friendly_message_prefix(
             context=context,
             user_id=user_id,
             user_settings=user_settings,
-            db=db
+            db=db,
         )
 
         # === FINAL USER MESSAGE: BATCH EXTRACTION INSTRUCTION ===
@@ -3014,7 +3009,7 @@ Chapter Conclusion:"""
             logger.error(f"[BATCH_EXTRACTION] Extraction failed: {e}")
             raise
 
-    async def extract_moments_and_npcs_cache_friendly(
+    async def extract_events_and_npcs_cache_friendly(
         self,
         scene_content: str,
         character_names: List[str],
@@ -3026,50 +3021,33 @@ Chapter Conclusion:"""
         max_tokens: int = 2000
     ) -> str:
         """
-        Lean extraction for character moments and NPCs only.
-        Uses cache-friendly multi-message structure.
-
-        This is used when:
-        - Entity states are handled by inline entity extraction
-        - Plot events are handled by separate plot extraction
-
-        Args:
-            scene_content: The generated scene text to analyze
-            character_names: List of explicit character names
-            explicit_character_names: List of explicit character names (for NPC exclusion)
-            context: The same context dict used for scene generation
-            user_id: User ID for LLM call
-            user_settings: User settings for LLM call
-            db: Database session for preset lookups
-            max_tokens: Maximum tokens for response
+        Extract scene events and NPCs in a single cache-friendly LLM call.
+        Replaces the old moments+NPCs extraction.
 
         Returns:
-            Raw JSON string response from LLM with character_moments and npcs
+            Raw JSON string with {"events": [...], "npcs": [...]}
         """
-        # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
-        messages = self._build_cache_friendly_message_prefix(
+        messages = await self._build_cache_friendly_message_prefix(
             context=context,
             user_id=user_id,
             user_settings=user_settings,
-            db=db
+            db=db,
         )
 
-        # === FINAL USER MESSAGE: LEAN EXTRACTION INSTRUCTION ===
         cleaned_scene = self._clean_scene_numbers(scene_content)
         character_names_str = ", ".join(character_names) if character_names else "None"
         explicit_names_str = ", ".join(explicit_character_names) if explicit_character_names else "None"
 
         final_message = prompt_manager.get_prompt(
-            "moments_and_npcs", "user",
+            "events_and_npcs", "user",
             scene_content=cleaned_scene,
             character_names=character_names_str,
             explicit_names=explicit_names_str
         )
         messages.append({"role": "user", "content": final_message})
 
-        logger.info(f"[MOMENTS_NPCS] Cache-friendly structure: {len(messages)} messages")
+        logger.info(f"[EVENTS_NPCS] Cache-friendly structure: {len(messages)} messages")
 
-        # === ROUTE TO APPROPRIATE LLM ===
         ext_settings = user_settings.get('extraction_model_settings', {})
         use_extraction_model = ext_settings.get('enabled', False)
 
@@ -3077,7 +3055,7 @@ Chapter Conclusion:"""
             if use_extraction_model:
                 extraction_service = self._get_extraction_service(user_settings)
                 if extraction_service:
-                    logger.info("[MOMENTS_NPCS] Using extraction LLM with cache-friendly structure")
+                    logger.info("[EVENTS_NPCS] Using extraction LLM")
                     return await extraction_service.generate_with_messages(
                         messages=messages,
                         max_tokens=max_tokens
@@ -3086,7 +3064,7 @@ Chapter Conclusion:"""
                     use_extraction_model = False
 
             if not use_extraction_model:
-                logger.info("[MOMENTS_NPCS] Using main LLM with cache-friendly structure")
+                logger.info("[EVENTS_NPCS] Using main LLM")
                 import copy
                 extraction_settings = copy.deepcopy(user_settings)
                 extraction_settings.setdefault('llm_settings', {})['temperature'] = 0.3
@@ -3100,7 +3078,74 @@ Chapter Conclusion:"""
                 )
 
         except Exception as e:
-            logger.error(f"[MOMENTS_NPCS] Extraction failed: {e}")
+            logger.error(f"[EVENTS_NPCS] Extraction failed: {e}")
+            raise
+
+    async def extract_scene_events_cache_friendly(
+        self,
+        scene_content: str,
+        character_names: List[str],
+        context: Dict[str, Any],
+        user_id: int,
+        user_settings: Dict[str, Any],
+        db: Optional[Session] = None,
+        max_tokens: int = 1500
+    ) -> str:
+        """
+        Extract scene events only (no NPCs) via cache-friendly call.
+        Used as fallback when combined extraction fails.
+
+        Returns:
+            Raw JSON string with {"events": [...]}
+        """
+        messages = await self._build_cache_friendly_message_prefix(
+            context=context,
+            user_id=user_id,
+            user_settings=user_settings,
+            db=db,
+        )
+
+        cleaned_scene = self._clean_scene_numbers(scene_content)
+        character_names_str = ", ".join(character_names) if character_names else "None"
+
+        final_message = prompt_manager.get_prompt(
+            "scene_event_extraction.cache_friendly", "user",
+            scene_content=cleaned_scene,
+            character_names=character_names_str
+        )
+        messages.append({"role": "user", "content": final_message})
+
+        logger.info(f"[SCENE_EVENTS] Cache-friendly structure: {len(messages)} messages")
+
+        ext_settings = user_settings.get('extraction_model_settings', {})
+        use_extraction_model = ext_settings.get('enabled', False)
+
+        try:
+            if use_extraction_model:
+                extraction_service = self._get_extraction_service(user_settings)
+                if extraction_service:
+                    return await extraction_service.generate_with_messages(
+                        messages=messages,
+                        max_tokens=max_tokens
+                    )
+                else:
+                    use_extraction_model = False
+
+            if not use_extraction_model:
+                import copy
+                extraction_settings = copy.deepcopy(user_settings)
+                extraction_settings.setdefault('llm_settings', {})['temperature'] = 0.3
+                extraction_settings['llm_settings']['reasoning_effort'] = 'disabled'
+
+                return await self._generate_with_messages(
+                    messages=messages,
+                    user_id=user_id,
+                    user_settings=extraction_settings,
+                    max_tokens=max_tokens
+                )
+
+        except Exception as e:
+            logger.error(f"[SCENE_EVENTS] Extraction failed: {e}")
             raise
 
     async def generate_chapter_summary_cache_friendly(
@@ -3137,11 +3182,11 @@ Chapter Conclusion:"""
             Summary text
         """
         # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
-        messages = self._build_cache_friendly_message_prefix(
+        messages = await self._build_cache_friendly_message_prefix(
             context=context,
             user_id=user_id,
             user_settings=user_settings,
-            db=db
+            db=db,
         )
 
         # === FINAL USER MESSAGE: SUMMARIZATION INSTRUCTION ===
@@ -3221,11 +3266,11 @@ Chapter Conclusion:"""
             Raw JSON string with entity states only
         """
         # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
-        messages = self._build_cache_friendly_message_prefix(
+        messages = await self._build_cache_friendly_message_prefix(
             context=context,
             user_id=user_id,
             user_settings=user_settings,
-            db=db
+            db=db,
         )
 
         # === FINAL USER MESSAGE: SCENE + ENTITY-ONLY EXTRACTION ===
@@ -3324,11 +3369,11 @@ Chapter Conclusion:"""
             Dict with recent_focus and character_spotlight, or None on failure
         """
         # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
-        messages = self._build_cache_friendly_message_prefix(
+        messages = await self._build_cache_friendly_message_prefix(
             context=context,
             user_id=user_id,
             user_settings=user_settings,
-            db=db
+            db=db,
         )
 
         # === FINAL USER MESSAGE: SCENE + WORKING MEMORY INSTRUCTION ===
@@ -3446,11 +3491,11 @@ Chapter Conclusion:"""
             List of relationship dicts, or empty list on failure
         """
         # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
-        messages = self._build_cache_friendly_message_prefix(
+        messages = await self._build_cache_friendly_message_prefix(
             context=context,
             user_id=user_id,
             user_settings=user_settings,
-            db=db
+            db=db,
         )
 
         # === FINAL USER MESSAGE: SCENE + RELATIONSHIP INSTRUCTION ===
@@ -3558,11 +3603,11 @@ Chapter Conclusion:"""
         Returns:
             Dict with 'location' (specific room/area) and 'summary' (2-3 sentences), or None on failure
         """
-        messages = self._build_cache_friendly_message_prefix(
+        messages = await self._build_cache_friendly_message_prefix(
             context=context,
             user_id=user_id,
             user_settings=user_settings,
-            db=db
+            db=db,
         )
 
         cleaned_scene = self._clean_scene_numbers(scene_content)
@@ -3659,11 +3704,11 @@ Chapter Conclusion:"""
             List of NPC dicts, or empty list on failure
         """
         # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
-        messages = self._build_cache_friendly_message_prefix(
+        messages = await self._build_cache_friendly_message_prefix(
             context=context,
             user_id=user_id,
             user_settings=user_settings,
-            db=db
+            db=db,
         )
 
         cleaned_scene = self._clean_scene_numbers(scene_content)
@@ -3757,11 +3802,11 @@ Chapter Conclusion:"""
             List of character moment dicts, or empty list on failure
         """
         # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
-        messages = self._build_cache_friendly_message_prefix(
+        messages = await self._build_cache_friendly_message_prefix(
             context=context,
             user_id=user_id,
             user_settings=user_settings,
-            db=db
+            db=db,
         )
 
         cleaned_scene = self._clean_scene_numbers(scene_content)
@@ -3858,11 +3903,11 @@ Chapter Conclusion:"""
             List of plot event dicts, or empty list on failure
         """
         # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
-        messages = self._build_cache_friendly_message_prefix(
+        messages = await self._build_cache_friendly_message_prefix(
             context=context,
             user_id=user_id,
             user_settings=user_settings,
-            db=db
+            db=db,
         )
 
         cleaned_scene = self._clean_scene_numbers(scene_content)
@@ -4119,6 +4164,12 @@ Chapter Conclusion:"""
             True if messages were updated with improved results, False otherwise
         """
         try:
+            # Skip if already improved in this request cycle (e.g., scene gen already ran,
+            # now choices/variant gen is calling — context already has improved text)
+            if context.get("_semantic_improved"):
+                logger.info("[SEMANTIC DECOMPOSE] Skipped: already improved in this request cycle")
+                return True
+
             # Get user_intent
             search_state = context.get("_semantic_search_state")
             user_intent = None
@@ -4222,25 +4273,40 @@ Chapter Conclusion:"""
                 "{\"intent\": \"direct\", \"temporal\": \"any\", \"queries\": [\"A in a red jacket\", \"at the rooftop garden\"]}\n\n"
                 "EXAMPLE 2 (recall, earliest):\n"
                 "A blushes and starts telling B about the first time C touched her\n"
-                "{\"intent\": \"recall\", \"temporal\": \"earliest\", \"queries\": [\"C first touched A\", \"C initial physical contact with A\"]}\n"
+                "{\"intent\": \"recall\", \"temporal\": \"earliest\", "
+                "\"queries\": [\"C first touched A\", \"C initial physical contact with A\"], "
+                "\"keywords\": [\"touched\", \"touch\", \"groped\", \"hands on\", \"physical contact\"]}\n"
                 "DROPPED: \"A blushes\", \"telling B\" — these describe the CURRENT scene, not the PAST events\n\n"
                 "EXAMPLE 3 (recall, any):\n"
                 "A asks B about the bruise marks on her body and when C had left them\n"
-                "{\"intent\": \"recall\", \"temporal\": \"any\", \"queries\": [\"bruise marks on B body\", \"C caused bruise marks on B\"]}\n"
+                "{\"intent\": \"recall\", \"temporal\": \"any\", "
+                "\"queries\": [\"bruise marks on B body\", \"C caused bruise marks on B\"], "
+                "\"keywords\": [\"bruise\", \"marks\", \"bruises\", \"wounds\", \"injuries\", \"left marks\"]}\n"
                 "This is recall (asking about past events), NOT react. Temporal is any because A is asking WHEN.\n\n"
                 "EXAMPLE 4 (recall, earliest):\n"
                 "A then describes the time when C had licked her pussy\n"
-                "{\"intent\": \"recall\", \"temporal\": \"earliest\", \"queries\": [\"C licked A pussy\", \"C tongue between A legs\", \"C oral A\"]}\n"
-                "Query 1 keeps EXACT words. Query 2 uses story-vocabulary variant. Query 3 adds clinical term for coverage.\n"
+                "{\"intent\": \"recall\", \"temporal\": \"earliest\", "
+                "\"queries\": [\"C licked A pussy\", \"C tongue between A legs\", \"C oral A\"], "
+                "\"keywords\": [\"licked\", \"pussy\", \"oral\", \"tongue\", \"between legs\", \"cunnilingus\"]}\n"
+                "Query 1 keeps EXACT words. Query 2 uses story-vocabulary variant. Query 3 adds clinical term.\n"
+                "keywords: user's exact action words + 2-3 synonyms for text search.\n"
                 "WRONG: [\"C intimate with A\", \"C first sexual encounter with A\"] — too generic, matches every scene.\n\n"
                 "EXAMPLE 5 (react, latest):\n"
                 "A walks into the room and finds B with marks all over — storms out in fury\n"
                 "{\"intent\": \"react\", \"temporal\": \"latest\", \"queries\": [\"marks on B body\", \"who hurt B recently\"]}\n"
-                "This is react because A is DISCOVERING the marks RIGHT NOW\n\n"
+                "This is react because A is DISCOVERING the marks RIGHT NOW. No keywords for react/direct.\n\n"
+                "EXAMPLE 6 (recall, any):\n"
+                "A asks B about the blowjob she gave C on camera\n"
+                "{\"intent\": \"recall\", \"temporal\": \"any\", "
+                "\"queries\": [\"B blowjob C on camera\", \"B oral C\", \"camera recording\"], "
+                "\"keywords\": [\"blowjob\", \"oral sex\", \"oral\", \"sucked\", \"mouth on\", \"deep throat\", \"camera\"]}\n\n"
                 "For recall: queries must target the PAST EVENTS being referenced, not the current scene.\n"
                 "DROP: emotions, the act of telling/remembering, vague phrases.\n"
                 "KEEP: specific verbs and nouns from the user's text, time anchors.\n\n"
-                "Return ONLY JSON: {\"intent\": \"...\", \"temporal\": \"earliest|latest|any\", \"queries\": [\"...\"]}\n\n"
+                "RECALL KEYWORDS (required for recall intent, omit for direct/react):\n"
+                "The 'keywords' array contains the user's EXACT action words + 2-3 synonyms per action.\n"
+                "These are used for substring text search — include words that might appear in event descriptions.\n\n"
+                "Return ONLY JSON: {\"intent\": \"...\", \"temporal\": \"...\", \"queries\": [...], \"keywords\": [...]}\n\n"
                 f"Text to decompose:\n{user_intent}"
             )
             decompose_messages = [{"role": "user", "content": char_context + decompose_task}]
@@ -4248,7 +4314,7 @@ Chapter Conclusion:"""
             # Call extraction LLM
             response = await extraction_service.generate_with_messages(
                 messages=decompose_messages,
-                max_tokens=200
+                max_tokens=300
             )
 
             if not response or not response.strip():
@@ -4261,10 +4327,27 @@ Chapter Conclusion:"""
                 logger.info(f"[SEMANTIC DECOMPOSE] No sub-queries parsed, skipping")
                 return False
 
-            intent_type, temporal_type, sub_queries = parsed
+            intent_type, temporal_type, sub_queries, keywords = parsed
+
+            # Fallback: if recall intent but LLM didn't return keywords,
+            # extract action words from sub-queries as basic keywords.
+            # No synonym expansion, but at least the original terms are used.
+            if intent_type == "recall" and not keywords:
+                _stop = {"the", "a", "an", "on", "in", "of", "to", "by", "with", "and", "or",
+                         "is", "was", "her", "his", "him", "she", "he", "not", "had", "has",
+                         "did", "does", "that", "this", "from", "for", "about", "over", "into"}
+                for sq in sub_queries:
+                    for w in sq.lower().split():
+                        if len(w) >= 4 and w not in _stop:
+                            keywords.append(w)
+                if keywords:
+                    keywords = list(dict.fromkeys(keywords))  # deduplicate preserving order
+                    logger.info(f"[SEMANTIC DECOMPOSE] Generated fallback keywords from sub-queries: {keywords}")
+
             logger.info(f"[SEMANTIC DECOMPOSE] Intent: {intent_type or 'direct (default)'}, "
                        f"Temporal: {temporal_type or 'any (default)'}, "
-                       f"Sub-queries: {sub_queries}")
+                       f"Sub-queries: {sub_queries}"
+                       + (f", Keywords: {keywords}" if keywords else ""))
 
             # Run multi-query search via context_manager
             improved_text, mq_top_score = await ctx_mgr.search_and_format_multi_query(
@@ -4273,7 +4356,8 @@ Chapter Conclusion:"""
                 db=db,
                 intent_type=intent_type,
                 temporal_type=temporal_type,
-                user_intent=user_intent
+                user_intent=user_intent,
+                keywords=keywords
             )
 
             if not improved_text:
@@ -4319,6 +4403,11 @@ Chapter Conclusion:"""
                 else:
                     messages.append(new_msg)
 
+            # Update context so subsequent calls (choices, variant) in the same request
+            # cycle use the improved text — this is critical for TabbyAPI prefix cache hits.
+            context["semantic_scenes_text"] = improved_text
+            context["_semantic_improved"] = True
+
             logger.info(f"[SEMANTIC DECOMPOSE] Successfully improved semantic scenes with "
                        f"{len(sub_queries)} sub-queries (replaced={replaced}, top_score={mq_top_score:.3f})")
             return True
@@ -4342,7 +4431,7 @@ Chapter Conclusion:"""
             or None if parsing fails entirely.
         """
         def _extract_fields(result: dict) -> Optional[tuple]:
-            """Extract intent, temporal, queries from a parsed dict."""
+            """Extract intent, temporal, queries, keywords from a parsed dict."""
             queries = result.get("queries")
             if not isinstance(queries, list) or not all(isinstance(s, str) for s in queries):
                 return None
@@ -4351,7 +4440,10 @@ Chapter Conclusion:"""
             temporal = result.get("temporal", "").lower().strip()
             temporal = temporal if temporal in self._VALID_TEMPORALS else None
             parsed = [s.strip() for s in queries[:6] if s.strip()]
-            return (intent, temporal, parsed) if parsed else None
+            # Extract LLM-provided keywords (synonym expansions for recall queries)
+            kw_raw = result.get("keywords", [])
+            keywords = [k.strip().lower() for k in kw_raw if isinstance(k, str) and k.strip()] if isinstance(kw_raw, list) else []
+            return (intent, temporal, parsed, keywords) if parsed else None
 
         try:
             # Strip markdown fences if present
@@ -4375,7 +4467,7 @@ Chapter Conclusion:"""
             # Fallback: plain array (legacy or model ignoring new format)
             if isinstance(result, list) and all(isinstance(s, str) for s in result):
                 parsed = [s.strip() for s in result[:6] if s.strip()]
-                return (None, None, parsed) if parsed else None
+                return (None, None, parsed, []) if parsed else None
 
             # Try extracting JSON object or array from response
             obj_match = re.search(r'\{.*\}', cleaned, re.DOTALL)
@@ -4389,7 +4481,7 @@ Chapter Conclusion:"""
                 result = json.loads(arr_match.group())
                 if isinstance(result, list) and all(isinstance(s, str) for s in result):
                     parsed = [s.strip() for s in result[:6] if s.strip()]
-                    return (None, None, parsed) if parsed else None
+                    return (None, None, parsed, []) if parsed else None
 
         except (json.JSONDecodeError, Exception) as e:
             logger.debug(f"[SEMANTIC DECOMPOSE] JSON parse failed: {e}, response: {response[:200]}")
@@ -4657,14 +4749,9 @@ Chapter Conclusion:"""
                 "content": "=== CHARACTER INTERACTION HISTORY ===\n(Factual record of what has occurred between characters)\n\n" + interaction_history_match.group(1).strip()
             })
 
-        # --- C. CHARACTER STATES (entity states, locations, objects) - SNAPSHOTTED ---
-        # Placed early because it's snapshotted for variant regeneration (stable)
-        entity_states_text = context.get("entity_states_text")
-        if entity_states_text:
-            messages.append({
-                "role": "user",
-                "content": f"=== CHARACTER STATES ===\n{entity_states_text}"
-            })
+        # --- C. CHARACTER STATES — REMOVED ---
+        # Entity states extraction quality was too poor to provide value.
+        # Token budget freed up for semantic search results.
 
         # --- D. CHARACTER RELATIONSHIPS (snapshotted, stable between consecutive scenes) ---
         # Moved BEFORE RECENT SCENES for cache optimization - identical between scenes
@@ -4705,27 +4792,9 @@ Chapter Conclusion:"""
                 "content": f"=== CHARACTER RELATIONSHIPS ===\n{rel_text}"
             })
 
-        # --- E. STORY FOCUS (working memory + active threads) - stable between consecutive scenes ---
-        # Moved BEFORE RECENT SCENES for cache optimization
-        story_focus = context.get("story_focus")
-        if story_focus:
-            focus_parts = []
-
-            if story_focus.get("active_threads"):
-                focus_parts.append(f"Unresolved threads: {'; '.join(story_focus['active_threads'][:3])}")
-            if story_focus.get("recent_focus"):
-                focus_parts.append(f"Recent focus: {', '.join(story_focus['recent_focus'][:2])}")
-            if story_focus.get("character_spotlight"):
-                # Sort by key for deterministic ordering (cache stability)
-                sorted_spotlight = sorted(story_focus['character_spotlight'].items(), key=lambda x: x[0])
-                spotlight = [f"{k} ({v})" for k, v in sorted_spotlight[:2]]
-                focus_parts.append(f"Character attention: {', '.join(spotlight)}")
-
-            if focus_parts:
-                messages.append({
-                    "role": "user",
-                    "content": "=== STORY FOCUS ===\n" + "\n".join(focus_parts)
-                })
+        # --- E. STORY FOCUS — REMOVED ---
+        # Plot events extraction (which fed active_threads) cut. Minimal ROI.
+        # Working memory contradictions still available via CONTINUITY WARNINGS.
 
         # --- F. CONTINUITY WARNINGS (stable between consecutive scenes) ---
         # Moved BEFORE RECENT SCENES for cache optimization

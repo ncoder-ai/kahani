@@ -457,7 +457,6 @@ async def create_scene_variant_streaming(
             
             # Use specified variant_id if provided, otherwise use active variant
             if request.variant_id:
-                from ..models import SceneVariant
                 original_variant = db.query(SceneVariant).filter(
                     SceneVariant.id == request.variant_id,
                     SceneVariant.scene_id == scene_id
@@ -478,7 +477,19 @@ async def create_scene_variant_streaming(
             
             original_scene_content = original_variant.content
             logger.info(f"Original variant content length: {len(original_scene_content)} chars")
-            
+
+            # Load saved prompt snapshot from original variant for cache consistency.
+            # Load saved prompt snapshot: {"v": 2, "messages": [...]} (full prompt)
+            snapshot_messages = None
+            if original_variant.context_snapshot:
+                try:
+                    raw = json.loads(original_variant.context_snapshot)
+                    if isinstance(raw, dict) and raw.get("v") == 2:
+                        snapshot_messages = raw["messages"]
+                        logger.info(f"[VARIANT] Loaded prompt snapshot ({len(snapshot_messages)} messages)")
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
             # Send initial metadata
             yield f"data: {json.dumps({'type': 'start', 'scene_id': scene_id})}\n\n"
 
@@ -515,7 +526,9 @@ async def create_scene_variant_streaming(
                     exclude_scene_id=scene_id, chapter_id=chapter_id, branch_id=branch_id,
                     use_entity_states_snapshot=True  # Use saved entity states for cache consistency
                 )
-                
+                if snapshot_messages:
+                    context["_saved_prompt_prefix"] = snapshot_messages[:-1]
+
                 # Get current max variant number
                 from sqlalchemy import desc
                 max_variant = db.query(SceneVariant.variant_number)\
@@ -663,7 +676,9 @@ async def create_scene_variant_streaming(
                     exclude_scene_id=scene_id, chapter_id=chapter_id, branch_id=branch_id,
                     use_entity_states_snapshot=True  # Use saved entity states for cache consistency
                 )
-                
+                if snapshot_messages:
+                    context["_saved_prompt_prefix"] = snapshot_messages[:-1]
+
                 # Get chapter info for the concluding prompt
                 chapter_info = {
                     "chapter_number": active_chapter.chapter_number if active_chapter else 1,
@@ -697,7 +712,9 @@ async def create_scene_variant_streaming(
                     exclude_scene_id=scene_id, chapter_id=chapter_id, branch_id=branch_id,
                     use_entity_states_snapshot=True  # Use saved entity states for cache consistency
                 )
-                
+                if snapshot_messages:
+                    context["_saved_prompt_prefix"] = snapshot_messages[:-1]
+
                 # Use guided enhancement function
                 async for chunk, scene_complete, choices in llm_service.generate_variant_with_choices_streaming(
                     original_scene_content,
@@ -734,7 +751,9 @@ async def create_scene_variant_streaming(
                     exclude_scene_id=scene_id, chapter_id=chapter_id, branch_id=branch_id,
                     use_entity_states_snapshot=True  # Use saved entity states for cache consistency
                 )
-                
+                if snapshot_messages:
+                    context["_saved_full_prompt"] = snapshot_messages  # 100% identical prompt
+
                 # Use the SAME function as new scene generation
                 async for chunk, scene_complete, choices in llm_service.generate_scene_with_choices_streaming(
                     context,
@@ -753,7 +772,6 @@ async def create_scene_variant_streaming(
                         break
 
             # Create the new variant manually since we already have the content
-            from ..models import SceneVariant
             from sqlalchemy import desc
             
             # Get the next variant number
@@ -795,12 +813,12 @@ async def create_scene_variant_streaming(
             # Clean the final assembled variant content comprehensively (chunk cleaning may miss patterns)
             cleaned_variant_content = llm_service._clean_scene_content(variant_content.rstrip())
 
-            # Get snapshots from context (populated by _build_cache_friendly_message_prefix)
-            # These store the context used during generation for future cache consistency
+            # Get snapshots from context (populated during prompt building)
+            # _prompt_prefix_snapshot: v2 JSON string {"v": 2, "messages": [...]} for cache consistency
             entity_states_snapshot = context.get('_entity_states_snapshot') if isinstance(context, dict) else None
-            context_snapshot = context.get('_context_snapshot') if isinstance(context, dict) else None
+            context_snapshot = context.get('_prompt_prefix_snapshot') if isinstance(context, dict) else None
 
-            # If no context_snapshot in current context, copy from original variant
+            # If no snapshot in current context, copy from original variant
             # This ensures cache consistency when regenerating from the new variant
             if not context_snapshot and variant_to_regenerate_from:
                 context_snapshot = variant_to_regenerate_from.context_snapshot
@@ -1123,24 +1141,37 @@ async def continue_scene(
         # Get the current active variant content
         service = SceneVariantService(db)
         current_variant = service.get_active_variant(scene_id)
-        
+
         if not current_variant:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="No active scene variant found"
             )
-        
+
+        # Load saved prompt snapshot: {"v": 2, "messages": [...]}
+        snapshot_messages = None
+        if current_variant.context_snapshot:
+            try:
+                raw = json.loads(current_variant.context_snapshot)
+                if isinstance(raw, dict) and raw.get("v") == 2:
+                    snapshot_messages = raw["messages"]
+                    logger.info(f"[CONTINUE] Loaded prompt snapshot ({len(snapshot_messages)} messages)")
+            except (json.JSONDecodeError, TypeError):
+                pass
+
         # Build context for continuation - ContextManager produces structured format
         # needed for multi-message LLM caching (uses hybrid strategy if enabled)
         context_manager = get_context_manager_for_user(user_settings, current_user.id)
-        
+
         # Get custom_prompt from the request model
         custom_prompt = request.custom_prompt
-            
+
         context = await context_manager.build_scene_continuation_context(
             story_id, scene_id, current_variant.content, db, custom_prompt,
             branch_id=story.current_branch_id  # Pass branch_id for branch-aware context
         )
+        if snapshot_messages:
+            context["_saved_prompt_prefix"] = snapshot_messages[:-1]
 
         # Generate continuation content with inline choices using unified cache-friendly method
         continuation_content, parsed_choices = await llm_service.generate_continuation_with_choices(
@@ -1272,6 +1303,17 @@ async def continue_scene_streaming(
             # Thinking/reasoning handler
             thinking_handler = ThinkingStreamHandler()
 
+            # Load saved prompt snapshot: {"v": 2, "messages": [...]}
+            snapshot_messages = None
+            if current_variant.context_snapshot:
+                try:
+                    raw = json.loads(current_variant.context_snapshot)
+                    if isinstance(raw, dict) and raw.get("v") == 2:
+                        snapshot_messages = raw["messages"]
+                        logger.info(f"[CONTINUE] Loaded prompt snapshot ({len(snapshot_messages)} messages)")
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
             # Build context for continuation - ContextManager produces structured format
             # needed for multi-message LLM caching (uses hybrid strategy if enabled)
             context_manager = get_context_manager_for_user(user_settings, current_user.id)
@@ -1283,6 +1325,8 @@ async def continue_scene_streaming(
                 story_id, scene_id, current_variant.content, db, custom_prompt,
                 branch_id=story.current_branch_id  # Pass branch_id for branch-aware context
             )
+            if snapshot_messages:
+                context["_saved_prompt_prefix"] = snapshot_messages[:-1]
 
             # Stream continuation generation with combined choices
             continuation_content = ""
@@ -1619,12 +1663,25 @@ async def regenerate_scene_variant_choices(
         ).first()
         chapter_id = active_chapter.id if active_chapter else None
         
+        # Load saved prompt snapshot: {"v": 2, "messages": [...]}
+        snapshot_messages = None
+        if variant.context_snapshot:
+            try:
+                raw = json.loads(variant.context_snapshot)
+                if isinstance(raw, dict) and raw.get("v") == 2:
+                    snapshot_messages = raw["messages"]
+                    logger.info(f"[REGENERATE_CHOICES] Loaded prompt snapshot ({len(snapshot_messages)} messages)")
+            except (json.JSONDecodeError, TypeError):
+                pass
+
         # Build context excluding the current scene (same as generate_more_choices)
         choice_context = await context_manager.build_scene_generation_context(
             story_id, db, chapter_id=chapter_id, exclude_scene_id=scene_id,
             use_entity_states_snapshot=True  # Use saved entity states for cache consistency
         )
-        
+        if snapshot_messages:
+            choice_context["_saved_prompt_prefix"] = snapshot_messages[:-1]
+
         # Generate new choices using the same fallback logic
         generated_choices = await llm_service.generate_choices(
             variant.content, 
